@@ -59,6 +59,10 @@ router.get('/google/callback', async (req: Request, res: Response) => {
 
     const { sub: googleId, email, name, picture } = payload;
 
+    if (!googleId || !email || !name) {
+      return res.redirect(`${process.env.FRONTEND_URL}/?error=invalid_google_data`);
+    }
+
     // Find or create user
     let user = await User.findOne({ googleId });
 
@@ -72,8 +76,8 @@ router.get('/google/callback', async (req: Request, res: Response) => {
       });
     } else {
       user.lastLogin = new Date();
-      user.picture = picture;
-      user.name = name;
+      if (picture) user.picture = picture;
+      if (name) user.name = name;
       await user.save();
     }
 
