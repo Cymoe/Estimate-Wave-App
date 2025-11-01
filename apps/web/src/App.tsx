@@ -43,7 +43,6 @@ import Marketing from './pages/Marketing';
 
 // Lazy load the Experience page
 const Experience = React.lazy(() => import('./pages/Experience').then(module => ({ default: module.Experience })));
-const PixiTest = React.lazy(() => import('./pages/PixiTest').then(module => ({ default: module.PixiTest })));
 const SimpleExperience = React.lazy(() => import('./pages/SimpleExperience').then(module => ({ default: module.SimpleExperience })));
 const MinimalPixi = React.lazy(() => import('./pages/MinimalPixi').then(module => ({ default: module.MinimalPixi })));
 
@@ -167,13 +166,6 @@ function AppRoutes() {
       } />
       
 
-      
-      {/* Pixi.js test page */}
-      <Route path="/pixi-test" element={
-        <React.Suspense fallback={<div className="min-h-screen bg-gray-900" />}>
-          <PixiTest />
-        </React.Suspense>
-      } />
       
       {/* Simple scroll test */}
       <Route path="/simple-experience" element={
