@@ -8,6 +8,8 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspace=apps/web",
+    "dev:backend": "npm run dev --workspace=apps/backend",
+    "dev:fullstack": "npm run dev --workspace=apps/backend & npm run dev --workspace=apps/web",
     "dev:blog": "npm run dev --workspace=apps/blog",
     "dev:all": "npm run dev --workspace=apps/web & npm run dev --workspace=apps/blog",
     "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/blog",
