@@ -473,6 +473,15 @@ export class ActivityLogService {
         }
       });
 
-    return channel;
+    // Return compatible channel object
+    return {
+      unsubscribe: () => {
+        try {
+          channel.unsubscribe();
+        } catch (e) {
+          console.log('Error unsubscribing from activity channel:', e);
+        }
+      }
+    };
   }
 }
