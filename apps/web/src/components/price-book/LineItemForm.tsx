@@ -350,13 +350,13 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
             </label>
             <div className="flex items-center gap-2">
               <div className="relative flex items-center flex-1">
-              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-sm z-10">$</span>
+              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm z-10">$</span>
               <input
                 type="text"
                 id="price"
                 value={price}
                 readOnly
-                className="w-full pl-7 pr-3 py-1.5 bg-[#2a2a2a] border border-[#555555] rounded text-white font-mono text-base cursor-default opacity-90"
+                className="w-full pl-7 pr-3 py-1.5 bg-[#2a2a2a] border border-[#555555] rounded text-gray-400 font-mono text-base cursor-default"
                 placeholder="0.00"
               />
               </div>
