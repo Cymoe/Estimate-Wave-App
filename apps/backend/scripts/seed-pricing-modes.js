@@ -47,28 +47,21 @@ const presetModes = [
     name: 'Need This Job',
     icon: '💰',
     description: 'Aggressive pricing to secure work',
-    adjustments: { all: 0.8 },
+    adjustments: { all: 0.85 },
     is_preset: true
   },
   {
     name: 'Competitive',
     icon: '🎯',
     description: 'Win more bids with lower margins',
-    adjustments: { all: 0.85 },
+    adjustments: { all: 0.90 },
     is_preset: true
   },
   {
     name: 'Busy Season',
     icon: '☀️',
     description: 'Peak demand pricing',
-    adjustments: { all: 1.25 },
-    is_preset: true
-  },
-  {
-    name: 'Slow Season',
-    icon: '❄️',
-    description: 'Keep crews busy during slow times',
-    adjustments: { all: 0.8 },
+    adjustments: { all: 1.15 },
     is_preset: true
   }
 ];
