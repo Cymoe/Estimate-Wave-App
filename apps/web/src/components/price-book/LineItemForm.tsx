@@ -268,7 +268,7 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
               }`}
               disabled={isLoadingCostCodes || !!initialData}
             >
-              <option value="" className="bg-[#333333] text-white">
+              <option value="" className={`bg-[#333333] ${initialData ? 'text-gray-400' : 'text-white'}`}>
                 {isLoadingCostCodes ? 'Loading cost codes...' : 'Select Cost Code'}
               </option>
               {!isLoadingCostCodes && Array.from(groupedCostCodes.entries()).map(([categoryName, codes]) => (
@@ -281,7 +281,7 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
                     <option 
                       key={code.id} 
                       value={code.id} 
-                      className="bg-[#333333] text-white pl-4"
+                      className={`bg-[#333333] pl-4 ${initialData ? 'text-gray-400' : 'text-white'}`}
                     >
                       {code.code} — {code.name}
                     </option>
