@@ -27,6 +27,30 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Initialize database connection
+let dbInitialized = false;
+async function initializeDatabase() {
+  if (!dbInitialized) {
+    await connectDatabase();
+    // Only start change streams in non-serverless environments
+    if (process.env.VERCEL !== '1' && process.env.NODE_ENV !== 'production') {
+      startActivityLogChangeStream();
+    }
+    dbInitialized = true;
+  }
+}
+
+// Database initialization middleware (must be before routes)
+app.use(async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await initializeDatabase();
+    next();
+  } catch (error) {
+    console.error('Database initialization failed:', error);
+    res.status(500).json({ error: 'Database connection failed' });
+  }
+});
+
 // Mount API routes
 app.use('/api', routes);
 app.use('/api/realtime', realtimeRouter);
@@ -63,19 +87,6 @@ app.use((req: Request, res: Response) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-// Initialize database connection
-let dbInitialized = false;
-async function initializeDatabase() {
-  if (!dbInitialized) {
-    await connectDatabase();
-    // Only start change streams in non-serverless environments
-    if (process.env.VERCEL !== '1' && process.env.NODE_ENV !== 'production') {
-      startActivityLogChangeStream();
-    }
-    dbInitialized = true;
-  }
-}
-
 // Start server (for local development)
 async function startServer() {
   try {
@@ -109,23 +120,11 @@ process.on('SIGINT', async () => {
   process.exit(0);
 });
 
-// For Vercel serverless: export the app with database initialization
-if (process.env.VERCEL === '1') {
-  // Initialize database on first request
-  app.use(async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      await initializeDatabase();
-      next();
-    } catch (error) {
-      console.error('Database initialization failed:', error);
-      res.status(500).json({ error: 'Database connection failed' });
-    }
-  });
-  
-  // Export for Vercel serverless
-  export default app;
-} else {
-  // Start the server for local development
+// Start the server for local development only
+if (process.env.VERCEL !== '1') {
   startServer();
 }
+
+// Export for Vercel serverless (must be at top level)
+export default app;
 
