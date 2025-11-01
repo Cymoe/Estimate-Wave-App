@@ -268,7 +268,7 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
       
       <div>
         <label htmlFor="cost_code_id" className="block text-xs font-medium text-gray-400 mb-1">
-          Cost Code
+          Cost Code {initialData && <span className="text-xs text-gray-500">(Pre-assigned)</span>}
         </label>
         <Controller
           name="cost_code_id"
@@ -278,8 +278,10 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
             <select
               {...field}
               id="cost_code_id"
-              className="w-full px-2.5 py-1.5 bg-[#333333] border border-[#555555] rounded text-sm text-white focus:border-[#0D47A1] focus:outline-none focus:ring-1 focus:ring-[#0D47A1]/40"
-              disabled={isLoadingCostCodes}
+              className={`w-full px-2.5 py-1.5 bg-[#333333] border border-[#555555] rounded text-sm text-white focus:border-[#0D47A1] focus:outline-none focus:ring-1 focus:ring-[#0D47A1]/40 ${
+                initialData ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+              disabled={isLoadingCostCodes || !!initialData}
             >
               <option value="" className="bg-[#333333] text-white">
                 {isLoadingCostCodes ? 'Loading cost codes...' : 'Select Cost Code'}
