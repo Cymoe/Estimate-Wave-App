@@ -16,7 +16,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Define paths
-const docsDir = path.join(__dirname, '../docs');
+// Docs are at the root level of the monorepo, not in apps/web
+const docsDir = path.join(__dirname, '../../../docs');
 const publicDocsDir = path.join(__dirname, '../public/docs');
 
 // Ensure the public/docs directory exists
@@ -25,12 +26,19 @@ if (!fs.existsSync(publicDocsDir)) {
   console.log(`Created directory: ${publicDocsDir}`);
 }
 
+// Check if docs directory exists
+if (!fs.existsSync(docsDir)) {
+  console.log('No docs directory found - skipping documentation copy.');
+  process.exit(0);
+}
+
 // Copy all markdown files
 console.log('Copying markdown files to public/docs...');
 fs.readdir(docsDir, (err, files) => {
   if (err) {
     console.error('Error reading docs directory:', err);
-    process.exit(1);
+    console.log('Continuing build without docs...');
+    process.exit(0); // Exit successfully instead of failing the build
   }
 
   const markdownFiles = files.filter(file => file.endsWith('.md'));
