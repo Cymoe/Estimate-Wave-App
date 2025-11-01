@@ -2,11 +2,9 @@ import React, { useState } from 'react';
 import { 
   ShoppingCart, 
   X, 
-  ArrowRight, 
   Package,
   FileText,
   Download,
-  Send,
   Trash2,
   Calculator,
   AlertCircle,

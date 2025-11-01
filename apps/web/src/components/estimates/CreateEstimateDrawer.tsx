@@ -3,10 +3,12 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { formatCurrency } from '../../utils/format';
-import { Search, Plus, Minus, X, Save, FileText, Package, ArrowRight, CheckCircle, Check, ChevronDown, ChevronRight } from 'lucide-react';
-import { getCollectionLabel } from '../../constants/collections';
-import { EstimateService } from '../../services/EstimateService';
-import { ServiceCatalogService } from '../../services/ServiceCatalogService';
+import { Search, Plus, Minus, X, Save, Package, ArrowRight, CheckCircle, Check, ChevronDown, ChevronRight } from 'lucide-react';
+import { EstimateTableView } from './EstimateTableView';
+import { ContextualPricingSelector } from './ContextualPricingSelector';
+import { ClientSelector } from './ClientSelector';
+import { NewClientModal } from '../clients/NewClientModal';
+// import { ServiceCatalogService } from '../../services/ServiceCatalogService'; // Removed - using line items only
 import { LineItemService } from '../../services/LineItemService';
 
 interface EstimateItem {
@@ -53,11 +55,18 @@ interface Product {
   is_base_product: boolean;
   items?: any[];
   trade_id?: string;
+  cost_code?: {
+    id: string;
+    code: string;
+    name: string;
+    category?: string;
+  };
 }
 
 interface Client {
   id: string;
   name: string;
+  company_name?: string;
   email?: string;
   phone?: string;
   address?: string;
@@ -69,16 +78,9 @@ interface Trade {
   name: string;
 }
 
-interface Project {
-  id: string;
-  name: string;
-  client_id: string;
-  status: string;
-}
 
 interface EstimateFormData {
   client_id: string;
-  project_id?: string;
   items: EstimateItem[];
   total_amount: number;
   description: string;
@@ -106,8 +108,12 @@ interface CreateEstimateDrawerProps {
     clientId: string;
     projectName: string;
     projectBudget: number;
+    projectType?: string;
+    packageLevel?: string;
+    packageId?: string;
   };
   preloadedItems?: EstimateItem[]; // Pre-populated items from cart
+  useCleanView?: boolean; // Use clean table view instead of sidebar layout
 }
 
 export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
@@ -116,21 +122,21 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
   onSave,
   editingEstimate,
   projectContext,
-  preloadedItems
+  preloadedItems,
+  useCleanView = false
 }) => {
   const { user } = useAuth();
   const { selectedOrg } = useContext(OrganizationContext);
   const [sourceType, setSourceType] = useState<'scratch' | 'template' | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState<'services' | 'lineItems'>('services');
-  const [activeType, setActiveType] = useState<string>('all');
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['Concrete & Masonry', 'Fencing & Gates', 'Turf & Landscaping'])); // Start with main cost code categories expanded
+  const [allExpanded, setAllExpanded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [projectCategory, setProjectCategory] = useState<string | null>(null);
   
   // Form data
   const [selectedClient, setSelectedClient] = useState<string>('');
-  const [selectedProject, setSelectedProject] = useState<string>('');
   const [estimateTitle, setEstimateTitle] = useState('');
   const [estimateDescription, setEstimateDescription] = useState('');
   const [issueDate, setIssueDate] = useState(new Date().toISOString().split('T')[0]);
@@ -149,41 +155,30 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
   
   // Data
   const [clients, setClients] = useState<Client[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [services, setServices] = useState<any[]>([]);
+  // Services removed - using line items only
   const [lineItems, setLineItems] = useState<Product[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
-  const [trades, setTrades] = useState<Trade[]>([]);
   const [addedTemplateId, setAddedTemplateId] = useState<string | null>(null);
-  const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
+  const [showPricingSelector, setShowPricingSelector] = useState(false);
+  const [viewMode, setViewMode] = useState<'clean' | 'sidebar'>('sidebar');
+  const [showNewClientModal, setShowNewClientModal] = useState(false);
 
   useEffect(() => {
-    console.log('CreateEstimateDrawer useEffect triggered:', {
-      isOpen,
-      userId: user?.id,
-      selectedOrgId: selectedOrg.id,
-      selectedOrg: selectedOrg,
-      projectCategory,
-      editingEstimate: !!editingEstimate
-    });
-    
-    if (isOpen && user && selectedOrg.id && selectedOrg.name !== 'Loading...') {
+    // Only load data when drawer opens and we have a valid organization
+    if (isOpen && user && selectedOrg?.id && selectedOrg.name !== 'Loading...') {
       loadData();
     }
-  }, [isOpen, user?.id, selectedOrg.id, projectCategory, editingEstimate]);
+  }, [isOpen, user?.id, selectedOrg?.id, projectCategory, editingEstimate]);
 
   // Load estimate data when editing - but only after data is loaded
   useEffect(() => {
-    if (isOpen && editingEstimate && projects.length > 0) {
+    if (isOpen && editingEstimate) {
       console.log('Setting form data from editing estimate:', {
-        estimateId: editingEstimate.id,
-        projectId: editingEstimate.project_id,
-        availableProjects: projects.length
+        estimateId: editingEstimate.id
       });
       
       // Set form data from existing estimate
       setSelectedClient(editingEstimate.client_id || '');
-      setSelectedProject(editingEstimate.project_id || '');
       setEstimateTitle(editingEstimate.title || '');
       setEstimateDescription(editingEstimate.description || '');
       setIssueDate(editingEstimate.issue_date ? editingEstimate.issue_date.split('T')[0] : new Date().toISOString().split('T')[0]);
@@ -196,7 +191,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
       // Load estimate items
       loadEstimateItems();
     }
-  }, [isOpen, editingEstimate, projects.length]);
+  }, [isOpen, editingEstimate]);
 
   // Handle project context
   useEffect(() => {
@@ -204,9 +199,6 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
       // Pre-fill with project information
       if (projectContext.clientId) {
         setSelectedClient(projectContext.clientId);
-      }
-      if (projectContext.projectId) {
-        setSelectedProject(projectContext.projectId);
       }
       if (projectContext.projectName) {
         setEstimateTitle(`Estimate for ${projectContext.projectName}`);
@@ -220,19 +212,8 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
   useEffect(() => {
     if (isOpen && preloadedItems && preloadedItems.length > 0 && !editingEstimate) {
       console.log('Loading preloaded items:', preloadedItems);
-      // Process preloaded items to ensure service packages have the correct metadata
-      const processedItems = preloadedItems.map(item => {
-        if (item.service_data && item.service_data.service_option_items) {
-          // This is a service package
-          return {
-            ...item,
-            is_service: true,
-            service_items: item.service_data.service_option_items,
-            line_item_count: item.service_data.service_option_items?.length || 0
-          };
-        }
-        return item;
-      });
+      // Process preloaded items - services removed, all are line items now
+      const processedItems = preloadedItems;
       setSelectedItems(processedItems);
       setSourceType('scratch'); // Use scratch mode when we have preloaded items
     }
@@ -240,10 +221,10 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
 
   // Load project category when project context is provided
   useEffect(() => {
-    if (isOpen && projectContext?.projectId && user && selectedOrg.id) {
+    if (isOpen && projectContext?.projectId && user && selectedOrg?.id) {
       loadProjectCategory();
     }
-  }, [isOpen, projectContext?.projectId, user, selectedOrg.id]);
+  }, [isOpen, projectContext?.projectId, user, selectedOrg?.id]);
 
   // Auto-calculate validity date based on days
   useEffect(() => {
@@ -255,12 +236,6 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
     }
   }, [issueDate, validityDays]);
 
-  // Reload line items when project selection changes to get project-specific pricing
-  useEffect(() => {
-    if (isOpen && selectedOrg.id && selectedProject) {
-      loadProjectPricing();
-    }
-  }, [selectedProject]);
 
   // Generate estimate number when opening
   useEffect(() => {
@@ -268,6 +243,39 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
       generateEstimateNumber();
     }
   }, [isOpen, editingEstimate]);
+
+  // Initialize expand all state based on device type and user preference
+  useEffect(() => {
+    if (!isOpen || !lineItems.length) return;
+    
+    // Check if it's a tablet/iPad based on screen width
+    const isTablet = window.innerWidth >= 768; // iPad minimum width
+    
+    // Get user preference from localStorage
+    const savedPreference = localStorage.getItem('estimate-drawer-expanded-all');
+    
+    // Default to expanded on tablets, collapsed on mobile
+    const shouldExpandAll = savedPreference !== null 
+      ? savedPreference === 'true' 
+      : isTablet;
+    
+    // Calculate category names here to avoid dependency issues
+    const categoryNames = Array.from(new Set(
+      lineItems.map(item => item.cost_code?.name || 'Other')
+    )).sort((a, b) => {
+      if (a === 'Other' && b !== 'Other') return 1;
+      if (b === 'Other' && a !== 'Other') return -1;
+      return a.localeCompare(b);
+    });
+    
+    if (shouldExpandAll && categoryNames.length > 0) {
+      setExpandedCategories(new Set(categoryNames));
+      setAllExpanded(true);
+    } else {
+      // Keep the default partially expanded state for mobile
+      setAllExpanded(false);
+    }
+  }, [isOpen, lineItems.length]);
 
   const generateEstimateNumber = async () => {
     // Professional fallback: Use current year and timestamp
@@ -323,37 +331,6 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
     }
   };
 
-  const loadProjectPricing = async () => {
-    if (!selectedOrg.id || !selectedProject) return;
-    
-    try {
-      // Load line items with project-specific pricing
-      const lineItemsData = await LineItemService.listForProject(
-        selectedOrg.id,
-        selectedProject
-      );
-      
-      // Process line items - convert to Product format for compatibility
-      const allLineItems = lineItemsData.map((item: any) => ({
-        ...item,
-        // Price is already resolved based on project context
-        unit: item.unit || 'ea',
-        trade_id: item.trade_id || null,
-        // Add category from cost code
-        type: item.cost_code?.category || 'material'
-      }));
-      
-      setLineItems(allLineItems as Product[]);
-      
-      console.log('Loaded project pricing:', {
-        projectId: selectedProject,
-        itemCount: allLineItems.length,
-        pricingSource: allLineItems[0]?.pricing_source
-      });
-    } catch (error) {
-      console.error('Error loading project pricing:', error);
-    }
-  };
 
   const loadData = async () => {
     try {
@@ -374,40 +351,63 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
       
       // Build base queries array
       const queries = [
-        supabase.from('clients').select('*').eq('organization_id', orgId),
-        supabase.from('projects').select('*').eq('organization_id', orgId).order('name'),
-        supabase.from('trades')
-          .select('id, name')
-          .order('name')
+        supabase.from('clients').select('*').eq('organization_id', orgId)
       ];
 
+      // Load organization's selected industries first
+      const { data: orgIndustries, error: indError } = await supabase
+        .from('organization_industries')
+        .select('industry_id, industries(id, name)')
+        .eq('organization_id', orgId);
+      
+      if (indError) {
+        console.error('Error loading organization industries:', indError);
+      }
+      
+      // Get industry IDs for filtering
+      const industryIds = orgIndustries?.map(oi => oi.industry_id) || [];
+      
       // Note: We'll use invoice templates for now until estimate templates are created
+      console.log('Loading templates for org:', orgId, 'with industries:', industryIds);
+      
       let templateQuery = supabase.from('invoice_templates')
         .select('*')
-        .eq('organization_id', orgId)
         .order('created_at', { ascending: false });
+      
+      // Filter templates by organization's selected industries
+      if (industryIds.length > 0) {
+        templateQuery = templateQuery.in('industry_id', industryIds);
+      }
+      
+      console.log('Template query built with industry filtering');
       
       // If we have a project category, filter templates by it
       if (projectCategory) {
         templateQuery = templateQuery.eq('category_id', projectCategory);
       }
       
-      // Execute all queries
-      const [clientsRes, projectsRes, tradesRes] = await Promise.all(queries);
-      const templatesRes = await templateQuery;
+      // Execute all queries including the template query
+      const [clientsRes, templatesRes] = await Promise.all([
+        ...queries,
+        templateQuery
+      ]);
+      console.log('Template query executed, result:', templatesRes);
 
       if (clientsRes.error) throw clientsRes.error;
-      if (projectsRes.error) throw projectsRes.error;
-      if (tradesRes.error) console.error('Trades error:', tradesRes.error);
-      if (templatesRes.error) console.error('Templates error:', templatesRes.error);
+      if (templatesRes.error) {
+        console.error('Templates error:', templatesRes.error);
+        console.error('Full templatesRes:', templatesRes);
+      }
       
-      // Load line items with project context if available
+      console.log('Templates query result data:', templatesRes.data);
+      console.log('Organization industries:', orgIndustries?.map(oi => (oi as any).industries?.name));
+      console.log('Filtered templates count:', templatesRes.data?.length || 0);
+      console.log('Templates query result count:', templatesRes.data?.length);
+      
+      // Load line items for organization
       let lineItemsData: any[] = [];
       try {
-        lineItemsData = await LineItemService.listForProject(
-          orgId, 
-          selectedProject || projectContext?.projectId
-        );
+        lineItemsData = await LineItemService.list(orgId);
       } catch (error) {
         console.error('Error loading line items:', error);
       }
@@ -415,7 +415,13 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
       // Load service templates using ServiceCatalogService
       let servicesData: any[] = [];
       try {
-        servicesData = await ServiceCatalogService.listTemplates(orgId);
+        // Get bundle items from line_items instead
+        const { data } = await supabase
+          .from('line_items')
+          .select('*')
+          .eq('is_bundle', true)
+          .order('name');
+        servicesData = data || [];
         console.log('Loaded services:', servicesData.length);
       } catch (error) {
         console.error('Error loading services:', error);
@@ -434,12 +440,14 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
       // Process templates and fetch their items separately
       let processedTemplates: Template[] = [];
       if (templatesRes.data && templatesRes.data.length > 0) {
-        // Fetch items for all templates
+        console.log('Processing templates, fetching items for:', templatesRes.data.map(t => t.id));
+        // Fetch items for all templates - these don't have line_item references
         const { data: allTemplateItems, error: itemsError } = await supabase
           .from('invoice_template_items')
-          .select('*, product:products(*)')
+          .select('*')
           .in('template_id', templatesRes.data.map(t => t.id));
           
+        console.log('Template items result:', allTemplateItems);
         if (itemsError) {
           console.error('Template items error:', itemsError);
         }
@@ -462,19 +470,14 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
       }
       
       setClients(clientsRes.data || []);
-      setProjects(projectsRes.data as Project[] || []);
-      setServices(servicesData);
+      // Services removed - bundles are in line_items now
       setLineItems(allLineItems as Product[]);
       setTemplates(processedTemplates);
-      setTrades(tradesRes.data || []);
       
       // Debug logging
       console.log('CreateEstimateDrawer - Data loaded:', {
         organizationId: orgId,
         clients: clientsRes.data?.length || 0,
-        projects: projectsRes.data?.length || 0,
-        projectsData: projectsRes.data,
-        services: servicesData.length,
         lineItems: allLineItems.length,
         templates: processedTemplates.length
       });
@@ -486,44 +489,37 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
   };
 
   const handleTemplateSelect = (template: Template) => {
+    console.log('Template selected:', template);
+    console.log('Template items:', template.items);
+    
     // Add template items to existing items
-    if (template.items) {
-      const newItems: EstimateItem[] = template.items.map(item => {
-        // Handle both nested product and separate product field
-        const product = item.product || (item as any).product || {};
+    if (template.items && template.items.length > 0) {
+      const newItems: EstimateItem[] = template.items.map((item, index) => {
+        // Template items don't have line_item references, just price and quantity
         return {
-          product_id: item.product_id,
-          product_name: product.name || 'Unknown Item',
+          product_id: `template-item-${template.id}-${index}`,
+          product_name: `Template Item ${index + 1}`,
           quantity: item.quantity,
-          price: item.price,
-          unit: product.unit || 'ea',
-          description: item.description || product.description
+          price: typeof item.price === 'number' ? item.price : parseFloat(String(item.price || 0)),
+          unit: 'ea',
+          description: `From template: ${template.name}`
         };
       });
+      console.log('Adding items to estimate:', newItems);
       // Add to existing items
       setSelectedItems([...selectedItems, ...newItems]);
       
       // Show feedback
       setAddedTemplateId(template.id);
       setTimeout(() => setAddedTemplateId(null), 2000);
+    } else {
+      console.log('No items in template to add');
+      // Still show feedback even if no items
+      setAddedTemplateId(template.id);
+      setTimeout(() => setAddedTemplateId(null), 2000);
     }
   };
 
-  const addService = (service: any) => {
-    // Add service as a single item with metadata about line items
-    setSelectedItems([...selectedItems, {
-      product_id: service.id,
-      product_name: service.name,
-      quantity: 1,
-      price: service.price || 0,
-      unit: service.unit || 'ea',
-      description: service.service_name || service.description || '',
-      // Store line items for display purposes
-      is_service: true,
-      service_items: service.service_option_items,
-      line_item_count: service.service_option_items?.length || 0
-    }]);
-  };
 
   const addLineItem = (item: Product) => {
     setSelectedItems([...selectedItems, {
@@ -534,6 +530,33 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
       unit: item.unit,
       description: item.description
     }]);
+  };
+
+  const handleAddItemsFromSelector = (items: any[]) => {
+    const newItems: EstimateItem[] = items.map(item => ({
+      product_id: item.lineItemId,
+      product_name: item.name,
+      quantity: item.quantity,
+      price: item.price,
+      unit: item.unit,
+      description: item.description
+    }));
+    setSelectedItems([...selectedItems, ...newItems]);
+    setShowPricingSelector(false);
+  };
+
+  const handleUpdateItemQuantity = (itemId: string, quantity: number) => {
+    const index = selectedItems.findIndex(item => item.product_id === itemId);
+    if (index >= 0) {
+      updateItemQuantity(index, quantity);
+    }
+  };
+
+  const handleRemoveItem = (itemId: string) => {
+    const index = selectedItems.findIndex(item => item.product_id === itemId);
+    if (index >= 0) {
+      removeItem(index);
+    }
   };
 
   const removeItem = (index: number) => {
@@ -547,15 +570,6 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
     setSelectedItems(updated);
   };
 
-  const toggleItemExpanded = (index: number) => {
-    const newExpanded = new Set(expandedItems);
-    if (newExpanded.has(index)) {
-      newExpanded.delete(index);
-    } else {
-      newExpanded.add(index);
-    }
-    setExpandedItems(newExpanded);
-  };
 
   const calculateSubtotal = () => {
     return selectedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -592,34 +606,29 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
   };
 
   const handleSave = async () => {
-    if (!selectedClient) {
-      alert('Please select a client for the estimate.');
-      return;
-    }
-
-    if (!estimateTitle) {
-      alert('Please provide a title for the estimate.');
-      return;
-    }
-
+    console.log('🚀 HANDLE SAVE CALLED!');
+    console.log('🔍 Selected items:', selectedItems);
+    console.log('📊 Selected items length:', selectedItems.length);
+    console.log('👤 Selected client:', selectedClient);
+    console.log('📝 Estimate title:', estimateTitle);
+    console.log('📅 Issue date:', issueDate);
+    
+    // Only require items for initial creation - everything else can be filled later
     if (selectedItems.length === 0) {
+      console.log('❌ No items selected - showing alert');
       alert('Please add at least one item to the estimate.');
       return;
     }
-
-    if (!validUntil) {
-      alert('Please set a validity date for the estimate.');
-      return;
-    }
+    
+    console.log('✅ Items validation passed, proceeding with save...');
 
     const formData: EstimateFormData = {
-      client_id: selectedClient,
-      project_id: selectedProject || undefined,
+      client_id: selectedClient || '', // Allow empty - can be filled later
       items: selectedItems,
       total_amount: calculateTotal(),
-      title: estimateTitle,
+      title: estimateTitle || `Estimate ${Date.now().toString().slice(-6)}`, // Auto-generate if empty
       description: estimateDescription,
-      valid_until: validUntil,
+      valid_until: validUntil || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Default 30 days
       status: 'draft',
       issue_date: issueDate,
       terms: terms,
@@ -656,19 +665,39 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
     }
   };
 
+  const handleNewClientSave = async (clientData: any) => {
+    try {
+      const { data: newClient, error } = await supabase
+        .from('clients')
+        .insert([{
+          ...clientData,
+          organization_id: selectedOrg?.id
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Add to clients list and select the new client
+      setClients(prev => [...prev, newClient]);
+      setSelectedClient(newClient.id);
+      setShowNewClientModal(false);
+    } catch (error) {
+      console.error('Error creating client:', error);
+      alert('Failed to create client. Please try again.');
+    }
+  };
+
   const handleClose = () => {
     // Reset form
     setSourceType(null);
     setSelectedClient('');
-    setSelectedProject('');
     setEstimateTitle('');
     setEstimateDescription('');
     setIssueDate(new Date().toISOString().split('T')[0]);
     setValidUntil('');
     setSelectedItems([]);
     setSearchTerm('');
-    setActiveTab('services');
-    setActiveType('all');
     setAddedTemplateId(null);
     setEstimateNumber('');
     setTerms('');
@@ -676,22 +705,17 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
     setValidityDays(30);
     setAdditionalDiscount(0);
     setDiscountReason('');
+    setShowNewClientModal(false);
     
     onClose();
   };
 
   // Filter logic
-  const filteredServices = services.filter(service => 
-    service.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    service.service_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    service.description?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   const filteredLineItems = lineItems.filter(item => {
     const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          item.description?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesType = activeType === 'all' || item.type === activeType;
-    return matchesSearch && matchesType;
+    return matchesSearch;
   });
 
   const filteredTemplates = templates.filter(template =>
@@ -699,23 +723,12 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
     template.description?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Group services by industry
-  const groupedServices = filteredServices.reduce((groups: any, service: any) => {
-    const industryName = service.industry_name || 'Uncategorized';
-    if (!groups[industryName]) {
-      groups[industryName] = [];
-    }
-    groups[industryName].push(service);
-    return groups;
-  }, {} as Record<string, any[]>);
 
-  // Sort industry names alphabetically
-  const sortedIndustryNames = Object.keys(groupedServices).sort();
-
-  // Group line items by category (from cost code)
+  // Group line items by cost code name (like PriceBook does)
   const groupedLineItems = filteredLineItems.reduce((groups, item) => {
-    const category = item.type || 'Other';
-    const categoryName = category.charAt(0).toUpperCase() + category.slice(1);
+    // Get category from cost code name if available, fallback to 'Other'
+    const categoryName = item.cost_code?.name || 'Other';
+    
     if (!groups[categoryName]) {
       groups[categoryName] = [];
     }
@@ -723,11 +736,279 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
     return groups;
   }, {} as Record<string, Product[]>);
 
-  // Sort category names alphabetically
-  const sortedCategoryNames = Object.keys(groupedLineItems).sort();
+  // Sort category names alphabetically (like PriceBook)
+  const sortedCategoryNames = Object.keys(groupedLineItems).sort((a, b) => {
+    // Put 'Other' last
+    if (a === 'Other' && b !== 'Other') return 1;
+    if (b === 'Other' && a !== 'Other') return -1;
+    return a.localeCompare(b);
+  });
+  
+  const toggleCategory = (category: string) => {
+    const newExpanded = new Set(expandedCategories);
+    if (newExpanded.has(category)) {
+      newExpanded.delete(category);
+    } else {
+      newExpanded.add(category);
+    }
+    setExpandedCategories(newExpanded);
+    
+    // Update allExpanded state based on whether all categories are expanded
+    const allCategoriesExpanded = sortedCategoryNames.every(cat => newExpanded.has(cat));
+    setAllExpanded(allCategoriesExpanded);
+    
+    // Update localStorage to reflect the new state
+    localStorage.setItem('estimate-drawer-expanded-all', allCategoriesExpanded.toString());
+  };
 
-  const types = ['all', 'material', 'labor', 'equipment', 'service', 'subcontractor'];
+  // Toggle all categories expanded/collapsed
+  const toggleAllCategories = () => {
+    if (allExpanded) {
+      // Collapse all
+      setExpandedCategories(new Set());
+      setAllExpanded(false);
+      localStorage.setItem('estimate-drawer-expanded-all', 'false');
+    } else {
+      // Expand all
+      setExpandedCategories(new Set(sortedCategoryNames));
+      setAllExpanded(true);
+      localStorage.setItem('estimate-drawer-expanded-all', 'true');
+    }
+  };
 
+  // Categories removed - line items don't have type field
+
+  // If clean view mode, show the clean table view
+  if (viewMode === 'clean' && sourceType === 'scratch') {
+    return (
+      <>
+        {/* Backdrop with blur effect */}
+        <div
+          className={`fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity z-[10000] ${
+            isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
+          onClick={handleClose}
+        />
+
+        {/* Clean View Drawer */}
+        <div
+          className={`fixed right-0 top-0 h-full w-[90%] max-w-[1400px] bg-[#1D1F25] shadow-xl transform transition-transform z-[10001] ${
+            isOpen ? 'translate-x-0' : 'translate-x-full'
+          }`}
+        >
+          {/* Header */}
+          <div className="bg-[#1a1a1a] border-b border-[#333333] px-6 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleClose}
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+                <div>
+                  <h1 className="text-xl font-semibold text-white">
+                    {editingEstimate ? 'Edit Estimate' : 'New Estimate'}
+                  </h1>
+                  {projectContext?.projectType && (
+                    <p className="text-sm text-gray-400 mt-0.5">
+                      {projectContext.projectType} • {projectContext.packageLevel || 'Custom'}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setViewMode('sidebar')}
+                  className="px-3 py-1.5 text-sm text-gray-400 hover:text-white transition-colors"
+                >
+                  Switch to Classic View
+                </button>
+                <button
+                  onClick={handleSave}
+                  disabled={selectedItems.length === 0 || isSaving}
+                  className="px-6 py-2 bg-[#336699] text-white rounded-lg hover:bg-[#2A5580] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  <Save className="w-4 h-4" />
+                  {isSaving ? 'Saving...' : 'Save Estimate'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Main Content */}
+          <div className="flex flex-col h-[calc(100%-80px)] overflow-hidden">
+            {/* Client & Project Info Bar */}
+            <div className="px-6 py-4 bg-[#22272d] border-b border-[#333333]">
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+                <div className="lg:col-span-2">
+                  <label className="block text-sm font-medium text-white mb-2">
+                    Who is this estimate for? *
+                  </label>
+                  <div className="space-y-2">
+                    <ClientSelector
+                      clients={clients.map(client => ({
+                        id: client.id,
+                        name: client.name,
+                        company_name: client.company_name || client.name,
+                        email: client.email,
+                        phone: client.phone,
+                        address: client.address,
+                        discount_percentage: client.discount_percentage
+                      }))}
+                      value={selectedClient}
+                      onChange={setSelectedClient}
+                      onAddNewClient={() => setShowNewClientModal(true)}
+                      onClientCreated={(newClient) => {
+                        setClients(prev => [...prev, newClient]);
+                      }}
+                      placeholder="Select a client..."
+                    />
+                    <button
+                      onClick={() => setShowNewClientModal(true)}
+                      className="w-full px-4 py-2 bg-[#336699] text-white rounded-lg hover:bg-[#2a5a8a] transition-colors flex items-center justify-center gap-2 text-sm font-medium"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add New Client
+                    </button>
+                  </div>
+                  
+                  {/* Client Preview/Summary Section */}
+                  {selectedClient && (() => {
+                    const client = clients.find(c => c.id === selectedClient);
+                    return client ? (
+                      <div className="mt-3 p-3 bg-[#1a1a1a] border border-[#444444] rounded-lg">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h4 className="text-sm font-medium text-white">
+                                {client.company_name || client.name}
+                              </h4>
+                              {client.discount_percentage && client.discount_percentage > 0 && (
+                                <span className="bg-green-500/20 text-green-400 px-2 py-0.5 rounded text-xs font-medium">
+                                  {client.discount_percentage}% discount
+                                </span>
+                              )}
+                            </div>
+                            {client.name !== (client.company_name || client.name) && (
+                              <p className="text-xs text-gray-400 mb-1">Contact: {client.name}</p>
+                            )}
+                            <div className="flex items-center gap-4 text-xs text-gray-400">
+                              {client.email && <span>{client.email}</span>}
+                              {client.phone && <span>{client.phone}</span>}
+                            </div>
+                            {client.address && (
+                              <p className="text-xs text-gray-400 mt-1">{client.address}</p>
+                            )}
+                          </div>
+                          <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />
+                        </div>
+                        {client.discount_percentage && client.discount_percentage > 0 && (
+                          <div className="mt-2 p-2 bg-green-500/10 border border-green-500/20 rounded text-xs text-green-400">
+                            Good customer discount will be automatically applied to this estimate
+                          </div>
+                        )}
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
+                
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                    Estimate Title *
+                  </label>
+                  <input
+                    type="text"
+                    value={estimateTitle}
+                    onChange={(e) => setEstimateTitle(e.target.value)}
+                    placeholder="e.g., Bathroom Renovation"
+                    className="w-full px-3 py-1.5 bg-[#333333] border border-[#555555] rounded text-sm text-white placeholder-gray-400 focus:outline-none focus:border-[#336699]"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                    Issue Date
+                  </label>
+                  <input
+                    type="date"
+                    value={issueDate}
+                    onChange={(e) => setIssueDate(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-[#333333] border border-[#555555] rounded text-sm text-white focus:outline-none focus:border-[#336699]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                    Valid For
+                  </label>
+                  <select
+                    value={validityDays}
+                    onChange={(e) => setValidityDays(Number(e.target.value))}
+                    className="w-full px-3 py-1.5 bg-[#333333] border border-[#555555] rounded text-sm text-white focus:outline-none focus:border-[#336699]"
+                  >
+                    <option value={7}>7 days</option>
+                    <option value={14}>14 days</option>
+                    <option value={30}>30 days</option>
+                    <option value={60}>60 days</option>
+                    <option value={90}>90 days</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Table View */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <EstimateTableView
+                items={selectedItems.map(item => ({
+                  id: item.product_id,
+                  ...item,
+                  name: item.product_name,
+                  subtotal: item.price * item.quantity
+                }))}
+                onUpdateQuantity={handleUpdateItemQuantity}
+                onRemoveItem={handleRemoveItem}
+                onAddItems={() => setShowPricingSelector(true)}
+                isEditable={true}
+                showTotals={true}
+                subtotal={calculateSubtotal()}
+                discount={calculateTotalDiscount()}
+                total={calculateTotal()}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Contextual Pricing Selector */}
+        <ContextualPricingSelector
+          isOpen={showPricingSelector}
+          onClose={() => setShowPricingSelector(false)}
+          onAddItems={handleAddItemsFromSelector}
+          organizationId={selectedOrg?.id || ''}
+          projectContext={{
+            projectType: projectContext?.projectType,
+            packageLevel: projectContext?.packageLevel,
+            packageId: projectContext?.packageId,
+            industryId: projectCategory || undefined
+          }}
+        />
+
+        {/* New Client Modal */}
+        {showNewClientModal && (() => {
+          console.log('Rendering NewClientModal, showNewClientModal:', showNewClientModal);
+          return (
+            <NewClientModal
+              onClose={() => setShowNewClientModal(false)}
+              onSave={handleNewClientSave}
+            />
+          );
+        })()}
+      </>
+    );
+  }
+
+  // Original sidebar view
   return (
     <>
       {/* Backdrop with blur effect */}
@@ -758,17 +1039,66 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
             </div>
             <button
               onClick={handleSave}
-              disabled={!selectedClient || !estimateTitle || selectedItems.length === 0 || isSaving}
+              disabled={selectedItems.length === 0 || isSaving}
               className="px-4 py-1.5 bg-[#336699] text-white rounded-[4px] hover:bg-[#2A5580] transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm flex items-center gap-2"
             >
               <Save className="w-3 h-3" />
-              {isSaving ? (editingEstimate ? 'Updating...' : 'Creating...') : (editingEstimate ? 'Update & Send' : 'Create & Get Paid')}
+              {isSaving ? (editingEstimate ? 'Updating...' : 'Creating...') : (editingEstimate ? 'Update Estimate' : 'Create Estimate')}
             </button>
           </div>
         </div>
 
+        {/* Client Selection Bar - Always Visible */}
+        <div className="px-4 py-3 border-b border-[#333333] bg-[#1A1A1A] flex-shrink-0">
+          <div className="flex items-center gap-4">
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-white mb-2">
+                Client for this Estimate
+              </label>
+              <ClientSelector
+                clients={clients.map(client => ({
+                  id: client.id,
+                  name: client.name,
+                  company_name: client.company_name || client.name,
+                  email: client.email,
+                  phone: client.phone,
+                  address: client.address,
+                  discount_percentage: client.discount_percentage
+                }))}
+                value={selectedClient}
+                onChange={setSelectedClient}
+                onAddNewClient={() => setShowNewClientModal(true)}
+                onClientCreated={(newClient) => {
+                  setClients(prev => [...prev, newClient]);
+                }}
+                placeholder="Select a client..."
+              />
+            </div>
+            
+            {/* Client Preview - Inline */}
+            {selectedClient && (() => {
+              const client = clients.find(c => c.id === selectedClient);
+              return client ? (
+                <div className="flex items-center gap-2 px-3 py-2 bg-[#1E1E1E] border border-[#333333] rounded-lg">
+                  <div className="w-6 h-6 bg-[#336699] rounded-full flex items-center justify-center flex-shrink-0">
+                    <CheckCircle className="w-3 h-3 text-white" />
+                  </div>
+                  <div className="text-sm text-white font-medium">
+                    {client.company_name || client.name}
+                  </div>
+                  {client.discount_percentage && client.discount_percentage > 0 && (
+                    <span className="bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded text-xs font-medium">
+                      {client.discount_percentage}%
+                    </span>
+                  )}
+                </div>
+              ) : null;
+            })()}
+          </div>
+        </div>
+
         {/* Main Content */}
-        <div className="flex h-[calc(100%-60px)]">
+        <div className="flex h-[calc(100%-120px)]">
           {/* Left Column - Items Selection (40% width) */}
           <div className="w-[40%] border-r border-[#333333] flex flex-col">
             {/* Source Type Selection */}
@@ -827,62 +1157,44 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                   </div>
                 )}
                 
-                {/* Tabs */}
-                <div className="p-3 pt-0 pb-0">
-                  <div className="flex gap-1">
-                    <button
-                      onClick={() => setActiveTab('services')}
-                      className={`px-3 py-1.5 text-sm font-medium rounded-[4px] transition-colors ${
-                        activeTab === 'services'
-                          ? 'bg-[#336699] text-white'
-                          : 'bg-[#333333] text-gray-300 hover:bg-[#404040]'
-                      }`}
-                    >
-                      Services
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('lineItems')}
-                      className={`px-3 py-1.5 text-sm font-medium rounded-[4px] transition-colors ${
-                        activeTab === 'lineItems'
-                          ? 'bg-[#336699] text-white'
-                          : 'bg-[#333333] text-gray-300 hover:bg-[#404040]'
-                      }`}
-                    >
-                      Line Items
-                    </button>
-                  </div>
-                </div>
+                {/* No tabs needed - only line items now */}
 
-                {/* Search and Filters */}
-                <div className="p-3 space-y-2">
+                {/* Search and Filters - iPad optimized */}
+                <div className="p-4 space-y-3">
                   <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                     <input
                       type="text"
-                      placeholder={`Search ${activeTab === 'services' ? 'services' : 'line items'}...`}
+                      placeholder="Search line items..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full pl-9 pr-3 py-1.5 bg-[#333333] border border-[#555555] rounded-[4px] text-sm text-white placeholder-gray-400 focus:outline-none focus:border-[#336699]"
+                      className="w-full pl-12 pr-4 py-3 bg-[#333333] border border-[#555555] rounded-lg text-base text-white placeholder-gray-400 focus:outline-none focus:border-[#336699] focus:ring-2 focus:ring-[#336699]/20"
                     />
                   </div>
                   
-                  {activeTab === 'lineItems' && (
-                    <div className="flex gap-1 overflow-x-auto">
-                      {types.map(type => (
-                        <button
-                          key={type}
-                          onClick={() => setActiveType(type)}
-                          className={`px-3 py-1 text-xs rounded-[4px] font-medium transition-colors whitespace-nowrap ${
-                            activeType === type
-                              ? 'bg-[#336699] text-white'
-                              : 'bg-[#333333] text-gray-300 hover:bg-[#404040]'
-                          }`}
-                        >
-                          {type === 'all' ? 'All' : type.charAt(0).toUpperCase() + type.slice(1)}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  {/* Expand All / Collapse All Button */}
+                  <button
+                    onClick={toggleAllCategories}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-[#2A2A2A] hover:bg-[#333333] border border-[#555555] rounded-lg text-sm text-gray-300 hover:text-white transition-all duration-200 active:bg-[#3A3A3A]"
+                  >
+                    {allExpanded ? (
+                      <>
+                        <div className="flex items-center">
+                          <ChevronRight className="w-4 h-4" />
+                          <ChevronRight className="w-4 h-4 -ml-2" />
+                        </div>
+                        <span>Collapse All Categories</span>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex items-center">
+                          <ChevronDown className="w-4 h-4" />
+                          <ChevronDown className="w-4 h-4 -ml-2" />
+                        </div>
+                        <span>Expand All Categories</span>
+                      </>
+                    )}
+                  </button>
                 </div>
 
                 {/* Items List */}
@@ -891,123 +1203,73 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                     <div className="flex items-center justify-center py-8">
                       <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#336699]"></div>
                     </div>
-                  ) : activeTab === 'services' ? (
-                    filteredServices.length === 0 ? (
-                      <div className="text-center py-8 text-gray-400 text-sm">
-                        {searchTerm ? 'No services found' : (
-                          <div>
-                            <p className="mb-2">No services available</p>
-                            <p className="text-xs">Services will appear here as they are configured</p>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div>
-                        {sortedIndustryNames.map(industryName => (
-                          <div key={industryName}>
-                            {/* Industry Header */}
-                            <div className="sticky top-0 bg-[#336699]/20 backdrop-blur-sm border-b border-[#336699]/30 px-3 py-2 z-10">
-                              <h4 className="text-xs font-semibold text-blue-200 uppercase tracking-wider">
-                                {industryName} ({groupedServices[industryName].length})
-                              </h4>
-                            </div>
-                            
-                            {/* Industry Services */}
-                            <div className="divide-y divide-[#2A2A2A]">
-                              {groupedServices[industryName].map((service: any) => (
-                                <div
-                                  key={service.id}
-                                  className="px-3 py-2 bg-[#333333] hover:bg-[#404040] cursor-pointer transition-colors group"
-                                  onClick={() => addService(service)}
-                                >
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex-1 min-w-0">
-                                      <div className="text-sm text-white truncate">
-                                        {service.name}
-                                        {service.line_item_count > 0 && (
-                                          <span className="ml-2 text-xs text-[#336699] font-normal">
-                                            ({service.line_item_count} items)
-                                          </span>
-                                        )}
-                                      </div>
-                                      {service.service_name && (
-                                        <p className="text-xs text-[#336699] mt-0.5 truncate">{service.service_name}</p>
-                                      )}
-                                      {service.description && (
-                                        <p className="text-xs text-gray-400 mt-0.5 truncate">{service.description}</p>
-                                      )}
-                                    </div>
-                                    <div className="text-right ml-3 flex-shrink-0">
-                                      <div className="font-mono text-sm text-white">
-                                        {formatCurrency(service.price || 0)}
-                                      </div>
-                                      <div className="text-xs text-gray-400">/{service.unit || 'ea'}</div>
-                                      <div className="text-xs text-[#336699] opacity-0 group-hover:opacity-100 transition-opacity">
-                                        + Add
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )
                   ) : (
                     filteredLineItems.length === 0 ? (
                       <div className="text-center py-8 text-gray-400 text-sm">
                         {searchTerm ? 'No items found' : (
                           <div>
                             <p className="mb-2">No line items available</p>
-                            <p className="text-xs">Create products in the Products section first</p>
+                            <p className="text-xs">Create line items in the Price Book first</p>
                           </div>
                         )}
                       </div>
                     ) : (
                       <div>
                         {sortedCategoryNames.map(categoryName => (
-                          <div key={categoryName}>
-                            {/* Category Header */}
-                            <div className="sticky top-0 bg-[#336699]/20 backdrop-blur-sm border-b border-[#336699]/30 px-3 py-2 z-10">
-                              <h4 className="text-xs font-semibold text-blue-200 uppercase tracking-wider">
-                                {categoryName} ({groupedLineItems[categoryName].length})
-                              </h4>
+                          <div key={categoryName} className="border-b border-[#2A2A2A]">
+                            {/* Category Header - iPad optimized with larger touch target */}
+                            <div 
+                              className="sticky top-0 bg-[#2A2A2A] hover:bg-[#333333] border-b border-[#336699]/30 px-4 py-4 z-10 cursor-pointer transition-colors"
+                              onClick={() => toggleCategory(categoryName)}
+                            >
+                              <div className="flex items-center justify-between">
+                                <h4 className="text-sm font-semibold text-gray-300 flex items-center gap-3">
+                                  {expandedCategories.has(categoryName) ? (
+                                    <ChevronDown className="w-5 h-5" />
+                                  ) : (
+                                    <ChevronRight className="w-5 h-5" />
+                                  )}
+                                  {categoryName} 
+                                  <span className="text-gray-500 font-normal">({groupedLineItems[categoryName].length})</span>
+                                </h4>
+                              </div>
                             </div>
                             
-                            {/* Category Items */}
-                            <div className="divide-y divide-[#2A2A2A]">
-                              {groupedLineItems[categoryName].map(item => (
+                            {/* Category Items - iPad optimized with larger touch targets */}
+                            {expandedCategories.has(categoryName) && (
+                              <div className="divide-y divide-[#2A2A2A]">
+                                {groupedLineItems[categoryName].map(item => (
                                 <div
                                   key={item.id}
-                                  className="px-3 py-2 bg-[#333333] hover:bg-[#404040] cursor-pointer transition-colors group"
+                                  className="px-4 py-4 bg-[#333333] hover:bg-[#404040] cursor-pointer transition-colors group active:bg-[#4A4A4A]"
                                   onClick={() => addLineItem(item)}
                                 >
                                   <div className="flex items-center justify-between">
                                     <div className="flex-1 min-w-0">
-                                      <div className="text-sm text-white truncate">
+                                      <div className="text-base text-white font-medium">
                                         {item.name}
-                                        {item.cost_code && (
-                                          <span className="ml-2 text-xs text-gray-500">[{item.cost_code.code}]</span>
-                                        )}
                                       </div>
+                                      {item.cost_code && (
+                                        <div className="text-sm text-gray-500 mt-1">[{item.cost_code.code}]</div>
+                                      )}
                                       {item.description && (
-                                        <p className="text-xs text-gray-400 mt-0.5 truncate">{item.description}</p>
+                                        <p className="text-sm text-gray-400 mt-1 line-clamp-2">{item.description}</p>
                                       )}
                                     </div>
-                                    <div className="text-right ml-3 flex-shrink-0">
-                                      <div className="font-mono text-sm text-white">
+                                    <div className="text-right ml-4 flex-shrink-0">
+                                      <div className="font-mono text-lg font-semibold text-white">
                                         {formatCurrency(item.price)}
                                       </div>
-                                      <div className="text-xs text-gray-400">/{item.unit}</div>
-                                      <div className="text-xs text-[#336699] opacity-0 group-hover:opacity-100 transition-opacity">
-                                        + Add
+                                      <div className="text-sm text-gray-400">per {item.unit}</div>
+                                      <div className="text-sm text-[#336699] font-medium mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        + Add Item
                                       </div>
                                     </div>
                                   </div>
                                 </div>
                               ))}
-                            </div>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -1020,7 +1282,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
             {/* Template Selection */}
             {sourceType === 'template' && (
               <>
-                <div className="p-3">
+                <div className="p-3 flex-shrink-0">
                   {/* Back button */}
                   <button
                     onClick={() => setSourceType(null)}
@@ -1050,16 +1312,29 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                       </p>
                     </div>
                   )}
+                </div>
 
                   {/* Templates List */}
-                  <div className="space-y-2 max-h-[calc(100vh-300px)] overflow-y-auto">
+                  <div className="flex-1 overflow-y-auto px-3 pb-3">
+                    <div className="space-y-2">
                     {isLoading ? (
                       <div className="flex items-center justify-center py-8">
                         <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#336699]"></div>
                       </div>
                     ) : filteredTemplates.length === 0 ? (
-                      <div className="text-center py-8 text-gray-400 text-sm">
-                        {searchTerm ? 'No templates found' : projectCategory ? 'No templates for this project category' : 'No templates available'}
+                      <div className="text-center py-8 text-gray-400 text-sm space-y-2">
+                        {searchTerm ? (
+                          'No templates found matching your search'
+                        ) : projectCategory ? (
+                          'No templates for this project category'
+                        ) : (
+                          <>
+                            <div>No templates available for your selected industries</div>
+                            <div className="text-xs text-gray-500 mt-1">
+                              Templates are filtered by your organization's industry selections
+                            </div>
+                          </>
+                        )}
                       </div>
                     ) : (
                       filteredTemplates.map((template) => (
@@ -1094,220 +1369,14 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                         </div>
                       ))
                     )}
+                    </div>
                   </div>
-                </div>
               </>
             )}
           </div>
 
           {/* Right Column - Estimate Details (60% width) */}
           <div className="flex-1 flex flex-col">
-            {/* Compact Estimate Info Section */}
-            <div className="p-4 border-b border-[#333333] overflow-y-auto" style={{ maxHeight: '40%' }}>
-              {/* Estimate Number and Title Row */}
-              <div className="flex items-center gap-3 mb-3">
-                <div className="flex-1">
-                  <input
-                    type="text"
-                    value={estimateTitle}
-                    onChange={(e) => setEstimateTitle(e.target.value)}
-                    placeholder="Estimate Title *"
-                    className="w-full px-3 py-2 bg-[#333333] border border-[#555555] rounded-[4px] text-sm text-white placeholder-gray-400 focus:outline-none focus:border-[#336699]"
-                  />
-                </div>
-                <div className="flex items-center gap-2 px-3 py-2 bg-[#336699]/10 border border-[#336699]/30 rounded-[4px]">
-                  <span className="text-xs text-gray-400">EST#</span>
-                  <span className="text-sm font-mono font-bold text-[#336699]">
-                    {estimateNumber?.split('-').slice(-1)[0] || '...'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Two Column Layout for Essential Fields */}
-              <div className="grid grid-cols-2 gap-3">
-                {/* Client and Project */}
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
-                    Client *
-                  </label>
-                  <select
-                    value={selectedClient}
-                    onChange={(e) => {
-                      setSelectedClient(e.target.value);
-                      if (e.target.value !== selectedClient) {
-                        setSelectedProject('');
-                      }
-                    }}
-                    className="w-full px-3 py-1.5 bg-[#333333] border border-[#555555] rounded-[4px] text-sm text-white placeholder-gray-400 focus:outline-none focus:border-[#336699]"
-                  >
-                    <option value="">Select a client</option>
-                    {clients.map(client => (
-                      <option key={client.id} value={client.id}>
-                        {client.name} {client.discount_percentage && client.discount_percentage > 0 ? `(${client.discount_percentage}% discount)` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
-                    Project
-                  </label>
-                  <select
-                    value={selectedProject}
-                    onChange={(e) => setSelectedProject(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-[#333333] border border-[#555555] rounded-[4px] text-sm text-white placeholder-gray-400 focus:outline-none focus:border-[#336699]"
-                  >
-                    <option value="">No project</option>
-                    {projects
-                      .filter(project => !selectedClient || project.client_id === selectedClient)
-                      .map(project => (
-                        <option key={project.id} value={project.id}>
-                          {project.name}
-                        </option>
-                      ))}
-                  </select>
-                  {selectedProject && lineItems.some(item => item.pricing_source === 'project') && (
-                    <div className="mt-1 flex items-center gap-1 text-xs text-green-400">
-                      <span className="inline-block w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
-                      Project pricing active
-                    </div>
-                  )}
-                </div>
-
-                {/* Dates */}
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
-                    Issue Date
-                  </label>
-                  <input
-                    type="date"
-                    value={issueDate}
-                    onChange={(e) => setIssueDate(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-[#333333] border border-[#555555] rounded-[4px] text-sm text-white placeholder-gray-400 focus:outline-none focus:border-[#336699]"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
-                    Valid For
-                  </label>
-                  <select
-                    value={validityDays}
-                    onChange={(e) => setValidityDays(Number(e.target.value))}
-                    className="w-full px-3 py-1.5 bg-[#333333] border border-[#555555] rounded-[4px] text-sm text-white placeholder-gray-400 focus:outline-none focus:border-[#336699]"
-                  >
-                    <option value={7}>7 days</option>
-                    <option value={14}>14 days</option>
-                    <option value={30}>30 days</option>
-                    <option value={60}>60 days</option>
-                    <option value={90}>90 days</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Collapsible Additional Fields */}
-              <details className="mt-3">
-                <summary className="cursor-pointer text-xs text-gray-400 hover:text-white transition-colors mb-2">
-                  Additional Details (Description, Terms, Notes, Discounts)
-                </summary>
-                <div className="space-y-3 mt-2">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
-                      Description
-                    </label>
-                    <textarea
-                      value={estimateDescription}
-                      onChange={(e) => setEstimateDescription(e.target.value)}
-                      placeholder="Brief description of work..."
-                      rows={2}
-                      className="w-full px-3 py-1.5 bg-[#333333] border border-[#555555] rounded-[4px] text-sm text-white placeholder-gray-400 focus:outline-none focus:border-[#336699] resize-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
-                      Terms & Conditions
-                    </label>
-                    <textarea
-                      value={terms}
-                      onChange={(e) => setTerms(e.target.value)}
-                      placeholder="Payment terms, warranties..."
-                      rows={2}
-                      className="w-full px-3 py-1.5 bg-[#333333] border border-[#555555] rounded-[4px] text-sm text-white placeholder-gray-400 focus:outline-none focus:border-[#336699] resize-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
-                      Notes
-                    </label>
-                    <textarea
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      placeholder="Additional information..."
-                      rows={2}
-                      className="w-full px-3 py-1.5 bg-[#333333] border border-[#555555] rounded-[4px] text-sm text-white placeholder-gray-400 focus:outline-none focus:border-[#336699] resize-none"
-                    />
-                  </div>
-
-                  {/* Additional Discount Section */}
-                  <div className="border-t border-[#333333] pt-3">
-                    <h4 className="text-xs font-medium text-purple-400 uppercase tracking-wide mb-2">
-                      Additional Discount
-                    </h4>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-400 mb-1">
-                          Discount %
-                        </label>
-                        <div className="relative">
-                          <input
-                            type="number"
-                            value={additionalDiscount}
-                            onChange={(e) => {
-                              const value = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));
-                              setAdditionalDiscount(value);
-                            }}
-                            className="w-full px-3 py-1.5 pr-8 bg-[#333333] border border-[#555555] rounded-[4px] text-sm text-white placeholder-gray-400 focus:outline-none focus:border-[#336699] font-mono"
-                            min="0"
-                            max="100"
-                            step="0.5"
-                            placeholder="0"
-                          />
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs">%</span>
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-400 mb-1">
-                          Reason
-                        </label>
-                        <select
-                          value={discountReason}
-                          onChange={(e) => setDiscountReason(e.target.value)}
-                          className="w-full px-3 py-1.5 bg-[#333333] border border-[#555555] rounded-[4px] text-sm text-white placeholder-gray-400 focus:outline-none focus:border-[#336699]"
-                        >
-                          <option value="">No reason</option>
-                          <option value="seasonal">Seasonal Promotion</option>
-                          <option value="volume">Volume Discount</option>
-                          <option value="referral">Referral Discount</option>
-                          <option value="first_time">First Time Customer</option>
-                          <option value="loyalty">Loyalty Discount</option>
-                          <option value="competitive">Competitive Pricing</option>
-                          <option value="other">Other</option>
-                        </select>
-                      </div>
-                    </div>
-                    {additionalDiscount > 0 && (
-                      <p className="mt-2 text-xs text-purple-400">
-                        Additional discount of {formatCurrency(calculateAdditionalDiscount())} will be applied
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </details>
-            </div>
-
             {/* Selected Items Section - Now with proper flex growth and scrolling */}
             <div className="flex-1 min-h-0 p-4 flex flex-col">
               <div className="flex items-center justify-between mb-3 flex-shrink-0">
@@ -1333,49 +1402,20 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                 ) : (
                   <div className="space-y-3 pb-4">
                     {selectedItems.map((item, index) => {
-                      const isExpanded = expandedItems.has(index);
                       return (
                         <div 
                           key={index} 
-                          className={`rounded-[4px] p-3 ${
-                            item.is_service 
-                              ? 'bg-[#1A2332] border border-[#336699]/20' 
-                              : 'bg-[#1E1E1E]'
-                          }`}
+                          className="rounded-[4px] p-3 bg-[#1E1E1E]"
                         >
                           <div className="flex items-start gap-3">
-                            {/* Expand/collapse button for services */}
-                            {item.is_service && item.service_items?.length > 0 && (
-                              <button
-                                onClick={() => toggleItemExpanded(index)}
-                                className="mt-0.5 p-0.5 hover:bg-[#333333] rounded transition-colors"
-                              >
-                                {isExpanded ? (
-                                  <ChevronDown className="w-4 h-4 text-gray-400" />
-                                ) : (
-                                  <ChevronRight className="w-4 h-4 text-gray-400" />
-                                )}
-                              </button>
-                            )}
                             
                             {/* Product info section - better width management */}
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-1">
-                                {item.is_service && (
-                                  <Package className="w-4 h-4 text-[#336699]" />
-                                )}
                                 <div className="text-sm text-white font-medium">
                                   {item.product_name || 'Unknown Item'}
-                                  {item.is_service && item.line_item_count > 0 && (
-                                    <span className="ml-2 text-xs text-[#336699] font-normal">
-                                      ({item.line_item_count} items)
-                                    </span>
-                                  )}
                                 </div>
                               </div>
-                              {item.is_service && (
-                                <div className="text-xs text-[#336699] mb-1">Service Package</div>
-                              )}
                               {item.description && (
                                 <div className="text-xs text-gray-400 mb-2 line-clamp-2">
                                   {item.description}
@@ -1419,35 +1459,6 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                             </button>
                           </div>
                         </div>
-                          
-                        {/* Expanded content for services */}
-                        {item.is_service && item.service_items?.length > 0 && isExpanded && (
-                          <div className="mt-3 pl-7 border-l-2 border-[#336699]/20">
-                            <div className="text-xs text-gray-400 mb-2">Included items:</div>
-                            <div className="space-y-2">
-                              {item.service_items.map((serviceItem: any, idx: number) => {
-                                const lineItem = serviceItem.line_item;
-                                if (!lineItem) return null;
-                                return (
-                                  <div key={idx} className="flex items-center justify-between text-xs">
-                                    <div className="flex-1">
-                                      <span className="text-gray-300">{lineItem.name}</span>
-                                      {lineItem.cost_code && (
-                                        <span className="ml-2 text-gray-500">[{lineItem.cost_code.code}]</span>
-                                      )}
-                                    </div>
-                                    <div className="text-gray-400">
-                                      {serviceItem.quantity} × {formatCurrency(lineItem.price)} = {formatCurrency(serviceItem.quantity * lineItem.price)}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                            <div className="mt-2 pt-2 border-t border-[#333333] text-xs text-gray-500">
-                              Note: Service items cannot be edited individually
-                            </div>
-                          </div>
-                        )}
                       </div>
                       );
                     })}
@@ -1455,6 +1466,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                 )}
               </div>
             </div>
+
 
             {/* Total Summary - Compact and fixed at bottom */}
             <div className="border-t border-[#333333] px-4 py-3 bg-[#1E1E1E] flex-shrink-0">
@@ -1503,6 +1515,14 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
           </div>
         </div>
       </div>
+
+      {/* New Client Modal */}
+      {showNewClientModal && (
+        <NewClientModal
+          onClose={() => setShowNewClientModal(false)}
+          onSave={handleNewClientSave}
+        />
+      )}
     </>
   );
 };

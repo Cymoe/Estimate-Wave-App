@@ -121,7 +121,7 @@ export class ServiceCatalogService {
       .eq('organization_id', organizationId);
     
     if (indError) {
-      console.error('Error fetching organization industries:', indError);
+      // Error fetching organization industries
       throw indError;
     }
     
@@ -165,11 +165,25 @@ export class ServiceCatalogService {
       .order('name');
 
     if (error) {
-      console.error('Error fetching templates:', error);
+      // Error fetching templates
       throw error;
     }
 
-    return (data || []).map(template => {
+    // Deduplicate templates - prioritize organization-specific over shared templates
+    const templatesMap = new Map<string, any>();
+    
+    (data || []).forEach(template => {
+      // Create a unique key based on service_id and normalized name
+      const key = `${template.service_id}-${template.name.toLowerCase().trim()}`;
+      const existing = templatesMap.get(key);
+      
+      // If no existing template, or this is an org-specific template (overwrites shared)
+      if (!existing || template.organization_id !== null) {
+        templatesMap.set(key, template);
+      }
+    });
+    
+    return Array.from(templatesMap.values()).map(template => {
       // Don't spread the entire template to avoid including joined fields
       const cleanTemplate = {
         id: template.id,
@@ -203,7 +217,7 @@ export class ServiceCatalogService {
    * List all services for an organization
    */
   static async listServices(organizationId: string): Promise<Service[]> {
-    console.log('ServiceCatalogService.listServices called with org:', organizationId);
+    // Debug -'ServiceCatalogService.listServices called with org:', organizationId);
     
     // First, let's check what industries are selected for this org
     const { data: orgIndustries, error: indError } = await supabase
@@ -212,10 +226,7 @@ export class ServiceCatalogService {
       .eq('organization_id', organizationId);
     
     if (!indError && orgIndustries) {
-      console.log('Organization has these industries selected:', 
-        orgIndustries.map((oi: any) => oi.industries?.name).join(', '),
-        `(${orgIndustries.length} total)`
-      );
+      // Debug - Organization has these industries selected
     }
     
     const { data, error } = await supabase
@@ -224,7 +235,7 @@ export class ServiceCatalogService {
       });
 
     if (error) {
-      console.error('Error fetching services:', error);
+      // Error fetching services
       throw error;
     }
     
@@ -234,11 +245,11 @@ export class ServiceCatalogService {
       industry_id: service.service_industry_id || service.industry_id
     }));
     
-    console.log('ServiceCatalogService returned:', services.length, 'services');
+    // Debug -'ServiceCatalogService returned:', services.length, 'services');
     
     // Log which industries have services
     const industriesWithServices = new Set(services.map((s: Service) => s.industry_name));
-    console.log('Industries with services:', Array.from(industriesWithServices).join(', '));
+    // Debug -'Industries with services:', Array.from(industriesWithServices).join(', '));
     
     return services;
   }
@@ -311,10 +322,37 @@ export class ServiceCatalogService {
 
     if (error) throw error;
 
-    // Transform the data to match our interface
-    return (data || []).map(option => ({
+    // Deduplicate options - prioritize organization-specific over templates
+    const optionsMap = new Map<string, any>();
+    
+    (data || []).forEach(option => {
+      const key = option.name.toLowerCase().trim();
+      const existing = optionsMap.get(key);
+      
+      // If no existing option, or this is an org-specific option (overwrites template)
+      if (!existing || option.organization_id !== null) {
+        optionsMap.set(key, option);
+      }
+    });
+
+    // Transform the deduplicated data to match our interface
+    return Array.from(optionsMap.values()).map(option => ({
       ...option,
-      service_option_items: option.service_option_items_with_category?.map((item: any) => ({
+      service_option_items: option.service_option_items_with_category?.map((item: {
+        id: string;
+        quantity: number;
+        calculation_type: string;
+        coverage_amount: number | null;
+        coverage_unit: string | null;
+        is_optional: boolean;
+        display_order: number;
+        line_item_id: string;
+        line_item_name: string;
+        line_item_description: string;
+        line_item_price: number;
+        line_item_unit: string;
+        line_item_category: string;
+      }) => ({
         id: item.id,
         quantity: item.quantity,
         calculation_type: item.calculation_type,
@@ -461,7 +499,7 @@ export class ServiceCatalogService {
       .eq('organization_id', organizationId);
     
     if (indError) {
-      console.error('Error fetching organization industries:', indError);
+      // Error fetching organization industries
       throw indError;
     }
     
@@ -513,7 +551,17 @@ export class ServiceCatalogService {
       let serviceCount = 0;
       
       if (pkg.service_package_templates) {
-        pkg.service_package_templates.forEach((item: any) => {
+        pkg.service_package_templates.forEach((item: {
+          id: string;
+          quantity: number;
+          is_optional: boolean;
+          template: {
+            id: string;
+            name: string;
+            price: number;
+            unit: string;
+          } | null;
+        }) => {
           if (item.template) {
             const templatePrice = (item.template.price * (item.quantity || 1));
             
@@ -849,12 +897,21 @@ export class ServiceCatalogService {
     }
 
     // Check if a customized version already exists
-    const { data: existingCustom } = await supabase
+    // Using the unique constraint fields: name, service_id, organization_id
+    let existingCustomQuery = supabase
       .from('service_options')
       .select('id')
       .eq('organization_id', organizationId)
-      .eq('attributes->parent_option_id', optionId)
-      .single();
+      .eq('name', customizations.name || originalOption.name);
+    
+    // Handle null service_id properly
+    if (originalOption.service_id) {
+      existingCustomQuery = existingCustomQuery.eq('service_id', originalOption.service_id);
+    } else {
+      existingCustomQuery = existingCustomQuery.is('service_id', null);
+    }
+    
+    const { data: existingCustom } = await existingCustomQuery.single();
 
     if (existingCustom) {
       // Update existing customization
@@ -862,7 +919,7 @@ export class ServiceCatalogService {
         .from('service_options')
         .update({
           attributes: {
-            ...originalOption.attributes,
+            ...(originalOption.attributes || {}),
             parent_option_id: optionId,
             custom_items: customizations.swappedItems || {},
             customized_at: new Date().toISOString()
@@ -876,14 +933,64 @@ export class ServiceCatalogService {
         .single();
 
       if (updateError) throw updateError;
+      
+      // Delete existing items for this customization
+      const { error: deleteError } = await supabase
+        .from('service_option_items')
+        .delete()
+        .eq('service_option_id', existingCustom.id);
+        
+      if (deleteError) throw deleteError;
+      
+      // Re-create items with customizations
+      if (originalOption.service_option_items && originalOption.service_option_items.length > 0) {
+        const removedSet = new Set(customizations.removedItems || []);
+        const customItems = originalOption.service_option_items
+          .filter(item => !removedSet.has(item.id))
+          .map(item => ({
+            service_option_id: existingCustom.id,
+            line_item_id: customizations.swappedItems?.[item.id] || item.line_item_id,
+            quantity: item.quantity,
+            calculation_type: item.calculation_type,
+            coverage_amount: item.coverage_amount,
+            coverage_unit: item.coverage_unit,
+            display_order: item.display_order
+          }));
+
+        // Add new items
+        if (customizations.addedItems && customizations.addedItems.length > 0) {
+          const newItems = customizations.addedItems.map((item, index) => ({
+            service_option_id: existingCustom.id,
+            line_item_id: item.line_item_id,
+            quantity: item.quantity,
+            calculation_type: item.calculation_type,
+            coverage_amount: null,
+            coverage_unit: null,
+            display_order: customItems.length + index + 1
+          }));
+          customItems.push(...newItems);
+        }
+
+        if (customItems.length > 0) {
+          const { error: itemsError } = await supabase
+            .from('service_option_items')
+            .insert(customItems);
+
+          if (itemsError) throw itemsError;
+        }
+      }
+      
       return updated;
     }
 
     // Create new customized version
+    // Extract service_option_items from originalOption before spreading
+    const { service_option_items, ...optionWithoutItems } = originalOption;
+    
     const { data: customOption, error: createError } = await supabase
       .from('service_options')
       .insert({
-        ...originalOption,
+        ...optionWithoutItems,
         id: undefined, // Let DB generate new ID
         organization_id: organizationId,
         attributes: {
@@ -943,14 +1050,15 @@ export class ServiceCatalogService {
 
     // Log the customization
     await ActivityLogService.log({
-      action: 'customize_service_option',
-      entity_type: 'service_option',
-      entity_id: customOption.id,
-      details: {
+      action: 'updated',
+      entityType: 'service_option',
+      entityId: customOption.id,
+      description: `Customized ${customOption.name}`,
+      metadata: {
         original_option_id: optionId,
         customizations
       },
-      organization_id: organizationId
+      organizationId
     });
 
     return customOption;

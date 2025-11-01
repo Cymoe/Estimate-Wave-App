@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { X, Plus, Minus, Package, Layers, Clock, Shield, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { X, Plus, Minus, Package, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 import { ServiceCatalogService, ServiceOption, Service } from '../../services/ServiceCatalogService';
 import { formatCurrency } from '../../utils/format';
 import { OrganizationContext } from '../layouts/DashboardLayout';
@@ -69,7 +69,7 @@ export const CreatePackageDrawer: React.FC<CreatePackageDrawerProps> = ({
       
       setServices(servicesWithOptions);
     } catch (error) {
-      console.error('Error loading services:', error);
+      // Error loading services
     } finally {
       setIsLoading(false);
     }
@@ -188,7 +188,7 @@ export const CreatePackageDrawer: React.FC<CreatePackageDrawerProps> = ({
       onSuccess();
       handleClose();
     } catch (error) {
-      console.error('Error creating package:', error);
+      // Error creating package
     } finally {
       setIsSaving(false);
     }

@@ -10,7 +10,7 @@ export class LineItemService {
   static async list(organizationId: string): Promise<LineItem[]> {
     // Use the optimized database function
     const { data, error } = await supabase
-      .rpc('get_organization_line_items', { 
+      .rpc('get_organization_line_items_filtered', { 
         p_organization_id: organizationId 
       });
 
@@ -25,22 +25,27 @@ export class LineItemService {
       name: row.name,
       description: row.description,
       cost_code_id: row.cost_code_id,
-      price: row.price, // This is already the override price if one exists
+      cost_code: row.cost_code, // Include the full cost_code object with category from database function
+      price: row.price || row.base_price, // Use base_price if price not yet migrated
+      base_price: row.base_price || row.price,
+      red_line_price: row.red_line_price,
+      cap_price: row.cap_price,
+      pricing_factors: row.pricing_factors,
       unit: row.unit,
       is_active: row.is_active,
       created_at: row.created_at,
       updated_at: row.updated_at,
       organization_id: row.organization_id,
       user_id: row.user_id || '', // Add user_id field
-      cost_code: row.cost_code_name ? {
-        name: row.cost_code_name,
-        code: row.cost_code_code
-      } : undefined,
+      service_category: row.service_category, // Add service_category field
+      is_package: row.is_package,
+      package_items: row.package_items,
+      materials_list: row.materials_list, // Add materials_list field
       // Add these for UI display
-      base_price: row.base_price,
       has_override: row.has_override,
       markup_percentage: row.markup_percentage,
-      margin_percentage: row.margin_percentage
+      margin_percentage: row.margin_percentage,
+      price_position: row.price_position
     }));
 
     return lineItems;
@@ -301,6 +306,64 @@ export class LineItemService {
     if (codeNumber >= 700 && codeNumber <= 799) return 'subcontractor';
     
     return 'all';
+  }
+
+  /**
+   * Calculate price based on position within range
+   * @param redLine - Minimum price
+   * @param base - Base/default price
+   * @param cap - Maximum price
+   * @param position - Position in range (0.0 = redLine, 0.5 = base, 1.0 = cap)
+   */
+  static calculatePriceFromPosition(
+    redLine: number | undefined,
+    base: number,
+    cap: number | undefined,
+    position: number = 0.5
+  ): number {
+    // If no range defined, return base price
+    if (!redLine || !cap) return base;
+    
+    // Ensure position is within bounds
+    position = Math.max(0, Math.min(1, position));
+    
+    // Linear interpolation
+    if (position <= 0.5) {
+      // Between red line and base
+      return redLine + (base - redLine) * (position * 2);
+    } else {
+      // Between base and cap
+      return base + (cap - base) * ((position - 0.5) * 2);
+    }
+  }
+
+  /**
+   * Calculate position from price within range
+   * @param redLine - Minimum price
+   * @param base - Base/default price
+   * @param cap - Maximum price
+   * @param price - Current price
+   */
+  static calculatePositionFromPrice(
+    redLine: number | undefined,
+    base: number,
+    cap: number | undefined,
+    price: number
+  ): number {
+    // If no range defined, return 0.5 (base position)
+    if (!redLine || !cap) return 0.5;
+    
+    // Determine position based on price
+    if (price <= redLine) return 0;
+    if (price >= cap) return 1;
+    
+    if (price <= base) {
+      // Between red line and base
+      return (price - redLine) / (base - redLine) * 0.5;
+    } else {
+      // Between base and cap
+      return 0.5 + (price - base) / (cap - base) * 0.5;
+    }
   }
 
   /**

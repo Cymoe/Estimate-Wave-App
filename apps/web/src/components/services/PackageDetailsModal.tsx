@@ -2,8 +2,6 @@ import React from 'react';
 import { 
   X, 
   Package, 
-  ChevronRight,
-  DollarSign,
   Clock,
   Shield,
   CheckCircle,

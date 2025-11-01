@@ -94,7 +94,7 @@ export const SubcontractorDetailPage: React.FC = () => {
   };
 
   const handleBackClick = () => {
-    navigate('/people');
+    navigate('/team');
   };
 
   // Mock recent projects data
@@ -158,7 +158,7 @@ export const SubcontractorDetailPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#121212] flex items-center justify-center">
+      <div className="min-h-screen bg-[#000000] flex items-center justify-center">
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-[#336699] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-gray-400">Loading subcontractor data...</p>
@@ -169,7 +169,7 @@ export const SubcontractorDetailPage: React.FC = () => {
 
   if (error || !subcontractor) {
     return (
-      <div className="min-h-screen bg-[#121212] flex items-center justify-center">
+      <div className="min-h-screen bg-[#000000] flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 bg-[#333333] rounded-[4px] flex items-center justify-center mx-auto mb-4">
             <HardHat className="w-8 h-8 text-gray-400" />
@@ -188,7 +188,7 @@ export const SubcontractorDetailPage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#121212] text-gray-300 overflow-x-hidden">
+    <div className="min-h-screen bg-[#000000] text-gray-300 overflow-x-hidden">
       {/* Header */}
       <div className="px-6 py-4">
         <div className="flex items-center justify-between min-w-0 mb-6">

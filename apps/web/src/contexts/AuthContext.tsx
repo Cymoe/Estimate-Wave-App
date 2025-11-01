@@ -1,6 +1,19 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import { supabase } from "../lib/supabase";
-import { Session, User } from "@supabase/supabase-js";
+// Supabase removed - using mock auth for now
+// import { supabase } from "../lib/supabase";
+// import { Session, User } from "@supabase/supabase-js";
+
+// Mock types to replace Supabase
+type User = {
+  id: string;
+  email?: string;
+  user_metadata?: Record<string, any>;
+};
+
+type Session = {
+  user: User;
+  access_token: string;
+};
 
 interface AuthContextType {
   user: User | null;
@@ -18,6 +31,31 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    // TEMPORARY: Skip auth for development (Supabase is paused)
+    // TODO: Remove this when Supabase is restored or JWT auth is implemented
+    const SKIP_AUTH = true;
+    
+    if (SKIP_AUTH) {
+      // Create a mock user for development
+      const mockUser = {
+        id: 'dev-user-123',
+        email: '2mylescameron@gmail.com',
+        user_metadata: {
+          full_name: 'Myles Cameron',
+        },
+      } as User;
+      
+      const mockSession = {
+        user: mockUser,
+        access_token: 'dev-token',
+      } as Session;
+      
+      setUser(mockUser);
+      setSession(mockSession);
+      setIsLoading(false);
+      return;
+    }
+    
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);

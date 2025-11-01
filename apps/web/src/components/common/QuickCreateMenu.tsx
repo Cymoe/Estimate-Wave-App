@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CreateProjectWizard } from '../projects/CreateProjectWizard';
 
 interface QuickCreateOption {
   id: string;
@@ -20,18 +19,21 @@ interface Props {
 export const QuickCreateMenu: React.FC<Props> = ({ isOpen, onClose, showInvoiceDrawer, setShowInvoiceDrawer }) => {
   const navigate = useNavigate();
   const [selectedIndex, setSelectedIndex] = useState(-1);
-  const [showProjectWizard, setShowProjectWizard] = useState(false);
 
   const options: QuickCreateOption[] = [
     {
-      id: 'project',
-      name: 'Project',
-      icon: 'P',
-      shortcut: '⌘⇧P',
-      action: () => {
-        setShowProjectWizard(true);
-        // Don't close the menu yet - let the wizard handle it
-      }
+      id: 'sales-mode',
+      name: 'Quick Quote',
+      icon: '⚡',
+      shortcut: '⌘⇧Q',
+      action: () => navigate('/sales-mode')
+    },
+    {
+      id: 'estimate',
+      name: 'Full Estimate',
+      icon: '📋',
+      shortcut: '⌘⇧E',
+      action: () => navigate('/work')
     },
     {
       id: 'client',
@@ -51,27 +53,6 @@ export const QuickCreateMenu: React.FC<Props> = ({ isOpen, onClose, showInvoiceD
         // Then close the menu after a short delay to ensure state updates
         setTimeout(() => onClose(), 100);
       }
-    },
-    {
-      id: 'lineitem',
-      name: 'Line Item',
-      icon: '+',
-      shortcut: '⌘⇧L',
-      action: () => console.log('Create line item')
-    },
-    {
-      id: 'product',
-      name: 'Product',
-      icon: '📦',
-      shortcut: '⌘⇧D',
-      action: () => console.log('Create product')
-    },
-    {
-      id: 'template',
-      name: 'Template',
-      icon: '📋',
-      shortcut: '⌘⇧T',
-      action: () => console.log('Create template')
     }
   ];
 
@@ -131,8 +112,8 @@ export const QuickCreateMenu: React.FC<Props> = ({ isOpen, onClose, showInvoiceD
 
   const handleOptionClick = (option: QuickCreateOption) => {
     option.action();
-    // Only close for non-project and non-invoice options
-    if (option.id !== 'project' && option.id !== 'invoice') {
+    // Only close for non-invoice options
+    if (option.id !== 'invoice') {
       onClose();
     }
   };
@@ -193,14 +174,6 @@ export const QuickCreateMenu: React.FC<Props> = ({ isOpen, onClose, showInvoiceD
         </div>
       </div>
       
-      {/* Create Project Wizard */}
-      <CreateProjectWizard 
-        isOpen={showProjectWizard} 
-        onClose={() => {
-          setShowProjectWizard(false);
-          onClose(); // Also close the QuickCreateMenu
-        }} 
-      />
     </>
   );
 }; 

@@ -70,7 +70,7 @@ export class PricingModesService {
       .order('usage_count', { ascending: false });
 
     if (error) {
-      console.error('Error fetching pricing modes:', error);
+      // Error fetching pricing modes
       throw error;
     }
 
@@ -95,7 +95,7 @@ export class PricingModesService {
       .order('name');
 
     if (error) {
-      console.error('Error fetching preset pricing modes:', error);
+      // Error fetching preset pricing modes
       throw error;
     }
 
@@ -120,7 +120,7 @@ export class PricingModesService {
       .single();
 
     if (error) {
-      console.error('Error creating pricing mode:', error);
+      // Error creating pricing mode
       throw error;
     }
 
@@ -156,7 +156,7 @@ export class PricingModesService {
 
     // For Reset to Baseline, we need a different approach
     if (mode.name === 'Reset to Baseline') {
-      console.log('[Reset to Baseline] Starting preview for organization:', organizationId);
+      // Starting preview for organization
       
       // First get all overrides for this organization
       const { data: overrides, error: overridesError } = await supabase
@@ -165,11 +165,11 @@ export class PricingModesService {
         .eq('organization_id', organizationId);
 
       if (overridesError) {
-        console.error('Error fetching overrides:', overridesError);
+        // Error fetching overrides
         throw overridesError;
       }
 
-      console.log('[Reset to Baseline] Found overrides:', overrides?.length || 0);
+      // Found overrides
 
       if (!overrides || overrides.length === 0) {
         return []; // No overrides to reset
@@ -178,15 +178,15 @@ export class PricingModesService {
       // Filter by selected line items if provided
       let relevantOverrides = overrides;
       if (lineItemIds && lineItemIds.length > 0) {
-        console.log('[Reset to Baseline] Filtering to selected items:', lineItemIds.length);
+        // Filtering to selected items
         relevantOverrides = overrides.filter(o => lineItemIds.includes(o.line_item_id));
-        console.log('[Reset to Baseline] Relevant overrides after filtering:', relevantOverrides.length);
+        // Relevant overrides after filtering
       } else {
-        console.log('[Reset to Baseline] No specific items selected - will reset ALL overrides');
+        // No specific items selected - will reset ALL overrides
       }
 
       if (relevantOverrides.length === 0) {
-        console.log('[Reset to Baseline] No relevant overrides to reset');
+        // No relevant overrides to reset
         return []; // No relevant overrides to reset
       }
 
@@ -204,14 +204,14 @@ export class PricingModesService {
           .in('id', batch);
         
         if (error) {
-          console.error('[Reset to Baseline] Error fetching line items batch:', error);
+          // [Reset to Baseline] Error fetching line items batch
           throw error;
         }
         
         lineItems = lineItems.concat(data || []);
       }
 
-      console.log('[Reset to Baseline] Fetched line items:', lineItems.length);
+      // Fetched line items
 
       // Get cost codes in batches
       const costCodeIds = [...new Set(lineItems?.map(item => item.cost_code_id).filter(Boolean) || [])];
@@ -226,7 +226,7 @@ export class PricingModesService {
             .in('id', batch);
           
           if (error) {
-            console.error('[Reset to Baseline] Error fetching cost codes:', error);
+            // [Reset to Baseline] Error fetching cost codes
           }
           
           costCodes = costCodes.concat(data || []);
@@ -272,7 +272,7 @@ export class PricingModesService {
           .in('id', batch);
         
         if (error) {
-          console.error('Error fetching line items batch:', error);
+          // Error fetching line items batch
           throw error;
         }
         
@@ -286,7 +286,7 @@ export class PricingModesService {
         .or(`organization_id.eq.${organizationId},organization_id.is.null`);
       
       if (error) {
-        console.error('Error fetching all line items:', error);
+        // Error fetching all line items
         throw error;
       }
       
@@ -461,7 +461,7 @@ export class PricingModesService {
           });
 
         if (error) {
-          console.error('Error applying pricing mode batch:', error);
+          // Error applying pricing mode batch
           result.failedCount += batch.length;
           
           // Track which specific items failed
@@ -507,7 +507,7 @@ export class PricingModesService {
       
       return result;
     } catch (error) {
-      console.error('Unexpected error in applyModeWithErrorHandling:', error);
+      // Unexpected error in applyModeWithErrorHandling
       result.failedCount = result.totalAttempted - result.successCount;
       return result;
     }
@@ -559,7 +559,7 @@ export class PricingModesService {
       const { error } = await deleteQuery;
       
       if (error) {
-        console.error('Error resetting to baseline:', error);
+        // Error resetting to baseline
         throw error;
       }
       
@@ -594,19 +594,15 @@ export class PricingModesService {
         });
 
       if (error) {
-        console.error('Error applying pricing mode batch:', error);
-        console.error('Batch details:', { 
-          batchIndex: i / batchSize, 
-          batchSize: batch.length,
-          firstItem: batch[0]?.name 
-        });
+        // Error applying pricing mode batch
+        // Batch application failed - see error above
         throw error;
       }
 
       appliedCount += batch.length;
     }
     
-    console.log(`Successfully applied ${appliedCount} price changes for mode: ${mode?.name || modeId}`);
+    // Successfully applied price changes
 
     // Update mode usage count - fetch current count and increment
     const { data: modeData } = await supabase
@@ -662,7 +658,7 @@ export class PricingModesService {
       .eq('id', modeId);
 
     if (error) {
-      console.error('Error recording estimate outcome:', error);
+      // Error recording estimate outcome
       throw error;
     }
   }
@@ -679,7 +675,7 @@ export class PricingModesService {
       .eq('is_preset', false);
 
     if (error) {
-      console.error('Error deleting pricing mode:', error);
+      // Error deleting pricing mode
       throw error;
     }
 
@@ -760,19 +756,19 @@ export class PricingModesService {
 
     if (error || useInlineProcessing) {
       if (error) {
-        console.error('Error invoking pricing job function:', error);
+        // Error invoking pricing job function
       } else {
-        console.log('Using inline processing (Edge Function not deployed)');
+        // Using inline processing (Edge Function not deployed)
       }
       
       // Mark as processing only if we're going to process inline
       await jobQueue.markAsProcessing(jobId);
       // Fallback to inline processing if Edge Function fails
-      console.log('Starting inline processing for job:', jobId);
+      // Starting inline processing for job
       this.processJobInBackground(jobId, organizationId, modeId, lineItemIds);
     } else {
       // Edge function will handle marking as processing
-      console.log('Edge function invoked successfully for job:', jobId, data);
+      // Edge function invoked successfully
     }
 
     return jobId;
@@ -792,12 +788,12 @@ export class PricingModesService {
     // Process in next tick to avoid blocking
     setTimeout(async () => {
       try {
-        console.log('Starting inline job processing for job:', jobId);
+        // Starting inline job processing
         
         // Check if job is still active before processing
         const currentJob = await jobQueue.getJob(jobId);
         if (!currentJob || currentJob.status !== 'processing') {
-          console.log(`Job ${jobId} is no longer active, skipping processing`);
+          // Job is no longer active, skipping processing
           return;
         }
         
@@ -809,22 +805,22 @@ export class PricingModesService {
             // Check if job is still active
             const job = await jobQueue.getJob(jobId);
             if (!job || job.status !== 'processing') {
-              console.log(`Job ${jobId} cancelled or completed elsewhere`);
+              // Job cancelled or completed elsewhere
               throw new Error('Job cancelled');
             }
             
             // Update job progress
-            console.log(`Job ${jobId} progress: ${current}/${total}`);
+            // Job progress update
             try {
               await jobQueue.updateProgress(jobId, { current, total });
             } catch (error) {
-              console.error(`Failed to update progress for job ${jobId}:`, error);
+              // Failed to update progress for job
               throw error;
             }
           }
         );
 
-        console.log(`Job ${jobId} completed:`, result);
+        // Job completed
         
         // Mark job as completed
         await jobQueue.markAsCompleted(jobId, {
@@ -833,7 +829,7 @@ export class PricingModesService {
           failed_items: result.failedItems
         });
       } catch (error) {
-        console.error('Error processing pricing job:', error);
+        // Error processing pricing job
         
         // Don't try to update if job was cancelled
         if (error instanceof Error && error.message === 'Job cancelled') {
@@ -867,7 +863,7 @@ export class PricingModesService {
       const jobAge = now - new Date(job.created_at).getTime();
       // If job is older than 10 minutes with no progress, mark it as failed
       if (jobAge > 10 * 60 * 1000 && job.processed_items === 0) {
-        console.log('Cleaning up stale job:', job.id);
+        // Cleaning up stale job
         await jobQueue.markAsFailed(job.id, 'Job timed out - no progress after 10 minutes');
       }
     }
@@ -892,7 +888,7 @@ export class PricingModesService {
     if (job.operation_type === 'undo_pricing') {
       const { previous_prices } = job.job_data;
       if (!previous_prices) {
-        console.error('No previous_prices in undo job data');
+        // No previous_prices in undo job data
         await jobQueue.markAsFailed(jobId, 'Missing previous_prices in job data');
         return;
       }
@@ -902,7 +898,7 @@ export class PricingModesService {
     } else {
       const { mode_id, line_item_ids } = job.job_data;
       if (!mode_id) {
-        console.error('No mode_id in job data');
+        // No mode_id in job data
         await jobQueue.markAsFailed(jobId, 'Missing mode_id in job data');
         return;
       }
@@ -981,12 +977,12 @@ export class PricingModesService {
   ): Promise<void> {
     setTimeout(async () => {
       try {
-        console.log('Processing undo job:', jobId);
+        // Processing undo job
         
         // Check if job is still active
         const currentJob = await jobQueue.getJob(jobId);
         if (!currentJob || currentJob.status !== 'processing') {
-          console.log(`Undo job ${jobId} is no longer active`);
+          // Undo job is no longer active
           return;
         }
 
@@ -1007,7 +1003,7 @@ export class PricingModesService {
             .in('id', batch);
           
           if (error) {
-            console.error('Error fetching line items:', error);
+            // Error fetching line items
           } else {
             originalItems = originalItems.concat(data || []);
           }
@@ -1079,7 +1075,7 @@ export class PricingModesService {
             });
           
           if (error) {
-            console.error('Error restoring prices:', error);
+            // Error restoring prices
             failedCount += batch.length;
             batch.forEach(item => {
               const original = originalMap.get(item.lineItemId);
@@ -1101,7 +1097,7 @@ export class PricingModesService {
           });
         }
         
-        console.log(`Undo job ${jobId} completed:`, { successCount, failedCount });
+        // Undo job completed
         
         // Mark as completed
         await jobQueue.markAsCompleted(jobId, {
@@ -1111,7 +1107,7 @@ export class PricingModesService {
         });
         
       } catch (error) {
-        console.error('Error processing undo job:', error);
+        // Error processing undo job
         
         if (error instanceof Error && error.message === 'Job cancelled') {
           return;

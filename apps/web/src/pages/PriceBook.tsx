@@ -9,11 +9,13 @@ import {
 } from 'lucide-react';
 import { PriceBook as ItemsPage } from '../components/price-book/PriceBook';
 import CostCodesPage from './CostCodesPage';
-import { LineItemService } from '../services/LineItemService';
-import { CostCodeService } from '../services/CostCodeService';
+// import { LineItemService } from '../services/LineItemService'; // Old Supabase
+// import { CostCodeService } from '../services/CostCodeService'; // Old Supabase
+import { MongoLineItemService as LineItemService } from '../services/MongoLineItemService'; // MongoDB version
 import { useAuth } from '../contexts/AuthContext';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
-import { supabase } from '../lib/supabase';
+// import { supabase } from '../lib/supabase'; // Removed
+import { costCodesAPI } from '../lib/api';
 
 type TabType = 'items' | 'cost-codes';
 
@@ -101,7 +103,7 @@ export const PriceBook: React.FC = () => {
     try {
       const [lineItemsData, costCodesData] = await Promise.all([
         LineItemService.list(selectedOrg.id),
-        CostCodeService.list(selectedOrg.id)
+        costCodesAPI.list({ isActive: true })
       ]);
 
       setStats({
@@ -147,109 +149,89 @@ export const PriceBook: React.FC = () => {
     }, 100);
   };
 
+  // Render items tab without wrapper for full-screen layout
+  if (activeTab === 'items') {
+    return <ItemsPage key="items-tab" triggerAddItem={triggerAddItem} />;
+  }
+
   return (
     <div className="max-w-[1600px] mx-auto p-8">
       {/* Single Unified Card */}
       <div className="bg-transparent border border-[#333333]">
-        {/* Header Section */}
-        <div className="px-6 py-5 flex items-center justify-between">
-          <h1 className="text-xl font-semibold text-white">Price Book</h1>
-          
-          <div className="flex items-center gap-5">
-            <div className="relative">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                placeholder={`Search ${activeTab}...`}
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                className="bg-[#1E1E1E] border border-[#333333] pl-10 pr-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699] w-[300px]"
-              />
+        {/* Tabs Navigation */}
+        <div>
+          <div className="flex items-center justify-between">
+            <div className="flex">
+              <button
+                onClick={() => handleTabChange('items')}
+                className={`px-6 py-4 text-sm font-medium transition-colors relative flex items-center justify-center gap-2 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[2px] after:transition-colors ${
+                  activeTab === 'items'
+                    ? 'text-white after:bg-[#336699] bg-[#1A1A1A]'
+                    : 'text-gray-500 hover:text-gray-400 after:bg-transparent hover:after:bg-[#336699] hover:bg-[#1A1A1A]/50'
+                }`}
+              >
+                <ShoppingCart className="w-4 h-4" />
+                Items
+                <span className="text-xs text-gray-500 ml-1">
+                  {loading ? (
+                    <span className="inline-block w-4 h-4 border border-gray-500 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    `(${stats.itemsCount})`
+                  )}
+                </span>
+              </button>
+              <button
+                onClick={() => handleTabChange('cost-codes')}
+                className={`px-6 py-4 text-sm font-medium transition-colors relative flex items-center justify-center gap-2 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[2px] after:transition-colors ${
+                  activeTab === 'cost-codes'
+                    ? 'text-white after:bg-[#336699] bg-[#1A1A1A]'
+                    : 'text-gray-500 hover:text-gray-400 after:bg-transparent hover:after:bg-[#336699] hover:bg-[#1A1A1A]/50'
+                }`}
+              >
+                <List className="w-4 h-4" />
+                Cost Codes
+                <span className="text-xs text-gray-500 ml-1">
+                  {loading ? (
+                    <span className="inline-block w-4 h-4 border border-gray-500 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    `(${stats.costCodesCount})`
+                  )}
+                </span>
+              </button>
             </div>
             
-            <button
-              onClick={handleAddClick}
-              disabled={isAddingItem}
-              className="bg-white hover:bg-gray-100 text-black px-5 py-2.5 text-sm font-medium transition-colors flex items-center gap-2 w-[150px] justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isAddingItem ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
-                  <span>Loading...</span>
-                </>
-              ) : (
-                <>
-                  <Plus className="w-4 h-4" />
-                  <span>{getAddButtonText()}</span>
-                </>
-              )}
-            </button>
+            {/* Add button for cost-codes tab */}
+            {activeTab === 'cost-codes' && (
+              <button
+                onClick={handleAddClick}
+                disabled={isAddingItem}
+                className="bg-white hover:bg-gray-100 text-black px-5 py-2 text-sm font-medium transition-colors flex items-center gap-2 mr-4 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isAddingItem ? (
+                  <>
+                    <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                    <span>Loading...</span>
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-4 h-4" />
+                    <span>Add Code</span>
+                  </>
+                )}
+              </button>
+            )}
           </div>
         </div>
-
-
-        {/* Tabs Navigation */}
-        <div className="border-t border-[#333333]">
-          <div className="flex">
-            <button
-              onClick={() => handleTabChange('items')}
-              className={`flex-1 px-6 py-4 text-sm font-medium transition-colors relative flex items-center justify-center gap-2 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[2px] after:transition-colors ${
-                activeTab === 'items'
-                  ? 'text-white after:bg-[#336699] bg-[#1A1A1A]'
-                  : 'text-gray-500 hover:text-gray-400 after:bg-transparent hover:after:bg-[#336699] hover:bg-[#1A1A1A]/50'
-              }`}
-            >
-              <ShoppingCart className="w-4 h-4" />
-              Items
-              <span className="text-xs text-gray-500 ml-1">
-                {loading ? (
-                  <span className="inline-block w-4 h-4 border border-gray-500 border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  `(${stats.itemsCount})`
-                )}
-              </span>
-            </button>
-            <button
-              onClick={() => handleTabChange('cost-codes')}
-              className={`flex-1 px-6 py-4 text-sm font-medium transition-colors relative flex items-center justify-center gap-2 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[2px] after:transition-colors ${
-                activeTab === 'cost-codes'
-                  ? 'text-white after:bg-[#336699] bg-[#1A1A1A]'
-                  : 'text-gray-500 hover:text-gray-400 after:bg-transparent hover:after:bg-[#336699] hover:bg-[#1A1A1A]/50'
-              }`}
-            >
-              <List className="w-4 h-4" />
-              Cost Codes
-              <span className="text-xs text-gray-500 ml-1">
-                {loading ? (
-                  <span className="inline-block w-4 h-4 border border-gray-500 border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  `(${stats.costCodesCount})`
-                )}
-              </span>
-            </button>
-          </div>
-        </div>
-
       </div>
 
-      {/* Content Area - Visually connected but separate to avoid nested cards */}
+      {/* Content Area for Cost Codes - with wrapper */}
       <div className="-mt-[1px]">
-        {activeTab === 'items' && (
-          <div className="[&>div]:border-t-0 [&>div]:pt-0 [&>div>div]:border-t-0">
-            <ItemsPage 
-              key="items-tab" 
-              triggerAddItem={triggerAddItem}
-            />
-          </div>
-        )}
-        {activeTab === 'cost-codes' && (
-          <div className="[&>div]:border-t-0 [&>div]:pt-0 [&>div>div]:border-t-0">
-            <CostCodesPage 
-              key="cost-codes-tab" 
-              triggerAddCostCode={triggerAddCostCode}
-            />
-          </div>
-        )}
+        <div className="[&>div]:border-t-0 [&>div]:pt-0 [&>div>div]:border-t-0">
+          <CostCodesPage 
+            key="cost-codes-tab" 
+            triggerAddCostCode={triggerAddCostCode}
+          />
+        </div>
       </div>
     </div>
   );

@@ -42,11 +42,6 @@ export const CustomizeServiceOptionModal: React.FC<CustomizeServiceOptionModalPr
 
   useEffect(() => {
     if (serviceOption && isOpen) {
-      console.log('CustomizeServiceOptionModal opened with:', {
-        serviceOption,
-        organizationId
-      });
-      
       // Check if there's already a custom version
       checkExistingCustomization();
       
@@ -61,12 +56,6 @@ export const CustomizeServiceOptionModal: React.FC<CustomizeServiceOptionModalPr
     if (!serviceOption || !organizationId) return;
 
     try {
-      console.log('Checking for existing customization with:', {
-        organization_id: organizationId,
-        name: serviceOption.name,
-        service_id: serviceOption.service_id
-      });
-      
       const { data, error } = await supabase
         .from('service_options')
         .select('*')
@@ -76,16 +65,15 @@ export const CustomizeServiceOptionModal: React.FC<CustomizeServiceOptionModalPr
         .maybeSingle();
 
       if (error) {
-        console.error('Error in checkExistingCustomization query:', error);
+        // Error in checkExistingCustomization query
       }
 
       if (data) {
-        console.log('Found existing customization:', data);
         setExistingCustom(data);
         setCustomPrice(data.price.toString());
       }
     } catch (err) {
-      console.error('Error checking existing customization:', err);
+      // Error checking existing customization
     }
   };
 
@@ -106,7 +94,7 @@ export const CustomizeServiceOptionModal: React.FC<CustomizeServiceOptionModalPr
       // If this service option already belongs to this organization, just update it
       if (serviceOption.organization_id === organizationId || existingCustom) {
         const idToUpdate = existingCustom?.id || serviceOption.id;
-        console.log('Service already belongs to org or custom exists, updating:', idToUpdate);
+        // Debug -'Service already belongs to org or custom exists, updating:', idToUpdate);
         
         const { error: updateError } = await supabase
           .from('service_options')
@@ -143,7 +131,6 @@ export const CustomizeServiceOptionModal: React.FC<CustomizeServiceOptionModalPr
           updated_at: new Date().toISOString()
         };
 
-        console.log('Attempting to insert custom service option:', customServiceOption);
         
         // First check if a custom version already exists for this organization
         const { data: existingOptions } = await supabase
@@ -153,11 +140,9 @@ export const CustomizeServiceOptionModal: React.FC<CustomizeServiceOptionModalPr
           .eq('service_id', serviceOption.service_id)
           .eq('organization_id', organizationId);
         
-        console.log('Checking for existing custom version:', existingOptions);
         
         if (existingOptions && existingOptions.length > 0) {
           // Custom version already exists, just update the price
-          console.log('Updating existing custom option');
           
           const { error: updateError } = await supabase
             .from('service_options')
@@ -218,7 +203,7 @@ export const CustomizeServiceOptionModal: React.FC<CustomizeServiceOptionModalPr
         onClose();
       }, 1500);
     } catch (err) {
-      console.error('Error saving custom pricing:', err);
+      // Error saving custom pricing
       setError('Failed to save custom pricing. Please try again.');
     } finally {
       setIsLoading(false);

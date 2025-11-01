@@ -16,7 +16,6 @@ import {
   Paintbrush,
   CheckCircle,
   HardHat,
-  Hammer,
   Package
 } from 'lucide-react';
 
@@ -40,6 +39,46 @@ interface ServiceAttributeFiltersProps {
 
 // Industry-specific filter configurations
 const filterConfigs: Record<string, FilterConfig[]> = {
+  'all industries': [
+    {
+      key: 'warranty_months',
+      label: 'Minimum Warranty',
+      type: 'range',
+      min: 0,
+      max: 60,
+      step: 6,
+      unit: 'months',
+      icon: <Shield className="w-4 h-4" />
+    },
+    {
+      key: 'permit_required',
+      label: 'Permit Required',
+      type: 'boolean',
+      icon: <HardHat className="w-4 h-4" />
+    },
+    {
+      key: 'material_quality',
+      label: 'Material Quality',
+      type: 'multi-select',
+      options: [
+        { value: 'economy', label: 'Economy' },
+        { value: 'standard', label: 'Standard' },
+        { value: 'premium', label: 'Premium' },
+        { value: 'luxury', label: 'Luxury' }
+      ],
+      icon: <Layers className="w-4 h-4" />
+    },
+    {
+      key: 'price_range',
+      label: 'Price Range',
+      type: 'range',
+      min: 0,
+      max: 1000,
+      step: 50,
+      unit: '$',
+      icon: <DollarSign className="w-4 h-4" />
+    }
+  ],
   hvac: [
     {
       key: 'btu',
@@ -716,13 +755,16 @@ export const ServiceAttributeFilters: React.FC<ServiceAttributeFiltersProps> = (
     onFiltersChange({});
   };
 
-  if (filters.length === 0) return null;
-
   return (
     <div className="mb-4">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center gap-2 px-3 py-1.5 bg-[#252525] border border-[#333333] rounded text-sm text-gray-300 hover:border-[#336699] transition-colors"
+        className={`flex items-center gap-2 px-3 py-1.5 bg-[#22272d] border border-[#333333] rounded text-sm transition-colors ${
+          filters.length === 0 
+            ? 'text-gray-600 cursor-not-allowed' 
+            : 'text-gray-300 hover:border-[#336699] cursor-pointer'
+        }`}
+        disabled={filters.length === 0}
       >
         <Filter className="w-4 h-4" />
         <span>Filters</span>
@@ -731,11 +773,13 @@ export const ServiceAttributeFilters: React.FC<ServiceAttributeFiltersProps> = (
             {activeFilterCount}
           </span>
         )}
-        <ChevronDown className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+        {filters.length > 0 && (
+          <ChevronDown className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+        )}
       </button>
 
-      {isExpanded && (
-        <div className="mt-3 p-4 bg-[#1A1A1A] border border-[#333333] rounded">
+      {isExpanded && filters.length > 0 && (
+        <div className="mt-3 p-4 bg-[#1D1F25] border border-[#333333] rounded">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-medium text-white">Filter by Specifications</h3>
             {activeFilterCount > 0 && (
@@ -784,7 +828,7 @@ export const ServiceAttributeFilters: React.FC<ServiceAttributeFiltersProps> = (
                       type="checkbox"
                       checked={activeFilters[filter.key] || false}
                       onChange={(e) => handleFilterChange(filter.key, e.target.checked)}
-                      className="w-4 h-4 bg-[#252525] border-[#333333] text-[#336699] rounded focus:ring-[#336699]"
+                      className="w-4 h-4 bg-[#22272d] border-[#333333] text-[#336699] rounded focus:ring-[#336699]"
                     />
                     <span className="text-sm text-gray-300">Only certified</span>
                   </label>
@@ -794,7 +838,7 @@ export const ServiceAttributeFilters: React.FC<ServiceAttributeFiltersProps> = (
                   <select
                     value={activeFilters[filter.key] || ''}
                     onChange={(e) => handleFilterChange(filter.key, e.target.value)}
-                    className="w-full px-2 py-1.5 bg-[#252525] border border-[#333333] rounded text-sm text-white focus:outline-none focus:border-[#336699]"
+                    className="w-full px-2 py-1.5 bg-[#22272d] border border-[#333333] rounded text-sm text-white focus:outline-none focus:border-[#336699]"
                   >
                     <option value="">All</option>
                     {filter.options?.map(option => (
@@ -819,7 +863,7 @@ export const ServiceAttributeFilters: React.FC<ServiceAttributeFiltersProps> = (
                               : current.filter((v: string) => v !== option.value);
                             handleFilterChange(filter.key, newValue.length > 0 ? newValue : null);
                           }}
-                          className="w-4 h-4 bg-[#252525] border-[#333333] text-[#336699] rounded"
+                          className="w-4 h-4 bg-[#22272d] border-[#333333] text-[#336699] rounded"
                         />
                         <span className="text-sm text-gray-300">{option.label}</span>
                       </label>

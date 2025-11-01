@@ -122,14 +122,13 @@ export const ServiceCatalog: React.FC<ServiceCatalogProps> = ({ triggerAddServic
       // Start with all categories collapsed
       setExpandedCategories(new Set());
     } catch (error) {
-      console.error('Error loading services:', error);
+      // Error loading services
     } finally {
       setIsLoading(false);
     }
   };
 
   const toggleService = async (serviceId: string) => {
-    console.log('Toggling service:', serviceId);
     const newExpanded = new Set(expandedServices);
     if (newExpanded.has(serviceId)) {
       newExpanded.delete(serviceId);
@@ -140,12 +139,9 @@ export const ServiceCatalog: React.FC<ServiceCatalogProps> = ({ triggerAddServic
       
       // Load options if not already loaded
       const service = services.find(s => s.id === serviceId);
-      console.log('Found service:', service);
       if (service && !service.options) {
         try {
-          console.log('Loading options for service:', serviceId);
           const data = await ServiceCatalogService.getServiceWithOptions(serviceId);
-          console.log('Loaded options:', data.options);
           
           // Update the services state with the loaded options
           setServices(prevServices => 
@@ -182,7 +178,7 @@ export const ServiceCatalog: React.FC<ServiceCatalogProps> = ({ triggerAddServic
             };
           });
         } catch (error) {
-          console.error('Error loading service options:', error);
+          // Error loading service options
         }
       }
     }
@@ -278,20 +274,20 @@ export const ServiceCatalog: React.FC<ServiceCatalogProps> = ({ triggerAddServic
   }).sort((a, b) => a.name.localeCompare(b.name));
 
   return (
-    <div className="flex-1 bg-[#0A0A0A]">
+    <div className="flex-1 bg-[#1D1F25]">
 
 
       {/* Content */}
       <div className="border-t border-[#333333]">
         {/* Expand/Collapse All Button */}
         {!isLoading && services.length > 0 && industries.length > 0 && (
-          <div className="px-6 py-3 bg-[#1A1A1A] border-b border-[#333333] flex items-center justify-between">
+          <div className="px-6 py-3 bg-[#1D1F25] border-b border-[#333333] flex items-center justify-between">
             <div className="text-sm text-gray-400">
               {industries.length} {industries.length === 1 ? 'industry' : 'industries'} with services
             </div>
             <button
               onClick={areAllExpanded ? collapseAllIndustries : expandAllIndustries}
-              className="px-3 py-1.5 text-sm text-[#336699] hover:text-[#4477aa] hover:bg-[#252525] rounded transition-colors flex items-center gap-2"
+              className="px-3 py-1.5 text-sm text-[#336699] hover:text-[#4477aa] hover:bg-[#22272d] rounded transition-colors flex items-center gap-2"
             >
               <ChevronDown className={`w-4 h-4 transition-transform ${areAllExpanded ? '' : '-rotate-90'}`} />
               {areAllExpanded ? 'Collapse All' : 'Expand All'}
@@ -336,7 +332,7 @@ export const ServiceCatalog: React.FC<ServiceCatalogProps> = ({ triggerAddServic
                   {/* Industry Header - Clickable */}
                   <button
                     onClick={() => toggleIndustry(industry.id)}
-                    className="w-full px-6 py-4 bg-[#1A1A1A] hover:bg-[#222222] transition-colors flex items-center justify-between group"
+                    className="w-full px-6 py-4 bg-[#1D1F25] hover:bg-[#22272d] transition-colors flex items-center justify-between group"
                   >
                     <div className="flex items-center gap-3">
                       <ChevronRight 
@@ -355,7 +351,7 @@ export const ServiceCatalog: React.FC<ServiceCatalogProps> = ({ triggerAddServic
                   
                   {/* Services for this Industry - Only show when expanded */}
                   {isExpanded && (
-                    <div className="divide-y divide-[#333333]">
+                    <div className="divide-y divide-[#333333] bg-[#1D1F25]">
                       {filtered.length === 0 ? (
                         <div className="px-6 py-8 text-center">
                           <div className="text-gray-500">
@@ -375,7 +371,7 @@ export const ServiceCatalog: React.FC<ServiceCatalogProps> = ({ triggerAddServic
                         filtered.map((service) => (
                           <div
                             key={service.id}
-                            className="px-6 py-4 hover:bg-[#1E1E1E] transition-colors"
+                            className="px-6 py-4 hover:bg-[#22272d] transition-colors"
                           >
                             <div className="flex items-center justify-between">
                               <div className="flex-1">

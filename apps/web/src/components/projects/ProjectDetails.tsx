@@ -804,13 +804,13 @@ export const ProjectDetails: React.FC = () => {
           </div>
           
           <div className="flex items-center gap-4">
-            <button className="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] border border-[#2a2a2a] text-white rounded-md hover:bg-[#2a2a2a] transition-colors">
+            <button className="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] border border-[#2a2a2a] text-white rounded-sm hover:bg-[#2a2a2a] transition-colors">
               <Share2 className="w-4 h-4" />
               <span>Share</span>
             </button>
             <button 
               onClick={() => navigate(`/projects/${project.id}/edit`)}
-              className="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] border border-[#2a2a2a] text-white rounded-md hover:bg-[#2a2a2a] transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] border border-[#2a2a2a] text-white rounded-sm hover:bg-[#2a2a2a] transition-colors"
             >
               <Edit className="w-4 h-4" />
               <span>Edit</span>
@@ -818,13 +818,13 @@ export const ProjectDetails: React.FC = () => {
             <div className="relative">
               <button
                 onClick={() => setShowMoreMenu(!showMoreMenu)}
-                className="more-menu-trigger w-10 h-10 flex items-center justify-center border border-[#2a2a2a] rounded-md hover:bg-[#1a1a1a] transition-colors"
+                className="more-menu-trigger w-10 h-10 flex items-center justify-center border border-[#2a2a2a] rounded-sm hover:bg-[#1a1a1a] transition-colors"
               >
                 <MoreVertical className="w-5 h-5" />
               </button>
               
               {showMoreMenu && (
-                <div className="more-menu absolute right-0 top-full mt-2 w-48 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-lg z-50">
+                <div className="more-menu absolute right-0 top-full mt-2 w-48 bg-[#1a1a1a] border border-[#2a2a2a] rounded-sm shadow-lg z-50">
                   <button className="w-full text-left px-4 py-3 text-sm hover:bg-[#2a2a2a] transition-colors">
                     Export Data
                   </button>

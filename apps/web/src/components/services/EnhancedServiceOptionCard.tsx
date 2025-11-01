@@ -9,7 +9,6 @@ import {
   ChevronRight,
   Award,
   Wrench,
-  AlertCircle,
   CheckCircle,
   Users
 } from 'lucide-react';
@@ -40,7 +39,6 @@ export const EnhancedServiceOptionCard: React.FC<EnhancedServiceOptionCardProps>
   option, 
   isSelected, 
   onSelect,
-  industryName,
   lineItems = [],
   layoutMode = 'default'
 }) => {
@@ -70,7 +68,7 @@ export const EnhancedServiceOptionCard: React.FC<EnhancedServiceOptionCardProps>
   };
 
   if (lineItems.length > 0) {
-    console.log('Line items for', option.name, ':', lineItems);
+    // Line items loaded
     // Group line items by category
     lineItems.filter(item => !item.is_optional).forEach(item => {
       const itemData = {
@@ -164,7 +162,7 @@ export const EnhancedServiceOptionCard: React.FC<EnhancedServiceOptionCardProps>
 
   // Layout Mode: Tabbed Categories
   const renderTabbedLayout = () => (
-    <div className="border-t border-[#333333] p-4 bg-[#1A1A1A]">
+    <div className="border-t border-[#333333] p-4 bg-[#1D1F25]">
       {/* Tab Navigation */}
       <div className="flex border-b border-[#444444] mb-4">
         {(['labor', 'materials', 'equipment', 'services'] as const).map((category) => {
@@ -226,7 +224,7 @@ export const EnhancedServiceOptionCard: React.FC<EnhancedServiceOptionCardProps>
 
   // Layout Mode: Collapsible Sections
   const renderCollapsibleLayout = () => (
-      <div className="border-t border-[#333333] p-4 bg-[#1A1A1A]">
+      <div className="border-t border-[#333333] p-4 bg-[#1D1F25]">
         <div className="space-y-2">
           {(['labor', 'materials', 'equipment', 'services'] as const).map((category) => {
             const items = categorizedItems[category];
@@ -288,7 +286,7 @@ export const EnhancedServiceOptionCard: React.FC<EnhancedServiceOptionCardProps>
 
   // Layout Mode: Summary Cards
   const renderCardsLayout = () => (
-    <div className="border-t border-[#333333] p-4 bg-[#1A1A1A]">
+    <div className="border-t border-[#333333] p-4 bg-[#1D1F25]">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         {(['labor', 'materials', 'equipment', 'services'] as const).map((category) => {
           const items = categorizedItems[category];
@@ -339,7 +337,7 @@ export const EnhancedServiceOptionCard: React.FC<EnhancedServiceOptionCardProps>
 
   // Layout Mode: Horizontal Columns
   const renderColumnsLayout = () => (
-    <div className="border-t border-[#333333] p-4 bg-[#1A1A1A]">
+    <div className="border-t border-[#333333] p-4 bg-[#1D1F25]">
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {(['labor', 'materials', 'equipment', 'services'] as const).map((category) => {
           const items = categorizedItems[category];
@@ -394,7 +392,7 @@ export const EnhancedServiceOptionCard: React.FC<EnhancedServiceOptionCardProps>
       className={`border transition-all ${
         isSelected 
           ? 'border-[#336699] bg-[#336699]/10' 
-          : 'border-[#333333] hover:border-[#444444]'
+          : 'border-[#333333] bg-[#1D1F25] hover:border-[#444444]'
       }`}
     >
       {/* Main Card Content */}
@@ -498,7 +496,7 @@ export const EnhancedServiceOptionCard: React.FC<EnhancedServiceOptionCardProps>
           {layoutMode === 'cards' && renderCardsLayout()}
           {layoutMode === 'columns' && renderColumnsLayout()}
           {layoutMode === 'default' && (
-            <div className="border-t border-[#333333] p-4 bg-[#1A1A1A]">
+            <div className="border-t border-[#333333] p-4 bg-[#1D1F25]">
               <div className="space-y-4">
                 {/* Labor */}
                 {categorizedItems.labor.length > 0 && (
@@ -650,7 +648,7 @@ export const EnhancedServiceOptionCard: React.FC<EnhancedServiceOptionCardProps>
       {/* Modal for Cards Layout */}
       {showModal && layoutMode === 'cards' && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-[#1A1A1A] border border-[#333333] rounded-lg max-w-4xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+          <div className="bg-[#1D1F25] border border-[#333333] rounded-lg max-w-4xl w-full mx-4 max-h-[80vh] overflow-y-auto">
             <div className="p-4 border-b border-[#333333] flex items-center justify-between">
               <h3 className="text-lg font-semibold text-white">{option.name} - Detailed Breakdown</h3>
               <button

@@ -109,7 +109,7 @@ export const ServicePackages: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-black">
+    <div className="min-h-screen bg-[#1D1F25]">
       {/* Header */}
       <div className="bg-[#1a1a1a] border-b border-[#333333] px-6 py-4">
         <div className="flex items-center justify-between mb-4">

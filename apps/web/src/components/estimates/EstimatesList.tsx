@@ -394,7 +394,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
     return (
       <div>
         <div className="bg-transparent border border-[#333333]">
-          <div className="text-center py-12 px-8">
+          <div className="text-center py-8 px-6">
             <div className="w-16 h-16 bg-purple-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
               <FileText className="w-8 h-8 text-purple-400" />
             </div>
@@ -437,11 +437,13 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
   }
 
   return (
-    <div>
-      {/* Unified Container */}
-      <div className="bg-transparent border border-[#333333]">
+    <div className="flex bg-[#0A0A0A]">
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col">
+        {/* Unified Container */}
+        <div className="bg-transparent border border-[#333333] flex flex-col">
         {/* Stats Section */}
-        <div className={`${isConstrained ? 'px-4 py-3' : 'px-6 py-4'} border-b border-[#333333]/50`}>
+        <div className={`${isConstrained ? 'px-4 py-1.5' : 'px-4 py-2'} border-b border-[#333333]/50`}>
           {isConstrained ? (
             <div className="grid grid-cols-4 gap-4">
               <div className="text-center">
@@ -462,7 +464,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-4 gap-6">
+            <div className="grid grid-cols-4 gap-4">
               <div>
                 <div className="text-xs text-gray-400 uppercase tracking-wider">TOTAL ESTIMATES</div>
                 <div className="text-lg font-semibold mt-1">{estimates.length}</div>
@@ -488,7 +490,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
         </div>
 
         {/* Controls Section */}
-        <div className={`${isConstrained ? 'px-4 py-3' : 'px-6 py-4'} border-b border-[#333333]/50`}>
+        <div className={`${isConstrained ? 'px-4 py-1.5' : 'px-4 py-2'} border-b border-[#333333]/50`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="relative">
@@ -598,7 +600,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-auto">
+        <div className="overflow-visible min-h-[400px] pb-32">
           {filteredEstimates.length === 0 ? (
             <div className="p-12 text-center">
               <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -624,7 +626,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
           ) : (
             <div className="overflow-x-auto">
               {/* Table Column Headers */}
-              <div className="px-6 py-3 border-b border-[#333333]/50 bg-[#1E1E1E]/50">
+              <div className="px-4 py-1.5 border-b border-[#333333]/50 bg-[#1E1E1E]/50">
                 <div className="grid grid-cols-12 gap-4 text-xs font-medium text-gray-400 uppercase tracking-wider items-center">
                   <button 
                     onClick={() => handleSort('estimate_number')}
@@ -670,14 +672,11 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
                     <div
                       key={estimate.id}
                       onClick={() => navigate(`/estimates/${estimate.id}`)}
-                      className={`group grid grid-cols-12 gap-4 px-6 ${viewMode === 'compact' ? 'py-2' : 'py-4'} items-center hover:bg-[#1A1A1A] transition-colors cursor-pointer border-b border-[#333333]/50 last:border-b-0`}
+                      className={`group grid grid-cols-12 gap-4 px-4 ${viewMode === 'compact' ? 'py-1' : 'py-1.5'} items-center hover:bg-[#1A1A1A] transition-colors cursor-pointer border-b border-[#333333]/50 last:border-b-0`}
                     >
                       {/* Estimate Column */}
                       <div className="col-span-6">
                         <div className="flex items-center gap-3">
-                          <span className={`text-xs px-2 py-1 font-medium min-w-[60px] text-center ${getStatusColor(estimate.status)}`}>
-                            {estimate.status.toUpperCase()}
-                          </span>
                           <div className="min-w-0 flex-1">
                             <div className={`font-medium text-white truncate ${viewMode === 'compact' ? 'text-sm' : ''}`}>
                               {estimate.estimate_number}
@@ -688,6 +687,9 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
                               </div>
                             )}
                           </div>
+                          <span className={`text-xs px-2 py-1 font-medium min-w-[60px] text-center ${getStatusColor(estimate.status)}`}>
+                            {estimate.status.toUpperCase()}
+                          </span>
                         </div>
                       </div>
                       
@@ -814,6 +816,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
               </div>
             </div>
           )}
+        </div>
         </div>
       </div>
 

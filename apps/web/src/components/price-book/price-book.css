@@ -48,6 +48,63 @@ table.condensed tbody tr td {
   padding-right: 8px !important;
   line-height: 1.2 !important;
 }
+
+/* Price range display styles */
+.price-range-container {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.price-range-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.7;
+}
+
+.price-range-value {
+  font-weight: 500;
+}
+
+.price-range-red {
+  color: #ef4444;
+}
+
+.price-range-base {
+  color: #10b981;
+  font-weight: 600;
+}
+
+.price-range-cap {
+  color: #eab308;
+}
+
+.price-range-separator {
+  color: #6b7280;
+  opacity: 0.5;
+  font-size: 12px;
+}
+
+/* Price position indicator */
+.price-position-bar {
+  position: relative;
+  height: 6px;
+  background: linear-gradient(to right, #ef4444, #10b981 50%, #eab308);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.price-position-indicator {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 10px;
+  background: white;
+  border: 2px solid #1f2937;
+  border-radius: 50%;
+}
 table.condensed .badge-unit,
 table.condensed .badge-type {
   font-size: 10px !important;

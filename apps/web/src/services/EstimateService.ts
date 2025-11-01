@@ -9,6 +9,7 @@ export interface EstimateItem {
   description: string;
   quantity: number;
   unit_price: number;
+  original_unit_price?: number;
   total_price: number;
   cost_code?: string;
   cost_code_name?: string;
@@ -51,12 +52,21 @@ export interface Estimate {
     address?: string;
     phone?: string;
   };
+  project?: {
+    id: string;
+    name: string;
+    category?: string;
+    description?: string;
+  };
   user?: {
     id: string;
     email?: string;
     company_name?: string;
     phone?: string;
   };
+  // Metadata for package selection (stored in a JSON field or separate table)
+  package_level?: string;
+  package_id?: string;
 }
 
 export class EstimateService {
@@ -100,6 +110,12 @@ export class EstimateService {
           company_name,
           address,
           phone
+        ),
+        project:projects(
+          id,
+          name,
+          category,
+          description
         ),
         items:estimate_items(*)
       `)

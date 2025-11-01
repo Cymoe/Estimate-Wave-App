@@ -42,7 +42,8 @@ import { MobileHeader } from './MobileHeader';
 import { MobileMenu } from './MobileMenu';
 import { MobileCreateMenu } from './MobileCreateMenu';
 import { PageHeaderBar } from '../common/PageHeaderBar';
-import { supabase } from '../../lib/supabase';
+// Supabase removed - using MongoDB
+// import { supabase } from '../../lib/supabase';
 import { ActivityPanel } from '../activity/ActivityPanel';
 import { IndustryBanner } from '../common/IndustryBanner';
 import { IndustryManagementDrawer } from '../common/IndustryManagementDrawer';
@@ -50,6 +51,7 @@ import { ProjectPreviewPanel } from '../projects/ProjectPreviewPanel';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
+  fullWidth?: boolean;
 }
 
 // Add types for organizations
@@ -66,8 +68,8 @@ export const IndustryContext = createContext<{ selectedIndustry: string; setSele
 
 // Context for selected organization
 export const OrganizationContext = createContext<{ 
-  selectedOrg: { id: string; name: string; industry: string }; 
-  setSelectedOrg: (org: { id: string; name: string; industry: string }) => void;
+  selectedOrg: { id: string; name: string; industry: string; industry_id?: string }; 
+  setSelectedOrg: (org: { id: string; name: string; industry: string; industry_id?: string }) => void;
 }>({ 
   selectedOrg: { id: '', name: 'Loading...', industry: 'General Construction' }, 
   setSelectedOrg: () => {} 
@@ -96,9 +98,20 @@ export const LayoutContext = createContext<{
   availableWidth: 'full'
 });
 
-export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
+export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, fullWidth = false }) => {
   const { user, signOut, session, isLoading } = useAuth();
   const isAuthenticated = !!session;
+  const location = useLocation();
+  
+  // Only show industry banner on pages where it's useful for filtering content
+  const shouldShowIndustryBanner = 
+    location.pathname === '/estimates' ||
+    location.pathname === '/services' ||
+    location.pathname === '/price-book' ||
+    location.pathname.startsWith('/services/') ||
+    location.pathname.startsWith('/price-book/');
+  
+  const shouldHideIndustryBanner = !shouldShowIndustryBanner;
   
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
@@ -121,10 +134,9 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
   const [showLineItemDrawer, setShowLineItemDrawer] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
-  const [showActivityPanel, setShowActivityPanel] = useState(false);
-  const navigate = useNavigate();
-  const location = useLocation();
-  const profileMenuRef = useRef<HTMLDivElement>(null);
+    const [showActivityPanel, setShowActivityPanel] = useState(false);
+    const navigate = useNavigate();
+    const profileMenuRef = useRef<HTMLDivElement>(null);
   const [selectedIndustry, setSelectedIndustry] = useState('All Trades');
   const [orgDropdownOpen, setOrgDropdownOpen] = useState(false);
   const [isProjectsSidebarOpen, setIsProjectsSidebarOpen] = useState(false);
@@ -170,6 +182,27 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
       try {
         setLoadingOrgs(true);
         console.log('Loading organizations for user:', user.id);
+        
+        // TEMPORARY: Use MongoDB fallback since Supabase is paused
+        // TODO: Fetch from MongoDB API when organizations endpoint is connected
+        const USE_MONGO_FALLBACK = true;
+        
+        if (USE_MONGO_FALLBACK) {
+          // Use hardcoded MongoDB organization
+          const mongoOrg = {
+            id: '69019f3f4a8998be12afe670', // From MongoDB
+            name: 'RedCap Demo Company',
+            industry: 'General Construction',
+            industry_id: 'general-construction'
+          };
+          
+          console.log('Using MongoDB organization:', mongoOrg);
+          setOrganizations([mongoOrg]);
+          setSelectedOrg(mongoOrg);
+          localStorage.setItem('selectedOrgId', mongoOrg.id);
+          setLoadingOrgs(false);
+          return;
+        }
         
         // Get user-organization relationships with organization details
         const { data: userOrgs, error: userOrgsError } = await supabase
@@ -554,10 +587,15 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
         // All other shortcuts require Shift to avoid browser conflicts
         if (e.shiftKey) {
           switch (e.key.toLowerCase()) {
-            case 'p':
+            case 'q':
               e.preventDefault();
               setIsCreateMenuOpen(false);
-              navigate('/projects/new');
+              navigate('/sales-mode');
+              break;
+            case 'e':
+              e.preventDefault();
+              setIsCreateMenuOpen(false);
+              navigate('/work');
               break;
             case 'c':
               e.preventDefault();
@@ -568,21 +606,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
               e.preventDefault();
               setIsCreateMenuOpen(false);
               setShowNewInvoiceDrawer(true);
-              break;
-            case 'l':
-              e.preventDefault();
-              setIsCreateMenuOpen(false);
-              setShowLineItemDrawer(true);
-              break;
-            case 'd':
-              e.preventDefault();
-              setIsCreateMenuOpen(false);
-              navigate('/products');
-              break;
-            case 't':
-              e.preventDefault();
-              setIsCreateMenuOpen(false);
-              console.log('Template creation shortcut - not implemented yet');
               break;
           }
         }
@@ -746,7 +769,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
               isProjectsOpen: isProjectsSidebarLocked || isProjectsSidebarOpen,
               availableWidth: availableContentWidth
             }}>
-              <div className="min-h-screen bg-[#121212] flex overflow-x-hidden">
+              <div className="min-h-screen bg-[#000000] flex overflow-x-hidden">
                   <MobileHeader
                     onMenuClick={() => setIsMobileMenuOpen(true)}
                     onChatClick={toggleChatPanel}
@@ -815,9 +838,9 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
                     
                     {/* Main Content Area */}
                     <div className="min-h-full overflow-y-auto">
-                      {/* Industry Banner - Full width within content area */}
-                      <IndustryBanner />
-                      <div className={`min-h-full max-w-3xl mx-auto px-4`}>
+                      {/* Industry Banner - Hidden on estimate detail pages */}
+                      {!shouldHideIndustryBanner && <IndustryBanner />}
+                      <div className={`min-h-full ${fullWidth ? '' : 'max-w-5xl mx-auto px-4'}`}>
                         {children}
                       </div>
                     </div>
@@ -847,20 +870,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
                           <div className="flex items-center justify-between mb-3">
                             <h2 className="text-white text-base font-medium">All Projects</h2>
                             <div className="flex items-center gap-1.5">
-                              <button 
-                                onClick={() => {
-                                  navigate('/projects/new');
-                                  if (!isProjectsSidebarLocked) {
-                                    setIsProjectsSidebarOpen(false);
-                                  }
-                                }}
-                                className="w-7 h-7 bg-[#336699] hover:bg-[#2A5580] text-white rounded-[2px] flex items-center justify-center transition-colors"
-                                title="New Project"
-                              >
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-                                </svg>
-                              </button>
                               <button 
                                 onClick={() => setProjectsSortOrder(projectsSortOrder === 'latest' ? 'earliest' : 'latest')}
                                 className="w-7 h-7 bg-[#333333] hover:bg-[#404040] text-gray-400 hover:text-white rounded-[2px] flex items-center justify-center transition-colors"
@@ -1444,15 +1453,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
                                 </button>
                               </div>
                               
-                              <div className="bg-[#333333] rounded-[4px] p-4 border border-[#404040]">
-                                <h4 className="text-white font-medium mb-2">Community Forum</h4>
-                                <p className="text-gray-300 text-sm mb-3">
-                                  Connect with other contractors and share tips and best practices.
-                                </p>
-                                <button className="text-[#336699] text-sm font-medium hover:text-white transition-colors">
-                                  Join Discussion →
-                                </button>
-                              </div>
                             </div>
                           </div>
 

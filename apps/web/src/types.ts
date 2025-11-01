@@ -16,7 +16,11 @@ export interface LineItem {
   organization_id?: string; // NULL for shared industry-standard items, organization ID for custom items
   name: string;
   description?: string;
-  price: number;
+  price: number; // Legacy field - will be base_price after migration
+  base_price?: number; // Standard/default price - middle of range
+  red_line_price?: number; // Minimum price threshold - never go below
+  cap_price?: number; // Maximum price ceiling - never exceed
+  pricing_factors?: Record<string, any>; // Factors affecting price: region, complexity, etc.
   unit: string;
   cost_code_id: string; // Required - line items must be tied to a cost code
   vendor_id?: string;
@@ -24,20 +28,36 @@ export interface LineItem {
   status?: string;
   is_active?: boolean;
   is_custom?: boolean; // Indicates if this is a custom price override
+  service_category?: string; // Service category for grouping (e.g., "Door Installation", "Finish Carpentry")
+  is_package?: boolean; // Legacy - use is_bundle instead
+  package_items?: any; // Legacy - use bundle_items instead
+  is_bundle?: boolean; // Whether this is a bundle of multiple items
+  bundle_items?: any; // JSONB field for bundle contents
+  bundle_discount_percentage?: number; // Discount percentage for bundles
+  source_service_option_id?: string; // ID of original service option (for migration)
+  source_service_package_id?: string; // ID of original service package (for migration)
+  display_order?: number; // Order for display in lists
+  warranty_months?: number;
+  skill_level?: string;
+  estimated_hours?: number;
+  materials_list?: string[];
+  attributes?: Record<string, any>;
   created_at?: string;
   updated_at?: string;
   cost_code?: {
+    id?: string;
     name: string;
     code: string;
+    category?: string;
   };
   // Price override fields
-  base_price?: number; // Original industry standard price
   has_override?: boolean; // True if this org has an override price
   markup_percentage?: number; // Markup percentage for this line item
   margin_percentage?: number; // Calculated margin percentage for display
   applied_mode_id?: string; // ID of the pricing mode that was applied
   applied_mode_name?: string; // Name of the pricing mode that was applied
   pricing_source?: 'organization' | 'project'; // Indicates where the pricing came from
+  price_position?: number; // Position within price range (0.0 = red_line, 1.0 = cap)
 }
 
 // Product Assemblies (bundles made of line items - formerly bundled products)
@@ -75,6 +95,20 @@ export interface AssemblyLineItem {
   created_at?: string;
   updated_at?: string;
   line_item?: LineItem;
+}
+
+// Pricing Strategy for dynamic price positioning
+export interface PricingStrategy {
+  id: string;
+  organization_id: string;
+  name: string;
+  description?: string;
+  price_position: number; // 0.0 = red_line, 0.5 = base, 1.0 = cap
+  factors?: Record<string, any>; // Adjustment factors: urgency, season, customer_type, etc.
+  is_active: boolean;
+  is_default?: boolean;
+  created_at?: string;
+  updated_at?: string;
 }
 
 // Legacy Product interface (for backward compatibility during migration)

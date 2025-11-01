@@ -1,6 +1,4 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { supabase } from '../../lib/supabase';
-import { useAuth } from '../../contexts/AuthContext';
 import { ServiceCatalogService } from '../../services/ServiceCatalogService';
 import { CostCodeService } from '../../services/CostCodeService';
 import { LineItemService } from '../../services/LineItemService';
@@ -42,7 +40,6 @@ export const CreateServiceDrawer: React.FC<CreateServiceDrawerProps> = ({
   onSuccess,
   preSelectedItemIds = []
 }) => {
-  const { user } = useAuth();
   const { selectedOrg } = useContext(OrganizationContext);
   const [serviceName, setServiceName] = useState('');
   const [serviceDescription, setServiceDescription] = useState('');
@@ -97,7 +94,7 @@ export const CreateServiceDrawer: React.FC<CreateServiceDrawerProps> = ({
         setIndustryId(industriesData[0].id);
       }
     } catch (error) {
-      console.error('Error loading data:', error);
+      // Error loading data
     } finally {
       setIsLoading(false);
     }
@@ -211,7 +208,7 @@ export const CreateServiceDrawer: React.FC<CreateServiceDrawerProps> = ({
       onSuccess();
       resetForm();
     } catch (error) {
-      console.error('Error creating service:', error);
+      // Error creating service
       alert('Failed to create service. Please try again.');
     } finally {
       setIsLoading(false);

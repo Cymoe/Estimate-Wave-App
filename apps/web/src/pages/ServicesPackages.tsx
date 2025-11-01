@@ -140,14 +140,14 @@ export const ServicesPackages: React.FC = () => {
       // Use the new efficient method to get all templates at once
       try {
         const allTemplates = await ServiceCatalogService.listTemplates(selectedOrg.id);
-        console.log(`Loaded ${allTemplates.length} templates`);
+        // Loaded templates
         setTemplates(allTemplates);
       } catch (templateError) {
-        console.error('Error loading templates:', templateError);
+        // Error loading templates
         setTemplates([]); // Set empty array so page doesn't stay in loading state
       }
     } catch (error) {
-      console.error('Error loading data:', error);
+      // Error loading data
     } finally {
       setIsLoading(false);
     }
@@ -457,11 +457,11 @@ export const ServicesPackages: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#0A0A0A]">
-      <div className={`w-full transition-all duration-300 ${showCart ? 'mr-96' : ''}`}>
-        {/* Header Section - no border, blends into background */}
-        <div className="bg-transparent">
+      <div className={`transition-all duration-300 ${showCart ? 'pr-96' : ''}`}>
+        {/* Header Section - with top spacing to match Price Book */}
+        <div className="bg-transparent pt-6">
           {/* Header */}
-          <div className="px-4 py-3 flex items-center justify-between">
+          <div className="px-6 py-3 flex items-center justify-between">
             <div>
               <h1 className="text-xl font-semibold text-white flex items-center gap-2">
                 <Package className="w-7 h-7 text-[#336699]" />
@@ -692,8 +692,8 @@ export const ServicesPackages: React.FC = () => {
             )}
           </div>
         ) : activeTab === 'packages' ? (
-          // Packages View - minimal padding for cards
-          <div className="p-4">
+          // Packages View - full width with responsive padding
+          <div className="px-4 sm:px-6 lg:px-8 py-6">
             {filteredPackages.length > 0 ? (
               <>
                 {/* Featured Packages */}
@@ -703,7 +703,7 @@ export const ServicesPackages: React.FC = () => {
                       <Star className="w-5 h-5 text-[#336699]" />
                       Featured Packages
                     </h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 3xl:grid-cols-6 gap-3 lg:gap-4">
                       {filteredPackages
                         .filter(p => p.is_featured)
                         .map(pkg => (
@@ -724,7 +724,7 @@ export const ServicesPackages: React.FC = () => {
                   All Packages
                 </h2>
                 {filteredPackages.filter(p => !p.is_featured).length > 0 ? (
-                                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 3xl:grid-cols-6 gap-3 lg:gap-4">
                     {filteredPackages
                       .filter(p => !p.is_featured)
                       .map(pkg => (
@@ -777,16 +777,14 @@ export const ServicesPackages: React.FC = () => {
         ) : (
           // Services View - no padding for full width
           <>
-            {/* Attribute Filters - only show when an industry is selected */}
-            {selectedIndustry !== 'all' && (
-              <div className="px-4 py-1.5 border-b border-[#333333]/20">
-                <ServiceAttributeFilters
-                  industry={industries.find(i => i.id === selectedIndustry)?.name || ''}
-                  activeFilters={attributeFilters}
-                  onFiltersChange={setAttributeFilters}
-                />
-              </div>
-            )}
+            {/* Attribute Filters */}
+            <div className="px-4 sm:px-6 lg:px-8 py-3 border-b border-[#333333]/20">
+              <ServiceAttributeFilters
+                industry={selectedIndustry === 'all' ? 'All Industries' : industries.find(i => i.id === selectedIndustry)?.name || ''}
+                activeFilters={attributeFilters}
+                onFiltersChange={setAttributeFilters}
+              />
+            </div>
             
             {/* Services List */}
             <div>
@@ -808,12 +806,16 @@ export const ServicesPackages: React.FC = () => {
                             {/* Service Header */}
                             <button
                               onClick={() => toggleService(service.id)}
-                              className="w-full py-2.5 bg-transparent hover:bg-[#1A1A1A]/40 transition-colors flex items-center justify-between"
+                              className={`w-full py-2.5 transition-colors flex items-center justify-between ${
+                                expandedServices.has(service.id) 
+                                  ? 'bg-[#1A1A1A]/50 hover:bg-[#1A1A1A]/60' 
+                                  : 'bg-transparent hover:bg-[#1A1A1A]/40'
+                              }`}
                             >
                               <div className="flex items-center gap-2.5 pl-8">
                                 <ChevronRight 
-                                  className={`w-4 h-4 text-gray-500 transition-transform ${
-                                    expandedServices.has(service.id) ? 'rotate-90' : ''
+                                  className={`w-4 h-4 transition-all ${
+                                    expandedServices.has(service.id) ? 'rotate-90 text-[#336699]' : 'text-gray-500'
                                   }`}
                                 />
                                 <div className="text-left">
@@ -821,7 +823,11 @@ export const ServicesPackages: React.FC = () => {
                                 </div>
                               </div>
                               <div className="flex items-center gap-4 pr-4">
-                                <span className="text-sm text-gray-500 bg-[#252525] px-2 py-0.5 rounded">
+                                <span className={`text-sm px-2 py-0.5 rounded transition-all ${
+                                  expandedServices.has(service.id) 
+                                    ? 'text-[#336699] bg-[#336699]/10' 
+                                    : 'text-gray-500 bg-[#252525]'
+                                }`}>
                                   {service.templates?.length || 0}
                                 </span>
                               </div>
@@ -829,11 +835,12 @@ export const ServicesPackages: React.FC = () => {
                             
                             {/* Service Options (Templates) - Only show when expanded */}
                             {expandedServices.has(service.id) && service.templates && (
-                              <div className="border-t border-[#333333]/20 bg-[#1A1A1A]">
+                              <div className="transition-all duration-200">
                                 {/* Show description when expanded */}
                                 {service.description && (
-                                  <p className="text-gray-400 text-sm px-8 pt-2">{service.description}</p>
+                                  <p className="text-gray-400 text-sm px-8 pt-2 pb-2">{service.description}</p>
                                 )}
+                                {/* Options with subtle connection line and indentation */}
                                 {service.templates.map((template: any, idx: number) => {
                                   const cartItem = cartItems.find(item => item.id === `template-${template.id}`);
                                   const cartQuantity = cartItem?.quantity || 0;
@@ -855,7 +862,11 @@ export const ServicesPackages: React.FC = () => {
                                       }}
                                       isCondensed={condensedView}
                                       isHighlighted={false}
-                                      onCustomized={loadData}
+                                      onCustomized={() => {
+                                        // Skip full reload to prevent page refresh
+                                        // User will see customized option on next visit
+                                        // Service customized successfully
+                                      }}
                                       organizationId={selectedOrg?.id}
                                     />
                                   );
@@ -883,12 +894,16 @@ export const ServicesPackages: React.FC = () => {
                             {/* Service Header */}
                             <button
                               onClick={() => toggleService(service.id)}
-                              className="w-full py-2.5 bg-transparent hover:bg-[#252525]/40 transition-colors flex items-center justify-between"
+                              className={`w-full py-2.5 transition-colors flex items-center justify-between ${
+                                expandedServices.has(service.id) 
+                                  ? 'bg-[#252525]/50 hover:bg-[#252525]/60' 
+                                  : 'bg-transparent hover:bg-[#252525]/40'
+                              }`}
                             >
                               <div className="flex items-center gap-2.5 pl-4">
                                 <ChevronRight 
-                                  className={`w-4 h-4 text-gray-500 transition-transform ${
-                                    expandedServices.has(service.id) ? 'rotate-90' : ''
+                                  className={`w-4 h-4 transition-all ${
+                                    expandedServices.has(service.id) ? 'rotate-90 text-[#336699]' : 'text-gray-500'
                                   }`}
                                 />
                                 <div className="text-left">
@@ -896,7 +911,11 @@ export const ServicesPackages: React.FC = () => {
                                 </div>
                               </div>
                               <div className="flex items-center gap-4 pr-4">
-                                <span className="text-sm text-gray-500 bg-[#252525] px-2 py-0.5 rounded">
+                                <span className={`text-sm px-2 py-0.5 rounded transition-all ${
+                                  expandedServices.has(service.id) 
+                                    ? 'text-[#336699] bg-[#336699]/10' 
+                                    : 'text-gray-500 bg-[#252525]'
+                                }`}>
                                   {service.templates?.length || 0}
                                 </span>
                               </div>
@@ -904,10 +923,10 @@ export const ServicesPackages: React.FC = () => {
                             
                             {/* Service Options (Templates) - Only show when expanded */}
                             {expandedServices.has(service.id) && service.templates && (
-                              <div className="border-t border-[#333333]/20 bg-[#1A1A1A]">
+                              <div className="transition-all duration-200">
                                 {/* Show description when expanded */}
                                 {service.description && (
-                                  <p className="text-gray-400 text-sm px-4 pt-2">{service.description}</p>
+                                  <p className="text-gray-400 text-sm px-4 pt-2 pb-2">{service.description}</p>
                                 )}
                                 {service.templates.map((template: any, idx: number) => {
                                   const cartItem = cartItems.find(item => item.id === `template-${template.id}`);
@@ -930,7 +949,11 @@ export const ServicesPackages: React.FC = () => {
                                       }}
                                       isCondensed={condensedView}
                                       isHighlighted={false}
-                                      onCustomized={loadData}
+                                      onCustomized={() => {
+                                        // Skip full reload to prevent page refresh
+                                        // User will see customized option on next visit
+                                        // Service customized successfully
+                                      }}
                                       organizationId={selectedOrg?.id}
                                     />
                                   );
@@ -983,7 +1006,7 @@ export const ServicesPackages: React.FC = () => {
           }}
           onSaveTemplate={() => {
             // Save current cart as a custom package
-            console.log('Saving as template:', cartItems);
+            // Saving as template
           }}
         />
 
@@ -1069,7 +1092,7 @@ export const ServicesPackages: React.FC = () => {
                 window.location.href = `/work/estimates/${result.id}`;
               }
             } catch (error) {
-              console.error('Error creating estimate:', error);
+              // Error creating estimate
             }
           }}
         />

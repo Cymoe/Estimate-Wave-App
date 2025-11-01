@@ -253,14 +253,14 @@ export class ActivityLogService {
       });
 
       if (error) {
-        console.error('[ActivityLogService] RPC error:', error);
+        // [ActivityLogService] RPC error
         throw error;
       }
 
       return data; // RPC typically returns the ID of the created log or a status
     } catch (err) {
       if (err instanceof Error) {
-        console.error('[ActivityLogService] Exception in logActivity:', err.message);
+        // [ActivityLogService] Exception in logActivity
       }
       throw err; // Re-throw to allow caller to handle
     }
@@ -381,7 +381,7 @@ export class ActivityLogService {
       const { data: activities, error } = await query;
 
       if (error) {
-        console.error('Error fetching activities:', error);
+        // Error fetching activities
         return [];
       }
       if (!activities) {
@@ -414,7 +414,7 @@ export class ActivityLogService {
       return activities as ActivityLog[]; // Cast to ActivityLog[]
     } catch (error) {
       const message = error instanceof Error ? error.message : 'An unknown error occurred';
-      console.error('Error in getActivities:', message);
+      // Error in getActivities
       return [];
     }
   }
@@ -466,10 +466,10 @@ export class ActivityLogService {
       )
       .subscribe((status, err) => { // Add status and err parameters
         if (status === 'SUBSCRIBED') {
-          console.log(`Subscribed to activity logs for org ${organizationId}`);
+          // Subscribed to activity logs
         }
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || err) {
-          console.error(`Error subscribing to activity logs for org ${organizationId}:`, err || status);
+          // Error subscribing to activity logs
         }
       });
 

@@ -36,8 +36,8 @@ export const PricingModeSelector: React.FC<PricingModeSelectorProps> = ({
       const allModes = await PricingModesService.list(selectedOrg.id);
       setModes(allModes);
       
-      // Set quick access modes (Rush, Competitive, Premium)
-      const quickModeNames = ['Rush Job', 'Competitive', 'Premium Service'];
+      // Set quick access modes
+      const quickModeNames = ['Competitive', 'Slow Season', 'Busy Season'];
       setQuickModes(allModes.filter(m => quickModeNames.includes(m.name)));
       
       // Only set default if no mode is currently selected
@@ -115,10 +115,6 @@ export const PricingModeSelector: React.FC<PricingModeSelectorProps> = ({
     switch (modeName) {
       case 'Hail Mary':
         return 'bg-red-400';
-      case 'Rush Job':
-        return 'bg-orange-400';
-      case 'Premium Service':
-        return 'bg-purple-400';
       case 'Busy Season':
         return 'bg-yellow-400';
       case 'Market Rate':

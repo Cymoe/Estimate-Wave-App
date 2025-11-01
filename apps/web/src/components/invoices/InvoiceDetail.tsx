@@ -81,7 +81,7 @@ export const InvoiceDetail: React.FC = () => {
 
   if (isLoading || !invoice || !client) {
     return (
-      <div className="min-h-screen bg-[#121212] text-white">
+      <div className="min-h-screen bg-[#000000] text-white">
         <DetailSkeleton />
       </div>
     );
@@ -155,7 +155,7 @@ export const InvoiceDetail: React.FC = () => {
   const total = subtotal + tax;
 
   return (
-    <div className="min-h-screen bg-[#121212] text-white">
+    <div className="min-h-screen bg-[#000000] text-white">
       {/* Header - Improved Two-Row Layout */}
       <div className="border-b border-[#333333] px-6 py-4">
         {/* Row 1: Navigation + Document Info */}
@@ -196,7 +196,7 @@ export const InvoiceDetail: React.FC = () => {
           <div className="flex items-center gap-2 md:gap-4">
             <button 
               onClick={handleShare}
-              className="flex items-center gap-2 px-3 py-2 bg-[#1a1a1a] border border-[#2a2a2a] text-white rounded-[8px] hover:bg-[#2a2a2a] transition-colors text-sm"
+              className="flex items-center gap-2 px-3 py-2 bg-[#1a1a1a] border border-[#2a2a2a] text-white rounded-sm hover:bg-[#2a2a2a] transition-colors text-sm"
               title="Share Invoice"
             >
               <Share2 className="w-4 h-4" />
@@ -204,7 +204,7 @@ export const InvoiceDetail: React.FC = () => {
             </button>
             
             <button 
-              className="flex items-center gap-2 px-3 py-2 bg-[#1a1a1a] border border-[#2a2a2a] text-white rounded-[8px] hover:bg-[#2a2a2a] transition-colors text-sm"
+              className="flex items-center gap-2 px-3 py-2 bg-[#1a1a1a] border border-[#2a2a2a] text-white rounded-sm hover:bg-[#2a2a2a] transition-colors text-sm"
               title="Edit Invoice"
             >
               <Edit className="w-4 h-4" />
@@ -214,7 +214,7 @@ export const InvoiceDetail: React.FC = () => {
             {invoice.status === 'draft' && (
               <button 
                 onClick={handleSendInvoice}
-                className="bg-[#336699] text-white px-3 py-2 rounded-[8px] hover:bg-[#2A5580] transition-colors flex items-center gap-2 text-sm font-medium"
+                className="bg-[#336699] text-white px-3 py-2 rounded-sm hover:bg-[#2A5580] transition-colors flex items-center gap-2 text-sm font-medium"
               >
                 <Send className="w-4 h-4" />
                 <span className="hidden sm:inline">Send</span>

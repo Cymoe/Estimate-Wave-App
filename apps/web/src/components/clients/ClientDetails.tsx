@@ -230,7 +230,7 @@ export const ClientDetails: React.FC<ClientDetailsProps> = ({
     if (onBack) {
       onBack();
     } else {
-      navigate('/people');
+      navigate('/dashboard');
     }
   };
 

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Clear Auth State</title>
+  <style>
+    body {
+      background: #0A0A0A;
+      color: white;
+      font-family: Inter, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+    .container {
+      text-align: center;
+      padding: 2rem;
+      background: #1a1a1a;
+      border-radius: 8px;
+      border: 1px solid #333;
+    }
+    button {
+      background: #EAB308;
+      color: black;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 16px;
+      margin-top: 1rem;
+    }
+    button:hover {
+      background: #D97706;
+    }
+    .success {
+      color: #10B981;
+      margin-top: 1rem;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🧹 Clear Supabase Auth State</h1>
+    <p>This will clear the paused Supabase auth and let you access the app</p>
+    <button onclick="clearAuth()">Clear Auth State</button>
+    <div class="success" id="success">
+      ✅ Auth cleared! <a href="/" style="color: #3B82F6;">Go to app</a>
+    </div>
+  </div>
+
+  <script>
+    function clearAuth() {
+      // Clear all Supabase auth data
+      localStorage.removeItem('billbreeze-auth');
+      localStorage.removeItem('supabase.auth.token');
+      
+      // Clear all supabase-related items
+      Object.keys(localStorage).forEach(key => {
+        if (key.includes('supabase') || key.includes('billbreeze')) {
+          localStorage.removeItem(key);
+        }
+      });
+      
+      // Clear session storage too
+      sessionStorage.clear();
+      
+      document.getElementById('success').style.display = 'block';
+      
+      // Redirect after 2 seconds
+      setTimeout(() => {
+        window.location.href = '/sales-mode';
+      }, 2000);
+    }
+  </script>
+</body>
+</html>
+

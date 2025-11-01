@@ -1,4 +1,5 @@
 import React, { useState, useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { EstimatesList } from '../components/estimates/EstimatesList';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
 import { EstimateService } from '../services/EstimateService';
@@ -6,11 +7,13 @@ import { useAuth } from '../contexts/AuthContext';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 
 export const EstimatesPage: React.FC = () => {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { selectedOrg } = useContext(OrganizationContext);
   const [showCreateDrawer, setShowCreateDrawer] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
+  // Return EstimatesList directly without wrapper to escape DashboardLayout constraints
   return (
     <>
       <EstimatesList 
@@ -22,16 +25,25 @@ export const EstimatesPage: React.FC = () => {
         isOpen={showCreateDrawer}
         onClose={() => setShowCreateDrawer(false)}
         onSave={async (data) => {
+          console.log('🚀 Starting estimate creation with data:', data);
           try {
             if (!user) {
               throw new Error('User not authenticated');
             }
+
+            if (!selectedOrg?.id) {
+              throw new Error('No organization selected');
+            }
+
+            console.log('✅ User and org validation passed');
 
             // Calculate subtotal and tax
             const subtotal = data.total_amount;
             const tax_rate = 0; // Can be configured later
             const tax_amount = subtotal * (tax_rate / 100);
             const total_with_tax = subtotal + tax_amount;
+
+            console.log('✅ Calculations complete, creating estimate...');
 
             // Create the estimate with items
             const estimate = await EstimateService.create({
@@ -62,10 +74,19 @@ export const EstimatesPage: React.FC = () => {
             // Close drawer immediately for better UX
             setShowCreateDrawer(false);
             
-            // Trigger a refresh of the estimates list
-            setRefreshTrigger(prev => prev + 1);
+            // Debug logging
+            console.log('Created estimate:', estimate);
+            console.log('Navigating to:', `/estimates/${estimate.id}`);
+            
+            // Navigate to the estimate detail page for immediate review
+            navigate(`/estimates/${estimate.id}`);
           } catch (error) {
-            console.error('Error creating estimate:', error);
+            console.error('❌ Error creating estimate:', error);
+            console.error('❌ Error details:', {
+              message: error.message,
+              stack: error.stack,
+              cause: error.cause
+            });
             alert('Failed to create estimate. Please try again.');
           }
         }}

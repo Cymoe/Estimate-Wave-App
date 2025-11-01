@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 
 interface CreateDropdownProps {
   onCreateLineItem: () => void;
@@ -24,16 +25,18 @@ export const CreateDropdown: React.FC<CreateDropdownProps> = ({
   onCreateProjectTemplate,
   onCreateContractTemplate
 }) => {
+  const navigate = useNavigate();
+  
   return (
     <div className="w-full bg-[#121212] p-2 flex flex-col overflow-y-auto">
-      {/* Section: Line Item */}
+      {/* Section: Sales Mode - Primary */}
       <div className="mb-2">
         <button 
-          onClick={onCreateLineItem} 
-          className="flex items-center gap-2 px-3 py-2 text-gray-300 text-xs font-medium text-left hover:bg-[#1E1E1E] hover:border-l-2 hover:border-[#336699] rounded-md transition-colors w-full"
+          onClick={() => navigate('/sales-mode')} 
+          className="flex items-center gap-2 px-3 py-2 text-white text-xs font-medium text-left hover:bg-[#1E1E1E] hover:border-l-2 hover:border-[#336699] rounded-md transition-colors w-full bg-[#336699]/10"
         >
-          <span className="text-lg text-[#336699]">+</span>
-          Line Item
+          <span className="text-lg text-[#336699]">⚡</span>
+          Quick Quote (Sales Mode)
         </button>
       </div>
 
@@ -42,18 +45,18 @@ export const CreateDropdown: React.FC<CreateDropdownProps> = ({
         <h3 className="text-gray-400 text-xs uppercase font-medium mb-1 px-3">CREATE</h3>
         <div className="grid grid-cols-1 gap-1">
           <button 
+            onClick={() => navigate('/work')} 
+            className="flex items-center gap-2 px-3 py-2 text-gray-300 text-xs font-medium text-left hover:bg-[#1E1E1E] hover:border-l-2 hover:border-[#336699] rounded-md transition-colors w-full"
+          >
+            <span className="text-lg text-[#336699]">📋</span>
+            Full Estimate
+          </button>
+          <button 
             onClick={onCreateClient} 
             className="flex items-center gap-2 px-3 py-2 text-gray-300 text-xs font-medium text-left hover:bg-[#1E1E1E] hover:border-l-2 hover:border-[#336699] rounded-md transition-colors w-full"
           >
             <span className="text-lg text-[#336699]">👤</span>
             Client
-          </button>
-          <button 
-            onClick={onCreateProject} 
-            className="flex items-center gap-2 px-3 py-2 text-gray-300 text-xs font-medium text-left hover:bg-[#1E1E1E] hover:border-l-2 hover:border-[#336699] rounded-md transition-colors w-full"
-          >
-            <span className="text-lg text-[#336699]">📁</span>
-            Project
           </button>
           <button 
             onClick={onCreateInvoice} 
@@ -62,49 +65,26 @@ export const CreateDropdown: React.FC<CreateDropdownProps> = ({
             <span className="text-lg text-[#336699]">📄</span>
             Invoice
           </button>
-          {onCreatePackage && (
-            <button 
-              onClick={onCreatePackage} 
-              className="flex items-center gap-2 px-3 py-2 text-gray-300 text-xs font-medium text-left hover:bg-[#1E1E1E] hover:border-l-2 hover:border-[#336699] rounded-md transition-colors w-full"
-            >
-              <span className="text-lg text-[#336699]">📦</span>
-              Package
-            </button>
-          )}
-          <button 
-            onClick={onCreateProduct} 
-            className="flex items-center gap-2 px-3 py-2 text-gray-300 text-xs font-medium text-left hover:bg-[#1E1E1E] hover:border-l-2 hover:border-[#336699] rounded-md transition-colors w-full"
-          >
-            <span className="text-lg text-[#336699]">📦</span>
-            Product
-          </button>
         </div>
       </div>
 
-      {/* Section: Templates */}
+      {/* Section: Advanced (Hidden by default) */}
       <div className="border-t border-gray-700 pt-2">
-        <h3 className="text-gray-400 text-xs uppercase font-medium mb-1 px-3">TEMPLATES</h3>
+        <h3 className="text-gray-400 text-xs uppercase font-medium mb-1 px-3">ADVANCED</h3>
         <div className="grid grid-cols-1 gap-1">
           <button 
-            onClick={onCreatePriceBookTemplate} 
-            className="flex items-center gap-2 px-3 py-2 text-gray-300 text-xs font-medium text-left hover:bg-[#1E1E1E] hover:border-l-2 hover:border-[#336699] rounded-md transition-colors w-full"
+            onClick={onCreateLineItem} 
+            className="flex items-center gap-2 px-3 py-2 text-gray-500 text-xs font-medium text-left hover:bg-[#1E1E1E] hover:border-l-2 hover:border-[#336699] rounded-md transition-colors w-full"
           >
-            <span className="text-lg text-[#336699]">📘</span>
-            Price book template
+            <span className="text-lg text-gray-500">+</span>
+            Line Item
           </button>
           <button 
-            onClick={onCreateProjectTemplate} 
-            className="flex items-center gap-2 px-3 py-2 text-gray-300 text-xs font-medium text-left hover:bg-[#1E1E1E] hover:border-l-2 hover:border-[#336699] rounded-md transition-colors w-full"
+            onClick={onCreateProduct} 
+            className="flex items-center gap-2 px-3 py-2 text-gray-500 text-xs font-medium text-left hover:bg-[#1E1E1E] hover:border-l-2 hover:border-[#336699] rounded-md transition-colors w-full"
           >
-            <span className="text-lg text-[#336699]">📁</span>
-            Project template
-          </button>
-          <button 
-            onClick={onCreateContractTemplate} 
-            className="flex items-center gap-2 px-3 py-2 text-gray-300 text-xs font-medium text-left hover:bg-[#1E1E1E] hover:border-l-2 hover:border-[#336699] rounded-md transition-colors w-full"
-          >
-            <span className="text-lg text-[#336699]">📄</span>
-            Contract template
+            <span className="text-lg text-gray-500">📦</span>
+            Product
           </button>
         </div>
       </div>

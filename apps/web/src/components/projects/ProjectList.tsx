@@ -12,11 +12,11 @@ import { Dropdown } from '../common/Dropdown';
 import { formatCurrency } from '../../utils/format';
 import { advancedSearch, SearchableField } from '../../utils/searchUtils';
 import { LayoutContext, OrganizationContext } from '../layouts/DashboardLayout';
-import { EnhancedProjectWizard } from './EnhancedProjectWizard';
 import { StatusBadge } from './StatusBadge';
 import { ProjectsOverviewMap } from '../maps/ProjectsOverviewMap';
 import { ProjectExportService } from '../../services/ProjectExportService';
 import { SimpleGanttChart } from './SimpleGanttChart';
+import { CreateProjectWizard } from './CreateProjectWizard';
 
 type Project = Tables['projects'];
 
@@ -34,7 +34,6 @@ export const ProjectList: React.FC<ProjectListProps> = ({ searchTerm: initialSea
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<'all' | 'planned' | 'active' | 'on-hold' | 'completed' | 'cancelled'>('all');
-  const [showProjectWizard, setShowProjectWizard] = useState(false);
   const [searchTerm, setSearchTerm] = useState(initialSearchTerm);
   
   // Additional filter states
@@ -50,6 +49,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({ searchTerm: initialSea
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [showMainOptions, setShowMainOptions] = useState(false);
+  const [showProjectWizard, setShowProjectWizard] = useState(false);
   
   // Delete confirmation modal state
   const [deletingProject, setDeletingProject] = useState<Project | null>(null);
@@ -95,7 +95,6 @@ export const ProjectList: React.FC<ProjectListProps> = ({ searchTerm: initialSea
 
   // Check URL parameters
   const searchParams = new URLSearchParams(location.search);
-  const showTutorial = searchParams.get('tutorial') === 'true';
   
   // Handle status filtering from URL parameters
   useEffect(() => {
@@ -383,7 +382,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({ searchTerm: initialSea
   }
 
   return (
-    <div className="min-h-screen bg-[#121212] text-white">
+    <div className="min-h-screen bg-[#000000] text-white">
       <div>
       {/* Header */}
 
@@ -393,7 +392,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({ searchTerm: initialSea
           {/* Unified Container with transparent background */}
           <div className="bg-transparent border border-[#333333]">
             {/* Stats Section */}
-            <div className={`${isConstrained ? 'px-4 py-3' : 'px-6 py-4'} border-b border-[#333333]/50`}>
+            <div className={`${isConstrained ? 'px-4 py-1.5' : 'px-4 py-2'} border-b border-[#333333]/50`}>
               {isConstrained ? (
                 // Compact 4-column row for constrained
                 <div className="grid grid-cols-4 gap-4">
@@ -442,7 +441,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({ searchTerm: initialSea
         </div>
 
             {/* Controls Section */}
-            <div className={`${isConstrained ? 'px-4 py-3' : 'px-6 py-4'} border-b border-[#333333]/50`}>
+            <div className={`${isConstrained ? 'px-4 py-3' : 'px-4 py-4'} border-b border-[#333333]/50`}>
               <div className="flex items-center justify-between">
                 {/* Left side - Search, Create button, and Filters */}
           <div className="flex items-center gap-3">
@@ -668,7 +667,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({ searchTerm: initialSea
             </div>
 
             {/* Status Categories Section */}
-            <div className={`${isConstrained ? 'px-4 py-3' : 'px-6 py-4'} border-b border-[#333333]/50`}>
+            <div className={`${isConstrained ? 'px-4 py-3' : 'px-4 py-4'} border-b border-[#333333]/50`}>
               <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide min-w-0">
                 <button
                   onClick={() => setSelectedStatus('all')}
@@ -782,181 +781,11 @@ export const ProjectList: React.FC<ProjectListProps> = ({ searchTerm: initialSea
                 <div className="p-6">
         <TableSkeleton rows={5} columns={6} />
                 </div>
-        ) : projects.length === 0 || showTutorial ? (
-          // Contextual Onboarding for empty state
-          <div className="max-w-4xl mx-auto p-8">
-            {/* Welcome Header */}
-            <div className="text-center mb-8">
-              <div className="w-16 h-16 bg-[#336699] rounded-full flex items-center justify-center mx-auto mb-4">
-                <span className="text-2xl">🏗️</span>
-              </div>
-              <h2 className="text-2xl font-bold text-white mb-2">Welcome to Project Management</h2>
-              <p className="text-gray-400 max-w-2xl mx-auto">
-                Projects are where the real work happens. Track progress, manage budgets, and keep everything 
-                organized from start to finish. Let's create your first project.
-              </p>
-            </div>
-
-            {/* Video Section */}
-            <div className="mb-8">
-              <div className="bg-[#1E1E1E] rounded-[4px] p-6 border border-[#333333]">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-white font-bold flex items-center">
-                    <span className="text-[#336699] mr-2">🎥</span>
-                    Watch: Project Management Walkthrough
-                  </h3>
-                  <span className="text-xs text-gray-400 bg-[#333333] px-2 py-1 rounded">4 min</span>
-                </div>
-                
-                {/* Video Embed Container */}
-                <div className="relative w-full h-0 pb-[56.25%] bg-[#333333] rounded-[4px] overflow-hidden">
-                  {/* Replace this iframe src with your actual Loom video URL */}
-                  <iframe
-                    src="https://www.loom.com/embed/0c9786a7fd61445bbb23b6415602afe4"
-                    frameBorder="0"
-                    allowFullScreen
-                    className="absolute top-0 left-0 w-full h-full"
-                    title="Project Management Walkthrough"
-                  ></iframe>
-                  
-                  {/* Placeholder for when no video is set */}
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="text-center">
-                      <div className="w-12 h-12 bg-[#336699] rounded-full flex items-center justify-center mx-auto mb-2">
-                        <span className="text-white text-xl">▶</span>
-                      </div>
-                      <p className="text-gray-400 text-sm">Video coming soon</p>
-                      <p className="text-gray-500 text-xs">Replace iframe src with your Loom URL</p>
-                    </div>
-                  </div>
-                </div>
-                
-                <p className="text-gray-400 text-sm mt-3">
-                  Watch me create a real project from start to finish and show you how to track 
-                  progress, manage budgets, and keep everything organized.
-                </p>
-              </div>
-            </div>
-
-            {/* Quick Start Steps */}
-            <div className="grid md:grid-cols-3 gap-6 mb-8">
-              {/* Step 1 */}
-              <div className="bg-[#333333] rounded-[4px] p-6 border-l-4 border-[#336699]">
-                <div className="flex items-center mb-4">
-                  <div className="w-8 h-8 bg-[#336699] rounded-full flex items-center justify-center text-white font-bold text-sm mr-3">
-                    1
-                  </div>
-                  <h3 className="text-white font-bold">Create Your First Project</h3>
-                </div>
-                <p className="text-gray-400 text-sm mb-4">
-                  Set up a project with timeline, budget, and scope. This becomes your central hub for everything.
-                </p>
-                <button
-                  onClick={() => setShowProjectWizard(true)}
-                  className="w-full bg-white text-black py-2 px-4 rounded-[8px] hover:bg-gray-100 transition-colors font-medium"
-                >
-                  CREATE PROJECT
-                </button>
-              </div>
-
-              {/* Step 2 */}
-              <div className="bg-[#333333] rounded-[4px] p-6 border-l-4 border-[#9E9E9E] opacity-75">
-                <div className="flex items-center mb-4">
-                  <div className="w-8 h-8 bg-[#9E9E9E] rounded-full flex items-center justify-center text-white font-bold text-sm mr-3">
-                    2
-                  </div>
-                  <h3 className="text-gray-400 font-bold">Track Progress</h3>
-                </div>
-                <p className="text-gray-400 text-sm mb-4">
-                  Update project status, add photos, and keep clients informed with real-time progress.
-                </p>
-                <button
-                  disabled
-                  className="w-full bg-[#9E9E9E] text-gray-500 py-2 px-4 rounded-[4px] cursor-not-allowed font-medium"
-                >
-                  COMING NEXT
-                </button>
-              </div>
-
-              {/* Step 3 */}
-              <div className="bg-[#333333] rounded-[4px] p-6 border-l-4 border-[#9E9E9E] opacity-75">
-                <div className="flex items-center mb-4">
-                  <div className="w-8 h-8 bg-[#9E9E9E] rounded-full flex items-center justify-center text-white font-bold text-sm mr-3">
-                    3
-                  </div>
-                  <h3 className="text-gray-400 font-bold">Complete & Invoice</h3>
-                </div>
-                <p className="text-gray-400 text-sm mb-4">
-                  Mark projects complete and automatically generate invoices for final payment.
-                </p>
-                <button
-                  disabled
-                  className="w-full bg-[#9E9E9E] text-gray-500 py-2 px-4 rounded-[4px] cursor-not-allowed font-medium"
-                >
-                  COMING NEXT
-                </button>
-              </div>
-            </div>
-
-            {/* Tips Section */}
-            <div className="bg-[#1E1E1E] rounded-[4px] p-6 border border-[#333333]">
-              <h3 className="text-white font-bold mb-4 flex items-center">
-                <span className="text-[#F9D71C] mr-2">💡</span>
-                Pro Tips for Project Management
-              </h3>
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-3">
-                  <div className="flex items-start">
-                    <div className="w-2 h-2 bg-[#336699] rounded-full mt-2 mr-3 flex-shrink-0"></div>
-                    <div>
-                      <p className="text-white text-sm font-medium">Set realistic timelines</p>
-                      <p className="text-gray-400 text-xs">Add buffer time for permits, weather, and material delays</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start">
-                    <div className="w-2 h-2 bg-[#336699] rounded-full mt-2 mr-3 flex-shrink-0"></div>
-                    <div>
-                      <p className="text-white text-sm font-medium">Track costs in real-time</p>
-                      <p className="text-gray-400 text-xs">Update budgets as you go to avoid surprises</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  <div className="flex items-start">
-                    <div className="w-2 h-2 bg-[#336699] rounded-full mt-2 mr-3 flex-shrink-0"></div>
-                    <div>
-                      <p className="text-white text-sm font-medium">Document everything</p>
-                      <p className="text-gray-400 text-xs">Photos and notes protect you and impress clients</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start">
-                    <div className="w-2 h-2 bg-[#336699] rounded-full mt-2 mr-3 flex-shrink-0"></div>
-                    <div>
-                      <p className="text-white text-sm font-medium">Use project templates</p>
-                      <p className="text-gray-400 text-xs">Save time by reusing successful project structures</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Project Types */}
-            <div className="text-center mt-8">
-              <p className="text-gray-400 text-sm mb-4">
-                Popular project types to get you started:
-              </p>
-              <div className="flex flex-wrap justify-center gap-2">
-                {categories.slice(1, 6).map((category) => (
-                  <button
-                    key={category.id}
-                    onClick={() => setShowProjectWizard(true)}
-                    className="px-3 py-1 bg-[#333333] text-gray-300 rounded-[4px] text-sm hover:bg-[#404040] transition-colors"
-                  >
-                          {category.name}
-                  </button>
-                ))}
-              </div>
-            </div>
+        ) : projects.length === 0 ? (
+          // Simple empty state
+          <div className="text-center py-12">
+            <div className="text-gray-400 text-lg mb-2">No projects found</div>
+            <div className="text-gray-500 text-sm">Projects will appear here when they are created from accepted estimates</div>
           </div>
         ) : (
           <>
@@ -1142,24 +971,6 @@ export const ProjectList: React.FC<ProjectListProps> = ({ searchTerm: initialSea
         </div>
       </div>
       
-      {/* Enhanced Project Wizard */}
-      <EnhancedProjectWizard 
-        isOpen={showProjectWizard} 
-        onClose={() => setShowProjectWizard(false)}
-        onSuccess={() => {
-          setShowProjectWizard(false);
-          // Refresh the project list when the wizard completes
-          const fetchProjects = async () => {
-            try {
-              const projectsData = await db.projects.list(selectedOrg.id);
-              setProjects(projectsData);
-            } catch (error) {
-              console.error('Error fetching projects:', error);
-            }
-          };
-          fetchProjects();
-        }} 
-      />
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
@@ -1214,6 +1025,19 @@ export const ProjectList: React.FC<ProjectListProps> = ({ searchTerm: initialSea
             </div>
           </div>
         </div>
+      )}
+
+      {/* Create Project Wizard */}
+      {showProjectWizard && (
+        <CreateProjectWizard
+          isOpen={showProjectWizard}
+          onClose={() => setShowProjectWizard(false)}
+          onSuccess={() => {
+            setShowProjectWizard(false);
+            // Refresh the projects list
+            loadProjects();
+          }}
+        />
       )}
     </div>
   );

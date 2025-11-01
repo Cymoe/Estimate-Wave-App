@@ -245,9 +245,9 @@ export class ExpenseService {
         }
       });
 
-      console.log(`Generated ${expenses.length} expenses for project ${projectId}`);
+      // Generated expenses for project
     } catch (error) {
-      console.error('Error generating expenses from templates:', error);
+      // Error generating expenses from templates
       throw error;
     }
   }

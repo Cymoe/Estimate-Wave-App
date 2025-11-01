@@ -2,7 +2,7 @@ import React from 'react';
 
 export const DetailSkeleton: React.FC = () => {
   return (
-    <div className="min-h-screen bg-[#121212] text-white">
+    <div className="min-h-screen bg-[#000000] text-white">
       {/* Header - Matching Invoice Page Style */}
       <div className="border-b border-[#333333] px-6 py-4">
         <div className="flex items-center justify-between">

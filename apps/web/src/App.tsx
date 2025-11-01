@@ -5,14 +5,13 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ScrollRestoration } from './components/ScrollRestoration';
 import Dashboard from './pages/dashboard/Dashboard';
 import { TestAuth } from './components/auth/TestAuth';
-import { People } from './pages/People';
 import { PriceBook as PriceBookPage } from './pages/PriceBook';
-import { InvoiceDetail } from './components/invoices/InvoiceDetail';
-import { ShareableInvoice } from './components/invoices/ShareableInvoice';
-import { EstimatesPage } from './pages/EstimatesPage';
+// Invoices removed - contractors use QuickBooks for invoicing
 import { EstimateDetail } from './components/estimates/EstimateDetail';
 import { EditEstimatePage } from './pages/EditEstimatePage';
 import { ShareableEstimate } from './components/estimates/ShareableEstimate';
+import { EstimateContractView } from './components/contracts/EstimateContractView';
+import { SharedServiceOption } from './pages/SharedServiceOption';
 // Packages page removed as part of simplification
 import { LandingPage } from './components/LandingPage';
 import Projects from './pages/marketing/Projects';
@@ -20,12 +19,9 @@ import { BillsList } from './components/bills/BillsList';
 import { Callback } from './components/auth/Callback';
 import { UserProfile } from './components/settings/UserProfile';
 import { PublicProfileView } from './components/settings/PublicProfileView';
-import { CommunityHub } from './pages/CommunityHub';
 import { Toaster } from 'react-hot-toast';
-import { ProjectList, ProjectForm, ProjectDetails } from './components/projects';
-import { ProjectNewPage } from './pages/ProjectNewPage';
+import { ProjectForm, ProjectDetails } from './components/projects';
 import LineItemTestPage from './pages/LineItemTestPage';
-import { supabase } from './lib/supabase';
 import { DashboardLayout } from './components/layouts/DashboardLayout';
 import MarkdownViewer from './components/docs/MarkdownViewer';
 import Templates from './pages/Templates';
@@ -38,9 +34,11 @@ import { SubcontractorDetailPage } from './pages/SubcontractorDetailPage';
 import { TeamMemberDetailPage } from './pages/TeamMemberDetailPage';
 import { DebugData } from './pages/DebugData';
 import { Work } from './pages/Work';
+import { Projects as ProjectsPage } from './pages/Projects';
 import { ActivityPage } from './pages/ActivityPage';
 import { WhoWeServe } from './pages/WhoWeServe';
-import { ServicesPackages } from './pages/ServicesPackages';
+import { SalesMode } from './pages/SalesMode';
+// import { ServicesPackages } from './pages/ServicesPackages'; // Removed - using line items only
 import Marketing from './pages/Marketing';
 
 // Lazy load the Experience page
@@ -211,16 +209,6 @@ function AppRoutes() {
         }
       />
       <Route
-        path="/people"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <People />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
         path="/vendors/:id"
         element={
           <ProtectedRoute>
@@ -261,12 +249,26 @@ function AppRoutes() {
         }
       />
       
-      {/* Work Hub - combines Estimates, Projects, and Invoices */}
+      {/* Work - Estimates only */}
       <Route
         path="/work"
         element={
           <ProtectedRoute>
-            <Navigate to="/work/estimates" replace />
+            <DashboardLayout fullWidth={true}>
+              <Work />
+            </DashboardLayout>
+          </ProtectedRoute>
+        }
+      />
+      
+      {/* Sales Mode - Field Sales Tool */}
+      <Route
+        path="/sales-mode"
+        element={
+          <ProtectedRoute>
+            <DashboardLayout>
+              <SalesMode />
+            </DashboardLayout>
           </ProtectedRoute>
         }
       />
@@ -274,9 +276,7 @@ function AppRoutes() {
         path="/work/estimates"
         element={
           <ProtectedRoute>
-            <DashboardLayout>
-              <Work />
-            </DashboardLayout>
+            <Navigate to="/work" replace />
           </ProtectedRoute>
         }
       />
@@ -284,18 +284,18 @@ function AppRoutes() {
         path="/work/projects"
         element={
           <ProtectedRoute>
-            <DashboardLayout>
-              <Work />
-            </DashboardLayout>
+            <Navigate to="/projects" replace />
           </ProtectedRoute>
         }
       />
+      
+      {/* Projects - Standalone page */}
       <Route
-        path="/work/invoices"
+        path="/projects"
         element={
           <ProtectedRoute>
-            <DashboardLayout>
-              <Work />
+            <DashboardLayout fullWidth={true}>
+              <ProjectsPage />
             </DashboardLayout>
           </ProtectedRoute>
         }
@@ -313,28 +313,10 @@ function AppRoutes() {
         }
       />
       
+      {/* Public shareable service option route - no auth required */}
       <Route
-        path="/invoices"
-        element={
-          <ProtectedRoute>
-            <Navigate to="/work/invoices" replace />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/invoices/:id"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <InvoiceDetail />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
-      {/* Public shareable invoice route - no auth required */}
-      <Route
-        path="/share/invoice/:id"
-        element={<ShareableInvoice />}
+        path="/share/service-option/:encodedConfig"
+        element={<SharedServiceOption />}
       />
       
       {/* Estimate routes */}
@@ -350,7 +332,7 @@ function AppRoutes() {
         path="/estimates/:id"
         element={
           <ProtectedRoute>
-            <DashboardLayout>
+            <DashboardLayout fullWidth={true}>
               <EstimateDetail />
             </DashboardLayout>
           </ProtectedRoute>
@@ -363,6 +345,14 @@ function AppRoutes() {
             <DashboardLayout>
               <EditEstimatePage />
             </DashboardLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/estimates/:id/contract"
+        element={
+          <ProtectedRoute>
+            <EstimateContractView />
           </ProtectedRoute>
         }
       />
@@ -415,23 +405,6 @@ function AppRoutes() {
         element={<PublicProfileView />}
       />
       
-      {/* Community Hub - Public version for discovery */}
-      <Route
-        path="/discover"
-        element={<CommunityHub />}
-      />
-      
-      {/* Community Hub - Protected version with sidebar for logged-in users */}
-      <Route
-        path="/community"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <CommunityHub />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
       
       {/* Project routes */}
       <Route
@@ -439,16 +412,6 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Navigate to="/work/projects" replace />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/projects/new"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <ProjectNewPage />
-            </DashboardLayout>
           </ProtectedRoute>
         }
       />
@@ -475,14 +438,6 @@ function AppRoutes() {
 
       {/* Client routes */}
       <Route
-        path="/clients"
-        element={
-          <ProtectedRoute>
-            <Navigate to="/people" replace />
-          </ProtectedRoute>
-        }
-      />
-      <Route
         path="/clients/:clientId"
         element={
           <ProtectedRoute>
@@ -498,7 +453,7 @@ function AppRoutes() {
         path="/price-book"
         element={
           <ProtectedRoute>
-            <DashboardLayout>
+            <DashboardLayout fullWidth={true}>
               <PriceBookPage />
             </DashboardLayout>
           </ProtectedRoute>
@@ -508,7 +463,7 @@ function AppRoutes() {
         path="/price-book/cost-codes"
         element={
           <ProtectedRoute>
-            <DashboardLayout>
+            <DashboardLayout fullWidth={true}>
               <PriceBookPage />
             </DashboardLayout>
           </ProtectedRoute>
@@ -518,7 +473,7 @@ function AppRoutes() {
         path="/price-book/items"
         element={
           <ProtectedRoute>
-            <DashboardLayout>
+            <DashboardLayout fullWidth={true}>
               <PriceBookPage />
             </DashboardLayout>
           </ProtectedRoute>
@@ -530,8 +485,8 @@ function AppRoutes() {
         path="/services"
         element={
           <ProtectedRoute>
-            <DashboardLayout>
-              <ServicesPackages />
+            <DashboardLayout fullWidth={true}>
+              <Navigate to="/price-book/items" replace />
             </DashboardLayout>
           </ProtectedRoute>
         }

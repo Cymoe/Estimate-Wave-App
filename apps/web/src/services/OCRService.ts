@@ -64,7 +64,7 @@ export class OCRService {
       // Use the smart parser to extract contacts from OCR text
       return ClientImportService.parseSmartInput(ocrResult.text);
     } catch (error) {
-      console.error('Error extracting contacts from image:', error);
+      // Error extracting contacts from image
       return [];
     }
   }
@@ -86,7 +86,7 @@ export class OCRService {
         }
         
         const result = await Tesseract.recognize(image, 'eng', {
-          logger: (m: any) => console.log('OCR Progress:', m)
+          logger: (m: any) => { /* OCR Progress */ }
         });
         
         return {
@@ -107,7 +107,7 @@ export class OCRService {
       
       throw new Error('Tesseract.js not loaded');
     } catch (error) {
-      console.error('Tesseract OCR error:', error);
+      // Tesseract OCR error
       
       // Return a mock result for demo purposes
       return {
@@ -277,7 +277,7 @@ if (typeof window !== 'undefined') {
     script.src = 'https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js';
     script.async = true;
     script.onload = () => {
-      console.log('Tesseract.js loaded for OCR functionality');
+      // Tesseract.js loaded for OCR functionality
     };
     document.head.appendChild(script);
   }

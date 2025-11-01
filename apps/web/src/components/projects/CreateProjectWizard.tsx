@@ -99,6 +99,7 @@ export const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({ isOpen
   const [customBudget, setCustomBudget] = useState('');
   const [userIndustries, setUserIndustries] = useState<Industry[]>([]);
   const [projectCategories, setProjectCategories] = useState<ProjectCategory[]>([]);
+  const [servicePackages, setServicePackages] = useState<any[]>([]);
   const [projectStatus, setProjectStatus] = useState<'lead' | 'planned' | 'quoted'>('planned');
   const [formData, setFormData] = useState({
     name: '',
@@ -180,6 +181,9 @@ export const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({ isOpen
       } else {
         setProjectCategories([]);
       }
+      
+      // Service packages removed - using invoice templates instead
+      setServicePackages([]);
       
       // Load clients
       const { data: clientsRes, error: clientsError } = await supabase
@@ -322,27 +326,133 @@ export const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({ isOpen
         );
 
       case 2:
+        // Filter service packages for the selected industry
+        const industryPackages = servicePackages.filter(pkg => pkg.industry_id === selectedIndustry?.id);
+        const essentialPackages = industryPackages.filter(pkg => pkg.level === 'essentials');
+        const completePackages = industryPackages.filter(pkg => pkg.level === 'complete');
+        const deluxePackages = industryPackages.filter(pkg => pkg.level === 'deluxe');
+        
         return (
-          <div className="space-y-4">
-            {/* ServicePackageSelector will be implemented here */}
-            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-6">
-              <h4 className="text-lg font-semibold text-yellow-800 dark:text-yellow-200 mb-2">
-                Service Package Selection Coming Soon
-              </h4>
-              <p className="text-yellow-700 dark:text-yellow-300 mb-4">
-                We're updating our package selection to provide better service options.
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedServicePackage({ id: 'custom', name: 'Custom Service Package' });
-                  setCurrentStep(3);
-                }}
-                className="w-full py-3 px-4 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
-              >
-                Continue without package
-              </button>
+          <div className="space-y-6">
+            <div className="space-y-4">
+              <h3 className="text-xl font-semibold text-white">Select Service Package</h3>
+              <p className="text-sm text-gray-500">Choose a pre-configured service package or create a custom project</p>
             </div>
+            
+            {industryPackages.length > 0 ? (
+              <div className="space-y-6">
+                {/* Essentials Packages */}
+                {essentialPackages.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-400 mb-3">ESSENTIALS</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {essentialPackages.map(pkg => (
+                        <button
+                          key={pkg.id}
+                          onClick={() => {
+                            setSelectedServicePackage(pkg);
+                            setCurrentStep(3);
+                          }}
+                          className={`p-4 border rounded-lg text-left transition-all ${
+                            selectedServicePackage?.id === pkg.id
+                              ? 'bg-[#0f1729] border-[#fbbf24] text-white'
+                              : 'bg-transparent border-[#2a2a2a] text-white hover:border-[#3a3a3a] hover:bg-[#111]'
+                          }`}
+                        >
+                          <div className="font-medium mb-1">{pkg.name}</div>
+                          <div className="text-xs text-gray-500">{pkg.description}</div>
+                          <div className="text-xs text-gray-600 mt-2">{pkg.completion_days} days</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Complete Packages */}
+                {completePackages.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-400 mb-3">COMPLETE</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {completePackages.map(pkg => (
+                        <button
+                          key={pkg.id}
+                          onClick={() => {
+                            setSelectedServicePackage(pkg);
+                            setCurrentStep(3);
+                          }}
+                          className={`p-4 border rounded-lg text-left transition-all ${
+                            selectedServicePackage?.id === pkg.id
+                              ? 'bg-[#0f1729] border-[#fbbf24] text-white'
+                              : 'bg-transparent border-[#2a2a2a] text-white hover:border-[#3a3a3a] hover:bg-[#111]'
+                          }`}
+                        >
+                          <div className="font-medium mb-1">{pkg.name}</div>
+                          <div className="text-xs text-gray-500">{pkg.description}</div>
+                          <div className="text-xs text-gray-600 mt-2">{pkg.completion_days} days</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Deluxe Packages */}
+                {deluxePackages.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-400 mb-3">DELUXE</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {deluxePackages.map(pkg => (
+                        <button
+                          key={pkg.id}
+                          onClick={() => {
+                            setSelectedServicePackage(pkg);
+                            setCurrentStep(3);
+                          }}
+                          className={`p-4 border rounded-lg text-left transition-all ${
+                            selectedServicePackage?.id === pkg.id
+                              ? 'bg-[#0f1729] border-[#fbbf24] text-white'
+                              : 'bg-transparent border-[#2a2a2a] text-white hover:border-[#3a3a3a] hover:bg-[#111]'
+                          }`}
+                        >
+                          <div className="font-medium mb-1">{pkg.name}</div>
+                          <div className="text-xs text-gray-500">{pkg.description}</div>
+                          <div className="text-xs text-gray-600 mt-2">{pkg.completion_days} days</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Start from Scratch Option */}
+                <div className="border-t border-[#333333] pt-6">
+                  <button
+                    onClick={() => {
+                      setSelectedServicePackage({ id: 'custom', name: 'Custom Project' });
+                      setCurrentStep(3);
+                    }}
+                    className="w-full p-6 border border-[#2a2a2a] rounded-lg text-center hover:bg-[#111] hover:border-[#3a3a3a] transition-all"
+                  >
+                    <h4 className="text-lg font-semibold text-white mb-2">Start from Scratch</h4>
+                    <p className="text-sm text-gray-500">Create a custom project without a template</p>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-6">
+                <p className="text-yellow-700 dark:text-yellow-300 mb-4">
+                  No service packages available for this industry yet.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedServicePackage({ id: 'custom', name: 'Custom Service Package' });
+                    setCurrentStep(3);
+                  }}
+                  className="w-full py-3 px-4 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+                >
+                  Continue without package
+                </button>
+              </div>
+            )}
           </div>
         );
 

@@ -8,7 +8,6 @@ import { supabase } from '../../lib/supabase';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { formatCurrency } from '../../utils/format';
 import { TableSkeleton } from '../skeletons/TableSkeleton';
-import { CreateProjectWizard } from '../projects/CreateProjectWizard';
 
 interface Project {
   id: string;
@@ -32,7 +31,6 @@ export const WorkProjectsView: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | Project['status']>('all');
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
-  const [showProjectWizard, setShowProjectWizard] = useState(false);
 
   useEffect(() => {
     if (selectedOrg?.id) {
@@ -205,14 +203,6 @@ export const WorkProjectsView: React.FC = () => {
                 ? 'Try adjusting your filters' 
                 : 'Create your first project to get started'}
             </p>
-            {!searchTerm && statusFilter === 'all' && (
-              <button
-                onClick={() => setShowProjectWizard(true)}
-                className="px-4 py-2 bg-[#F9D71C] hover:bg-[#E5C61A] rounded-lg text-black font-medium transition-colors"
-              >
-                Create Project
-              </button>
-            )}
           </div>
         ) : viewMode === 'list' ? (
           <table className="w-full">
@@ -321,15 +311,6 @@ export const WorkProjectsView: React.FC = () => {
         )}
       </div>
       
-      {/* Create Project Wizard */}
-      <CreateProjectWizard 
-        isOpen={showProjectWizard} 
-        onClose={() => {
-          setShowProjectWizard(false);
-          // Refresh the project list when the wizard is closed
-          loadProjects();
-        }} 
-      />
     </div>
   );
 };

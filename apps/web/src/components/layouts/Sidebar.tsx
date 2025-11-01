@@ -4,13 +4,8 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronLeft,
-  User,
-  Building,
-  CreditCard,
   HelpCircle,
   LogOut,
-  Building2,
-  Book,
   Activity,
   TrendingUp
 } from 'lucide-react';
@@ -27,7 +22,6 @@ interface SidebarProps {
   isProjectsSidebarOpen: boolean;
   setIsProjectsSidebarOpen: (value: boolean) => void;
   isProjectsSidebarLocked: boolean;
-  setProjectsSidebarLockedWithPersistence: (value: boolean) => void;
   selectedTimePeriod: 'D' | 'W' | 'M' | 'Q' | 'Y';
   setSelectedTimePeriod: (period: 'D' | 'W' | 'M' | 'Q' | 'Y') => void;
   currentData: { revenue: number; profit: number; goal: number; percentage: number };
@@ -52,7 +46,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isProjectsSidebarOpen,
   setIsProjectsSidebarOpen,
   isProjectsSidebarLocked,
-  setProjectsSidebarLockedWithPersistence,
   selectedTimePeriod,
   setSelectedTimePeriod,
   currentData,
@@ -96,7 +89,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <>
       {/* Sidebar - part of grid layout, not fixed */}
-      <div className={`hidden md:flex ${isSidebarCollapsed ? 'w-14' : 'w-48'} h-screen bg-[#121212] border-l border-gray-700 flex-col transition-all duration-300`}>
+      <div className={`hidden md:flex ${isSidebarCollapsed ? 'w-14' : 'w-48'} h-screen bg-[#000000] border-l border-gray-700 flex-col transition-all duration-300`}>
         {/* Organization header and sidebar toggle */}
         <div className="p-2 border-b border-[#333333] relative flex items-center justify-between flex-shrink-0 overflow-visible">
           <button
@@ -110,11 +103,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {!isSidebarCollapsed && (
             <button 
               onClick={() => setOrgDropdownOpen(!orgDropdownOpen)}
-              className="flex-1 bg-[#1A1A1A] border border-[#2A2A2A] flex items-center justify-between ml-1 h-8 px-2 hover:bg-[#2A2A2A] transition-all duration-150 max-w-[140px]"
-              title={`Organization: ${selectedOrg.name}`}
+              className="flex-1 bg-[#1A1A1A] border border-[#2A2A2A] flex items-center justify-between ml-1 h-10 px-2 hover:bg-[#2A2A2A] transition-all duration-150 max-w-[140px]"
+              title={selectedOrg.name}
             >
               <div className="flex items-center min-w-0 flex-1 overflow-hidden">
-                <span className="text-white text-sm font-medium leading-tight truncate">{selectedOrg.name}</span>
+                <div className="flex flex-col items-start">
+                  <span className="text-white text-xs font-semibold leading-tight truncate max-w-[120px]">{selectedOrg.name}</span>
+                  <span className="text-[#336699] text-[10px] leading-tight">{selectedOrg.industry}</span>
+                </div>
               </div>
               <ChevronDown className={`text-[#336699] w-3 h-3 transition-transform duration-200 flex-shrink-0 ml-1 ${orgDropdownOpen ? 'transform rotate-180' : ''}`} />
             </button>
@@ -177,86 +173,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
             </NavLink>
 
-
-            {/* People */}
-            <NavLink
-              to="/people"
-              className={({ isActive }) =>
-                isActive
-                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
-                  : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
-              }
-              title={isSidebarCollapsed ? "People - Manage Clients, Team, Vendors & Subcontractors" : undefined}
-            >
-              {({ isActive }) => (
-                <>
-                  <div className="relative z-10 flex flex-col items-center">
-                    <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      <span className="text-base">◯</span>
-                    </div>
-                    {!isSidebarCollapsed && (
-                      <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                        People
-                      </span>
-                    )}
-                  </div>
-                </>
-              )}
-            </NavLink>
-
-            {/* Work (combines Estimates, Projects, Invoices) */}
-            <NavLink
-              to="/work"
-              className={({ isActive }) =>
-                isActive || location.pathname.startsWith('/work') || location.pathname.startsWith('/estimates') || location.pathname.startsWith('/projects') || location.pathname.startsWith('/invoices')
-                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
-                  : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
-              }
-              title={isSidebarCollapsed ? "Work - Estimates, Projects & Invoices" : undefined}
-            >
-              {({ isActive }) => (
-                <>
-                  <div className="relative z-10 flex flex-col items-center">
-                    <div className={`mb-1 ${isActive || location.pathname.startsWith('/work') || location.pathname.startsWith('/estimates') || location.pathname.startsWith('/projects') || location.pathname.startsWith('/invoices') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      <span className="text-base">▲</span>
-                    </div>
-                    {!isSidebarCollapsed && (
-                      <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/work') || location.pathname.startsWith('/estimates') || location.pathname.startsWith('/projects') || location.pathname.startsWith('/invoices') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                        Work
-                      </span>
-                    )}
-                  </div>
-                </>
-              )}
-            </NavLink>
-
-
-            {/* Services */}
-            <NavLink
-              to="/services"
-              className={({ isActive }) =>
-                isActive || location.pathname.startsWith('/services')
-                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
-                  : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
-              }
-              title={isSidebarCollapsed ? "Services & Packages - Build Estimates Quickly" : undefined}
-            >
-              {({ isActive }) => (
-                <>
-                  <div className="relative z-10 flex flex-col items-center">
-                    <div className={`mb-1 ${isActive || location.pathname.startsWith('/services') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      <span className="text-base">◉</span>
-                    </div>
-                    {!isSidebarCollapsed && (
-                      <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/services') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                        Services
-                      </span>
-                    )}
-                  </div>
-                </>
-              )}
-            </NavLink>
-
             {/* Price Book */}
             <NavLink
               to="/price-book"
@@ -283,31 +199,84 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
             </NavLink>
 
-            {/* Community */}
+            {/* Estimates */}
             <NavLink
-              to="/community"
+              to="/work"
               className={({ isActive }) =>
-                isActive
+                isActive || location.pathname.startsWith('/work') || location.pathname.startsWith('/estimates')
                   ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
                   : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
               }
-              title={isSidebarCollapsed ? "Community - Discover Professionals" : undefined}
+              title={isSidebarCollapsed ? "Estimates - Create and Manage Estimates" : undefined}
             >
               {({ isActive }) => (
                 <>
                   <div className="relative z-10 flex flex-col items-center">
-                    <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      <span className="text-base" style={{ letterSpacing: '-0.3em' }}>○○</span>
+                    <div className={`mb-1 ${isActive || location.pathname.startsWith('/work') || location.pathname.startsWith('/estimates') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
+                      <span className="text-base">▲</span>
                     </div>
                     {!isSidebarCollapsed && (
-                      <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                        Community
+                      <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/work') || location.pathname.startsWith('/estimates') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
+                        Estimates
                       </span>
                     )}
                   </div>
                 </>
               )}
             </NavLink>
+
+            {/* Sales Mode */}
+            <NavLink
+              to="/sales-mode"
+              className={({ isActive }) =>
+                isActive || location.pathname.startsWith('/sales-mode')
+                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
+                  : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
+              }
+              title={isSidebarCollapsed ? "Sales Mode - Field Sales Tool" : undefined}
+            >
+              {({ isActive }) => (
+                <>
+                  <div className="relative z-10 flex flex-col items-center">
+                    <div className={`mb-1 ${isActive || location.pathname.startsWith('/sales-mode') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
+                      <span className="text-base">⚡</span>
+                    </div>
+                    {!isSidebarCollapsed && (
+                      <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/sales-mode') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
+                        Sales Mode
+                      </span>
+                    )}
+                  </div>
+                </>
+              )}
+            </NavLink>
+
+            {/* Projects */}
+            <NavLink
+              to="/projects"
+              className={({ isActive }) =>
+                isActive || location.pathname.startsWith('/projects')
+                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
+                  : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
+              }
+              title={isSidebarCollapsed ? "Projects - Manage Your Projects" : undefined}
+            >
+              {({ isActive }) => (
+                <>
+                  <div className="relative z-10 flex flex-col items-center">
+                    <div className={`mb-1 ${isActive || location.pathname.startsWith('/projects') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
+                      <span className="text-base">◉</span>
+                    </div>
+                    {!isSidebarCollapsed && (
+                      <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/projects') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
+                        Projects
+                      </span>
+                    )}
+                  </div>
+                </>
+              )}
+            </NavLink>
+
           </div>
 
           {/* Recent Projects Section */}

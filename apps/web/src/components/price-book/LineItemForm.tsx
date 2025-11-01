@@ -8,6 +8,8 @@ import { UNIT_OPTIONS } from '../../constants';
 import { formatCurrency } from '../../utils/format';
 import { PricingModesService, PricingMode } from '../../services/PricingModesService';
 import { ChevronUp, ChevronDown } from 'lucide-react';
+import { CategorySelector } from './CategorySelector';
+import { lineItemsAPI } from '../../lib/api';
 
 interface LineItemFormData {
   name: string;
@@ -16,6 +18,9 @@ interface LineItemFormData {
   unit: string;
   cost_code_id: string;
   markup_percentage?: number;
+  red_line_price?: number;
+  cap_price?: number;
+  service_category?: string;
 }
 
 interface CostCode {
@@ -36,13 +41,17 @@ interface LineItemFormProps {
   initialData?: Partial<LineItemFormData>;
   submitLabel?: string;
   showSuccessMessage?: boolean;
+  defaultCostCodeId?: string | null;
+  defaultServiceCategory?: string | null;
 }
 
 export const LineItemForm: React.FC<LineItemFormProps> = ({
   onSubmit,
   onCancel,
   initialData,
-  submitLabel = 'Save'
+  submitLabel = 'Save',
+  defaultCostCodeId,
+  defaultServiceCategory
 }) => {
   const { user } = useAuth();
   const { selectedOrg } = useContext(OrganizationContext);
@@ -61,6 +70,10 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
   const [costCodes, setCostCodes] = useState<CostCode[]>([]);
   const [groupedCostCodes, setGroupedCostCodes] = useState<Map<string, CostCode[]>>(new Map());
   const [isLoadingCostCodes, setIsLoadingCostCodes] = useState(true);
+  const [availableCategories, setAvailableCategories] = useState<string[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>(
+    initialData?.service_category || defaultServiceCategory || ''
+  );
   
   // Direct price state
   const [price, setPrice] = useState(
@@ -100,6 +113,27 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
   useEffect(() => {
     fetchCostCodes();
   }, [user, selectedOrg?.id, initialData?.cost_code_id]);
+
+  // Fetch available categories from existing line items
+  useEffect(() => {
+    const fetchCategories = async () => {
+      if (!selectedOrg?.id) return;
+      
+      try {
+        const items = await lineItemsAPI.list(selectedOrg.id);
+        const categories = [...new Set(
+          items
+            .map((item: any) => item.service_category)
+            .filter(Boolean)
+        )];
+        setAvailableCategories(categories);
+      } catch (error) {
+        console.error('Error fetching categories:', error);
+      }
+    };
+    
+    fetchCategories();
+  }, [selectedOrg?.id]);
 
   // Fetch pricing modes
   useEffect(() => {
@@ -201,6 +235,7 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
         price: finalPrice,
         unit: data.unit,
         cost_code_id: data.cost_code_id,
+        service_category: selectedCategory || undefined, // Add the selected category
         // Store markup percentage for internal use only
         ...(isSharedItem && markupToSubmit !== undefined ? { markup_percentage: markupToSubmit } : {})
       };
@@ -316,6 +351,19 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
             isSharedItem ? 'opacity-50 cursor-not-allowed' : ''
           }`}
           placeholder="Enter description"
+        />
+      </div>
+
+      {/* Service Category Selector */}
+      <div>
+        <CategorySelector
+          value={selectedCategory}
+          onChange={(category) => setSelectedCategory(category)}
+          availableCategories={availableCategories}
+          onAddCategory={(newCat) => {
+            setAvailableCategories([...availableCategories, newCat]);
+          }}
+          label="Service Category"
         />
       </div>
 
@@ -493,14 +541,48 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
         {/* Smart pricing suggestions for shared items */}
         {isSharedItem && (
           <div className="space-y-2">
-            {/* Market baseline */}
+            {/* Commission Potential */}
             <div className="bg-[#1E1E1E] rounded-lg p-3 border border-[#333333]">
               <div className="flex items-start justify-between mb-2">
                 <div>
-                  <h4 className="text-xs font-medium text-white">Market Baseline</h4>
-                  <p className="text-xs text-gray-500">Industry average pricing</p>
+                  <h4 className="text-xs font-medium text-white">Your Commission</h4>
+                  <p className="text-xs text-gray-500">Margin above redline</p>
                 </div>
-                <span className="text-base font-mono font-semibold text-white">{formatCurrency(baseCost)}</span>
+                <div className="text-right">
+                  {(() => {
+                    const currentPrice = parseFloat(price) || 0;
+                    const redlinePrice = initialData?.red_line_price || baseCost * 0.7;
+                    const capPrice = initialData?.cap_price || baseCost;
+                    const maxCommission = capPrice - redlinePrice;
+                    const currentCommission = Math.max(0, currentPrice - redlinePrice);
+                    const commissionPercent = maxCommission > 0 ? (currentCommission / maxCommission) * 100 : 0;
+                    
+                    return (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-lg font-mono font-semibold ${
+                            currentCommission === 0 ? 'text-red-400' : 
+                            commissionPercent > 80 ? 'text-green-400' : 
+                            commissionPercent > 40 ? 'text-yellow-400' : 'text-orange-400'
+                          }`}>
+                            {formatCurrency(currentCommission)}
+                          </span>
+                          <span className={`text-sm font-medium ${
+                            currentCommission === 0 ? 'text-red-400' : 
+                            commissionPercent > 80 ? 'text-green-400' : 
+                            commissionPercent > 40 ? 'text-yellow-400' : 'text-orange-400'
+                          }`}>
+                            ({Math.round(commissionPercent)}%)
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 text-xs">
+                          <span className="text-gray-500">max:</span>
+                          <span className="text-gray-400">{formatCurrency(maxCommission)}</span>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
               </div>
               
               {/* Pricing strategy buttons */}
@@ -512,69 +594,130 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white inline-block"></div>
                     </div>
                   ) : (
-                    pricingModes
-                      .filter(mode => mode.name !== 'Market Rate') // Exclude Market Rate - we use Reset to Baseline instead
-                      .sort((a, b) => {
-                        // Put "Reset to Baseline" at the end
-                        if (a.name === 'Reset to Baseline') return 1;
-                        if (b.name === 'Reset to Baseline') return -1;
-                        
-                        // Get multipliers for sorting others
-                        const aMultiplier = a.adjustments.all || 1;
-                        const bMultiplier = b.adjustments.all || 1;
-                        
-                        // Sort by multiplier (lowest first = biggest discount first)
-                        return aMultiplier - bMultiplier;
-                      })
-                      .map(mode => {
-                        // Get the appropriate multiplier based on category or use 'all'
-                        let multiplier = mode.adjustments.all || 1;
-                        if (currentCostCodeCategory && mode.adjustments[currentCostCodeCategory as keyof typeof mode.adjustments]) {
-                          multiplier = mode.adjustments[currentCostCodeCategory as keyof typeof mode.adjustments] || 1;
-                        }
-                        const modePrice = baseCost * multiplier;
-                        
-                        // Show percentage change for clarity
-                        const percentageChange = Math.round((multiplier - 1) * 100);
-                        const changeText = percentageChange > 0 ? `+${percentageChange}%` : `${percentageChange}%`;
-                        const isActive = Math.abs(parseFloat(price) - modePrice) < 0.01;
-                        
-                        return (
-                          <button
-                            key={mode.id}
-                            type="button"
-                            onClick={() => {
-                              // For Reset to Baseline, always use the base price
-                              if (mode.name === 'Reset to Baseline') {
-                                setPrice(baseCost.toFixed(2));
-                              } else {
-                                setPrice(modePrice.toFixed(2));
-                              }
-                            }}
-                            className={`p-1.5 rounded text-left transition-all group relative ${
-                              isActive
-                                ? 'bg-white/10 backdrop-blur ring-2 ring-white/20'
-                                : 'bg-[#252525] hover:bg-[#333333]'
-                            }`}
-                          >
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-sm">{mode.icon}</span>
-                              <div className="text-xs font-medium text-white group-hover:text-blue-400">{mode.name}</div>
-                            </div>
-                            <div className="text-xs text-gray-500 mt-0.5">{changeText} • {mode.description}</div>
-                            <div className="text-xs font-mono text-gray-300 mt-0.5">{formatCurrency(modePrice)}</div>
-                          </button>
-                        );
-                      })
+                    <>
+                      {/* Red Line and Cap buttons (if available) */}
+                      {initialData?.red_line_price && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPrice(initialData.red_line_price!.toFixed(2));
+                          }}
+                          className={`p-1.5 rounded text-left transition-all group relative ${
+                            Math.abs(parseFloat(price) - initialData.red_line_price) < 0.01
+                              ? 'bg-red-900/30 backdrop-blur ring-2 ring-red-500/40'
+                              : 'bg-[#252525] hover:bg-red-900/20'
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm">🔴</span>
+                            <div className="text-xs font-medium text-red-400">Red Line</div>
+                          </div>
+                          <div className="text-xs text-gray-500 mt-0.5">Minimum acceptable price</div>
+                          <div className="text-xs font-mono text-red-400 mt-0.5">{formatCurrency(initialData.red_line_price)}</div>
+                        </button>
+                      )}
+                      
+                      {initialData?.cap_price && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPrice(initialData.cap_price!.toFixed(2));
+                          }}
+                          className={`p-1.5 rounded text-left transition-all group relative ${
+                            Math.abs(parseFloat(price) - initialData.cap_price) < 0.01
+                              ? 'bg-yellow-900/30 backdrop-blur ring-2 ring-yellow-500/40'
+                              : 'bg-[#252525] hover:bg-yellow-900/20'
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm">🟡</span>
+                            <div className="text-xs font-medium text-yellow-400">Cap Price</div>
+                          </div>
+                          <div className="text-xs text-gray-500 mt-0.5">Maximum premium pricing</div>
+                          <div className="text-xs font-mono text-yellow-400 mt-0.5">{formatCurrency(initialData.cap_price)}</div>
+                        </button>
+                      )}
+                      
+                      {/* Existing pricing mode buttons */}
+                      {pricingModes
+                        .filter(mode => mode.name !== 'Market Rate' && mode.name !== 'Cap Price') // Exclude Market Rate and Cap Price
+                        .sort((a, b) => {
+                          // Put "Reset to Baseline" at the end
+                          if (a.name === 'Reset to Baseline') return 1;
+                          if (b.name === 'Reset to Baseline') return -1;
+                          
+                          // Get multipliers for sorting others
+                          const aMultiplier = a.adjustments.all || 1;
+                          const bMultiplier = b.adjustments.all || 1;
+                          
+                          // Sort by multiplier (lowest first = biggest discount first)
+                          return aMultiplier - bMultiplier;
+                        })
+                        .map(mode => {
+                          // Get the appropriate multiplier based on category or use 'all'
+                          let multiplier = mode.adjustments.all || 1;
+                          if (currentCostCodeCategory && mode.adjustments[currentCostCodeCategory as keyof typeof mode.adjustments]) {
+                            multiplier = mode.adjustments[currentCostCodeCategory as keyof typeof mode.adjustments] || 1;
+                          }
+                          let modePrice = baseCost * multiplier;
+                          
+                          // Clamp prices within RED LINE to CAP range (except for special cases)
+                          const redLine = initialData?.red_line_price || baseCost;
+                          const cap = initialData?.cap_price || baseCost * 2;
+                          
+                          // Allow "Need This Job" to go down to BASE (break-even)
+                          // But all others must respect RED LINE minimum
+                          if (mode.name !== 'Need This Job' && mode.name !== 'Reset to Baseline' && modePrice < redLine) {
+                            modePrice = redLine;
+                          }
+                          
+                          // Nothing should exceed CAP
+                          if (modePrice > cap) {
+                            modePrice = cap;
+                          }
+                          
+                          // Show percentage change for clarity
+                          const actualPercentage = Math.round(((modePrice / baseCost) - 1) * 100);
+                          const changeText = actualPercentage > 0 ? `+${actualPercentage}%` : `${actualPercentage}%`;
+                          const isActive = Math.abs(parseFloat(price) - modePrice) < 0.01;
+                          
+                          // Check if clamped
+                          const wasClamped = (multiplier * baseCost !== modePrice);
+                          
+                          return (
+                            <button
+                              key={mode.id}
+                              type="button"
+                              onClick={() => {
+                                // For Reset to Baseline, always use the base price
+                                if (mode.name === 'Reset to Baseline') {
+                                  setPrice(baseCost.toFixed(2));
+                                } else {
+                                  setPrice(modePrice.toFixed(2));
+                                }
+                              }}
+                              className={`p-1.5 rounded text-left transition-all group relative ${
+                                isActive
+                                  ? 'bg-white/10 backdrop-blur ring-2 ring-white/20'
+                                  : 'bg-[#252525] hover:bg-[#333333]'
+                              }`}
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-sm">{mode.icon}</span>
+                                <div className="text-xs font-medium text-white group-hover:text-blue-400">{mode.name}</div>
+                              </div>
+                              <div className="text-xs text-gray-500 mt-0.5">
+                                {changeText} • {mode.description}
+                                {wasClamped && <span className="text-yellow-500 ml-1">(adjusted)</span>}
+                              </div>
+                              <div className="text-xs font-mono text-gray-300 mt-0.5">{formatCurrency(modePrice)}</div>
+                            </button>
+                          );
+                        })
+                      }
+                    </>
                   )}
                 </div>
-              </div>
-              
-              {/* Helpful context */}
-              <div className="mt-2 pt-2 border-t border-[#333333]">
-                <p className="text-xs text-gray-400">
-                  💰 Price for value, not hours. Difficult customers, rush jobs, and premium service deserve premium pricing!
-                </p>
               </div>
             </div>
           </div>

@@ -31,7 +31,7 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
   }, []);
 
   return (
-    <div className="md:hidden fixed top-0 left-0 right-0 bg-[#121212] border-b border-[#333333] z-[9997]">
+    <div className="md:hidden fixed top-0 left-0 right-0 bg-[#000000] border-b border-[#333333] z-[9997]">
       <div className="flex items-center justify-between px-4 py-3">
         {/* Menu Button */}
         <button

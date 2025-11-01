@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { 
   Clock, 
   Shield, 
@@ -7,14 +7,10 @@ import {
   Hash,
   FileText,
   ClipboardCheck,
-  Edit2,
-  Check,
   SlidersHorizontal
 } from 'lucide-react';
 import { formatCurrency } from '../../utils/format';
 import { ServiceOptionUnitDisplay } from './ServiceOptionUnitDisplay';
-import { supabase } from '../../lib/supabase';
-import { ServiceCatalogService } from '../../services/ServiceCatalogService';
 import { CustomizeServiceDrawer } from './CustomizeServiceDrawer';
 
 interface ServiceTemplate {
@@ -94,22 +90,7 @@ export const ServiceQuickRow: React.FC<ServiceQuickRowProps> = ({
   organizationId
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [editingItemId, setEditingItemId] = useState<string | null>(null);
-  const [alternativeItems, setAlternativeItems] = useState<Record<string, any[]>>({});
   const [showCustomizeDrawer, setShowCustomizeDrawer] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setEditingItemId(null);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   const handleAdd = () => {
     const newQuantity = cartQuantity === 0 ? (template.minimum_quantity || 1) : cartQuantity + 1;
@@ -117,7 +98,7 @@ export const ServiceQuickRow: React.FC<ServiceQuickRowProps> = ({
     // Check maximum constraint
     if (template.maximum_quantity && newQuantity > template.maximum_quantity) {
       // Could show a toast here
-      console.warn(`Maximum quantity is ${template.maximum_quantity} ${template.unit}`);
+      // Maximum quantity exceeded
       return;
     }
     
@@ -142,64 +123,6 @@ export const ServiceQuickRow: React.FC<ServiceQuickRowProps> = ({
     }
   };
 
-  const handleEditItem = async (itemId: string, costCodeId: string) => {
-    if (editingItemId === itemId) {
-      setEditingItemId(null);
-      return;
-    }
-
-    setEditingItemId(itemId);
-    
-    // Fetch alternative line items with the same cost code
-    if (!alternativeItems[itemId]) {
-      const { data, error } = await supabase
-        .from('line_items')
-        .select('*')
-        .eq('cost_code_id', costCodeId)
-        .neq('id', itemId)
-        .order('price', { ascending: true });
-      
-      if (!error && data) {
-        setAlternativeItems(prev => ({
-          ...prev,
-          [itemId]: data
-        }));
-      }
-    }
-  };
-
-  const handleSelectAlternative = async (originalItemId: string, newItemId: string) => {
-    // Find which service option item this is
-    const soiToSwap = template.service_option_items?.find(soi => soi.line_item?.id === originalItemId);
-    if (!soiToSwap || !template.organization_id) {
-      console.error('Cannot customize - missing data');
-      return;
-    }
-
-    try {
-      // Build the swapped items map
-      const swappedItems = {
-        [soiToSwap.id]: newItemId
-      };
-
-      // Call the customization API
-      const customized = await ServiceCatalogService.customizeOption(
-        template.id,
-        template.organization_id,
-        { swappedItems }
-      );
-
-      console.log('Customization saved:', customized);
-      setEditingItemId(null);
-      
-      // Call the refresh callback if provided
-      if (onCustomized) {
-        onCustomized();
-      }
-    } catch (error) {
-      console.error('Error customizing option:', error);
-    }
-  };
 
   const getQualityLabel = (quality?: string) => {
     switch (quality) {
@@ -213,11 +136,11 @@ export const ServiceQuickRow: React.FC<ServiceQuickRowProps> = ({
 
 
   return (
-    <>
+    <div className="relative">
       <div
         className={`grid grid-cols-12 gap-4 px-6 ${isCondensed ? 'py-2' : 'py-3'} items-center transition-all group ${
           isHighlighted ? 'bg-[#336699]/10 border-l-2 border-[#336699]' : 'hover:bg-[#1A1A1A]/50'
-        }`}
+        } ${!isExpanded ? 'ml-6 border-l-2 border-transparent hover:border-[#333333]/30' : 'ml-6 border-l-2 border-[#336699]/30'} overflow-hidden`}
       >
         {/* Service Name & Description - 8 columns */}
         <div 
@@ -240,35 +163,39 @@ export const ServiceQuickRow: React.FC<ServiceQuickRowProps> = ({
                     {template.attributes?.parent_option_id && (
                       <span className="text-xs text-[#336699]">• Customized</span>
                     )}
-                    {template.material_quality && (
-                      <span className="text-xs text-gray-500">
-                        {getQualityLabel(template.material_quality)}
-                      </span>
+                    {/* Metadata - only show when expanded */}
+                    {isExpanded && (
+                      <div className="transition-opacity duration-300 opacity-100">
+                        {template.material_quality && (
+                          <span className="text-xs text-gray-500">
+                            {getQualityLabel(template.material_quality)}
+                          </span>
+                        )}
+                        <div className="flex items-center gap-3 text-xs text-gray-500">
+                          {template.estimated_hours && (
+                            <span title={`Estimated time: ${template.estimated_hours} hours`}>
+                              {template.estimated_hours}h
+                            </span>
+                          )}
+                          {template.warranty_months && (
+                            <span title={`${template.warranty_months} month warranty`}>
+                              {template.warranty_months}mo warranty
+                            </span>
+                          )}
+                          {(template.permit_required || template.requires_inspection) && (
+                            <span className="text-amber-500">
+                              {template.permit_required && template.requires_inspection ? 'Permit + Inspection' : 
+                               template.permit_required ? 'Permit' : 'Inspection'}
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     )}
-                    {/* Simple summary - show key info only when present */}
-                    <div className="flex items-center gap-3 text-xs text-gray-500">
-                      {template.estimated_hours && (
-                        <span title={`Estimated time: ${template.estimated_hours} hours`}>
-                          {template.estimated_hours}h
-                        </span>
-                      )}
-                      {template.warranty_months && (
-                        <span title={`${template.warranty_months} month warranty`}>
-                          {template.warranty_months}mo warranty
-                        </span>
-                      )}
-                      {(template.permit_required || template.requires_inspection) && (
-                        <span className="text-amber-500">
-                          {template.permit_required && template.requires_inspection ? 'Permit + Inspection' : 
-                           template.permit_required ? 'Permit' : 'Inspection'}
-                        </span>
-                      )}
-                    </div>
                   </div>
                 </div>
                 {/* Description appears below when expanded, no space when collapsed */}
                 {isExpanded && template.description && (
-                  <div className="text-xs text-gray-400 mt-1 animate-in fade-in duration-200">
+                  <div className="text-xs text-gray-400 mt-1 transition-opacity duration-300 opacity-100">
                     {template.description}
                   </div>
                 )}
@@ -279,11 +206,11 @@ export const ServiceQuickRow: React.FC<ServiceQuickRowProps> = ({
 
         {/* Price - 2 columns */}
         <div className="col-span-2 text-right">
-          <div>
+          <div className="whitespace-nowrap">
             <span className={`font-mono font-semibold ${isCondensed ? 'text-sm' : 'text-base'} text-gray-100`}>
               {formatCurrency(template.price)}
             </span>
-            <span className="text-xs text-gray-500 ml-1">/{template.unit}</span>
+            <span className="text-xs text-gray-500 ml-1">/{template.unit.replace('linear_foot', 'lf').replace('square_foot', 'sqft')}</span>
           </div>
         </div>
 
@@ -298,7 +225,7 @@ export const ServiceQuickRow: React.FC<ServiceQuickRowProps> = ({
                   setShowCustomizeDrawer(true);
                 }}
                 className="w-7 h-7 bg-[#252525] hover:bg-[#333333] active:bg-[#404040] text-gray-400 hover:text-[#336699] rounded flex items-center justify-center transition-all duration-150"
-                title="Customize package"
+                title="Customize service option"
               >
                 <SlidersHorizontal className="w-3.5 h-3.5" />
               </button>
@@ -340,10 +267,12 @@ export const ServiceQuickRow: React.FC<ServiceQuickRowProps> = ({
 
       {/* Inline Expansion */}
       {isExpanded && template.service_option_items && template.service_option_items.length > 0 && (
-        <div className="px-6 py-4 bg-[#1A1A1A]/50 border-l-2 border-[#336699]/20 ml-6">
+        <div 
+          className="px-6 py-3 bg-[#0A0A0A]/20 ml-6 border-l-2 border-[#336699]/30 animate-expand-down"
+        >
           <div className="ml-6">
             {/* Line items breakdown */}
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {(() => {
                 // Group items by category
                 const itemsByCategory = template.service_option_items.reduce((acc, soi) => {
@@ -373,7 +302,6 @@ export const ServiceQuickRow: React.FC<ServiceQuickRowProps> = ({
                       <div className="space-y-1.5 ml-3">
                         {itemsByCategory[category].map((soi) => {
                           const lineItem = soi.line_item;
-                          const costCode = lineItem?.cost_code;
                           const calcType = soi.calculation_type || 'multiply';
                           const serviceQuantity = cartQuantity || 1;
                           
@@ -459,14 +387,6 @@ export const ServiceQuickRow: React.FC<ServiceQuickRowProps> = ({
                                       {quantityDisplay}
                                     </span>
                                   )}
-                                  {/* Edit button - shows on hover */}
-                                  <button 
-                                    className="opacity-0 group-hover:opacity-100 transition-opacity"
-                                    onClick={() => handleEditItem(soi.id, lineItem?.cost_code_id || '')}
-                                    title="Quick swap alternative"
-                                  >
-                                    <Edit2 className="w-3 h-3 text-gray-500 hover:text-[#336699]" />
-                                  </button>
                                 </div>
                                 <div className="text-gray-400 font-mono text-sm">
                                   {calcType === 'fixed' ? 
@@ -477,26 +397,6 @@ export const ServiceQuickRow: React.FC<ServiceQuickRowProps> = ({
                                   }
                                 </div>
                               </div>
-                              
-                              {/* Alternative items dropdown */}
-                              {editingItemId === soi.id && alternativeItems[soi.id] && (
-                                <div ref={dropdownRef} className="absolute left-8 top-6 z-10 bg-[#1A1A1A] border-2 border-[#336699] rounded-md shadow-xl shadow-black/50 p-1 min-w-[250px]">
-                                  <div className="text-xs text-[#336699] font-medium px-2 py-1.5 border-b border-[#333333] mb-1">Select alternative:</div>
-                                  {alternativeItems[soi.id].map(alt => (
-                                    <button
-                                      key={alt.id}
-                                      onClick={() => handleSelectAlternative(lineItem?.id, alt.id)}
-                                      className="w-full text-left px-2 py-1.5 text-sm hover:bg-[#336699]/20 rounded flex items-center justify-between transition-colors"
-                                    >
-                                      <span className="text-gray-200">{alt.name}</span>
-                                      <span className="text-gray-300 font-mono text-xs">{formatCurrency(alt.price)}</span>
-                                    </button>
-                                  ))}
-                                  {alternativeItems[soi.id].length === 0 && (
-                                    <div className="text-xs text-gray-500 px-2 py-2">No alternatives available</div>
-                                  )}
-                                </div>
-                              )}
                             </div>
                           );
                         })}
@@ -510,7 +410,6 @@ export const ServiceQuickRow: React.FC<ServiceQuickRowProps> = ({
                     <div className="space-y-1.5">
                       {itemsByCategory['uncategorized'].map((soi) => {
                         const lineItem = soi.line_item;
-                        const costCode = lineItem?.cost_code;
                         const calcType = soi.calculation_type || 'multiply';
                         const serviceQuantity = cartQuantity || 1;
                         
@@ -600,14 +499,6 @@ export const ServiceQuickRow: React.FC<ServiceQuickRowProps> = ({
                                     {quantityDisplay}
                                   </span>
                                 )}
-                                {/* Edit button - shows on hover */}
-                                <button 
-                                  className="opacity-0 group-hover:opacity-100 transition-opacity"
-                                  onClick={() => handleEditItem(soi.id, lineItem?.cost_code_id || '')}
-                                  title="Quick swap alternative"
-                                >
-                                  <Edit2 className="w-3 h-3 text-gray-500 hover:text-[#336699]" />
-                                </button>
                               </div>
                               <div className="text-gray-400 font-mono text-sm">
                                 {calcType === 'fixed' ? 
@@ -618,26 +509,6 @@ export const ServiceQuickRow: React.FC<ServiceQuickRowProps> = ({
                               }
                               </div>
                             </div>
-                            
-                            {/* Alternative items dropdown */}
-                            {editingItemId === soi.id && alternativeItems[soi.id] && (
-                              <div ref={dropdownRef} className="absolute left-8 top-6 z-10 bg-[#1A1A1A] border-2 border-[#336699] rounded-md shadow-xl shadow-black/50 p-1 min-w-[250px]">
-                                <div className="text-xs text-[#336699] font-medium px-2 py-1.5 border-b border-[#333333] mb-1">Select alternative:</div>
-                                {alternativeItems[soi.id].map(alt => (
-                                  <button
-                                    key={alt.id}
-                                    onClick={() => handleSelectAlternative(lineItem?.id, alt.id)}
-                                    className="w-full text-left px-2 py-1.5 text-sm hover:bg-[#336699]/20 rounded flex items-center justify-between transition-colors"
-                                  >
-                                    <span className="text-gray-200">{alt.name}</span>
-                                    <span className="text-gray-300 font-mono text-xs">{formatCurrency(alt.price)}</span>
-                                  </button>
-                                ))}
-                                {alternativeItems[soi.id].length === 0 && (
-                                  <div className="text-xs text-gray-500 px-2 py-2">No alternatives available</div>
-                                )}
-                              </div>
-                            )}
                           </div>
                         );
                       })}
@@ -695,13 +566,13 @@ export const ServiceQuickRow: React.FC<ServiceQuickRowProps> = ({
           serviceOption={template}
           organizationId={organizationId}
           onSave={() => {
-            setShowCustomizeDrawer(false);
+            // Drawer will close itself after save
             if (onCustomized) {
               onCustomized();
             }
           }}
         />
       )}
-    </>
+    </div>
   );
 };
