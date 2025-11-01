@@ -263,8 +263,8 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
             <select
               {...field}
               id="cost_code_id"
-              className={`w-full px-2.5 py-1.5 bg-[#333333] border border-[#555555] rounded text-sm text-white focus:border-[#0D47A1] focus:outline-none focus:ring-1 focus:ring-[#0D47A1]/40 ${
-                initialData ? 'opacity-50 cursor-not-allowed' : ''
+              className={`w-full px-2.5 py-1.5 bg-[#333333] border border-[#555555] rounded text-sm focus:border-[#0D47A1] focus:outline-none focus:ring-1 focus:ring-[#0D47A1]/40 ${
+                initialData ? 'text-gray-400 cursor-not-allowed' : 'text-white'
               }`}
               disabled={isLoadingCostCodes || !!initialData}
             >
@@ -315,8 +315,8 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
           type="text"
           id="name"
           disabled={isSharedItem}
-          className={`w-full px-2.5 py-1.5 bg-[#333333] border border-[#555555] rounded text-sm text-white focus:border-[#0D47A1] focus:outline-none focus:ring-1 focus:ring-[#0D47A1]/40 ${
-            isSharedItem ? 'opacity-50 cursor-not-allowed' : ''
+          className={`w-full px-2.5 py-1.5 bg-[#333333] border border-[#555555] rounded text-sm focus:border-[#0D47A1] focus:outline-none focus:ring-1 focus:ring-[#0D47A1]/40 ${
+            isSharedItem ? 'text-gray-400 cursor-not-allowed' : 'text-white'
           }`}
           placeholder="Enter name"
         />
@@ -334,8 +334,8 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
           id="description"
           rows={2}
           disabled={isSharedItem}
-          className={`w-full px-2.5 py-1.5 bg-[#333333] border border-[#555555] rounded text-sm text-white focus:border-[#0D47A1] focus:outline-none focus:ring-1 focus:ring-[#0D47A1]/40 resize-none ${
-            isSharedItem ? 'opacity-50 cursor-not-allowed' : ''
+          className={`w-full px-2.5 py-1.5 bg-[#333333] border border-[#555555] rounded text-sm focus:border-[#0D47A1] focus:outline-none focus:ring-1 focus:ring-[#0D47A1]/40 resize-none ${
+            isSharedItem ? 'text-gray-400 cursor-not-allowed' : 'text-white'
           }`}
           placeholder="Enter description"
         />
