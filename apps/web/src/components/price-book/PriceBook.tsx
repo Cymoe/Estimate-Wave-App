@@ -1867,9 +1867,9 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
                           );
                         }
                         
-                        // Check ratio for strategy tags
-                        const ratio = currentPrice / basePrice;
-                        if (ratio < 0.88) {
+                        // Check ratio for strategy tags (only if basePrice is valid)
+                        const ratio = basePrice > 0 ? currentPrice / basePrice : 1;
+                        if (basePrice > 0 && ratio < 0.88) {
                           return (
                             <span className="text-xs px-1.5 py-0.5 rounded bg-green-500/20 text-green-400">
                               NEED
@@ -1912,8 +1912,8 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
                           );
                         }
                         
-                        // Custom price
-                        if (ratio !== 1) {
+                        // Custom price (only show if basePrice is valid and ratio is not 1)
+                        if (basePrice > 0 && ratio !== 1 && !isNaN(ratio)) {
                           const percent = Math.round((ratio - 1) * 100);
                           const text = percent > 0 ? `+${percent}%` : `${percent}%`;
                           return (

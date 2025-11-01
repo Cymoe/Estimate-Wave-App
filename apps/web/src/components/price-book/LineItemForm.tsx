@@ -538,8 +538,8 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
           </div>
         </div>
         
-        {/* Smart pricing suggestions for shared items */}
-        {isSharedItem && (
+        {/* Smart pricing suggestions - show for all items with pricing data */}
+        {(initialData?.base_price || initialData?.red_line_price || initialData?.cap_price) && (
           <div className="space-y-2">
             {/* Commission Potential */}
             <div className="bg-[#1E1E1E] rounded-lg p-3 border border-[#333333]">

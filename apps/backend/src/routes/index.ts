@@ -8,6 +8,7 @@ import projectsRouter from './projects';
 import activityLogsRouter from './activityLogs';
 import lineItemsRouter from './lineItems';
 import costCodesRouter from './costCodes';
+import pricingModesRouter from './pricingModes';
 
 const router = Router();
 
@@ -21,6 +22,7 @@ router.use('/projects', projectsRouter);
 router.use('/activity-logs', activityLogsRouter);
 router.use('/line-items', lineItemsRouter);
 router.use('/cost-codes', costCodesRouter);
+router.use('/pricing-modes', pricingModesRouter);
 
 // Health check
 router.get('/health', (req, res) => {

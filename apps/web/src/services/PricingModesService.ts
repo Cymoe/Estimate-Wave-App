@@ -87,19 +87,22 @@ export class PricingModesService {
    * Get preset pricing modes only
    */
   static async getPresets(): Promise<PricingMode[]> {
-    const { data, error } = await supabase
-      .from('pricing_modes')
-      .select('*')
-      .eq('is_preset', true)
-      .eq('is_active', true)
-      .order('name');
-
-    if (error) {
-      // Error fetching preset pricing modes
-      throw error;
+    try {
+      const apiUrl = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
+      const baseUrl = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
+      
+      const response = await fetch(`${baseUrl}/api/pricing-modes/presets`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching preset pricing modes:', error);
+      return [];
     }
-
-    return data || [];
   }
 
   /**
