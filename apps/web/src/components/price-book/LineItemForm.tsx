@@ -2,7 +2,7 @@ import React, { useState, useEffect, useContext, useRef } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
-import { CostCodeService } from '../../services/CostCodeService';
+import { costCodesAPI } from '../../lib/api'; // MongoDB API for cost codes
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { UNIT_OPTIONS } from '../../constants';
 import { formatCurrency } from '../../utils/format';
@@ -27,12 +27,8 @@ interface CostCode {
   id: string;
   name: string;
   code: string;
-  industry?: {
-    id: string;
-    name: string;
-    icon?: string;
-    color?: string;
-  };
+  category?: string;
+  industry_id?: string;
 }
 
 interface LineItemFormProps {
@@ -176,6 +172,13 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
   // Update form values when initialData changes
   useEffect(() => {
     if (initialData) {
+      console.log('🔍 LineItemForm - initialData:', {
+        name: initialData.name,
+        cost_code_id: initialData.cost_code_id,
+        has_cost_code_id: !!initialData.cost_code_id,
+        full_initialData: initialData
+      });
+      
       reset({
         name: initialData.name || '',
         description: initialData.description || '',
@@ -194,18 +197,27 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
     
     setIsLoadingCostCodes(true);
     try {
-      // Use CostCodeService to get industry-filtered cost codes
-      const fetchedCostCodes = await CostCodeService.list(selectedOrg.id);
-      const mappedCostCodes = fetchedCostCodes.map(cc => ({ 
-        id: cc.id, 
+      // Use MongoDB API to get cost codes
+      const fetchedCostCodes = await costCodesAPI.list({ isActive: true });
+      
+      const mappedCostCodes = fetchedCostCodes.map((cc: any) => ({ 
+        id: cc._id || cc.id, 
         name: cc.name, 
         code: cc.code,
-        industry: cc.industry 
+        category: cc.category,
+        industry_id: cc.industry_id
       }));
       setCostCodes(mappedCostCodes);
       
-      // Also get grouped version for dropdown
-      const grouped = await CostCodeService.listGroupedByIndustry(selectedOrg.id);
+      // Group by category for dropdown
+      const grouped = new Map<string, CostCode[]>();
+      mappedCostCodes.forEach((cc: CostCode) => {
+        const category = cc.category || 'Uncategorized';
+        if (!grouped.has(category)) {
+          grouped.set(category, []);
+        }
+        grouped.get(category)!.push(cc);
+      });
       setGroupedCostCodes(grouped);
       
     } catch (error) {
@@ -286,10 +298,10 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
               <option value="" className="bg-[#333333] text-white">
                 {isLoadingCostCodes ? 'Loading cost codes...' : 'Select Cost Code'}
               </option>
-              {!isLoadingCostCodes && Array.from(groupedCostCodes.entries()).map(([industryName, codes]) => (
+              {!isLoadingCostCodes && Array.from(groupedCostCodes.entries()).map(([categoryName, codes]) => (
                 <optgroup 
-                  key={industryName} 
-                  label={`━━━  ${industryName.toUpperCase()}  ━━━`}
+                  key={categoryName} 
+                  label={`━━━  ${categoryName.toUpperCase()}  ━━━`}
                   className="bg-[#1E1E1E] text-gray-400 font-bold"
                 >
                   {codes.map(code => (
