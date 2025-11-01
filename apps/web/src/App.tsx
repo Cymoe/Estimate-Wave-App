@@ -44,7 +44,6 @@ import Marketing from './pages/Marketing';
 // Lazy load the Experience page
 const Experience = React.lazy(() => import('./pages/Experience').then(module => ({ default: module.Experience })));
 const SimpleExperience = React.lazy(() => import('./pages/SimpleExperience').then(module => ({ default: module.SimpleExperience })));
-const MinimalPixi = React.lazy(() => import('./pages/MinimalPixi').then(module => ({ default: module.MinimalPixi })));
 
 // Import debugging tools in development
 // COMMENTED OUT: These test utilities were running automatically and causing issues
@@ -171,13 +170,6 @@ function AppRoutes() {
       <Route path="/simple-experience" element={
         <React.Suspense fallback={<div className="min-h-screen bg-blue-900" />}>
           <SimpleExperience />
-        </React.Suspense>
-      } />
-      
-      {/* Minimal Pixi + Scroll test */}
-      <Route path="/minimal-pixi" element={
-        <React.Suspense fallback={<div className="min-h-screen bg-gray-900" />}>
-          <MinimalPixi />
         </React.Suspense>
       } />
 
