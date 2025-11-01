@@ -8,7 +8,6 @@ import { UNIT_OPTIONS } from '../../constants';
 import { formatCurrency } from '../../utils/format';
 import { PricingModesService, PricingMode } from '../../services/PricingModesService';
 import { ChevronUp, ChevronDown } from 'lucide-react';
-import { CategorySelector } from './CategorySelector';
 import { lineItemsAPI } from '../../lib/api';
 
 interface LineItemFormData {
@@ -66,10 +65,6 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
   const [costCodes, setCostCodes] = useState<CostCode[]>([]);
   const [groupedCostCodes, setGroupedCostCodes] = useState<Map<string, CostCode[]>>(new Map());
   const [isLoadingCostCodes, setIsLoadingCostCodes] = useState(true);
-  const [availableCategories, setAvailableCategories] = useState<string[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<string>(
-    initialData?.service_category || defaultServiceCategory || ''
-  );
   
   // Direct price state
   const [price, setPrice] = useState(
@@ -109,27 +104,6 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
   useEffect(() => {
     fetchCostCodes();
   }, [user, selectedOrg?.id, initialData?.cost_code_id]);
-
-  // Fetch available categories from existing line items
-  useEffect(() => {
-    const fetchCategories = async () => {
-      if (!selectedOrg?.id) return;
-      
-      try {
-        const items = await lineItemsAPI.list(selectedOrg.id);
-        const categories = [...new Set(
-          items
-            .map((item: any) => item.service_category)
-            .filter(Boolean)
-        )];
-        setAvailableCategories(categories);
-      } catch (error) {
-        console.error('Error fetching categories:', error);
-      }
-    };
-    
-    fetchCategories();
-  }, [selectedOrg?.id]);
 
   // Fetch pricing modes
   useEffect(() => {
@@ -247,7 +221,6 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
         price: finalPrice,
         unit: data.unit,
         cost_code_id: data.cost_code_id,
-        service_category: selectedCategory || undefined, // Add the selected category
         // Store markup percentage for internal use only
         ...(isSharedItem && markupToSubmit !== undefined ? { markup_percentage: markupToSubmit } : {})
       };
@@ -365,19 +338,6 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
             isSharedItem ? 'opacity-50 cursor-not-allowed' : ''
           }`}
           placeholder="Enter description"
-        />
-      </div>
-
-      {/* Service Category Selector */}
-      <div>
-        <CategorySelector
-          value={selectedCategory}
-          onChange={(category) => setSelectedCategory(category)}
-          availableCategories={availableCategories}
-          onAddCategory={(newCat) => {
-            setAvailableCategories([...availableCategories, newCat]);
-          }}
-          label="Service Category"
         />
       </div>
 
