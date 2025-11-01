@@ -7,6 +7,7 @@ export interface User {
   name: string;
   picture?: string;
   organizationId?: string;
+  role?: 'user' | 'admin' | 'super_admin';
 }
 
 interface AuthContextType {
@@ -59,6 +60,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             name: data.user.name,
             picture: data.user.picture,
             organizationId: data.user.organizationId,
+            role: data.user.role,
           };
           
           setUser(userData);

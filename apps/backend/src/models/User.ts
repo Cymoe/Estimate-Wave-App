@@ -6,6 +6,7 @@ export interface IUser extends Document {
   name: string;
   picture?: string;
   organizationId?: string;
+  role: 'user' | 'admin' | 'super_admin';
   createdAt: Date;
   updatedAt: Date;
   lastLogin: Date;
@@ -36,6 +37,11 @@ const UserSchema: Schema = new Schema(
     organizationId: {
       type: String,
       index: true,
+    },
+    role: {
+      type: String,
+      enum: ['user', 'admin', 'super_admin'],
+      default: 'user',
     },
     lastLogin: {
       type: Date,

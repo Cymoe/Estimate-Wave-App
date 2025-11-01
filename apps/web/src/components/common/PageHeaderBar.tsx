@@ -41,11 +41,21 @@ export const PageHeaderBar: React.FC<PageHeaderBarProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'super_admin';
+
   return (
     <div className="px-4 md:px-6 pt-3 md:pt-4">
       <div>
         <div className={`flex items-center justify-between gap-2 md:gap-4 py-3 md:py-4 ${isConstrained ? 'flex-wrap' : ''}`}>
-          <h1 className={`${isConstrained ? 'text-xl' : 'text-xl md:text-2xl'} font-bold text-white`}>{title}</h1>
+          <div className="flex items-center gap-4">
+            <h1 className={`${isConstrained ? 'text-xl' : 'text-xl md:text-2xl'} font-bold text-white`}>{title}</h1>
+            {isSuperAdmin && (
+              <span className="px-2 py-1 bg-action-yellow text-black text-xs font-bold rounded">
+                SUPER ADMIN
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2 md:gap-3">
             {showSearch && (
               <div ref={searchRef} className={`relative ${isSearchExpanded ? (isConstrained ? 'w-40' : 'w-48 md:w-64') : 'w-auto'}`}>

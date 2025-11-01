@@ -112,6 +112,7 @@ router.get('/google/callback', async (req: Request, res: Response) => {
         email: user.email,
         googleId: user.googleId,
         organizationId: user.organizationId,
+        role: user.role,
       },
       JWT_SECRET,
       { expiresIn: JWT_EXPIRES_IN }
@@ -148,6 +149,7 @@ router.get('/verify', async (req: Request, res: Response) => {
         name: user.name,
         picture: user.picture,
         organizationId: user.organizationId,
+        role: user.role,
       },
     });
   } catch (error) {
