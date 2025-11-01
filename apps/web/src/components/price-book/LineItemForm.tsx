@@ -355,53 +355,10 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
                 type="text"
                 id="price"
                 value={price}
-                onChange={(e) => {
-                  // Allow only numbers and decimal point
-                  const value = e.target.value.replace(/[^0-9.]/g, '');
-                  // Prevent multiple decimal points
-                  const parts = value.split('.');
-                  if (parts.length > 2) return;
-                  // Limit to 2 decimal places
-                  if (parts[1] && parts[1].length > 2) return;
-                  setPrice(value);
-                  // Clear markup selection when manually typing
-                  setSelectedMarkup(null);
-                }}
-                onBlur={(e) => {
-                  // Format on blur to ensure valid decimal
-                  const num = parseFloat(e.target.value) || 0;
-                  setPrice(num.toFixed(2));
-                }}
-                className="w-full pl-7 pr-12 py-1.5 bg-[#333333] border border-[#555555] rounded text-white focus:border-[#0D47A1] focus:outline-none focus:ring-1 focus:ring-[#0D47A1]/40 font-mono text-base"
+                readOnly
+                className="w-full pl-7 pr-3 py-1.5 bg-[#2a2a2a] border border-[#555555] rounded text-white font-mono text-base cursor-default opacity-90"
                 placeholder="0.00"
               />
-              
-              {/* Price adjustment buttons */}
-              <div className="absolute right-1 flex flex-col">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const currentPrice = parseFloat(price) || 0;
-                    const increment = currentPrice < 10 ? 0.5 : currentPrice < 100 ? 1 : 5;
-                    setPrice((currentPrice + increment).toFixed(2));
-                  }}
-                  className="px-1 py-0.5 hover:bg-[#444444] rounded transition-colors"
-                >
-                  <ChevronUp className="w-3 h-3 text-gray-400" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const currentPrice = parseFloat(price) || 0;
-                    const decrement = currentPrice <= 10 ? 0.5 : currentPrice <= 100 ? 1 : 5;
-                    const newPrice = Math.max(0, currentPrice - decrement);
-                    setPrice(newPrice.toFixed(2));
-                  }}
-                  className="px-1 py-0.5 hover:bg-[#444444] rounded transition-colors"
-                >
-                  <ChevronDown className="w-3 h-3 text-gray-400" />
-                </button>
-              </div>
               </div>
               
               {/* Inline markup selector for new custom items */}
