@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import jwt from 'jsonwebtoken';
 import User from '../models/User';
+import { Organization } from '../models/Organization';
 
 const router = Router();
 
@@ -67,14 +68,37 @@ router.get('/google/callback', async (req: Request, res: Response) => {
     let user = await User.findOne({ googleId });
 
     if (!user) {
+      // New user - create organization first
+      const orgName = name ? `${name}'s Company` : `${email.split('@')[0]}'s Company`;
+      const orgSlug = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '-');
+      
+      // Check if slug exists and make it unique
+      let uniqueSlug = orgSlug;
+      let counter = 1;
+      while (await Organization.findOne({ slug: uniqueSlug })) {
+        uniqueSlug = `${orgSlug}-${counter}`;
+        counter++;
+      }
+
+      const organization = await Organization.create({
+        name: orgName,
+        slug: uniqueSlug,
+        email: email,
+        isActive: true,
+        settings: {},
+      });
+
+      // Create user with organization
       user = await User.create({
         googleId,
         email,
         name,
         picture,
+        organizationId: organization._id.toString(),
         lastLogin: new Date(),
       });
     } else {
+      // Existing user - update login time and profile
       user.lastLogin = new Date();
       if (picture) user.picture = picture;
       if (name) user.name = name;
