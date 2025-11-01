@@ -42,7 +42,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           return;
         }
 
-        const response = await fetch(`${apiUrl}/api/auth/verify`, {
+        // Remove trailing slash if present
+        const baseUrl = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
+
+        const response = await fetch(`${baseUrl}/api/auth/verify`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
@@ -86,8 +89,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
 
+      // Remove trailing slash if present
+      const baseUrl = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
+
       // Get the OAuth URL from backend
-      const response = await fetch(`${apiUrl}/api/auth/google`);
+      const response = await fetch(`${baseUrl}/api/auth/google`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
       const data = await response.json();
 
       if (data.url) {
