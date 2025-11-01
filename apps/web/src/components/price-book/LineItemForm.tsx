@@ -612,15 +612,10 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
                         </button>
                       )}
                       
-                      {/* Existing pricing mode buttons */}
+                      {/* Pricing mode buttons */}
                       {pricingModes
-                        .filter(mode => mode.name !== 'Market Rate' && mode.name !== 'Cap Price') // Exclude Market Rate and Cap Price
                         .sort((a, b) => {
-                          // Put "Reset to Baseline" at the end
-                          if (a.name === 'Reset to Baseline') return 1;
-                          if (b.name === 'Reset to Baseline') return -1;
-                          
-                          // Get multipliers for sorting others
+                          // Get multipliers for sorting
                           const aMultiplier = a.adjustments.all || 1;
                           const bMultiplier = b.adjustments.all || 1;
                           
@@ -639,9 +634,9 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
                           const redLine = initialData?.red_line_price || baseCost;
                           const cap = initialData?.cap_price || baseCost * 2;
                           
-                          // Allow "Need This Job" to go down to BASE (break-even)
-                          // But all others must respect RED LINE minimum
-                          if (mode.name !== 'Need This Job' && mode.name !== 'Reset to Baseline' && modePrice < redLine) {
+                          // Allow "Need This Job" and "Slow Season" to go below red line
+                          // But respect RED LINE minimum for others
+                          if (mode.name !== 'Need This Job' && mode.name !== 'Slow Season' && modePrice < redLine) {
                             modePrice = redLine;
                           }
                           
@@ -663,12 +658,7 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
                               key={mode.id}
                               type="button"
                               onClick={() => {
-                                // For Reset to Baseline, always use the base price
-                                if (mode.name === 'Reset to Baseline') {
-                                  setPrice(baseCost.toFixed(2));
-                                } else {
-                                  setPrice(modePrice.toFixed(2));
-                                }
+                                setPrice(modePrice.toFixed(2));
                               }}
                               className={`p-1.5 rounded text-left transition-all group relative ${
                                 isActive

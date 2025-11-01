@@ -44,17 +44,10 @@ const PricingMode = mongoose.model('PricingMode', pricingModeSchema);
 
 const presetModes = [
   {
-    name: 'Market Rate',
-    icon: '📊',
-    description: 'Standard market pricing',
-    adjustments: { all: 1.0 },
-    is_preset: true
-  },
-  {
-    name: 'Rush Job',
-    icon: '🏃',
-    description: 'Urgent timeline premium',
-    adjustments: { all: 1.8 },
+    name: 'Need This Job',
+    icon: '💰',
+    description: 'Aggressive pricing to secure work',
+    adjustments: { all: 0.8 },
     is_preset: true
   },
   {
@@ -65,51 +58,17 @@ const presetModes = [
     is_preset: true
   },
   {
-    name: 'Premium Service',
-    icon: '🏆',
-    description: 'High-end quality and service',
-    adjustments: { 
-      labor: 1.5, 
-      materials: 1.25, 
-      services: 1.5, 
-      installation: 1.4 
-    },
-    is_preset: true
-  },
-  {
-    name: 'Need This Job',
-    icon: '💰',
-    description: 'Aggressive pricing to secure work',
-    adjustments: { all: 0.8 },
-    is_preset: true
-  },
-  {
     name: 'Busy Season',
     icon: '☀️',
     description: 'Peak demand pricing',
-    adjustments: { 
-      labor: 1.25, 
-      materials: 1.1, 
-      services: 1.2 
-    },
+    adjustments: { all: 1.25 },
     is_preset: true
   },
   {
     name: 'Slow Season',
     icon: '❄️',
     description: 'Keep crews busy during slow times',
-    adjustments: { 
-      labor: 0.8, 
-      materials: 1.0, 
-      services: 0.85 
-    },
-    is_preset: true
-  },
-  {
-    name: 'Reset to Baseline',
-    icon: '↩️',
-    description: 'Reset all items to base prices',
-    adjustments: { all: 1.0 },
+    adjustments: { all: 0.8 },
     is_preset: true
   }
 ];
