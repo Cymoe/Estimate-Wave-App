@@ -183,170 +183,52 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
         setLoadingOrgs(true);
         console.log('Loading organizations for user:', user.id);
         
-        // TEMPORARY: Use MongoDB fallback since Supabase is paused
-        // TODO: Fetch from MongoDB API when organizations endpoint is connected
-        const USE_MONGO_FALLBACK = true;
+        // Fetch organizations from MongoDB API
+        const apiUrl = import.meta.env.VITE_API_URL;
+        const baseUrl = apiUrl?.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
         
-        if (USE_MONGO_FALLBACK) {
-          // Use hardcoded MongoDB organization
-          const mongoOrg = {
-            id: '69019f3f4a8998be12afe670', // From MongoDB
-            name: 'RedCap Demo Company',
-            industry: 'General Construction',
-            industry_id: 'general-construction'
-          };
-          
-          console.log('Using MongoDB organization:', mongoOrg);
-          setOrganizations([mongoOrg]);
-          setSelectedOrg(mongoOrg);
-          localStorage.setItem('selectedOrgId', mongoOrg.id);
-          setLoadingOrgs(false);
-          return;
+        if (!baseUrl) {
+          throw new Error('VITE_API_URL not configured');
+        }
+
+        const response = await fetch(`${baseUrl}/api/organizations`);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
         
-        // Get user-organization relationships with organization details
-        const { data: userOrgs, error: userOrgsError } = await supabase
-          .from('user_organizations')
-          .select(`
-            organization_id,
-            role,
-            is_default,
-            organizations!inner (
-              id,
-              name,
-              industry_id,
-              industries (
-                name
-              )
-            )
-          `)
-          .eq('user_id', user.id)
-          .order('is_default', { ascending: false });
-          
-        console.log('User organizations result:', { userOrgs, userOrgsError });
+        const orgsData = await response.json();
         
-        if (userOrgsError) {
-          console.error('User organizations query error:', userOrgsError);
-          throw userOrgsError;
+        // Transform to match expected format
+        const formattedOrgs = orgsData.map((org: any) => ({
+          id: org._id,
+          name: org.name,
+          industry: org.industryId || 'General Construction',
+          industry_id: org.industryId || 'general-construction'
+        }));
+        
+        console.log('Loaded organizations from API:', formattedOrgs);
+        
+        setOrganizations(formattedOrgs);
+        
+        // Set selected org to first one, or previously selected
+        const savedOrgId = localStorage.getItem('selectedOrgId');
+        const selected = formattedOrgs.find((o: any) => o.id === savedOrgId) || formattedOrgs[0];
+        
+        if (selected) {
+          setSelectedOrg(selected);
+          localStorage.setItem('selectedOrgId', selected.id);
         }
         
-        if (!userOrgs || userOrgs.length === 0) {
-          console.log('No organizations found for user - creating default');
-          
-          try {
-            // Create a default organization for the user
-            const userName = user.email?.split('@')[0] || 'User';
-            const slug = `${userName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${user.id.substring(0, 8)}`;
-            
-            const { data: newOrg, error: createError } = await supabase
-              .from('organizations')
-              .insert({
-                name: `${userName}'s Company`,
-                slug: slug
-              })
-              .select()
-              .single();
-
-            if (createError) throw createError;
-
-            // Add user to the organization
-            const { error: memberError } = await supabase
-              .from('user_organizations')
-              .insert({
-                organization_id: newOrg.id,
-                user_id: user.id,
-                role: 'owner',
-                is_default: true
-              });
-
-            if (memberError) throw memberError;
-
-            setOrganizations([{
-              id: newOrg.id,
-              name: newOrg.name,
-              industry: 'General Construction',
-              industry_id: ''
-            }]);
-            
-            setSelectedOrg({
-              id: newOrg.id,
-              name: newOrg.name,
-              industry: 'General Construction',
-              industry_id: newOrg.industry_id || ''
-            });
-            
-            setLoadingOrgs(false);
-            return;
-          } catch (createErr) {
-            console.error('Error creating default organization:', createErr);
-            setSelectedOrg({ 
-              id: '', 
-              name: 'Setup Required', 
-              industry: 'General Construction',
-              industry_id: ''
-            });
-            setLoadingOrgs(false);
-            return;
-          }
-        }
-        
-        // Map the organizations from the joined query response
-        const orgs = userOrgs.map(userOrg => {
-          const org = userOrg.organizations as any;
-          return {
-            id: org.id,
-            name: org.name,
-            industry: org.industries?.name || 'General Construction',
-            industry_id: org.industry_id || '',
-            role: userOrg.role,
-            is_default: userOrg.is_default
-          };
-        });
-        
-        console.log('Processed organizations:', orgs);
-        console.log('Organizations count:', orgs.length);
-        console.log('Organization names:', orgs.map(o => o.name));
-        
-        setOrganizations(orgs);
-        
-        // Set the default organization or first one
-        const defaultOrg = orgs.find(o => o.is_default) || orgs[0];
-        console.log('Default organization to set:', defaultOrg);
-        
-        if (defaultOrg) {
-          const savedOrgId = localStorage.getItem('selectedOrgId');
-          const savedOrg = savedOrgId ? orgs.find(o => o.id === savedOrgId) : null;
-          const orgToSet = savedOrg || defaultOrg;
-          console.log('Final organization being set:', orgToSet);
-          setSelectedOrg(orgToSet);
-          // Also ensure localStorage is updated with the current org
-          if (orgToSet.id) {
-            localStorage.setItem('selectedOrgId', orgToSet.id);
-          }
-        } else {
-          console.error('No organizations found for user');
-          setSelectedOrg({ 
-            id: '', 
-            name: 'No Organization', 
-            industry: 'General Construction',
-            industry_id: ''
-          });
-        }
+        setLoadingOrgs(false);
       } catch (error) {
         console.error('Error loading organizations:', error);
-        console.error('Error details:', {
-          message: (error as any)?.message,
-          details: (error as any)?.details,
-          hint: (error as any)?.hint,
-          code: (error as any)?.code
-        });
         setSelectedOrg({ 
           id: '', 
           name: 'Error Loading', 
           industry: 'General Construction',
           industry_id: ''
         });
-      } finally {
         setLoadingOrgs(false);
       }
     };
