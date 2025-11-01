@@ -137,7 +137,7 @@ async function seedRoofingData() {
       {
         name: 'Shingle Installation - Standard',
         description: 'Standard 3-tab or architectural shingle installation',
-        cost_code_id: laborCode._id,
+        cost_code_id: laborCode._id.toString(),
         unit: 'square',
         unit_cost: 150,
         retail_price: 250,
@@ -153,7 +153,7 @@ async function seedRoofingData() {
       {
         name: 'Shingle Installation - Premium',
         description: 'Premium architectural or designer shingle installation',
-        cost_code_id: laborCode._id,
+        cost_code_id: laborCode._id.toString(),
         unit: 'square',
         unit_cost: 200,
         retail_price: 350,
@@ -169,7 +169,7 @@ async function seedRoofingData() {
       {
         name: 'Roof Repair - Small',
         description: 'Small roof repairs, leaks, or shingle replacement',
-        cost_code_id: laborCode._id,
+        cost_code_id: laborCode._id.toString(),
         unit: 'hour',
         unit_cost: 75,
         retail_price: 125,
@@ -190,7 +190,7 @@ async function seedRoofingData() {
       {
         name: 'Asphalt Shingles - 3-Tab',
         description: 'Standard 3-tab asphalt shingles (25-year warranty)',
-        cost_code_id: materialsCode._id,
+        cost_code_id: materialsCode._id.toString(),
         unit: 'square',
         unit_cost: 85,
         retail_price: 120,
@@ -205,7 +205,7 @@ async function seedRoofingData() {
       {
         name: 'Architectural Shingles',
         description: 'Premium architectural shingles (30-year warranty)',
-        cost_code_id: materialsCode._id,
+        cost_code_id: materialsCode._id.toString(),
         unit: 'square',
         unit_cost: 125,
         retail_price: 185,
@@ -220,7 +220,7 @@ async function seedRoofingData() {
       {
         name: 'Designer Shingles',
         description: 'High-end designer shingles (50-year warranty)',
-        cost_code_id: materialsCode._id,
+        cost_code_id: materialsCode._id.toString(),
         unit: 'square',
         unit_cost: 200,
         retail_price: 300,
@@ -235,7 +235,7 @@ async function seedRoofingData() {
       {
         name: 'Underlayment - Synthetic',
         description: 'Premium synthetic underlayment',
-        cost_code_id: materialsCode._id,
+        cost_code_id: materialsCode._id.toString(),
         unit: 'square',
         unit_cost: 30,
         retail_price: 50,
@@ -255,7 +255,7 @@ async function seedRoofingData() {
       {
         name: 'Single Layer Tear-off',
         description: 'Remove one layer of existing shingles and dispose',
-        cost_code_id: tearoffCode._id,
+        cost_code_id: tearoffCode._id.toString(),
         unit: 'square',
         unit_cost: 50,
         retail_price: 85,
@@ -271,7 +271,7 @@ async function seedRoofingData() {
       {
         name: 'Double Layer Tear-off',
         description: 'Remove two layers of existing shingles and dispose',
-        cost_code_id: tearoffCode._id,
+        cost_code_id: tearoffCode._id.toString(),
         unit: 'square',
         unit_cost: 75,
         retail_price: 125,
@@ -292,7 +292,7 @@ async function seedRoofingData() {
       {
         name: 'Drip Edge',
         description: 'Aluminum or galvanized drip edge',
-        cost_code_id: flashingCode._id,
+        cost_code_id: flashingCode._id.toString(),
         unit: 'linear_foot',
         unit_cost: 2.5,
         retail_price: 4.5,
@@ -303,7 +303,7 @@ async function seedRoofingData() {
       {
         name: 'Valley Flashing',
         description: 'Metal valley flashing installation',
-        cost_code_id: flashingCode._id,
+        cost_code_id: flashingCode._id.toString(),
         unit: 'linear_foot',
         unit_cost: 8,
         retail_price: 15,
@@ -314,7 +314,7 @@ async function seedRoofingData() {
       {
         name: 'Chimney Flashing',
         description: 'Custom chimney flashing and counter-flashing',
-        cost_code_id: flashingCode._id,
+        cost_code_id: flashingCode._id.toString(),
         unit: 'unit',
         unit_cost: 150,
         retail_price: 300,
@@ -331,7 +331,7 @@ async function seedRoofingData() {
       {
         name: 'Ridge Vent',
         description: 'Continuous ridge vent with filter',
-        cost_code_id: ventCode._id,
+        cost_code_id: ventCode._id.toString(),
         unit: 'linear_foot',
         unit_cost: 3,
         retail_price: 6,
@@ -342,7 +342,7 @@ async function seedRoofingData() {
       {
         name: 'Roof Vent - Static',
         description: 'Static roof vent (turtle vent)',
-        cost_code_id: ventCode._id,
+        cost_code_id: ventCode._id.toString(),
         unit: 'unit',
         unit_cost: 25,
         retail_price: 50,
@@ -353,7 +353,7 @@ async function seedRoofingData() {
       {
         name: 'Power Attic Vent',
         description: 'Electric-powered attic ventilation fan',
-        cost_code_id: ventCode._id,
+        cost_code_id: ventCode._id.toString(),
         unit: 'unit',
         unit_cost: 200,
         retail_price: 400,
