@@ -1,7 +1,7 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
-import { convexConfigured } from "../../lib/convex";
+import { convexConfigured, convexHost } from "../../lib/convex";
 
 /** Turns a Convex Auth failure into a message the user can act on. */
 function describeAuthError(err: unknown): string {
@@ -15,7 +15,9 @@ function describeAuthError(err: unknown): string {
   if (/TooManyFailedAttempts/.test(raw)) return 'Too many attempts. Wait a few minutes and try again.';
   if (/Invalid password/.test(raw)) return 'Password must be at least 8 characters.';
   if (/Missing environment variable/.test(raw)) return 'Sign-in isn\'t set up on the server yet.';
-  if (/Failed to fetch|NetworkError|connection/i.test(raw)) return 'Can\'t reach the server. Check your connection and try again.';
+  if (/Failed to fetch|NetworkError|connection/i.test(raw)) {
+    return `Can't reach the server at ${convexHost}. Check your connection (a VPN can block it) and try again. (${raw.split('\n')[0].slice(0, 120)})`;
+  }
   // Unknown: show the server's message without Convex's request prefix.
   const detail = raw
     .replace(/^\[CONVEX[^\]]*\]\s*(\[Request ID:[^\]]*\]\s*)?/, '')
