@@ -16,7 +16,16 @@ const email = `ui-smoke+${stamp}@fieldquote.test`;
 const password = `Ui-${stamp}-${Math.random().toString(36).slice(2)}`;
 
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });
-const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
+// Vercel preview deployments are behind Vercel login; a "Protection Bypass
+// for Automation" secret lets this script through.
+const bypass = process.env.VERCEL_BYPASS;
+const context = await browser.newContext({
+  viewport: { width: 1440, height: 900 },
+  ...(bypass
+    ? { extraHTTPHeaders: { "x-vercel-protection-bypass": bypass, "x-vercel-set-bypass-cookie": "true" } }
+    : {}),
+});
+const page = await context.newPage();
 const problems = [];
 page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
 page.on("console", (m) => {
@@ -35,6 +44,11 @@ function dump(label) {
 const response = await page.goto(site, { waitUntil: "networkidle", timeout: 60000 });
 console.log(`GET ${site} -> ${response?.status()} ${page.url()}`);
 console.log(`title: ${await page.title()}`);
+if (page.url().startsWith("https://vercel.com/login")) {
+  console.log("Blocked by Vercel deployment protection. Add a VERCEL_AUTOMATION_BYPASS_SECRET repository secret.");
+  await browser.close();
+  process.exit(1);
+}
 
 const html = await page.content();
 const bundles = [...html.matchAll(/src="(\/assets\/index-[^"]+\.js)"/g)].map((m) => m[1]);

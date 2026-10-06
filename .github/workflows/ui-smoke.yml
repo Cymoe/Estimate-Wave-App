@@ -41,4 +41,5 @@ jobs:
       - name: Sign up through the UI
         env:
           SITE: ${{ inputs.site || 'https://estimate-wave-app-git-fieldquote-convex-cymoes-projects.vercel.app' }}
+          VERCEL_BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: node "$RUNNER_TEMP/ui-smoke-test.mjs"
