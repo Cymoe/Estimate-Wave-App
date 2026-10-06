@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api";
+import { STARTER_COST_CODES, STARTER_INDUSTRIES, STARTER_ITEMS } from "./catalog/starterCatalog";
 import { setup, signUp } from "./test.setup";
 
 describe("auth and tenancy", () => {
@@ -161,25 +162,85 @@ describe("estimates and invoices", () => {
 });
 
 describe("price book", () => {
-  test("seed creates the shared catalog once", async () => {
+  test("seed creates every trade's shared catalog once", async () => {
     const t = setup();
-    expect(await t.mutation(internal.seed.catalog, {})).toEqual({ pricingModes: 3, costCodes: 5, lineItems: 15 });
-    expect(await t.mutation(internal.seed.catalog, {})).toEqual({ pricingModes: 0, costCodes: 0, lineItems: 0 });
+    expect(await t.action(internal.seed.catalog, {})).toEqual({
+      pricingModes: 3,
+      industries: STARTER_INDUSTRIES.length,
+      legacyRoofingCodesRemoved: 0,
+      costCodes: STARTER_COST_CODES.length,
+      lineItems: STARTER_ITEMS.length,
+    });
+    expect(await t.action(internal.seed.catalog, {})).toEqual({
+      pricingModes: 0,
+      industries: 0,
+      legacyRoofingCodesRemoved: 0,
+      costCodes: 0,
+      lineItems: 0,
+    });
+  });
+
+  test("seed replaces the first roofing seed but keeps codes a company uses", async () => {
+    const t = setup();
+    const alice = await signUp(t, "alice@example.com");
+    const now = new Date().toISOString();
+    const [unused, used] = await t.run(async (ctx) => {
+      const ids = [];
+      for (const code of ["ROOF-VENT", "ROOF-LAB"]) {
+        const id = await ctx.db.insert("costCodes", {
+          code,
+          name: code,
+          industry_id: "roofing",
+          is_active: true,
+          created_at: now,
+          updated_at: now,
+        });
+        await ctx.db.insert("lineItems", {
+          name: `${code} item`,
+          base_price: 1,
+          unit: "each",
+          cost_code_id: id,
+          is_active: true,
+          created_at: now,
+          updated_at: now,
+        });
+        ids.push(id);
+      }
+      await ctx.db.insert("lineItems", {
+        name: "Alice's roofing labor",
+        base_price: 1,
+        unit: "hour",
+        cost_code_id: ids[1],
+        organization_id: alice.organizationId,
+        is_active: true,
+        created_at: now,
+        updated_at: now,
+      });
+      return ids;
+    });
+    expect(await t.action(internal.seed.catalog, {})).toMatchObject({ legacyRoofingCodesRemoved: 1 });
+    await t.run(async (ctx) => {
+      expect(await ctx.db.get(unused)).toBeNull();
+      expect(await ctx.db.get(used)).not.toBeNull();
+    });
   });
 
   test("orgs see shared items plus their own, never another org's", async () => {
     const t = setup();
-    await t.mutation(internal.seed.catalog, {});
+    await t.action(internal.seed.catalog, {});
     const alice = await signUp(t, "alice@example.com");
     const bob = await signUp(t, "bob@example.com");
+    const total = STARTER_ITEMS.length;
 
     const shared = await alice.as.query(api.lineItems.list, { organizationId: alice.organizationId });
-    expect(shared).toHaveLength(15);
+    expect(shared).toHaveLength(total);
     const shingles = shared.find((item) => item.name === "Designer Shingles")!;
     expect(shingles).toMatchObject({ base_price: 300, red_line_price: 240, cap_price: 360 });
-    expect(shingles.cost_code).toMatchObject({ code: "ROOF-MAT", name: "Roofing Materials" });
+    expect(shingles.cost_code).toMatchObject({ code: "RF500", name: "Roofing Materials", industry_id: "roofing" });
+    expect(shingles.service_category).toBe("Roofing Materials");
+    // Items without their own range get the old default: 70% to 150% of base.
     const dripEdge = shared.find((item) => item.name === "Drip Edge")!;
-    expect(dripEdge).toMatchObject({ base_price: 4.5, red_line_price: 4, cap_price: 5 });
+    expect(dripEdge).toMatchObject({ base_price: 4.5, red_line_price: 3.15, cap_price: 6.75 });
 
     const costCodeId = shingles.cost_code_id;
     const own = await alice.as.mutation(api.lineItems.create, {
@@ -187,23 +248,76 @@ describe("price book", () => {
     });
     expect(own.user_id).toBe(alice.userId);
 
-    expect(await alice.as.query(api.lineItems.list, { organizationId: alice.organizationId })).toHaveLength(16);
+    expect(await alice.as.query(api.lineItems.list, { organizationId: alice.organizationId })).toHaveLength(total + 1);
     expect(
       await alice.as.query(api.lineItems.list, { organizationId: alice.organizationId, includeShared: false }),
     ).toHaveLength(1);
-    expect(await bob.as.query(api.lineItems.list, { organizationId: bob.organizationId })).toHaveLength(15);
+    expect(await bob.as.query(api.lineItems.list, { organizationId: bob.organizationId })).toHaveLength(total);
     await expect(bob.as.query(api.lineItems.get, { id: own._id })).rejects.toThrow(/access/);
 
-    const searched = await alice.as.query(api.lineItems.list, { organizationId: alice.organizationId, search: "tear" });
-    expect(searched.map((item) => item.name).sort()).toEqual(["Double Layer Tear-off", "Single Layer Tear-off"]);
+    const searched = await alice.as.query(api.lineItems.list, { organizationId: alice.organizationId, search: "tear-off" });
+    expect(searched.map((item) => item.name)).toEqual(
+      expect.arrayContaining(["Double Layer Tear-off", "Single Layer Tear-off"]),
+    );
 
     await alice.as.mutation(api.lineItems.remove, { id: own._id });
-    expect(await alice.as.query(api.lineItems.list, { organizationId: alice.organizationId })).toHaveLength(15);
+    expect(await alice.as.query(api.lineItems.list, { organizationId: alice.organizationId })).toHaveLength(total);
+  });
+
+  test("cost codes carry their trade, and every trade is listed", async () => {
+    const t = setup();
+    await t.action(internal.seed.catalog, {});
+    const { as, organizationId } = await signUp(t, "a@example.com");
+
+    const industries = await as.query(api.industries.list, {});
+    expect(industries).toHaveLength(STARTER_INDUSTRIES.length);
+    expect(industries.find((i) => i.id === "hvac")).toMatchObject({ slug: "hvac", name: "HVAC" });
+
+    const hvacCodes = await as.query(api.costCodes.list, { industryId: "hvac" });
+    expect(hvacCodes.map((cc) => cc.code)).toContain("HV500");
+    expect(hvacCodes[0].industry).toMatchObject({ id: "hvac", name: "HVAC" });
+
+    const items = await as.query(api.lineItems.list, { organizationId });
+    const trades = new Set(items.map((item) => item.cost_code?.industry_id));
+    for (const slug of ["roofing", "hvac", "electrical", "plumbing", "concrete", "drywall", "handyman", "window-door"]) {
+      expect(trades).toContain(slug);
+    }
+  });
+
+  test("organizations choose their trades; only admins can change them", async () => {
+    const t = setup();
+    await t.action(internal.seed.catalog, {});
+    const alice = await signUp(t, "alice@example.com");
+    const bob = await signUp(t, "bob@example.com");
+
+    await alice.as.mutation(api.industries.setForOrganization, {
+      organizationId: alice.organizationId,
+      industryIds: ["roofing", "painting", "not-a-trade"],
+    });
+    const chosen = await alice.as.query(api.industries.forOrganization, { organizationId: alice.organizationId });
+    expect(chosen.map((i) => i.id).sort()).toEqual(["painting", "roofing"]);
+
+    await alice.as.mutation(api.industries.setForOrganization, {
+      organizationId: alice.organizationId,
+      industryIds: ["roofing", "hvac"],
+    });
+    expect(
+      (await alice.as.query(api.industries.forOrganization, { organizationId: alice.organizationId }))
+        .map((i) => i.id)
+        .sort(),
+    ).toEqual(["hvac", "roofing"]);
+
+    await expect(
+      bob.as.query(api.industries.forOrganization, { organizationId: alice.organizationId }),
+    ).rejects.toThrow(/access/);
+    await expect(
+      bob.as.mutation(api.industries.setForOrganization, { organizationId: alice.organizationId, industryIds: [] }),
+    ).rejects.toThrow(/access/);
   });
 
   test("only super admins can change the shared catalog", async () => {
     const t = setup();
-    await t.mutation(internal.seed.catalog, {});
+    await t.action(internal.seed.catalog, {});
     const alice = await signUp(t, "alice@example.com");
     const admin = await signUp(t, "admin@example.com", { role: "super_admin" });
     const [item] = await alice.as.query(api.lineItems.list, { organizationId: alice.organizationId });
@@ -237,7 +351,7 @@ describe("price book", () => {
 
   test("pricing modes: presets plus the org's own", async () => {
     const t = setup();
-    await t.mutation(internal.seed.catalog, {});
+    await t.action(internal.seed.catalog, {});
     const { as, organizationId } = await signUp(t, "a@example.com");
     await as.mutation(api.pricingModes.create, {
       organizationId,

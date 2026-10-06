@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Settings, ChevronDown, ChevronUp, Building } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { IndustryService } from '../../services/IndustryService';
 import { useAuth } from '../../contexts/AuthContext';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { IndustryManagementModal } from './IndustryManagementModal';
@@ -46,52 +46,9 @@ export const IndustryBanner: React.FC = () => {
     try {
       setIsLoading(true);
       
-      // Run queries in parallel
-      const [orgResult, orgIndustriesResult] = await Promise.all([
-        supabase
-          .from('organizations')
-          .select(`
-            industry_id,
-            industry:industries!organizations_industry_id_fkey (
-              id,
-              name,
-              slug,
-              icon
-            )
-          `)
-          .eq('id', selectedOrg.id)
-          .single(),
-        
-        supabase
-          .from('organization_industries')
-          .select(`
-            industry:industries!organization_industries_industry_id_fkey (
-              id,
-              name,
-              slug,
-              icon
-            )
-          `)
-          .eq('organization_id', selectedOrg.id)
-      ]);
-
-      if (orgResult.error) throw orgResult.error;
-      if (orgIndustriesResult.error) throw orgIndustriesResult.error;
-
-      // Set primary industry
-      if (orgResult.data?.industry) {
-        setPrimaryIndustry(orgResult.data.industry as any);
-      }
-
-      // Set secondary industries (exclude primary)
-      const secondaries = (orgIndustriesResult.data || [])
-        .map((oi: any) => oi.industry)
-        .filter((industry: any) => 
-          industry !== null && 
-          industry !== undefined && 
-          industry.id !== orgResult.data?.industry_id
-        );
-      
+      // No primary trade in Convex yet; every chosen trade is listed.
+      setPrimaryIndustry(null);
+      const secondaries = await IndustryService.getOrganizationIndustries(selectedOrg.id);
       setSecondaryIndustries(secondaries);
     } catch (error) {
       console.error('Error loading industries:', error);

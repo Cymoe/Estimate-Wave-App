@@ -316,4 +316,19 @@ export const pricingModesAPI = {
   },
 };
 
+// Industries (trades). An industry's `id` is its slug.
+export const industriesAPI = {
+  async list() {
+    return run('query', api.industries.list, {});
+  },
+
+  async forOrganization(organizationId: string) {
+    return run('query', api.industries.forOrganization, { organizationId });
+  },
+
+  async setForOrganization(organizationId: string, industryIds: string[]) {
+    return run('mutation', api.industries.setForOrganization, { organizationId, industryIds });
+  },
+};
+
 export { APIError };

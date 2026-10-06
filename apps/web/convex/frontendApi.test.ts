@@ -5,6 +5,7 @@
  */
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { internal } from "./_generated/api";
+import { STARTER_COST_CODES, STARTER_ITEMS } from "./catalog/starterCatalog";
 import { setup, signUp } from "./test.setup";
 
 vi.mock("../src/lib/convex", () => ({ convex: {} }));
@@ -95,21 +96,19 @@ describe("src/lib/api.ts on Convex", () => {
   });
 
   test("Price Book reads shared items with cost codes and Redline/Cap pricing", async () => {
-    await t.mutation(internal.seed.catalog, {});
+    await t.action(internal.seed.catalog, {});
     const { as, organizationId } = await signUp(t, "a@example.com");
     setConvexClient(as);
 
     const costCodes = await costCodesAPI.list({ isActive: true });
-    expect(costCodes.map((cc: { code: string }) => cc.code)).toEqual([
-      "ROOF-LAB",
-      "ROOF-MAT",
-      "ROOF-TEAR",
-      "ROOF-FLASH",
-      "ROOF-VENT",
-    ]);
+    expect(costCodes).toHaveLength(STARTER_COST_CODES.length);
+    expect(costCodes.find((cc: { code: string }) => cc.code === "RF500")).toMatchObject({
+      name: "Roofing Materials",
+      industry: { id: "roofing", name: "Roofing" },
+    });
 
     const items = await MongoLineItemService.list(organizationId);
-    expect(items).toHaveLength(15);
+    expect(items).toHaveLength(STARTER_ITEMS.length);
     const standard = items.find((item) => item.name === "Shingle Installation - Standard")!;
     expect(standard.id).toEqual(expect.any(String));
     expect(MongoLineItemService.calculatePrice(standard, 0.5)).toBe(250);

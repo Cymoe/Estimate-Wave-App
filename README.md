@@ -27,6 +27,7 @@ live, then it can be deleted.
 | `users` (+ Convex Auth tables) | Accounts; `role: super_admin` can edit the shared catalog |
 | `clients`, `projects` | A company's customers and jobs |
 | `estimates`, `invoices` | Documents with their line items; totals and tax are computed on the server |
+| `industries`, `organizationIndustries` | Trades (by slug), and which ones each company works in |
 | `lineItems`, `costCodes` | Price book with Redline/Cap pricing. Rows without an organization are the shared industry catalog every company sees |
 | `pricingModes` | Preset and custom price adjustments ("Busy Season" +15%, …) |
 | `activityLogs` | Who did what; the activity feed updates live |
@@ -48,7 +49,8 @@ npx convex dev
 #    sets SITE_URL on the deployment):
 npx @convex-dev/auth
 
-# 3. Load the shared catalog (pricing presets + roofing price book):
+# 3. Load the shared catalog (pricing presets + every trade's cost codes
+#    and price book):
 npm run convex:seed
 
 # 4. Start the app on http://localhost:3000
@@ -105,6 +107,11 @@ npm test              # React components (jest)
 - **Done (Phase 1):** organizations, users and sign-in, clients, projects,
   estimates, invoices, price book (line items, cost codes, pricing modes),
   activity feed. Sales Mode and the Price Book list run on Convex.
+- **Starter catalog:** `convex/catalog/starterCatalog.ts` holds 59 trades,
+  their cost codes and about 730 price-book items, rebuilt from the old
+  Supabase migrations and seed scripts (the live database itself wasn't
+  available). Rows are tagged `catalog_source: "starter"`, so an export of
+  the real database can replace them later.
 - **Phase 2:** screens still written against the old Supabase client (it now
   returns empty data): expenses, vendors, subcontractors, team members, work
   packs, service options/packages, templates, price-book overrides. Their

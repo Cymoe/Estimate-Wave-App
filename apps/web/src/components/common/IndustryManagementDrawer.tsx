@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { X, Search, Settings, Info, CheckCircle, Check, Crown } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { IndustryService } from '../../services/IndustryService';
@@ -59,40 +58,17 @@ export const IndustryManagementDrawer: React.FC<IndustryManagementDrawerProps> =
     try {
       setIsLoading(true);
       
-      // Run all queries in parallel, including plan data
-      const [industriesResult, orgResult, orgIndustriesResult, planResult] = await Promise.all([
-        supabase
-          .from('industries')
-          .select('*')
-          .eq('is_active', true)
-          .order('display_order'),
-        
-        supabase
-          .from('organizations')
-          .select('industry_id')
-          .eq('id', selectedOrg.id)
-          .single(),
-        
-        supabase
-          .from('organization_industries')
-          .select('industry_id')
-          .eq('organization_id', selectedOrg.id),
-        
+      const [allIndustries, orgIndustries, planResult] = await Promise.all([
+        IndustryService.listAll(),
+        IndustryService.getOrganizationIndustries(selectedOrg.id),
         IndustryService.getOrganizationPlan(selectedOrg.id)
       ]);
 
-      if (industriesResult.error) throw industriesResult.error;
-      if (orgResult.error) throw orgResult.error;
-      if (orgIndustriesResult.error) throw orgIndustriesResult.error;
-
-      setIndustries(industriesResult.data || []);
-      setPrimaryIndustryId(orgResult.data?.industry_id || null);
+      setIndustries(allIndustries as Industry[]);
+      setPrimaryIndustryId(null);
       setPlanData(planResult);
-      
-      const selected = new Set(orgIndustriesResult.data?.map(oi => oi.industry_id) || []);
-      if (orgResult.data?.industry_id) {
-        selected.add(orgResult.data.industry_id);
-      }
+
+      const selected = new Set(orgIndustries.map(industry => industry.id));
       setSelectedIndustries(selected);
     } catch (error) {
       console.error('Error loading industries:', error);
@@ -120,13 +96,7 @@ export const IndustryManagementDrawer: React.FC<IndustryManagementDrawerProps> =
     try {
       if (isCurrentlySelected) {
         // Remove industry
-        const { error } = await supabase
-          .from('organization_industries')
-          .delete()
-          .eq('organization_id', selectedOrg.id)
-          .eq('industry_id', industryId);
-
-        if (error) throw error;
+        await IndustryService.removeFromOrganization(selectedOrg.id, industryId);
 
         setSelectedIndustries(prev => {
           const newSet = new Set(prev);
@@ -145,14 +115,7 @@ export const IndustryManagementDrawer: React.FC<IndustryManagementDrawerProps> =
 
       } else {
         // Add industry
-        const { error } = await supabase
-          .from('organization_industries')
-          .insert({
-            organization_id: selectedOrg.id,
-            industry_id: industryId
-          });
-
-        if (error) throw error;
+        await IndustryService.addToOrganization(selectedOrg.id, industryId);
 
         setSelectedIndustries(prev => new Set([...prev, industryId]));
 

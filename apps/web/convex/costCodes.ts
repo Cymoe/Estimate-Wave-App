@@ -26,6 +26,12 @@ export const list = query({
           .take(5000)),
       );
     }
+    const industries = new Map(
+      (await ctx.db.query("industries").take(500)).map((row) => [
+        row.slug,
+        { id: row.slug, name: row.name, icon: row.icon, color: row.color },
+      ]),
+    );
     return rows
       .filter(
         (cc) =>
@@ -33,7 +39,8 @@ export const list = query({
           (args.industryId === undefined || cc.industry_id === args.industryId) &&
           (args.category === undefined || cc.category === args.category),
       )
-      .sort(byDisplayOrder((cc) => cc.code));
+      .sort(byDisplayOrder((cc) => cc.code))
+      .map((cc) => ({ ...cc, industry: cc.industry_id ? (industries.get(cc.industry_id) ?? null) : null }));
   },
 });
 

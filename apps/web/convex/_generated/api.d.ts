@@ -15,10 +15,12 @@ import type {
 } from "convex/server";
 import type * as activityLogs from "../activityLogs.js";
 import type * as auth from "../auth.js";
+import type * as catalog_starterCatalog from "../catalog/starterCatalog.js";
 import type * as clients from "../clients.js";
 import type * as costCodes from "../costCodes.js";
 import type * as estimates from "../estimates.js";
 import type * as http from "../http.js";
+import type * as industries from "../industries.js";
 import type * as invoices from "../invoices.js";
 import type * as lib_access from "../lib/access.js";
 import type * as lib_documents from "../lib/documents.js";
@@ -42,10 +44,12 @@ import type * as users from "../users.js";
 declare const fullApi: ApiFromModules<{
   activityLogs: typeof activityLogs;
   auth: typeof auth;
+  "catalog/starterCatalog": typeof catalog_starterCatalog;
   clients: typeof clients;
   costCodes: typeof costCodes;
   estimates: typeof estimates;
   http: typeof http;
+  industries: typeof industries;
   invoices: typeof invoices;
   "lib/access": typeof lib_access;
   "lib/documents": typeof lib_documents;

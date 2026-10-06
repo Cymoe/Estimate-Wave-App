@@ -285,6 +285,8 @@ export default defineSchema({
     organization_id: v.optional(v.id("organizations")),
     // Who created it; absent for seeded shared catalog items.
     user_id: v.optional(v.id("users")),
+    // "starter" for rows loaded by seed:catalog (replaceable by a real export).
+    catalog_source: v.optional(v.string()),
     ...snakeTimestamps,
   })
     .index("by_organization", ["organization_id"])
@@ -294,10 +296,31 @@ export default defineSchema({
   costCodes: defineTable({
     ...costCodeFields,
     organization_id: v.optional(v.id("organizations")),
+    catalog_source: v.optional(v.string()),
     ...snakeTimestamps,
   })
     .index("by_organization", ["organization_id"])
     .index("by_industry", ["industry_id"]),
+
+  // Trades. Cost codes refer to them by slug (costCodes.industry_id).
+  industries: defineTable({
+    slug: v.string(),
+    name: v.string(),
+    description: v.optional(v.string()),
+    icon: v.optional(v.string()),
+    color: v.optional(v.string()),
+    display_order: v.number(),
+    is_active: v.boolean(),
+    catalog_source: v.optional(v.string()),
+    ...snakeTimestamps,
+  }).index("by_slug", ["slug"]),
+
+  // Trades a company works in (by industry slug).
+  organizationIndustries: defineTable({
+    organizationId: v.id("organizations"),
+    industrySlug: v.string(),
+    createdAt: v.string(),
+  }).index("by_organization", ["organizationId"]),
 
   // Pricing modes. Presets have is_preset true and no organization_id.
   pricingModes: defineTable({

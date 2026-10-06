@@ -7,12 +7,23 @@ import { lineItemFields } from "./schema";
 
 const MAX_BULK = 500;
 
-async function withCostCode(ctx: QueryCtx | MutationCtx, item: Doc<"lineItems">) {
-  const costCode = await ctx.db.get(item.cost_code_id);
+async function withCostCode(
+  ctx: QueryCtx | MutationCtx,
+  item: Doc<"lineItems">,
+  cache = new Map<Id<"costCodes">, Promise<Doc<"costCodes"> | null>>(),
+) {
+  if (!cache.has(item.cost_code_id)) cache.set(item.cost_code_id, ctx.db.get(item.cost_code_id));
+  const costCode = await cache.get(item.cost_code_id)!;
   return {
     ...item,
     cost_code: costCode
-      ? { id: costCode._id, name: costCode.name, code: costCode.code, category: costCode.category }
+      ? {
+          id: costCode._id,
+          name: costCode.name,
+          code: costCode.code,
+          category: costCode.category,
+          industry_id: costCode.industry_id,
+        }
       : null,
   };
 }
@@ -60,7 +71,8 @@ export const list = query({
           (item.description ?? "").toLowerCase().includes(search)),
     );
     filtered.sort(byDisplayOrder((item) => item.name));
-    return await Promise.all(filtered.map((item) => withCostCode(ctx, item)));
+    const cache = new Map<Id<"costCodes">, Promise<Doc<"costCodes"> | null>>();
+    return await Promise.all(filtered.map((item) => withCostCode(ctx, item, cache)));
   },
 });
 

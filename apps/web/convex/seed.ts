@@ -1,12 +1,15 @@
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { internalMutation, type MutationCtx } from "./_generated/server";
+import { internalAction, internalMutation, type MutationCtx } from "./_generated/server";
+import { STARTER_COST_CODES, STARTER_INDUSTRIES, STARTER_ITEMS } from "./catalog/starterCatalog";
 import { nowIso } from "./lib/access";
 
 /**
  * Starter catalog shared by every organization: the pricing-mode presets and
- * the roofing cost codes + price book that the old MongoDB seed scripts
- * created. Safe to run more than once.
+ * every trade's cost codes and price book (catalog/starterCatalog.ts, rebuilt
+ * from the old Supabase migrations). Safe to run more than once: it only adds
+ * what is missing.
  *
  *   npx convex run seed:catalog
  */
@@ -15,34 +18,6 @@ const PRESET_MODES = [
   { name: "Need This Job", icon: "💰", description: "Aggressive pricing to secure work", adjustments: { all: 0.85 } },
   { name: "Competitive", icon: "🎯", description: "Win more bids with lower margins", adjustments: { all: 0.9 } },
   { name: "Busy Season", icon: "☀️", description: "Peak demand pricing", adjustments: { all: 1.15 } },
-];
-
-const ROOFING_COST_CODES = [
-  { code: "ROOF-LAB", name: "Roofing Labor", description: "Labor costs for roofing installation and repair", category: "Labor", unit: "hour" },
-  { code: "ROOF-MAT", name: "Roofing Materials", description: "Shingles, underlayment, and roofing materials", category: "Materials", unit: "square" },
-  { code: "ROOF-TEAR", name: "Tear-off & Disposal", description: "Removal of old roofing and disposal", category: "Labor", unit: "square" },
-  { code: "ROOF-FLASH", name: "Flashing & Trim", description: "Metal flashing, drip edge, and trim work", category: "Materials", unit: "linear_foot" },
-  { code: "ROOF-VENT", name: "Ventilation", description: "Ridge vents, soffit vents, and ventilation components", category: "Materials", unit: "unit" },
-];
-
-// [cost code, name, description, unit, base price, red line, cap, labor hours]
-type ItemRow = [string, string, string, string, number, number?, number?, number?];
-const ROOFING_ITEMS: ItemRow[] = [
-  ["ROOF-LAB", "Shingle Installation - Standard", "Standard 3-tab or architectural shingle installation", "square", 250, 200, 300, 4],
-  ["ROOF-LAB", "Shingle Installation - Premium", "Premium architectural or designer shingle installation", "square", 350, 280, 420, 6],
-  ["ROOF-LAB", "Roof Repair - Small", "Small roof repairs, leaks, or shingle replacement", "hour", 125, 100, 150, 1],
-  ["ROOF-MAT", "Asphalt Shingles - 3-Tab", "Standard 3-tab asphalt shingles (25-year warranty)", "square", 120, 95, 145],
-  ["ROOF-MAT", "Architectural Shingles", "Premium architectural shingles (30-year warranty)", "square", 185, 148, 222],
-  ["ROOF-MAT", "Designer Shingles", "High-end designer shingles (50-year warranty)", "square", 300, 240, 360],
-  ["ROOF-MAT", "Underlayment - Synthetic", "Premium synthetic underlayment", "square", 50, 40, 60],
-  ["ROOF-TEAR", "Single Layer Tear-off", "Remove one layer of existing shingles and dispose", "square", 85, 68, 102, 2],
-  ["ROOF-TEAR", "Double Layer Tear-off", "Remove two layers of existing shingles and dispose", "square", 125, 100, 150, 3],
-  ["ROOF-FLASH", "Drip Edge", "Aluminum or galvanized drip edge", "linear_foot", 4.5],
-  ["ROOF-FLASH", "Valley Flashing", "Metal valley flashing installation", "linear_foot", 15],
-  ["ROOF-FLASH", "Chimney Flashing", "Custom chimney flashing and counter-flashing", "unit", 300, undefined, undefined, 3],
-  ["ROOF-VENT", "Ridge Vent", "Continuous ridge vent with filter", "linear_foot", 6],
-  ["ROOF-VENT", "Roof Vent - Static", "Static roof vent (turtle vent)", "unit", 50],
-  ["ROOF-VENT", "Power Attic Vent", "Electric-powered attic ventilation fan", "unit", 400, undefined, undefined, 2],
 ];
 
 async function seedPresets(ctx: MutationCtx): Promise<number> {
@@ -70,70 +45,158 @@ async function seedPresets(ctx: MutationCtx): Promise<number> {
   return created;
 }
 
-async function seedRoofing(ctx: MutationCtx): Promise<{ costCodes: number; lineItems: number }> {
-  const now = nowIso();
-  const shared = await ctx.db
-    .query("costCodes")
-    .withIndex("by_industry", (q) => q.eq("industry_id", "roofing"))
-    .take(200);
-  const codeIds = new Map<string, Id<"costCodes">>(
-    shared.filter((cc) => cc.organization_id === undefined).map((cc) => [cc.code, cc._id]),
-  );
+const STARTER = "starter";
 
-  let costCodes = 0;
-  for (const [index, cc] of ROOFING_COST_CODES.entries()) {
-    if (codeIds.has(cc.code)) continue;
-    const id = await ctx.db.insert("costCodes", {
-      ...cc,
-      industry_id: "roofing",
-      display_order: index + 1,
-      is_active: true,
-      created_at: now,
-      updated_at: now,
-    });
-    codeIds.set(cc.code, id);
-    costCodes++;
-  }
+export const presets = internalMutation({ args: {}, handler: seedPresets });
 
-  const existingItems = await ctx.db
-    .query("lineItems")
-    .withIndex("by_organization", (q) => q.eq("organization_id", undefined))
-    .take(5000);
-  const existingNames = new Set(existingItems.map((item) => item.name));
-
-  let lineItems = 0;
-  const orderByCode = new Map<string, number>();
-  for (const [code, name, description, unit, price, redLine, cap, hours] of ROOFING_ITEMS) {
-    const order = (orderByCode.get(code) ?? 0) + 1;
-    orderByCode.set(code, order);
-    if (existingNames.has(name)) continue;
-    await ctx.db.insert("lineItems", {
-      name,
-      description,
-      unit,
-      base_price: price,
-      // Same defaults as the old seed: ±20% around the base price.
-      red_line_price: redLine ?? Math.round(price * 0.8),
-      cap_price: cap ?? Math.round(price * 1.2),
-      ...(hours !== undefined ? { estimated_hours: hours } : {}),
-      cost_code_id: codeIds.get(code)!,
-      service_category: "roofing",
-      display_order: order,
-      is_active: true,
-      created_at: now,
-      updated_at: now,
-    });
-    lineItems++;
-  }
-  return { costCodes, lineItems };
-}
-
-export const catalog = internalMutation({
+/** Adds missing trades and refreshes the starter ones. */
+export const industries = internalMutation({
   args: {},
   handler: async (ctx) => {
-    const pricingModes = await seedPresets(ctx);
-    const roofing = await seedRoofing(ctx);
-    return { pricingModes, ...roofing };
+    const now = nowIso();
+    const existing = new Map((await ctx.db.query("industries").take(500)).map((row) => [row.slug, row]));
+    let created = 0;
+    for (const [index, industry] of STARTER_INDUSTRIES.entries()) {
+      const row = existing.get(industry.slug);
+      const fields = { ...industry, display_order: index + 1 };
+      if (row === undefined) {
+        await ctx.db.insert("industries", {
+          ...fields,
+          is_active: true,
+          catalog_source: STARTER,
+          created_at: now,
+          updated_at: now,
+        });
+        created++;
+      } else if (row.catalog_source === STARTER) {
+        await ctx.db.patch(row._id, { ...fields, updated_at: now });
+      }
+    }
+    return created;
+  },
+});
+
+/** Adds one trade's missing shared cost codes and line items. */
+export const industryCatalog = internalMutation({
+  args: { slug: v.string() },
+  handler: async (ctx, { slug }) => {
+    const now = nowIso();
+    const shared = (
+      await ctx.db
+        .query("costCodes")
+        .withIndex("by_industry", (q) => q.eq("industry_id", slug))
+        .take(500)
+    ).filter((cc) => cc.organization_id === undefined);
+    const codes = new Map<string, Id<"costCodes">>(shared.map((cc) => [cc.code, cc._id]));
+    const codeNames = new Map<string, string>(shared.map((cc) => [cc.code, cc.name]));
+
+    let costCodes = 0;
+    for (const [index, cc] of STARTER_COST_CODES.filter((cc) => cc.industry === slug).entries()) {
+      if (codes.has(cc.code)) continue;
+      const id = await ctx.db.insert("costCodes", {
+        code: cc.code,
+        name: cc.name,
+        category: cc.category,
+        industry_id: slug,
+        display_order: index + 1,
+        is_active: true,
+        catalog_source: STARTER,
+        created_at: now,
+        updated_at: now,
+      });
+      codes.set(cc.code, id);
+      codeNames.set(cc.code, cc.name);
+      costCodes++;
+    }
+
+    let lineItems = 0;
+    const order = new Map<string, number>();
+    const existingNames = new Map<Id<"costCodes">, Set<string>>();
+    for (const [industry, code, name, description, unit, price, redLine, cap] of STARTER_ITEMS) {
+      if (industry !== slug) continue;
+      const costCodeId = codes.get(code)!;
+      const position = (order.get(code) ?? 0) + 1;
+      order.set(code, position);
+      if (!existingNames.has(costCodeId)) {
+        const items = await ctx.db
+          .query("lineItems")
+          .withIndex("by_cost_code", (q) => q.eq("cost_code_id", costCodeId))
+          .take(1000);
+        existingNames.set(
+          costCodeId,
+          new Set(items.filter((item) => item.organization_id === undefined).map((item) => item.name)),
+        );
+      }
+      if (existingNames.get(costCodeId)!.has(name)) continue;
+      await ctx.db.insert("lineItems", {
+        name,
+        description,
+        unit,
+        base_price: price,
+        // The old database's default range: red line 70% and cap 150% of base.
+        red_line_price: redLine ?? Math.round(price * 70) / 100,
+        cap_price: cap ?? Math.round(price * 150) / 100,
+        cost_code_id: costCodeId,
+        service_category: codeNames.get(code),
+        display_order: position,
+        is_active: true,
+        catalog_source: STARTER,
+        created_at: now,
+        updated_at: now,
+      });
+      lineItems++;
+    }
+    return { costCodes, lineItems };
+  },
+});
+
+/**
+ * Removes the first roofing seed (ROOF-* codes and their shared items); those
+ * items now live under the RF codes.
+ */
+export const removeLegacyRoofing = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const legacy = (
+      await ctx.db
+        .query("costCodes")
+        .withIndex("by_industry", (q) => q.eq("industry_id", "roofing"))
+        .take(500)
+    ).filter((cc) => cc.organization_id === undefined && cc.code.startsWith("ROOF-"));
+    let removed = 0;
+    for (const cc of legacy) {
+      const items = await ctx.db
+        .query("lineItems")
+        .withIndex("by_cost_code", (q) => q.eq("cost_code_id", cc._id))
+        .take(1000);
+      // Keep a code a company has filed its own items under.
+      if (items.some((item) => item.organization_id !== undefined)) continue;
+      for (const item of items) await ctx.db.delete(item._id);
+      await ctx.db.delete(cc._id);
+      removed++;
+    }
+    return removed;
+  },
+});
+
+export const catalog = internalAction({
+  args: {},
+  handler: async (ctx): Promise<Record<string, number>> => {
+    const pricingModes: number = await ctx.runMutation(internal.seed.presets, {});
+    const industries: number = await ctx.runMutation(internal.seed.industries, {});
+    const legacyRoofingCodesRemoved: number = await ctx.runMutation(internal.seed.removeLegacyRoofing, {});
+    let costCodes = 0;
+    let lineItems = 0;
+    // One transaction per trade keeps each well inside Convex's limits.
+    for (const industry of STARTER_INDUSTRIES) {
+      const added: { costCodes: number; lineItems: number } = await ctx.runMutation(
+        internal.seed.industryCatalog,
+        { slug: industry.slug },
+      );
+      costCodes += added.costCodes;
+      lineItems += added.lineItems;
+    }
+    return { pricingModes, industries, legacyRoofingCodesRemoved, costCodes, lineItems };
   },
 });
 
