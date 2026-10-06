@@ -2,6 +2,26 @@ import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 
+/** Turns a Convex Auth failure into a message the user can act on. */
+function describeAuthError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  if (/already exists/i.test(raw)) return 'An account with this email already exists. Use "Sign in" instead.';
+  if (/InvalidAccountId/.test(raw)) return 'No account with this email yet. Use "Create an account" first.';
+  if (/InvalidSecret|Invalid credentials/.test(raw)) return 'Incorrect email or password.';
+  if (/TooManyFailedAttempts/.test(raw)) return 'Too many attempts. Wait a few minutes and try again.';
+  if (/Invalid password/.test(raw)) return 'Password must be at least 8 characters.';
+  if (/Missing environment variable/.test(raw)) return 'Sign-in isn\'t set up on the server yet.';
+  if (/Failed to fetch|NetworkError|connection/i.test(raw)) return 'Can\'t reach the server. Check your connection and try again.';
+  // Unknown: show the server's message without Convex's request prefix.
+  const detail = raw
+    .replace(/^\[CONVEX[^\]]*\]\s*(\[Request ID:[^\]]*\]\s*)?/, '')
+    .replace(/^Server Error\s*/, '')
+    .replace(/^Uncaught Error:\s*/, '')
+    .split('\n')[0]
+    .trim();
+  return `Sign-in failed: ${detail || 'unknown error'}`;
+}
+
 /** Email + password sign in / account creation (Convex Auth Password provider). */
 export const EmailSignInForm = ({ onDone }: { onDone?: () => void }) => {
   const { signInWithPassword } = useAuth();
@@ -23,11 +43,7 @@ export const EmailSignInForm = ({ onDone }: { onDone?: () => void }) => {
       navigate('/profit-tracker');
     } catch (err) {
       console.error('Email sign-in failed:', err);
-      setError(
-        flow === 'signIn'
-          ? 'Incorrect email or password.'
-          : 'Could not create the account. Use a password of at least 8 characters, or sign in if you already have an account.',
-      );
+      setError(describeAuthError(err));
     } finally {
       setIsSubmitting(false);
     }
