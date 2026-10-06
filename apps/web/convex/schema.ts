@@ -186,6 +186,24 @@ export const costCodeFields = {
   display_order: v.optional(v.number()),
 };
 
+// A template line: usually copied from a price-book item (lineItemId).
+export const templateItem = v.object({
+  lineItemId: v.optional(v.string()),
+  name: v.string(),
+  description: v.optional(v.string()),
+  quantity: v.number(),
+  unitPrice: v.number(),
+  unit: v.optional(v.string()),
+});
+
+export const templateFields = {
+  name: v.string(),
+  description: v.optional(v.string()),
+  industryId: v.optional(v.string()),
+  items: v.array(templateItem),
+  isFavorite: v.optional(v.boolean()),
+};
+
 export const pricingAdjustments = v.object({
   all: v.optional(v.number()),
   labor: v.optional(v.number()),
@@ -301,6 +319,15 @@ export default defineSchema({
   })
     .index("by_organization", ["organization_id"])
     .index("by_industry", ["industry_id"]),
+
+  // Reusable sets of items to start an estimate from.
+  templates: defineTable({
+    ...templateFields,
+    usageCount: v.number(),
+    organizationId: v.id("organizations"),
+    userId: v.id("users"),
+    ...timestamps,
+  }).index("by_organization", ["organizationId"]),
 
   // Trades. Cost codes refer to them by slug (costCodes.industry_id).
   industries: defineTable({

@@ -31,6 +31,7 @@ import type * as organizations from "../organizations.js";
 import type * as pricingModes from "../pricingModes.js";
 import type * as projects from "../projects.js";
 import type * as seed from "../seed.js";
+import type * as templates from "../templates.js";
 import type * as users from "../users.js";
 
 /**
@@ -60,6 +61,7 @@ declare const fullApi: ApiFromModules<{
   pricingModes: typeof pricingModes;
   projects: typeof projects;
   seed: typeof seed;
+  templates: typeof templates;
   users: typeof users;
 }>;
 export declare const api: FilterApi<

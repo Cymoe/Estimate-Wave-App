@@ -4,7 +4,7 @@
  * the shape they expect.
  */
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { STARTER_COST_CODES, STARTER_ITEMS } from "./catalog/starterCatalog";
 import { setup, signUp } from "./test.setup";
 
@@ -15,6 +15,8 @@ const { setConvexClient, clientsAPI, estimatesAPI, costCodesAPI, organizationsAP
 );
 const { MongoEstimateService } = await import("../src/services/MongoEstimateService");
 const { MongoLineItemService } = await import("../src/services/MongoLineItemService");
+const { EstimateService } = await import("../src/services/EstimateService");
+const { templatesAPI } = await import("../src/lib/api");
 
 let t: ReturnType<typeof setup>;
 
@@ -113,5 +115,56 @@ describe("src/lib/api.ts on Convex", () => {
     expect(standard.id).toEqual(expect.any(String));
     expect(MongoLineItemService.calculatePrice(standard, 0.5)).toBe(250);
     expect(MongoLineItemService.isPriceInBounds(standard, 310)).toBe(false);
+  });
+
+  test("EstimateService: the estimate screens create, list, edit and invoice estimates", async () => {
+    const { as, organizationId } = await signUp(t, "a@example.com");
+    setConvexClient(as);
+    const client = await clientsAPI.create({ organizationId, name: "Smith Residence", companyName: "Smith LLC" });
+
+    const created = await EstimateService.create({
+      organization_id: organizationId,
+      client_id: client._id,
+      title: "Kitchen",
+      status: "draft",
+      issue_date: "2026-10-01",
+      expiry_date: "",
+      subtotal: 0,
+      total_amount: 0,
+      tax_rate: 10,
+      items: [
+        { description: "Cabinets", quantity: 2, unit_price: 500, total_price: 1000 },
+        { product_name: "Paint", quantity: 3, price: 50 } as never,
+      ],
+    });
+    expect(created).toMatchObject({ subtotal: 1150, tax_amount: 115, total_amount: 1265, status: "draft" });
+    expect(created.estimate_number).toMatch(/^EST-/);
+
+    const [listed] = await EstimateService.list(organizationId);
+    expect(listed.client).toMatchObject({ id: client._id, name: "Smith Residence", company_name: "Smith LLC" });
+    expect(listed.items?.map((item) => item.description)).toEqual(["Cabinets", "Paint"]);
+
+    const edited = await EstimateService.update(created.id!, {
+      items: [{ description: "Cabinets", quantity: 1, unit_price: 500, total_price: 500 }],
+    });
+    expect(edited.subtotal).toBe(500);
+
+    await expect(EstimateService.convertToInvoice(created.id!)).rejects.toThrow(/accepted/);
+    await EstimateService.updateStatus(created.id!, "accepted");
+    const invoiceId = await EstimateService.convertToInvoice(created.id!, 50);
+    const [invoice] = await as.query(api.invoices.list, { organizationId });
+    expect(invoice._id).toBe(invoiceId);
+    expect(invoice).toMatchObject({ estimateId: created.id, subtotal: 250, totalAmount: 275 });
+  });
+
+  test("templates keep their items and totals", async () => {
+    const { as, organizationId } = await signUp(t, "a@example.com");
+    setConvexClient(as);
+    await templatesAPI.create(organizationId, {
+      name: "Roof tune-up",
+      items: [{ name: "Inspection", quantity: 1, unitPrice: 175 }],
+    });
+    const [template] = await templatesAPI.list(organizationId);
+    expect(template).toMatchObject({ id: template._id, name: "Roof tune-up", total: 175 });
   });
 });

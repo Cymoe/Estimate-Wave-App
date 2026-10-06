@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { supabase } from '../../lib/supabase';
+import { clientsAPI, templatesAPI } from '../../lib/api';
+import { EstimateService, toLegacyClient } from '../../services/EstimateService';
 import { useAuth } from '../../contexts/AuthContext';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { formatCurrency } from '../../utils/format';
@@ -9,7 +10,7 @@ import { ContextualPricingSelector } from './ContextualPricingSelector';
 import { ClientSelector } from './ClientSelector';
 import { NewClientModal } from '../clients/NewClientModal';
 // import { ServiceCatalogService } from '../../services/ServiceCatalogService'; // Removed - using line items only
-import { LineItemService } from '../../services/LineItemService';
+import { MongoLineItemService as LineItemService } from '../../services/MongoLineItemService';
 
 interface EstimateItem {
   product_id: string;
@@ -35,9 +36,11 @@ interface Template {
     total_amount?: number;
   };
   items?: Array<{
-    product_id: string;
+    product_id?: string;
+    name?: string;
     quantity: number;
     price: number;
+    unit?: string;
     description?: string;
     product?: any;
   }>;
@@ -290,20 +293,14 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
     if (!editingEstimate || !user) return;
     
     try {
-      const { data: items, error } = await supabase
-        .from('estimate_items')
-        .select('*, product:products(*)')
-        .eq('estimate_id', editingEstimate.id);
-        
-      if (error) throw error;
-      
-      const estimateItems: EstimateItem[] = (items || []).map(item => ({
-        product_id: item.product_id,
-        product_name: item.product?.name || 'Unknown Item',
+      const estimate = editingEstimate.items ? editingEstimate : await EstimateService.getById(editingEstimate.id);
+      const estimateItems: EstimateItem[] = (estimate?.items || []).map((item: any, index: number) => ({
+        product_id: item.product_id || item.id || `item-${index}`,
+        product_name: item.description || 'Item',
         quantity: item.quantity,
-        price: item.price || item.unit_price || item.product?.price || 0,
-        unit: item.product?.unit || 'ea',
-        description: item.description || item.product?.description
+        price: item.unit_price ?? item.price ?? 0,
+        unit: item.unit || 'ea',
+        description: item.description
       }));
       
       setSelectedItems(estimateItems);
@@ -317,15 +314,8 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
     if (!projectContext?.projectId) return;
     
     try {
-      const { data: project, error } = await supabase
-        .from('projects')
-        .select('category_id')
-        .eq('id', projectContext.projectId)
-        .single();
-        
-      if (error) throw error;
-      
-      setProjectCategory(project?.category_id || null);
+      // Projects don't have categories in Convex yet.
+      setProjectCategory(null);
     } catch (error) {
       console.error('Error loading project category:', error);
     }
@@ -349,60 +339,13 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
         return;
       }
       
-      // Build base queries array
-      const queries = [
-        supabase.from('clients').select('*').eq('organization_id', orgId)
-      ];
-
-      // Load organization's selected industries first
-      const { data: orgIndustries, error: indError } = await supabase
-        .from('organization_industries')
-        .select('industry_id, industries(id, name)')
-        .eq('organization_id', orgId);
-      
-      if (indError) {
-        console.error('Error loading organization industries:', indError);
-      }
-      
-      // Get industry IDs for filtering
-      const industryIds = orgIndustries?.map(oi => oi.industry_id) || [];
-      
-      // Note: We'll use invoice templates for now until estimate templates are created
-      console.log('Loading templates for org:', orgId, 'with industries:', industryIds);
-      
-      let templateQuery = supabase.from('invoice_templates')
-        .select('*')
-        .order('created_at', { ascending: false });
-      
-      // Filter templates by organization's selected industries
-      if (industryIds.length > 0) {
-        templateQuery = templateQuery.in('industry_id', industryIds);
-      }
-      
-      console.log('Template query built with industry filtering');
-      
-      // If we have a project category, filter templates by it
-      if (projectCategory) {
-        templateQuery = templateQuery.eq('category_id', projectCategory);
-      }
-      
-      // Execute all queries including the template query
-      const [clientsRes, templatesRes] = await Promise.all([
-        ...queries,
-        templateQuery
+      const [clientRows, templateRows] = await Promise.all([
+        clientsAPI.list(orgId),
+        templatesAPI.list(orgId).catch((error: unknown) => {
+          console.error('Error loading templates:', error);
+          return [];
+        })
       ]);
-      console.log('Template query executed, result:', templatesRes);
-
-      if (clientsRes.error) throw clientsRes.error;
-      if (templatesRes.error) {
-        console.error('Templates error:', templatesRes.error);
-        console.error('Full templatesRes:', templatesRes);
-      }
-      
-      console.log('Templates query result data:', templatesRes.data);
-      console.log('Organization industries:', orgIndustries?.map(oi => (oi as any).industries?.name));
-      console.log('Filtered templates count:', templatesRes.data?.length || 0);
-      console.log('Templates query result count:', templatesRes.data?.length);
       
       // Load line items for organization
       let lineItemsData: any[] = [];
@@ -412,64 +355,32 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
         console.error('Error loading line items:', error);
       }
       
-      // Load service templates using ServiceCatalogService
-      let servicesData: any[] = [];
-      try {
-        // Get bundle items from line_items instead
-        const { data } = await supabase
-          .from('line_items')
-          .select('*')
-          .eq('is_bundle', true)
-          .order('name');
-        servicesData = data || [];
-        console.log('Loaded services:', servicesData.length);
-      } catch (error) {
-        console.error('Error loading services:', error);
-      }
-      
       // Process line items - convert to Product format for compatibility
       const allLineItems = lineItemsData.map((item: any) => ({
         ...item,
-        // Price is already resolved based on project context
+        price: item.price ?? item.base_price ?? 0,
         unit: item.unit || 'ea',
         trade_id: item.trade_id || null,
         // Add category from cost code
         type: item.cost_code?.category || 'material'
       }));
       
-      // Process templates and fetch their items separately
-      let processedTemplates: Template[] = [];
-      if (templatesRes.data && templatesRes.data.length > 0) {
-        console.log('Processing templates, fetching items for:', templatesRes.data.map(t => t.id));
-        // Fetch items for all templates - these don't have line_item references
-        const { data: allTemplateItems, error: itemsError } = await supabase
-          .from('invoice_template_items')
-          .select('*')
-          .in('template_id', templatesRes.data.map(t => t.id));
-          
-        console.log('Template items result:', allTemplateItems);
-        if (itemsError) {
-          console.error('Template items error:', itemsError);
-        }
-        
-        processedTemplates = templatesRes.data.map(template => {
-          // Find items for this template
-          const templateItems = allTemplateItems?.filter(item => item.template_id === template.id) || [];
-          
-          // Calculate total from items if not in content
-          const itemsTotal = templateItems.reduce((sum: number, item: any) => 
-            sum + (item.price * item.quantity), 0) || 0;
-          
-          return {
-            ...template,
-            description: template.content?.description || '',
-            total_amount: template.content?.total_amount || itemsTotal,
-            items: templateItems
-          };
-        });
-      }
+      const processedTemplates: Template[] = templateRows.map((template: any) => ({
+        id: template._id,
+        name: template.name,
+        description: template.description,
+        total_amount: template.total,
+        items: template.items.map((item: any) => ({
+          product_id: item.lineItemId,
+          name: item.name,
+          quantity: item.quantity,
+          price: item.unitPrice,
+          unit: item.unit,
+          description: item.description
+        }))
+      }));
       
-      setClients(clientsRes.data || []);
+      setClients(clientRows.map(toLegacyClient));
       // Services removed - bundles are in line_items now
       setLineItems(allLineItems as Product[]);
       setTemplates(processedTemplates);
@@ -477,7 +388,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
       // Debug logging
       console.log('CreateEstimateDrawer - Data loaded:', {
         organizationId: orgId,
-        clients: clientsRes.data?.length || 0,
+        clients: clientRows.length,
         lineItems: allLineItems.length,
         templates: processedTemplates.length
       });
@@ -494,17 +405,15 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
     
     // Add template items to existing items
     if (template.items && template.items.length > 0) {
-      const newItems: EstimateItem[] = template.items.map((item, index) => {
-        // Template items don't have line_item references, just price and quantity
-        return {
-          product_id: `template-item-${template.id}-${index}`,
-          product_name: `Template Item ${index + 1}`,
-          quantity: item.quantity,
-          price: typeof item.price === 'number' ? item.price : parseFloat(String(item.price || 0)),
-          unit: 'ea',
-          description: `From template: ${template.name}`
-        };
-      });
+      const newItems: EstimateItem[] = template.items.map((item, index) => ({
+        product_id: item.product_id || `template-item-${template.id}-${index}-${Date.now()}`,
+        product_name: item.name || item.description || `Item ${index + 1}`,
+        quantity: item.quantity,
+        price: typeof item.price === 'number' ? item.price : parseFloat(String(item.price || 0)),
+        unit: item.unit || 'ea',
+        description: item.name || item.description
+      }));
+      templatesAPI.recordUse(template.id).catch(() => {});
       console.log('Adding items to estimate:', newItems);
       // Add to existing items
       setSelectedItems([...selectedItems, ...newItems]);
@@ -667,16 +576,18 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
 
   const handleNewClientSave = async (clientData: any) => {
     try {
-      const { data: newClient, error } = await supabase
-        .from('clients')
-        .insert([{
-          ...clientData,
-          organization_id: selectedOrg?.id
-        }])
-        .select()
-        .single();
-
-      if (error) throw error;
+      const created = await clientsAPI.create({
+        organization_id: selectedOrg?.id,
+        name: clientData.name,
+        email: clientData.email,
+        phone: clientData.phone,
+        address: clientData.address,
+        city: clientData.city,
+        state: clientData.state,
+        zip: clientData.zip,
+        companyName: clientData.company_name
+      });
+      const newClient = toLegacyClient(created);
 
       // Add to clients list and select the new client
       setClients(prev => [...prev, newClient]);
