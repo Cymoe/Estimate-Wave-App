@@ -87,8 +87,9 @@ smoke-tests sign-up and the main functions against the live deployment.
 1. `npx convex deploy` pushes the backend to your production deployment.
    Repeat steps 2–3 above against production (`--prod` flags), and set
    `SITE_URL` to your live site URL.
-2. In Vercel, set `VITE_CONVEX_URL` to the production deployment URL and
-   redeploy. To deploy the backend from Vercel too, set `CONVEX_DEPLOY_KEY`
+2. `apps/web/.env.production` holds the Convex URL that Vercel builds use by
+   default. To point production at a different deployment, set
+   `VITE_CONVEX_URL` in Vercel (it overrides the file) and redeploy. To deploy the backend from Vercel too, set `CONVEX_DEPLOY_KEY`
    and use `npx convex deploy --cmd 'npm run build'` as the build command.
 
 ## Tests
