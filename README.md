@@ -75,6 +75,15 @@ npx convex run seed:makeSuperAdmin '{"email":"you@example.com"}'
 
 ## Deploying
 
+**GitHub Actions:** `.github/workflows/convex-deploy.yml` deploys the Convex
+backend whenever `apps/web/convex` changes on `main` (or when run manually).
+It needs a `CONVEX_DEPLOY_KEY` repository secret, and optionally a `SITE_URL`
+repository variable. It runs the backend tests, pushes the functions, sets up
+Convex Auth keys if they're missing, loads the shared catalog, and then
+smoke-tests sign-up and the main functions against the live deployment.
+
+**Manually:**
+
 1. `npx convex deploy` pushes the backend to your production deployment.
    Repeat steps 2–3 above against production (`--prod` flags), and set
    `SITE_URL` to your live site URL.

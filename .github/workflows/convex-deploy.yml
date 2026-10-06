@@ -1,0 +1,70 @@
+name: Deploy Convex backend
+
+# Pushes apps/web/convex to the deployment named by the CONVEX_DEPLOY_KEY
+# secret, sets up Convex Auth keys if missing, loads the shared catalog,
+# then runs an end-to-end smoke test against the live deployment.
+
+on:
+  push:
+    branches: [main, fieldquote-convex]
+    paths:
+      - 'apps/web/convex/**'
+      - 'apps/web/scripts/convex-*.mjs'
+      - 'apps/web/package.json'
+      - 'package-lock.json'
+      - '.github/workflows/convex-deploy.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: convex-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+      # Optional repository variable; the site users sign in from.
+      SITE_URL: ${{ vars.SITE_URL || 'http://localhost:3000' }}
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - name: Check deploy key
+        run: |
+          if [ -z "$CONVEX_DEPLOY_KEY" ]; then
+            echo "::error::Add a CONVEX_DEPLOY_KEY repository secret (Convex dashboard > Settings > Deploy keys)."
+            exit 1
+          fi
+          name="${CONVEX_DEPLOY_KEY%%|*}"
+          name="${name#*:}"
+          echo "CONVEX_URL=https://${name}.convex.cloud" >> "$GITHUB_ENV"
+          echo "Deploying to ${name}"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        working-directory: .
+        run: npm ci --no-audit --no-fund
+
+      - name: Run backend tests
+        run: npm run test:convex
+
+      - name: Push functions and schema
+        run: npx convex deploy --yes
+
+      - name: Set up Convex Auth
+        run: node scripts/convex-setup-auth.mjs
+
+      - name: Load shared catalog
+        run: npx convex run seed:catalog
+
+      - name: Smoke test the live deployment
+        run: node scripts/convex-smoke-test.mjs
