@@ -33,6 +33,8 @@ jobs:
 
     steps:
       - name: Check deploy key
+        # Runs before checkout, so apps/web doesn't exist yet.
+        working-directory: .
         run: |
           if [ -z "$CONVEX_DEPLOY_KEY" ]; then
             echo "::error::Add a CONVEX_DEPLOY_KEY repository secret (Convex dashboard > Settings > Deploy keys)."
