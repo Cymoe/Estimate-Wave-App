@@ -3,12 +3,8 @@ name: UI smoke test
 # Opens a deployed site in a real browser, signs up with a throwaway email
 # account and prints console errors / failed requests to the log.
 
+# Run it manually from the Actions tab (it isn't a merge check).
 on:
-  push:
-    branches: [fieldquote-convex]
-    paths:
-      - '.github/workflows/ui-smoke.yml'
-      - 'apps/web/scripts/ui-smoke-test.mjs'
   workflow_dispatch:
     inputs:
       site:
