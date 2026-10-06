@@ -1,17 +1,19 @@
 import { useState } from "react";
 import { useAuth } from "../../contexts/AuthContext";
+import { EmailSignInForm } from "./EmailSignInForm";
 
 export const AuthButtons = () => {
   const { user, signInWithGoogle, signOut } = useAuth();
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showEmail, setShowEmail] = useState(false);
 
   const handleGoogleLogin = async () => {
     setError(null);
     try {
       setIsSigningIn(true);
       await signInWithGoogle();
-      // The redirect will happen automatically by Supabase
+      // The browser is redirected to Google and back automatically
     } catch (error) {
       console.error('Error signing in with Google:', error);
       setError('Failed to sign in with Google. Please try again.');
@@ -28,9 +30,9 @@ export const AuthButtons = () => {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="relative flex items-center gap-3">
       {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+        <div className="absolute right-0 top-full mt-2 w-72 p-3 bg-red-50 border border-red-200 rounded-lg z-50">
           <p className="text-sm text-red-700">{error}</p>
         </div>
       )}
@@ -51,14 +53,31 @@ export const AuthButtons = () => {
           </svg>
           {isSigningIn ? 'Signing in...' : 'Sign in with Google'}
         </button>
-      ) : (
+      ) : null}
+      {!user && (
+        <div className="relative">
+          <button
+            onClick={() => setShowEmail(!showEmail)}
+            data-testid="email-signin"
+            className="text-sm text-gray-600 hover:text-gray-900 whitespace-nowrap"
+          >
+            or use email
+          </button>
+          {showEmail && (
+            <div className="absolute right-0 mt-2 w-72 p-4 bg-white border border-gray-200 rounded-lg shadow-xl z-50 text-left">
+              <EmailSignInForm onDone={() => setShowEmail(false)} />
+            </div>
+          )}
+        </div>
+      )}
+      {user ? (
         <button
           onClick={handleLogout}
           className="px-4 py-2 text-white bg-red-600 hover:bg-red-700 transition-colors rounded-full"
         >
           Sign Out
         </button>
-      )}
+      ) : null}
     </div>
   );
 };

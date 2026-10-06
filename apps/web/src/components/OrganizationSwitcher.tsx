@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Building2, ChevronDown, Check } from 'lucide-react';
+import { organizationsAPI } from '@/lib/api';
 
 interface Organization {
   _id: string;
@@ -28,16 +29,7 @@ export const OrganizationSwitcher: React.FC<OrganizationSwitcherProps> = ({
   useEffect(() => {
     const fetchOrganizations = async () => {
       try {
-        const apiUrl = import.meta.env.VITE_API_URL;
-        if (!apiUrl) return;
-
-        const baseUrl = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
-        const response = await fetch(`${baseUrl}/api/organizations`);
-        
-        if (response.ok) {
-          const data = await response.json();
-          setOrganizations(data);
-        }
+        setOrganizations(await organizationsAPI.list());
       } catch (error) {
         console.error('Failed to fetch organizations:', error);
       } finally {

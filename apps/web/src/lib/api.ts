@@ -1,9 +1,15 @@
 /**
- * API Client for MongoDB Backend
- * Replaces Supabase client calls
+ * Data API backed by Convex.
+ *
+ * Keeps the same functions and call signatures the screens used with the old
+ * Express/MongoDB backend, so callers don't change. Every call runs as the
+ * signed-in user and Convex checks organization membership on the server.
  */
 
-const API_BASE_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api`;
+import { ConvexError } from "convex/values";
+import type { FunctionReference } from "convex/server";
+import { api } from "../../convex/_generated/api";
+import { convex } from "./convex";
 
 class APIError extends Error {
   constructor(
@@ -16,334 +22,298 @@ class APIError extends Error {
   }
 }
 
-async function fetchAPI(endpoint: string, options: RequestInit = {}) {
-  const url = `${API_BASE_URL}${endpoint}`;
-  
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
+const STATUS_BY_CODE: Record<string, number> = {
+  UNAUTHENTICATED: 401,
+  FORBIDDEN: 403,
+  NOT_FOUND: 404,
+  INVALID: 400,
+};
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new APIError(
-      errorData.error || 'API request failed',
-      response.status,
-      errorData
-    );
+interface ConvexCaller {
+  query(ref: FunctionReference<"query">, args: any): Promise<any>;
+  mutation(ref: FunctionReference<"mutation">, args: any): Promise<any>;
+}
+
+let client: ConvexCaller = convex;
+
+/** Points the API at another Convex client (used by tests). */
+export function setConvexClient(next: ConvexCaller) {
+  client = next;
+}
+
+function toAPIError(error: unknown): APIError {
+  if (error instanceof ConvexError) {
+    const data = error.data as { code?: string; message?: string } | string;
+    const message = typeof data === 'string' ? data : data?.message ?? 'Request failed';
+    const code = typeof data === 'string' ? undefined : data?.code;
+    return new APIError(message, (code && STATUS_BY_CODE[code]) || 400, data);
   }
+  const message = error instanceof Error ? error.message : String(error);
+  // Argument validation failures (e.g. a malformed id) are client errors.
+  const status = /ArgumentValidationError|Value does not match validator/.test(message) ? 400 : 500;
+  return new APIError(message, status);
+}
 
-  return response.json();
+/** Adds an `id` alias for `_id`, which older screens read. */
+function withId<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(withId) as T;
+  if (value && typeof value === 'object' && '_id' in value && !('id' in value)) {
+    return { ...value, id: (value as { _id: string })._id };
+  }
+  return value;
+}
+
+async function run<T = any>(kind: 'query' | 'mutation', ref: FunctionReference<any>, args: Record<string, unknown>): Promise<T> {
+  try {
+    const result = kind === 'query' ? await client.query(ref, args) : await client.mutation(ref, args);
+    return withId(result);
+  } catch (error) {
+    throw toAPIError(error);
+  }
+}
+
+/** Drops keys whose value is undefined so Convex validators accept them. */
+function defined<T extends Record<string, unknown>>(args: T): T {
+  return Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined)) as T;
+}
+
+function requireOrganizationId(data: any): string {
+  const organizationId = data?.organizationId ?? data?.organization_id;
+  if (!organizationId) throw new APIError('organizationId is required', 400);
+  return organizationId;
 }
 
 // Organizations API
 export const organizationsAPI = {
   async list() {
-    return fetchAPI('/organizations');
+    return run('query', api.organizations.list, {});
   },
-  
+
   async getById(id: string) {
-    return fetchAPI(`/organizations/${id}`);
+    return run('query', api.organizations.get, { id });
   },
-  
+
   async create(data: any) {
-    return fetchAPI('/organizations', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.organizations.create, { data });
   },
-  
+
   async update(id: string, data: any) {
-    return fetchAPI(`/organizations/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.organizations.update, { id, data });
   },
-  
+
   async delete(id: string) {
-    return fetchAPI(`/organizations/${id}`, {
-      method: 'DELETE',
-    });
+    return run('mutation', api.organizations.remove, { id });
   },
 };
 
 // Clients API
 export const clientsAPI = {
   async list(organizationId: string) {
-    return fetchAPI(`/clients?organizationId=${organizationId}`);
+    return run('query', api.clients.list, { organizationId });
   },
-  
+
   async getById(id: string) {
-    return fetchAPI(`/clients/${id}`);
+    return run('query', api.clients.get, { id });
   },
-  
+
   async create(data: any) {
-    return fetchAPI('/clients', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.clients.create, { organizationId: requireOrganizationId(data), data });
   },
-  
+
   async update(id: string, data: any) {
-    return fetchAPI(`/clients/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.clients.update, { id, data });
   },
-  
+
   async delete(id: string) {
-    return fetchAPI(`/clients/${id}`, {
-      method: 'DELETE',
-    });
+    return run('mutation', api.clients.remove, { id });
   },
 };
 
 // Estimates API
 export const estimatesAPI = {
   async list(organizationId: string, filters?: { clientId?: string; status?: string }) {
-    let query = `organizationId=${organizationId}`;
-    if (filters?.clientId) query += `&clientId=${filters.clientId}`;
-    if (filters?.status) query += `&status=${filters.status}`;
-    
-    return fetchAPI(`/estimates?${query}`);
+    return run('query', api.estimates.list, defined({ organizationId, clientId: filters?.clientId, status: filters?.status }));
   },
-  
+
   async getById(id: string) {
-    return fetchAPI(`/estimates/${id}`);
+    return run('query', api.estimates.get, { id });
   },
-  
+
   async create(data: any) {
-    return fetchAPI('/estimates', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.estimates.create, { organizationId: requireOrganizationId(data), data });
   },
-  
+
   async update(id: string, data: any) {
-    return fetchAPI(`/estimates/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.estimates.update, { id, data });
   },
-  
+
   async delete(id: string) {
-    return fetchAPI(`/estimates/${id}`, {
-      method: 'DELETE',
-    });
+    return run('mutation', api.estimates.remove, { id });
   },
-  
+
   async sign(id: string, signature: string) {
-    return fetchAPI(`/estimates/${id}/sign`, {
-      method: 'POST',
-      body: JSON.stringify({ signature }),
-    });
+    return run('mutation', api.estimates.sign, { id, signature });
   },
 };
 
 // Invoices API
 export const invoicesAPI = {
   async list(organizationId: string, filters?: { clientId?: string; status?: string }) {
-    let query = `organizationId=${organizationId}`;
-    if (filters?.clientId) query += `&clientId=${filters.clientId}`;
-    if (filters?.status) query += `&status=${filters.status}`;
-    
-    return fetchAPI(`/invoices?${query}`);
+    return run('query', api.invoices.list, defined({ organizationId, clientId: filters?.clientId, status: filters?.status }));
   },
-  
+
   async getById(id: string) {
-    return fetchAPI(`/invoices/${id}`);
+    return run('query', api.invoices.get, { id });
   },
-  
+
   async create(data: any) {
-    return fetchAPI('/invoices', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.invoices.create, { organizationId: requireOrganizationId(data), data });
   },
-  
+
   async update(id: string, data: any) {
-    return fetchAPI(`/invoices/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.invoices.update, { id, data });
   },
-  
+
   async delete(id: string) {
-    return fetchAPI(`/invoices/${id}`, {
-      method: 'DELETE',
-    });
+    return run('mutation', api.invoices.remove, { id });
   },
-  
+
   async markAsPaid(id: string, amountPaid: number) {
-    return fetchAPI(`/invoices/${id}/pay`, {
-      method: 'POST',
-      body: JSON.stringify({ amountPaid }),
-    });
+    return run('mutation', api.invoices.markAsPaid, { id, amountPaid });
   },
 };
 
 // Projects API
 export const projectsAPI = {
   async list(organizationId: string, filters?: { clientId?: string; status?: string }) {
-    let query = `organizationId=${organizationId}`;
-    if (filters?.clientId) query += `&clientId=${filters.clientId}`;
-    if (filters?.status) query += `&status=${filters.status}`;
-    
-    return fetchAPI(`/projects?${query}`);
+    return run('query', api.projects.list, defined({ organizationId, clientId: filters?.clientId, status: filters?.status }));
   },
-  
+
   async getById(id: string) {
-    return fetchAPI(`/projects/${id}`);
+    return run('query', api.projects.get, { id });
   },
-  
+
   async create(data: any) {
-    return fetchAPI('/projects', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.projects.create, { organizationId: requireOrganizationId(data), data });
   },
-  
+
   async update(id: string, data: any) {
-    return fetchAPI(`/projects/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.projects.update, { id, data });
   },
-  
+
   async delete(id: string) {
-    return fetchAPI(`/projects/${id}`, {
-      method: 'DELETE',
-    });
+    return run('mutation', api.projects.remove, { id });
   },
 };
 
 // Activity Logs API
 export const activityLogsAPI = {
   async list(organizationId: string, filters?: { userId?: string; resourceType?: string; limit?: number }) {
-    let query = `organizationId=${organizationId}`;
-    if (filters?.userId) query += `&userId=${filters.userId}`;
-    if (filters?.resourceType) query += `&resourceType=${filters.resourceType}`;
-    if (filters?.limit) query += `&limit=${filters.limit}`;
-    
-    return fetchAPI(`/activity-logs?${query}`);
+    return run('query', api.activityLogs.list, defined({
+      organizationId,
+      userId: filters?.userId,
+      resourceType: filters?.resourceType,
+      limit: filters?.limit,
+    }));
   },
-  
+
   async getById(id: string) {
-    return fetchAPI(`/activity-logs/${id}`);
+    return run('query', api.activityLogs.get, { id });
   },
-  
+
   async create(data: any) {
-    return fetchAPI('/activity-logs', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.activityLogs.create, { organizationId: requireOrganizationId(data), data });
   },
 };
 
 // Line Items (Price Book) API 🎯
 export const lineItemsAPI = {
-  async list(organizationId: string, filters?: { 
-    costCodeId?: string; 
+  async list(organizationId: string, filters?: {
+    costCodeId?: string;
     category?: string;
     search?: string;
     isActive?: boolean;
     includeShared?: boolean;
   }) {
-    let query = `organizationId=${organizationId}`;
-    if (filters?.costCodeId) query += `&costCodeId=${filters.costCodeId}`;
-    if (filters?.category) query += `&category=${filters.category}`;
-    if (filters?.search) query += `&search=${filters.search}`;
-    if (filters?.isActive !== undefined) query += `&isActive=${filters.isActive}`;
-    if (filters?.includeShared !== undefined) query += `&includeShared=${filters.includeShared}`;
-    
-    return fetchAPI(`/line-items?${query}`);
+    return run('query', api.lineItems.list, defined({
+      organizationId,
+      costCodeId: filters?.costCodeId,
+      category: filters?.category,
+      search: filters?.search,
+      isActive: filters?.isActive,
+      includeShared: filters?.includeShared,
+    }));
   },
-  
+
   async getById(id: string) {
-    return fetchAPI(`/line-items/${id}`);
+    return run('query', api.lineItems.get, { id });
   },
-  
+
   async create(data: any) {
-    return fetchAPI('/line-items', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.lineItems.create, { data });
   },
-  
+
   async update(id: string, data: any) {
-    return fetchAPI(`/line-items/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.lineItems.update, { id, data });
   },
-  
+
   async delete(id: string) {
-    return fetchAPI(`/line-items/${id}`, {
-      method: 'DELETE',
-    });
+    return run('mutation', api.lineItems.remove, { id });
   },
-  
+
   async bulkCreate(items: any[]) {
-    return fetchAPI('/line-items/bulk', {
-      method: 'POST',
-      body: JSON.stringify({ items }),
-    });
+    return run('mutation', api.lineItems.bulkCreate, { items });
   },
 };
 
 // Cost Codes API
 export const costCodesAPI = {
-  async list(filters?: { 
-    industryId?: string; 
-    category?: string; 
+  async list(filters?: {
+    industryId?: string;
+    category?: string;
     isActive?: boolean;
   }) {
-    let query = '';
-    const params: string[] = [];
-    
-    if (filters?.industryId) params.push(`industryId=${filters.industryId}`);
-    if (filters?.category) params.push(`category=${filters.category}`);
-    if (filters?.isActive !== undefined) params.push(`isActive=${filters.isActive}`);
-    
-    if (params.length > 0) query = `?${params.join('&')}`;
-    
-    return fetchAPI(`/cost-codes${query}`);
+    return run('query', api.costCodes.list, defined({
+      industryId: filters?.industryId,
+      category: filters?.category,
+      isActive: filters?.isActive,
+    }));
   },
-  
+
   async getById(id: string) {
-    return fetchAPI(`/cost-codes/${id}`);
+    return run('query', api.costCodes.get, { id });
   },
-  
+
   async create(data: any) {
-    return fetchAPI('/cost-codes', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.costCodes.create, { data });
   },
-  
+
   async update(id: string, data: any) {
-    return fetchAPI(`/cost-codes/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.costCodes.update, { id, data });
   },
-  
+
   async delete(id: string) {
-    return fetchAPI(`/cost-codes/${id}`, {
-      method: 'DELETE',
-    });
+    return run('mutation', api.costCodes.remove, { id });
   },
-  
+
   async bulkCreate(items: any[]) {
-    return fetchAPI('/cost-codes/bulk', {
-      method: 'POST',
-      body: JSON.stringify({ items }),
-    });
+    return run('mutation', api.costCodes.bulkCreate, { items });
+  },
+};
+
+// Pricing Modes API
+export const pricingModesAPI = {
+  async list(organizationId?: string) {
+    return run('query', api.pricingModes.list, defined({ organizationId }));
+  },
+
+  async presets() {
+    return run('query', api.pricingModes.presets, {});
+  },
+
+  async create(organizationId: string, data: any) {
+    return run('mutation', api.pricingModes.create, { organizationId, data });
   },
 };
 
 export { APIError };
-

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { formatCurrency } from '../utils/format';
 import { Package, Clock, Calculator, ArrowLeft, AlertCircle } from 'lucide-react';
+import { CONTACT_EMAIL } from '@/config/brand';
 
 interface SharedItem {
   id: string;
@@ -181,7 +182,7 @@ export const SharedServiceOption: React.FC = () => {
             Contact us to get started with this customized service option.
           </p>
           <button
-            onClick={() => window.location.href = 'mailto:contact@billbreeze.com?subject=Service Option Inquiry'}
+            onClick={() => window.location.href = `mailto:${CONTACT_EMAIL}?subject=Service Option Inquiry`}
             className="px-6 py-3 bg-[#EAB308] hover:bg-[#D97706] text-black font-medium rounded-md transition-colors"
           >
             Get Started

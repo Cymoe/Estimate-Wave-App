@@ -33,6 +33,7 @@ import {
   Activity
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { organizationsAPI } from '../../lib/api';
 import { NewClientModal } from '../clients/NewClientModal';
 import { CreateInvoiceDrawer } from '../invoices/CreateInvoiceDrawer';
 import { LineItemModal } from '../modals/LineItemModal';
@@ -183,21 +184,8 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
         setLoadingOrgs(true);
         console.log('Loading organizations for user:', user.id);
         
-        // Fetch organizations from MongoDB API
-        const apiUrl = import.meta.env.VITE_API_URL;
-        const baseUrl = apiUrl?.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
-        
-        if (!baseUrl) {
-          throw new Error('VITE_API_URL not configured');
-        }
-
-        const response = await fetch(`${baseUrl}/api/organizations`);
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        
-        const orgsData = await response.json();
+        // Organizations the signed-in user belongs to
+        const orgsData = await organizationsAPI.list();
         
         // Transform to match expected format
         const formattedOrgs = orgsData.map((org: any) => ({

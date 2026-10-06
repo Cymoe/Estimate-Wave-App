@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowRight, CheckCircle, Building2, Heart } from 'lucide-react';
 import { SimpleCanvas } from './experience/SimpleCanvas';
+import { APP_NAME } from '@/config/brand';
 
 // Portfolio data
 const portfolioItems = [
@@ -131,7 +132,7 @@ const Marketing = () => {
     <div className="relative bg-gray-900">
       {/* Navigation */}
       <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-8 py-6 bg-gray-900/80 backdrop-blur-sm">
-        <div className="text-2xl font-bold text-white">BillBreeze</div>
+        <div className="text-2xl font-bold text-white">{APP_NAME}</div>
         <div className="flex items-center gap-6">
           <Link to="/" className="text-white hover:text-blue-400 transition-colors">Home</Link>
           <Link to="/login" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded transition-colors">
