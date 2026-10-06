@@ -24,7 +24,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
       # Optional repository variable; the site users sign in from.
       SITE_URL: ${{ vars.SITE_URL || 'http://localhost:3000' }}
     defaults:
@@ -35,14 +34,28 @@ jobs:
       - name: Check deploy key
         # Runs before checkout, so apps/web doesn't exist yet.
         working-directory: .
+        env:
+          RAW_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
         run: |
-          if [ -z "$CONVEX_DEPLOY_KEY" ]; then
+          # Accept a key pasted with its "|" URL-encoded as %7C.
+          key="${RAW_KEY//%7C/|}"
+          key="${key//%7c/|}"
+          if [ -z "$key" ]; then
             echo "::error::Add a CONVEX_DEPLOY_KEY repository secret (Convex dashboard > Settings > Deploy keys)."
             exit 1
           fi
-          name="${CONVEX_DEPLOY_KEY%%|*}"
-          name="${name#*:}"
-          echo "CONVEX_URL=https://${name}.convex.cloud" >> "$GITHUB_ENV"
+          # Mask every form of the key before anything else can print it.
+          echo "::add-mask::$key"
+          echo "::add-mask::${key#*|}"
+          if ! [[ "$key" =~ ^(dev|prod|preview):([a-z0-9-]+)\|.+$ ]]; then
+            echo "::error::CONVEX_DEPLOY_KEY isn't a Convex deploy key (expected dev:<deployment>|<key>). Copy it again from the Convex dashboard."
+            exit 1
+          fi
+          name="${BASH_REMATCH[2]}"
+          {
+            echo "CONVEX_DEPLOY_KEY=$key"
+            echo "CONVEX_URL=https://${name}.convex.cloud"
+          } >> "$GITHUB_ENV"
           echo "Deploying to ${name}"
 
       - uses: actions/checkout@v4
