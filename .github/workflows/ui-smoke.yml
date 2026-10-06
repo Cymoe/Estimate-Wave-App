@@ -4,6 +4,11 @@ name: UI smoke test
 # account and prints console errors / failed requests to the log.
 
 on:
+  push:
+    branches: [fieldquote-convex]
+    paths:
+      - '.github/workflows/ui-smoke.yml'
+      - 'apps/web/scripts/ui-smoke-test.mjs'
   workflow_dispatch:
     inputs:
       site:
@@ -35,5 +40,5 @@ jobs:
 
       - name: Sign up through the UI
         env:
-          SITE: ${{ inputs.site }}
+          SITE: ${{ inputs.site || 'https://estimate-wave-app-git-fieldquote-convex-cymoes-projects.vercel.app' }}
         run: node "$RUNNER_TEMP/ui-smoke-test.mjs"
