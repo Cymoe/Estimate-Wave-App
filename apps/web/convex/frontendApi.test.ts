@@ -16,7 +16,6 @@ const { setConvexClient, clientsAPI, estimatesAPI, costCodesAPI, organizationsAP
 const { MongoEstimateService } = await import("../src/services/MongoEstimateService");
 const { MongoLineItemService } = await import("../src/services/MongoLineItemService");
 const { EstimateService } = await import("../src/services/EstimateService");
-const { templatesAPI } = await import("../src/lib/api");
 
 let t: ReturnType<typeof setup>;
 
@@ -155,16 +154,5 @@ describe("src/lib/api.ts on Convex", () => {
     const [invoice] = await as.query(api.invoices.list, { organizationId });
     expect(invoice._id).toBe(invoiceId);
     expect(invoice).toMatchObject({ estimateId: created.id, subtotal: 250, totalAmount: 275 });
-  });
-
-  test("templates keep their items and totals", async () => {
-    const { as, organizationId } = await signUp(t, "a@example.com");
-    setConvexClient(as);
-    await templatesAPI.create(organizationId, {
-      name: "Roof tune-up",
-      items: [{ name: "Inspection", quantity: 1, unitPrice: 175 }],
-    });
-    const [template] = await templatesAPI.list(organizationId);
-    expect(template).toMatchObject({ id: template._id, name: "Roof tune-up", total: 175 });
   });
 });

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { clientsAPI, templatesAPI } from '../../lib/api';
+import { clientsAPI } from '../../lib/api';
 import { EstimateService, toLegacyClient } from '../../services/EstimateService';
 import { useAuth } from '../../contexts/AuthContext';
 import { OrganizationContext } from '../layouts/DashboardLayout';
@@ -339,13 +339,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
         return;
       }
       
-      const [clientRows, templateRows] = await Promise.all([
-        clientsAPI.list(orgId),
-        templatesAPI.list(orgId).catch((error: unknown) => {
-          console.error('Error loading templates:', error);
-          return [];
-        })
-      ]);
+      const clientRows = await clientsAPI.list(orgId);
       
       // Load line items for organization
       let lineItemsData: any[] = [];
@@ -365,20 +359,8 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
         type: item.cost_code?.category || 'material'
       }));
       
-      const processedTemplates: Template[] = templateRows.map((template: any) => ({
-        id: template._id,
-        name: template.name,
-        description: template.description,
-        total_amount: template.total,
-        items: template.items.map((item: any) => ({
-          product_id: item.lineItemId,
-          name: item.name,
-          quantity: item.quantity,
-          price: item.unitPrice,
-          unit: item.unit,
-          description: item.description
-        }))
-      }));
+      // Templates aren't part of the app yet.
+      const processedTemplates: Template[] = [];
       
       setClients(clientRows.map(toLegacyClient));
       // Services removed - bundles are in line_items now
@@ -413,7 +395,6 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
         unit: item.unit || 'ea',
         description: item.name || item.description
       }));
-      templatesAPI.recordUse(template.id).catch(() => {});
       console.log('Adding items to estimate:', newItems);
       // Add to existing items
       setSelectedItems([...selectedItems, ...newItems]);

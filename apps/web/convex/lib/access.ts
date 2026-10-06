@@ -63,9 +63,7 @@ export async function organizationIdsFor(ctx: Ctx, userId: Id<"users">): Promise
  * Missing documents and documents in other organizations both read as
  * "not found" so IDs from other tenants can't be probed.
  */
-export async function getOwned<
-  T extends "clients" | "projects" | "estimates" | "invoices" | "activityLogs" | "templates",
->(
+export async function getOwned<T extends "clients" | "projects" | "estimates" | "invoices" | "activityLogs">(
   ctx: Ctx,
   table: T,
   id: Id<T>,

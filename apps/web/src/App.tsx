@@ -367,16 +367,6 @@ function AppRoutes() {
         }
       />
       
-      {/* Chat Management System - redirect to profit-tracker since chat is in sidebar */}
-      <Route
-        path="/chat"
-        element={
-          <ProtectedRoute>
-            <Navigate to="/profit-tracker" replace />
-          </ProtectedRoute>
-        }
-      />
-      
       {/* Documentation routes - publicly accessible */}
       <Route
         path="/docs/:filename"

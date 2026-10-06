@@ -9,7 +9,6 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronLeft,
-  MessageSquare,
   LogOut,
   TrendingUp,
   DollarSign,
@@ -38,7 +37,6 @@ import { NewClientModal } from '../clients/NewClientModal';
 import { CreateInvoiceDrawer } from '../invoices/CreateInvoiceDrawer';
 import { LineItemModal } from '../modals/LineItemModal';
 import { Sidebar } from './Sidebar';
-import ChatManagementSystem from '../../pages/chat/ChatManagementSystem';
 import { MobileHeader } from './MobileHeader';
 import { MobileMenu } from './MobileMenu';
 import { MobileCreateMenu } from './MobileCreateMenu';
@@ -87,14 +85,12 @@ export const LayoutContext = createContext<{
   isConstrained: boolean; 
   isMinimal: boolean;
   isCompact: boolean;
-  isChatOpen: boolean; 
   isProjectsOpen: boolean;
   availableWidth: 'full' | 'constrained' | 'minimal' | 'compact';
 }>({ 
   isConstrained: false, 
   isMinimal: false,
   isCompact: false,
-  isChatOpen: false, 
   isProjectsOpen: false,
   availableWidth: 'full'
 });
@@ -121,15 +117,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
     const saved = localStorage.getItem('sidebarCollapsed');
     return saved ? JSON.parse(saved) : false;
   });
-  const [isChatPanelOpen, setIsChatPanelOpen] = useState(() => {
-    const saved = localStorage.getItem('chatPanelOpen');
-    return saved ? JSON.parse(saved) : true; // Default to open
-  });
-  const [chatPanelWidth, setChatPanelWidth] = useState(() => {
-    const saved = localStorage.getItem('chatPanelWidth');
-    return saved ? parseInt(saved) : 520; // Default to 520px, can be dragged to 780px max
-  });
-  const [isResizing, setIsResizing] = useState(false);
   const [showNewClientModal, setShowNewClientModal] = useState(false);
   const [showNewInvoiceDrawer, setShowNewInvoiceDrawer] = useState(false);
   const [showLineItemDrawer, setShowLineItemDrawer] = useState(false);
@@ -266,63 +253,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
     }
   }, [isIndustryDrawerOpen]);
 
-  const startResizing = useCallback((mouseDownEvent: React.MouseEvent) => {
-    mouseDownEvent.preventDefault();
-    mouseDownEvent.stopPropagation();
-    
-    const startX = mouseDownEvent.pageX;
-    const startWidth = chatPanelWidth;
-    let animationId: number;
-    
-    setIsResizing(true);
-
-    function onMouseMove(mouseMoveEvent: MouseEvent) {
-      mouseMoveEvent.preventDefault();
-      mouseMoveEvent.stopPropagation();
-      
-      if (animationId) {
-        cancelAnimationFrame(animationId);
-      }
-      
-      animationId = requestAnimationFrame(() => {
-        const currentX = mouseMoveEvent.pageX;
-        const diff = currentX - startX;
-        // Calculate max width based on viewport to ensure sidebar stays visible
-        const viewportWidth = window.innerWidth;
-        const reservedSpace = 48 + 350 + (isProjectsSidebarLocked || isProjectsSidebarOpen ? 320 : 0) + (isSidebarCollapsed ? 48 : 192); // chat button + min content + projects + sidebar
-        const maxAllowedWidth = Math.max(280, viewportWidth - reservedSpace);
-        const newWidth = Math.min(Math.max(280, startWidth + diff), Math.min(780, maxAllowedWidth));
-        
-        setChatPanelWidth(newWidth);
-      });
-    }
-
-    function onMouseUp() {
-      if (animationId) {
-        cancelAnimationFrame(animationId);
-      }
-      setIsResizing(false);
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-      localStorage.setItem('chatPanelWidth', chatPanelWidth.toString());
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    }
-
-    document.body.style.cursor = 'ew-resize';
-    document.body.style.userSelect = 'none';
-
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  }, [chatPanelWidth]);
-
-  useEffect(() => {
-    return () => {
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-  }, []);
-
   // Handle click outside for live revenue popover
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -355,7 +285,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
     if (path.startsWith('/items')) return 'Price Book';
     if (path.startsWith('/price-book')) return 'Price Book';
     if (path.startsWith('/cost-codes')) return 'Price Book';
-    if (path.startsWith('/templates')) return 'Templates';
     return 'Dashboard';
   };
 
@@ -488,28 +417,19 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
   }, [navigate, isCreateMenuOpen, showNewClientModal, showNewInvoiceDrawer, showLineItemDrawer, showHelpModal]);
 
   useEffect(() => {
-    if (isChatPanelOpen && (isProjectsSidebarLocked || isProjectsSidebarOpen) && !isSidebarCollapsed) {
-      setSidebarCollapsedWithLogging(true);
-    }
-  }, [isChatPanelOpen, isProjectsSidebarLocked, isProjectsSidebarOpen]);
-
-  useEffect(() => {
     const mainContent = document.getElementById('main-content');
     if (!mainContent) return;
 
     const sidebarWidth = isProjectsSidebarOpen ? (isSidebarCollapsed ? 48 : 256) : 48;
-    const chatWidth = isChatPanelOpen ? chatPanelWidth : 0;
-    const totalWidth = sidebarWidth + chatWidth;
-
-    mainContent.style.marginLeft = `${totalWidth}px`;
-  }, [isProjectsSidebarOpen, isSidebarCollapsed, isChatPanelOpen, chatPanelWidth]);
+    mainContent.style.marginLeft = `${sidebarWidth}px`;
+  }, [isProjectsSidebarOpen, isSidebarCollapsed]);
 
   // Calculate actual available width for content
   const calculateAvailableWidth = useCallback(() => {
     if (typeof window === 'undefined') return 'full';
     
     const viewportWidth = window.innerWidth;
-    const leftSpace = isChatPanelOpen ? chatPanelWidth + 48 : 48; // chat panel + button
+    const leftSpace = 0;
     const rightSpace = (() => {
       if (isProjectsSidebarLocked || isProjectsSidebarOpen) {
         return isSidebarCollapsed ? 368 : 512; // projects + main sidebar
@@ -525,8 +445,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
       leftSpace,
       rightSpace,
       availableSpace,
-      isChatPanelOpen,
-      chatPanelWidth,
       isProjectsSidebarLocked,
       isProjectsSidebarOpen,
       isSidebarCollapsed
@@ -547,23 +465,8 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
       if (availableSpace < 800) return 'compact';      // Slightly tight
     }
     
-    // Special case: if both chat and projects are open, be even more conservative
-    if (isChatPanelOpen && isProjectsOpen) {
-      // When chat is wide (>600px), be extremely conservative
-      if (chatPanelWidth > 600) {
-        if (availableSpace < 1000) return 'minimal';    // Much more aggressive for wide chat
-        if (availableSpace < 1200) return 'constrained';
-        if (availableSpace < 1400) return 'compact';
-      } else {
-        // Normal chat width
-        if (availableSpace < 800) return 'minimal';      
-        if (availableSpace < 1000) return 'constrained';
-        if (availableSpace < 1200) return 'compact';
-      }
-    }
-    
     return 'full';                                   // Full width - show everything
-  }, [isChatPanelOpen, chatPanelWidth, isProjectsSidebarLocked, isProjectsSidebarOpen, isSidebarCollapsed]);
+  }, [isProjectsSidebarLocked, isProjectsSidebarOpen, isSidebarCollapsed]);
 
   // Update available width when dependencies change
   useEffect(() => {
@@ -601,27 +504,13 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
     localStorage.setItem('projectsSidebarLocked', JSON.stringify(value));
   };
 
-  const toggleChatPanel = () => {
-    const newState = !isChatPanelOpen;
-    setIsChatPanelOpen(newState);
-    localStorage.setItem('chatPanelOpen', JSON.stringify(newState));
-  };
-
   const calculateContentClass = () => {
-    let classes = `flex-1 pt-14 md:pt-0 pb-16 md:pb-0 ${!isResizing ? 'transition-all duration-300 ease-out' : ''}`;
-    
-    // Dynamic left margin based on actual chat panel width
-    const chatMargin = isChatPanelOpen ? chatPanelWidth + 48 : 48; // 48px for the chat button area
+    let classes = 'flex-1 pt-14 md:pt-0 pb-16 md:pb-0 transition-all duration-300 ease-out';
     
     if (isSidebarCollapsed) {
       classes += isProjectsSidebarLocked ? ' md:mr-[22rem]' : ' md:mr-14';
     } else {
       classes += isProjectsSidebarLocked ? ' md:mr-[32rem]' : ' md:mr-48';
-    }
-    
-    const isConstrained = isChatPanelOpen && (isProjectsSidebarLocked || isProjectsSidebarOpen);
-    if (isConstrained) {
-      classes += ' data-constrained-layout';
     }
     
     return classes;
@@ -636,16 +525,13 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
               isConstrained: isConstrained, 
               isMinimal: isMinimal,
               isCompact: isCompact,
-              isChatOpen: isChatPanelOpen, 
               isProjectsOpen: isProjectsSidebarLocked || isProjectsSidebarOpen,
               availableWidth: availableContentWidth
             }}>
               <div className="min-h-screen bg-[#000000] flex overflow-x-hidden">
                   <MobileHeader
                     onMenuClick={() => setIsMobileMenuOpen(true)}
-                    onChatClick={toggleChatPanel}
                     onCreateClick={() => setIsCreateMenuOpen(true)}
-                    isChatOpen={isChatPanelOpen}
                     title={getPageTitle()}
                   />
 
@@ -668,45 +554,10 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                   {/* Desktop Layout Container */}
                   <div className="hidden md:grid w-full h-screen overflow-hidden" 
                     style={{
-                      gridTemplateColumns: `48px ${isChatPanelOpen ? `${chatPanelWidth}px` : '0px'} minmax(400px, 1fr) ${isIndustryDrawerOpen ? '400px' : '0px'} ${(isProjectsSidebarLocked || isProjectsSidebarOpen || isProjectsSidebarClosing) ? '320px' : '0px'} ${isSidebarCollapsed ? '48px' : '192px'}`,
-                      transition: isResizing ? 'none' : 'grid-template-columns 100ms ease-out'
+                      gridTemplateColumns: `minmax(400px, 1fr) ${isIndustryDrawerOpen ? '400px' : '0px'} ${(isProjectsSidebarLocked || isProjectsSidebarOpen || isProjectsSidebarClosing) ? '320px' : '0px'} ${isSidebarCollapsed ? '48px' : '192px'}`,
+                      transition: 'grid-template-columns 100ms ease-out'
                     }}
                   >
-                    {/* Chat Toggle Button */}
-                    <div className="flex flex-col items-center justify-center h-screen bg-[#1A1A1A] border-r border-gray-700">
-                    <button
-                      onClick={toggleChatPanel}
-                      className={`relative w-10 h-10 ${isChatPanelOpen ? 'bg-[#336699]' : 'bg-[#2A2A2A]'} hover:bg-[#336699] rounded-[4px] flex items-center justify-center transition-all duration-200 group`}
-                      title={isChatPanelOpen ? "Close AI Assistant" : "Open AI Assistant"}
-                    >
-                      <MessageSquare className={`h-5 w-5 ${isChatPanelOpen ? 'text-white' : 'text-gray-400 group-hover:text-white'} transition-colors`} />
-                      {!isChatPanelOpen && (
-                        <div className="absolute top-1 right-1 w-2 h-2 bg-[#F9D71C] rounded-full animate-pulse"></div>
-                      )}
-                    </button>
-                    
-                    <div className="mt-4 writing-mode-vertical text-[10px] text-gray-500 uppercase tracking-wider select-none">
-                      AI Chat
-                  </div>
-                  </div>
-                    
-                    {/* Chat Panel */}
-                    <div className={`h-screen border-r border-gray-700 bg-[#1A1A1A] relative ${isChatPanelOpen ? '' : 'overflow-hidden'}`}>
-                    {isChatPanelOpen && (
-                      <>
-                          <div className="h-full overflow-hidden">
-                          <ChatManagementSystem />
-                        </div>
-                        <div
-                            className="absolute -right-[3px] top-0 w-[6px] h-full cursor-ew-resize group z-10"
-                          onMouseDown={startResizing}
-                        >
-                            <div className="absolute inset-y-0 left-[2px] w-[2px] bg-gray-700 group-hover:bg-[#336699] transition-colors" />
-                        </div>
-                      </>
-                    )}
-                  </div>
-                    
                     {/* Main Content Area */}
                     <div className="min-h-full overflow-y-auto">
                       {/* Industry Banner - Hidden on estimate detail pages */}
@@ -1371,23 +1222,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                     onCreateInvoice={() => setShowNewInvoiceDrawer(true)}
                     onCreateLineItem={() => setShowLineItemDrawer(true)}
                   />
-
-                  {isChatPanelOpen && (
-                    <div className="md:hidden fixed inset-0 z-[10000] bg-[#1A1A1A] flex flex-col">
-                      <div className="flex items-center justify-between p-4 border-b border-[#333333]">
-                        <h2 className="text-white font-medium text-lg">AI Assistant</h2>
-                        <button
-                          onClick={toggleChatPanel}
-                          className="p-2 bg-[#333333] hover:bg-[#404040] rounded-[4px] transition-colors"
-                        >
-                          <X className="h-5 w-5 text-white" />
-                        </button>
-                    </div>
-                      <div className="flex-1 overflow-hidden">
-                        <ChatManagementSystem />
-                      </div>
-                    </div>
-                  )}
 
                 {/* Activity Panel */}
                 <ActivityPanel 

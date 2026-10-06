@@ -331,31 +331,4 @@ export const industriesAPI = {
   },
 };
 
-// Templates: reusable sets of items to start an estimate from.
-export const templatesAPI = {
-  async list(organizationId: string) {
-    return run('query', api.templates.list, { organizationId });
-  },
-
-  async create(organizationId: string, data: any) {
-    return run('mutation', api.templates.create, { organizationId, data });
-  },
-
-  async update(id: string, data: any) {
-    return run('mutation', api.templates.update, { id, data });
-  },
-
-  async duplicate(id: string) {
-    return run('mutation', api.templates.duplicate, { id });
-  },
-
-  async recordUse(id: string) {
-    return run('mutation', api.templates.recordUse, { id });
-  },
-
-  async delete(id: string) {
-    return run('mutation', api.templates.remove, { id });
-  },
-};
-
 export { APIError };

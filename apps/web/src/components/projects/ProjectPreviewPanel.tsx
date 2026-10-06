@@ -45,8 +45,8 @@ export const ProjectPreviewPanel: React.FC<ProjectPreviewPanelProps> = ({
     ? Math.ceil((new Date(project.endDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
     : null;
 
-  // Calculate left position based on chat panel and sidebar
-  const baseLeft = 48 + 320; // Chat toggle button + projects sidebar
+  // Sits just past the projects sidebar
+  const baseLeft = 320;
   
   return (
     <div 
