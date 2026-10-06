@@ -9,5 +9,8 @@ if (!url) {
   );
 }
 
+/** False when the build had no VITE_CONVEX_URL, so the backend is unreachable. */
+export const convexConfigured = Boolean(url);
+
 /** The app's single Convex connection (queries, mutations, auth, live updates). */
 export const convex = new ConvexReactClient(url ?? "https://missing-convex-url.convex.cloud");

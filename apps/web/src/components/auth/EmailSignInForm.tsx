@@ -1,9 +1,13 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
+import { convexConfigured } from "../../lib/convex";
 
 /** Turns a Convex Auth failure into a message the user can act on. */
 function describeAuthError(err: unknown): string {
+  if (!convexConfigured) {
+    return 'This site was built without its backend address (VITE_CONVEX_URL). Add it in Vercel for this environment and redeploy.';
+  }
   const raw = err instanceof Error ? err.message : String(err);
   if (/already exists/i.test(raw)) return 'An account with this email already exists. Use "Sign in" instead.';
   if (/InvalidAccountId/.test(raw)) return 'No account with this email yet. Use "Create an account" first.';
