@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText, Pencil, Plus, Trash2, UserPlus, X } from 'lucide-react';
+import { FileText, LayoutGrid, List, Pencil, Plus, Trash2, UserPlus, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
 import { industriesAPI, leadsAPI } from '../lib/api';
@@ -41,6 +41,9 @@ const STATUSES: { value: LeadStatus; label: string; color: string }[] = [
   { value: 'lost', label: 'Lost', color: 'text-gray-500' },
 ];
 const OPEN: LeadStatus[] = ['new', 'contacted', 'quoted'];
+const leadValue = (lead: Lead) => lead.estimate?.totalAmount ?? lead.estimatedValue ?? 0;
+const VIEW_KEY = 'leadsView';
+
 const SOURCES = ['Referral', 'Google', 'Facebook', 'Website', 'Yard sign', 'Repeat customer', 'Other'];
 
 const inputClass =
@@ -160,6 +163,23 @@ const LeadsPage: React.FC = () => {
   const [filter, setFilter] = useState<'open' | LeadStatus>('open');
   const [editing, setEditing] = useState<Lead | 'new' | null>(null);
   const [quoting, setQuoting] = useState<{ lead: Lead; clientId: string } | null>(null);
+  const [view, setView] = useState<'list' | 'board'>(() => {
+    try {
+      return localStorage.getItem(VIEW_KEY) === 'board' ? 'board' : 'list';
+    } catch {
+      return 'list';
+    }
+  });
+  const [dragOver, setDragOver] = useState<LeadStatus | null>(null);
+
+  const chooseView = (next: 'list' | 'board') => {
+    setView(next);
+    try {
+      localStorage.setItem(VIEW_KEY, next);
+    } catch {
+      // Not remembered; the view still switches.
+    }
+  };
 
   const load = async () => {
     if (!organizationId) return;
@@ -184,7 +204,7 @@ const LeadsPage: React.FC = () => {
   const tabs = useMemo(() => {
     const summary = (match: (lead: Lead) => boolean) => {
       const rows = leads.filter(match);
-      return { count: rows.length, value: rows.reduce((sum, lead) => sum + (lead.estimatedValue ?? 0), 0) };
+      return { count: rows.length, value: rows.reduce((sum, lead) => sum + leadValue(lead), 0) };
     };
     return [
       { key: 'open' as const, label: 'All open', ...summary((lead) => OPEN.includes(lead.status)) },
@@ -200,7 +220,12 @@ const LeadsPage: React.FC = () => {
       lostReason = window.prompt('Why was this lead lost? (optional)', lead.lostReason ?? '');
       if (lostReason === null) return;
     }
-    await leadsAPI.update(lead.id, { status, ...(status === 'lost' ? { lostReason: lostReason || null } : {}) });
+    setLeads((rows) => rows.map((row) => (row.id === lead.id ? { ...row, status } : row)));
+    try {
+      await leadsAPI.update(lead.id, { status, ...(status === 'lost' ? { lostReason: lostReason || null } : {}) });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not change the status');
+    }
     load();
   };
 
@@ -258,10 +283,27 @@ const LeadsPage: React.FC = () => {
             <h1 className="text-xl font-semibold">Leads</h1>
             <p className="text-sm text-gray-400">Everyone who asked for a quote, from first call to won or lost.</p>
           </div>
-          <button onClick={() => setEditing('new')} className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-[#336699] hover:bg-[#2a5580]">
-            <Plus className="w-4 h-4" /> New lead
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="flex border border-[#333333]" role="group" aria-label="View">
+              {([['list', List, 'List'], ['board', LayoutGrid, 'Board']] as const).map(([key, Icon, label]) => (
+                <button
+                  key={key}
+                  onClick={() => chooseView(key)}
+                  aria-pressed={view === key}
+                  className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm ${
+                    view === key ? 'bg-[#336699]/25 text-white' : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" /> {label}
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setEditing('new')} className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-[#336699] hover:bg-[#2a5580]">
+              <Plus className="w-4 h-4" /> New lead
+            </button>
+          </div>
         </div>
+        {view === 'list' && (
         <div className="flex gap-1 mt-4 overflow-x-auto">
           {tabs.map((tab) => (
             <button
@@ -278,6 +320,7 @@ const LeadsPage: React.FC = () => {
             </button>
           ))}
         </div>
+        )}
       </div>
 
       <div className="p-6">
@@ -291,7 +334,7 @@ const LeadsPage: React.FC = () => {
         )}
         {loading ? (
           <p className="text-sm text-gray-500">Loading leads…</p>
-        ) : shown.length === 0 ? (
+        ) : (view === 'board' ? leads.length === 0 : shown.length === 0) ? (
           <div className="flex flex-col items-center justify-center py-24 text-center">
             <UserPlus className="w-12 h-12 mb-4 text-gray-600" />
             <h2 className="text-lg font-semibold mb-2">{leads.length === 0 ? 'No leads yet' : 'Nothing here'}</h2>
@@ -310,6 +353,115 @@ const LeadsPage: React.FC = () => {
                 </button>
               </div>
             )}
+          </div>
+        ) : view === 'board' ? (
+          <div className="flex gap-3 overflow-x-auto pb-2">
+            {STATUSES.map((column) => {
+              const cards = leads.filter((lead) => lead.status === column.value);
+              const total = cards.reduce((sum, lead) => sum + leadValue(lead), 0);
+              return (
+                <div
+                  key={column.value}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDragOver(column.value);
+                  }}
+                  onDragLeave={() => setDragOver((current) => (current === column.value ? null : current))}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOver(null);
+                    const lead = leads.find((row) => row.id === e.dataTransfer.getData('text/plain'));
+                    if (lead && lead.status !== column.value) changeStatus(lead, column.value);
+                  }}
+                  className={`flex-shrink-0 w-64 flex flex-col border ${
+                    dragOver === column.value ? 'border-[#336699] bg-[#336699]/10' : 'border-[#333333] bg-[#121316]'
+                  }`}
+                >
+                  <div className="px-3 py-2 border-b border-[#333333]">
+                    <div className="flex items-center justify-between">
+                      <span className={`text-sm font-medium ${column.color}`}>{column.label}</span>
+                      <span className="text-xs text-gray-500">{cards.length}</span>
+                    </div>
+                    <div className="text-xs text-gray-400">{formatCurrency(total)}</div>
+                  </div>
+                  <div className="p-2 space-y-2 min-h-[120px]">
+                    {cards.map((lead) => {
+                      const overdue = !!lead.followUpDate && lead.followUpDate < todayIso && OPEN.includes(lead.status);
+                      return (
+                        <div
+                          key={lead.id}
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData('text/plain', lead.id);
+                            e.dataTransfer.effectAllowed = 'move';
+                          }}
+                          onClick={() => setEditing(lead)}
+                          className="bg-[#1D1F25] border border-[#333333] hover:border-[#4a4d55] p-3 cursor-grab active:cursor-grabbing"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="text-sm font-medium leading-tight">{lead.name}</span>
+                            {lead.isSample && (
+                              <span className="text-[10px] uppercase tracking-wide text-gray-500 border border-[#333333] px-1">Sample</span>
+                            )}
+                          </div>
+                          {lead.jobType && <div className="text-xs text-gray-400 mt-0.5">{tradeName.get(lead.jobType) ?? lead.jobType}</div>}
+                          <div className="flex items-center justify-between mt-2 text-xs">
+                            <span className="text-white">{leadValue(lead) ? formatCurrency(leadValue(lead)) : '—'}</span>
+                            {lead.followUpDate && OPEN.includes(lead.status) && (
+                              <span className={overdue ? 'text-red-400' : 'text-gray-400'}>
+                                {overdue ? 'Overdue ' : ''}
+                                {new Date(`${lead.followUpDate}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                              </span>
+                            )}
+                          </div>
+                          {lead.status === 'lost' && lead.lostReason && (
+                            <div className="text-xs text-gray-500 mt-1">{lead.lostReason}</div>
+                          )}
+                          <div className="flex items-center justify-between gap-2 mt-2">
+                            {lead.estimate ? (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate(`/estimates/${lead.estimate!.id}`);
+                                }}
+                                className="inline-flex items-center gap-1 text-xs text-[#7fb0e0] hover:text-white"
+                              >
+                                <FileText className="w-3.5 h-3.5" /> {lead.estimate.estimateNumber}
+                              </button>
+                            ) : OPEN.includes(lead.status) ? (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  startEstimate(lead);
+                                }}
+                                className="inline-flex items-center gap-1 text-xs text-[#7fb0e0] hover:text-white"
+                              >
+                                <FileText className="w-3.5 h-3.5" /> Create estimate
+                              </button>
+                            ) : (
+                              <span />
+                            )}
+                            {/* Touch screens can't drag, so the stage can also be picked here. */}
+                            <select
+                              value={lead.status}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => changeStatus(lead, e.target.value as LeadStatus)}
+                              className="md:hidden bg-[#0A0A0A] border border-[#333333] text-xs px-1 py-0.5"
+                              aria-label="Status"
+                            >
+                              {STATUSES.map((status) => (
+                                <option key={status.value} value={status.value}>{status.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {cards.length === 0 && <p className="text-xs text-gray-600 text-center py-6">Drop a lead here</p>}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ) : (
           <div className="border border-[#333333] divide-y divide-[#2a2a2a]">
@@ -339,7 +491,7 @@ const LeadsPage: React.FC = () => {
                     )}
                   </div>
                   <div className="text-sm md:w-28 md:text-right">
-                    {lead.estimate ? formatCurrency(lead.estimate.totalAmount) : lead.estimatedValue ? formatCurrency(lead.estimatedValue) : '—'}
+                    {leadValue(lead) ? formatCurrency(leadValue(lead)) : '—'}
                   </div>
                   <select
                     value={lead.status}
