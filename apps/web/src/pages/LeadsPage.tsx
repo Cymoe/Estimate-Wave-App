@@ -24,6 +24,7 @@ interface Lead {
   status: LeadStatus;
   lostReason?: string;
   clientId?: string;
+  isSample?: boolean;
   estimate: { id: string; estimateNumber: string; status: string; totalAmount: number } | null;
 }
 
@@ -203,6 +204,25 @@ const LeadsPage: React.FC = () => {
     load();
   };
 
+  const addSamples = async () => {
+    if (!organizationId) return;
+    try {
+      await leadsAPI.addSamples(organizationId);
+      setFilter('open');
+      load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not add sample leads');
+    }
+  };
+
+  const removeSamples = async () => {
+    if (!organizationId || !window.confirm('Remove all sample leads? Leads you added yourself are kept.')) return;
+    await leadsAPI.removeSamples(organizationId);
+    load();
+  };
+
+  const hasSamples = leads.some((lead) => lead.isSample);
+
   const remove = async (lead: Lead) => {
     if (!window.confirm(`Delete the lead “${lead.name}”?`)) return;
     await leadsAPI.delete(lead.id);
@@ -261,6 +281,14 @@ const LeadsPage: React.FC = () => {
       </div>
 
       <div className="p-6">
+        {hasSamples && (
+          <div className="mb-4 px-4 py-3 border border-[#336699]/50 bg-[#336699]/10 text-sm flex items-center justify-between gap-3">
+            <span className="text-gray-300">You're looking at sample leads. Add your own any time.</span>
+            <button onClick={removeSamples} className="text-[#7fb0e0] hover:text-white whitespace-nowrap">
+              Remove sample leads
+            </button>
+          </div>
+        )}
         {loading ? (
           <p className="text-sm text-gray-500">Loading leads…</p>
         ) : shown.length === 0 ? (
@@ -273,9 +301,14 @@ const LeadsPage: React.FC = () => {
                 : 'No leads in this stage.'}
             </p>
             {leads.length === 0 && (
-              <button onClick={() => setEditing('new')} className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-[#336699] hover:bg-[#2a5580]">
-                <Plus className="w-4 h-4" /> Add your first lead
-              </button>
+              <div className="flex flex-wrap justify-center gap-2">
+                <button onClick={() => setEditing('new')} className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-[#336699] hover:bg-[#2a5580]">
+                  <Plus className="w-4 h-4" /> Add your first lead
+                </button>
+                <button onClick={addSamples} className="px-4 py-2 text-sm border border-[#333333] text-gray-300 hover:bg-[#262830]">
+                  Add sample leads
+                </button>
+              </div>
             )}
           </div>
         ) : (
@@ -287,6 +320,7 @@ const LeadsPage: React.FC = () => {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-medium truncate">{lead.name}</span>
+                      {lead.isSample && <span className="text-[10px] uppercase tracking-wide text-gray-500 border border-[#333333] px-1">Sample</span>}
                       {lead.jobType && <span className="text-xs text-gray-400">· {tradeName.get(lead.jobType) ?? lead.jobType}</span>}
                     </div>
                     <div className="text-xs text-gray-500 truncate">

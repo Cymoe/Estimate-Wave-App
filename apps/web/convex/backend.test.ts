@@ -447,3 +447,18 @@ describe("leads", () => {
     expect(listed.estimate).toMatchObject({ estimateNumber: "EST-2", status: "draft", totalAmount: 9000 });
   });
 });
+
+describe("sample leads", () => {
+  test("added only to an empty list, removed without touching real leads", async () => {
+    const t = setup();
+    const { as, organizationId } = await signUp(t, "a@example.com");
+    expect(await as.mutation(api.leads.addSamples, { organizationId })).toBe(8);
+    const leads = await as.query(api.leads.list, { organizationId });
+    expect(new Set(leads.map((lead) => lead.status))).toEqual(new Set(["new", "contacted", "quoted", "won", "lost"]));
+    await expect(as.mutation(api.leads.addSamples, { organizationId })).rejects.toThrow(/empty/);
+
+    await as.mutation(api.leads.create, { organizationId, data: { name: "Real customer" } });
+    expect(await as.mutation(api.leads.removeSamples, { organizationId })).toBe(8);
+    expect((await as.query(api.leads.list, { organizationId })).map((lead) => lead.name)).toEqual(["Real customer"]);
+  });
+});

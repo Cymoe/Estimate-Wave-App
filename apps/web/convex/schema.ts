@@ -330,6 +330,8 @@ export default defineSchema({
     ...leadFields,
     clientId: v.optional(v.id("clients")),
     estimateId: v.optional(v.id("estimates")),
+    // Example data added from the empty Leads page; removable in one click.
+    isSample: v.optional(v.boolean()),
     organizationId: v.id("organizations"),
     userId: v.id("users"),
     ...timestamps,

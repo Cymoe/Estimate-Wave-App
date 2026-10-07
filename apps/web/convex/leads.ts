@@ -143,3 +143,66 @@ export const ensureClient = mutation({
     return clientId;
   },
 });
+
+// [name, phone, trade, source, value, status, follow-up in days, notes, lost reason]
+type Sample = [string, string, string, string, number, Doc<"leads">["status"], number | null, string, string?];
+const SAMPLES: Sample[] = [
+  ["Maria Lopez", "(555) 201-3344", "roofing", "Referral", 14500, "new", 1, "Leaking around the chimney after the last storm. Wants a full replacement quote."],
+  ["Dan & Priya Shah", "(555) 410-9921", "hvac", "Google", 9800, "new", -2, "AC unit is 18 years old, short-cycling. Asked about heat pumps."],
+  ["Oak Street Dental", "(555) 330-7712", "painting", "Website", 6200, "contacted", 3, "Repaint lobby and two exam rooms, after hours only."],
+  ["Tom Becker", "(555) 677-0145", "concrete", "Yard sign", 4800, "contacted", -1, "Cracked driveway, about 600 sq ft. Considering stamped finish."],
+  ["Hannah Kim", "(555) 902-5530", "window-door", "Facebook", 11200, "quoted", 5, "Eight windows, double-hung, wants energy-efficient glass."],
+  ["Riverside Apartments", "(555) 118-4400", "plumbing", "Repeat customer", 22000, "quoted", 7, "Repipe two units. Property manager: Lisa."],
+  ["Carlos Mendes", "(555) 765-2290", "handyman", "Referral", 1800, "won", null, "Deck repair and two interior doors. Booked for next week."],
+  ["Jenna Walsh", "(555) 483-6617", "electrical", "Google", 3500, "lost", null, "Panel upgrade to 200A.", "Went with a cheaper quote"],
+];
+
+/** Adds example leads to an organization that has none yet. */
+export const addSamples = mutation({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    const { user } = await requireMember(ctx, organizationId);
+    const existing = await ctx.db
+      .query("leads")
+      .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
+      .first();
+    if (existing !== null) fail("INVALID", "Sample leads can only be added while the Leads list is empty");
+    const now = new Date();
+    for (const [index, [name, phone, jobType, source, estimatedValue, status, days, notes, lostReason]] of SAMPLES.entries()) {
+      const followUp = days === null ? undefined : new Date(now.getTime() + days * 86_400_000);
+      const createdAt = new Date(now.getTime() - (SAMPLES.length - index) * 3_600_000).toISOString();
+      await ctx.db.insert("leads", {
+        name,
+        phone,
+        jobType,
+        source,
+        estimatedValue,
+        status,
+        notes,
+        ...(followUp ? { followUpDate: followUp.toISOString().split("T")[0] } : {}),
+        ...(lostReason ? { lostReason } : {}),
+        isSample: true,
+        organizationId,
+        userId: user._id,
+        createdAt,
+        updatedAt: createdAt,
+      });
+    }
+    return SAMPLES.length;
+  },
+});
+
+/** Deletes the example leads (and nothing else). */
+export const removeSamples = mutation({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    await requireMember(ctx, organizationId);
+    const leads = await ctx.db
+      .query("leads")
+      .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
+      .take(2000);
+    const samples = leads.filter((lead) => lead.isSample);
+    for (const lead of samples) await ctx.db.delete(lead._id);
+    return samples.length;
+  },
+});

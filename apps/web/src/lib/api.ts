@@ -349,6 +349,14 @@ export const leadsAPI = {
     return run('mutation', api.leads.remove, { id });
   },
 
+  async addSamples(organizationId: string): Promise<number> {
+    return run('mutation', api.leads.addSamples, { organizationId });
+  },
+
+  async removeSamples(organizationId: string): Promise<number> {
+    return run('mutation', api.leads.removeSamples, { organizationId });
+  },
+
   /** Returns the lead's client id, creating the client the first time. */
   async ensureClient(id: string): Promise<string> {
     return run('mutation', api.leads.ensureClient, { id });
