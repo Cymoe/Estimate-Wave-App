@@ -25,6 +25,7 @@ import LineItemTestPage from './pages/LineItemTestPage';
 import { DashboardLayout } from './components/layouts/DashboardLayout';
 import MarkdownViewer from './components/docs/MarkdownViewer';
 import Templates from './pages/Templates';
+import LeadsPage from './pages/LeadsPage';
 import IndustrySettings from './pages/IndustrySettings';
 import OrganizationSettings from './pages/OrganizationSettings';
 import { Expenses } from './pages/Expenses';
@@ -218,6 +219,16 @@ function AppRoutes() {
           <ProtectedRoute>
             <DashboardLayout>
               <TeamMemberDetailPage />
+            </DashboardLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/leads"
+        element={
+          <ProtectedRoute>
+            <DashboardLayout fullWidth={true}>
+              <LeadsPage />
             </DashboardLayout>
           </ProtectedRoute>
         }

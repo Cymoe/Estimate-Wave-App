@@ -368,3 +368,82 @@ describe("price book", () => {
     ]);
   });
 });
+
+describe("leads", () => {
+  test("create, list in priority order and stay inside the organization", async () => {
+    const t = setup();
+    const alice = await signUp(t, "alice@example.com");
+    const bob = await signUp(t, "bob@example.com");
+    const organizationId = alice.organizationId;
+
+    const later = await alice.as.mutation(api.leads.create, {
+      organizationId,
+      data: { name: " Jones ", followUpDate: "2026-11-01", jobType: "roofing", source: "Referral" },
+    });
+    expect(later).toMatchObject({ name: "Jones", status: "new", userId: alice.userId });
+    await alice.as.mutation(api.leads.create, { organizationId, data: { name: "Soon", followUpDate: "2026-10-10" } });
+    const lost = await alice.as.mutation(api.leads.create, { organizationId, data: { name: "Gone" } });
+    await alice.as.mutation(api.leads.update, { id: lost!._id, data: { status: "lost", lostReason: "Too pricey" } });
+
+    const names = (await alice.as.query(api.leads.list, { organizationId })).map((lead) => lead.name);
+    expect(names).toEqual(["Soon", "Jones", "Gone"]);
+
+    await expect(alice.as.mutation(api.leads.create, { organizationId, data: { name: "  " } })).rejects.toThrow(/name/);
+    await expect(bob.as.query(api.leads.list, { organizationId })).rejects.toThrow(/access/);
+    await expect(bob.as.mutation(api.leads.update, { id: later!._id, data: { name: "x" } })).rejects.toThrow(/Not found/);
+    await expect(bob.as.mutation(api.leads.remove, { id: later!._id })).rejects.toThrow(/Not found/);
+  });
+
+  test("lost keeps its reason only while lost", async () => {
+    const t = setup();
+    const { as, organizationId } = await signUp(t, "a@example.com");
+    const lead = await as.mutation(api.leads.create, { organizationId, data: { name: "Smith" } });
+    const lost = await as.mutation(api.leads.update, {
+      id: lead!._id,
+      data: { status: "lost", lostReason: "Went with another contractor" },
+    });
+    expect(lost).toMatchObject({ status: "lost", lostReason: "Went with another contractor" });
+    const reopened = await as.mutation(api.leads.update, { id: lead!._id, data: { status: "contacted" } });
+    expect(reopened!.status).toBe("contacted");
+    expect(reopened!.lostReason).toBeUndefined();
+  });
+
+  test("ensureClient creates one client; estimates must be the organization's own", async () => {
+    const t = setup();
+    const alice = await signUp(t, "alice@example.com");
+    const bob = await signUp(t, "bob@example.com");
+    const lead = await alice.as.mutation(api.leads.create, {
+      organizationId: alice.organizationId,
+      data: { name: "Garcia", phone: "555-0100", email: "g@example.com" },
+    });
+
+    const clientId = await alice.as.mutation(api.leads.ensureClient, { id: lead!._id });
+    expect(await alice.as.mutation(api.leads.ensureClient, { id: lead!._id })).toBe(clientId);
+    const clients = await alice.as.query(api.clients.list, { organizationId: alice.organizationId });
+    expect(clients).toHaveLength(1);
+    expect(clients[0]).toMatchObject({ name: "Garcia", phone: "555-0100", email: "g@example.com" });
+
+    const bobsEstimate = await bob.as.mutation(api.estimates.create, {
+      organizationId: bob.organizationId,
+      data: { estimateNumber: "EST-1", status: "draft", issueDate: "2026-10-01", items: [] },
+    });
+    await expect(
+      alice.as.mutation(api.leads.update, { id: lead!._id, data: { estimateId: bobsEstimate!._id } }),
+    ).rejects.toThrow(/Estimate not found/);
+
+    const estimate = await alice.as.mutation(api.estimates.create, {
+      organizationId: alice.organizationId,
+      data: {
+        estimateNumber: "EST-2",
+        status: "draft",
+        issueDate: "2026-10-01",
+        clientId,
+        items: [{ description: "Roof", quantity: 1, unitPrice: 9000 }],
+      },
+    });
+    await alice.as.mutation(api.leads.update, { id: lead!._id, data: { estimateId: estimate!._id, status: "quoted" } });
+    const [listed] = await alice.as.query(api.leads.list, { organizationId: alice.organizationId });
+    expect(listed).toMatchObject({ status: "quoted", clientId });
+    expect(listed.estimate).toMatchObject({ estimateNumber: "EST-2", status: "draft", totalAmount: 9000 });
+  });
+});

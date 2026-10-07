@@ -26,6 +26,7 @@ live, then it can be deleted.
 | `organizations`, `memberships` | Companies, and which users belong to which (owner / admin / member) |
 | `users` (+ Convex Auth tables) | Accounts; `role: super_admin` can edit the shared catalog |
 | `clients`, `projects` | A company's customers and jobs |
+| `leads` | Quote requests (new → contacted → quoted → won / lost); one click turns a lead into a client and an estimate |
 | `estimates`, `invoices` | Documents with their line items; totals and tax are computed on the server |
 | `industries`, `organizationIndustries` | Trades (by slug), and which ones each company works in |
 | `lineItems`, `costCodes` | Price book with Redline/Cap pricing. Rows without an organization are the shared industry catalog every company sees |

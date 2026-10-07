@@ -47,6 +47,14 @@ export const projectStatus = v.union(
   v.literal("cancelled"),
 );
 
+export const leadStatus = v.union(
+  v.literal("new"),
+  v.literal("contacted"),
+  v.literal("quoted"),
+  v.literal("won"),
+  v.literal("lost"),
+);
+
 export const documentItem = v.object({
   _id: v.string(),
   workPackItemId: v.optional(v.string()),
@@ -186,6 +194,21 @@ export const costCodeFields = {
   display_order: v.optional(v.number()),
 };
 
+export const leadFields = {
+  name: v.string(),
+  phone: v.optional(v.string()),
+  email: v.optional(v.string()),
+  address: v.optional(v.string()),
+  // Trade slug (industries.slug).
+  jobType: v.optional(v.string()),
+  source: v.optional(v.string()),
+  estimatedValue: v.optional(v.number()),
+  followUpDate: v.optional(v.string()),
+  notes: v.optional(v.string()),
+  status: leadStatus,
+  lostReason: v.optional(v.string()),
+};
+
 export const pricingAdjustments = v.object({
   all: v.optional(v.number()),
   labor: v.optional(v.number()),
@@ -301,6 +324,16 @@ export default defineSchema({
   })
     .index("by_organization", ["organization_id"])
     .index("by_industry", ["industry_id"]),
+
+  // People who asked for a quote, from first call to won or lost.
+  leads: defineTable({
+    ...leadFields,
+    clientId: v.optional(v.id("clients")),
+    estimateId: v.optional(v.id("estimates")),
+    organizationId: v.id("organizations"),
+    userId: v.id("users"),
+    ...timestamps,
+  }).index("by_organization", ["organizationId"]),
 
   // Trades. Cost codes refer to them by slug (costCodes.industry_id).
   industries: defineTable({

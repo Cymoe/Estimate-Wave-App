@@ -16,6 +16,7 @@ const { setConvexClient, clientsAPI, estimatesAPI, costCodesAPI, organizationsAP
 const { MongoEstimateService } = await import("../src/services/MongoEstimateService");
 const { MongoLineItemService } = await import("../src/services/MongoLineItemService");
 const { EstimateService } = await import("../src/services/EstimateService");
+const { leadsAPI } = await import("../src/lib/api");
 
 let t: ReturnType<typeof setup>;
 
@@ -154,5 +155,27 @@ describe("src/lib/api.ts on Convex", () => {
     const [invoice] = await as.query(api.invoices.list, { organizationId });
     expect(invoice._id).toBe(invoiceId);
     expect(invoice).toMatchObject({ estimateId: created.id, subtotal: 250, totalAmount: 275 });
+  });
+
+  test("leadsAPI: a lead becomes a client and a linked estimate", async () => {
+    const { as, organizationId } = await signUp(t, "a@example.com");
+    setConvexClient(as);
+    const lead = await leadsAPI.create(organizationId, { name: "Patel", phone: "555-0101", estimatedValue: 12000 });
+    expect(lead.id).toBe(lead._id);
+
+    const clientId = await leadsAPI.ensureClient(lead.id);
+    const estimate = await EstimateService.create({
+      organization_id: organizationId,
+      client_id: clientId,
+      status: "draft",
+      issue_date: "2026-10-07",
+      subtotal: 0,
+      total_amount: 0,
+      items: [{ description: "Re-roof", quantity: 1, unit_price: 11500, total_price: 11500 }],
+    });
+    await leadsAPI.update(lead.id, { estimateId: estimate.id, status: "quoted" });
+
+    const [listed] = await leadsAPI.list(organizationId);
+    expect(listed).toMatchObject({ status: "quoted", clientId, estimate: { id: estimate.id, totalAmount: 11500 } });
   });
 });

@@ -331,4 +331,28 @@ export const industriesAPI = {
   },
 };
 
+// Leads: quote requests, from first call to won or lost.
+export const leadsAPI = {
+  async list(organizationId: string) {
+    return run('query', api.leads.list, { organizationId });
+  },
+
+  async create(organizationId: string, data: any) {
+    return run('mutation', api.leads.create, { organizationId, data });
+  },
+
+  async update(id: string, data: any) {
+    return run('mutation', api.leads.update, { id, data });
+  },
+
+  async delete(id: string) {
+    return run('mutation', api.leads.remove, { id });
+  },
+
+  /** Returns the lead's client id, creating the client the first time. */
+  async ensureClient(id: string): Promise<string> {
+    return run('mutation', api.leads.ensureClient, { id });
+  },
+};
+
 export { APIError };

@@ -22,6 +22,7 @@ import type * as estimates from "../estimates.js";
 import type * as http from "../http.js";
 import type * as industries from "../industries.js";
 import type * as invoices from "../invoices.js";
+import type * as leads from "../leads.js";
 import type * as lib_access from "../lib/access.js";
 import type * as lib_documents from "../lib/documents.js";
 import type * as lib_organizations from "../lib/organizations.js";
@@ -51,6 +52,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   industries: typeof industries;
   invoices: typeof invoices;
+  leads: typeof leads;
   "lib/access": typeof lib_access;
   "lib/documents": typeof lib_documents;
   "lib/organizations": typeof lib_organizations;
