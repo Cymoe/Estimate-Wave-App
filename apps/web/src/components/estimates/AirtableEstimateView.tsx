@@ -54,12 +54,15 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Focus and select once when a cell opens, not on every keystroke
+  // (re-selecting made each digit replace the previous one).
+  const editingKey = editingCell ? `${editingCell.itemId}:${editingCell.field}` : null;
   useEffect(() => {
-    if (editingCell && inputRef.current) {
+    if (editingKey && inputRef.current) {
       inputRef.current.focus();
       inputRef.current.select();
     }
-  }, [editingCell]);
+  }, [editingKey]);
 
   const handleCellClick = (itemId: string, field: keyof AirtableItem, currentValue: any) => {
     if (field === 'total' || field === 'name') return; // Total is calculated, name comes from price book - both not editable
