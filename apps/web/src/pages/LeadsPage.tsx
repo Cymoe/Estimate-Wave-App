@@ -1,13 +1,14 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { CalendarClock, FileText, Mail, MapPin, Phone, Plus, Trash2, UserPlus, X } from 'lucide-react';
+import { CalendarClock, CalendarDays, FileText, Kanban, Mail, MapPin, Phone, Plus, Search, Trash2, UserPlus, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
 import { industriesAPI, leadsAPI } from '../lib/api';
 import { EstimateService } from '../services/EstimateService';
 import { useAuth } from '../contexts/AuthContext';
 import { formatCurrency } from '../utils/format';
+import { LeadsCalendar } from '../components/leads/LeadsCalendar';
 
 type LeadStatus = 'new' | 'no_answer' | 'contacted' | 'scheduled' | 'quoted' | 'won' | 'lost';
 
@@ -27,6 +28,7 @@ interface Lead {
   lostReason?: string;
   clientId?: string;
   isSample?: boolean;
+  createdAt?: string;
   estimate: { id: string; estimateNumber: string; status: string; totalAmount: number } | null;
 }
 
@@ -45,6 +47,24 @@ const STATUSES: { value: LeadStatus; label: string; color: string }[] = [
   { value: 'lost', label: 'Lost', color: 'text-gray-500' },
 ];
 const OPEN: LeadStatus[] = ['new', 'no_answer', 'contacted', 'scheduled', 'quoted'];
+type LeadFilter = 'all' | 'appointment' | 'overdue' | 'recent';
+const FILTERS: { value: LeadFilter; label: string }[] = [
+  { value: 'all', label: 'All leads' },
+  { value: 'appointment', label: 'Appointment set' },
+  { value: 'overdue', label: 'Follow-up overdue' },
+  { value: 'recent', label: 'Added in the last 30 days' },
+];
+const VIEW_KEY = 'leadsView';
+
+/** Whether a lead matches the search box: name, phone (any format), email, address or notes. */
+function matchesSearch(lead: Lead, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const digits = q.replace(/\D/g, '');
+  if (digits.length >= 3 && (lead.phone ?? '').replace(/\D/g, '').includes(digits)) return true;
+  return [lead.name, lead.email, lead.address, lead.notes].some((field) => field?.toLowerCase().includes(q));
+}
+
 const leadValue = (lead: Lead) => lead.estimate?.totalAmount ?? lead.estimatedValue ?? 0;
 
 /** ISO time to the value a datetime-local input wants, in local time. */
@@ -361,6 +381,24 @@ const LeadsPage: React.FC = () => {
 
   const hasSamples = leads.some((lead) => lead.isSample);
 
+  const [query, setQuery] = useState('');
+  const [leadFilter, setLeadFilter] = useState<LeadFilter>('all');
+  const [view, setView] = useState<'board' | 'calendar'>(() => {
+    try {
+      return localStorage.getItem(VIEW_KEY) === 'calendar' ? 'calendar' : 'board';
+    } catch {
+      return 'board';
+    }
+  });
+  const chooseView = (next: 'board' | 'calendar') => {
+    setView(next);
+    try {
+      localStorage.setItem(VIEW_KEY, next);
+    } catch {
+      // Not remembered; the view still switches.
+    }
+  };
+
   const remove = async (lead: Lead) => {
     if (!window.confirm(`Delete the lead “${lead.name}”?`)) return;
     await leadsAPI.delete(lead.id);
@@ -388,6 +426,14 @@ const LeadsPage: React.FC = () => {
   );
 
   const todayIso = new Date().toISOString().split('T')[0];
+  const monthAgo = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  const visible = leads.filter((lead) => {
+    if (!matchesSearch(lead, query)) return false;
+    if (leadFilter === 'appointment') return !!lead.appointmentAt;
+    if (leadFilter === 'overdue') return !!lead.followUpDate && lead.followUpDate < todayIso && OPEN.includes(lead.status);
+    if (leadFilter === 'recent') return (lead.createdAt ?? '') >= monthAgo;
+    return true;
+  });
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white">
@@ -419,9 +465,51 @@ const LeadsPage: React.FC = () => {
             </div>
           </div>
         ) : (
+          <>
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <label className="relative flex-1 min-w-[200px] max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search name, phone, email, address, notes…"
+                aria-label="Search leads"
+                className="w-full pl-9 pr-3 py-2 bg-[#121212] border border-[#333333] text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
+              />
+            </label>
+            <select
+              value={leadFilter}
+              onChange={(e) => setLeadFilter(e.target.value as LeadFilter)}
+              aria-label="Filter leads"
+              className="px-3 py-2 bg-[#121212] border border-[#333333] text-sm text-white focus:outline-none focus:border-[#336699]"
+            >
+              {FILTERS.map((f) => (
+                <option key={f.value} value={f.value}>{f.label}</option>
+              ))}
+            </select>
+            {(query || leadFilter !== 'all') && (
+              <span className="text-xs text-gray-400">{visible.length} of {leads.length}</span>
+            )}
+            <div className="ml-auto flex border border-[#333333]" role="group" aria-label="View">
+              {([['board', Kanban, 'Board'], ['calendar', CalendarDays, 'Calendar']] as const).map(([key, Icon, label]) => (
+                <button
+                  key={key}
+                  onClick={() => chooseView(key)}
+                  aria-pressed={view === key}
+                  className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm ${view === key ? 'bg-[#336699] text-white' : 'text-gray-400 hover:text-white'}`}
+                >
+                  <Icon className="w-4 h-4" /> {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {view === 'calendar' ? (
+            <LeadsCalendar leads={visible} onOpen={(lead) => setEditing(lead)} />
+          ) : (
           <div className="flex gap-3 overflow-x-auto pb-2">
             {STATUSES.map((column) => {
-              const cards = leads.filter((lead) => lead.status === column.value);
+              const cards = visible.filter((lead) => lead.status === column.value);
               const total = cards.reduce((sum, lead) => sum + leadValue(lead), 0);
               return (
                 <div
@@ -531,6 +619,8 @@ const LeadsPage: React.FC = () => {
               );
             })}
           </div>
+          )}
+          </>
         )}
       </div>
 
