@@ -89,7 +89,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <>
       {/* Sidebar - part of grid layout, not fixed */}
-      <div className={`hidden md:flex ${isSidebarCollapsed ? 'w-14' : 'w-48'} h-screen bg-[#000000] border-l border-gray-700 flex-col transition-all duration-300`}>
+      <div className={`hidden md:flex ${isSidebarCollapsed ? 'w-14' : 'w-48'} h-[100dvh] bg-[#000000] border-l border-gray-700 flex-col transition-all duration-300`}>
         {/* Organization header and sidebar toggle */}
         <div className="p-2 border-b border-[#333333] relative flex items-center justify-between flex-shrink-0 overflow-visible">
           <button

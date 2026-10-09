@@ -554,7 +554,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                   />
 
                   {/* Desktop Layout Container */}
-                  <div className="hidden md:grid w-full h-screen overflow-hidden" 
+                  <div className="hidden md:grid w-full h-[100dvh] overflow-hidden" 
                     style={{
                       gridTemplateColumns: `minmax(400px, 1fr) ${isIndustryDrawerOpen ? '400px' : '0px'} ${(isProjectsSidebarLocked || isProjectsSidebarOpen || isProjectsSidebarClosing) ? '320px' : '0px'} ${isSidebarCollapsed ? '48px' : '192px'}`,
                       transition: 'grid-template-columns 100ms ease-out'
@@ -571,7 +571,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                     
                     {/* Industry Management Drawer */}
                     <div 
-                      className={`h-screen bg-[#1F2937] transition-all duration-200 ${
+                      className={`h-[100dvh] bg-[#1F2937] transition-all duration-200 ${
                         isIndustryDrawerOpen ? 'w-[400px] border-l border-[#374151]' : 'w-0 overflow-hidden'
                       }`}
                     >
@@ -584,7 +584,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                     {/* Projects Sidebar */}
                     <div 
                       ref={projectsSidebarRef} 
-                      className={`h-screen bg-[#1A1A1A] transition-all duration-100 overflow-hidden ${
+                      className={`h-[100dvh] bg-[#1A1A1A] transition-all duration-100 overflow-hidden ${
                         (isProjectsSidebarOpen || isProjectsSidebarLocked) ? 'w-[320px] border-l border-gray-700' : 'w-0'
                       }`}
                     >
