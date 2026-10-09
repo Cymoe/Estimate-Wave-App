@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
+import { createPortal } from 'react-dom';
 import { clientsAPI } from '../../lib/api';
 import { EstimateService, toLegacyClient } from '../../services/EstimateService';
 import { useAuth } from '../../contexts/AuthContext';
@@ -672,7 +673,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
 
   // If clean view mode, show the clean table view
   if (viewMode === 'clean' && sourceType === 'scratch') {
-    return (
+    return createPortal(
       <>
         {/* Backdrop with blur effect */}
         <div
@@ -896,12 +897,13 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
             />
           );
         })()}
-      </>
+      </>,
+      document.body,
     );
   }
 
   // Original sidebar view
-  return (
+  return createPortal(
     <>
       {/* Backdrop with blur effect */}
       <div
@@ -1415,6 +1417,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
           onSave={handleNewClientSave}
         />
       )}
-    </>
+    </>,
+    document.body,
   );
 };

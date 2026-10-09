@@ -1,4 +1,5 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { FileText, LayoutGrid, List, Pencil, Plus, Trash2, UserPlus, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
@@ -91,7 +92,7 @@ const LeadForm: React.FC<{
     }
   };
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[10000] flex justify-end">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <form onSubmit={save} className="relative w-full md:w-[520px] h-full bg-[#1D1F25] border-l border-[#333333] flex flex-col">
@@ -148,7 +149,8 @@ const LeadForm: React.FC<{
           </button>
         </div>
       </form>
-    </div>
+    </div>,
+    document.body,
   );
 };
 
