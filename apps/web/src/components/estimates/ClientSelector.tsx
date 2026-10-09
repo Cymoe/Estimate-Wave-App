@@ -25,6 +25,8 @@ interface ClientSelectorProps {
   onClientCreated?: (client: Client) => void;
   placeholder?: string;
   className?: string;
+  /** Single-line trigger for tight spots such as a header. */
+  compact?: boolean;
 }
 
 export const ClientSelector: React.FC<ClientSelectorProps> = ({
@@ -34,7 +36,8 @@ export const ClientSelector: React.FC<ClientSelectorProps> = ({
   onAddNewClient,
   onClientCreated,
   placeholder = 'Select a client...',
-  className = ''
+  className = '',
+  compact = false
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -155,19 +158,21 @@ export const ClientSelector: React.FC<ClientSelectorProps> = ({
           }
         }}
       >
-        <div className="w-full px-4 py-3 bg-[#333333] border border-[#555555] rounded-lg text-white focus:outline-none focus:border-[#336699] focus:ring-2 focus:ring-[#336699]/20 hover:bg-[#404040] transition-colors">
+        <div className={`w-full ${compact ? 'pl-3 pr-9 py-1.5' : 'px-4 py-3'} bg-[#333333] border border-[#555555] rounded-lg text-white focus:outline-none focus:border-[#336699] focus:ring-2 focus:ring-[#336699]/20 hover:bg-[#404040] transition-colors`}>
           {selectedClient ? (
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-[#336699] rounded-full flex items-center justify-center flex-shrink-0">
-                <Building2 className="w-4 h-4 text-white" />
+              <div className={`${compact ? 'w-6 h-6' : 'w-8 h-8'} bg-[#336699] rounded-full flex items-center justify-center flex-shrink-0`}>
+                <Building2 className={compact ? 'w-3 h-3 text-white' : 'w-4 h-4 text-white'} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-white truncate">
                   {selectedClient.company_name || selectedClient.name}
                 </div>
-                <div className="text-xs text-gray-400 truncate">
-                  {selectedClient.name} {selectedClient.email && `• ${selectedClient.email}`}
-                </div>
+                {!compact && (
+                  <div className="text-xs text-gray-400 truncate">
+                    {selectedClient.name} {selectedClient.email && `• ${selectedClient.email}`}
+                  </div>
+                )}
               </div>
               {selectedClient.discount_percentage && selectedClient.discount_percentage > 0 && (
                 <div className="bg-green-500/20 text-green-400 px-2 py-1 rounded text-xs font-medium flex-shrink-0">
@@ -176,7 +181,7 @@ export const ClientSelector: React.FC<ClientSelectorProps> = ({
               )}
             </div>
           ) : (
-            <div className="text-gray-400 text-sm">
+            <div className={`text-gray-400 text-sm ${compact ? 'leading-6' : ''}`}>
               {placeholder}
             </div>
           )}

@@ -929,26 +929,10 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
               >
                 <X className="w-4 h-4" />
               </button>
-              <h1 className="text-lg font-semibold">{editingEstimate ? 'Edit Estimate' : 'Create Estimate'}</h1>
+              <h1 className="text-lg font-semibold whitespace-nowrap">{editingEstimate ? 'Edit Estimate' : 'Create Estimate'}</h1>
             </div>
-            <button
-              onClick={handleSave}
-              disabled={selectedItems.length === 0 || isSaving}
-              className="px-4 py-1.5 bg-[#336699] text-white rounded-[4px] hover:bg-[#2A5580] transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm flex items-center gap-2"
-            >
-              <Save className="w-3 h-3" />
-              {isSaving ? (editingEstimate ? 'Updating...' : 'Creating...') : (editingEstimate ? 'Update Estimate' : 'Create Estimate')}
-            </button>
-          </div>
-        </div>
-
-        {/* Client Selection Bar - Always Visible */}
-        <div className="px-4 py-3 border-b border-[#333333] bg-[#1A1A1A] flex-shrink-0">
-          <div className="flex items-center gap-4">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-white mb-2">
-                Client for this Estimate
-              </label>
+            {/* Client picker sits in the header so the items get the full height */}
+            <div className="flex-1 min-w-0 max-w-xl mx-4 flex">
               <ClientSelector
                 clients={clients.map(client => ({
                   id: client.id,
@@ -966,28 +950,18 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                   setClients(prev => [...prev, newClient]);
                 }}
                 placeholder="Select a client..."
+                className="flex-1 min-w-0"
+                compact
               />
             </div>
-            
-            {/* Client Preview - Inline */}
-            {selectedClient && (() => {
-              const client = clients.find(c => c.id === selectedClient);
-              return client ? (
-                <div className="flex items-center gap-2 px-3 py-2 bg-[#1E1E1E] border border-[#333333] rounded-lg">
-                  <div className="w-6 h-6 bg-[#336699] rounded-full flex items-center justify-center flex-shrink-0">
-                    <CheckCircle className="w-3 h-3 text-white" />
-                  </div>
-                  <div className="text-sm text-white font-medium">
-                    {client.company_name || client.name}
-                  </div>
-                  {client.discount_percentage && client.discount_percentage > 0 && (
-                    <span className="bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded text-xs font-medium">
-                      {client.discount_percentage}%
-                    </span>
-                  )}
-                </div>
-              ) : null;
-            })()}
+            <button
+              onClick={handleSave}
+              disabled={selectedItems.length === 0 || isSaving}
+              className="px-4 py-1.5 bg-[#336699] text-white rounded-[4px] hover:bg-[#2A5580] transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm flex items-center gap-2"
+            >
+              <Save className="w-3 h-3" />
+              {isSaving ? (editingEstimate ? 'Updating...' : 'Creating...') : (editingEstimate ? 'Update Estimate' : 'Create Estimate')}
+            </button>
           </div>
         </div>
 
