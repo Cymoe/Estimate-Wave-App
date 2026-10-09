@@ -67,11 +67,6 @@ export const AirtableSidebar: React.FC<AirtableSidebarProps> = ({
 
   return (
     <div className="w-[220px] bg-[#1d1f25] border-r border-[#3c3d51] flex flex-col h-screen">
-      {/* Header */}
-      <div className="px-3 py-2.5 border-b border-[#3c3d51]">
-        <span className="text-[13px] font-medium text-gray-300">Pricing</span>
-      </div>
-
       {/* Views List */}
       <div className="flex-1 overflow-y-auto py-1">
         {views.map((view) => (
