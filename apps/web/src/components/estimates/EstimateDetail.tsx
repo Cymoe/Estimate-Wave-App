@@ -20,6 +20,11 @@ import { ItemPricingDrawer } from './ItemPricingDrawer';
 import { ContextualPricingSelector } from './ContextualPricingSelector';
 import { DesignUpload } from './DesignUpload';
 
+// Header actions share one size so they line up; only the main action is filled.
+const actionBase = 'h-9 flex items-center gap-2 px-4 border rounded-sm transition-colors text-sm font-medium';
+const primaryAction = `${actionBase} bg-[#336699] border-[#336699] text-white hover:bg-[#2a5580]`;
+const secondaryAction = `${actionBase} bg-transparent border-[#333333] text-gray-200 hover:bg-[#22272d] hover:text-white`;
+
 export const EstimateDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -611,14 +616,43 @@ export const EstimateDetail: React.FC = () => {
             </div>
           </div>
 
-          {/* Cleaner Action Buttons */}
-          <div className="flex items-center gap-3">
+          {/* Actions: quiet secondary buttons, then the one primary action on the right */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowShareModal(true)}
+              className={secondaryAction}
+            >
+              <Share2 className="w-4 h-4" />
+              Share
+            </button>
+
+            {estimate.items && estimate.items.length > 0 && (
+              <button
+                onClick={() => navigate(`/estimates/${estimate.id}/contract`)}
+                className={secondaryAction}
+              >
+                <FileText className="w-4 h-4" />
+                Contract
+              </button>
+            )}
+
+            {/* Resend - for already sent estimates */}
+            {estimate.status === 'sent' && estimate.client?.email && (
+              <button
+                onClick={() => handleStatusUpdate('sent')}
+                className={secondaryAction}
+              >
+                <Send className="w-4 h-4" />
+                Resend
+              </button>
+            )}
+
             {/* Invoice Creation - Consolidated */}
             {estimate.status === 'accepted' && !estimate.converted_to_invoice_id && (
               <div className="relative">
                 <button
                   onClick={() => setShowInvoiceDropdown(!showInvoiceDropdown)}
-                  className="flex items-center gap-2 px-4 py-2 bg-[#336699] text-white rounded-lg hover:bg-[#2A5580] transition-colors text-sm font-medium"
+                  className={primaryAction}
                 >
                   Create Invoice
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -655,53 +689,22 @@ export const EstimateDetail: React.FC = () => {
             {estimate.converted_to_invoice_id && (
               <button
                 onClick={() => navigate(`/invoices/${estimate.converted_to_invoice_id}`)}
-                className="flex items-center gap-2 px-4 py-2 bg-[#336699] text-white rounded-sm hover:bg-[#2A5580] transition-colors text-sm font-medium"
+                className={primaryAction}
               >
                 View Invoice
               </button>
             )}
-            
+
             {/* Send - for draft status */}
             {estimate.status === 'draft' && (
-              <button 
+              <button
                 onClick={() => handleStatusUpdate('sent')}
-                className="flex items-center gap-2 px-4 py-2 bg-[#336699] text-white rounded-sm hover:bg-[#2A5580] transition-colors text-sm font-medium"
+                className={primaryAction}
               >
                 <Send className="w-4 h-4" />
                 Send
               </button>
             )}
-            
-            {/* Resend - for already sent estimates */}
-            {estimate.status === 'sent' && estimate.client?.email && (
-              <button 
-                onClick={() => handleStatusUpdate('sent')}
-                className="flex items-center gap-2 px-4 py-2 bg-[#2a2a2a] border border-[#404040] text-white rounded-sm hover:bg-[#333333] transition-colors text-sm"
-              >
-                <Send className="w-4 h-4" />
-                Resend
-              </button>
-            )}
-            
-            {/* View Contract - Always available for estimates with items */}
-            {estimate.items && estimate.items.length > 0 && (
-              <button 
-                onClick={() => navigate(`/estimates/${estimate.id}/contract`)}
-                className="flex items-center gap-2 px-4 py-2 bg-[#fbbf24] text-black rounded-sm hover:bg-[#f59e0b] transition-colors text-sm font-medium"
-              >
-                <FileText className="w-4 h-4" />
-                View Contract
-              </button>
-            )}
-            
-            {/* Secondary Actions */}
-            <button 
-              onClick={() => setShowShareModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-[#2a2a2a] border border-[#404040] text-white rounded-sm hover:bg-[#333333] transition-colors text-sm"
-            >
-              <Share2 className="w-4 h-4" />
-              Share
-            </button>
           </div>
         </div>
 
