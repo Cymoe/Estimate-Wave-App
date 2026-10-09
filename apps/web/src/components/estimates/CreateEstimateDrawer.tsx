@@ -684,12 +684,12 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
 
         {/* Clean View Drawer */}
         <div
-          className={`fixed right-0 top-0 h-full w-[90%] max-w-[1400px] bg-[#1D1F25] shadow-xl transform transition-transform z-[10001] ${
+          className={`fixed right-0 top-0 h-[100dvh] flex flex-col w-[90%] max-w-[1400px] bg-[#1D1F25] shadow-xl transform transition-transform z-[10001] ${
             isOpen ? 'translate-x-0' : 'translate-x-full'
           }`}
         >
           {/* Header */}
-          <div className="bg-[#1a1a1a] border-b border-[#333333] px-6 py-4">
+          <div className="bg-[#1a1a1a] border-b border-[#333333] px-6 py-4 flex-shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <button
@@ -729,7 +729,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
           </div>
 
           {/* Main Content */}
-          <div className="flex flex-col h-[calc(100%-80px)] overflow-hidden">
+          <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
             {/* Client & Project Info Bar */}
             <div className="px-6 py-4 bg-[#22272d] border-b border-[#333333]">
               <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
@@ -913,12 +913,12 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
 
       {/* Drawer */}
       <div
-        className={`fixed right-0 top-0 h-full w-[80%] max-w-[1200px] bg-[#121212] shadow-xl transform transition-transform z-[10001] ${
+        className={`fixed right-0 top-0 h-[100dvh] flex flex-col w-[80%] max-w-[1200px] bg-[#121212] shadow-xl transform transition-transform z-[10001] ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
         {/* Compact Header */}
-        <div className="bg-[#1E1E1E] border-b border-[#333333] px-4 py-3">
+        <div className="bg-[#1E1E1E] border-b border-[#333333] px-4 py-3 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <button
@@ -990,7 +990,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
         </div>
 
         {/* Main Content */}
-        <div className="flex h-[calc(100%-120px)]">
+        <div className="flex flex-1 min-h-0">
           {/* Left Column - Items Selection (40% width) */}
           <div className="w-[40%] border-r border-[#333333] flex flex-col">
             {/* Source Type Selection */}
