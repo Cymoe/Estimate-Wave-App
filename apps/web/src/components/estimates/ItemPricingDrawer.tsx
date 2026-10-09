@@ -90,7 +90,7 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
         role="dialog"
         aria-label={`Price ${shownItem.description}`}
         aria-hidden={!open}
-        className={`fixed right-0 top-0 h-[100dvh] w-full max-w-md bg-[#1D1F25] border-l border-[#333333] shadow-xl transform transition-transform z-[10001] flex flex-col ${
+        className={`fixed right-0 top-0 h-[100dvh] w-full max-w-md bg-[#121212] border-l border-[#333333] shadow-xl transform transition-transform z-[10001] flex flex-col ${
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
@@ -134,7 +134,7 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
                 <button
                   type="button"
                   onClick={() => setQuantity(q => Math.max(1, q - 1))}
-                  className="p-2.5 text-gray-300 hover:bg-[#22272d]"
+                  className="p-2.5 text-gray-300 hover:bg-[#1E1E1E]"
                   aria-label="Decrease quantity"
                 >
                   <Minus className="w-4 h-4" />
@@ -153,7 +153,7 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
                 <button
                   type="button"
                   onClick={() => setQuantity(q => q + 1)}
-                  className="p-2.5 text-gray-300 hover:bg-[#22272d]"
+                  className="p-2.5 text-gray-300 hover:bg-[#1E1E1E]"
                   aria-label="Increase quantity"
                 >
                   <Plus className="w-4 h-4" />
@@ -185,7 +185,7 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
           </div>
 
           {/* Pricing options */}
-          <div className="divide-y divide-[#2a2a2a] border border-[#333333]">
+          <div className="divide-y divide-[#262626] border border-[#333333]">
             {PRICING_OPTIONS.map(option => {
               const optionPrice = priceAt(range, option.position);
               const selected = Math.abs(optionPrice - price) < 0.005;
@@ -196,7 +196,7 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
                   onClick={() => setPriceText(optionPrice.toFixed(2))}
                   aria-pressed={selected}
                   className={`w-full flex items-center justify-between px-4 py-3 text-sm border-l-2 transition-colors ${
-                    selected ? 'border-[#336699] bg-[#336699]/10 text-white' : 'border-transparent text-gray-300 hover:bg-[#22272d]'
+                    selected ? 'border-[#336699] bg-[#336699]/10 text-white' : 'border-transparent text-gray-300 hover:bg-[#1E1E1E]'
                   }`}
                 >
                   <span>{option.name}</span>
