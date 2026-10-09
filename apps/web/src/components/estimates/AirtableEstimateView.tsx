@@ -173,9 +173,12 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
                 onMouseLeave={() => setHoveredRow(null)}
               >
               
-              {/* Name Cell - Read Only */}
-              <td className="py-1.5 px-3 text-white text-[13px] font-normal border-r border-[#3c3d51]">
-                <div className='px-1 py-0.5 -mx-1 -my-0.5'>
+              {/* Name Cell - opens the item's pricing editor when there is one */}
+              <td
+                className={`py-1.5 px-3 text-white text-[13px] font-normal border-r border-[#3c3d51] ${onEditPrice ? 'cursor-pointer' : ''}`}
+                onClick={onEditPrice ? () => onEditPrice(item.id) : undefined}
+              >
+                <div className={`px-1 py-0.5 -mx-1 -my-0.5 ${onEditPrice ? 'hover:bg-[#2a2b3e] rounded-sm' : ''}`}>
                   {item.name}
                 </div>
               </td>
