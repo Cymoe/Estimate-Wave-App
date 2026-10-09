@@ -144,7 +144,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
         
         {/* Scrollable Content Area */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
           {/* Grid navigation */}
           <div className={`${isSidebarCollapsed ? 'grid grid-cols-1' : 'grid grid-cols-2'} gap-0`}>
             {/* Profit Tracker (formerly Dashboard) */}

@@ -529,7 +529,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
               isProjectsOpen: isProjectsSidebarLocked || isProjectsSidebarOpen,
               availableWidth: availableContentWidth
             }}>
-              <div className="min-h-screen bg-[#000000] flex overflow-x-hidden">
+              <div className="min-h-[100dvh] bg-[#000000] flex overflow-x-hidden">
                   <MobileHeader
                     onMenuClick={() => setIsMobileMenuOpen(true)}
                     onCreateClick={() => setIsCreateMenuOpen(true)}
