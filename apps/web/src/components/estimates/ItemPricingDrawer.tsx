@@ -89,22 +89,20 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        {/* Header */}
-        <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-[#333333] flex-shrink-0">
-          <div className="min-w-0">
+        {/* Header: close on the left, Save alone on the right */}
+        <div className="flex items-start gap-3 px-6 py-4 border-b border-[#333333] flex-shrink-0">
+          <button onClick={onClose} className="p-1 -ml-1 mt-0.5 text-gray-400 hover:text-white flex-shrink-0" aria-label="Close">
+            <X className="w-5 h-5" />
+          </button>
+          <div className="min-w-0 flex-1">
             <h2 className="text-base font-semibold text-white">{shownItem.description}</h2>
             <p className="text-xs text-gray-400 mt-1">
               Red line {formatCurrency(range.redLine)} · Cap {formatCurrency(range.cap)}
             </p>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <button onClick={save} className="px-5 py-2 text-sm text-white bg-[#336699] hover:bg-[#2a5580]">
-              Save
-            </button>
-            <button onClick={onClose} className="p-1 text-gray-400 hover:text-white" aria-label="Close">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
+          <button onClick={save} className="px-5 py-2 text-sm text-white bg-[#336699] hover:bg-[#2a5580] flex-shrink-0">
+            Save
+          </button>
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-6">
