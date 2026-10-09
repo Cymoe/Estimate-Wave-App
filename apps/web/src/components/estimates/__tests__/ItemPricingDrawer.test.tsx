@@ -51,4 +51,20 @@ describe('ItemPricingDrawer', () => {
     expect(onSave).toHaveBeenCalledWith({ unit_price: 87.5, quantity: 2 });
     unmount();
   });
+
+  it('slides in when an item opens and slides out (staying mounted) when it closes', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() => root.render(<ItemPricingDrawer item={item} onClose={() => {}} onSave={() => {}} />));
+    const dialog = () => document.querySelector('[role="dialog"]')!;
+    expect(dialog().className).toContain('translate-x-full');
+    await act(() => new Promise(resolve => setTimeout(resolve, 100)));
+    expect(dialog().className).toContain('translate-x-0');
+
+    act(() => root.render(<ItemPricingDrawer item={null} onClose={() => {}} onSave={() => {}} />));
+    expect(dialog().className).toContain('translate-x-full');
+    expect(dialog().textContent).toContain('THHN wire');
+    act(() => root.unmount());
+  });
 });

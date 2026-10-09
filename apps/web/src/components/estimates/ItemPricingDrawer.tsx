@@ -32,17 +32,34 @@ function rangeOf(item: PricedItem): PriceRange {
 export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onClose, onSave }) => {
   const [priceText, setPriceText] = useState('');
   const [quantity, setQuantity] = useState(1);
+  // The drawer stays mounted and slides like the estimate drawer. It keeps
+  // showing the last item while sliding out.
+  const [shownItem, setShownItem] = useState<PricedItem | null>(null);
+  const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    if (item) {
-      setPriceText(item.unit_price.toFixed(2));
-      setQuantity(item.quantity || 1);
+    if (!item) {
+      setVisible(false);
+      return;
     }
+    setShownItem(item);
+    setPriceText(item.unit_price.toFixed(2));
+    setQuantity(item.quantity || 1);
+    // Wait for the closed position to paint so the slide-in animates.
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setVisible(true));
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
   }, [item]);
 
-  if (!item) return null;
+  if (!shownItem) return null;
 
-  const range = rangeOf(item);
+  const open = visible && item !== null;
+  const range = rangeOf(shownItem);
   const typed = parseFloat(priceText);
   const enteredPrice = Number.isFinite(typed) ? typed : 0;
   const belowRedLine = enteredPrice < range.redLine;
@@ -58,16 +75,24 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
 
   return createPortal(
     <>
-      <div className="fixed inset-0 bg-black/60 z-[100]" onClick={onClose} />
+      <div
+        className={`fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity z-[10000] ${
+          open ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+        onClick={onClose}
+      />
       <div
         role="dialog"
-        aria-label={`Price ${item.description}`}
-        className="fixed right-0 top-0 h-[100dvh] w-full max-w-md bg-[#1D1F25] border-l border-[#333333] z-[101] flex flex-col"
+        aria-label={`Price ${shownItem.description}`}
+        aria-hidden={!open}
+        className={`fixed right-0 top-0 h-[100dvh] w-full max-w-md bg-[#1D1F25] border-l border-[#333333] shadow-xl transform transition-transform z-[10001] flex flex-col ${
+          open ? 'translate-x-0' : 'translate-x-full'
+        }`}
       >
         {/* Header */}
         <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-[#333333] flex-shrink-0">
           <div className="min-w-0">
-            <h2 className="text-base font-semibold text-white">{item.description}</h2>
+            <h2 className="text-base font-semibold text-white">{shownItem.description}</h2>
             <p className="text-xs text-gray-400 mt-1">
               Red line {formatCurrency(range.redLine)} · Cap {formatCurrency(range.cap)}
             </p>
