@@ -67,4 +67,22 @@ describe('ItemPricingDrawer', () => {
     expect(dialog().textContent).toContain('THHN wire');
     act(() => root.unmount());
   });
+
+  it('removes the item only on a second tap', () => {
+    const onRemove = jest.fn();
+    const onClose = jest.fn();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() => root.render(<ItemPricingDrawer item={item} onClose={onClose} onSave={() => {}} onRemove={onRemove} />));
+    const removeButton = () =>
+      [...document.querySelectorAll('[role="dialog"] button')].find(b => /remove/i.test(b.textContent ?? ''))!;
+    act(() => removeButton().dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(onRemove).not.toHaveBeenCalled();
+    expect(removeButton().textContent).toContain('Tap again');
+    act(() => removeButton().dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(onRemove).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalled();
+    act(() => root.unmount());
+  });
 });

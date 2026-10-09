@@ -16,6 +16,8 @@ interface ItemPricingDrawerProps {
   item: PricedItem | null;
   onClose: () => void;
   onSave: (changes: { unit_price: number; quantity: number }) => void;
+  /** Removes the item from the estimate. */
+  onRemove?: () => void;
 }
 
 /** The item's range. Items saved before ranges were stored have no red line (floor 0) and their price as cap. */
@@ -29,13 +31,15 @@ function rangeOf(item: PricedItem): PriceRange {
  * the salesperson's commission and the pricing options. The price can't go
  * below red line.
  */
-export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onClose, onSave }) => {
+export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onClose, onSave, onRemove }) => {
   const [priceText, setPriceText] = useState('');
   const [quantity, setQuantity] = useState(1);
   // The drawer stays mounted and slides like the estimate drawer. It keeps
   // showing the last item while sliding out.
   const [shownItem, setShownItem] = useState<PricedItem | null>(null);
   const [visible, setVisible] = useState(false);
+  // Removing takes a second tap so a stray tap can't delete an item.
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   useEffect(() => {
     if (!item) {
@@ -43,6 +47,7 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
       return;
     }
     setShownItem(item);
+    setConfirmRemove(false);
     setPriceText(item.unit_price.toFixed(2));
     setQuantity(item.quantity || 1);
     // Wait for the closed position to paint so the slide-in animates.
@@ -200,6 +205,26 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
               );
             })}
           </div>
+          {onRemove && (
+            <button
+              type="button"
+              onClick={() => {
+                if (!confirmRemove) {
+                  setConfirmRemove(true);
+                  return;
+                }
+                onRemove();
+                onClose();
+              }}
+              className={`w-full py-2.5 text-sm border transition-colors ${
+                confirmRemove
+                  ? 'bg-red-500/15 border-red-500/60 text-red-300'
+                  : 'border-[#333333] text-red-400 hover:bg-red-500/10'
+              }`}
+            >
+              {confirmRemove ? 'Tap again to remove this item' : 'Remove item'}
+            </button>
+          )}
         </div>
 
         {/* Footer */}

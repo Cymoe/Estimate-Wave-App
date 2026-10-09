@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Plus, X } from 'lucide-react';
 import { formatCurrency } from '../../utils/format';
 
 interface AirtableItem {
@@ -16,7 +15,6 @@ interface AirtableEstimateViewProps {
   items: AirtableItem[];
   onUpdateItem: (id: string, field: keyof AirtableItem, value: any) => void;
   onAddItem: () => void;
-  onRemoveItem: (id: string) => void;
   isEditable?: boolean;
   subtotal: number;
   tax?: number;
@@ -42,7 +40,6 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
   items,
   onUpdateItem,
   onAddItem,
-  onRemoveItem,
   isEditable = false,
   subtotal,
   tax = 0,
@@ -54,7 +51,6 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
   onEditPrice
 }) => {
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
-  const [hoveredRow, setHoveredRow] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Focus and select once when a cell opens, not on every keystroke
@@ -155,13 +151,6 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
                 <span>Total</span>
               </div>
             </th>
-            <th className="w-10 border-r border-[#3c3d51] bg-[#25263a]">
-              {isEditable && (
-                <button className="w-full h-full flex items-center justify-center text-gray-400 hover:text-gray-300">
-                  <Plus className="w-4 h-4" />
-                </button>
-              )}
-            </th>
           </tr>
         </thead>
         <tbody>
@@ -169,8 +158,6 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
               <tr 
                 key={item.id}
                 className="border-b border-[#3c3d51] bg-[#1d1f25] hover:bg-[#25263a] transition-colors"
-                onMouseEnter={() => setHoveredRow(item.id)}
-                onMouseLeave={() => setHoveredRow(null)}
               >
               
               {/* Name Cell - opens the item's pricing editor when there is one */}
@@ -234,17 +221,6 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
                 {formatCurrency(item.total)}
               </td>
               
-              {/* Actions */}
-              <td className="py-1.5 px-2 border-r border-[#3c3d51]">
-                {isEditable && hoveredRow === item.id && (
-                  <button
-                    onClick={() => onRemoveItem(item.id)}
-                    className="p-1 text-gray-400 hover:text-red-400 transition-colors"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                )}
-              </td>
             </tr>
           ))}
           
@@ -296,7 +272,6 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
                 </div>
               )}
             </div>
-            <div className="w-10"></div>
           </div>
         </div>
       )}

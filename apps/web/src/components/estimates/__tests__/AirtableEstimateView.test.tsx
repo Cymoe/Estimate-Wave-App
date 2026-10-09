@@ -25,7 +25,6 @@ describe('AirtableEstimateView quantity editing', () => {
           items={[{ id: 'a', name: 'Wire', quantity: 1, price: 125, unit: 'ea', total: 125 }]}
           onUpdateItem={onUpdateItem}
           onAddItem={() => {}}
-          onRemoveItem={() => {}}
           isEditable
           subtotal={125}
           tax={0}

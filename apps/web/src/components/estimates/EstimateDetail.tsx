@@ -926,9 +926,6 @@ export const EstimateDetail: React.FC = () => {
             }));
           }}
           onAddItem={() => setShowPricingSelector(true)}
-          onRemoveItem={(itemId) => {
-            commitItems(estimate.items.filter(item => item.id !== itemId));
-          }}
           isEditable={true}
           subtotal={estimate.subtotal}
           tax={estimate.tax_amount || 0}
@@ -1472,6 +1469,9 @@ export const EstimateDetail: React.FC = () => {
         onSave={(changes) => {
           commitItems(estimate.items.map(item => item.id === pricingItemId ? { ...item, ...changes } : item));
         }}
+        onRemove={() => {
+          commitItems(estimate.items.filter(item => item.id !== pricingItemId));
+        }}
       />
 
       {/* Save problems float over the page so nothing shifts */}
@@ -1555,7 +1555,6 @@ export const EstimateDetail: React.FC = () => {
                 return null;
               })()}
             </div>
-            <div className="w-10"></div>
           </div>
         </div>
       )}
