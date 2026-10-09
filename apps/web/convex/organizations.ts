@@ -21,6 +21,20 @@ export const list = query({
   },
 });
 
+/** The signed-in user's role in an organization (super admins count as owners). */
+export const myRole = query({
+  args: { id: v.id("organizations") },
+  handler: async (ctx, { id }) => {
+    const { user } = await requireMember(ctx, id);
+    if (isSuperAdmin(user)) return "owner";
+    const membership = await ctx.db
+      .query("memberships")
+      .withIndex("by_organization_and_user", (q) => q.eq("organizationId", id).eq("userId", user._id))
+      .unique();
+    return membership?.role ?? "member";
+  },
+});
+
 export const get = query({
   args: { id: v.id("organizations") },
   handler: async (ctx, { id }) => {

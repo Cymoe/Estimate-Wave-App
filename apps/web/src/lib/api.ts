@@ -93,6 +93,11 @@ export const organizationsAPI = {
     return run('query', api.organizations.get, { id });
   },
 
+  /** 'owner' | 'admin' | 'member' for the signed-in user. */
+  async myRole(id: string): Promise<'owner' | 'admin' | 'member'> {
+    return run('query', api.organizations.myRole, { id });
+  },
+
   async create(data: any) {
     return run('mutation', api.organizations.create, { data });
   },

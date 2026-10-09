@@ -287,6 +287,48 @@ describe("price book", () => {
     expect(await alice.as.query(api.lineItems.list, { organizationId: alice.organizationId })).toHaveLength(total);
   });
 
+  test("only admins change prices on their organization's items", async () => {
+    const t = setup();
+    await t.action(internal.seed.catalog, {});
+    const alice = await signUp(t, "alice@example.com");
+    const bob = await signUp(t, "bob@example.com");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("memberships", {
+        organizationId: alice.organizationId,
+        userId: bob.userId,
+        role: "member",
+        createdAt: new Date().toISOString(),
+      });
+    });
+    expect(await alice.as.query(api.organizations.myRole, { id: alice.organizationId })).toBe("owner");
+    expect(await bob.as.query(api.organizations.myRole, { id: alice.organizationId })).toBe("member");
+
+    const [shared] = await alice.as.query(api.lineItems.list, { organizationId: alice.organizationId });
+    const item = await alice.as.mutation(api.lineItems.create, {
+      data: {
+        name: "Service call",
+        organization_id: alice.organizationId,
+        cost_code_id: shared.cost_code_id,
+        red_line_price: 80,
+        cap_price: 150,
+        unit: "each",
+      },
+    });
+    expect(item).toMatchObject({ base_price: 80, red_line_price: 80, cap_price: 150 });
+
+    await expect(
+      bob.as.mutation(api.lineItems.update, { id: item._id, data: { red_line_price: 50 } }),
+    ).rejects.toThrow(/access/);
+    const renamed = await bob.as.mutation(api.lineItems.update, { id: item._id, data: { name: "Service visit" } });
+    expect(renamed).toMatchObject({ name: "Service visit", red_line_price: 80 });
+
+    await expect(
+      alice.as.mutation(api.lineItems.update, { id: item._id, data: { cap_price: 60 } }),
+    ).rejects.toThrow(/below the red line/);
+    const repriced = await alice.as.mutation(api.lineItems.update, { id: item._id, data: { red_line_price: 90 } });
+    expect(repriced).toMatchObject({ base_price: 90, red_line_price: 90, cap_price: 150 });
+  });
+
   test("cost codes carry their trade, and every trade is listed", async () => {
     const t = setup();
     await t.action(internal.seed.catalog, {});

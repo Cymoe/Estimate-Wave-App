@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
-import { fail, nowIso, pick } from "./lib/access";
+import { fail, nowIso, pick, requireMember } from "./lib/access";
 import { byDisplayOrder, organizationIdFrom, requireCatalogAccess, resolveCostCode } from "./lib/priceBook";
 import { lineItemFields } from "./schema";
 
@@ -86,11 +86,38 @@ export const get = query({
   },
 });
 
+const PRICE_FIELDS = ["base_price", "red_line_price", "cap_price"] as const;
+
+/**
+ * Prices: only an organization's admins change them on its own items (the
+ * shared catalog is already limited to super admins). The red line is the
+ * item's price in the price book, so base_price follows it, and the cap
+ * can't be below it.
+ */
+async function checkPrices(
+  ctx: MutationCtx,
+  organizationId: Id<"organizations"> | undefined,
+  fields: Record<string, any>,
+  current?: Doc<"lineItems">,
+) {
+  if (!PRICE_FIELDS.some((field) => field in fields)) return;
+  if (organizationId !== undefined) await requireMember(ctx, organizationId, "admin");
+  if (typeof fields.red_line_price === "number" && !("base_price" in fields)) {
+    fields.base_price = fields.red_line_price;
+  }
+  const redLine = fields.red_line_price ?? current?.red_line_price;
+  const cap = fields.cap_price ?? current?.cap_price;
+  if (typeof redLine === "number" && typeof cap === "number" && cap < redLine) {
+    fail("INVALID", "Cap price can't be below the red line price");
+  }
+}
+
 async function insertLineItem(ctx: MutationCtx, data: unknown) {
   const organizationId = organizationIdFrom(ctx, (data as any)?.organization_id);
   const user = await requireCatalogAccess(ctx, organizationId, "write");
   const fields = pick(data, lineItemFields);
   if (typeof fields.name !== "string" || fields.name.trim() === "") fail("INVALID", "Name is required");
+  await checkPrices(ctx, organizationId, fields);
   const now = nowIso();
   return await ctx.db.insert("lineItems", {
     is_active: true,
@@ -134,6 +161,7 @@ export const update = mutation({
   handler: async (ctx, { id, data }) => {
     const item = await loadEditable(ctx, id);
     const patch = pick(data, lineItemFields, { forPatch: true });
+    await checkPrices(ctx, item.organization_id, patch, item);
     if ("cost_code_id" in patch) {
       patch.cost_code_id = await resolveCostCode(ctx, patch.cost_code_id, item.organization_id);
     }

@@ -1,14 +1,12 @@
-import React, { useState, useEffect, useContext, useRef } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { costCodesAPI } from '../../lib/api'; // MongoDB API for cost codes
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { UNIT_OPTIONS } from '../../constants';
-import { formatCurrency } from '../../utils/format';
-import { PricingModesService, PricingMode } from '../../services/PricingModesService';
-import { ChevronUp, ChevronDown } from 'lucide-react';
-import { lineItemsAPI } from '../../lib/api';
+import { organizationsAPI } from '../../lib/api';
+import { priceRange } from '../../utils/priceRange';
 
 interface LineItemFormData {
   name: string;
@@ -66,63 +64,30 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
   const [groupedCostCodes, setGroupedCostCodes] = useState<Map<string, CostCode[]>>(new Map());
   const [isLoadingCostCodes, setIsLoadingCostCodes] = useState(true);
   
-  // Direct price state
-  const [price, setPrice] = useState(
-    initialData?.price?.toString() || '0'
-  );
+  // Price-book prices: red line (the item's fixed price) and cap.
+  const initialRange = initialData ? priceRange(initialData) : null;
+  const [redLine, setRedLine] = useState(initialRange ? initialRange.redLine.toFixed(2) : '');
+  const [cap, setCap] = useState(initialRange ? initialRange.cap.toFixed(2) : '');
   const [currentCostCodeCategory, setCurrentCostCodeCategory] = useState<string | null>(null);
-  const [isApplyingToCategory, setIsApplyingToCategory] = useState(false);
-  const [pricingModes, setPricingModes] = useState<PricingMode[]>([]);
-  const [isLoadingModes, setIsLoadingModes] = useState(true);
+  const [role, setRole] = useState<'owner' | 'admin' | 'member' | null>(null);
   
   const formValues = watch();
   
-  // Calculate pricing based on mode
-  const baseCost = initialData?.base_price || initialData?.price || 0;
   const isSharedItem = initialData && !initialData.organization_id;
   const isNewCustomItem = !initialData;
-  
-  // State for inline markup calculator
-  const [showMarkupOptions, setShowMarkupOptions] = useState(false);
-  const [selectedMarkup, setSelectedMarkup] = useState<string | null>(null);
-  const markupDropdownRef = useRef<HTMLDivElement>(null);
-  
-  // Close dropdown when clicking outside
+  // Admins set prices on their own items; the shared starter catalog is fixed
+  // (only super admins can change it).
+  const isSuperAdmin = user?.role === 'super_admin';
+  const canEditPrices = isSharedItem ? isSuperAdmin : isSuperAdmin || role === 'owner' || role === 'admin';
+
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (markupDropdownRef.current && !markupDropdownRef.current.contains(event.target as Node)) {
-        setShowMarkupOptions(false);
-      }
-    }
-    
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, []);
+    if (!selectedOrg?.id) return;
+    organizationsAPI.myRole(selectedOrg.id).then(setRole).catch(() => setRole('member'));
+  }, [selectedOrg?.id]);
 
   useEffect(() => {
     fetchCostCodes();
   }, [user, selectedOrg?.id, initialData?.cost_code_id]);
-
-  // Fetch pricing modes
-  useEffect(() => {
-    const fetchPricingModes = async () => {
-      if (!selectedOrg?.id) return;
-      
-      setIsLoadingModes(true);
-      try {
-        const modes = await PricingModesService.getPresets();
-        setPricingModes(modes);
-      } catch (error) {
-        console.error('Error fetching pricing modes:', error);
-      } finally {
-        setIsLoadingModes(false);
-      }
-    };
-    
-    fetchPricingModes();
-  }, [selectedOrg?.id]);
 
   // Determine category from cost code number
   useEffect(() => {
@@ -161,8 +126,9 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
         cost_code_id: initialData.cost_code_id || ''
       });
       
-      // Update price state
-      setPrice(initialData.price?.toString() || '0');
+      const range = priceRange(initialData);
+      setRedLine(range.redLine.toFixed(2));
+      setCap(range.cap.toFixed(2));
     }
   }, [initialData, reset]);
 
@@ -207,22 +173,24 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
     setIsLoading(true);
     
     try {
-      const finalPrice = parseFloat(price) || 0;
-      
-      // Calculate markup percentage for shared items (for backend storage)
-      let markupToSubmit: number | undefined;
-      if (isSharedItem && baseCost > 0) {
-        markupToSubmit = ((finalPrice - baseCost) / baseCost) * 100;
+      const prices: { red_line_price?: number; cap_price?: number } = {};
+      if (canEditPrices) {
+        const redLinePrice = parseFloat(redLine);
+        const capPrice = cap.trim() === '' ? redLinePrice : parseFloat(cap);
+        if (!Number.isFinite(redLinePrice) || redLinePrice < 0) throw new Error('Enter a red line price.');
+        if (!Number.isFinite(capPrice) || capPrice < redLinePrice) {
+          throw new Error("Cap price can't be below the red line price.");
+        }
+        prices.red_line_price = redLinePrice;
+        prices.cap_price = capPrice;
       }
-      
+
       const submitData = {
         name: data.name,
         description: data.description,
-        price: finalPrice,
         unit: data.unit,
         cost_code_id: data.cost_code_id,
-        // Store markup percentage for internal use only
-        ...(isSharedItem && markupToSubmit !== undefined ? { markup_percentage: markupToSubmit } : {})
+        ...prices
       };
       
       await onSubmit(submitData);
@@ -341,113 +309,49 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
         />
       </div>
 
-      {/* Price and Unit Configuration */}
+      {/* Pricing: the red line is the item's fixed price-book price; estimates start each item at cap. */}
       <div className="space-y-2">
-        <div className="grid grid-cols-[2fr,1fr] gap-3">
+        <div className="grid grid-cols-3 gap-3">
           <div>
-            <label htmlFor="price" className="block text-xs font-medium text-gray-400 mb-1">
-              Your Price per {formValues.unit || 'unit'}
+            <label htmlFor="red_line_price" className="block text-xs font-medium text-gray-400 mb-1">
+              Red line price
             </label>
-            <div className="flex items-center gap-2">
-              <div className="relative flex items-center flex-1">
-              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm z-10">$</span>
+            <div className="relative">
+              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
               <input
                 type="text"
-                id="price"
-                value={price}
-                readOnly
-                className="w-full pl-7 pr-3 py-1.5 bg-[#2a2a2a] border border-[#555555] rounded text-gray-400 font-mono text-base cursor-default"
+                inputMode="decimal"
+                id="red_line_price"
+                value={redLine}
+                onChange={(e) => setRedLine(e.target.value)}
+                disabled={!canEditPrices}
+                className={`w-full pl-6 pr-2 py-1.5 bg-[#333333] border border-[#555555] rounded text-sm font-mono focus:border-[#336699] focus:outline-none ${
+                  canEditPrices ? 'text-white' : 'text-gray-400 cursor-not-allowed'
+                }`}
                 placeholder="0.00"
               />
-              </div>
-              
-              {/* Inline markup selector for new custom items */}
-              {isNewCustomItem && (
-                <div className="relative" ref={markupDropdownRef}>
-                    <button
-                      type="button"
-                      onClick={() => setShowMarkupOptions(!showMarkupOptions)}
-                      className={`px-2 py-1.5 bg-[#333333] border border-[#555555] rounded text-sm text-white hover:bg-[#444444] transition-colors flex items-center gap-1 min-w-[65px] ${
-                        selectedMarkup ? 'border-blue-500 bg-blue-900/20' : ''
-                      }`}
-                    >
-                      <span className="text-xs">
-                        {selectedMarkup 
-                          ? `+${((parseFloat(selectedMarkup) - 1) * 100).toFixed(0)}%`
-                          : '+0%'
-                        }
-                      </span>
-                      <ChevronDown className={`w-3 h-3 transition-transform ${showMarkupOptions ? 'rotate-180' : ''}`} />
-                    </button>
-                    
-                    {/* Markup dropdown */}
-                    {showMarkupOptions && (
-                      <div className="absolute top-full mt-1 left-0 bg-[#333333] border border-[#555555] rounded shadow-lg z-20 min-w-[200px]">
-                        <div className="p-2 text-xs text-gray-400 border-b border-[#555555]">
-                          Enter cost, then select markup
-                        </div>
-                        <div className="py-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              // If we have a current markup, calculate and set the base cost
-                              if (selectedMarkup) {
-                                const baseCost = parseFloat(price) / parseFloat(selectedMarkup);
-                                setPrice(baseCost.toFixed(2));
-                              }
-                              setSelectedMarkup(null);
-                              setShowMarkupOptions(false);
-                            }}
-                            className="w-full px-3 py-1.5 text-left text-sm hover:bg-[#444444] text-gray-400"
-                          >
-                            No markup
-                          </button>
-                          {['1.15', '1.25', '1.35', '1.50', '1.75', '2.00'].map(markup => {
-                            const percentage = ((parseFloat(markup) - 1) * 100).toFixed(0);
-                            const cost = parseFloat(price) / (selectedMarkup ? parseFloat(selectedMarkup) : 1);
-                            const newPrice = cost * parseFloat(markup);
-                            
-                            return (
-                              <button
-                                key={markup}
-                                type="button"
-                                onClick={() => {
-                                  // If we have a current selection, calculate the base cost
-                                  const baseCost = selectedMarkup 
-                                    ? parseFloat(price) / parseFloat(selectedMarkup)
-                                    : parseFloat(price);
-                                  
-                                  // Apply new markup
-                                  setPrice((baseCost * parseFloat(markup)).toFixed(2));
-                                  setSelectedMarkup(markup);
-                                  setShowMarkupOptions(false);
-                                }}
-                                className={`w-full px-3 py-1.5 text-left text-sm hover:bg-[#444444] transition-colors flex justify-between items-center ${
-                                  selectedMarkup === markup ? 'bg-blue-900/20 text-blue-400' : 'text-white'
-                                }`}
-                              >
-                                <span>+{percentage}%</span>
-                                <span className="text-xs text-gray-500 font-mono">
-                                  ${newPrice.toFixed(2)}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-              )}
             </div>
-            
-            {/* Helper text for markup */}
-            {isNewCustomItem && selectedMarkup && (
-              <p className="text-xs text-gray-500 mt-1">
-                Base cost: ${(parseFloat(price) / parseFloat(selectedMarkup)).toFixed(2)} × {((parseFloat(selectedMarkup) - 1) * 100).toFixed(0)}% markup
-              </p>
-            )}
           </div>
-          
+          <div>
+            <label htmlFor="cap_price" className="block text-xs font-medium text-gray-400 mb-1">
+              Cap price
+            </label>
+            <div className="relative">
+              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                id="cap_price"
+                value={cap}
+                onChange={(e) => setCap(e.target.value)}
+                disabled={!canEditPrices}
+                className={`w-full pl-6 pr-2 py-1.5 bg-[#333333] border border-[#555555] rounded text-sm font-mono focus:border-[#336699] focus:outline-none ${
+                  canEditPrices ? 'text-white' : 'text-gray-400 cursor-not-allowed'
+                }`}
+                placeholder="0.00"
+              />
+            </div>
+          </div>
           <div>
             <label htmlFor="unit" className="block text-xs font-medium text-gray-400 mb-1">
               Unit {isSharedItem && <span className="text-xs text-gray-500">(Industry Standard)</span>}
@@ -468,182 +372,14 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
             </select>
           </div>
         </div>
-        
-        {/* Smart pricing suggestions - show for all items with pricing data */}
-        {(initialData?.base_price || initialData?.red_line_price || initialData?.cap_price) && (
-          <div className="space-y-2">
-            {/* Commission Potential */}
-            <div className="bg-[#1E1E1E] rounded-lg p-3 border border-[#333333]">
-              <div className="flex items-start justify-between mb-2">
-                <div>
-                  <h4 className="text-xs font-medium text-white">Your Commission</h4>
-                  <p className="text-xs text-gray-500">Margin above redline</p>
-                </div>
-                <div className="text-right">
-                  {(() => {
-                    const currentPrice = parseFloat(price) || 0;
-                    const redlinePrice = initialData?.red_line_price || baseCost * 0.7;
-                    const capPrice = initialData?.cap_price || baseCost;
-                    const maxCommission = capPrice - redlinePrice;
-                    const currentCommission = Math.max(0, currentPrice - redlinePrice);
-                    const commissionPercent = maxCommission > 0 ? (currentCommission / maxCommission) * 100 : 0;
-                    
-                    return (
-                      <>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-lg font-mono font-semibold ${
-                            currentCommission === 0 ? 'text-red-400' : 
-                            commissionPercent > 80 ? 'text-green-400' : 
-                            commissionPercent > 40 ? 'text-yellow-400' : 'text-orange-400'
-                          }`}>
-                            {formatCurrency(currentCommission)}
-                          </span>
-                          <span className={`text-sm font-medium ${
-                            currentCommission === 0 ? 'text-red-400' : 
-                            commissionPercent > 80 ? 'text-green-400' : 
-                            commissionPercent > 40 ? 'text-yellow-400' : 'text-orange-400'
-                          }`}>
-                            ({Math.round(commissionPercent)}%)
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1 text-xs">
-                          <span className="text-gray-500">max:</span>
-                          <span className="text-gray-400">{formatCurrency(maxCommission)}</span>
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-              </div>
-              
-              {/* Pricing strategy buttons */}
-              <div className="space-y-2">
-                <p className="text-xs text-gray-500 mb-1.5">Quick pricing strategies:</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {isLoadingModes ? (
-                    <div className="col-span-2 text-center py-4">
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white inline-block"></div>
-                    </div>
-                  ) : (
-                    <>
-                      {/* Red Line and Cap buttons (if available) */}
-                      {initialData?.red_line_price && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPrice(initialData.red_line_price!.toFixed(2));
-                          }}
-                          className={`p-1.5 rounded text-left transition-all group relative ${
-                            Math.abs(parseFloat(price) - initialData.red_line_price) < 0.01
-                              ? 'bg-red-900/30 backdrop-blur ring-2 ring-red-500/40'
-                              : 'bg-[#252525] hover:bg-red-900/20'
-                          }`}
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-sm">🔴</span>
-                            <div className="text-xs font-medium text-red-400">Red Line</div>
-                          </div>
-                          <div className="text-xs text-gray-500 mt-0.5">Minimum acceptable price</div>
-                          <div className="text-xs font-mono text-red-400 mt-0.5">{formatCurrency(initialData.red_line_price)}</div>
-                        </button>
-                      )}
-                      
-                      {initialData?.cap_price && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPrice(initialData.cap_price!.toFixed(2));
-                          }}
-                          className={`p-1.5 rounded text-left transition-all group relative ${
-                            Math.abs(parseFloat(price) - initialData.cap_price) < 0.01
-                              ? 'bg-yellow-900/30 backdrop-blur ring-2 ring-yellow-500/40'
-                              : 'bg-[#252525] hover:bg-yellow-900/20'
-                          }`}
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-sm">🟡</span>
-                            <div className="text-xs font-medium text-yellow-400">Cap Price</div>
-                          </div>
-                          <div className="text-xs text-gray-500 mt-0.5">Maximum premium pricing</div>
-                          <div className="text-xs font-mono text-yellow-400 mt-0.5">{formatCurrency(initialData.cap_price)}</div>
-                        </button>
-                      )}
-                      
-                      {/* Pricing mode buttons */}
-                      {pricingModes
-                        .sort((a, b) => {
-                          // Get multipliers for sorting
-                          const aMultiplier = a.adjustments.all || 1;
-                          const bMultiplier = b.adjustments.all || 1;
-                          
-                          // Sort by multiplier (lowest first = biggest discount first)
-                          return aMultiplier - bMultiplier;
-                        })
-                        .map(mode => {
-                          // Get the appropriate multiplier based on category or use 'all'
-                          let multiplier = mode.adjustments.all || 1;
-                          if (currentCostCodeCategory && mode.adjustments[currentCostCodeCategory as keyof typeof mode.adjustments]) {
-                            multiplier = mode.adjustments[currentCostCodeCategory as keyof typeof mode.adjustments] || 1;
-                          }
-                          let modePrice = baseCost * multiplier;
-                          
-                          // Clamp prices within RED LINE to CAP range (except for special cases)
-                          const redLine = initialData?.red_line_price || baseCost;
-                          const cap = initialData?.cap_price || baseCost * 2;
-                          
-                          // Allow "Need This Job" and "Slow Season" to go below red line
-                          // But respect RED LINE minimum for others
-                          if (mode.name !== 'Need This Job' && mode.name !== 'Slow Season' && modePrice < redLine) {
-                            modePrice = redLine;
-                          }
-                          
-                          // Nothing should exceed CAP
-                          if (modePrice > cap) {
-                            modePrice = cap;
-                          }
-                          
-                          // Show percentage change for clarity
-                          const actualPercentage = Math.round(((modePrice / baseCost) - 1) * 100);
-                          const changeText = actualPercentage > 0 ? `+${actualPercentage}%` : `${actualPercentage}%`;
-                          const isActive = Math.abs(parseFloat(price) - modePrice) < 0.01;
-                          
-                          // Check if clamped
-                          const wasClamped = (multiplier * baseCost !== modePrice);
-                          
-                          return (
-                            <button
-                              key={mode.id}
-                              type="button"
-                              onClick={() => {
-                                setPrice(modePrice.toFixed(2));
-                              }}
-                              className={`p-1.5 rounded text-left transition-all group relative ${
-                                isActive
-                                  ? 'bg-white/10 backdrop-blur ring-2 ring-white/20'
-                                  : 'bg-[#252525] hover:bg-[#333333]'
-                              }`}
-                            >
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-sm">{mode.icon}</span>
-                                <div className="text-xs font-medium text-white group-hover:text-blue-400">{mode.name}</div>
-                              </div>
-                              <div className="text-xs text-gray-500 mt-0.5">
-                                {changeText} • {mode.description}
-                                {wasClamped && <span className="text-yellow-500 ml-1">(adjusted)</span>}
-                              </div>
-                              <div className="text-xs font-mono text-gray-300 mt-0.5">{formatCurrency(modePrice)}</div>
-                            </button>
-                          );
-                        })
-                      }
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-        
+        <p className="text-xs text-gray-500">
+          {canEditPrices
+            ? 'Red line is the lowest price an estimate can use. New estimates start at cap.'
+            : isSharedItem
+              ? 'Starter catalog prices are fixed.'
+              : 'Only admins can change prices.'}
+        </p>
+
         {/* Pricing guidance for new custom items */}
         {isNewCustomItem && (
           <div className="space-y-2">
@@ -764,7 +500,7 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
           <button
             type="submit"
             className="flex-1 px-3 py-1.5 bg-white text-black rounded text-sm hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={isSubmitting}
+            disabled={isSubmitting || (isSharedItem && !canEditPrices)}
           >
             {isSubmitting ? 'Saving...' : submitLabel}
           </button>
