@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
-import { ChevronDown, Grid3x3, Table, List, Calendar, TrendingUp, Filter, Users, FileText } from 'lucide-react';
+import { ChevronDown, Users, FileText } from 'lucide-react';
 import { formatCurrency } from '../../utils/format';
 
 interface View {
   id: string;
   name: string;
-  icon: React.ReactNode;
-  shortcut?: string;
   position: number; // Price position: 0.0 (redline) to 1.0 (cap)
 }
 
@@ -39,43 +37,31 @@ export const AirtableSidebar: React.FC<AirtableSidebarProps> = ({
     { 
       id: 'cap', 
       name: 'CAP Price (100%)', 
-      icon: <Grid3x3 className="w-3.5 h-3.5" />,
-      shortcut: 'C',
       position: 1.0 // CAP pricing (maximum)
     },
     { 
       id: 'busy', 
       name: 'Busy Season (60%)', 
-      icon: <Calendar className="w-3.5 h-3.5" />,
-      shortcut: 'B',
       position: 0.6 // Busy season pricing (+20% margin)
     },
     { 
       id: 'competitive', 
       name: 'Competitive (35%)', 
-      icon: <List className="w-3.5 h-3.5" />,
-      shortcut: 'P',
       position: 0.35 // Competitive pricing
     },
     { 
       id: 'slow', 
       name: 'Slow Season (25%)', 
-      icon: <Calendar className="w-3.5 h-3.5" />,
-      shortcut: 'S',
       position: 0.25 // Slow season discount
     },
     { 
       id: 'need', 
       name: 'Need Job (10%)', 
-      icon: <Filter className="w-3.5 h-3.5" />,
-      shortcut: 'N',
       position: 0.1 // Need this job (minimal margin)
     },
     { 
       id: 'redline', 
       name: 'Redline (0%)', 
-      icon: <Users className="w-3.5 h-3.5" />,
-      shortcut: 'R',
       position: 0.0 // Redline (sales rep makes $0)
     }
   ];
@@ -111,17 +97,7 @@ export const AirtableSidebar: React.FC<AirtableSidebarProps> = ({
                   : 'text-gray-300 hover:bg-[#2a2b3e] hover:text-white'
               }`}
             >
-              <span className="opacity-60">{view.icon}</span>
               <span className="flex-1 text-left">{view.name}</span>
-              {view.shortcut && (
-                <span className={`text-[10px] px-1 py-0.5 rounded ${
-                  selectedView === view.id 
-                    ? 'bg-white/20 text-white/80' 
-                    : 'bg-[#3c3d51] text-gray-500'
-                }`}>
-                  {view.shortcut}
-                </span>
-              )}
             </button>
             
             {/* Commission Tooltip */}
