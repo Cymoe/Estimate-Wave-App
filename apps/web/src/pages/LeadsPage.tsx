@@ -408,12 +408,9 @@ const LeadsPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white">
-      <div className="px-6 py-5 border-b border-[#333333] bg-[#121212]">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-semibold">Leads</h1>
-            <p className="text-sm text-gray-400">Everyone who asked for a quote, from first call to won or lost.</p>
-          </div>
+      <div className="px-6 pt-5">
+        <div className="flex items-center justify-end gap-4">
+          <h1 className="sr-only">Leads</h1>
           <div className="flex items-center gap-2">
             <div className="flex border border-[#333333]" role="group" aria-label="View">
               {([['list', List, 'List'], ['board', LayoutGrid, 'Board']] as const).map(([key, Icon, label]) => (
