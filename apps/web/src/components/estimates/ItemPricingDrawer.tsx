@@ -72,9 +72,14 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
               Red line {formatCurrency(range.redLine)} · Cap {formatCurrency(range.cap)}
             </p>
           </div>
-          <button onClick={onClose} className="p-1 text-gray-400 hover:text-white" aria-label="Close">
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button onClick={save} className="px-5 py-2 text-sm text-white bg-[#336699] hover:bg-[#2a5580]">
+              Save
+            </button>
+            <button onClick={onClose} className="p-1 text-gray-400 hover:text-white" aria-label="Close">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-6">
@@ -175,18 +180,9 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
         </div>
 
         {/* Footer */}
-        <div className="border-t border-[#333333] px-6 py-4 flex items-center justify-between gap-3 flex-shrink-0">
-          <div className="text-sm text-gray-400">
-            Total <span className="font-mono text-white ml-1">{formatCurrency(price * quantity)}</span>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={onClose} className="px-4 py-2 text-sm text-gray-300 border border-[#333333] hover:bg-[#22272d]">
-              Cancel
-            </button>
-            <button onClick={save} className="px-5 py-2 text-sm text-white bg-[#336699] hover:bg-[#2a5580]">
-              Save
-            </button>
-          </div>
+        <div className="border-t border-[#333333] px-6 py-4 flex items-center justify-between flex-shrink-0 text-sm text-gray-400">
+          <span>Total</span>
+          <span className="font-mono text-white">{formatCurrency(price * quantity)}</span>
         </div>
       </div>
     </>,
