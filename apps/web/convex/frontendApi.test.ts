@@ -149,6 +149,17 @@ describe("src/lib/api.ts on Convex", () => {
     });
     expect(edited.subtotal).toBe(500);
 
+    // The estimate page saves items with their price-book range; prices stay at or above red line.
+    const priced = await EstimateService.update(created.id!, {
+      items: [{ description: "Cabinets", quantity: 2, unit_price: 300, total_price: 600, red_line_price: 350, cap_price: 750 }],
+    });
+    expect(priced.items?.[0]).toMatchObject({ unit_price: 350, red_line_price: 350, cap_price: 750, total_price: 700 });
+    const reloaded = await EstimateService.getById(created.id!);
+    expect(reloaded?.items?.[0]).toMatchObject({ unit_price: 350, red_line_price: 350, cap_price: 750 });
+    await EstimateService.update(created.id!, {
+      items: [{ description: "Cabinets", quantity: 1, unit_price: 500, total_price: 500 }],
+    });
+
     await expect(EstimateService.convertToInvoice(created.id!)).rejects.toThrow(/accepted/);
     await EstimateService.updateStatus(created.id!, "accepted");
     const invoiceId = await EstimateService.convertToInvoice(created.id!, 50);

@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Edit, Send, Download, Share2, Trash2,
   CheckCircle, XCircle, FileText, User,
   Phone, Mail, MapPin, Copy, Eye, Calendar
 } from 'lucide-react';
-import { EstimateService, Estimate } from '../../services/EstimateService';
+import { EstimateService, Estimate, EstimateItem } from '../../services/EstimateService';
+import { priceAt } from '../../utils/priceRange';
 import { supabase } from '../../lib/supabase';
 import { formatCurrency } from '../../utils/format';
 import { ProjectSelectionModal } from './ProjectSelectionModal';
@@ -36,7 +37,10 @@ export const EstimateDetail: React.FC = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   // Edit mode removed - cells are always editable
   const [showPricingSelector, setShowPricingSelector] = useState(false);
-  const [showPricingStrategy, setShowPricingStrategy] = useState(false);
+  // Item edits save in the background, one save at a time with the latest items.
+  const pendingItems = useRef<EstimateItem[] | null>(null);
+  const savingItems = useRef(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   
   // Tab state - Default to Line Items for immediate visibility (3-tab structure)
   const [activeTab, setActiveTab] = useState<'items' | 'overview' | 'contract'>('items');
@@ -315,53 +319,53 @@ export const EstimateDetail: React.FC = () => {
     }
   };
 
-  const handlePriceUpdate = async (itemId: string, newPrice: number) => {
+  const saveItems = async (estimateId: string) => {
+    if (savingItems.current) return;
+    savingItems.current = true;
+    try {
+      while (pendingItems.current) {
+        const items = pendingItems.current;
+        pendingItems.current = null;
+        await EstimateService.update(estimateId, { items });
+      }
+      setSaveError(null);
+    } catch (error) {
+      console.error('Error saving estimate items:', error);
+      setSaveError("Couldn't save your last change. It will be saved with your next edit.");
+    } finally {
+      savingItems.current = false;
+    }
+  };
+
+  /**
+   * The one way items change on this page: keeps prices at or above each
+   * item's red line, recalculates totals, shows the result and saves it.
+   */
+  const commitItems = (items: EstimateItem[]) => {
     if (!estimate) return;
-    
-    const updatedItems = estimate.items.map(item => 
-      item.id === itemId 
-        ? { ...item, price: newPrice, total: newPrice * (item.quantity || 1) }
-        : item
-    );
-    
-    const newTotal = updatedItems.reduce((sum, item) => sum + item.total, 0);
-    
+    const nextItems = items.map(item => {
+      const unitPrice = Math.max(Number(item.unit_price) || 0, item.red_line_price ?? 0);
+      return { ...item, unit_price: unitPrice, total_price: unitPrice * (Number(item.quantity) || 0) };
+    });
+    const subtotal = nextItems.reduce((sum, item) => sum + item.total_price, 0);
+    const taxAmount = estimate.tax_rate ? (subtotal * estimate.tax_rate / 100) : 0;
     setEstimate({
       ...estimate,
-      items: updatedItems,
-      total_amount: newTotal
+      items: nextItems,
+      subtotal,
+      tax_amount: taxAmount,
+      total_amount: subtotal + taxAmount
     });
+    pendingItems.current = nextItems;
+    saveItems(estimate.id!);
   };
 
   const handleBulkPriceAdjust = (position: number) => {
     if (!estimate) return;
-    
-    const updatedItems = estimate.items.map(item => {
-      // Always use the stored cap and redline prices
-      const capPrice = item.cap_price || item.original_unit_price || item.unit_price;
-      const redlinePrice = item.red_line_price || (item.original_unit_price || item.unit_price) * 0.7;
-      
-      // Calculate new price based on position between redline and cap
-      const newPrice = redlinePrice + (capPrice - redlinePrice) * position;
-      
-      return {
-        ...item,
-        unit_price: newPrice,
-        total_price: newPrice * (item.quantity || 1)
-      };
-    });
-    
-    const newSubtotal = updatedItems.reduce((sum, item) => sum + item.total_price, 0);
-    const newTaxAmount = estimate.tax_rate ? (newSubtotal * estimate.tax_rate / 100) : 0;
-    const newTotal = newSubtotal + newTaxAmount;
-    
-    setEstimate({
-      ...estimate,
-      items: updatedItems,
-      subtotal: newSubtotal,
-      tax_amount: newTaxAmount,
-      total_amount: newTotal
-    });
+    commitItems(estimate.items.map(item => ({
+      ...item,
+      unit_price: priceAt({ redLine: item.red_line_price ?? 0, cap: item.cap_price ?? item.unit_price }, position)
+    })));
   };
 
   // Calculate margin position for indicator
@@ -910,52 +914,17 @@ export const EstimateDetail: React.FC = () => {
             total: item.total_price
           })) || []}
           onUpdateItem={(itemId, field, value) => {
-            const newItems = estimate.items?.map(item => {
+            commitItems(estimate.items.map(item => {
               if (item.id !== itemId) return item;
-              
-              const updatedItem = { ...item };
-              
-              if (field === 'name') {
-                updatedItem.description = value;
-              } else if (field === 'quantity') {
-                updatedItem.quantity = value;
-                updatedItem.total_price = value * updatedItem.unit_price;
-              } else if (field === 'price') {
-                updatedItem.unit_price = value;
-                updatedItem.total_price = updatedItem.quantity * value;
-              }
-              
-              return updatedItem;
-            }) || [];
-            
-            // Recalculate totals
-            const newSubtotal = newItems.reduce((sum, item) => sum + item.total_price, 0);
-            const newTaxAmount = estimate.tax_rate ? (newSubtotal * estimate.tax_rate / 100) : 0;
-            const newTotal = newSubtotal + newTaxAmount;
-            
-            setEstimate({ 
-              ...estimate, 
-              items: newItems,
-              subtotal: newSubtotal,
-              tax_amount: newTaxAmount,
-              total_amount: newTotal
-            });
+              if (field === 'name') return { ...item, description: value };
+              if (field === 'quantity') return { ...item, quantity: value };
+              if (field === 'price') return { ...item, unit_price: value };
+              return item;
+            }));
           }}
           onAddItem={() => setShowPricingSelector(true)}
           onRemoveItem={(itemId) => {
-            const newItems = estimate.items?.filter(item => item.id !== itemId) || [];
-            // Recalculate totals
-            const newSubtotal = newItems.reduce((sum, item) => sum + item.total_price, 0);
-            const newTaxAmount = estimate.tax_rate ? (newSubtotal * estimate.tax_rate / 100) : 0;
-            const newTotal = newSubtotal + newTaxAmount;
-            
-            setEstimate({ 
-              ...estimate, 
-              items: newItems,
-              subtotal: newSubtotal,
-              tax_amount: newTaxAmount,
-              total_amount: newTotal
-            });
+            commitItems(estimate.items.filter(item => item.id !== itemId));
           }}
           isEditable={true}
           subtotal={estimate.subtotal}
@@ -1493,27 +1462,30 @@ export const EstimateDetail: React.FC = () => {
         </div>
       )}
 
+      {/* Save problems float over the page so nothing shifts */}
+      {saveError && (
+        <div role="alert" className="fixed top-4 left-1/2 -translate-x-1/2 z-[120] bg-[#1D1F25] border border-red-500/60 px-4 py-2 text-sm text-red-300 shadow-lg">
+          {saveError}
+        </div>
+      )}
+
       {/* Contextual Pricing Selector for adding items in edit mode */}
       {showPricingSelector && selectedOrg && (
         <ContextualPricingSelector
           isOpen={showPricingSelector}
           onClose={() => setShowPricingSelector(false)}
           onAddItems={(items) => {
-            // Add new items to estimate
-            const newEstimateItems = items.map(item => ({
+            const newEstimateItems: EstimateItem[] = items.map(item => ({
               id: `new-${Date.now()}-${Math.random()}`,
               product_id: item.lineItemId,
               description: item.name,
               quantity: item.quantity,
               unit_price: item.price,
               total_price: item.price * item.quantity,
-              unit: item.unit
+              red_line_price: item.red_line_price,
+              cap_price: item.cap_price
             }));
-            
-            setEstimate({
-              ...estimate,
-              items: [...(estimate?.items || []), ...newEstimateItems]
-            });
+            commitItems([...(estimate?.items || []), ...newEstimateItems]);
             setShowPricingSelector(false);
           }}
           organizationId={selectedOrg.id}
@@ -1525,26 +1497,6 @@ export const EstimateDetail: React.FC = () => {
         />
       )}
 
-      {/* Pricing Strategy Modal */}
-      {showPricingStrategy && estimate && (
-        <PricingStrategyModal
-          isOpen={showPricingStrategy}
-          onClose={() => setShowPricingStrategy(false)}
-          items={estimate.items.map(item => ({
-            id: item.id,
-            name: item.name,
-            capPrice: item.cap_price || item.price,
-            currentPrice: item.price,
-            redlinePrice: item.red_line_price || item.price * 0.7,
-            quantity: item.quantity || 1,
-            currentTotal: item.total,
-            capTotal: (item.cap_price || item.price) * (item.quantity || 1),
-            redlineTotal: (item.red_line_price || item.price * 0.7) * (item.quantity || 1)
-          }))}
-          onUpdatePrice={handlePriceUpdate}
-          onBulkAdjust={handleBulkPriceAdjust}
-        />
-      )}
 
       {/* Fixed Total Bar - Always visible at bottom of screen */}
       {activeTab === 'items' && estimate.items && estimate.items.length > 0 && totalBarBox && (
