@@ -59,6 +59,28 @@ body.marketing-page {
   color-scheme: dark;
 }
 
+/* Light mode. Component colors come from styles/light-theme.css. */
+html.light {
+  color-scheme: light;
+}
+
+html.light body {
+  background-color: #f4f5f7;
+  color: #111827;
+}
+
+html.light ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html.light ::-webkit-scrollbar-thumb {
+  background: #c9cdd3;
+}
+
+html.light * {
+  scrollbar-color: #c9cdd3 transparent;
+}
+
 /* Custom scrollbar for webkit browsers */
 ::-webkit-scrollbar {
   width: 8px;

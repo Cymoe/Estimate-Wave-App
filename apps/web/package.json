@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "node scripts/copy-docs.js && vite build",
+    "dev": "node scripts/build-light-theme.mjs && vite",
+    "build": "node scripts/copy-docs.js && node scripts/build-light-theme.mjs && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "seed": "tsx scripts/seed.ts",
@@ -14,7 +14,8 @@
     "convex:dev": "convex dev",
     "convex:deploy": "convex deploy",
     "convex:seed": "convex run seed:catalog",
-    "watch-docs": "node scripts/watch-docs.js"
+    "watch-docs": "node scripts/watch-docs.js",
+    "theme:light": "node scripts/build-light-theme.mjs"
   },
   "dependencies": {
     "@auth/core": "^0.41.3",

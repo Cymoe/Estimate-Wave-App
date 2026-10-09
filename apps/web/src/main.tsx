@@ -4,6 +4,7 @@ import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import App from "./App";
 import { convex } from "./lib/convex";
 import "./index.css";
+import "./styles/light-theme.css";
 
 const element = document.getElementById("root");
 if (!element) throw new Error("Root element not found");

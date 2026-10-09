@@ -7,9 +7,12 @@ import {
   HelpCircle,
   LogOut,
   Activity,
-  TrendingUp
+  TrendingUp,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface SidebarProps {
   isSidebarCollapsed: boolean;
@@ -61,6 +64,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navigate = useNavigate();
   const location = useLocation();
   const { user, signOut } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const profileDropdownRef = useRef<HTMLDivElement>(null);
   const profileButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -546,6 +550,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span className="font-['Roboto']">Help & Tutorials</span>
                 </button>
                 
+                <button
+                  onClick={() => {
+                    toggleTheme();
+                    setIsProfileMenuOpen(false);
+                  }}
+                  className="w-full flex items-center px-4 py-3 text-sm text-white hover:bg-[#3A3A3A] transition-colors duration-200"
+                >
+                  {theme === 'dark' ? <Sun className="w-4 h-4 mr-3 text-[#9E9E9E]" /> : <Moon className="w-4 h-4 mr-3 text-[#9E9E9E]" />}
+                  <span className="font-['Roboto']">{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
+                </button>
+
                 <div className="border-t border-[#404040]" />
                 
                 <button
