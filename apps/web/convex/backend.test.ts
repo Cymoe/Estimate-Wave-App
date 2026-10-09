@@ -459,6 +459,35 @@ describe("leads", () => {
     await expect(bob.as.mutation(api.leads.remove, { id: later!._id })).rejects.toThrow(/Not found/);
   });
 
+  test("importLeads adds leads to the user's organization once", async () => {
+    const t = setup();
+    const alice = await signUp(t, "alice@example.com");
+    const bob = await signUp(t, "bob@example.com");
+    const rows = [
+      { name: "Pat Lee", phone: "(555) 010-2000", status: "quoted", estimatedValue: 4200, createdAt: "2025-03-01T00:00:00.000Z" },
+      { name: "Sam Ortiz", email: "sam@example.com", status: "won", lostReason: "ignored" },
+      { name: "Pat Lee", phone: "555-010-2000" },
+    ];
+
+    const first = await t.mutation(internal.leads.importLeads, { email: "alice@example.com", leads: rows });
+    expect(first).toEqual({ inserted: 2, skipped: 1 });
+    const again = await t.mutation(internal.leads.importLeads, { email: "alice@example.com", leads: rows });
+    expect(again).toEqual({ inserted: 0, skipped: 3 });
+
+    const leads = await alice.as.query(api.leads.list, { organizationId: alice.organizationId });
+    expect(leads).toHaveLength(2);
+    expect(leads.find((lead) => lead.name === "Pat Lee")).toMatchObject({
+      status: "quoted",
+      estimatedValue: 4200,
+      createdAt: "2025-03-01T00:00:00.000Z",
+    });
+    expect(leads.find((lead) => lead.name === "Sam Ortiz")!.lostReason).toBeUndefined();
+    expect(await bob.as.query(api.leads.list, { organizationId: bob.organizationId })).toHaveLength(0);
+    await expect(
+      t.mutation(internal.leads.importLeads, { email: "nobody@example.com", leads: rows }),
+    ).rejects.toThrow(/No user/);
+  });
+
   test("lost keeps its reason only while lost", async () => {
     const t = setup();
     const { as, organizationId } = await signUp(t, "a@example.com");

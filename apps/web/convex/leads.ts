@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { fail, getOwned, logActivity, nowIso, pick, requireMember } from "./lib/access";
 import { assertLinksInOrg } from "./lib/documents";
 import { leadFields } from "./schema";
@@ -204,5 +204,59 @@ export const removeSamples = mutation({
     const samples = leads.filter((lead) => lead.isSample);
     for (const lead of samples) await ctx.db.delete(lead._id);
     return samples.length;
+  },
+});
+
+/** Same person: same name, plus the same phone or email when either has one. */
+function leadKey(lead: { name: string; phone?: string; email?: string }) {
+  const digits = (lead.phone ?? "").replace(/\D/g, "");
+  return [lead.name.trim().toLowerCase(), digits || (lead.email ?? "").trim().toLowerCase()].join("|");
+}
+
+/**
+ * Imports leads from another system into the organization of the user with
+ * this email. Rows already present are skipped, so it can be re-run.
+ *
+ *   npx convex run leads:importLeads '{"email":"you@example.com","leads":[...]}'
+ */
+export const importLeads = internalMutation({
+  args: { email: v.string(), leads: v.array(v.any()) },
+  handler: async (ctx, { email, leads }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", email))
+      .unique();
+    if (user === null) throw new Error(`No user with email ${email}`);
+    const membership = await ctx.db
+      .query("memberships")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .first();
+    if (membership === null) throw new Error(`${email} isn't in an organization`);
+    const { organizationId } = membership;
+
+    const existing = await ctx.db
+      .query("leads")
+      .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
+      .collect();
+    const seen = new Set(existing.map(leadKey));
+    let inserted = 0;
+    let skipped = 0;
+    for (const row of leads) {
+      const fields = pick(row, leadFields);
+      if (fields.name === undefined) fail("INVALID", "Lead name is required");
+      checkName(fields);
+      if (fields.status !== "lost") delete fields.lostReason;
+      const lead = { status: "new", ...fields, name: (fields.name as string).trim() } as Doc<"leads">;
+      const key = leadKey(lead);
+      if (seen.has(key)) {
+        skipped++;
+        continue;
+      }
+      seen.add(key);
+      const createdAt = typeof row.createdAt === "string" ? row.createdAt : nowIso();
+      await ctx.db.insert("leads", { ...lead, organizationId, userId: user._id, createdAt, updatedAt: createdAt });
+      inserted++;
+    }
+    return { inserted, skipped };
   },
 });
