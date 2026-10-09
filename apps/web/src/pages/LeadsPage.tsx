@@ -1,7 +1,7 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { CalendarClock, FileText, LayoutGrid, List, Pencil, Plus, Trash2, UserPlus, X } from 'lucide-react';
+import { CalendarClock, FileText, LayoutGrid, List, Mail, MapPin, Pencil, Phone, Plus, Trash2, UserPlus, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
 import { industriesAPI, leadsAPI } from '../lib/api';
@@ -213,6 +213,30 @@ const LeadCardDetails: React.FC<{ lead: Lead; onChange: (lead: Lead, data: Parti
 
   return (
     <div className="mt-2 space-y-2" onClick={stop}>
+      {(lead.phone || lead.email || lead.address) && (
+        <div className="space-y-1 text-xs">
+          {lead.phone && (
+            <a href={`tel:${lead.phone.replace(/[^\d+]/g, '')}`} className="flex items-center gap-2 text-[#7fb0e0] hover:text-white">
+              <Phone className="w-3.5 h-3.5 flex-shrink-0 text-gray-500" /> {lead.phone}
+            </a>
+          )}
+          {lead.email && (
+            <a href={`mailto:${lead.email}`} className="flex items-center gap-2 text-[#7fb0e0] hover:text-white min-w-0">
+              <Mail className="w-3.5 h-3.5 flex-shrink-0 text-gray-500" /> <span className="truncate">{lead.email}</span>
+            </a>
+          )}
+          {lead.address && (
+            <a
+              href={`https://maps.apple.com/?q=${encodeURIComponent(lead.address)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-2 text-[#7fb0e0] hover:text-white min-w-0"
+            >
+              <MapPin className="w-3.5 h-3.5 flex-shrink-0 text-gray-500" /> <span className="truncate">{lead.address}</span>
+            </a>
+          )}
+        </div>
+      )}
       {answers.length > 0 && (
         <ul className="list-disc pl-4 space-y-0.5 text-xs text-gray-300 bg-[#0A0A0A] border border-[#2a2a2a] py-2 pr-2">
           {answers.map((answer, index) => (
