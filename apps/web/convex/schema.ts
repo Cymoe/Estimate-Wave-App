@@ -47,9 +47,12 @@ export const projectStatus = v.union(
   v.literal("cancelled"),
 );
 
+// Pipeline stages, in order. "quoted" is shown as "Estimate Sent".
 export const leadStatus = v.union(
   v.literal("new"),
+  v.literal("no_answer"),
   v.literal("contacted"),
+  v.literal("scheduled"),
   v.literal("quoted"),
   v.literal("won"),
   v.literal("lost"),
@@ -208,6 +211,10 @@ export const leadFields = {
   source: v.optional(v.string()),
   estimatedValue: v.optional(v.number()),
   followUpDate: v.optional(v.string()),
+  // When the estimate visit is booked (ISO date and time).
+  appointmentAt: v.optional(v.string()),
+  // What the lead wrote on the request form, one answer per line.
+  formAnswers: v.optional(v.string()),
   notes: v.optional(v.string()),
   status: leadStatus,
   lostReason: v.optional(v.string()),

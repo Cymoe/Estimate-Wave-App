@@ -5,7 +5,7 @@ import { fail, getOwned, logActivity, nowIso, pick, requireMember } from "./lib/
 import { assertLinksInOrg } from "./lib/documents";
 import { leadFields } from "./schema";
 
-const OPEN = new Set(["new", "contacted", "quoted"]);
+const OPEN = new Set(["new", "no_answer", "contacted", "scheduled", "quoted"]);
 
 function checkName(fields: Record<string, unknown>) {
   if ("name" in fields && (typeof fields.name !== "string" || fields.name.trim() === "")) {
@@ -215,13 +215,14 @@ function leadKey(lead: { name: string; phone?: string; email?: string }) {
 
 /**
  * Imports leads from another system into the organization of the user with
- * this email. Rows already present are skipped, so it can be re-run.
+ * this email. Rows already present are skipped, or with updateExisting their
+ * imported fields are refreshed, so it can be re-run.
  *
  *   npx convex run leads:importLeads '{"email":"you@example.com","leads":[...]}'
  */
 export const importLeads = internalMutation({
-  args: { email: v.string(), leads: v.array(v.any()) },
-  handler: async (ctx, { email, leads }) => {
+  args: { email: v.string(), leads: v.array(v.any()), updateExisting: v.optional(v.boolean()) },
+  handler: async (ctx, { email, leads, updateExisting }) => {
     const user = await ctx.db
       .query("users")
       .withIndex("email", (q) => q.eq("email", email))
@@ -238,8 +239,9 @@ export const importLeads = internalMutation({
       .query("leads")
       .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
       .collect();
-    const seen = new Set(existing.map(leadKey));
+    const seen = new Map(existing.map((lead) => [leadKey(lead), lead._id]));
     let inserted = 0;
+    let updated = 0;
     let skipped = 0;
     for (const row of leads) {
       const fields = pick(row, leadFields);
@@ -248,15 +250,20 @@ export const importLeads = internalMutation({
       if (fields.status !== "lost") delete fields.lostReason;
       const lead = { status: "new", ...fields, name: (fields.name as string).trim() } as Doc<"leads">;
       const key = leadKey(lead);
-      if (seen.has(key)) {
-        skipped++;
+      const match = seen.get(key);
+      if (match !== undefined) {
+        if (updateExisting) {
+          await ctx.db.patch(match, { ...lead, updatedAt: nowIso() });
+          updated++;
+        } else {
+          skipped++;
+        }
         continue;
       }
-      seen.add(key);
       const createdAt = typeof row.createdAt === "string" ? row.createdAt : nowIso();
-      await ctx.db.insert("leads", { ...lead, organizationId, userId: user._id, createdAt, updatedAt: createdAt });
+      seen.set(key, await ctx.db.insert("leads", { ...lead, organizationId, userId: user._id, createdAt, updatedAt: createdAt }));
       inserted++;
     }
-    return { inserted, skipped };
+    return { inserted, updated, skipped };
   },
 });

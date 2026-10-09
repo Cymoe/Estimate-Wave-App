@@ -470,9 +470,15 @@ describe("leads", () => {
     ];
 
     const first = await t.mutation(internal.leads.importLeads, { email: "alice@example.com", leads: rows });
-    expect(first).toEqual({ inserted: 2, skipped: 1 });
+    expect(first).toEqual({ inserted: 2, updated: 0, skipped: 1 });
     const again = await t.mutation(internal.leads.importLeads, { email: "alice@example.com", leads: rows });
-    expect(again).toEqual({ inserted: 0, skipped: 3 });
+    expect(again).toEqual({ inserted: 0, updated: 0, skipped: 3 });
+    const refreshed = await t.mutation(internal.leads.importLeads, {
+      email: "alice@example.com",
+      leads: [{ name: "Sam Ortiz", email: "sam@example.com", status: "scheduled", appointmentAt: "2026-10-08T19:00:00.000Z" }],
+      updateExisting: true,
+    });
+    expect(refreshed).toEqual({ inserted: 0, updated: 1, skipped: 0 });
 
     const leads = await alice.as.query(api.leads.list, { organizationId: alice.organizationId });
     expect(leads).toHaveLength(2);
@@ -481,7 +487,10 @@ describe("leads", () => {
       estimatedValue: 4200,
       createdAt: "2025-03-01T00:00:00.000Z",
     });
-    expect(leads.find((lead) => lead.name === "Sam Ortiz")!.lostReason).toBeUndefined();
+    expect(leads.find((lead) => lead.name === "Sam Ortiz")).toMatchObject({
+      status: "scheduled",
+      appointmentAt: "2026-10-08T19:00:00.000Z",
+    });
     expect(await bob.as.query(api.leads.list, { organizationId: bob.organizationId })).toHaveLength(0);
     await expect(
       t.mutation(internal.leads.importLeads, { email: "nobody@example.com", leads: rows }),

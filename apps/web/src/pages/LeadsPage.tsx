@@ -1,7 +1,7 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { FileText, LayoutGrid, List, Pencil, Plus, Trash2, UserPlus, X } from 'lucide-react';
+import { CalendarClock, FileText, LayoutGrid, List, Pencil, Plus, Trash2, UserPlus, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
 import { industriesAPI, leadsAPI } from '../lib/api';
@@ -9,7 +9,7 @@ import { EstimateService } from '../services/EstimateService';
 import { useAuth } from '../contexts/AuthContext';
 import { formatCurrency } from '../utils/format';
 
-type LeadStatus = 'new' | 'contacted' | 'quoted' | 'won' | 'lost';
+type LeadStatus = 'new' | 'no_answer' | 'contacted' | 'scheduled' | 'quoted' | 'won' | 'lost';
 
 interface Lead {
   id: string;
@@ -21,6 +21,8 @@ interface Lead {
   source?: string;
   estimatedValue?: number;
   followUpDate?: string;
+  appointmentAt?: string;
+  formAnswers?: string;
   notes?: string;
   status: LeadStatus;
   lostReason?: string;
@@ -36,14 +38,28 @@ interface Trade {
 
 const STATUSES: { value: LeadStatus; label: string; color: string }[] = [
   { value: 'new', label: 'New', color: 'text-sky-300' },
+  { value: 'no_answer', label: 'No Answer', color: 'text-rose-300' },
   { value: 'contacted', label: 'Contacted', color: 'text-amber-300' },
-  { value: 'quoted', label: 'Quoted', color: 'text-violet-300' },
+  { value: 'scheduled', label: 'Estimate Scheduled', color: 'text-orange-300' },
+  { value: 'quoted', label: 'Estimate Sent', color: 'text-violet-300' },
   { value: 'won', label: 'Won', color: 'text-emerald-300' },
   { value: 'lost', label: 'Lost', color: 'text-gray-500' },
 ];
-const OPEN: LeadStatus[] = ['new', 'contacted', 'quoted'];
+const OPEN: LeadStatus[] = ['new', 'no_answer', 'contacted', 'scheduled', 'quoted'];
 const leadValue = (lead: Lead) => lead.estimate?.totalAmount ?? lead.estimatedValue ?? 0;
 const VIEW_KEY = 'leadsView';
+
+/** ISO time to the value a datetime-local input wants, in local time. */
+const toLocalInput = (iso?: string) => {
+  if (!iso) return '';
+  const date = new Date(iso);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+};
+const fromLocalInput = (value: string) => (value ? new Date(value).toISOString() : null);
+const formatAppointment = (iso: string) =>
+  new Date(iso).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+/** The local calendar date of an appointment, for the follow-up date. */
+const appointmentDay = (value: string) => value.slice(0, 10);
 
 const SOURCES = ['Referral', 'Google', 'Facebook', 'Website', 'Yard sign', 'Repeat customer', 'Other'];
 
@@ -66,6 +82,8 @@ const LeadForm: React.FC<{
     source: lead?.source ?? '',
     estimatedValue: lead?.estimatedValue?.toString() ?? '',
     followUpDate: lead?.followUpDate ?? '',
+    appointmentAt: toLocalInput(lead?.appointmentAt),
+    formAnswers: lead?.formAnswers ?? '',
     notes: lead?.notes ?? '',
   });
   const [error, setError] = useState<string | null>(null);
@@ -81,6 +99,7 @@ const LeadForm: React.FC<{
     const data: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(form)) data[key] = value.trim() === '' ? null : value.trim();
     data.estimatedValue = form.estimatedValue === '' ? null : Number(form.estimatedValue);
+    data.appointmentAt = fromLocalInput(form.appointmentAt);
     try {
       if (lead) await leadsAPI.update(lead.id, data);
       else await leadsAPI.create(organizationId, data);
@@ -140,7 +159,18 @@ const LeadForm: React.FC<{
               <input className={inputClass} type="date" value={form.followUpDate} onChange={set('followUpDate')} />
             </label>
           </div>
-          <textarea className={inputClass} rows={4} placeholder="Notes: what they need, best time to call…" value={form.notes} onChange={set('notes')} />
+          <label className="block text-xs text-gray-400 space-y-1">
+            <span>Estimate appointment</span>
+            <input className={inputClass} type="datetime-local" value={form.appointmentAt} onChange={set('appointmentAt')} />
+          </label>
+          <label className="block text-xs text-gray-400 space-y-1">
+            <span>Form answers</span>
+            <textarea className={inputClass} rows={3} placeholder="What they asked for on the request form" value={form.formAnswers} onChange={set('formAnswers')} />
+          </label>
+          <label className="block text-xs text-gray-400 space-y-1">
+            <span>My notes</span>
+            <textarea className={inputClass} rows={4} placeholder="Called, left VM, best time to call…" value={form.notes} onChange={set('notes')} />
+          </label>
         </div>
         <div className="px-6 py-4 border-t border-[#333333] flex justify-end gap-2">
           <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-300 hover:text-white">Cancel</button>
@@ -151,6 +181,89 @@ const LeadForm: React.FC<{
       </form>
     </div>,
     document.body,
+  );
+};
+
+/**
+ * The working part of a board card: what they asked for, the booked
+ * appointment, your notes and a box to add a note without opening the lead.
+ */
+const LeadCardDetails: React.FC<{ lead: Lead; onChange: (lead: Lead, data: Partial<Lead>) => void }> = ({ lead, onChange }) => {
+  const [note, setNote] = useState('');
+  const [pickingTime, setPickingTime] = useState(false);
+  const answers = (lead.formAnswers ?? '').split('\n').map((line) => line.trim()).filter(Boolean);
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+
+  const addNote = () => {
+    const text = note.trim();
+    if (!text) return;
+    const stamp = new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    onChange(lead, { notes: [`${stamp}: ${text}`, lead.notes].filter(Boolean).join('\n') });
+    setNote('');
+  };
+
+  const setAppointment = (value: string) => {
+    setPickingTime(false);
+    const appointmentAt = fromLocalInput(value);
+    onChange(lead, {
+      appointmentAt: appointmentAt ?? undefined,
+      ...(appointmentAt ? { followUpDate: appointmentDay(value) } : {}),
+    });
+  };
+
+  return (
+    <div className="mt-2 space-y-2" onClick={stop}>
+      {answers.length > 0 && (
+        <ul className="list-disc pl-4 space-y-0.5 text-xs text-gray-300 bg-[#0A0A0A] border border-[#2a2a2a] py-2 pr-2">
+          {answers.map((answer, index) => (
+            <li key={index}>{answer}</li>
+          ))}
+        </ul>
+      )}
+      {pickingTime ? (
+        <input
+          type="datetime-local"
+          autoFocus
+          defaultValue={toLocalInput(lead.appointmentAt)}
+          onBlur={(e) => setAppointment(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') setAppointment(e.currentTarget.value);
+            if (e.key === 'Escape') setPickingTime(false);
+          }}
+          className="w-full bg-[#0A0A0A] border border-[#336699] px-2 py-1.5 text-xs text-white"
+          aria-label="Appointment"
+        />
+      ) : lead.appointmentAt ? (
+        <button
+          onClick={() => setPickingTime(true)}
+          className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-white border border-[#336699]/60 bg-[#336699]/10 text-left"
+        >
+          <CalendarClock className="w-3.5 h-3.5 text-[#7fb0e0]" /> {formatAppointment(lead.appointmentAt)}
+        </button>
+      ) : (
+        <button
+          onClick={() => setPickingTime(true)}
+          className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-gray-400 border border-dashed border-[#333333] hover:text-white text-left"
+        >
+          <CalendarClock className="w-3.5 h-3.5" /> Set appointment
+        </button>
+      )}
+      {lead.notes && (
+        <p className="text-xs text-gray-300 whitespace-pre-line line-clamp-4 border border-[#2a2a2a] px-2 py-1.5">{lead.notes}</p>
+      )}
+      <input
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') addNote();
+        }}
+        onBlur={addNote}
+        draggable
+        onDragStart={(e) => e.preventDefault()}
+        placeholder="+ Add a note (called, left VM…)"
+        className="w-full bg-[#0A0A0A] border border-[#333333] px-2 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
+      />
+    </div>
   );
 };
 
@@ -229,6 +342,16 @@ const LeadsPage: React.FC = () => {
       alert(err instanceof Error ? err.message : 'Could not change the status');
     }
     load();
+  };
+
+  const saveLead = async (lead: Lead, data: Partial<Lead>) => {
+    setLeads((rows) => rows.map((row) => (row.id === lead.id ? { ...row, ...data } : row)));
+    try {
+      await leadsAPI.update(lead.id, { ...data, ...('appointmentAt' in data ? { appointmentAt: data.appointmentAt ?? null } : {}) });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not save the lead');
+      load();
+    }
   };
 
   const addSamples = async () => {
@@ -375,7 +498,7 @@ const LeadsPage: React.FC = () => {
                     const lead = leads.find((row) => row.id === e.dataTransfer.getData('text/plain'));
                     if (lead && lead.status !== column.value) changeStatus(lead, column.value);
                   }}
-                  className={`flex-shrink-0 w-64 flex flex-col border ${
+                  className={`flex-shrink-0 w-72 flex flex-col border ${
                     dragOver === column.value ? 'border-[#336699] bg-[#336699]/10' : 'border-[#333333] bg-[#121316]'
                   }`}
                 >
@@ -409,7 +532,7 @@ const LeadsPage: React.FC = () => {
                           {lead.jobType && <div className="text-xs text-gray-400 mt-0.5">{tradeName.get(lead.jobType) ?? lead.jobType}</div>}
                           <div className="flex items-center justify-between mt-2 text-xs">
                             <span className="text-white">{leadValue(lead) ? formatCurrency(leadValue(lead)) : '—'}</span>
-                            {lead.followUpDate && OPEN.includes(lead.status) && (
+                            {lead.followUpDate && !lead.appointmentAt && OPEN.includes(lead.status) && (
                               <span className={overdue ? 'text-red-400' : 'text-gray-400'}>
                                 {overdue ? 'Overdue ' : ''}
                                 {new Date(`${lead.followUpDate}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
@@ -419,6 +542,7 @@ const LeadsPage: React.FC = () => {
                           {lead.status === 'lost' && lead.lostReason && (
                             <div className="text-xs text-gray-500 mt-1">{lead.lostReason}</div>
                           )}
+                          <LeadCardDetails lead={lead} onChange={saveLead} />
                           <div className="flex items-center justify-between gap-2 mt-2">
                             {lead.estimate ? (
                               <button
@@ -443,12 +567,12 @@ const LeadsPage: React.FC = () => {
                             ) : (
                               <span />
                             )}
-                            {/* Touch screens can't drag, so the stage can also be picked here. */}
+                            {/* Touch screens can't drag, so the stage is also picked here. */}
                             <select
                               value={lead.status}
                               onClick={(e) => e.stopPropagation()}
                               onChange={(e) => changeStatus(lead, e.target.value as LeadStatus)}
-                              className="md:hidden bg-[#0A0A0A] border border-[#333333] text-xs px-1 py-0.5"
+                              className="bg-[#0A0A0A] border border-[#333333] text-xs px-1 py-0.5"
                               aria-label="Status"
                             >
                               {STATUSES.map((status) => (
@@ -482,8 +606,10 @@ const LeadsPage: React.FC = () => {
                     </div>
                     {lead.status === 'lost' && lead.lostReason && <div className="text-xs text-gray-500">Lost: {lead.lostReason}</div>}
                   </div>
-                  <div className="text-sm md:w-32">
-                    {lead.followUpDate ? (
+                  <div className="text-sm md:w-44">
+                    {lead.appointmentAt ? (
+                      <span className="text-gray-300">{formatAppointment(lead.appointmentAt)}</span>
+                    ) : lead.followUpDate ? (
                       <span className={overdue ? 'text-red-400' : 'text-gray-300'}>
                         {overdue ? 'Overdue ' : 'Follow up '}
                         {new Date(`${lead.followUpDate}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
