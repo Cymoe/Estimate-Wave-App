@@ -1205,14 +1205,24 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                 <h3 className="text-sm font-medium text-gray-300">
                   Estimate Items ({selectedItems.length})
                 </h3>
-                {selectedItems.length > 0 && (
+                <div className="flex items-center gap-4">
+                  {selectedItems.length > 0 && (
+                    <button
+                      onClick={() => setSelectedItems([])}
+                      className="text-xs text-gray-400 hover:text-white"
+                    >
+                      Clear All
+                    </button>
+                  )}
                   <button
-                    onClick={() => setSelectedItems([])}
-                    className="text-xs text-gray-400 hover:text-white"
+                    onClick={handleSave}
+                    disabled={selectedItems.length === 0 || isSaving}
+                    className="px-4 py-2 bg-[#336699] text-white rounded-[4px] hover:bg-[#2A5580] transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm flex items-center gap-2 whitespace-nowrap"
                   >
-                    Clear All
+                    <Save className="w-3 h-3" />
+                    {isSaving ? (editingEstimate ? 'Updating...' : 'Creating...') : (editingEstimate ? 'Update Estimate' : 'Create Estimate')}
                   </button>
-                )}
+                </div>
               </div>
               
               {/* Scrollable items container */}
@@ -1355,14 +1365,6 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                   <div className="font-mono text-lg font-bold text-white">{formatCurrency(calculateTotal())}</div>
                   <div className="text-xs text-gray-400">{selectedItems.length} items</div>
                 </div>
-                  <button
-                    onClick={handleSave}
-                    disabled={selectedItems.length === 0 || isSaving}
-                    className="px-4 py-2 bg-[#336699] text-white rounded-[4px] hover:bg-[#2A5580] transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm flex items-center gap-2 whitespace-nowrap"
-                  >
-                    <Save className="w-3 h-3" />
-                    {isSaving ? (editingEstimate ? 'Updating...' : 'Creating...') : (editingEstimate ? 'Update Estimate' : 'Create Estimate')}
-                  </button>
                 </div>
               </div>
             </div>
