@@ -919,56 +919,23 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        {/* Compact Header */}
-        <div className="bg-[#1E1E1E] border-b border-[#333333] px-4 py-3 flex-shrink-0">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={handleClose}
-                className="text-gray-400 hover:text-white transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-              <h1 className="text-lg font-semibold whitespace-nowrap">{editingEstimate ? 'Edit Estimate' : 'Create Estimate'}</h1>
-            </div>
-            {/* Client picker sits in the header so the items get the full height */}
-            <div className="flex-1 min-w-0 max-w-xl mx-4 flex">
-              <ClientSelector
-                clients={clients.map(client => ({
-                  id: client.id,
-                  name: client.name,
-                  company_name: client.company_name || client.name,
-                  email: client.email,
-                  phone: client.phone,
-                  address: client.address,
-                  discount_percentage: client.discount_percentage
-                }))}
-                value={selectedClient}
-                onChange={setSelectedClient}
-                onAddNewClient={() => setShowNewClientModal(true)}
-                onClientCreated={(newClient) => {
-                  setClients(prev => [...prev, newClient]);
-                }}
-                placeholder="Select a client..."
-                className="flex-1 min-w-0"
-                compact
-              />
-            </div>
-            <button
-              onClick={handleSave}
-              disabled={selectedItems.length === 0 || isSaving}
-              className="px-4 py-1.5 bg-[#336699] text-white rounded-[4px] hover:bg-[#2A5580] transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm flex items-center gap-2"
-            >
-              <Save className="w-3 h-3" />
-              {isSaving ? (editingEstimate ? 'Updating...' : 'Creating...') : (editingEstimate ? 'Update Estimate' : 'Create Estimate')}
-            </button>
-          </div>
-        </div>
-
         {/* Main Content */}
         <div className="flex flex-1 min-h-0">
           {/* Left Column - Items Selection (40% width) */}
           <div className="w-[40%] border-r border-[#333333] flex flex-col">
+            {/* No title bar: close sits here so the items start at the very top */}
+            <div className="flex items-center gap-2 px-4 pt-3 flex-shrink-0">
+              <button
+                onClick={handleClose}
+                className="p-1 -ml-1 text-gray-400 hover:text-white transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+              <span className="text-xs uppercase tracking-wide text-gray-500">
+                {editingEstimate ? 'Edit estimate' : 'New estimate'}
+              </span>
+            </div>
             {/* Source Type Selection */}
             {!sourceType && !editingEstimate && (
               <div className="p-4 border-b border-[#333333]">
@@ -1338,13 +1305,36 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
 
             {/* Total Summary - Compact and fixed at bottom */}
             <div className="border-t border-[#333333] px-4 py-3 bg-[#1E1E1E] flex-shrink-0">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4 text-xs text-gray-400">
-                  <span>Valid for {validityDays} days</span>
-                  {validUntil && (
-                    <span>Until {new Date(validUntil).toLocaleDateString()}</span>
-                  )}
+              <div className="flex items-end justify-between gap-4">
+                <div className="flex-1 min-w-0 max-w-md space-y-1.5">
+                <ClientSelector
+                  clients={clients.map(client => ({
+                    id: client.id,
+                    name: client.name,
+                    company_name: client.company_name || client.name,
+                    email: client.email,
+                    phone: client.phone,
+                    address: client.address,
+                    discount_percentage: client.discount_percentage
+                  }))}
+                  value={selectedClient}
+                  onChange={setSelectedClient}
+                  onAddNewClient={() => setShowNewClientModal(true)}
+                  onClientCreated={(newClient) => {
+                    setClients(prev => [...prev, newClient]);
+                  }}
+                  placeholder="Select a client..."
+                  className="w-full"
+                  compact
+                />
+                  <div className="flex items-center gap-4 text-xs text-gray-400">
+                    <span>Valid for {validityDays} days</span>
+                    {validUntil && (
+                      <span>Until {new Date(validUntil).toLocaleDateString()}</span>
+                    )}
+                  </div>
                 </div>
+                <div className="flex items-end gap-4">
                 <div className="text-right">
                   {/* Show subtotal and discounts if applicable */}
                   {(getClientDiscount() > 0 || additionalDiscount > 0) && (
@@ -1377,6 +1367,15 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                   )}
                   <div className="font-mono text-lg font-bold text-white">{formatCurrency(calculateTotal())}</div>
                   <div className="text-xs text-gray-400">{selectedItems.length} items</div>
+                </div>
+                  <button
+                    onClick={handleSave}
+                    disabled={selectedItems.length === 0 || isSaving}
+                    className="px-4 py-2 bg-[#336699] text-white rounded-[4px] hover:bg-[#2A5580] transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm flex items-center gap-2 whitespace-nowrap"
+                  >
+                    <Save className="w-3 h-3" />
+                    {isSaving ? (editingEstimate ? 'Updating...' : 'Creating...') : (editingEstimate ? 'Update Estimate' : 'Create Estimate')}
+                  </button>
                 </div>
               </div>
             </div>
