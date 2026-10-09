@@ -28,6 +28,8 @@ interface AirtableEstimateViewProps {
   capTotal?: number;
   redlineTotal?: number;
   showStickyFooter?: boolean;
+  /** Opens a pricing editor for the item instead of editing the price inline. */
+  onEditPrice?: (itemId: string) => void;
 }
 
 interface EditingCell {
@@ -48,7 +50,8 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
   marginIndicator,
   capTotal = 0,
   redlineTotal = 0,
-  showStickyFooter = true
+  showStickyFooter = true,
+  onEditPrice
 }) => {
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
@@ -99,7 +102,7 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
       // Move to next cell on Tab
       if (e.key === 'Tab' && editingCell) {
         const currentIndex = items.findIndex(item => item.id === editingCell.itemId);
-        const fields: (keyof AirtableItem)[] = ['quantity', 'price']; // name removed - not editable
+        const fields: (keyof AirtableItem)[] = onEditPrice ? ['quantity'] : ['quantity', 'price']; // name isn't editable
         const fieldIndex = fields.indexOf(editingCell.field);
         
         let nextField = fields[(fieldIndex + 1) % fields.length];
@@ -180,7 +183,7 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
               {/* Price Cell */}
               <td 
                 className="py-1.5 px-3 text-right text-white text-[13px] font-normal cursor-pointer border-r border-[#3c3d51]"
-                onClick={() => handleCellClick(item.id, 'price', item.price)}
+                onClick={() => onEditPrice ? onEditPrice(item.id) : handleCellClick(item.id, 'price', item.price)}
               >
                 {editingCell?.itemId === item.id && editingCell?.field === 'price' ? (
                   <input

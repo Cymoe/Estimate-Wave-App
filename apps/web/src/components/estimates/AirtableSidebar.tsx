@@ -1,11 +1,6 @@
 import React, { useState } from 'react';
 import { formatCurrency } from '../../utils/format';
-
-interface View {
-  id: string;
-  name: string;
-  position: number; // Price position: 0.0 (redline) to 1.0 (cap)
-}
+import { PRICING_OPTIONS } from '../../utils/priceRange';
 
 interface AirtableSidebarProps {
   onViewChange: (viewId: string, position: number) => void;
@@ -30,38 +25,7 @@ export const AirtableSidebar: React.FC<AirtableSidebarProps> = ({
     // Commission is simply Current Total - Redline Total
     return Math.max(0, currentTotal - redlineTotal);
   };
-  const views: View[] = [
-    { 
-      id: 'cap', 
-      name: 'CAP Price (100%)', 
-      position: 1.0 // CAP pricing (maximum)
-    },
-    { 
-      id: 'busy', 
-      name: 'Busy Season (60%)', 
-      position: 0.6 // Busy season pricing (+20% margin)
-    },
-    { 
-      id: 'competitive', 
-      name: 'Competitive (35%)', 
-      position: 0.35 // Competitive pricing
-    },
-    { 
-      id: 'slow', 
-      name: 'Slow Season (25%)', 
-      position: 0.25 // Slow season discount
-    },
-    { 
-      id: 'need', 
-      name: 'Need Job (10%)', 
-      position: 0.1 // Need this job (minimal margin)
-    },
-    { 
-      id: 'redline', 
-      name: 'Redline (0%)', 
-      position: 0.0 // Redline (sales rep makes $0)
-    }
-  ];
+  const views = PRICING_OPTIONS;
 
   // Highlight the option the current prices match (none after manual price edits).
   const currentPosition = capTotal > redlineTotal ? (itemsTotal - redlineTotal) / (capTotal - redlineTotal) : null;

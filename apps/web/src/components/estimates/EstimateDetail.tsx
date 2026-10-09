@@ -16,6 +16,7 @@ import { MapModal } from '../common/MapModal';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { AirtableEstimateView } from './AirtableEstimateView';
 import { AirtableSidebar } from './AirtableSidebar';
+import { ItemPricingDrawer } from './ItemPricingDrawer';
 import { ContextualPricingSelector } from './ContextualPricingSelector';
 import { DesignUpload } from './DesignUpload';
 
@@ -41,6 +42,8 @@ export const EstimateDetail: React.FC = () => {
   const pendingItems = useRef<EstimateItem[] | null>(null);
   const savingItems = useRef(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // The item whose price is being edited in the pricing drawer.
+  const [pricingItemId, setPricingItemId] = useState<string | null>(null);
   
   // Tab state - Default to Line Items for immediate visibility (3-tab structure)
   const [activeTab, setActiveTab] = useState<'items' | 'overview' | 'contract'>('items');
@@ -940,6 +943,7 @@ export const EstimateDetail: React.FC = () => {
             return sum + (redlinePrice * (item.quantity || 1));
           }, 0) || 0}
           showStickyFooter={false}
+          onEditPrice={setPricingItemId}
         />
             </div>
           </div>
@@ -1461,6 +1465,14 @@ export const EstimateDetail: React.FC = () => {
           </div>
         </div>
       )}
+
+      <ItemPricingDrawer
+        item={estimate.items?.find(item => item.id === pricingItemId) ?? null}
+        onClose={() => setPricingItemId(null)}
+        onSave={(changes) => {
+          commitItems(estimate.items.map(item => item.id === pricingItemId ? { ...item, ...changes } : item));
+        }}
+      />
 
       {/* Save problems float over the page so nothing shifts */}
       {saveError && (
