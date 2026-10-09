@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { ChevronDown, Users, FileText } from 'lucide-react';
 import { formatCurrency } from '../../utils/format';
 
 interface View {
@@ -70,17 +69,7 @@ export const AirtableSidebar: React.FC<AirtableSidebarProps> = ({
     <div className="w-[220px] bg-[#1d1f25] border-r border-[#3c3d51] flex flex-col h-screen">
       {/* Header */}
       <div className="px-3 py-2.5 border-b border-[#3c3d51]">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[13px] font-medium text-gray-300">Views</span>
-            <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
-          </div>
-          <button className="text-gray-500 hover:text-gray-300 transition-colors">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-          </button>
-        </div>
+        <span className="text-[13px] font-medium text-gray-300">Pricing</span>
       </div>
 
       {/* Views List */}
@@ -122,17 +111,6 @@ export const AirtableSidebar: React.FC<AirtableSidebarProps> = ({
         ))}
       </div>
 
-      {/* Bottom Actions */}
-      <div className="border-t border-[#3c3d51] p-3 space-y-2">
-        <button className="w-full px-3 py-1.5 text-[12px] text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-2">
-          <Users className="w-3.5 h-3.5" />
-          <span>Share view</span>
-        </button>
-        <button className="w-full px-3 py-1.5 text-[12px] text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-2">
-          <FileText className="w-3.5 h-3.5" />
-          <span>View settings</span>
-        </button>
-      </div>
     </div>
   );
 };
