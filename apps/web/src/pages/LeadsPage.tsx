@@ -1,7 +1,7 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { CalendarClock, FileText, LayoutGrid, List, Mail, MapPin, Pencil, Phone, Plus, Trash2, UserPlus, X } from 'lucide-react';
+import { CalendarClock, FileText, Mail, MapPin, Phone, Plus, Trash2, UserPlus, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
 import { industriesAPI, leadsAPI } from '../lib/api';
@@ -46,7 +46,6 @@ const STATUSES: { value: LeadStatus; label: string; color: string }[] = [
 ];
 const OPEN: LeadStatus[] = ['new', 'no_answer', 'contacted', 'scheduled', 'quoted'];
 const leadValue = (lead: Lead) => lead.estimate?.totalAmount ?? lead.estimatedValue ?? 0;
-const VIEW_KEY = 'leadsView';
 
 /** ISO time to the value a datetime-local input wants, in local time. */
 const toLocalInput = (iso?: string) => {
@@ -71,7 +70,8 @@ const LeadForm: React.FC<{
   trades: Trade[];
   onClose: () => void;
   onSaved: () => void;
-}> = ({ organizationId, lead, trades, onClose, onSaved }) => {
+  onDelete?: () => void;
+}> = ({ organizationId, lead, trades, onClose, onSaved, onDelete }) => {
   const [form, setForm] = useState({
     name: lead?.name ?? '',
     phone: lead?.phone ?? '',
@@ -166,7 +166,12 @@ const LeadForm: React.FC<{
             <textarea className={inputClass} rows={6} placeholder="Called, left VM, best time to call…" value={form.notes} onChange={set('notes')} />
           </label>
         </div>
-        <div className="px-6 py-4 border-t border-[#333333] flex justify-end gap-2">
+        <div className="px-6 py-4 border-t border-[#333333] flex items-center justify-end gap-2">
+          {lead && onDelete && (
+            <button type="button" onClick={onDelete} className="mr-auto inline-flex items-center gap-1.5 px-2 py-2 text-sm text-red-400 hover:text-red-300">
+              <Trash2 className="w-4 h-4" /> Delete lead
+            </button>
+          )}
           <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-300 hover:text-white">Cancel</button>
           <button type="submit" disabled={saving} className="px-4 py-2 text-sm text-white bg-[#336699] hover:bg-[#2a5580] disabled:opacity-50">
             {saving ? 'Saving…' : 'Save lead'}
@@ -281,26 +286,9 @@ const LeadsPage: React.FC = () => {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'open' | LeadStatus>('open');
   const [editing, setEditing] = useState<Lead | 'new' | null>(null);
   const [quoting, setQuoting] = useState<{ lead: Lead; clientId: string } | null>(null);
-  const [view, setView] = useState<'list' | 'board'>(() => {
-    try {
-      return localStorage.getItem(VIEW_KEY) === 'board' ? 'board' : 'list';
-    } catch {
-      return 'list';
-    }
-  });
   const [dragOver, setDragOver] = useState<LeadStatus | null>(null);
-
-  const chooseView = (next: 'list' | 'board') => {
-    setView(next);
-    try {
-      localStorage.setItem(VIEW_KEY, next);
-    } catch {
-      // Not remembered; the view still switches.
-    }
-  };
 
   const load = async () => {
     if (!organizationId) return;
@@ -321,19 +309,6 @@ const LeadsPage: React.FC = () => {
   }, [organizationId]);
 
   const tradeName = useMemo(() => new Map(trades.map((trade) => [trade.id, trade.name])), [trades]);
-
-  const tabs = useMemo(() => {
-    const summary = (match: (lead: Lead) => boolean) => {
-      const rows = leads.filter(match);
-      return { count: rows.length, value: rows.reduce((sum, lead) => sum + leadValue(lead), 0) };
-    };
-    return [
-      { key: 'open' as const, label: 'All open', ...summary((lead) => OPEN.includes(lead.status)) },
-      ...STATUSES.map((status) => ({ key: status.value, label: status.label, ...summary((lead) => lead.status === status.value) })),
-    ];
-  }, [leads]);
-
-  const shown = leads.filter((lead) => (filter === 'open' ? OPEN.includes(lead.status) : lead.status === filter));
 
   const changeStatus = async (lead: Lead, status: LeadStatus) => {
     let lostReason: string | null = null;
@@ -364,7 +339,6 @@ const LeadsPage: React.FC = () => {
     if (!organizationId) return;
     try {
       await leadsAPI.addSamples(organizationId);
-      setFilter('open');
       load();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Could not add sample leads');
@@ -382,6 +356,7 @@ const LeadsPage: React.FC = () => {
   const remove = async (lead: Lead) => {
     if (!window.confirm(`Delete the lead “${lead.name}”?`)) return;
     await leadsAPI.delete(lead.id);
+    setEditing(null);
     load();
   };
 
@@ -408,49 +383,6 @@ const LeadsPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white">
-      <div className="px-6 pt-5">
-        <div className="flex items-center justify-end gap-4">
-          <h1 className="sr-only">Leads</h1>
-          <div className="flex items-center gap-2">
-            <div className="flex border border-[#333333]" role="group" aria-label="View">
-              {([['list', List, 'List'], ['board', LayoutGrid, 'Board']] as const).map(([key, Icon, label]) => (
-                <button
-                  key={key}
-                  onClick={() => chooseView(key)}
-                  aria-pressed={view === key}
-                  className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm ${
-                    view === key ? 'bg-[#336699]/25 text-white' : 'text-gray-400 hover:text-white'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" /> {label}
-                </button>
-              ))}
-            </div>
-            <button onClick={() => setEditing('new')} className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-[#336699] hover:bg-[#2a5580]">
-              <Plus className="w-4 h-4" /> New lead
-            </button>
-          </div>
-        </div>
-        {view === 'list' && (
-        <div className="flex gap-1 mt-4 overflow-x-auto">
-          {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setFilter(tab.key)}
-              className={`px-3 py-2 text-left border whitespace-nowrap ${
-                filter === tab.key ? 'border-[#336699] bg-[#336699]/15' : 'border-[#333333] hover:bg-[#1E1E1E]'
-              }`}
-            >
-              <span className="block text-xs text-gray-400">{tab.label}</span>
-              <span className="block text-sm">
-                {tab.count} <span className="text-gray-500">· {formatCurrency(tab.value)}</span>
-              </span>
-            </button>
-          ))}
-        </div>
-        )}
-      </div>
-
       <div className="p-6">
         {hasSamples && (
           <div className="mb-4 px-4 py-3 border border-[#336699]/50 bg-[#336699]/10 text-sm flex items-center justify-between gap-3">
@@ -462,27 +394,23 @@ const LeadsPage: React.FC = () => {
         )}
         {loading ? (
           <p className="text-sm text-gray-500">Loading leads…</p>
-        ) : (view === 'board' ? leads.length === 0 : shown.length === 0) ? (
+        ) : leads.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 text-center">
             <UserPlus className="w-12 h-12 mb-4 text-gray-600" />
-            <h2 className="text-lg font-semibold mb-2">{leads.length === 0 ? 'No leads yet' : 'Nothing here'}</h2>
+            <h2 className="text-lg font-semibold mb-2">No leads yet</h2>
             <p className="text-sm text-gray-400 max-w-md mb-6">
-              {leads.length === 0
-                ? 'Log every call or message asking for a quote, then turn it into an estimate in one click.'
-                : 'No leads in this stage.'}
+              Log every call or message asking for a quote, then turn it into an estimate in one click.
             </p>
-            {leads.length === 0 && (
-              <div className="flex flex-wrap justify-center gap-2">
+            <div className="flex flex-wrap justify-center gap-2">
                 <button onClick={() => setEditing('new')} className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-[#336699] hover:bg-[#2a5580]">
                   <Plus className="w-4 h-4" /> Add your first lead
                 </button>
                 <button onClick={addSamples} className="px-4 py-2 text-sm border border-[#333333] text-gray-300 hover:bg-[#1E1E1E]">
                   Add sample leads
                 </button>
-              </div>
-            )}
+            </div>
           </div>
-        ) : view === 'board' ? (
+        ) : (
           <div className="flex gap-3 overflow-x-auto pb-2">
             {STATUSES.map((column) => {
               const cards = leads.filter((lead) => lead.status === column.value);
@@ -595,75 +523,6 @@ const LeadsPage: React.FC = () => {
               );
             })}
           </div>
-        ) : (
-          <div className="border border-[#333333] divide-y divide-[#2a2a2a]">
-            {shown.map((lead) => {
-              const overdue = !!lead.followUpDate && lead.followUpDate < todayIso && OPEN.includes(lead.status);
-              return (
-                <div key={lead.id} className="bg-[#121212] px-4 py-3 flex flex-col md:flex-row md:items-center gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium truncate">{lead.name}</span>
-                      {lead.isSample && <span className="text-[10px] uppercase tracking-wide text-gray-500 border border-[#333333] px-1">Sample</span>}
-                      {lead.jobType && <span className="text-xs text-gray-400">· {tradeName.get(lead.jobType) ?? lead.jobType}</span>}
-                    </div>
-                    <div className="text-xs text-gray-500 truncate">
-                      {[lead.phone, lead.email, lead.source && `via ${lead.source}`].filter(Boolean).join(' · ') || 'No contact details'}
-                    </div>
-                    {lead.status === 'lost' && lead.lostReason && <div className="text-xs text-gray-500">Lost: {lead.lostReason}</div>}
-                  </div>
-                  <div className="text-sm md:w-44">
-                    {lead.appointmentAt ? (
-                      <span className="text-gray-300">{formatAppointment(lead.appointmentAt)}</span>
-                    ) : lead.followUpDate ? (
-                      <span className={overdue ? 'text-red-400' : 'text-gray-300'}>
-                        {overdue ? 'Overdue ' : 'Follow up '}
-                        {new Date(`${lead.followUpDate}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                      </span>
-                    ) : (
-                      <span className="text-gray-600">No follow-up</span>
-                    )}
-                  </div>
-                  <div className="text-sm md:w-28 md:text-right">
-                    {leadValue(lead) ? formatCurrency(leadValue(lead)) : '—'}
-                  </div>
-                  <select
-                    value={lead.status}
-                    onChange={(e) => changeStatus(lead, e.target.value as LeadStatus)}
-                    className={`bg-[#0A0A0A] border border-[#333333] px-2 py-1.5 text-sm md:w-32 ${STATUSES.find((s) => s.value === lead.status)?.color}`}
-                    aria-label="Status"
-                  >
-                    {STATUSES.map((status) => (
-                      <option key={status.value} value={status.value} className="text-white">{status.label}</option>
-                    ))}
-                  </select>
-                  <div className="flex items-center gap-1">
-                    {lead.estimate ? (
-                      <button
-                        onClick={() => navigate(`/estimates/${lead.estimate!.id}`)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs border border-[#333333] hover:bg-[#1E1E1E]"
-                      >
-                        <FileText className="w-3.5 h-3.5" /> {lead.estimate.estimateNumber}
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => startEstimate(lead)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-[#336699] hover:bg-[#2a5580]"
-                      >
-                        <FileText className="w-3.5 h-3.5" /> Create estimate
-                      </button>
-                    )}
-                    <button onClick={() => setEditing(lead)} className="p-1.5 text-gray-500 hover:text-white" aria-label="Edit">
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                    <button onClick={() => remove(lead)} className="p-1.5 text-gray-500 hover:text-red-400" aria-label="Delete">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
         )}
       </div>
 
@@ -677,6 +536,7 @@ const LeadsPage: React.FC = () => {
             setEditing(null);
             load();
           }}
+          onDelete={editing === 'new' ? undefined : () => remove(editing)}
         />
       )}
 
