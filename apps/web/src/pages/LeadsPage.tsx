@@ -183,16 +183,16 @@ const LeadForm: React.FC<{
  * appointment, the notes and a box to add a note without opening the lead.
  */
 const LeadCardDetails: React.FC<{ lead: Lead; onChange: (lead: Lead, data: Partial<Lead>) => void }> = ({ lead, onChange }) => {
-  const [note, setNote] = useState('');
+  const [notes, setNotes] = useState(lead.notes ?? '');
   const [pickingTime, setPickingTime] = useState(false);
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 
-  const addNote = () => {
-    const text = note.trim();
-    if (!text) return;
-    const stamp = new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-    onChange(lead, { notes: [`${stamp}: ${text}`, lead.notes].filter(Boolean).join('\n') });
-    setNote('');
+  // Follow changes made elsewhere (the edit drawer, a reload).
+  useEffect(() => setNotes(lead.notes ?? ''), [lead.notes]);
+
+  const saveNotes = () => {
+    if (notes.trim() === (lead.notes ?? '').trim()) return;
+    onChange(lead, { notes: notes.trim() });
   };
 
   const setAppointment = (value: string) => {
@@ -258,20 +258,16 @@ const LeadCardDetails: React.FC<{ lead: Lead; onChange: (lead: Lead, data: Parti
           <CalendarClock className="w-3.5 h-3.5" /> Set appointment
         </button>
       )}
-      {lead.notes && (
-        <p className="text-xs text-gray-300 whitespace-pre-line line-clamp-4 border border-[#2a2a2a] px-2 py-1.5">{lead.notes}</p>
-      )}
-      <input
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') addNote();
-        }}
-        onBlur={addNote}
+      <textarea
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        onBlur={saveNotes}
         draggable
         onDragStart={(e) => e.preventDefault()}
-        placeholder="+ Add a note (called, left VM…)"
-        className="w-full bg-[#0A0A0A] border border-[#333333] px-2 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
+        rows={4}
+        placeholder="Notes: called, left VM…"
+        aria-label="Notes"
+        className="w-full bg-[#0A0A0A] border border-[#333333] px-2 py-1.5 text-xs leading-relaxed text-gray-200 placeholder-gray-500 resize-y focus:outline-none focus:border-[#336699]"
       />
     </div>
   );
