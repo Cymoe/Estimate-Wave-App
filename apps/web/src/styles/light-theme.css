@@ -67,14 +67,6 @@ html.light .bg-\[\#757575\] { background-color: #8A8A8A; }
 html.light .bg-\[\#9E9E9E\] { background-color: #616161; }
 html.light .bg-\[\#9E9E9E\]\/20 { background-color: rgba(97, 97, 97, 0.2); }
 html.light .bg-black { background-color: #F4F5F7; }
-html.light .bg-black\/20 { background-color: rgba(244, 245, 247, 0.2); }
-html.light .bg-black\/30 { background-color: rgba(244, 245, 247, 0.3); }
-html.light .bg-black\/40 { background-color: rgba(244, 245, 247, 0.4); }
-html.light .bg-black\/50 { background-color: rgba(244, 245, 247, 0.5); }
-html.light .bg-black\/60 { background-color: rgba(244, 245, 247, 0.6); }
-html.light .bg-black\/70 { background-color: rgba(244, 245, 247, 0.7); }
-html.light .bg-black\/80 { background-color: rgba(244, 245, 247, 0.8); }
-html.light .bg-black\/90 { background-color: rgba(244, 245, 247, 0.9); }
 html.light .bg-gray-600 { background-color: #D1D5DB; }
 html.light .bg-gray-600\/10 { background-color: rgba(209, 213, 219, 0.1); }
 html.light .bg-gray-600\/20 { background-color: rgba(209, 213, 219, 0.2); }
@@ -139,7 +131,6 @@ html.light .divide-\[\#333333\]\/50 > :not([hidden]) ~ :not([hidden]) { border-c
 html.light .divide-\[\#333\] > :not([hidden]) ~ :not([hidden]) { border-color: #E2E5E9; }
 html.light .focus\:bg-\[\#151515\]:focus { background-color: #FFFFFF; }
 html.light .focus\:border-\[\#3a3a3a\]:focus { border-color: #E2E5E9; }
-html.light .group:hover .group-hover\:bg-\[\#333\] { background-color: #E8EAED; }
 html.light .group:hover .group-hover\:text-\[\#3B82F6\] { color: #0948AE; }
 html.light .group:hover .group-hover\:text-gray-300 { color: #374151; }
 html.light .group:hover .group-hover\:text-gray-400 { color: #4B5563; }

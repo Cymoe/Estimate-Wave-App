@@ -545,13 +545,14 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                     isProjectsSidebarOpen={isProjectsSidebarOpen}
                     isIndustryDrawerOpen={isIndustryDrawerOpen}
                     hidden={/^\/estimates\/[^/]+/.test(location.pathname)}
-                  />
-                  <QuickCreateMenu 
-                    isOpen={isCreateMenuOpen} 
-                    onClose={() => setIsCreateMenuOpen(false)} 
-                    showInvoiceDrawer={showNewInvoiceDrawer}
-                    setShowInvoiceDrawer={setShowNewInvoiceDrawer}
-                  />
+                  >
+                    <QuickCreateMenu 
+                      isOpen={isCreateMenuOpen} 
+                      onClose={() => setIsCreateMenuOpen(false)} 
+                      showInvoiceDrawer={showNewInvoiceDrawer}
+                      setShowInvoiceDrawer={setShowNewInvoiceDrawer}
+                    />
+                  </QuickCreateButton>
 
                   {/* Desktop Layout Container */}
                   <div className="hidden md:grid w-full h-[100dvh] overflow-hidden" 

@@ -155,6 +155,8 @@ function lightDeclaration(utility) {
     color = withAlpha(light, alpha);
   } else if (value === 'white' && alpha !== undefined) {
     color = WHITE_ALPHA_LIGHT[role](alpha);
+  } else if (value === 'black' && alpha !== undefined) {
+    return null; // see-through black is a dimming layer behind pop-ups; it stays dark
   } else {
     const light = NAMED_LIGHT[role]?.[value];
     if (!light) return null;
