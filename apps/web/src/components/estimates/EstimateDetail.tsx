@@ -1512,21 +1512,21 @@ export const EstimateDetail: React.FC = () => {
 
       {/* Fixed Total Bar - Always visible at bottom of screen */}
       {activeTab === 'items' && estimate.items && estimate.items.length > 0 && totalBarBox && (
-        <div className="fixed bottom-0 bg-[#15161f] border-t border-[#3c3d51] z-30" style={{ left: totalBarBox.left, width: totalBarBox.width }}>
+        <div className="fixed bottom-0 bg-[#1D1F25] border-t border-[#333333] z-30" style={{ left: totalBarBox.left, width: totalBarBox.width }}>
           <div className="flex items-center text-[12px] font-medium">
-            <div className="w-20 py-2 px-3 text-gray-500 border-r border-[#3c3d51] text-center">
+            <div className="w-20 py-2 px-3 text-gray-500 border-r border-[#333333] text-center">
               {estimate.items.length} items
             </div>
-            <div className="flex-1 py-2 px-3 text-right text-gray-500 border-r border-[#3c3d51]">
+            <div className="flex-1 py-2 px-3 text-right text-gray-500 border-r border-[#333333]">
               Sum
             </div>
-            <div className="w-32 py-2 px-3 text-right text-gray-300 border-r border-[#3c3d51]">
+            <div className="w-32 py-2 px-3 text-right text-gray-300 border-r border-[#333333]">
               {formatCurrency(estimate.subtotal)}
             </div>
-            <div className="w-28 py-2 px-3 text-center text-gray-300 border-r border-[#3c3d51]">
+            <div className="w-28 py-2 px-3 text-center text-gray-300 border-r border-[#333333]">
               {estimate.items.reduce((sum, item) => sum + (item.quantity || 0), 0)}
             </div>
-            <div className="w-32 py-2 px-3 text-right border-r border-[#3c3d51] flex flex-col items-end">
+            <div className="w-32 py-2 px-3 text-right border-r border-[#333333] flex flex-col items-end">
               <span className="text-gray-300">{formatCurrency(estimate.total_amount)}</span>
               {(() => {
                 const redlineTotal = estimate.items.reduce((sum, item) => {

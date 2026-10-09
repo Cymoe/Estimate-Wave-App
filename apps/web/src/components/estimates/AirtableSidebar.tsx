@@ -34,7 +34,7 @@ export const AirtableSidebar: React.FC<AirtableSidebarProps> = ({
     : views.find(view => Math.abs(view.position - currentPosition) < 0.005)?.id ?? null;
 
   return (
-    <div className="w-[220px] bg-[#1d1f25] border-r border-[#3c3d51] flex flex-col h-screen">
+    <div className="w-[220px] bg-[#0A0A0A] border-r border-[#333333] flex flex-col h-screen">
       {/* Views List */}
       <div className="flex-1 overflow-y-auto py-1">
         {views.map((view) => (
@@ -45,8 +45,8 @@ export const AirtableSidebar: React.FC<AirtableSidebarProps> = ({
               onMouseLeave={() => setHoveredView(null)}
               className={`w-full px-3 py-1.5 flex items-center gap-2 text-[13px] transition-colors ${
                 selectedView === view.id 
-                  ? 'bg-[#2563eb] text-white' 
-                  : 'text-gray-300 hover:bg-[#2a2b3e] hover:text-white'
+                  ? 'bg-[#336699] text-white' 
+                  : 'text-gray-300 hover:bg-[#22272d] hover:text-white'
               }`}
             >
               <span className="flex-1 text-left">{view.name}</span>

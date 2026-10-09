@@ -12,7 +12,7 @@ function highlighted(itemsTotal: number) {
     root.render(<AirtableSidebar onViewChange={() => {}} itemsTotal={itemsTotal} capTotal={1000} redlineTotal={700} />);
   });
   const selected = [...container.querySelectorAll('button')]
-    .filter(button => button.className.includes('bg-[#2563eb]'))
+    .filter(button => button.className.includes('bg-[#336699]'))
     .map(button => button.textContent);
   act(() => root.unmount());
   return selected;
