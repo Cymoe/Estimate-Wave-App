@@ -22,7 +22,6 @@ interface Lead {
   estimatedValue?: number;
   followUpDate?: string;
   appointmentAt?: string;
-  formAnswers?: string;
   notes?: string;
   status: LeadStatus;
   lostReason?: string;
@@ -83,7 +82,6 @@ const LeadForm: React.FC<{
     estimatedValue: lead?.estimatedValue?.toString() ?? '',
     followUpDate: lead?.followUpDate ?? '',
     appointmentAt: toLocalInput(lead?.appointmentAt),
-    formAnswers: lead?.formAnswers ?? '',
     notes: lead?.notes ?? '',
   });
   const [error, setError] = useState<string | null>(null);
@@ -164,12 +162,8 @@ const LeadForm: React.FC<{
             <input className={inputClass} type="datetime-local" value={form.appointmentAt} onChange={set('appointmentAt')} />
           </label>
           <label className="block text-xs text-gray-400 space-y-1">
-            <span>Form answers</span>
-            <textarea className={inputClass} rows={3} placeholder="What they asked for on the request form" value={form.formAnswers} onChange={set('formAnswers')} />
-          </label>
-          <label className="block text-xs text-gray-400 space-y-1">
-            <span>My notes</span>
-            <textarea className={inputClass} rows={4} placeholder="Called, left VM, best time to call…" value={form.notes} onChange={set('notes')} />
+            <span>Notes</span>
+            <textarea className={inputClass} rows={6} placeholder="Called, left VM, best time to call…" value={form.notes} onChange={set('notes')} />
           </label>
         </div>
         <div className="px-6 py-4 border-t border-[#333333] flex justify-end gap-2">
@@ -185,13 +179,12 @@ const LeadForm: React.FC<{
 };
 
 /**
- * The working part of a board card: what they asked for, the booked
- * appointment, your notes and a box to add a note without opening the lead.
+ * The working part of a board card: contact details, the booked
+ * appointment, the notes and a box to add a note without opening the lead.
  */
 const LeadCardDetails: React.FC<{ lead: Lead; onChange: (lead: Lead, data: Partial<Lead>) => void }> = ({ lead, onChange }) => {
   const [note, setNote] = useState('');
   const [pickingTime, setPickingTime] = useState(false);
-  const answers = (lead.formAnswers ?? '').split('\n').map((line) => line.trim()).filter(Boolean);
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 
   const addNote = () => {
@@ -236,13 +229,6 @@ const LeadCardDetails: React.FC<{ lead: Lead; onChange: (lead: Lead, data: Parti
             </a>
           )}
         </div>
-      )}
-      {answers.length > 0 && (
-        <ul className="list-disc pl-4 space-y-0.5 text-xs text-gray-300 bg-[#0A0A0A] border border-[#2a2a2a] py-2 pr-2">
-          {answers.map((answer, index) => (
-            <li key={index}>{answer}</li>
-          ))}
-        </ul>
       )}
       {pickingTime ? (
         <input

@@ -213,8 +213,6 @@ export const leadFields = {
   followUpDate: v.optional(v.string()),
   // When the estimate visit is booked (ISO date and time).
   appointmentAt: v.optional(v.string()),
-  // What the lead wrote on the request form, one answer per line.
-  formAnswers: v.optional(v.string()),
   notes: v.optional(v.string()),
   status: leadStatus,
   lostReason: v.optional(v.string()),

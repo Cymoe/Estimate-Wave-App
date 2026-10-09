@@ -254,7 +254,7 @@ export const importLeads = internalMutation({
       if (match !== undefined) {
         if (updateExisting) {
           // Fields the row leaves out are cleared, so a re-import replaces what the last one wrote.
-          await ctx.db.patch(match, { notes: undefined, formAnswers: undefined, ...lead, updatedAt: nowIso() });
+          await ctx.db.patch(match, { notes: undefined, ...lead, updatedAt: nowIso() });
           updated++;
         } else {
           skipped++;
