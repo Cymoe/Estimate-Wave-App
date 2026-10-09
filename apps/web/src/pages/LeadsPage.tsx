@@ -522,6 +522,7 @@ const LeadsPage: React.FC = () => {
                   <div className="p-2 space-y-2 min-h-[120px]">
                     {cards.map((lead) => {
                       const overdue = !!lead.followUpDate && lead.followUpDate < todayIso && OPEN.includes(lead.status);
+                      const showFollowUp = !!lead.followUpDate && !lead.appointmentAt && OPEN.includes(lead.status);
                       return (
                         <div
                           key={lead.id}
@@ -540,15 +541,17 @@ const LeadsPage: React.FC = () => {
                             )}
                           </div>
                           {lead.jobType && <div className="text-xs text-gray-400 mt-0.5">{tradeName.get(lead.jobType) ?? lead.jobType}</div>}
-                          <div className="flex items-center justify-between mt-2 text-xs">
-                            <span className="text-white">{leadValue(lead) ? formatCurrency(leadValue(lead)) : '—'}</span>
-                            {lead.followUpDate && !lead.appointmentAt && OPEN.includes(lead.status) && (
-                              <span className={overdue ? 'text-red-400' : 'text-gray-400'}>
-                                {overdue ? 'Overdue ' : ''}
-                                {new Date(`${lead.followUpDate}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                              </span>
-                            )}
-                          </div>
+                          {(leadValue(lead) > 0 || showFollowUp) && (
+                            <div className="flex items-center justify-between mt-2 text-xs">
+                              <span className="text-white">{leadValue(lead) > 0 && formatCurrency(leadValue(lead))}</span>
+                              {showFollowUp && (
+                                <span className={overdue ? 'text-red-400' : 'text-gray-400'}>
+                                  {overdue ? 'Overdue ' : ''}
+                                  {new Date(`${lead.followUpDate}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                </span>
+                              )}
+                            </div>
+                          )}
                           {lead.status === 'lost' && lead.lostReason && (
                             <div className="text-xs text-gray-500 mt-1">{lead.lostReason}</div>
                           )}
