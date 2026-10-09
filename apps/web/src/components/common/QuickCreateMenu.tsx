@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DollarSign, FileText, User, Zap } from 'lucide-react';
+import { DollarSign, FileText, User, UserPlus, Zap } from 'lucide-react';
 
 interface QuickCreateOption {
   id: string;
@@ -26,6 +26,7 @@ export const QuickCreateMenu: React.FC<Props> = ({ isOpen, onClose, setShowInvoi
   const [selectedIndex, setSelectedIndex] = useState(-1);
 
   const options: QuickCreateOption[] = [
+    { id: 'lead', name: 'Lead', icon: UserPlus, action: () => navigate('/leads?new=1') },
     { id: 'sales-mode', name: 'Quick Quote', icon: Zap, action: () => navigate('/sales-mode') },
     { id: 'estimate', name: 'Full Estimate', icon: FileText, action: () => navigate('/work') },
     { id: 'client', name: 'Client', icon: User, action: () => navigate('/clients/new') },

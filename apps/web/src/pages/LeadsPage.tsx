@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CalendarClock, FileText, Mail, MapPin, Phone, Plus, Trash2, UserPlus, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
@@ -280,6 +280,7 @@ const LeadCardDetails: React.FC<{ lead: Lead; onChange: (lead: Lead, data: Parti
 
 const LeadsPage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const { selectedOrg } = useContext(OrganizationContext);
   const organizationId = selectedOrg?.id;
@@ -287,6 +288,13 @@ const LeadsPage: React.FC = () => {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Lead | 'new' | null>(null);
+
+  // The yellow + button's "Lead" opens /leads?new=1.
+  useEffect(() => {
+    if (searchParams.get('new') !== '1') return;
+    setEditing('new');
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
   const [quoting, setQuoting] = useState<{ lead: Lead; clientId: string } | null>(null);
   const [dragOver, setDragOver] = useState<LeadStatus | null>(null);
 
