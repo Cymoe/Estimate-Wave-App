@@ -8,6 +8,8 @@ interface Props {
   isProjectsSidebarLocked?: boolean;
   isProjectsSidebarOpen?: boolean;
   isIndustryDrawerOpen?: boolean;
+  /** Hides the button but keeps the Cmd+K shortcut. */
+  hidden?: boolean;
 }
 
 export const QuickCreateButton: React.FC<Props> = ({ 
@@ -16,7 +18,8 @@ export const QuickCreateButton: React.FC<Props> = ({
   isSidebarCollapsed = false,
   isProjectsSidebarLocked = false,
   isProjectsSidebarOpen = false,
-  isIndustryDrawerOpen = false
+  isIndustryDrawerOpen = false,
+  hidden = false
 }) => {
   const [isEstimateCartOpen, setIsEstimateCartOpen] = useState(false);
   const [isIndustryModalOpen, setIsIndustryModalOpen] = useState(false);
@@ -59,7 +62,7 @@ export const QuickCreateButton: React.FC<Props> = ({
   }, []);
 
   // Hide button when estimate cart or industry modal is open
-  if (isEstimateCartOpen || isIndustryModalOpen) {
+  if (hidden || isEstimateCartOpen || isIndustryModalOpen) {
     return null;
   }
 

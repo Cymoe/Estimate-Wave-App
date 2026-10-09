@@ -544,6 +544,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                     isProjectsSidebarLocked={isProjectsSidebarLocked}
                     isProjectsSidebarOpen={isProjectsSidebarOpen}
                     isIndustryDrawerOpen={isIndustryDrawerOpen}
+                    hidden={/^\/estimates\/[^/]+/.test(location.pathname)}
                   />
                   <QuickCreateMenu 
                     isOpen={isCreateMenuOpen} 
