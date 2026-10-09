@@ -28,7 +28,6 @@ export const IndustryPicker: React.FC<{ isOpen: boolean; onClose: () => void }> 
   const [selectedIndustries, setSelectedIndustries] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   // The set the user wants; saves always send the latest one.
   const wanted = useRef<Set<string>>(new Set());
@@ -63,7 +62,6 @@ export const IndustryPicker: React.FC<{ isOpen: boolean; onClose: () => void }> 
   const flush = async (orgId: string) => {
     if (saving.current) return;
     saving.current = true;
-    setIsSaving(true);
     try {
       let sent: Set<string>;
       do {
@@ -78,7 +76,6 @@ export const IndustryPicker: React.FC<{ isOpen: boolean; onClose: () => void }> 
       await loadIndustries(orgId);
     } finally {
       saving.current = false;
-      setIsSaving(false);
     }
   };
 
@@ -128,10 +125,7 @@ export const IndustryPicker: React.FC<{ isOpen: boolean; onClose: () => void }> 
           <p className="text-gray-400">
             Choose the trades you work in. Their cost codes and price-book items appear in your Price Book.
           </p>
-          <span className="text-gray-300 whitespace-nowrap">
-            {isSaving && <span className="text-gray-500">Saving… </span>}
-            {selectedIndustries.size} selected
-          </span>
+          <span className="text-gray-300 whitespace-nowrap">{selectedIndustries.size} selected</span>
         </div>
         {saveError && <p className="text-xs text-red-400">{saveError}</p>}
       </div>
