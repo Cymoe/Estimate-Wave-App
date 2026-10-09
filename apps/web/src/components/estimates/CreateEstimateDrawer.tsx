@@ -5,7 +5,7 @@ import { EstimateService, toLegacyClient } from '../../services/EstimateService'
 import { useAuth } from '../../contexts/AuthContext';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { formatCurrency } from '../../utils/format';
-import { Search, Plus, Minus, X, Save, Package, ArrowRight, CheckCircle, Check, ChevronDown, ChevronRight } from 'lucide-react';
+import { Search, Plus, Minus, X, Save, Package, ArrowRight, CheckCircle, Check, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import { EstimateTableView } from './EstimateTableView';
 import { ContextualPricingSelector } from './ContextualPricingSelector';
 import { ClientSelector } from './ClientSelector';
@@ -995,8 +995,8 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                 {/* No tabs needed - only line items now */}
 
                 {/* Search and Filters - iPad optimized */}
-                <div className="p-4 space-y-3">
-                  <div className="relative">
+                <div className="p-4 flex items-center gap-2">
+                  <div className="relative flex-1 min-w-0">
                     <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                     <input
                       type="text"
@@ -1006,29 +1006,16 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                       className="w-full pl-12 pr-4 py-3 bg-[#333333] border border-[#555555] rounded-lg text-base text-white placeholder-gray-400 focus:outline-none focus:border-[#336699] focus:ring-2 focus:ring-[#336699]/20"
                     />
                   </div>
-                  
-                  {/* Expand All / Collapse All Button */}
+
+                  {/* Expand / collapse all categories */}
                   <button
+                    type="button"
                     onClick={toggleAllCategories}
-                    className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-[#2A2A2A] hover:bg-[#333333] border border-[#555555] rounded-lg text-sm text-gray-300 hover:text-white transition-all duration-200 active:bg-[#3A3A3A]"
+                    aria-label={allExpanded ? 'Collapse all categories' : 'Expand all categories'}
+                    title={allExpanded ? 'Collapse all categories' : 'Expand all categories'}
+                    className="flex-shrink-0 self-stretch aspect-square flex items-center justify-center bg-[#333333] border border-[#555555] rounded-lg text-gray-300 hover:text-white hover:border-[#336699] active:bg-[#3A3A3A] transition-colors"
                   >
-                    {allExpanded ? (
-                      <>
-                        <div className="flex items-center">
-                          <ChevronRight className="w-4 h-4" />
-                          <ChevronRight className="w-4 h-4 -ml-2" />
-                        </div>
-                        <span>Collapse All Categories</span>
-                      </>
-                    ) : (
-                      <>
-                        <div className="flex items-center">
-                          <ChevronDown className="w-4 h-4" />
-                          <ChevronDown className="w-4 h-4 -ml-2" />
-                        </div>
-                        <span>Expand All Categories</span>
-                      </>
-                    )}
+                    {allExpanded ? <ChevronsDownUp className="w-5 h-5" /> : <ChevronsUpDown className="w-5 h-5" />}
                   </button>
                 </div>
 
