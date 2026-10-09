@@ -112,7 +112,7 @@ const LeadForm: React.FC<{
   return createPortal(
     <div className="fixed inset-0 z-[10000] flex justify-end">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <form onSubmit={save} className="relative w-full md:w-[520px] h-full bg-[#1D1F25] border-l border-[#333333] flex flex-col">
+      <form onSubmit={save} className="relative w-full md:w-[520px] h-full bg-[#121212] border-l border-[#333333] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#333333]">
           <h2 className="text-lg font-semibold text-white">{lead ? 'Edit lead' : 'New lead'}</h2>
           <button type="button" onClick={onClose} className="p-1 text-gray-400 hover:text-white" aria-label="Close">
@@ -209,12 +209,12 @@ const LeadCardDetails: React.FC<{ lead: Lead; onChange: (lead: Lead, data: Parti
       {(lead.phone || lead.email || lead.address) && (
         <div className="space-y-1 text-xs">
           {lead.phone && (
-            <a href={`tel:${lead.phone.replace(/[^\d+]/g, '')}`} className="flex items-center gap-2 text-[#7fb0e0] hover:text-white">
+            <a href={`tel:${lead.phone.replace(/[^\d+]/g, '')}`} className="flex items-center gap-2 text-gray-200 hover:text-white">
               <Phone className="w-3.5 h-3.5 flex-shrink-0 text-gray-500" /> {lead.phone}
             </a>
           )}
           {lead.email && (
-            <a href={`mailto:${lead.email}`} className="flex items-center gap-2 text-[#7fb0e0] hover:text-white min-w-0">
+            <a href={`mailto:${lead.email}`} className="flex items-center gap-2 text-gray-200 hover:text-white min-w-0">
               <Mail className="w-3.5 h-3.5 flex-shrink-0 text-gray-500" /> <span className="truncate">{lead.email}</span>
             </a>
           )}
@@ -223,7 +223,7 @@ const LeadCardDetails: React.FC<{ lead: Lead; onChange: (lead: Lead, data: Parti
               href={`https://maps.apple.com/?q=${encodeURIComponent(lead.address)}`}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-2 text-[#7fb0e0] hover:text-white min-w-0"
+              className="flex items-center gap-2 text-gray-200 hover:text-white min-w-0"
             >
               <MapPin className="w-3.5 h-3.5 flex-shrink-0 text-gray-500" /> <span className="truncate">{lead.address}</span>
             </a>
@@ -246,7 +246,7 @@ const LeadCardDetails: React.FC<{ lead: Lead; onChange: (lead: Lead, data: Parti
       ) : lead.appointmentAt ? (
         <button
           onClick={() => setPickingTime(true)}
-          className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-white border border-[#336699]/60 bg-[#336699]/10 text-left"
+          className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-white border border-[#444444] bg-[#1A1A1A] text-left"
         >
           <CalendarClock className="w-3.5 h-3.5 text-[#7fb0e0]" /> {formatAppointment(lead.appointmentAt)}
         </button>
@@ -408,7 +408,7 @@ const LeadsPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white">
-      <div className="px-6 py-5 border-b border-[#333333] bg-[#1D1F25]">
+      <div className="px-6 py-5 border-b border-[#333333] bg-[#121212]">
         <div className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-xl font-semibold">Leads</h1>
@@ -441,7 +441,7 @@ const LeadsPage: React.FC = () => {
               key={tab.key}
               onClick={() => setFilter(tab.key)}
               className={`px-3 py-2 text-left border whitespace-nowrap ${
-                filter === tab.key ? 'border-[#336699] bg-[#336699]/15' : 'border-[#333333] hover:bg-[#262830]'
+                filter === tab.key ? 'border-[#336699] bg-[#336699]/15' : 'border-[#333333] hover:bg-[#1E1E1E]'
               }`}
             >
               <span className="block text-xs text-gray-400">{tab.label}</span>
@@ -479,7 +479,7 @@ const LeadsPage: React.FC = () => {
                 <button onClick={() => setEditing('new')} className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-[#336699] hover:bg-[#2a5580]">
                   <Plus className="w-4 h-4" /> Add your first lead
                 </button>
-                <button onClick={addSamples} className="px-4 py-2 text-sm border border-[#333333] text-gray-300 hover:bg-[#262830]">
+                <button onClick={addSamples} className="px-4 py-2 text-sm border border-[#333333] text-gray-300 hover:bg-[#1E1E1E]">
                   Add sample leads
                 </button>
               </div>
@@ -505,7 +505,7 @@ const LeadsPage: React.FC = () => {
                     if (lead && lead.status !== column.value) changeStatus(lead, column.value);
                   }}
                   className={`flex-shrink-0 w-72 flex flex-col border ${
-                    dragOver === column.value ? 'border-[#336699] bg-[#336699]/10' : 'border-[#333333] bg-[#121316]'
+                    dragOver === column.value ? 'border-[#336699] bg-[#336699]/10' : 'border-[#333333] bg-[#0A0A0A]'
                   }`}
                 >
                   <div className="px-3 py-2 border-b border-[#333333]">
@@ -528,7 +528,7 @@ const LeadsPage: React.FC = () => {
                             e.dataTransfer.effectAllowed = 'move';
                           }}
                           onClick={() => setEditing(lead)}
-                          className="bg-[#1D1F25] border border-[#333333] hover:border-[#4a4d55] p-3 cursor-grab active:cursor-grabbing"
+                          className="bg-[#121212] border border-[#333333] hover:border-[#555555] p-3 cursor-grab active:cursor-grabbing"
                         >
                           <div className="flex items-start justify-between gap-2">
                             <span className="text-sm font-medium leading-tight">{lead.name}</span>
@@ -559,7 +559,7 @@ const LeadsPage: React.FC = () => {
                                   e.stopPropagation();
                                   navigate(`/estimates/${lead.estimate!.id}`);
                                 }}
-                                className="inline-flex items-center gap-1 text-xs text-[#7fb0e0] hover:text-white"
+                                className="inline-flex items-center gap-1 text-xs text-gray-300 hover:text-white"
                               >
                                 <FileText className="w-3.5 h-3.5" /> {lead.estimate.estimateNumber}
                               </button>
@@ -569,7 +569,7 @@ const LeadsPage: React.FC = () => {
                                   e.stopPropagation();
                                   startEstimate(lead);
                                 }}
-                                className="inline-flex items-center gap-1 text-xs text-[#7fb0e0] hover:text-white"
+                                className="inline-flex items-center gap-1 text-xs text-gray-300 hover:text-white"
                               >
                                 <FileText className="w-3.5 h-3.5" /> Create estimate
                               </button>
@@ -603,7 +603,7 @@ const LeadsPage: React.FC = () => {
             {shown.map((lead) => {
               const overdue = !!lead.followUpDate && lead.followUpDate < todayIso && OPEN.includes(lead.status);
               return (
-                <div key={lead.id} className="bg-[#1D1F25] px-4 py-3 flex flex-col md:flex-row md:items-center gap-3">
+                <div key={lead.id} className="bg-[#121212] px-4 py-3 flex flex-col md:flex-row md:items-center gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-medium truncate">{lead.name}</span>
@@ -644,7 +644,7 @@ const LeadsPage: React.FC = () => {
                     {lead.estimate ? (
                       <button
                         onClick={() => navigate(`/estimates/${lead.estimate!.id}`)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs border border-[#333333] hover:bg-[#262830]"
+                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs border border-[#333333] hover:bg-[#1E1E1E]"
                       >
                         <FileText className="w-3.5 h-3.5" /> {lead.estimate.estimateNumber}
                       </button>
