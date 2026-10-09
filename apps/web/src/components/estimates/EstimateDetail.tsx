@@ -36,7 +36,6 @@ export const EstimateDetail: React.FC = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   // Edit mode removed - cells are always editable
   const [showPricingSelector, setShowPricingSelector] = useState(false);
-  const [currentPricingStrategy, setCurrentPricingStrategy] = useState<string | null>(null);
   const [showPricingStrategy, setShowPricingStrategy] = useState(false);
   
   // Tab state - Default to Line Items for immediate visibility (3-tab structure)
@@ -886,12 +885,8 @@ export const EstimateDetail: React.FC = () => {
           <div className="w-full flex">
             {/* Airtable Sidebar */}
             <AirtableSidebar
-              selectedView={currentPricingStrategy}
-              onViewChange={(viewId, position) => {
-                setCurrentPricingStrategy(viewId);
-                handleBulkPriceAdjust(position);
-              }}
-              estimateTotal={estimate.total_amount}
+              onViewChange={(_viewId, position) => handleBulkPriceAdjust(position)}
+              itemsTotal={estimate.items?.reduce((sum, item) => sum + (item.total_price || 0), 0) || 0}
               capTotal={estimate.items?.reduce((sum, item) => {
                 const capPrice = item.cap_price || item.original_unit_price || item.unit_price;
                 return sum + (capPrice * (item.quantity || 1));

@@ -8,17 +8,15 @@ interface View {
 }
 
 interface AirtableSidebarProps {
-  selectedView: string;
   onViewChange: (viewId: string, position: number) => void;
-  estimateTotal?: number; // Pass in the current estimate total
+  itemsTotal?: number; // Current total of the line items (before tax)
   capTotal?: number; // CAP pricing total
   redlineTotal?: number; // Redline pricing total
 }
 
 export const AirtableSidebar: React.FC<AirtableSidebarProps> = ({
-  selectedView,
   onViewChange,
-  estimateTotal = 0,
+  itemsTotal = 0,
   capTotal = 0,
   redlineTotal = 0
 }) => {
@@ -64,6 +62,12 @@ export const AirtableSidebar: React.FC<AirtableSidebarProps> = ({
       position: 0.0 // Redline (sales rep makes $0)
     }
   ];
+
+  // Highlight the option the current prices match (none after manual price edits).
+  const currentPosition = capTotal > redlineTotal ? (itemsTotal - redlineTotal) / (capTotal - redlineTotal) : null;
+  const selectedView = currentPosition === null
+    ? null
+    : views.find(view => Math.abs(view.position - currentPosition) < 0.005)?.id ?? null;
 
   return (
     <div className="w-[220px] bg-[#1d1f25] border-r border-[#3c3d51] flex flex-col h-screen">
