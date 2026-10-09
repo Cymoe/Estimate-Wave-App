@@ -11,13 +11,17 @@ function toNumber(value: unknown, fallback: number): number {
 
 /**
  * Normalizes line items sent by the UI: gives each a stable string _id,
- * coerces numbers, and sets totalPrice = quantity × unitPrice.
+ * coerces numbers, keeps the unit price at or above the item's red line,
+ * and sets totalPrice = quantity × unitPrice.
  */
 export function normalizeItems(raw: unknown): DocumentItem[] {
   if (!Array.isArray(raw)) return [];
   return raw.map((item: any, index): DocumentItem => {
     const quantity = toNumber(item?.quantity, 1);
-    const unitPrice = toNumber(item?.unitPrice, 0);
+    const redLinePrice = toNumber(item?.redLinePrice, NaN);
+    const capPrice = toNumber(item?.capPrice, NaN);
+    const hasRedLine = Number.isFinite(redLinePrice) && redLinePrice >= 0;
+    const unitPrice = Math.max(toNumber(item?.unitPrice, 0), hasRedLine ? redLinePrice : -Infinity);
     const normalized: DocumentItem = {
       _id: typeof item?._id === "string" && item._id ? item._id : crypto.randomUUID(),
       description: String(item?.description ?? ""),
@@ -26,6 +30,8 @@ export function normalizeItems(raw: unknown): DocumentItem[] {
       totalPrice: quantity * unitPrice,
       displayOrder: toNumber(item?.displayOrder, index),
     };
+    if (hasRedLine) normalized.redLinePrice = redLinePrice;
+    if (Number.isFinite(capPrice) && capPrice >= 0) normalized.capPrice = capPrice;
     if (item?.costCode != null) normalized.costCode = String(item.costCode);
     if (item?.workPackItemId != null) normalized.workPackItemId = String(item.workPackItemId);
     if (item?.productId != null) normalized.productId = String(item.productId);

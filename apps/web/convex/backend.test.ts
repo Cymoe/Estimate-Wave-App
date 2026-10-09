@@ -124,6 +124,29 @@ describe("estimates and invoices", () => {
     expect(log.map((entry) => entry.action)).toEqual(["signed", "status_changed", "created"]);
   });
 
+  test("an item's price never goes below its red line", async () => {
+    const t = setup();
+    const { as, organizationId } = await signUp(t, "a@example.com");
+    const estimate = await as.mutation(api.estimates.create, {
+      organizationId,
+      data: {
+        items: [
+          { description: "Wire", quantity: 2, unitPrice: 187.5, redLinePrice: 87.5, capPrice: 187.5 },
+          { description: "Custom", quantity: 1, unitPrice: 10 },
+        ],
+      },
+    });
+    expect(estimate!.items[0]).toMatchObject({ unitPrice: 187.5, redLinePrice: 87.5, capPrice: 187.5, totalPrice: 375 });
+
+    const updated = await as.mutation(api.estimates.update, {
+      id: estimate!._id,
+      data: { items: [{ ...estimate!.items[0], unitPrice: 50 }, estimate!.items[1]] },
+    });
+    expect(updated!.items[0]).toMatchObject({ unitPrice: 87.5, totalPrice: 175 });
+    expect(updated!.items[1]).toMatchObject({ unitPrice: 10 });
+    expect(updated!.subtotal).toBe(185);
+  });
+
   test("signature can only be set through sign", async () => {
     const t = setup();
     const { as, organizationId } = await signUp(t, "a@example.com");

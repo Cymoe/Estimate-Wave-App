@@ -63,6 +63,10 @@ export const documentItem = v.object({
   quantity: v.number(),
   unitPrice: v.number(),
   totalPrice: v.number(),
+  // The price book's floor and ceiling when the item was added. The unit
+  // price is never below the red line.
+  redLinePrice: v.optional(v.number()),
+  capPrice: v.optional(v.number()),
   costCode: v.optional(v.string()),
   displayOrder: v.number(),
 });

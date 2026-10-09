@@ -5,6 +5,7 @@ import { EstimateService, toLegacyClient } from '../../services/EstimateService'
 import { useAuth } from '../../contexts/AuthContext';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { formatCurrency } from '../../utils/format';
+import { priceRange } from '../../utils/priceRange';
 import { Search, Plus, Minus, X, Save, Package, ArrowRight, CheckCircle, Check, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import { EstimateTableView } from './EstimateTableView';
 import { ContextualPricingSelector } from './ContextualPricingSelector';
@@ -24,6 +25,9 @@ interface EstimateItem {
   service_items?: any[];
   line_item_count?: number;
   service_data?: any;
+  /** Price-book floor and ceiling; the item starts at cap. */
+  red_line_price?: number;
+  cap_price?: number;
 }
 
 interface Template {
@@ -57,6 +61,8 @@ interface Product {
   type: string;
   category?: string;
   is_base_product: boolean;
+  red_line_price?: number;
+  cap_price?: number;
   items?: any[];
   trade_id?: string;
   cost_code?: {
@@ -301,7 +307,9 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
         quantity: item.quantity,
         price: item.unit_price ?? item.price ?? 0,
         unit: item.unit || 'ea',
-        description: item.description
+        description: item.description,
+        red_line_price: item.red_line_price,
+        cap_price: item.cap_price
       }));
       
       setSelectedItems(estimateItems);
@@ -351,14 +359,20 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
       }
       
       // Process line items - convert to Product format for compatibility
-      const allLineItems = lineItemsData.map((item: any) => ({
+      // Estimates start each item at its cap price.
+      const allLineItems = lineItemsData.map((item: any) => {
+        const range = priceRange(item);
+        return {
         ...item,
-        price: item.price ?? item.base_price ?? 0,
+        red_line_price: range.redLine,
+        cap_price: range.cap,
+        price: range.cap,
         unit: item.unit || 'ea',
         trade_id: item.trade_id || null,
         // Add category from cost code
         type: item.cost_code?.category || 'material'
-      }));
+        };
+      });
       
       // Templates aren't part of the app yet.
       const processedTemplates: Template[] = [];
@@ -419,19 +433,26 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
       quantity: 1,
       price: item.price,
       unit: item.unit,
-      description: item.description
+      description: item.description,
+      red_line_price: item.red_line_price,
+      cap_price: item.cap_price
     }]);
   };
 
   const handleAddItemsFromSelector = (items: any[]) => {
-    const newItems: EstimateItem[] = items.map(item => ({
-      product_id: item.lineItemId,
-      product_name: item.name,
-      quantity: item.quantity,
-      price: item.price,
-      unit: item.unit,
-      description: item.description
-    }));
+    const newItems: EstimateItem[] = items.map(item => {
+      const source = lineItems.find(lineItem => lineItem.id === item.lineItemId);
+      return {
+        product_id: item.lineItemId,
+        product_name: item.name,
+        quantity: item.quantity,
+        price: item.price,
+        unit: item.unit,
+        description: item.description,
+        red_line_price: source?.red_line_price,
+        cap_price: source?.cap_price
+      };
+    });
     setSelectedItems([...selectedItems, ...newItems]);
     setShowPricingSelector(false);
   };

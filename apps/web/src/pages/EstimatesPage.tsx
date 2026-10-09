@@ -66,6 +66,8 @@ export const EstimatesPage: React.FC = () => {
                 description: item.description || item.product_name || '',
                 quantity: item.quantity,
                 unit_price: item.price,
+                red_line_price: item.red_line_price,
+                cap_price: item.cap_price,
                 total_price: item.price * item.quantity,
                 display_order: index
               }))

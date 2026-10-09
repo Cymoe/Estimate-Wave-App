@@ -9,6 +9,10 @@ export interface EstimateItem {
   unit_price: number;
   original_unit_price?: number;
   total_price: number;
+  /** Price-book floor and ceiling when the item was added. */
+  red_line_price?: number;
+  cap_price?: number;
+  product_id?: string;
   cost_code?: string;
   cost_code_name?: string;
   display_order?: number;
@@ -118,6 +122,9 @@ function toLegacy(doc: Doc, clients?: Map<string, Doc>, projects?: Map<string, D
       quantity: item.quantity,
       unit_price: item.unitPrice,
       total_price: item.totalPrice,
+      red_line_price: item.redLinePrice,
+      cap_price: item.capPrice,
+      product_id: item.productId,
       cost_code: item.costCode,
       display_order: item.displayOrder,
     })),
@@ -151,6 +158,8 @@ function toConvex(estimate: Partial<Estimate> & Doc): Doc {
       description: item.description || item.product_name || '',
       quantity: Number(item.quantity) || 1,
       unitPrice: Number(item.unit_price ?? item.price) || 0,
+      redLinePrice: item.red_line_price ?? undefined,
+      capPrice: item.cap_price ?? undefined,
       costCode: item.cost_code,
       productId: item.product_id,
       displayOrder: item.display_order ?? index,

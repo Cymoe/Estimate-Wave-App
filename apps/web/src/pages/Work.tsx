@@ -194,6 +194,8 @@ export const Work: React.FC = () => {
                 description: item.description || item.product_name || '',
                 quantity: item.quantity || 1,
                 unit_price: item.price || item.unit_price || 0,
+                red_line_price: item.red_line_price,
+                cap_price: item.cap_price,
                 total_price: (item.quantity || 1) * (item.price || item.unit_price || 0),
                 display_order: index
               }))
