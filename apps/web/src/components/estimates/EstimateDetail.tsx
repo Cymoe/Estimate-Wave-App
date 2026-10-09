@@ -41,6 +41,25 @@ export const EstimateDetail: React.FC = () => {
   
   // Tab state - Default to Line Items for immediate visibility (3-tab structure)
   const [activeTab, setActiveTab] = useState<'items' | 'overview' | 'contract'>('items');
+  // The total bar is fixed to the screen bottom; it follows the table column's position and width.
+  const [tableColumn, setTableColumn] = useState<HTMLDivElement | null>(null);
+  const [totalBarBox, setTotalBarBox] = useState<{ left: number; width: number } | null>(null);
+
+  useEffect(() => {
+    if (!tableColumn) return;
+    const measure = () => {
+      const rect = tableColumn.getBoundingClientRect();
+      setTotalBarBox({ left: rect.left, width: rect.width });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(tableColumn);
+    window.addEventListener('resize', measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [tableColumn]);
 
   // Design image state
   const [designImageUrl, setDesignImageUrl] = useState<string | null>(null);
@@ -884,7 +903,7 @@ export const EstimateDetail: React.FC = () => {
             />
             
             {/* Airtable-style Spreadsheet */}
-            <div className="flex-1">
+            <div className="flex-1 min-w-0" ref={setTableColumn}>
               <AirtableEstimateView
           items={estimate.items?.map(item => ({
             id: item.id,
@@ -1533,8 +1552,8 @@ export const EstimateDetail: React.FC = () => {
       )}
 
       {/* Fixed Total Bar - Always visible at bottom of screen */}
-      {activeTab === 'items' && estimate.items && estimate.items.length > 0 && (
-        <div className="fixed bottom-0 bg-[#15161f] border-t border-[#3c3d51] z-30" style={{ left: '480px', right: '320px' }}>
+      {activeTab === 'items' && estimate.items && estimate.items.length > 0 && totalBarBox && (
+        <div className="fixed bottom-0 bg-[#15161f] border-t border-[#3c3d51] z-30" style={{ left: totalBarBox.left, width: totalBarBox.width }}>
           <div className="flex items-center text-[12px] font-medium">
             <div className="w-20 py-2 px-3 text-gray-500 border-r border-[#3c3d51] text-center">
               {estimate.items.length} items
