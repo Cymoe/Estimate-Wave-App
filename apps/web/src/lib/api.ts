@@ -342,6 +342,21 @@ export const leadsAPI = {
     return run('query', api.leads.list, { organizationId });
   },
 
+  /** Calls onUpdate with the org's leads now and after every change. Returns a stop function. */
+  watch(organizationId: string, onUpdate: (leads: any[]) => void): () => void {
+    const watch = convex.watchQuery(api.leads.list, { organizationId });
+    const emit = () => {
+      try {
+        const result = watch.localQueryResult();
+        if (result !== undefined) onUpdate(withId(result));
+      } catch (error) {
+        console.error('Error watching leads:', error);
+      }
+    };
+    emit();
+    return watch.onUpdate(emit);
+  },
+
   async create(organizationId: string, data: any) {
     return run('mutation', api.leads.create, { organizationId, data });
   },

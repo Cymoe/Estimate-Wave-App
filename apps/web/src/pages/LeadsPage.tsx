@@ -353,6 +353,13 @@ const LeadsPage: React.FC = () => {
     setLoading(true);
     load();
     industriesAPI.list().then(setTrades).catch(() => setTrades([]));
+    // Stay live: any saved change (an appointment, a status, a note) shows up
+    // on the board and calendar as soon as the server has it.
+    if (!organizationId) return;
+    return leadsAPI.watch(organizationId, (rows) => {
+      setLeads(rows);
+      setLoading(false);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [organizationId]);
 
@@ -725,10 +732,7 @@ const LeadsPage: React.FC = () => {
           organizationId={organizationId}
           lead={editing === 'new' ? null : editing}
           trades={trades}
-          onClose={() => {
-            setEditing(null);
-            load();
-          }}
+          onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
             load();
