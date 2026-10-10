@@ -12,6 +12,7 @@ html.light .bg-\[\#0a0a0a\] { background-color: #F4F5F7; }
 html.light .bg-\[\#0a0f1f\] { background-color: #E8ECF8; }
 html.light .bg-\[\#0d2818\] { background-color: #E8F7EE; }
 html.light .bg-\[\#0f0f0f\] { background-color: #FFFFFF; }
+html.light .bg-\[\#0f1729\] { background-color: #E9EDF7; }
 html.light .bg-\[\#111827\] { background-color: #FFFFFF; }
 html.light .bg-\[\#111827\]\/30 { background-color: rgba(255, 255, 255, 0.3); }
 html.light .bg-\[\#111827\]\/50 { background-color: rgba(255, 255, 255, 0.5); }
@@ -104,8 +105,11 @@ html.light .border-gray-900 { border-color: #EEF0F2; }
 html.light .border-white\/10 { border-color: rgba(0, 0, 0, 0.100); }
 html.light .border-white\/20 { border-color: rgba(0, 0, 0, 0.200); }
 html.light .border-white\/8 { border-color: rgba(0, 0, 0, 0.080); }
+html.light .disabled\:bg-\[\#2a2a2a\]:disabled { background-color: #F1F2F4; }
 html.light .disabled\:bg-gray-700:disabled { background-color: #E5E7EB; }
 html.light .disabled\:text-gray-500:disabled { color: #6B7280; }
+html.light .disabled\:text-gray-600:disabled { color: #9CA3AF; }
+html.light .divide-\[\#1a1a1a\] > :not([hidden]) ~ :not([hidden]) { border-color: #EEF0F2; }
 html.light .divide-\[\#262626\] > :not([hidden]) ~ :not([hidden]) { border-color: #E9EBEE; }
 html.light .divide-\[\#2A2A2A\] > :not([hidden]) ~ :not([hidden]) { border-color: #E9EBEE; }
 html.light .divide-\[\#2a2a2a\] > :not([hidden]) ~ :not([hidden]) { border-color: #E9EBEE; }
@@ -122,6 +126,7 @@ html.light .group:hover .group-hover\:text-white { color: #111827; }
 html.light .hover\:bg-\[\#0a0a0a\]:hover { background-color: #F4F5F7; }
 html.light .hover\:bg-\[\#111827\]\/50:hover { background-color: rgba(255, 255, 255, 0.5); }
 html.light .hover\:bg-\[\#111827\]\/70:hover { background-color: rgba(255, 255, 255, 0.7); }
+html.light .hover\:bg-\[\#111\]:hover { background-color: #FFFFFF; }
 html.light .hover\:bg-\[\#151515\]:hover { background-color: #FFFFFF; }
 html.light .hover\:bg-\[\#1A1A1A\]:hover { background-color: #FFFFFF; }
 html.light .hover\:bg-\[\#1A1A1A\]\/30:hover { background-color: rgba(255, 255, 255, 0.3); }

@@ -20,11 +20,30 @@ jest.mock('../../../services/ProjectService', () => ({
   },
 }));
 jest.mock('../../../services/ClientService', () => ({
-  ClientService: { list: jest.fn(async () => [{ id: 'c1', name: 'Ann Miller' }]) },
+  ClientService: { list: jest.fn(async () => [{ id: 'c1', name: 'Ann Miller', phone: '432-555-0100' }]) },
 }));
+const createEstimate = jest.fn(async (e: Record<string, unknown>) => ({ ...e, id: 'e-new' }));
 jest.mock('../../../services/EstimateService', () => ({
-  EstimateService: { getByProject: jest.fn(async () => []) },
+  EstimateService: { getByProject: jest.fn(async () => []), create: (e: Record<string, unknown>) => createEstimate(e) },
 }));
+const createLead = jest.fn(async () => ({}));
+jest.mock('../../../lib/api', () => ({
+  industriesAPI: {
+    forOrganization: jest.fn(async () => [
+      { id: 'roofing', slug: 'roofing', name: 'Roofing', icon: '🏠' },
+      { id: 'mystery', slug: 'mystery', name: 'Mystery Trade' },
+    ]),
+    list: jest.fn(async () => []),
+  },
+  lineItemsAPI: {
+    list: jest.fn(async () => [
+      { _id: 'li1', name: 'Shingle Roof Package', is_package: true, is_active: true, red_line_price: 9000, cap_price: 12000, cost_code: { code: 'RF200', industry_id: 'roofing' } },
+      { _id: 'li2', name: 'Nails', is_package: false, is_active: true, base_price: 10, cost_code: { industry_id: 'roofing' } },
+    ]),
+  },
+  leadsAPI: { create: (...args: unknown[]) => createLead(...(args as [])) },
+}));
+jest.mock('../../clients/NewClientModal', () => ({ NewClientModal: () => null }));
 jest.mock('../../../services/ProjectExportService', () => ({ ProjectExportService: {} }));
 jest.mock('../../layouts/DashboardLayout', () => {
   const { createContext } = jest.requireActual('react');
@@ -70,6 +89,8 @@ describe('ProjectList', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     create.mockClear();
+    createEstimate.mockClear();
+    createLead.mockClear();
     update.mockClear();
   });
 
@@ -84,15 +105,65 @@ describe('ProjectList', () => {
     expect(text).not.toMatch(/New Project/);
   });
 
-  it('adds a project from the drawer opened with ?new=1', async () => {
+  const click = async (text: string) => {
+    const button = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes(text));
+    if (!button) throw new Error(`No button "${text}"`);
+    await act(async () => button.click());
+  };
+  const select = async (label: string, value: string) => {
+    const el = document.body.querySelector(`select#${label}`) as HTMLSelectElement;
+    await act(async () => {
+      el.value = value;
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  };
+
+  it('+ Project opens the wizard: trade, type, package, details, then creates the project', async () => {
     rows = [];
     await render('/projects?new=1');
-    const name = document.body.querySelector('input[aria-label="Project name"]') as HTMLInputElement;
-    expect(name).toBeTruthy();
-    await act(async () => type(name, 'Deck rebuild'));
-    const button = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent === 'Add project')!;
-    await act(async () => button.click());
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: 'Deck rebuild', status: 'planned', organization_id: 'org1' }));
+    expect(document.body.textContent).toContain('Step 1 of');
+    await click('Roofing');
+    await click('Roof Replacement');
+    expect(document.body.textContent).toContain('Shingle Roof Package');
+    expect(document.body.textContent).not.toContain('Nails');
+    await click('Shingle Roof Package');
+    expect((document.body.querySelector('#wizard-budget') as HTMLInputElement).value).toBe('12000');
+    await select('wizard-client', 'c1');
+    await click('Create Project');
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Roof Replacement – Ann Miller', client_id: 'c1', budget: 12000, category: 'Roof Replacement', status: 'planned', organization_id: 'org1' }),
+    );
+    expect(document.body.textContent).toContain('Roof Replacement – Ann Miller');
+  });
+
+  it('a quote creates the project and a draft estimate holding the package', async () => {
+    rows = [];
+    await render('/projects?new=1');
+    await click('Roofing');
+    await click('Roof Repair');
+    await click('Shingle Roof Package');
+    await click('📋 Quote');
+    await select('wizard-client', 'c1');
+    await click('Create Project & Estimate');
+    expect(createEstimate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        project_id: 'p-new',
+        client_id: 'c1',
+        items: [expect.objectContaining({ description: 'Shingle Roof Package', unit_price: 12000, red_line_price: 9000, cap_price: 12000 })],
+      }),
+    );
+  });
+
+  it('a lead goes to the leads pipeline; a trade without types or packages skips straight to details', async () => {
+    rows = [];
+    await render('/projects?new=1');
+    await click('Mystery Trade');
+    expect(document.body.textContent).toContain('Project Details');
+    await click('💡 Lead');
+    await select('wizard-client', 'c1');
+    await click('Add Lead');
+    expect(createLead).toHaveBeenCalledWith('org1', expect.objectContaining({ name: 'Ann Miller', phone: '432-555-0100', jobType: 'mystery', status: 'new' }));
+    expect(create).not.toHaveBeenCalled();
   });
 
   it('opens a project at /projects/:id and saves a field when you leave it', async () => {

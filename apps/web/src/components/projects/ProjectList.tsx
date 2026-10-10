@@ -8,6 +8,7 @@ import { formatCurrency } from '../../utils/format';
 import { TableSkeleton } from '../skeletons/TableSkeleton';
 import { PROJECT_STATUSES, formatProjectDate, projectStatusInfo } from './projectStatus';
 import { ProjectDrawer } from './ProjectDrawer';
+import { CreateProjectWizard } from './CreateProjectWizard';
 
 /** Project, client, status, dates, budget: shared by the header and every row. */
 const ROW_GRID = 'grid grid-cols-[minmax(0,2fr)_minmax(0,1.5fr)_6.5rem_minmax(9rem,1.2fr)_minmax(6rem,1fr)] gap-4 items-center';
@@ -265,18 +266,22 @@ export const ProjectList: React.FC = () => {
         )}
       </div>
 
-      {selectedOrg?.id && (creating || openProject) && (
+      {creating && (
+        <CreateProjectWizard
+          onClose={() => navigate('/projects', { replace: true })}
+          onProjectCreated={(project) => setProjects((current) => [project, ...current])}
+        />
+      )}
+
+      {selectedOrg?.id && openProject && (
         <ProjectDrawer
-          key={openProject?.id ?? 'new'}
+          key={openProject.id}
           organizationId={selectedOrg.id}
-          project={openProject ?? null}
+          project={openProject}
           onClose={() => navigate('/projects')}
-          onSaved={(saved) => {
-            setProjects((current) =>
-              current.some((p) => p.id === saved.id) ? current.map((p) => (p.id === saved.id ? saved : p)) : [saved, ...current],
-            );
-            if (creating) navigate('/projects');
-          }}
+          onSaved={(saved) =>
+            setProjects((current) => current.map((p) => (p.id === saved.id ? saved : p)))
+          }
           onDeleted={(id) => {
             setProjects((current) => current.filter((p) => p.id !== id));
             navigate('/projects');
