@@ -32,7 +32,7 @@ import {
   Activity
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { organizationsAPI } from '../../lib/api';
+import { invoicesAPI, organizationsAPI } from '../../lib/api';
 import { NewClientModal } from '../clients/NewClientModal';
 import { CreateInvoiceDrawer } from '../invoices/CreateInvoiceDrawer';
 import { LineItemModal } from '../modals/LineItemModal';
@@ -897,71 +897,30 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                       try {
                         console.log('Invoice save started with data:', data);
                         
-                        // Generate invoice number if not provided
-                        const invoiceNumber = `INV-${Date.now().toString().slice(-6)}`;
-                        
-                        // Calculate tax (default 0 for now)
+                        // Saved straight to Convex (the old Supabase insert no longer exists).
                         const subtotal = data.total_amount || 0;
-                        const taxRate = 0;
-                        const taxAmount = subtotal * (taxRate / 100);
-                        const totalWithTax = subtotal + taxAmount;
-                        
-                        const invoiceData = {
-                          user_id: user?.id,
-                          organization_id: selectedOrg?.id,
-                          invoice_number: invoiceNumber,
-                          client_id: data.client_id,
+                        const invoice = await invoicesAPI.create({
+                          organizationId: selectedOrg?.id,
+                          clientId: data.client_id || undefined,
                           status: data.status || 'draft',
-                          due_date: data.due_date,
-                          total_amount: totalWithTax,
-                          subtotal: subtotal,
-                          tax_rate: taxRate,
-                          tax_amount: taxAmount,
-                          issue_date: data.issue_date || new Date().toISOString().split('T')[0],
-                          notes: data.description || '',
-                          terms: 'Net 30'
-                        };
-                        
-                        console.log('Invoice data to insert:', invoiceData);
-                        
-                        const { data: invoice, error: invoiceError } = await supabase
-                          .from('invoices')
-                          .insert(invoiceData)
-                          .select()
-                          .single();
-
-                        if (invoiceError) {
-                          console.error('Error creating invoice:', invoiceError);
-                          alert(`Error creating invoice: ${invoiceError.message}`);
-                          throw invoiceError;
-                        }
-
-                        console.log('Invoice created successfully:', invoice);
-
-                        // Create invoice items
-                        if (data.items && data.items.length > 0) {
-                          const itemsToInsert = data.items.map((item) => ({
-                            invoice_id: invoice.id,
-                            product_id: item.product_id || null,
+                          dueDate: data.due_date || undefined,
+                          issueDate: data.issue_date || new Date().toISOString().split('T')[0],
+                          subtotal,
+                          taxRate: 0,
+                          taxAmount: 0,
+                          totalAmount: subtotal,
+                          notes: data.description || undefined,
+                          terms: 'Net 30',
+                          items: (data.items || []).map((item, index) => ({
+                            productId: item.product_id || undefined,
                             description: item.product_name || item.description || 'Item',
                             quantity: item.quantity || 1,
-                            unit_price: item.price || 0,
-                            total_price: (item.price || 0) * (item.quantity || 1)
-                          }));
+                            unitPrice: item.price || 0,
+                            displayOrder: index,
+                          })),
+                        });
+                        console.log('Invoice created:', invoice);
 
-                          console.log('Inserting invoice items:', itemsToInsert);
-
-                          const { error: itemsError } = await supabase
-                            .from('invoice_items')
-                            .insert(itemsToInsert);
-
-                          if (itemsError) {
-                            console.error('Error inserting invoice items:', itemsError);
-                            alert(`Error inserting invoice items: ${itemsError.message}`);
-                            throw itemsError;
-                          }
-                        }
-                        
                         console.log('Invoice and items created successfully!');
                         
                         // Close the drawer

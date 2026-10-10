@@ -5,7 +5,6 @@ import {
   XCircle, AlertTriangle, Calendar, ChevronDown, ChevronUp, LayoutGrid, Share2, Copy,
   Download, FileSpreadsheet, FileDown, Check
 } from 'lucide-react';
-import { ViewToggle, ViewMode } from '../common/ViewToggle';
 import { useNavigate } from 'react-router-dom';
 import { EstimateService, Estimate } from '../../services/EstimateService';
 import { useAuth } from '../../contexts/AuthContext';
@@ -43,7 +42,6 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
   const [dropdownOpen, setDropdownOpen] = useState<string | null>(null);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>('compact');
   const [editingEstimate, setEditingEstimate] = useState<Estimate | null>(null);
   const [showEditDrawer, setShowEditDrawer] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -528,12 +526,6 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
             </div>
             
             <div className="flex items-center gap-3">
-              {/* View Toggle */}
-              <ViewToggle 
-                viewMode={viewMode} 
-                onViewModeChange={setViewMode}
-              />
-              
               {/* Options menu */}
               <div className="relative" ref={optionsMenuRef}>
                               <button
@@ -697,20 +689,15 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
                     <div
                       key={estimate.id}
                       onClick={() => navigate(`/estimates/${estimate.id}`)}
-                      className={`group grid grid-cols-12 gap-4 px-4 ${viewMode === 'compact' ? 'py-1' : 'py-1.5'} items-center hover:bg-[#1A1A1A] transition-colors cursor-pointer border-b border-[#333333]/50 last:border-b-0`}
+                      className={`group grid grid-cols-12 gap-4 px-4 py-1 items-center hover:bg-[#1A1A1A] transition-colors cursor-pointer border-b border-[#333333]/50 last:border-b-0`}
                     >
                       {/* Estimate Column */}
                       <div className="col-span-6">
                         <div className="flex items-center gap-3">
                           <div className="min-w-0 flex-1">
-                            <div className={`font-medium text-white truncate ${viewMode === 'compact' ? 'text-sm' : ''}`}>
+                            <div className="font-medium text-white truncate text-sm">
                               {estimate.estimate_number}
                             </div>
-                            {viewMode !== 'compact' && (
-                              <div className="text-xs text-gray-400 truncate mt-0.5">
-                                {estimate.client?.name || 'Unknown Client'}
-                              </div>
-                            )}
                           </div>
                           <span className={`text-xs px-2 py-1 font-medium min-w-[60px] text-center ${getStatusColor(estimate.status)}`}>
                             {estimate.status.toUpperCase()}
@@ -720,16 +707,13 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
                       
                       {/* Amount Column */}
                       <div className="col-span-3 text-center">
-                        <div className={`font-mono font-semibold text-white ${viewMode === 'compact' ? 'text-sm' : ''}`}>
+                        <div className="font-mono font-semibold text-white text-sm">
                           {formatCurrency(estimate.total_amount)}
                         </div>
-                        {viewMode !== 'compact' && (
-                          <div className="text-xs text-gray-400 capitalize">Estimate</div>
-                        )}
                       </div>
                       
                       {/* Date Column */}
-                      <div className={`col-span-2 text-gray-300 ${viewMode === 'compact' ? 'text-xs' : 'text-sm'}`}>
+                      <div className="col-span-2 text-gray-300 text-xs">
                         <div>{estimate.created_at ? new Date(estimate.created_at).toLocaleDateString() : 'No date'}</div>
                       </div>
 

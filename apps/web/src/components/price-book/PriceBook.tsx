@@ -832,20 +832,6 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
             processed: mostRecentJob.processed_items
           });
           
-          // Mark as failed to clean up
-          try {
-            await supabase
-              .from('pricing_jobs')
-              .update({
-                status: 'failed',
-                error_message: 'Job timed out or stuck',
-                completed_at: new Date().toISOString()
-              })
-              .eq('id', mostRecentJob.id);
-          } catch (error) {
-            console.error('Error cleaning up stuck job:', error);
-          }
-          
           // Don't show any UI, just clean up silently
           return;
         }

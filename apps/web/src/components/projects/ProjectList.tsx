@@ -1035,7 +1035,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({ searchTerm: initialSea
           onSuccess={() => {
             setShowProjectWizard(false);
             // Refresh the projects list
-            loadProjects();
+            fetchProjects(false);
           }}
         />
       )}
