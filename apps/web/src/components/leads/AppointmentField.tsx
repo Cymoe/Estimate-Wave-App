@@ -14,7 +14,13 @@ export const AppointmentField: React.FC<{ value?: string; onChange: (iso: string
 }) => {
   const [local, setLocal] = useState(value);
   const timer = useRef<number>();
+  const input = useRef<HTMLInputElement>(null);
   useEffect(() => setLocal(value), [value]);
+  // Only the live value tracks the appointment; the input's starting value
+  // stays empty, so the picker's Reset button clears the appointment.
+  useEffect(() => {
+    if (input.current) input.current.value = toLocalInput(local);
+  }, [local]);
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
   const commit = (iso: string | undefined) => {
@@ -29,8 +35,9 @@ export const AppointmentField: React.FC<{ value?: string; onChange: (iso: string
         <span className="truncate">{local ? formatAppointment(local) : 'Set appointment'}</span>
         {/* The real picker sits invisibly over the label, so a tap opens it. */}
         <input
+          ref={input}
           type="datetime-local"
-          value={toLocalInput(local)}
+          defaultValue=""
           onChange={(e) => {
             const iso = fromLocalInput(e.target.value) ?? undefined;
             setLocal(iso);

@@ -44,3 +44,19 @@ describe('AppointmentField', () => {
     expect(container.textContent).toContain('Set appointment');
   });
 });
+
+describe('AppointmentField reset', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it("treats the picker's Reset (back to the empty starting value) as removing the appointment", () => {
+    const onChange = jest.fn();
+    const container = render(<AppointmentField value={new Date('2026-10-12T14:00').toISOString()} onChange={onChange} />);
+    const input = container.querySelector('input')!;
+    expect(input.value).toBe('2026-10-12T14:00');
+    expect(input.defaultValue).toBe('');
+    act(() => pick(input, input.defaultValue));
+    act(() => jest.advanceTimersByTime(800));
+    expect(onChange).toHaveBeenCalledWith(null);
+  });
+});
