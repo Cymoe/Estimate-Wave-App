@@ -69,26 +69,6 @@ export const EstimateContractView: React.FC = () => {
             warrantyPeriod: '1 year'
           };
 
-          // Check for existing design image in project documents
-          if (result.project_id) {
-            try {
-              const { data: designDocs } = await supabase
-                .from('project_documents')
-                .select('*')
-                .eq('project_id', result.project_id)
-                .eq('type', 'agreed_design')
-                .order('created_at', { ascending: false })
-                .limit(1);
-
-              if (designDocs && designDocs.length > 0) {
-                const designDoc = designDocs[0];
-                contract.agreedDesignImageUrl = designDoc.content;
-                contract.agreedDesignImageName = designDoc.name?.replace('Agreed Design - ', '') || 'Project Design';
-              }
-            } catch (error) {
-              console.log('No design document found:', error);
-            }
-          }
 
           setContractData(contract);
 

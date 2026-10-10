@@ -1,9 +1,16 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Plus, Calendar, ChevronDown, ChevronRight, Receipt, DollarSign, Filter, Building2 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { Plus, Calendar, ChevronDown, ChevronRight, Receipt, DollarSign, Building2 } from 'lucide-react';
 import { formatCurrency } from '../utils/format';
 import { useAuth } from '../contexts/AuthContext';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
+import { costCodesAPI } from '../lib/api';
+import { ProjectService } from '../services/ProjectService';
+import { ExpenseService, type Expense as StoredExpense } from '../services/ExpenseService';
+
+const todayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 interface CostCode {
   id: string;
@@ -37,7 +44,7 @@ interface Expense {
 export const Expenses: React.FC = () => {
   const { user } = useAuth();
   const { selectedOrg } = useContext(OrganizationContext);
-  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [stored, setStored] = useState<StoredExpense[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [showPaid, setShowPaid] = useState(false);
@@ -54,7 +61,7 @@ export const Expenses: React.FC = () => {
     category: '',
     cost_code_id: '',
     project_id: '',
-    date: new Date().toISOString().split('T')[0]
+    date: todayIso()
   });
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [costCodes, setCostCodes] = useState<CostCode[]>([]);
@@ -72,16 +79,9 @@ export const Expenses: React.FC = () => {
 
   const loadProjects = async () => {
     if (!selectedOrg?.id) return;
-    
     try {
-      const { data, error } = await supabase
-        .from('projects')
-        .select('id, name')
-        .eq('organization_id', selectedOrg.id)
-        .order('name');
-
-      if (error) throw error;
-      setProjects(data || []);
+      const list = await ProjectService.list(selectedOrg.id);
+      setProjects(list.map((p) => ({ id: p.id!, name: p.name })).sort((a, b) => a.name.localeCompare(b.name)));
     } catch (error) {
       console.error('Error loading projects:', error);
     }
@@ -89,35 +89,32 @@ export const Expenses: React.FC = () => {
 
   const loadCostCodes = async () => {
     try {
-      const { data, error } = await supabase
-        .from('cost_codes')
-        .select('*')
-        .order('code');
-
-      if (error) throw error;
-      setCostCodes(data || []);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const codes: any[] = await costCodesAPI.list();
+      setCostCodes(codes.map((cc) => ({ id: cc._id, name: cc.name, code: cc.code, category: cc.category })));
     } catch (error) {
       console.error('Error loading cost codes:', error);
     }
   };
 
+  /** Adds the cost code and project each expense points at. */
+  const withLinks = (rows: StoredExpense[]): Expense[] =>
+    rows.map((row) => ({
+      ...row,
+      vendor: row.vendor ?? '',
+      project_id: row.project_id ?? '',
+      created_at: row.created_at ?? '',
+      updated_at: row.updated_at ?? '',
+      cost_code: costCodes.find((cc) => cc.id === row.cost_code_id),
+      project: projects.find((p) => p.id === row.project_id),
+    }));
+  const expenses = withLinks(stored);
+
   const loadExpenses = async () => {
     if (!selectedOrg?.id) return;
-    
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('expenses')
-        .select(`
-          *,
-          cost_code:cost_codes(id, name, code, category),
-          project:projects(id, name)
-        `)
-        .eq('organization_id', selectedOrg.id)
-        .order('date', { ascending: false });
-
-      if (error) throw error;
-      setExpenses(data || []);
+      setStored(await ExpenseService.list(selectedOrg.id));
     } catch (error) {
       console.error('Error loading expenses:', error);
     } finally {
@@ -127,58 +124,30 @@ export const Expenses: React.FC = () => {
 
   const toggleExpenseStatus = async (expenseId: string, currentStatus: string) => {
     const newStatus = currentStatus === 'paid' ? 'pending' : 'paid';
-    
     try {
-      const { error } = await supabase
-        .from('expenses')
-        .update({ status: newStatus })
-        .eq('id', expenseId);
-
-      if (error) throw error;
-      
-      // Update local state
-      setExpenses(expenses.map(expense => 
-        expense.id === expenseId 
-          ? { ...expense, status: newStatus }
-          : expense
-      ));
+      await ExpenseService.update(expenseId, { status: newStatus });
+      setStored((rows) => rows.map((row) => (row.id === expenseId ? { ...row, status: newStatus } : row)));
     } catch (error) {
       console.error('Error updating expense:', error);
     }
   };
 
   const createExpense = async () => {
-    if (!newExpense.description.trim() || !newExpense.amount || !newExpense.project_id) return;
+    if (!newExpense.description.trim() || !newExpense.amount) return;
     if (!selectedOrg?.id) return;
-
     try {
-      const { data, error } = await supabase
-        .from('expenses')
-        .insert({
-          description: newExpense.description,
-          amount: parseFloat(newExpense.amount),
-          vendor: newExpense.vendor || null,
-          category: newExpense.category || 'Material',
-          cost_code_id: newExpense.cost_code_id || null,
-          date: newExpense.date,
-          status: 'pending',
-          project_id: newExpense.project_id,
-          user_id: user?.id,
-          organization_id: selectedOrg.id
-        })
-        .select(`
-          *,
-          cost_code:cost_codes(id, name, code, category),
-          project:projects(id, name)
-        `)
-        .single();
-
-      if (error) throw error;
-
-      // Add to local state
-      setExpenses([data, ...expenses]);
-      
-      // Reset form
+      const created = await ExpenseService.create({
+        organization_id: selectedOrg.id,
+        description: newExpense.description.trim(),
+        amount: parseFloat(newExpense.amount),
+        vendor: newExpense.vendor,
+        category: newExpense.category || 'Materials',
+        cost_code_id: newExpense.cost_code_id,
+        date: newExpense.date,
+        status: 'pending',
+        project_id: newExpense.project_id,
+      });
+      setStored((rows) => [created, ...rows]);
       setNewExpense({
         description: '',
         amount: '',
@@ -186,11 +155,11 @@ export const Expenses: React.FC = () => {
         category: '',
         cost_code_id: '',
         project_id: '',
-        date: new Date().toISOString().split('T')[0]
+        date: todayIso()
       });
       setIsCreating(false);
     } catch (error) {
-      console.error('Error creating expense:', error);
+      alert(error instanceof Error ? error.message : 'Could not add the expense');
     }
   };
 
@@ -208,13 +177,14 @@ export const Expenses: React.FC = () => {
         category: '',
         cost_code_id: '',
         project_id: '',
-        date: new Date().toISOString().split('T')[0]
+        date: todayIso()
       });
     }
   };
 
   const getCategoryColor = (category: string) => {
     const colors: Record<string, string> = {
+      'Materials': '#3b82f6',
       'Material': '#3b82f6',
       'Labor': '#f59e0b',
       'Equipment': '#8b5cf6',
@@ -244,7 +214,8 @@ export const Expenses: React.FC = () => {
       if (expense.status === 'paid') {
         groups.paid.push(expense);
       } else {
-        const expenseDate = new Date(expense.date);
+        const [y, m, d] = expense.date.split('-').map(Number);
+        const expenseDate = new Date(y, m - 1, d);
         expenseDate.setHours(0, 0, 0, 0);
         
         if (expenseDate.getTime() === now.getTime()) {
@@ -278,7 +249,7 @@ export const Expenses: React.FC = () => {
 
     setNewExpense({
       ...newExpense,
-      date: targetDate.toISOString().split('T')[0]
+      date: `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}-${String(targetDate.getDate()).padStart(2, '0')}`
     });
     setShowDatePicker(false);
   };
@@ -291,8 +262,10 @@ export const Expenses: React.FC = () => {
   };
 
   const formatExpenseDate = (date: string) => {
-    const expenseDate = new Date(date);
+    const [y, m, d] = date.split('-').map(Number);
+    const expenseDate = new Date(y, m - 1, d);
     const now = new Date();
+    now.setHours(0, 0, 0, 0);
     const diffTime = now.getTime() - expenseDate.getTime();
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
     
@@ -497,7 +470,7 @@ export const Expenses: React.FC = () => {
                       className="flex items-center gap-1 px-3 py-2 bg-[#2a2a2a] border border-[#3a3a3a] rounded-[4px] text-xs text-gray-300 hover:text-white focus:border-[#336699] transition-colors min-w-[90px]"
                     >
                       <Calendar className="w-3 h-3" />
-                      {new Date(newExpense.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      {(() => { const [y, m, d] = newExpense.date.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); })()}
                     </button>
                     
                     {showDatePicker && (
@@ -541,7 +514,7 @@ export const Expenses: React.FC = () => {
                     onChange={(e) => setNewExpense({...newExpense, category: e.target.value})}
                     className="px-3 py-2 bg-[#2a2a2a] border border-[#3a3a3a] rounded-[4px] text-xs text-gray-300 hover:text-white focus:border-[#336699] outline-none cursor-pointer min-w-[100px]"
                   >
-                    <option value="">Material</option>
+                    <option value="">Materials</option>
                     <option value="Labor">Labor</option>
                     <option value="Equipment">Equipment</option>
                     <option value="Service">Service</option>
@@ -555,7 +528,7 @@ export const Expenses: React.FC = () => {
                     onChange={(e) => setNewExpense({...newExpense, project_id: e.target.value})}
                     className="px-3 py-2 bg-[#2a2a2a] border border-[#3a3a3a] rounded-[4px] text-xs text-gray-300 hover:text-white focus:border-[#336699] outline-none cursor-pointer min-w-[150px]"
                   >
-                    <option value="">Select Project</option>
+                    <option value="">No project</option>
                     {projects.map(project => (
                       <option key={project.id} value={project.id}>
                         {project.name}
@@ -596,7 +569,7 @@ export const Expenses: React.FC = () => {
                     category: '',
                     cost_code_id: '',
                     project_id: '',
-                    date: new Date().toISOString().split('T')[0]
+                    date: todayIso()
                   });
                 }}
                 className="px-3 py-1 text-gray-500 hover:text-gray-400 text-xs"

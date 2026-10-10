@@ -9,7 +9,6 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronLeft,
-  MessageSquare,
   LogOut,
   TrendingUp,
   DollarSign,
@@ -33,11 +32,9 @@ import {
   Activity
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { NewClientModal } from '../clients/NewClientModal';
-import { CreateInvoiceDrawer } from '../invoices/CreateInvoiceDrawer';
+import { organizationsAPI } from '../../lib/api';
 import { LineItemModal } from '../modals/LineItemModal';
 import { Sidebar } from './Sidebar';
-import ChatManagementSystem from '../../pages/chat/ChatManagementSystem';
 import { MobileHeader } from './MobileHeader';
 import { MobileMenu } from './MobileMenu';
 import { MobileCreateMenu } from './MobileCreateMenu';
@@ -47,7 +44,6 @@ import { PageHeaderBar } from '../common/PageHeaderBar';
 import { ActivityPanel } from '../activity/ActivityPanel';
 import { IndustryBanner } from '../common/IndustryBanner';
 import { IndustryManagementDrawer } from '../common/IndustryManagementDrawer';
-import { ProjectPreviewPanel } from '../projects/ProjectPreviewPanel';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -86,22 +82,36 @@ export const LayoutContext = createContext<{
   isConstrained: boolean; 
   isMinimal: boolean;
   isCompact: boolean;
-  isChatOpen: boolean; 
   isProjectsOpen: boolean;
   availableWidth: 'full' | 'constrained' | 'minimal' | 'compact';
 }>({ 
   isConstrained: false, 
   isMinimal: false,
   isCompact: false,
-  isChatOpen: false, 
   isProjectsOpen: false,
   availableWidth: 'full'
 });
+
+/** Whether the screen is at least Tailwind's md width, kept up to date as it changes. */
+function useIsDesktop() {
+  const query = '(min-width: 768px)';
+  const [isDesktop, setIsDesktop] = useState(() => (typeof window === 'undefined' ? true : window.matchMedia(query).matches));
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const onChange = () => setIsDesktop(media.matches);
+    media.addEventListener('change', onChange);
+    return () => media.removeEventListener('change', onChange);
+  }, []);
+  return isDesktop;
+}
 
 export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, fullWidth = false }) => {
   const { user, signOut, session, isLoading } = useAuth();
   const isAuthenticated = !!session;
   const location = useLocation();
+  // The page renders once, in the desktop or the phone layout. Rendering it in
+  // both (one hidden) ran every page twice and stacked two of each pop-up.
+  const isDesktop = useIsDesktop();
   
   // Only show industry banner on pages where it's useful for filtering content
   const shouldShowIndustryBanner = 
@@ -120,17 +130,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
     const saved = localStorage.getItem('sidebarCollapsed');
     return saved ? JSON.parse(saved) : false;
   });
-  const [isChatPanelOpen, setIsChatPanelOpen] = useState(() => {
-    const saved = localStorage.getItem('chatPanelOpen');
-    return saved ? JSON.parse(saved) : true; // Default to open
-  });
-  const [chatPanelWidth, setChatPanelWidth] = useState(() => {
-    const saved = localStorage.getItem('chatPanelWidth');
-    return saved ? parseInt(saved) : 520; // Default to 520px, can be dragged to 780px max
-  });
-  const [isResizing, setIsResizing] = useState(false);
-  const [showNewClientModal, setShowNewClientModal] = useState(false);
-  const [showNewInvoiceDrawer, setShowNewInvoiceDrawer] = useState(false);
   const [showLineItemDrawer, setShowLineItemDrawer] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
@@ -141,22 +140,14 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
   const [orgDropdownOpen, setOrgDropdownOpen] = useState(false);
   const [isProjectsSidebarOpen, setIsProjectsSidebarOpen] = useState(false);
   const [isProjectsSidebarClosing, setIsProjectsSidebarClosing] = useState(false);
-  const [isProjectsSidebarLocked, setIsProjectsSidebarLocked] = useState(() => {
-    const saved = localStorage.getItem('projectsSidebarLocked');
-    return saved ? JSON.parse(saved) : false;
-  });
+  const [isProjectsSidebarLocked, setIsProjectsSidebarLocked] = useState(false);
   const [isIndustryDrawerOpen, setIsIndustryDrawerOpen] = useState(false);
   const [selectedTimePeriod, setSelectedTimePeriod] = useState<'D' | 'W' | 'M' | 'Q' | 'Y'>('D');
-  const [hoveredProject, setHoveredProject] = useState<any>(null);
-  const [previewPosition, setPreviewPosition] = useState({ top: 0 });
   const [hoverTimeout, setHoverTimeout] = useState<NodeJS.Timeout | null>(null);
   const [isLiveRevenuePopoverOpen, setIsLiveRevenuePopoverOpen] = useState(false);
   const liveRevenueButtonRef = useRef<HTMLDivElement>(null);
   const liveRevenuePopoverRef = useRef<HTMLDivElement>(null);
   const projectsSidebarRef = useRef<HTMLDivElement>(null);
-  const [projectsSearch, setProjectsSearch] = useState('');
-  const [isProjectsSearchExpanded, setIsProjectsSearchExpanded] = useState(false);
-  const [projectsSortOrder, setProjectsSortOrder] = useState<'latest' | 'earliest'>('latest');
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const dropdownRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
   const [availableContentWidth, setAvailableContentWidth] = useState<'full' | 'constrained' | 'minimal' | 'compact'>('full');
@@ -183,21 +174,8 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
         setLoadingOrgs(true);
         console.log('Loading organizations for user:', user.id);
         
-        // Fetch organizations from MongoDB API
-        const apiUrl = import.meta.env.VITE_API_URL;
-        const baseUrl = apiUrl?.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
-        
-        if (!baseUrl) {
-          throw new Error('VITE_API_URL not configured');
-        }
-
-        const response = await fetch(`${baseUrl}/api/organizations`);
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        
-        const orgsData = await response.json();
+        // Organizations the signed-in user belongs to
+        const orgsData = await organizationsAPI.list();
         
         // Transform to match expected format
         const formattedOrgs = orgsData.map((org: any) => ({
@@ -278,63 +256,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
     }
   }, [isIndustryDrawerOpen]);
 
-  const startResizing = useCallback((mouseDownEvent: React.MouseEvent) => {
-    mouseDownEvent.preventDefault();
-    mouseDownEvent.stopPropagation();
-    
-    const startX = mouseDownEvent.pageX;
-    const startWidth = chatPanelWidth;
-    let animationId: number;
-    
-    setIsResizing(true);
-
-    function onMouseMove(mouseMoveEvent: MouseEvent) {
-      mouseMoveEvent.preventDefault();
-      mouseMoveEvent.stopPropagation();
-      
-      if (animationId) {
-        cancelAnimationFrame(animationId);
-      }
-      
-      animationId = requestAnimationFrame(() => {
-        const currentX = mouseMoveEvent.pageX;
-        const diff = currentX - startX;
-        // Calculate max width based on viewport to ensure sidebar stays visible
-        const viewportWidth = window.innerWidth;
-        const reservedSpace = 48 + 350 + (isProjectsSidebarLocked || isProjectsSidebarOpen ? 320 : 0) + (isSidebarCollapsed ? 48 : 192); // chat button + min content + projects + sidebar
-        const maxAllowedWidth = Math.max(280, viewportWidth - reservedSpace);
-        const newWidth = Math.min(Math.max(280, startWidth + diff), Math.min(780, maxAllowedWidth));
-        
-        setChatPanelWidth(newWidth);
-      });
-    }
-
-    function onMouseUp() {
-      if (animationId) {
-        cancelAnimationFrame(animationId);
-      }
-      setIsResizing(false);
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-      localStorage.setItem('chatPanelWidth', chatPanelWidth.toString());
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    }
-
-    document.body.style.cursor = 'ew-resize';
-    document.body.style.userSelect = 'none';
-
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  }, [chatPanelWidth]);
-
-  useEffect(() => {
-    return () => {
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-  }, []);
-
   // Handle click outside for live revenue popover
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -362,11 +283,11 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
     if (path === '/dashboard') return 'Dashboard';
     if (path.startsWith('/clients')) return 'Clients';
     if (path.startsWith('/projects')) return 'Projects';
-    if (path.startsWith('/invoices')) return 'Invoices';
     if (path.startsWith('/products')) return 'Products';
     if (path.startsWith('/items')) return 'Price Book';
     if (path.startsWith('/price-book')) return 'Price Book';
     if (path.startsWith('/cost-codes')) return 'Price Book';
+    if (path.startsWith('/leads')) return 'Leads';
     return 'Dashboard';
   };
 
@@ -403,31 +324,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
     Y: "yearly"
   };
 
-  const allProjects = [
-    { id: 1, name: 'Kitchen Renovation', client: 'Miller Residence', progress: 75, status: 'active' },
-    { id: 2, name: 'HVAC Install', client: 'Johnson Home', progress: 45, status: 'active' },
-    { id: 3, name: 'Office Buildout', client: 'Tech Startup Inc.', progress: 65, status: 'in-progress' },
-    { id: 4, name: 'Bathroom Remodel', client: 'Smith Family', progress: 90, status: 'active' },
-    { id: 5, name: 'Deck Construction', client: 'Brown Residence', progress: 30, status: 'in-progress' },
-    { id: 6, name: 'Electrical Upgrade', client: 'Davis Home', progress: 85, status: 'active' },
-    { id: 7, name: 'Flooring Installation', client: 'Wilson House', progress: 55, status: 'in-progress' },
-    { id: 8, name: 'Roof Repair', client: 'Anderson Property', progress: 100, status: 'completed' },
-    { id: 9, name: 'Plumbing Overhaul', client: 'Taylor Residence', progress: 20, status: 'in-progress' },
-    { id: 10, name: 'Garage Addition', client: 'Martinez Home', progress: 40, status: 'in-progress' },
-  ];
-
-  const filteredProjects = allProjects.filter(project => 
-    project.name.toLowerCase().includes(projectsSearch.toLowerCase()) ||
-    project.client.toLowerCase().includes(projectsSearch.toLowerCase())
-  );
-
-  const sortedProjects = [...filteredProjects].sort((a, b) => {
-    if (projectsSortOrder === 'latest') {
-      return b.id - a.id;
-    } else {
-      return a.id - b.id;
-    }
-  });
 
   const cycleTimePeriod = () => {
     const periods: Array<'D' | 'W' | 'M' | 'Q' | 'Y'> = ['D', 'W', 'M', 'Q', 'Y'];
@@ -453,7 +349,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
         activeElement.getAttribute('contenteditable') === 'true'
       );
       
-      if (isInputFocused || showNewClientModal || showNewInvoiceDrawer || showLineItemDrawer || showHelpModal) {
+      if (isInputFocused || showLineItemDrawer || showHelpModal) {
         return;
       }
 
@@ -469,25 +365,15 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
         // All other shortcuts require Shift to avoid browser conflicts
         if (e.shiftKey) {
           switch (e.key.toLowerCase()) {
-            case 'q':
-              e.preventDefault();
-              setIsCreateMenuOpen(false);
-              navigate('/sales-mode');
-              break;
             case 'e':
               e.preventDefault();
               setIsCreateMenuOpen(false);
-              navigate('/work');
+              navigate('/work?new=1');
               break;
             case 'c':
               e.preventDefault();
               setIsCreateMenuOpen(false);
               navigate('/clients/new');
-              break;
-            case 'i':
-              e.preventDefault();
-              setIsCreateMenuOpen(false);
-              setShowNewInvoiceDrawer(true);
               break;
           }
         }
@@ -496,31 +382,22 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [navigate, isCreateMenuOpen, showNewClientModal, showNewInvoiceDrawer, showLineItemDrawer, showHelpModal]);
-
-  useEffect(() => {
-    if (isChatPanelOpen && (isProjectsSidebarLocked || isProjectsSidebarOpen) && !isSidebarCollapsed) {
-      setSidebarCollapsedWithLogging(true);
-    }
-  }, [isChatPanelOpen, isProjectsSidebarLocked, isProjectsSidebarOpen]);
+  }, [navigate, isCreateMenuOpen, showLineItemDrawer, showHelpModal]);
 
   useEffect(() => {
     const mainContent = document.getElementById('main-content');
     if (!mainContent) return;
 
     const sidebarWidth = isProjectsSidebarOpen ? (isSidebarCollapsed ? 48 : 256) : 48;
-    const chatWidth = isChatPanelOpen ? chatPanelWidth : 0;
-    const totalWidth = sidebarWidth + chatWidth;
-
-    mainContent.style.marginLeft = `${totalWidth}px`;
-  }, [isProjectsSidebarOpen, isSidebarCollapsed, isChatPanelOpen, chatPanelWidth]);
+    mainContent.style.marginLeft = `${sidebarWidth}px`;
+  }, [isProjectsSidebarOpen, isSidebarCollapsed]);
 
   // Calculate actual available width for content
   const calculateAvailableWidth = useCallback(() => {
     if (typeof window === 'undefined') return 'full';
     
     const viewportWidth = window.innerWidth;
-    const leftSpace = isChatPanelOpen ? chatPanelWidth + 48 : 48; // chat panel + button
+    const leftSpace = 0;
     const rightSpace = (() => {
       if (isProjectsSidebarLocked || isProjectsSidebarOpen) {
         return isSidebarCollapsed ? 368 : 512; // projects + main sidebar
@@ -536,8 +413,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
       leftSpace,
       rightSpace,
       availableSpace,
-      isChatPanelOpen,
-      chatPanelWidth,
       isProjectsSidebarLocked,
       isProjectsSidebarOpen,
       isSidebarCollapsed
@@ -558,23 +433,8 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
       if (availableSpace < 800) return 'compact';      // Slightly tight
     }
     
-    // Special case: if both chat and projects are open, be even more conservative
-    if (isChatPanelOpen && isProjectsOpen) {
-      // When chat is wide (>600px), be extremely conservative
-      if (chatPanelWidth > 600) {
-        if (availableSpace < 1000) return 'minimal';    // Much more aggressive for wide chat
-        if (availableSpace < 1200) return 'constrained';
-        if (availableSpace < 1400) return 'compact';
-      } else {
-        // Normal chat width
-        if (availableSpace < 800) return 'minimal';      
-        if (availableSpace < 1000) return 'constrained';
-        if (availableSpace < 1200) return 'compact';
-      }
-    }
-    
     return 'full';                                   // Full width - show everything
-  }, [isChatPanelOpen, chatPanelWidth, isProjectsSidebarLocked, isProjectsSidebarOpen, isSidebarCollapsed]);
+  }, [isProjectsSidebarLocked, isProjectsSidebarOpen, isSidebarCollapsed]);
 
   // Update available width when dependencies change
   useEffect(() => {
@@ -612,27 +472,13 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
     localStorage.setItem('projectsSidebarLocked', JSON.stringify(value));
   };
 
-  const toggleChatPanel = () => {
-    const newState = !isChatPanelOpen;
-    setIsChatPanelOpen(newState);
-    localStorage.setItem('chatPanelOpen', JSON.stringify(newState));
-  };
-
   const calculateContentClass = () => {
-    let classes = `flex-1 pt-14 md:pt-0 pb-16 md:pb-0 ${!isResizing ? 'transition-all duration-300 ease-out' : ''}`;
-    
-    // Dynamic left margin based on actual chat panel width
-    const chatMargin = isChatPanelOpen ? chatPanelWidth + 48 : 48; // 48px for the chat button area
+    let classes = 'flex-1 pt-14 md:pt-0 pb-16 md:pb-0 transition-all duration-300 ease-out';
     
     if (isSidebarCollapsed) {
       classes += isProjectsSidebarLocked ? ' md:mr-[22rem]' : ' md:mr-14';
     } else {
       classes += isProjectsSidebarLocked ? ' md:mr-[32rem]' : ' md:mr-48';
-    }
-    
-    const isConstrained = isChatPanelOpen && (isProjectsSidebarLocked || isProjectsSidebarOpen);
-    if (isConstrained) {
-      classes += ' data-constrained-layout';
     }
     
     return classes;
@@ -647,16 +493,13 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
               isConstrained: isConstrained, 
               isMinimal: isMinimal,
               isCompact: isCompact,
-              isChatOpen: isChatPanelOpen, 
               isProjectsOpen: isProjectsSidebarLocked || isProjectsSidebarOpen,
               availableWidth: availableContentWidth
             }}>
-              <div className="min-h-screen bg-[#000000] flex overflow-x-hidden">
+              <div className="min-h-[100dvh] bg-[#000000] flex overflow-x-hidden">
                   <MobileHeader
                     onMenuClick={() => setIsMobileMenuOpen(true)}
-                    onChatClick={toggleChatPanel}
                     onCreateClick={() => setIsCreateMenuOpen(true)}
-                    isChatOpen={isChatPanelOpen}
                     title={getPageTitle()}
                   />
 
@@ -668,68 +511,33 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                     isProjectsSidebarLocked={isProjectsSidebarLocked}
                     isProjectsSidebarOpen={isProjectsSidebarOpen}
                     isIndustryDrawerOpen={isIndustryDrawerOpen}
-                  />
-                  <QuickCreateMenu 
-                    isOpen={isCreateMenuOpen} 
-                    onClose={() => setIsCreateMenuOpen(false)} 
-                    showInvoiceDrawer={showNewInvoiceDrawer}
-                    setShowInvoiceDrawer={setShowNewInvoiceDrawer}
-                  />
+                    hidden={/^\/estimates\/[^/]+/.test(location.pathname)}
+                  >
+                    <QuickCreateMenu 
+                      isOpen={isCreateMenuOpen} 
+                      onClose={() => setIsCreateMenuOpen(false)} 
+                    />
+                  </QuickCreateButton>
 
                   {/* Desktop Layout Container */}
-                  <div className="hidden md:grid w-full h-screen overflow-hidden" 
+                  <div className="hidden md:grid w-full h-[100dvh] overflow-hidden" 
                     style={{
-                      gridTemplateColumns: `48px ${isChatPanelOpen ? `${chatPanelWidth}px` : '0px'} minmax(400px, 1fr) ${isIndustryDrawerOpen ? '400px' : '0px'} ${(isProjectsSidebarLocked || isProjectsSidebarOpen || isProjectsSidebarClosing) ? '320px' : '0px'} ${isSidebarCollapsed ? '48px' : '192px'}`,
-                      transition: isResizing ? 'none' : 'grid-template-columns 100ms ease-out'
+                      gridTemplateColumns: `minmax(400px, 1fr) ${isIndustryDrawerOpen ? '400px' : '0px'} ${(isProjectsSidebarLocked || isProjectsSidebarOpen || isProjectsSidebarClosing) ? '320px' : '0px'} ${isSidebarCollapsed ? '48px' : '192px'}`,
+                      transition: 'grid-template-columns 100ms ease-out'
                     }}
                   >
-                    {/* Chat Toggle Button */}
-                    <div className="flex flex-col items-center justify-center h-screen bg-[#1A1A1A] border-r border-gray-700">
-                    <button
-                      onClick={toggleChatPanel}
-                      className={`relative w-10 h-10 ${isChatPanelOpen ? 'bg-[#336699]' : 'bg-[#2A2A2A]'} hover:bg-[#336699] rounded-[4px] flex items-center justify-center transition-all duration-200 group`}
-                      title={isChatPanelOpen ? "Close AI Assistant" : "Open AI Assistant"}
-                    >
-                      <MessageSquare className={`h-5 w-5 ${isChatPanelOpen ? 'text-white' : 'text-gray-400 group-hover:text-white'} transition-colors`} />
-                      {!isChatPanelOpen && (
-                        <div className="absolute top-1 right-1 w-2 h-2 bg-[#F9D71C] rounded-full animate-pulse"></div>
-                      )}
-                    </button>
-                    
-                    <div className="mt-4 writing-mode-vertical text-[10px] text-gray-500 uppercase tracking-wider select-none">
-                      AI Chat
-                  </div>
-                  </div>
-                    
-                    {/* Chat Panel */}
-                    <div className={`h-screen border-r border-gray-700 bg-[#1A1A1A] relative ${isChatPanelOpen ? '' : 'overflow-hidden'}`}>
-                    {isChatPanelOpen && (
-                      <>
-                          <div className="h-full overflow-hidden">
-                          <ChatManagementSystem />
-                        </div>
-                        <div
-                            className="absolute -right-[3px] top-0 w-[6px] h-full cursor-ew-resize group z-10"
-                          onMouseDown={startResizing}
-                        >
-                            <div className="absolute inset-y-0 left-[2px] w-[2px] bg-gray-700 group-hover:bg-[#336699] transition-colors" />
-                        </div>
-                      </>
-                    )}
-                  </div>
-                    
                     {/* Main Content Area */}
                     <div className="min-h-full overflow-y-auto">
                       {/* Industry Banner - Hidden on estimate detail pages */}
                       {!shouldHideIndustryBanner && <IndustryBanner />}
                       <div className={`min-h-full ${fullWidth ? '' : 'max-w-5xl mx-auto px-4'}`}>
-                        {children}
+                        {isDesktop && children}
                       </div>
                     </div>
                     
                     {/* Industry Management Drawer */}
                     <div 
-                      className={`h-screen bg-[#1F2937] transition-all duration-200 ${
+                      className={`h-[100dvh] bg-[#1F2937] transition-all duration-200 ${
                         isIndustryDrawerOpen ? 'w-[400px] border-l border-[#374151]' : 'w-0 overflow-hidden'
                       }`}
                     >
@@ -739,198 +547,8 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                       />
                     </div>
                     
-                    {/* Projects Sidebar */}
-                    <div 
-                      ref={projectsSidebarRef} 
-                      className={`h-screen bg-[#1A1A1A] transition-all duration-100 overflow-hidden ${
-                        (isProjectsSidebarOpen || isProjectsSidebarLocked) ? 'w-[320px] border-l border-gray-700' : 'w-0'
-                      }`}
-                    >
-                      {(isProjectsSidebarOpen || isProjectsSidebarLocked || isProjectsSidebarClosing) && (
-                        <div className="h-full flex flex-col">
-                        <div className="p-3 border-b border-gray-700 flex-shrink-0">
-                          <div className="flex items-center justify-between mb-3">
-                            <h2 className="text-white text-base font-medium">All Projects</h2>
-                            <div className="flex items-center gap-1.5">
-                              <button 
-                                onClick={() => setProjectsSortOrder(projectsSortOrder === 'latest' ? 'earliest' : 'latest')}
-                                className="w-7 h-7 bg-[#333333] hover:bg-[#404040] text-gray-400 hover:text-white rounded-[2px] flex items-center justify-center transition-colors"
-                                title={projectsSortOrder === 'latest' ? "Sort by earliest first" : "Sort by latest first"}
-                              >
-                                {projectsSortOrder === 'latest' ? (
-                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
-                                  </svg>
-                                ) : (
-                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 15l4 4 4-4m0-6l-4-4-4 4" />
-                                  </svg>
-                                )}
-                              </button>
-                              <button 
-                                onClick={() => {
-                                  if (isProjectsSidebarLocked) {
-                                    setProjectsSidebarLockedWithPersistence(false);
-                                    setIsProjectsSidebarClosing(true);
-                                    // Delay closing to allow animation
-                                    setTimeout(() => {
-                                      setIsProjectsSidebarOpen(false);
-                                      setIsProjectsSidebarClosing(false);
-                                    }, 100);
-                                  } else {
-                                    setProjectsSidebarLockedWithPersistence(true);
-                                  }
-                                }}
-                                className={`w-7 h-7 ${isProjectsSidebarLocked ? 'bg-[#F9D71C] text-[#121212]' : 'bg-[#333333] text-gray-400'} hover:bg-[#F9D71C] hover:text-[#121212] rounded-[2px] flex items-center justify-center transition-colors`}
-                                title={isProjectsSidebarLocked ? "Unlock and close projects pane" : "Lock projects pane open"}
-                              >
-                                {isProjectsSidebarLocked ? (
-                                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                                  </svg>
-                                ) : (
-                                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                                    <path d="M10 2a5 5 0 00-5 5v2a2 2 0 00-2 2v5a2 2 0 002 2h10a2 2 0 002-2v-5a2 2 0 00-2-2H7V7a3 3 0 015.905-.75 1 1 0 001.937-.5A5.002 5.002 0 0010 2z" />
-                                  </svg>
-                                )}
-                              </button>
-                            </div>
-                          </div>
-                          
-                          <div className="relative">
-                            {!isProjectsSearchExpanded ? (
-                              <button
-                                onClick={() => setIsProjectsSearchExpanded(true)}
-                                className="w-7 h-7 bg-[#333333] hover:bg-[#404040] text-gray-400 hover:text-white rounded-[2px] flex items-center justify-center transition-colors"
-                                title="Search projects"
-                              >
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                                </svg>
-                              </button>
-                            ) : (
-                              <div className="flex items-center gap-1.5">
-                                <div className="relative flex-1">
-                              <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
-                                <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                                </svg>
-                              </div>
-                              <input
-                                type="text"
-                                placeholder="Search for a project..."
-                                value={projectsSearch}
-                                onChange={(e) => setProjectsSearch(e.target.value)}
-                                      onBlur={() => {
-                                        if (!projectsSearch) {
-                                          setIsProjectsSearchExpanded(false);
-                                        }
-                                      }}
-                                      autoFocus
-                                className="w-full pl-8 pr-3 py-1.5 bg-[#2A2A2A] border border-[#404040] rounded-[2px] text-white text-xs placeholder-gray-400 focus:outline-none focus:border-[#336699] transition-colors"
-                              />
-                                </div>
-                                {projectsSearch && (
-                                  <button
-                                    onClick={() => {
-                                      setProjectsSearch('');
-                                      setIsProjectsSearchExpanded(false);
-                                    }}
-                                    className="w-7 h-7 bg-[#333333] hover:bg-[#404040] text-gray-400 hover:text-white rounded-[2px] flex items-center justify-center transition-colors"
-                                    title="Clear search"
-                                  >
-                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto min-h-0">
-                          <div className="space-y-0">
-                            {sortedProjects.map((project, index) => (
-                              <div key={project.id} className="relative">
-                                <button
-                                  onClick={() => {
-                                    navigate(`/projects/${project.id}`);
-                                    if (!isProjectsSidebarLocked) {
-                                      setIsProjectsSidebarOpen(false);
-                                    }
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    const rect = e.currentTarget.getBoundingClientRect();
-                                    setPreviewPosition({ top: rect.top });
-                                    
-                                    // INSTANT preview - no delay!
-                                    setHoveredProject({
-                                      ...project,
-                                      budget: 50000,
-                                      spent: 35000,
-                                      startDate: '2024-01-15',
-                                      endDate: '2024-03-30',
-                                      recentActivities: [
-                                        { id: '1', type: 'invoice', description: 'Invoice #1234 sent to client', timestamp: '2 hours ago' },
-                                        { id: '2', type: 'payment', description: 'Payment received: $5,000', timestamp: 'Yesterday' },
-                                        { id: '3', type: 'update', description: 'Electrical work completed', timestamp: '3 days ago' }
-                                      ]
-                                    });
-                                  }}
-                                  onMouseLeave={() => {
-                                    setHoveredProject(null);
-                                  }}
-                                  className={`w-full text-left p-3 project-flash-hover border-b border-gray-700/30 group ${index === sortedProjects.length - 1 ? 'border-b-0' : ''}`}
-                                >
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center mb-0.5">
-                                        <div className={`w-1.5 h-1.5 rounded-full mr-2 flex-shrink-0 ${
-                                          project.status === 'completed' ? 'bg-green-500' :
-                                          project.status === 'active' ? 'bg-green-500' :
-                                          'bg-yellow-500'
-                                        }`}></div>
-                                        <span className="text-white text-xs font-medium truncate leading-tight">{project.name}</span>
-                                      </div>
-                                      <div className="text-gray-400 text-[10px] truncate ml-3.5 leading-tight uppercase tracking-wide">{project.client}</div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <div className="opacity-0 group-hover:opacity-100 transition-none">
-                                        <div className="w-8 h-1 bg-[#374151] rounded-full overflow-hidden">
-                                          <div 
-                                            className="h-full bg-[#3B82F6] rounded-full"
-                                            style={{ width: `${project.progress}%` }}
-                                          />
-                                        </div>
-                                      </div>
-                                      <span className="text-[#6b7280] group-hover:text-[#3B82F6] transition-none text-xs font-medium leading-tight">{project.progress}%</span>
-                                    </div>
-                                  </div>
-                                </button>
-                              </div>
-                            ))}
-                            
-                            {sortedProjects.length === 0 && (
-                              <div className="text-center py-6">
-                                <div className="text-gray-400 text-xs">No projects found</div>
-                                <div className="text-gray-500 text-[10px] mt-1">Try adjusting your search</div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      )}
-                    </div>
-
-                    {/* Project Preview Panel */}
-                    {(isProjectsSidebarOpen || isProjectsSidebarLocked) && (
-                      <ProjectPreviewPanel 
-                        project={hoveredProject}
-                        isVisible={!!hoveredProject}
-                        position={previewPosition}
-                      />
-                    )}
+                    {/* Grid column the projects pane used to fill */}
+                    <div ref={projectsSidebarRef} className="w-0" />
 
                     {/* Main Sidebar */}
                     <Sidebar
@@ -962,7 +580,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                   {/* Mobile Layout - unchanged */}
                   <div className="md:hidden flex-1 pt-14 pb-16">
                     <div className="px-4">
-                      {children}
+                      {!isDesktop && children}
                     </div>
                   </div>
 
@@ -1023,107 +641,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                       </div>
                     </div>
                   )}
-
-                  {showNewClientModal && (
-                    <NewClientModal
-                      onClose={() => setShowNewClientModal(false)}
-                      onSave={(client) => {
-                        console.log('New client created:', client);
-                        setShowNewClientModal(false);
-                      }}
-                    />
-                  )}
-
-                  {/* Invoice Creation Drawer */}
-                  <CreateInvoiceDrawer
-                    isOpen={showNewInvoiceDrawer}
-                    onClose={() => setShowNewInvoiceDrawer(false)}
-                    organizationId={selectedOrg?.id}
-                    onSave={async (data) => {
-                      try {
-                        console.log('Invoice save started with data:', data);
-                        
-                        // Generate invoice number if not provided
-                        const invoiceNumber = `INV-${Date.now().toString().slice(-6)}`;
-                        
-                        // Calculate tax (default 0 for now)
-                        const subtotal = data.total_amount || 0;
-                        const taxRate = 0;
-                        const taxAmount = subtotal * (taxRate / 100);
-                        const totalWithTax = subtotal + taxAmount;
-                        
-                        const invoiceData = {
-                          user_id: user?.id,
-                          organization_id: selectedOrg?.id,
-                          invoice_number: invoiceNumber,
-                          client_id: data.client_id,
-                          status: data.status || 'draft',
-                          due_date: data.due_date,
-                          total_amount: totalWithTax,
-                          subtotal: subtotal,
-                          tax_rate: taxRate,
-                          tax_amount: taxAmount,
-                          issue_date: data.issue_date || new Date().toISOString().split('T')[0],
-                          notes: data.description || '',
-                          terms: 'Net 30'
-                        };
-                        
-                        console.log('Invoice data to insert:', invoiceData);
-                        
-                        const { data: invoice, error: invoiceError } = await supabase
-                          .from('invoices')
-                          .insert(invoiceData)
-                          .select()
-                          .single();
-
-                        if (invoiceError) {
-                          console.error('Error creating invoice:', invoiceError);
-                          alert(`Error creating invoice: ${invoiceError.message}`);
-                          throw invoiceError;
-                        }
-
-                        console.log('Invoice created successfully:', invoice);
-
-                        // Create invoice items
-                        if (data.items && data.items.length > 0) {
-                          const itemsToInsert = data.items.map((item) => ({
-                            invoice_id: invoice.id,
-                            product_id: item.product_id || null,
-                            description: item.product_name || item.description || 'Item',
-                            quantity: item.quantity || 1,
-                            unit_price: item.price || 0,
-                            total_price: (item.price || 0) * (item.quantity || 1)
-                          }));
-
-                          console.log('Inserting invoice items:', itemsToInsert);
-
-                          const { error: itemsError } = await supabase
-                            .from('invoice_items')
-                            .insert(itemsToInsert);
-
-                          if (itemsError) {
-                            console.error('Error inserting invoice items:', itemsError);
-                            alert(`Error inserting invoice items: ${itemsError.message}`);
-                            throw itemsError;
-                          }
-                        }
-                        
-                        console.log('Invoice and items created successfully!');
-                        
-                        // Close the drawer
-                        setShowNewInvoiceDrawer(false);
-                        
-                        // Show success message
-                        alert('Invoice created successfully!');
-                        
-                        // Navigate to the work/invoices page  
-                        navigate('/work/invoices');
-                      } catch (error) {
-                        console.error('Error saving invoice:', error);
-                        alert('Failed to save invoice. Please check the console for details.');
-                      }
-                    }}
-                  />
 
                   {showLineItemDrawer && (
                     <LineItemModal
@@ -1198,29 +715,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                                 </div>
                                 <p className="text-gray-300 text-sm mb-3">
                                   Create projects, track progress, manage budgets, and keep everything organized.
-                                </p>
-                                <div className="flex items-center text-[#336699] text-sm font-medium">
-                                  <span>Start Tutorial</span>
-                                  <ChevronRight className="w-4 h-4 ml-1" />
-                                </div>
-                              </div>
-
-                              <div className="bg-[#333333] rounded-[4px] p-4 border border-[#404040] hover:border-[#336699] transition-colors cursor-pointer"
-                                   onClick={() => {
-                                     setShowHelpModal(false);
-                                     navigate('/invoices?tutorial=true');
-                                   }}>
-                                <div className="flex items-center mb-3">
-                                  <div className="w-10 h-10 bg-[#336699] rounded-[4px] flex items-center justify-center mr-3">
-                                    <span className="text-base">📄</span>
-                                  </div>
-                                  <div>
-                                    <h4 className="text-white font-medium">Invoice Management</h4>
-                                    <p className="text-gray-400 text-sm">5 min tutorial</p>
-                                  </div>
-                                </div>
-                                <p className="text-gray-300 text-sm mb-3">
-                                  Create professional invoices, track payments, and manage your cash flow.
                                 </p>
                                 <div className="flex items-center text-[#336699] text-sm font-medium">
                                   <span>Start Tutorial</span>
@@ -1350,7 +844,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                               onClick={() => {
                                 localStorage.removeItem('clientsOnboardingCompleted');
                                 localStorage.removeItem('projectsOnboardingCompleted');
-                                localStorage.removeItem('invoicesOnboardingCompleted');
                                 localStorage.removeItem('productsOnboardingCompleted');
                                 localStorage.removeItem('priceBookOnboardingCompleted');
                                 setShowHelpModal(false);
@@ -1378,27 +871,9 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                   <MobileCreateMenu
                     isOpen={isCreateMenuOpen}
                     onClose={() => setIsCreateMenuOpen(false)}
-                    onCreateClient={() => setShowNewClientModal(true)}
-                    onCreateInvoice={() => setShowNewInvoiceDrawer(true)}
+                    onCreateClient={() => navigate('/clients/new')}
                     onCreateLineItem={() => setShowLineItemDrawer(true)}
                   />
-
-                  {isChatPanelOpen && (
-                    <div className="md:hidden fixed inset-0 z-[10000] bg-[#1A1A1A] flex flex-col">
-                      <div className="flex items-center justify-between p-4 border-b border-[#333333]">
-                        <h2 className="text-white font-medium text-lg">AI Assistant</h2>
-                        <button
-                          onClick={toggleChatPanel}
-                          className="p-2 bg-[#333333] hover:bg-[#404040] rounded-[4px] transition-colors"
-                        >
-                          <X className="h-5 w-5 text-white" />
-                        </button>
-                    </div>
-                      <div className="flex-1 overflow-hidden">
-                        <ChatManagementSystem />
-                      </div>
-                    </div>
-                  )}
 
                 {/* Activity Panel */}
                 <ActivityPanel 

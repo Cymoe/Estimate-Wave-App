@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useContext, useRef, useMemo } from 'react';
 import { 
-  FileText, Filter, MoreVertical, 
+  FileText, Filter, MoreVertical, Search, 
   Eye, Edit, Trash2, Send, Clock, CheckCircle, 
   XCircle, AlertTriangle, Calendar, ChevronDown, ChevronUp, LayoutGrid, Share2, Copy,
   Download, FileSpreadsheet, FileDown, Check
 } from 'lucide-react';
-import { ViewToggle, ViewMode } from '../common/ViewToggle';
 import { useNavigate } from 'react-router-dom';
 import { EstimateService, Estimate } from '../../services/EstimateService';
 import { useAuth } from '../../contexts/AuthContext';
@@ -16,6 +15,9 @@ import { TableSkeleton } from '../skeletons/TableSkeleton';
 import { supabase } from '../../lib/supabase';
 import { EstimateExportService } from '../../services/EstimateExportService';
 
+/** Estimate, client, status, date, amount, menu: shared by the header and every row. */
+const ROW_GRID = 'grid grid-cols-[minmax(8.5rem,1fr)_minmax(0,2fr)_6.5rem_7rem_minmax(7rem,1fr)_2rem] gap-4 items-center';
+
 interface EstimatesListProps {
   onCreateEstimate?: () => void;
   searchTerm?: string;
@@ -24,10 +26,18 @@ interface EstimatesListProps {
 
 import { CreateEstimateDrawer } from './CreateEstimateDrawer';
 
-export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, searchTerm = '', refreshTrigger }) => {
+export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, searchTerm: outsideSearch = '', refreshTrigger }) => {
+  // The search box lives in the list's own toolbar; a page can still pass one in.
+  const [searchInput, setSearchInput] = useState('');
+  const [typedSearch, setTypedSearch] = useState('');
+  useEffect(() => {
+    const handler = setTimeout(() => setTypedSearch(searchInput), 300);
+    return () => clearTimeout(handler);
+  }, [searchInput]);
+  const searchTerm = outsideSearch || typedSearch;
   const navigate = useNavigate();
   const { selectedOrg } = useContext(OrganizationContext);
-  const { isConstrained } = React.useContext(LayoutContext);
+  const { isConstrained } = useContext(LayoutContext);
   const [estimates, setEstimates] = useState<Estimate[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,7 +45,6 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
   const [dropdownOpen, setDropdownOpen] = useState<string | null>(null);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>('compact');
   const [editingEstimate, setEditingEstimate] = useState<Estimate | null>(null);
   const [showEditDrawer, setShowEditDrawer] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -175,13 +184,13 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
 
   const getStatusColor = (status: Estimate['status']) => {
     switch (status) {
-      case 'draft': return 'bg-gray-600 text-white';
-      case 'sent': return 'bg-blue-600 text-white';
-      case 'opened': return 'bg-purple-600 text-white';
-      case 'accepted': return 'bg-green-600 text-white';
-      case 'rejected': return 'bg-red-600 text-white';
-      case 'expired': return 'bg-orange-600 text-white';
-      default: return 'bg-gray-600 text-white';
+      case 'draft': return 'bg-gray-500/15 text-gray-300';
+      case 'sent': return 'bg-blue-500/15 text-blue-300';
+      case 'opened': return 'bg-purple-500/15 text-purple-300';
+      case 'accepted': return 'bg-green-500/15 text-green-300';
+      case 'rejected': return 'bg-red-500/15 text-red-300';
+      case 'expired': return 'bg-orange-500/15 text-orange-300';
+      default: return 'bg-gray-500/15 text-gray-300';
     }
   };
 
@@ -424,12 +433,16 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
               </div>
             </div>
 
-            <button 
-              onClick={onCreateEstimate}
-              className="px-6 py-3 bg-white text-black rounded-[8px] font-medium hover:bg-gray-100 transition-colors"
-            >
-              CREATE FIRST ESTIMATE
-            </button>
+            {onCreateEstimate ? (
+              <button 
+                onClick={onCreateEstimate}
+                className="px-6 py-3 bg-white text-black rounded-[8px] font-medium hover:bg-gray-100 transition-colors"
+              >
+                CREATE FIRST ESTIMATE
+              </button>
+            ) : (
+              <p className="text-sm text-gray-400">Tap the yellow + and choose Estimate to create your first one.</p>
+            )}
           </div>
         </div>
       </div>
@@ -442,6 +455,119 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
       <div className="flex-1 flex flex-col">
         {/* Unified Container */}
         <div className="bg-transparent border border-[#333333] flex flex-col">
+        {/* Controls Section */}
+        <div className={`${isConstrained ? 'px-4 py-1.5' : 'px-4 py-2'} border-b border-[#333333]/50`}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-1 items-center gap-3 min-w-0">
+              <label className="relative flex-1 max-w-md min-w-[10rem]">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                <input
+                  type="search"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  placeholder="Search estimates, clients…"
+                  aria-label="Search estimates"
+                  className="w-full bg-[#1E1E1E] border border-[#333333] rounded-[4px] pl-9 pr-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
+                />
+              </label>
+              <div className="relative">
+                <select
+                  className="bg-[#1E1E1E] border border-[#333333] rounded-[4px] px-3 py-2 text-sm text-white focus:outline-none focus:border-[#336699] appearance-none pr-10 min-w-[200px]"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as any)}
+                >
+                  <option value="all">All Estimates ({estimates.length})</option>
+                  <option value="draft">Drafts ({statusCounts.draft || 0})</option>
+                  <option value="sent">Sent ({statusCounts.sent || 0})</option>
+                  <option value="opened">Opened ({statusCounts.opened || 0})</option>
+                  <option value="accepted">Accepted ({statusCounts.accepted || 0})</option>
+                  <option value="rejected">Rejected ({statusCounts.rejected || 0})</option>
+                  <option value="expired">Expired ({statusCounts.expired || 0})</option>
+                </select>
+                <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" />
+              </div>
+              
+              <div className="relative" ref={filterMenuRef}>
+                <button 
+                  onClick={() => setShowFilterMenu(!showFilterMenu)}
+                  aria-label="Filters"
+                  title="Filters"
+                  className={`p-2.5 bg-[#1E1E1E] hover:bg-[#252525] text-white border border-[#333333] rounded-[4px] transition-colors flex items-center ${showFilterMenu ? 'bg-[#252525]' : ''}`}
+                >
+                  <Filter className="w-4 h-4" />
+                </button>
+                
+                {/* Filter Menu Dropdown */}
+                {showFilterMenu && (
+                  <div className={`absolute top-full left-0 mt-1 ${isConstrained ? 'right-0 left-auto w-[280px]' : 'w-80'} bg-[#1E1E1E] border border-[#333333] rounded-[4px] shadow-lg z-50 p-3 md:p-4`}>
+                    <div className="space-y-3 md:space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">Date Range</label>
+                        <select className="w-full px-3 py-2 bg-[#333333] border border-[#404040] rounded-[4px] text-white focus:outline-none focus:border-[#336699]">
+                          <option value="all">All Time</option>
+                          <option value="7d">Last 7 Days</option>
+                          <option value="30d">Last 30 Days</option>
+                          <option value="90d">Last 90 Days</option>
+                        </select>
+                      </div>
+
+                      {/* Clear Filters */}
+                      <div className="pt-2 md:pt-3 border-t border-[#333333]">
+                        <button
+                          onClick={() => {
+                            resetFilters();
+                            setShowFilterMenu(false);
+                          }}
+                          className="w-full bg-[#333333] hover:bg-[#404040] text-white py-1.5 md:py-2 px-2 md:px-3 rounded-[4px] text-xs md:text-sm font-medium transition-colors"
+                        >
+                          Clear All Filters
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              {/* Options menu */}
+              <div className="relative" ref={optionsMenuRef}>
+                              <button
+                onClick={() => setShowOptionsMenu(!showOptionsMenu)}
+                className="p-2 bg-[#1E1E1E] border border-[#333333] hover:bg-[#333333] rounded-[4px] transition-colors text-gray-400"
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+
+                {showOptionsMenu && (
+                  <div className="absolute top-full right-0 mt-2 w-48 bg-[#1E1E1E] border border-[#333333] rounded-[4px] shadow-lg z-50 py-1">
+                    <button
+                      onClick={() => {
+                        handleExportToCSV();
+                        setShowOptionsMenu(false);
+                      }}
+                      className="w-full flex items-center px-3 py-2 text-sm text-white hover:bg-[#333333] transition-colors"
+                    >
+                      <Download className="w-3 h-3 mr-3 text-gray-400" />
+                      Export to CSV
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleExportToExcel();
+                        setShowOptionsMenu(false);
+                      }}
+                      className="w-full flex items-center px-3 py-2 text-sm text-white hover:bg-[#333333] transition-colors"
+                    >
+                      <FileSpreadsheet className="w-3 h-3 mr-3 text-gray-400" />
+                      Export to Excel
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Stats Section */}
         <div className={`${isConstrained ? 'px-4 py-1.5' : 'px-4 py-2'} border-b border-[#333333]/50`}>
           {isConstrained ? (
@@ -489,116 +615,6 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
           )}
         </div>
 
-        {/* Controls Section */}
-        <div className={`${isConstrained ? 'px-4 py-1.5' : 'px-4 py-2'} border-b border-[#333333]/50`}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <select
-                  className="bg-[#1E1E1E] border border-[#333333] rounded-[4px] px-3 py-2 text-sm text-white focus:outline-none focus:border-[#336699] appearance-none pr-10 min-w-[200px]"
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as any)}
-                >
-                  <option value="all">All Estimates ({estimates.length})</option>
-                  <option value="draft">Drafts ({statusCounts.draft || 0})</option>
-                  <option value="sent">Sent ({statusCounts.sent || 0})</option>
-                  <option value="opened">Opened ({statusCounts.opened || 0})</option>
-                  <option value="accepted">Accepted ({statusCounts.accepted || 0})</option>
-                  <option value="rejected">Rejected ({statusCounts.rejected || 0})</option>
-                  <option value="expired">Expired ({statusCounts.expired || 0})</option>
-                </select>
-                <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" />
-              </div>
-              
-              <div className="relative" ref={filterMenuRef}>
-                <button 
-                  onClick={() => setShowFilterMenu(!showFilterMenu)}
-                  className={`px-3 py-2 bg-[#1E1E1E] hover:bg-[#252525] text-white border border-[#333333] rounded-[4px] text-sm font-medium transition-colors flex items-center gap-2 ${showFilterMenu ? 'bg-[#252525]' : ''}`}
-                >
-                  <Filter className="w-4 h-4" />
-                  <span>{isConstrained ? '' : 'More Filters'}</span>
-                </button>
-                
-                {/* Filter Menu Dropdown */}
-                {showFilterMenu && (
-                  <div className={`absolute top-full left-0 mt-1 ${isConstrained ? 'right-0 left-auto w-[280px]' : 'w-80'} bg-[#1E1E1E] border border-[#333333] rounded-[4px] shadow-lg z-50 p-3 md:p-4`}>
-                    <div className="space-y-3 md:space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">Date Range</label>
-                        <select className="w-full px-3 py-2 bg-[#333333] border border-[#404040] rounded-[4px] text-white focus:outline-none focus:border-[#336699]">
-                          <option value="all">All Time</option>
-                          <option value="7d">Last 7 Days</option>
-                          <option value="30d">Last 30 Days</option>
-                          <option value="90d">Last 90 Days</option>
-                        </select>
-                      </div>
-
-                      {/* Clear Filters */}
-                      <div className="pt-2 md:pt-3 border-t border-[#333333]">
-                        <button
-                          onClick={() => {
-                            resetFilters();
-                            setShowFilterMenu(false);
-                          }}
-                          className="w-full bg-[#333333] hover:bg-[#404040] text-white py-1.5 md:py-2 px-2 md:px-3 rounded-[4px] text-xs md:text-sm font-medium transition-colors"
-                        >
-                          Clear All Filters
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-3">
-              {/* View Toggle */}
-              <ViewToggle 
-                viewMode={viewMode} 
-                onViewModeChange={setViewMode}
-              />
-              
-              {/* Options menu */}
-              <div className="relative" ref={optionsMenuRef}>
-                              <button
-                onClick={() => setShowOptionsMenu(!showOptionsMenu)}
-                className="p-2 bg-[#1E1E1E] border border-[#333333] hover:bg-[#333333] rounded-[4px] transition-colors text-gray-400"
-              >
-                <MoreVertical className="w-4 h-4" />
-              </button>
-
-                {showOptionsMenu && (
-                  <div className="absolute top-full right-0 mt-2 w-48 bg-[#1E1E1E] border border-[#333333] rounded-[4px] shadow-lg z-50 py-1">
-                    <div className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wide border-b border-[#333333]">
-                      Export Options
-                    </div>
-                    <button
-                      onClick={() => {
-                        handleExportToCSV();
-                        setShowOptionsMenu(false);
-                      }}
-                      className="w-full flex items-center px-3 py-2 text-sm text-white hover:bg-[#333333] transition-colors"
-                    >
-                      <Download className="w-3 h-3 mr-3 text-gray-400" />
-                      Export to CSV
-                    </button>
-                    <button
-                      onClick={() => {
-                        handleExportToExcel();
-                        setShowOptionsMenu(false);
-                      }}
-                      className="w-full flex items-center px-3 py-2 text-sm text-white hover:bg-[#333333] transition-colors"
-                    >
-                      <FileSpreadsheet className="w-3 h-3 mr-3 text-gray-400" />
-                      Export to Excel
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* Content */}
         <div className="overflow-visible min-h-[400px] pb-32">
           {filteredEstimates.length === 0 ? (
@@ -610,10 +626,12 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
               <p className="text-gray-400 mb-6">
                 {searchTerm || statusFilter !== 'all' 
                   ? 'Try adjusting your search or filters.'
-                  : 'Get started by creating your first estimate.'
+                  : onCreateEstimate
+                    ? 'Get started by creating your first estimate.'
+                    : 'Tap the yellow + and choose Estimate to create one.'
                 }
               </p>
-              {(!searchTerm && statusFilter === 'all') && (
+              {(!searchTerm && statusFilter === 'all' && onCreateEstimate) && (
                 <button
                   onClick={onCreateEstimate}
                   className="flex items-center gap-2 px-4 py-2 bg-[#336699] text-white rounded-[8px] font-medium hover:bg-[#2d5a87] transition-colors mx-auto"
@@ -626,43 +644,28 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
           ) : (
             <div className="overflow-x-auto">
               {/* Table Column Headers */}
-              <div className="px-4 py-1.5 border-b border-[#333333]/50 bg-[#1E1E1E]/50">
-                <div className="grid grid-cols-12 gap-4 text-xs font-medium text-gray-400 uppercase tracking-wider items-center">
-                  <button 
-                    onClick={() => handleSort('estimate_number')}
-                    className={`col-span-6 text-left hover:text-white transition-colors flex items-center gap-1 ${
-                      sortField === 'estimate_number' ? 'text-white' : ''
-                    }`}
-                  >
-                    ESTIMATE
-                    {sortField === 'estimate_number' && (
-                      sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
-                    )}
-                  </button>
-                  <button 
-                    onClick={() => handleSort('amount')}
-                    className={`col-span-3 text-center hover:text-white transition-colors flex items-center justify-center gap-1 ${
-                      sortField === 'amount' ? 'text-white' : ''
-                    }`}
-                  >
-                    AMOUNT
-                    {sortField === 'amount' && (
-                      sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
-                    )}
-                  </button>
-                  <button 
-                    onClick={() => handleSort('date')}
-                    className={`col-span-2 text-left hover:text-white transition-colors flex items-center gap-1 ${
-                      sortField === 'date' ? 'text-white' : ''
-                    }`}
-                  >
-                    DATE
-                    {sortField === 'date' && (
-                      sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
-                    )}
-                  </button>
-                  <div className="col-span-1 text-right"></div>
-                </div>
+              <div className={`${ROW_GRID} px-4 py-2 border-b border-[#333333]/50 text-[11px] font-medium text-gray-500 uppercase tracking-wider`}>
+                {([
+                  ['estimate_number', 'Estimate', ''],
+                  ['client', 'Client', ''],
+                  [null, 'Status', ''],
+                  ['date', 'Date', ''],
+                  ['amount', 'Amount', 'justify-end'],
+                ] as const).map(([field, label, align]) =>
+                  field ? (
+                    <button
+                      key={label}
+                      onClick={() => handleSort(field)}
+                      className={`flex items-center gap-1 uppercase tracking-wider hover:text-white transition-colors ${align} ${sortField === field ? 'text-white' : ''}`}
+                    >
+                      {label}
+                      {sortField === field && (sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
+                    </button>
+                  ) : (
+                    <span key={label}>{label}</span>
+                  ),
+                )}
+                <span />
               </div>
               
               {/* Table Content */}
@@ -672,44 +675,36 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
                     <div
                       key={estimate.id}
                       onClick={() => navigate(`/estimates/${estimate.id}`)}
-                      className={`group grid grid-cols-12 gap-4 px-4 ${viewMode === 'compact' ? 'py-1' : 'py-1.5'} items-center hover:bg-[#1A1A1A] transition-colors cursor-pointer border-b border-[#333333]/50 last:border-b-0`}
+                      className={`group ${ROW_GRID} px-4 py-2.5 text-sm hover:bg-[#1A1A1A] transition-colors cursor-pointer border-b border-[#333333]/50 last:border-b-0`}
                     >
-                      {/* Estimate Column */}
-                      <div className="col-span-6">
-                        <div className="flex items-center gap-3">
-                          <div className="min-w-0 flex-1">
-                            <div className={`font-medium text-white truncate ${viewMode === 'compact' ? 'text-sm' : ''}`}>
-                              {estimate.estimate_number}
-                            </div>
-                            {viewMode !== 'compact' && (
-                              <div className="text-xs text-gray-400 truncate mt-0.5">
-                                {estimate.client?.name || 'Unknown Client'}
-                              </div>
-                            )}
-                          </div>
-                          <span className={`text-xs px-2 py-1 font-medium min-w-[60px] text-center ${getStatusColor(estimate.status)}`}>
-                            {estimate.status.toUpperCase()}
-                          </span>
-                        </div>
-                      </div>
-                      
-                      {/* Amount Column */}
-                      <div className="col-span-3 text-center">
-                        <div className={`font-mono font-semibold text-white ${viewMode === 'compact' ? 'text-sm' : ''}`}>
-                          {formatCurrency(estimate.total_amount)}
-                        </div>
-                        {viewMode !== 'compact' && (
-                          <div className="text-xs text-gray-400 capitalize">Estimate</div>
+                      <div className="font-medium text-white truncate">{estimate.estimate_number}</div>
+
+                      <div className="min-w-0 truncate">
+                        {estimate.client?.name ? (
+                          <span className="text-gray-200">{estimate.client.name}</span>
+                        ) : (
+                          <span className="text-gray-500">{estimate.title || 'No client'}</span>
                         )}
                       </div>
-                      
-                      {/* Date Column */}
-                      <div className={`col-span-2 text-gray-300 ${viewMode === 'compact' ? 'text-xs' : 'text-sm'}`}>
-                        <div>{estimate.created_at ? new Date(estimate.created_at).toLocaleDateString() : 'No date'}</div>
+
+                      <div>
+                        <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize ${getStatusColor(estimate.status)}`}>
+                          {estimate.status}
+                        </span>
+                      </div>
+
+                      <div className="text-gray-400 text-xs whitespace-nowrap">
+                        {estimate.created_at
+                          ? new Date(estimate.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+                          : '—'}
+                      </div>
+
+                      <div className="text-right font-semibold text-white tabular-nums whitespace-nowrap">
+                        {formatCurrency(estimate.total_amount)}
                       </div>
 
                       {/* Actions Column */}
-                      <div className="col-span-1 flex justify-end relative">
+                      <div className="flex justify-end relative">
                         <div className="relative" ref={(el) => estimateDropdownRefs.current[estimate.id!] = el}>
                           <button
                             onClick={(e) => {

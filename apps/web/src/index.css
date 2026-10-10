@@ -59,6 +59,28 @@ body.marketing-page {
   color-scheme: dark;
 }
 
+/* Light mode. Component colors come from styles/light-theme.css. */
+html.light {
+  color-scheme: light;
+}
+
+html.light body {
+  background-color: #f4f5f7;
+  color: #111827;
+}
+
+html.light ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html.light ::-webkit-scrollbar-thumb {
+  background: #c9cdd3;
+}
+
+html.light * {
+  scrollbar-color: #c9cdd3 transparent;
+}
+
 /* Custom scrollbar for webkit browsers */
 ::-webkit-scrollbar {
   width: 8px;
@@ -330,4 +352,26 @@ body.marketing-page {
 .animate-expand-down {
   animation: expandDown 0.2s ease-out forwards;
   transform-origin: top;
+}
+
+/* iPad Safari gives date pickers a fixed minimum width that spills out of
+   cards and narrow fields; let them size to their container like other inputs. */
+input[type="date"],
+input[type="datetime-local"],
+input[type="time"] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  /* Without the native look an empty picker has no height of its own. */
+  min-height: 2.25rem;
+}
+
+input[type="date"]::-webkit-date-and-time-value,
+input[type="datetime-local"]::-webkit-date-and-time-value,
+input[type="time"]::-webkit-date-and-time-value {
+  text-align: left;
 }

@@ -1,0 +1,181 @@
+import { v } from "convex/values";
+import type { Doc, Id } from "./_generated/dataModel";
+import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { fail, nowIso, pick, requireMember } from "./lib/access";
+import { byDisplayOrder, organizationIdFrom, requireCatalogAccess, resolveCostCode } from "./lib/priceBook";
+import { lineItemFields } from "./schema";
+
+const MAX_BULK = 500;
+
+async function withCostCode(
+  ctx: QueryCtx | MutationCtx,
+  item: Doc<"lineItems">,
+  cache = new Map<Id<"costCodes">, Promise<Doc<"costCodes"> | null>>(),
+) {
+  if (!cache.has(item.cost_code_id)) cache.set(item.cost_code_id, ctx.db.get(item.cost_code_id));
+  const costCode = await cache.get(item.cost_code_id)!;
+  return {
+    ...item,
+    cost_code: costCode
+      ? {
+          id: costCode._id,
+          name: costCode.name,
+          code: costCode.code,
+          category: costCode.category,
+          industry_id: costCode.industry_id,
+        }
+      : null,
+  };
+}
+
+async function loadEditable(ctx: MutationCtx, id: Id<"lineItems">) {
+  const item = await ctx.db.get(id);
+  if (item === null) fail("NOT_FOUND", "Line item not found");
+  await requireCatalogAccess(ctx, item.organization_id, "write");
+  return item;
+}
+
+/** Org items plus (by default) shared industry items, like the old API. */
+export const list = query({
+  args: {
+    organizationId: v.id("organizations"),
+    costCodeId: v.optional(v.id("costCodes")),
+    category: v.optional(v.string()),
+    search: v.optional(v.string()),
+    isActive: v.optional(v.boolean()),
+    includeShared: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    await requireCatalogAccess(ctx, args.organizationId, "read");
+    const scopes: Array<Id<"organizations"> | undefined> = [args.organizationId];
+    if (args.includeShared !== false) scopes.push(undefined);
+
+    const rows: Doc<"lineItems">[] = [];
+    for (const scope of scopes) {
+      rows.push(
+        ...(await ctx.db
+          .query("lineItems")
+          .withIndex("by_organization", (q) => q.eq("organization_id", scope))
+          .take(5000)),
+      );
+    }
+
+    const search = args.search?.trim().toLowerCase();
+    const filtered = rows.filter(
+      (item) =>
+        (args.isActive === false || item.is_active) &&
+        (args.costCodeId === undefined || item.cost_code_id === args.costCodeId) &&
+        (args.category === undefined || item.service_category === args.category) &&
+        (!search ||
+          item.name.toLowerCase().includes(search) ||
+          (item.description ?? "").toLowerCase().includes(search)),
+    );
+    filtered.sort(byDisplayOrder((item) => item.name));
+    const cache = new Map<Id<"costCodes">, Promise<Doc<"costCodes"> | null>>();
+    return await Promise.all(filtered.map((item) => withCostCode(ctx, item, cache)));
+  },
+});
+
+export const get = query({
+  args: { id: v.id("lineItems") },
+  handler: async (ctx, { id }) => {
+    const item = await ctx.db.get(id);
+    if (item === null) fail("NOT_FOUND", "Line item not found");
+    await requireCatalogAccess(ctx, item.organization_id, "read");
+    return await withCostCode(ctx, item);
+  },
+});
+
+const PRICE_FIELDS = ["base_price", "red_line_price", "cap_price"] as const;
+
+/**
+ * Prices: only an organization's admins change them on its own items (the
+ * shared catalog is already limited to super admins). The red line is the
+ * item's price in the price book, so base_price follows it, and the cap
+ * can't be below it.
+ */
+async function checkPrices(
+  ctx: MutationCtx,
+  organizationId: Id<"organizations"> | undefined,
+  fields: Record<string, any>,
+  current?: Doc<"lineItems">,
+) {
+  if (!PRICE_FIELDS.some((field) => field in fields)) return;
+  if (organizationId !== undefined) await requireMember(ctx, organizationId, "admin");
+  if (typeof fields.red_line_price === "number" && !("base_price" in fields)) {
+    fields.base_price = fields.red_line_price;
+  }
+  const redLine = fields.red_line_price ?? current?.red_line_price;
+  const cap = fields.cap_price ?? current?.cap_price;
+  if (typeof redLine === "number" && typeof cap === "number" && cap < redLine) {
+    fail("INVALID", "Cap price can't be below the red line price");
+  }
+}
+
+async function insertLineItem(ctx: MutationCtx, data: unknown) {
+  const organizationId = organizationIdFrom(ctx, (data as any)?.organization_id);
+  const user = await requireCatalogAccess(ctx, organizationId, "write");
+  const fields = pick(data, lineItemFields);
+  if (typeof fields.name !== "string" || fields.name.trim() === "") fail("INVALID", "Name is required");
+  await checkPrices(ctx, organizationId, fields);
+  const now = nowIso();
+  return await ctx.db.insert("lineItems", {
+    is_active: true,
+    unit: "each",
+    base_price: 0,
+    ...(fields as { name: string }),
+    cost_code_id: await resolveCostCode(ctx, fields.cost_code_id, organizationId),
+    organization_id: organizationId,
+    user_id: user._id,
+    created_at: now,
+    updated_at: now,
+  });
+}
+
+export const create = mutation({
+  args: { data: v.any() },
+  handler: async (ctx, { data }) => {
+    const id = await insertLineItem(ctx, data);
+    return await withCostCode(ctx, (await ctx.db.get(id))!);
+  },
+});
+
+export const bulkCreate = mutation({
+  args: { items: v.array(v.any()) },
+  handler: async (ctx, { items }) => {
+    if (items.length > MAX_BULK) fail("INVALID", `Import at most ${MAX_BULK} items at a time`);
+    const created = [];
+    for (const item of items) {
+      created.push((await ctx.db.get(await insertLineItem(ctx, item)))!);
+    }
+    return {
+      message: `Successfully imported ${created.length} line items`,
+      count: created.length,
+      items: created,
+    };
+  },
+});
+
+export const update = mutation({
+  args: { id: v.id("lineItems"), data: v.any() },
+  handler: async (ctx, { id, data }) => {
+    const item = await loadEditable(ctx, id);
+    const patch = pick(data, lineItemFields, { forPatch: true });
+    await checkPrices(ctx, item.organization_id, patch, item);
+    if ("cost_code_id" in patch) {
+      patch.cost_code_id = await resolveCostCode(ctx, patch.cost_code_id, item.organization_id);
+    }
+    await ctx.db.patch(id, { ...patch, updated_at: nowIso() });
+    return await withCostCode(ctx, (await ctx.db.get(id))!);
+  },
+});
+
+/** Soft delete, as before: the item is hidden but kept for old estimates. */
+export const remove = mutation({
+  args: { id: v.id("lineItems") },
+  handler: async (ctx, { id }) => {
+    await loadEditable(ctx, id);
+    await ctx.db.patch(id, { is_active: false, updated_at: nowIso() });
+    return { message: "Line item deleted", lineItem: await ctx.db.get(id) };
+  },
+});

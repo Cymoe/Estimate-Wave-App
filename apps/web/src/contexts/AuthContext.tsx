@@ -1,4 +1,7 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, ReactNode } from "react";
+import { useAuthActions, useAuthToken } from "@convex-dev/auth/react";
+import { useConvexAuth, useQuery } from "convex/react";
+import { api } from "../../convex/_generated/api";
 
 // User type
 export interface User {
@@ -15,120 +18,52 @@ interface AuthContextType {
   session: { user: User; access_token: string } | null;
   isLoading: boolean;
   signInWithGoogle: () => Promise<void>;
+  signInWithPassword: (params: {
+    email: string;
+    password: string;
+    flow: 'signIn' | 'signUp';
+    name?: string;
+  }) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const AFTER_SIGN_IN = '/profit-tracker';
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<{ user: User; access_token: string } | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const { isLoading: authLoading, isAuthenticated } = useConvexAuth();
+  const token = useAuthToken();
+  const { signIn, signOut: convexSignOut } = useAuthActions();
+  const me = useQuery(api.users.me, isAuthenticated ? {} : "skip");
 
-  // Verify token and get user on mount
-  useEffect(() => {
-    const verifyToken = async () => {
-      const token = localStorage.getItem('auth_token');
-      
-      if (!token) {
-        setIsLoading(false);
-        return;
-      }
-
-      try {
-        const apiUrl = import.meta.env.VITE_API_URL;
-        if (!apiUrl) {
-          console.error('VITE_API_URL not configured');
-          setIsLoading(false);
-          return;
-        }
-
-        // Remove trailing slash if present
-        const baseUrl = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
-
-        const response = await fetch(`${baseUrl}/api/auth/verify`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          const userData: User = {
-            id: data.user.id,
-            email: data.user.email,
-            name: data.user.name,
-            picture: data.user.picture,
-            organizationId: data.user.organizationId,
-            role: data.user.role,
-          };
-          
-          setUser(userData);
-          setSession({
-            user: userData,
-            access_token: token,
-          });
-        } else {
-          // Invalid token, remove it
-          localStorage.removeItem('auth_token');
-        }
-      } catch (error) {
-        console.error('Token verification failed:', error);
-        localStorage.removeItem('auth_token');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    verifyToken();
-  }, []);
+  // Signed in but the profile hasn't loaded yet still counts as loading.
+  const isLoading = authLoading || (isAuthenticated && me === undefined);
+  const user: User | null = isAuthenticated && me ? me : null;
 
   const signInWithGoogle = async () => {
     try {
-      const apiUrl = import.meta.env.VITE_API_URL;
-      if (!apiUrl) {
-        console.error('VITE_API_URL not configured');
-        return;
-      }
-
-      // Remove trailing slash if present
-      const baseUrl = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
-
-      // Get the OAuth URL from backend
-      const response = await fetch(`${baseUrl}/api/auth/google`);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-
-      if (data.url) {
-        // Redirect to Google OAuth
-        window.location.href = data.url;
-      }
+      await signIn('google', { redirectTo: AFTER_SIGN_IN });
     } catch (error) {
       console.error('Error initiating Google sign-in:', error);
     }
   };
 
+  const signInWithPassword: AuthContextType['signInWithPassword'] = async ({ email, password, flow, name }) => {
+    await signIn('password', { email, password, flow, ...(name ? { name } : {}) });
+  };
+
   const signOut = async () => {
-    // Remove token
-    localStorage.removeItem('auth_token');
-    
-    // Clear state
-    setUser(null);
-    setSession(null);
-    
-    // Redirect to home
+    await convexSignOut();
     window.location.href = '/';
   };
 
-  const value = {
+  const value: AuthContextType = {
     user,
-    session,
+    session: user ? { user, access_token: token ?? '' } : null,
     isLoading,
     signInWithGoogle,
+    signInWithPassword,
     signOut,
   };
 

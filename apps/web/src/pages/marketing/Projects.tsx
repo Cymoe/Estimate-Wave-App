@@ -7,6 +7,7 @@ import {
   ArrowRight
 } from "lucide-react";
 import { useNavigate } from 'react-router-dom';
+import { APP_NAME } from '@/config/brand';
 
 // Project type definition
 interface Project {
@@ -279,7 +280,7 @@ export const Projects = () => {
             Construction Project Showcase
           </h1>
           <p className="text-xl text-gray-600">
-            Browse through our collection of exceptional construction projects created by BillBreeze users.
+            Browse through our collection of exceptional construction projects created by {APP_NAME} users.
             From kitchen remodels to luxury homes, find inspiration for your next project.
           </p>
         </div>
@@ -545,7 +546,7 @@ export const Projects = () => {
           <div className="max-w-3xl mx-auto space-y-6">
             <h2 className="text-3xl font-bold text-gray-900">Ready to showcase your work?</h2>
             <p className="text-xl text-gray-600">
-              Join thousands of contractors who use BillBreeze to manage their business and showcase their best projects.
+              Join thousands of contractors who use {APP_NAME} to manage their business and showcase their best projects.
             </p>
             <button 
               onClick={() => navigate('/')}
@@ -561,7 +562,7 @@ export const Projects = () => {
       {/* Footer */}
       <footer className="bg-gray-50 py-12">
         <div className="container mx-auto px-4 text-center text-gray-600">
-          <p>&copy; {new Date().getFullYear()} BillBreeze. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} {APP_NAME}. All rights reserved.</p>
         </div>
       </footer>
     </div>

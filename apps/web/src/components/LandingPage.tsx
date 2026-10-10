@@ -13,6 +13,7 @@ import {
   Users,
   Heart
 } from "lucide-react";
+import { APP_NAME, SUPPORT_EMAIL } from '@/config/brand';
 // AuthButtons now imported directly in MarketingHeader
 
 export const LandingPage = () => {
@@ -495,7 +496,7 @@ export const LandingPage = () => {
               Streamline Your Business & Showcase Your Work
             </h1>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-            BillBreeze empowers master craftsmen, trade professionals, and real estate investors to manage their business 
+            {APP_NAME} empowers master craftsmen, trade professionals, and real estate investors to manage their business 
             with professional invoicing while tracking costs and showcasing their best projects.
             <a href="/who-we-serve" className="text-blue-600 hover:underline ml-1">
               See who we serve →
@@ -766,7 +767,7 @@ export const LandingPage = () => {
 
           {/* Benefits Section */}
           <div className="mt-24 bg-white p-4 sm:p-8 rounded-lg border border-gray-300 shadow-md">
-            <h2 className="text-2xl sm:text-3xl font-bold text-center text-gray-900 mb-8 sm:mb-12">Why Choose BillBreeze?</h2>
+            <h2 className="text-2xl sm:text-3xl font-bold text-center text-gray-900 mb-8 sm:mb-12">Why Choose {APP_NAME}?</h2>
             <div className="space-y-8">
               <BenefitRow
                 icon={<CheckCircle2 className="h-6 w-6" style={{ color: '#336699' }} />}
@@ -801,7 +802,7 @@ export const LandingPage = () => {
                 Experience the Future of Construction Tech
               </h2>
               <p className="text-xl text-gray-300 mb-8 max-w-3xl mx-auto">
-                Take an interactive journey through how BillBreeze transforms chaos into clarity with AI-powered automation and beautiful visualizations.
+                Take an interactive journey through how {APP_NAME} transforms chaos into clarity with AI-powered automation and beautiful visualizations.
               </p>
               <button
                 onClick={() => navigate('/experience')}
@@ -854,7 +855,7 @@ export const LandingPage = () => {
         <div className="container mx-auto px-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8 text-center md:text-left">
             <div>
-              <h3 className="text-lg font-bold mb-4">BillBreeze</h3>
+              <h3 className="text-lg font-bold mb-4">{APP_NAME}</h3>
               <p className="text-gray-600">The all-in-one business management platform for contractors and service providers.</p>
             </div>
             <div>
@@ -868,11 +869,11 @@ export const LandingPage = () => {
             <div>
               <h3 className="text-lg font-bold mb-4">Contact</h3>
               <p className="text-gray-600">Have questions? Reach out to our support team.</p>
-              <p className="text-gray-600 mt-2">support@billbreeze.com</p>
+              <p className="text-gray-600 mt-2">{SUPPORT_EMAIL}</p>
             </div>
           </div>
           <div className="border-t border-gray-200 pt-8 text-center text-gray-600">
-            <p>&copy; {new Date().getFullYear()} BillBreeze. All rights reserved.</p>
+            <p>&copy; {new Date().getFullYear()} {APP_NAME}. All rights reserved.</p>
           </div>
         </div>
       </footer>

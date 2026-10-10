@@ -7,9 +7,12 @@ import {
   HelpCircle,
   LogOut,
   Activity,
-  TrendingUp
+  TrendingUp,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface SidebarProps {
   isSidebarCollapsed: boolean;
@@ -61,6 +64,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navigate = useNavigate();
   const location = useLocation();
   const { user, signOut } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const profileDropdownRef = useRef<HTMLDivElement>(null);
   const profileButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -89,7 +93,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <>
       {/* Sidebar - part of grid layout, not fixed */}
-      <div className={`hidden md:flex ${isSidebarCollapsed ? 'w-14' : 'w-48'} h-screen bg-[#000000] border-l border-gray-700 flex-col transition-all duration-300`}>
+      <div className={`hidden md:flex ${isSidebarCollapsed ? 'w-14' : 'w-48'} h-[100dvh] bg-[#000000] border-l border-gray-700 flex-col transition-all duration-300`}>
         {/* Organization header and sidebar toggle */}
         <div className="p-2 border-b border-[#333333] relative flex items-center justify-between flex-shrink-0 overflow-visible">
           <button
@@ -144,7 +148,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
         
         {/* Scrollable Content Area */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
           {/* Grid navigation */}
           <div className={`${isSidebarCollapsed ? 'grid grid-cols-1' : 'grid grid-cols-2'} gap-0`}>
             {/* Profit Tracker (formerly Dashboard) */}
@@ -199,6 +203,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
             </NavLink>
 
+            {/* Leads */}
+            <NavLink
+              to="/leads"
+              className={({ isActive }) =>
+                isActive
+                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
+                  : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
+              }
+              title={isSidebarCollapsed ? "Leads - Quote requests from first call to won or lost" : undefined}
+            >
+              {({ isActive }) => (
+                <div className="relative z-10 flex flex-col items-center">
+                  <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
+                    <span className="text-base">◆</span>
+                  </div>
+                  {!isSidebarCollapsed && (
+                    <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
+                      Leads
+                    </span>
+                  )}
+                </div>
+              )}
+            </NavLink>
+
             {/* Estimates */}
             <NavLink
               to="/work"
@@ -218,32 +246,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     {!isSidebarCollapsed && (
                       <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/work') || location.pathname.startsWith('/estimates') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
                         Estimates
-                      </span>
-                    )}
-                  </div>
-                </>
-              )}
-            </NavLink>
-
-            {/* Sales Mode */}
-            <NavLink
-              to="/sales-mode"
-              className={({ isActive }) =>
-                isActive || location.pathname.startsWith('/sales-mode')
-                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
-                  : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
-              }
-              title={isSidebarCollapsed ? "Sales Mode - Field Sales Tool" : undefined}
-            >
-              {({ isActive }) => (
-                <>
-                  <div className="relative z-10 flex flex-col items-center">
-                    <div className={`mb-1 ${isActive || location.pathname.startsWith('/sales-mode') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      <span className="text-base">⚡</span>
-                    </div>
-                    {!isSidebarCollapsed && (
-                      <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/sales-mode') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                        Sales Mode
                       </span>
                     )}
                   </div>
@@ -279,80 +281,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           </div>
 
-          {/* Recent Projects Section */}
-          {!isSidebarCollapsed && (
-            <div>
-              {/* Projects without padding */}
-              <div className="mb-2">
-                <div className="space-y-0">
-                  {/* Kitchen Renovation Row */}
-                  <button 
-                    onClick={() => navigate('/projects/1')}
-                    className={`w-full flex items-center justify-between px-1.5 py-2 transition-colors group border-b border-[#333333] last:border-b-0 hover:bg-[#2A2A2A] first:rounded-t-[4px] last:rounded-b-[4px] ${location.pathname === '/projects/1' ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border-l border-[#336699]/50' : ''}`}
-                  >
-                    <div className="flex items-center flex-1 min-w-0">
-                      <div className="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 flex-shrink-0"></div>
-                      <span className={`text-white text-xs font-medium truncate ${location.pathname === '/projects/1' ? 'text-[#336699]' : 'group-hover:text-[#336699]'} transition-colors leading-tight`}>Kitchen Renovation</span>
-                    </div>
-                    <div className="flex-shrink-0">
-                      <span className="text-[#6b7280] text-xs font-medium leading-tight">75%</span>
-                    </div>
-                  </button>
-
-                  {/* HVAC Install Row */}
-                  <button 
-                    onClick={() => navigate('/projects/2')}
-                    className={`w-full flex items-center justify-between px-1.5 py-2 transition-colors group border-b border-[#333333] last:border-b-0 hover:bg-[#2A2A2A] first:rounded-t-[4px] last:rounded-b-[4px] ${location.pathname === '/projects/2' ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border-l border-[#336699]/50' : ''}`}
-                  >
-                    <div className="flex items-center flex-1 min-w-0">
-                      <div className="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 flex-shrink-0"></div>
-                      <span className={`text-white text-xs font-medium truncate ${location.pathname === '/projects/2' ? 'text-[#336699]' : 'group-hover:text-[#336699]'} transition-colors leading-tight`}>HVAC Install</span>
-                    </div>
-                    <div className="flex-shrink-0">
-                      <span className="text-[#6b7280] text-xs font-medium leading-tight">45%</span>
-                    </div>
-                  </button>
-
-
-                </div>
-              </div>
-              
-              {/* View All Projects Link with padding */}
-              <div className="px-2 pb-2">
-                <div className="mt-3">
-                  <button 
-                    data-projects-more-button
-                    onClick={() => {
-                      // Only allow toggle if sidebar is not locked
-                      if (!isProjectsSidebarLocked) {
-                        if (isProjectsSidebarOpen) {
-                          // If sidebar is open, close it with animation
-                          window.dispatchEvent(new CustomEvent('closeProjectsSidebar'));
-                        } else {
-                          // If sidebar is closed, open it
-                          setIsProjectsSidebarOpen(true);
-                        }
-                      }
-                    }}
-                    className={`${isProjectsSidebarLocked ? 'text-[#F9D71C]' : 'text-[#336699]'} text-[10px] font-medium hover:text-white transition-colors flex items-center justify-end uppercase tracking-wide ${isProjectsSidebarLocked ? 'cursor-default' : 'cursor-pointer'} w-full`}
-                  >
-                    <ChevronLeft className={`w-2.5 h-2.5 mr-1 transition-transform ${isProjectsSidebarOpen && !isProjectsSidebarLocked ? 'rotate-90' : ''}`} />
-                    <span className="mr-1">{isProjectsSidebarLocked ? 'locked' : (isProjectsSidebarOpen ? 'close' : 'more')}</span>
-                    {isProjectsSidebarOpen && !isProjectsSidebarLocked ? (
-                      <span className="flex items-center">×</span>
-                    ) : (
-                      <span className="flex items-center">⋮⋮</span>
-                    )}
-                    {isProjectsSidebarLocked && (
-                      <svg className="w-2.5 h-2.5 ml-1" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                      </svg>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Activity Button */}
           <div className="px-2 mt-4">
@@ -522,6 +450,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span className="font-['Roboto']">Help & Tutorials</span>
                 </button>
                 
+                <button
+                  onClick={() => {
+                    toggleTheme();
+                    setIsProfileMenuOpen(false);
+                  }}
+                  className="w-full flex items-center px-4 py-3 text-sm text-white hover:bg-[#3A3A3A] transition-colors duration-200"
+                >
+                  {theme === 'dark' ? <Sun className="w-4 h-4 mr-3 text-[#9E9E9E]" /> : <Moon className="w-4 h-4 mr-3 text-[#9E9E9E]" />}
+                  <span className="font-['Roboto']">{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
+                </button>
+
                 <div className="border-t border-[#404040]" />
                 
                 <button

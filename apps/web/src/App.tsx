@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ScrollRestoration } from './components/ScrollRestoration';
@@ -20,11 +20,11 @@ import { Callback } from './components/auth/Callback';
 import { UserProfile } from './components/settings/UserProfile';
 import { PublicProfileView } from './components/settings/PublicProfileView';
 import { Toaster } from 'react-hot-toast';
-import { ProjectForm, ProjectDetails } from './components/projects';
 import LineItemTestPage from './pages/LineItemTestPage';
 import { DashboardLayout } from './components/layouts/DashboardLayout';
 import MarkdownViewer from './components/docs/MarkdownViewer';
 import Templates from './pages/Templates';
+import LeadsPage from './pages/LeadsPage';
 import IndustrySettings from './pages/IndustrySettings';
 import OrganizationSettings from './pages/OrganizationSettings';
 import { Expenses } from './pages/Expenses';
@@ -35,9 +35,9 @@ import { TeamMemberDetailPage } from './pages/TeamMemberDetailPage';
 import { DebugData } from './pages/DebugData';
 import { Work } from './pages/Work';
 import { Projects as ProjectsPage } from './pages/Projects';
+import { ProjectDetails } from './components/projects/ProjectDetails';
 import { ActivityPage } from './pages/ActivityPage';
 import { WhoWeServe } from './pages/WhoWeServe';
-import { SalesMode } from './pages/SalesMode';
 // import { ServicesPackages } from './pages/ServicesPackages'; // Removed - using line items only
 import Marketing from './pages/Marketing';
 
@@ -56,29 +56,19 @@ const SimpleExperience = React.lazy(() => import('./pages/SimpleExperience').the
 //     import('./utils/testWebSocket'),
 //     import('./utils/quickWebSocketTest'),
 //     import('./utils/checkActivityDatabase'),
-//     import('./utils/testInvoiceActivity'),
-//     import('./utils/debugInvoiceActivity'),
-//     import('./utils/verifyInvoiceActivityFix'),
 //     import('./utils/diagnoseOrganizationIssue'),
 //     import('./utils/testActivityWithSelectedOrg'),
-//     import('./utils/fixOldInvoiceActivities'),
-//     import('./utils/fixAllBadInvoiceActivities'),
 //     import('./utils/manuallyFixBadActivities'),
 //     import('./utils/debugWhyNotFixing'),
 //     import('./utils/directActivityFix'),
 //     import('./utils/deleteAndRecreateActivities'),
 //     import('./utils/investigateActivityIssue'),
-//     import('./utils/auditAllActivityLogging'),
 //     import('./utils/createHistoricalActivities'),
 //     import('./utils/checkSupabaseData'),
-//     import('./utils/fixEverythingNow'),
 //     import('./utils/checkActivityStatus'),
 //     import('./utils/checkActivityProgress'),
 //     import('./utils/fixActivityDescriptions'),
 //     import('./utils/fixBadActivityDescriptions'),
-//     import('./utils/createTestInvoice'),
-//     import('./utils/directInvoiceInsert'),
-//     import('./utils/verifyInvoiceActivityLogging'),
 //     import('./utils/testRawActivityCreation'),
 //     import('./utils/checkWorkPackTemplateActivities'),
 //     import('./utils/testWorkPackAndTemplateLogging')
@@ -91,18 +81,12 @@ const SimpleExperience = React.lazy(() => import('./pages/SimpleExperience').the
 //     console.log('  - testWebSocket() - Test WebSocket connectivity');
 //     console.log('  - quickWebSocketTest() - Quick WebSocket diagnostic');
 //     console.log('  - checkActivityDatabase() - Check activity logging state');
-//     console.log('  - testInvoiceActivity() - Test invoice activity logging');
-//     console.log('  - debugInvoiceActivity() - Debug invoice activity issue');
-//     console.log('  - verifyInvoiceActivityFix() - Verify invoice activity fix is working');
 //     console.log('  - diagnoseOrganizationIssue() - Diagnose user organization issues');
 //     console.log('  - testActivityWithSelectedOrg() - Test with your selected organization');
-//     console.log('  - fixOldInvoiceActivities() - Fix old invoice activities with improper descriptions');
-//     console.log('  - fixAllBadInvoiceActivities() - Aggressively fix ALL bad invoice activities');
 //     console.log('  - manuallyFixBadActivities() - Manually fix specific problematic activities');
 //     console.log('  - debugWhyNotFixing() - Debug why activities are not getting fixed');
 //     console.log('  - investigateActivityIssue() - Deep investigation of why updates fail');
 //     console.log('  - deleteAndRecreateActivities() - Delete bad activities and recreate them properly');
-//     console.log('  - auditAllActivityLogging() - Audit ALL activity logging across the app');
 //     console.log('  - createHistoricalActivities() - Create activities for existing entities');
 //     console.log('  - checkWorkPackTemplateActivities() - Check work pack & template activities');
 //     console.log('  - testWorkPackAndTemplateLogging() - Test work pack & template logging');
@@ -126,6 +110,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   return <>{children}</>;
+}
+
+/** Old edit links open the project page instead. */
+function ProjectEditRedirect() {
+  const { id } = useParams();
+  return <Navigate to={`/projects/${id}`} replace />;
 }
 
 function AppRoutes() {
@@ -223,6 +213,16 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/leads"
+        element={
+          <ProtectedRoute>
+            <DashboardLayout fullWidth={true}>
+              <LeadsPage />
+            </DashboardLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/templates"
         element={
           <ProtectedRoute>
@@ -245,17 +245,8 @@ function AppRoutes() {
         }
       />
       
-      {/* Sales Mode - Field Sales Tool */}
-      <Route
-        path="/sales-mode"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <SalesMode />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
+      {/* Sales Mode was removed; old links go to estimates. */}
+      <Route path="/sales-mode" element={<Navigate to="/work" replace />} />
       <Route
         path="/work/estimates"
         element={
@@ -367,16 +358,6 @@ function AppRoutes() {
         }
       />
       
-      {/* Chat Management System - redirect to profit-tracker since chat is in sidebar */}
-      <Route
-        path="/chat"
-        element={
-          <ProtectedRoute>
-            <Navigate to="/profit-tracker" replace />
-          </ProtectedRoute>
-        }
-      />
-      
       {/* Documentation routes - publicly accessible */}
       <Route
         path="/docs/:filename"
@@ -390,15 +371,6 @@ function AppRoutes() {
       />
       
       
-      {/* Project routes */}
-      <Route
-        path="/projects"
-        element={
-          <ProtectedRoute>
-            <Navigate to="/work/projects" replace />
-          </ProtectedRoute>
-        }
-      />
       <Route
         path="/projects/:id"
         element={
@@ -409,16 +381,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/projects/:id/edit"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <ProjectForm />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/projects/:id/edit" element={<ProjectEditRedirect />} />
 
       {/* Client routes */}
       <Route

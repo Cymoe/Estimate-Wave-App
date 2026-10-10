@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Search, Settings, Info, CheckCircle, Crown } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { ArrowLeft, Search, Settings, Info, CheckCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { IndustryService } from '../services/IndustryService';
@@ -200,40 +199,17 @@ export default function IndustrySettings() {
     if (!user || !selectedOrg?.id) return;
 
     try {
-      // Run all queries in parallel, including plan data
-      const [industriesResult, orgResult, orgIndustriesResult, planResult] = await Promise.all([
-        supabase
-          .from('industries')
-          .select('*')
-          .eq('is_active', true)
-          .order('display_order'),
-        
-        supabase
-          .from('organizations')
-          .select('industry_id')
-          .eq('id', selectedOrg.id)
-          .single(),
-        
-        supabase
-          .from('organization_industries')
-          .select('industry_id')
-          .eq('organization_id', selectedOrg.id),
-        
+      const [allIndustries, orgIndustries, planResult] = await Promise.all([
+        IndustryService.listAll(),
+        IndustryService.getOrganizationIndustries(selectedOrg.id),
         IndustryService.getOrganizationPlan(selectedOrg.id)
       ]);
 
-      if (industriesResult.error) throw industriesResult.error;
-      if (orgResult.error) throw orgResult.error;
-      if (orgIndustriesResult.error) throw orgIndustriesResult.error;
-
-      setIndustries(industriesResult.data || []);
-      setPrimaryIndustryId(orgResult.data?.industry_id || null);
+      setIndustries(allIndustries as Industry[]);
+      setPrimaryIndustryId(null);
       setPlanData(planResult);
-      
-      const selected = new Set(orgIndustriesResult.data?.map(oi => oi.industry_id) || []);
-      if (orgResult.data?.industry_id) {
-        selected.add(orgResult.data.industry_id);
-      }
+
+      const selected = new Set(orgIndustries.map(industry => industry.id));
       setSelectedIndustries(selected);
     } catch (error) {
       console.error('Error loading industries:', error);
@@ -292,22 +268,9 @@ export default function IndustrySettings() {
     
     try {
       if (isAdding) {
-        const { error } = await supabase
-          .from('organization_industries')
-          .insert({
-            organization_id: selectedOrg.id,
-            industry_id: industryId
-          });
-          
-        if (error && error.code !== '23505') throw error;
+        await IndustryService.addToOrganization(selectedOrg.id, industryId);
       } else {
-        const { error } = await supabase
-          .from('organization_industries')
-          .delete()
-          .eq('organization_id', selectedOrg.id)
-          .eq('industry_id', industryId);
-          
-        if (error) throw error;
+        await IndustryService.removeFromOrganization(selectedOrg.id, industryId);
       }
     } catch (error) {
       console.error('Error updating industry:', error);
@@ -440,19 +403,7 @@ export default function IndustrySettings() {
                 </button>
               </div>
               <div className="flex flex-col items-end">
-                <div className="flex items-center gap-2">
-                  {planData?.planName === 'Unlimited' && (
-                    <Crown className="w-4 h-4 text-[#F59E0B]" />
-                  )}
-                  <div className="text-sm text-gray-400">
-                    {selectedIndustries.size} of {planData?.industryLimit === null ? '∞' : planData?.industryLimit || 5} selected
-                  </div>
-                </div>
-                {planData && !planData.canAddMore && planData.planName !== 'Unlimited' && (
-                  <div className="text-xs text-amber-500 mt-1">
-                    Maximum {planData.industryLimit} industries reached
-                  </div>
-                )}
+                <div className="text-sm text-gray-400">{selectedIndustries.size} selected</div>
               </div>
             </div>
             
@@ -460,7 +411,7 @@ export default function IndustrySettings() {
             {showHelp && (
               <div className="mb-4 p-4 bg-[#0A0A0A] rounded-lg border border-[#333333] animate-in slide-in-from-top duration-200">
                 <h3 className="text-white font-medium mb-2 flex items-center gap-2">
-                  <Settings className="w-4 h-4 text-[#3B82F6]" />
+                  <Settings className="w-4 h-4 text-[#336699]" />
                   How Industries Work
                 </h3>
                 <p className="text-sm text-gray-400 mb-3">
@@ -468,15 +419,15 @@ export default function IndustrySettings() {
                 </p>
                 <ul className="space-y-1 text-sm text-gray-400">
                   <li className="flex items-start gap-2">
-                    <span className="text-[#3B82F6] mt-0.5">•</span>
+                    <span className="text-[#336699] mt-0.5">•</span>
                     <span>Showing relevant project types and templates</span>
                   </li>
                   <li className="flex items-start gap-2">
-                    <span className="text-[#3B82F6] mt-0.5">•</span>
+                    <span className="text-[#336699] mt-0.5">•</span>
                     <span>Providing industry-specific work packs</span>
                   </li>
                   <li className="flex items-start gap-2">
-                    <span className="text-[#3B82F6] mt-0.5">•</span>
+                    <span className="text-[#336699] mt-0.5">•</span>
                     <span>Tailoring product catalogs and pricing</span>
                   </li>
                 </ul>
@@ -496,7 +447,7 @@ export default function IndustrySettings() {
                     e.currentTarget.blur();
                   }
                 }}
-                className="w-full pl-10 pr-4 py-3 bg-[#0A0A0A] border border-[#333333] rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:border-transparent transition-all"
+                className="w-full pl-10 pr-4 py-3 bg-[#0A0A0A] border border-[#333333] rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#336699] focus:border-transparent transition-all"
               />
               {searchQuery && (
                 <button
@@ -532,7 +483,7 @@ export default function IndustrySettings() {
                     className={`py-8 px-6 transition-all duration-200 relative ${
                       isPrimary ? 'opacity-75' : 'hover:bg-[#252525] cursor-pointer'
                     } ${
-                      isSelected && !isPrimary ? 'bg-[#1a1a1a] border-l-2 border-l-[#3B82F6]' : ''
+                      isSelected && !isPrimary ? 'bg-[#1a1a1a] border-l-2 border-l-[#336699]' : ''
                     }`}
                     onClick={() => !isPrimary && (isSelected || planData?.canAddMore) && toggleIndustry(industry.id)}
                   >
@@ -541,7 +492,7 @@ export default function IndustrySettings() {
                         {/* Enhanced Checkbox */}
                         <div 
                           className={`relative w-6 h-6 rounded-md ${
-                            isSelected ? 'bg-[#3B82F6]' : 'bg-[#0A0A0A] border-2 border-[#333333]'
+                            isSelected ? 'bg-[#336699]' : 'bg-[#0A0A0A] border-2 border-[#333333]'
                           } transition-all duration-200 hover:scale-110 hover:shadow-lg`}
                           onClick={(e) => {
                             e.stopPropagation();
@@ -581,12 +532,6 @@ export default function IndustrySettings() {
                         </div>
                       </div>
                     </div>
-                    {/* Selection disabled indicator */}
-                    {planData && !planData.canAddMore && !isSelected && !isPrimary && (
-                      <div className="absolute inset-0 bg-[#0A0A0A] bg-opacity-50 flex items-center justify-center pointer-events-none">
-                        <span className="text-sm text-gray-400">Maximum industries selected</span>
-                      </div>
-                    )}
                   </div>
                 );
               })

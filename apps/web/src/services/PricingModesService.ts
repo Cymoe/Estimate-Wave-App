@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { pricingModesAPI } from '../lib/api';
 import { ActivityLogService } from './ActivityLogService';
 import { jobQueue } from './jobQueue';
 
@@ -88,16 +89,7 @@ export class PricingModesService {
    */
   static async getPresets(): Promise<PricingMode[]> {
     try {
-      const apiUrl = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
-      const baseUrl = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
-      
-      const response = await fetch(`${baseUrl}/api/pricing-modes/presets`);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
+      const data = await pricingModesAPI.presets();
       return data || [];
     } catch (error) {
       console.error('Error fetching preset pricing modes:', error);

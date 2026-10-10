@@ -5,7 +5,6 @@ interface CreateDropdownProps {
   onCreateLineItem: () => void;
   onCreateClient: () => void;
   onCreateProject: () => void;
-  onCreateInvoice: () => void;
   onCreateProduct: () => void;
   onCreatePackage?: () => void; // Optional as part of simplification
   onCreatePriceBookTemplate: () => void;
@@ -18,7 +17,6 @@ export const CreateDropdown: React.FC<CreateDropdownProps> = ({
   onCreateLineItem,
   onCreateClient,
   onCreateProject,
-  onCreateInvoice,
   onCreateProduct,
   onCreatePackage,
   onCreatePriceBookTemplate,
@@ -29,19 +27,8 @@ export const CreateDropdown: React.FC<CreateDropdownProps> = ({
   
   return (
     <div className="w-full bg-[#121212] p-2 flex flex-col overflow-y-auto">
-      {/* Section: Sales Mode - Primary */}
-      <div className="mb-2">
-        <button 
-          onClick={() => navigate('/sales-mode')} 
-          className="flex items-center gap-2 px-3 py-2 text-white text-xs font-medium text-left hover:bg-[#1E1E1E] hover:border-l-2 hover:border-[#336699] rounded-md transition-colors w-full bg-[#336699]/10"
-        >
-          <span className="text-lg text-[#336699]">⚡</span>
-          Quick Quote (Sales Mode)
-        </button>
-      </div>
-
       {/* Section: Main Items */}
-      <div className="mb-2 border-t border-gray-700 pt-2">
+      <div className="mb-2">
         <h3 className="text-gray-400 text-xs uppercase font-medium mb-1 px-3">CREATE</h3>
         <div className="grid grid-cols-1 gap-1">
           <button 
@@ -57,13 +44,6 @@ export const CreateDropdown: React.FC<CreateDropdownProps> = ({
           >
             <span className="text-lg text-[#336699]">👤</span>
             Client
-          </button>
-          <button 
-            onClick={onCreateInvoice} 
-            className="flex items-center gap-2 px-3 py-2 text-gray-300 text-xs font-medium text-left hover:bg-[#1E1E1E] hover:border-l-2 hover:border-[#336699] rounded-md transition-colors w-full"
-          >
-            <span className="text-lg text-[#336699]">📄</span>
-            Invoice
           </button>
         </div>
       </div>

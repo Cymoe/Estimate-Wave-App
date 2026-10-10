@@ -1,150 +1,31 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { 
-  FileText, 
-  Plus,
-  Search,
-  Zap,
-  List
-} from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { EstimatesList } from '../components/estimates/EstimatesList';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
-import { SalesModeView } from '../components/estimates/SalesModeView';
 import { EstimateService } from '../services/EstimateService';
 import { useAuth } from '../contexts/AuthContext';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
-import { supabase } from '../lib/supabase';
 
+/**
+ * The estimates list. New estimates start from the yellow + button
+ * ("Estimate"), which opens /work?new=1 and with it the drawer below.
+ */
 export const Work: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { selectedOrg } = useContext(OrganizationContext);
-  const [estimatesCount, setEstimatesCount] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [searchInput, setSearchInput] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
   const [showCreateEstimate, setShowCreateEstimate] = useState(false);
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
-  const [activeTab, setActiveTab] = useState<'list' | 'sales'>('list');
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  // Debounce search input
   useEffect(() => {
-    const handler = setTimeout(() => {
-      setSearchTerm(searchInput);
-    }, 300);
-    return () => clearTimeout(handler);
-  }, [searchInput]);
-
-  // Function to load estimates count
-  const loadEstimatesCount = async () => {
-    if (!selectedOrg?.id) {
-      setLoading(false);
-      return;
-    }
-
-    try {
-      const { count } = await supabase
-        .from('estimates')
-        .select('id', { count: 'exact' })
-        .eq('organization_id', selectedOrg.id);
-
-      setEstimatesCount(count || 0);
-    } catch (error) {
-      console.error('Error fetching estimates count:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Fetch estimates count
-  useEffect(() => {
-    loadEstimatesCount();
-  }, [selectedOrg]);
-
-  const handleCreateEstimate = () => {
+    if (searchParams.get('new') !== '1') return;
     setShowCreateEstimate(true);
-  };
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   return (
     <div className="max-w-[1600px] mx-auto">
-      {/* Single Unified Card */}
-      <div className="bg-transparent border border-[#333333]">
-        {/* Header Section */}
-        <div className="px-6 py-5">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <FileText className="w-5 h-5 text-white" />
-              <h1 className="text-xl font-semibold text-white">Estimates</h1>
-              <span className="text-sm text-gray-500">({estimatesCount})</span>
-            </div>
-            
-            <div className="flex items-center gap-5">
-              {activeTab === 'list' && (
-                <div className="relative">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search estimates..."
-                    value={searchInput}
-                    onChange={(e) => setSearchInput(e.target.value)}
-                    className="bg-[#1E1E1E] border border-[#333333] pl-10 pr-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699] w-[300px]"
-                  />
-                </div>
-              )}
-              
-              <button
-                onClick={handleCreateEstimate}
-                className="bg-white hover:bg-gray-100 text-black px-5 py-2.5 text-sm font-medium transition-colors flex items-center gap-2"
-              >
-                <Plus className="w-4 h-4" />
-                <span>{activeTab === 'sales' ? 'Quick Quote' : 'Create Estimate'}</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Tabs */}
-          <div className="flex border-b border-[#333333]">
-            <button
-              onClick={() => setActiveTab('list')}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
-                activeTab === 'list'
-                  ? 'text-white border-b-2 border-[#336699]'
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              <List className="w-4 h-4" />
-              All Estimates
-            </button>
-            <button
-              onClick={() => setActiveTab('sales')}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
-                activeTab === 'sales'
-                  ? 'text-white border-b-2 border-[#336699]'
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              <Zap className="w-4 h-4" />
-              Sales Mode
-            </button>
-          </div>
-        </div>
-
-      </div>
-
-      {/* Content Area - Visually connected */}
-      <div className="-mt-[1px]">
-        <div className="[&>div]:border-t-0">
-          {activeTab === 'list' ? (
-            <EstimatesList 
-              onCreateEstimate={handleCreateEstimate} 
-              searchTerm={searchTerm}
-              refreshTrigger={refreshTrigger}
-            />
-          ) : (
-            <SalesModeView onCreateEstimate={handleCreateEstimate} />
-          )}
-        </div>
-      </div>
+      <EstimatesList />
 
       {/* Modals */}
       <CreateEstimateDrawer
@@ -194,6 +75,8 @@ export const Work: React.FC = () => {
                 description: item.description || item.product_name || '',
                 quantity: item.quantity || 1,
                 unit_price: item.price || item.unit_price || 0,
+                red_line_price: item.red_line_price,
+                cap_price: item.cap_price,
                 total_price: (item.quantity || 1) * (item.price || item.unit_price || 0),
                 display_order: index
               }))

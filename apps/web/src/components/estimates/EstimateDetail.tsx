@@ -1,22 +1,27 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Edit, Send, Download, Share2, Trash2,
   CheckCircle, XCircle, FileText, User,
   Phone, Mail, MapPin, Copy, Eye, Calendar
 } from 'lucide-react';
-import { EstimateService, Estimate } from '../../services/EstimateService';
+import { EstimateService, Estimate, EstimateItem } from '../../services/EstimateService';
+import { priceAt } from '../../utils/priceRange';
 import { supabase } from '../../lib/supabase';
 import { formatCurrency } from '../../utils/format';
-import { ProjectSelectionModal } from './ProjectSelectionModal';
-import { ProjectCreationModal } from '../ProjectCreationModal';
 import { CreateEstimateDrawer } from './CreateEstimateDrawer';
 import { MapModal } from '../common/MapModal';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { AirtableEstimateView } from './AirtableEstimateView';
 import { AirtableSidebar } from './AirtableSidebar';
+import { ItemPricingDrawer } from './ItemPricingDrawer';
 import { ContextualPricingSelector } from './ContextualPricingSelector';
 import { DesignUpload } from './DesignUpload';
+
+// Header actions share one size so they line up; only the main action is filled.
+const actionBase = 'h-9 flex items-center gap-2 px-4 border rounded-sm transition-colors text-sm font-medium';
+const primaryAction = `${actionBase} bg-[#336699] border-[#336699] text-white hover:bg-[#2a5580]`;
+const secondaryAction = `${actionBase} bg-transparent border-[#333333] text-gray-200 hover:bg-[#22272d] hover:text-white`;
 
 export const EstimateDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -25,22 +30,40 @@ export const EstimateDetail: React.FC = () => {
   const [estimate, setEstimate] = useState<Estimate | null>(null);
   const [loading, setLoading] = useState(true);
   const [showShareModal, setShowShareModal] = useState(false);
-  const [showDepositModal, setShowDepositModal] = useState(false);
-  const [showInvoiceDropdown, setShowInvoiceDropdown] = useState(false);
-  const [depositPercentage, setDepositPercentage] = useState(25);
-  const [showProjectSelectionModal, setShowProjectSelectionModal] = useState(false);
-  const [pendingInvoiceType, setPendingInvoiceType] = useState<'full' | 'deposit' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showMapModal, setShowMapModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   // Edit mode removed - cells are always editable
   const [showPricingSelector, setShowPricingSelector] = useState(false);
-  const [currentPricingStrategy, setCurrentPricingStrategy] = useState<string | null>(null);
-  const [showPricingStrategy, setShowPricingStrategy] = useState(false);
+  // Item edits save in the background, one save at a time with the latest items.
+  const pendingItems = useRef<EstimateItem[] | null>(null);
+  const savingItems = useRef(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // The item whose price is being edited in the pricing drawer.
+  const [pricingItemId, setPricingItemId] = useState<string | null>(null);
   
   // Tab state - Default to Line Items for immediate visibility (3-tab structure)
   const [activeTab, setActiveTab] = useState<'items' | 'overview' | 'contract'>('items');
+  // The total bar is fixed to the screen bottom; it follows the table column's position and width.
+  const [tableColumn, setTableColumn] = useState<HTMLDivElement | null>(null);
+  const [totalBarBox, setTotalBarBox] = useState<{ left: number; width: number } | null>(null);
+
+  useEffect(() => {
+    if (!tableColumn) return;
+    const measure = () => {
+      const rect = tableColumn.getBoundingClientRect();
+      setTotalBarBox({ left: rect.left, width: rect.width });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(tableColumn);
+    window.addEventListener('resize', measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [tableColumn]);
 
   // Design image state
   const [designImageUrl, setDesignImageUrl] = useState<string | null>(null);
@@ -100,21 +123,6 @@ export const EstimateDetail: React.FC = () => {
     fetchEstimate();
   }, [id]);
 
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (showInvoiceDropdown) {
-        const target = event.target as Element;
-        if (!target.closest('.relative')) {
-          setShowInvoiceDropdown(false);
-        }
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showInvoiceDropdown]);
-
   const handleStatusUpdate = async (status: Estimate['status']) => {
     if (!estimate?.id) return;
 
@@ -143,102 +151,6 @@ export const EstimateDetail: React.FC = () => {
     } catch (error) {
       console.error('Error updating status:', error);
       alert('Failed to update estimate status');
-    }
-  };
-
-  const handleConvertToInvoice = async (useDeposit: boolean = false) => {
-    if (!estimate?.id) return;
-    
-    // Check if estimate already has a project
-    if (!estimate.project_id) {
-      // Store the pending action and show project selection modal
-      setPendingInvoiceType(useDeposit ? 'deposit' : 'full');
-      setShowProjectSelectionModal(true);
-    } else {
-      // Estimate already has a project, proceed with conversion
-      proceedWithInvoiceCreation(useDeposit);
-    }
-  };
-
-  const proceedWithInvoiceCreation = async (useDeposit: boolean = false) => {
-    if (!estimate?.id) return;
-
-    if (useDeposit) {
-      setShowDepositModal(true);
-    } else {
-      if (!confirm('Convert this estimate to a full invoice? This action cannot be undone.')) return;
-
-      try {
-        const invoiceId = await EstimateService.convertToInvoice(estimate.id);
-        navigate(`/invoices/${invoiceId}`);
-      } catch (error: any) {
-        console.error('Error converting to invoice:', error);
-        console.error('Error details:', error.message, error.details);
-        alert('Failed to convert estimate to invoice: ' + (error.message || 'Unknown error'));
-      }
-    }
-  };
-
-  const handleProjectSelection = async (projectId: string | null) => {
-    setShowProjectSelectionModal(false);
-    
-    if (projectId === 'CREATE_NEW') {
-      // Show create project modal
-      setShowProjectSelectionModal(true);
-      return;
-    }
-
-    // Update estimate with selected project (if any)
-    if (projectId && estimate?.id) {
-      try {
-        await EstimateService.update(estimate.id, { project_id: projectId });
-        // Reload estimate to get updated data
-        const result = await EstimateService.getById(estimate.id);
-        setEstimate(result);
-      } catch (error) {
-        console.error('Error updating estimate with project:', error);
-      }
-    }
-
-    // Continue with the pending invoice action
-    if (pendingInvoiceType) {
-      proceedWithInvoiceCreation(pendingInvoiceType === 'deposit');
-      setPendingInvoiceType(null);
-    }
-  };
-
-  const handleCreateDepositInvoice = async () => {
-    if (!estimate?.id) return;
-
-    try {
-      const invoiceId = await EstimateService.convertToInvoice(estimate.id, depositPercentage);
-      setShowDepositModal(false);
-      navigate(`/invoices/${invoiceId}`);
-    } catch (error: any) {
-      console.error('Error creating deposit invoice:', error);
-      console.error('Error details:', error.message, error.details);
-      alert('Failed to create deposit invoice: ' + (error.message || 'Unknown error'));
-    }
-  };
-
-  const handleProjectCreated = async (projectId: string) => {
-    setShowProjectSelectionModal(false);
-    
-    // Update estimate with new project
-    if (estimate?.id) {
-      try {
-        await EstimateService.update(estimate.id, { project_id: projectId });
-        const result = await EstimateService.getById(estimate.id);
-        setEstimate(result);
-      } catch (error) {
-        console.error('Error updating estimate with project:', error);
-      }
-    }
-
-    // Continue with pending invoice action
-    if (pendingInvoiceType) {
-      proceedWithInvoiceCreation(pendingInvoiceType === 'deposit');
-      setPendingInvoiceType(null);
     }
   };
 
@@ -297,53 +209,53 @@ export const EstimateDetail: React.FC = () => {
     }
   };
 
-  const handlePriceUpdate = async (itemId: string, newPrice: number) => {
+  const saveItems = async (estimateId: string) => {
+    if (savingItems.current) return;
+    savingItems.current = true;
+    try {
+      while (pendingItems.current) {
+        const items = pendingItems.current;
+        pendingItems.current = null;
+        await EstimateService.update(estimateId, { items });
+      }
+      setSaveError(null);
+    } catch (error) {
+      console.error('Error saving estimate items:', error);
+      setSaveError("Couldn't save your last change. It will be saved with your next edit.");
+    } finally {
+      savingItems.current = false;
+    }
+  };
+
+  /**
+   * The one way items change on this page: keeps prices at or above each
+   * item's red line, recalculates totals, shows the result and saves it.
+   */
+  const commitItems = (items: EstimateItem[]) => {
     if (!estimate) return;
-    
-    const updatedItems = estimate.items.map(item => 
-      item.id === itemId 
-        ? { ...item, price: newPrice, total: newPrice * (item.quantity || 1) }
-        : item
-    );
-    
-    const newTotal = updatedItems.reduce((sum, item) => sum + item.total, 0);
-    
+    const nextItems = items.map(item => {
+      const unitPrice = Math.max(Number(item.unit_price) || 0, item.red_line_price ?? 0);
+      return { ...item, unit_price: unitPrice, total_price: unitPrice * (Number(item.quantity) || 0) };
+    });
+    const subtotal = nextItems.reduce((sum, item) => sum + item.total_price, 0);
+    const taxAmount = estimate.tax_rate ? (subtotal * estimate.tax_rate / 100) : 0;
     setEstimate({
       ...estimate,
-      items: updatedItems,
-      total_amount: newTotal
+      items: nextItems,
+      subtotal,
+      tax_amount: taxAmount,
+      total_amount: subtotal + taxAmount
     });
+    pendingItems.current = nextItems;
+    saveItems(estimate.id!);
   };
 
   const handleBulkPriceAdjust = (position: number) => {
     if (!estimate) return;
-    
-    const updatedItems = estimate.items.map(item => {
-      // Always use the stored cap and redline prices
-      const capPrice = item.cap_price || item.original_unit_price || item.unit_price;
-      const redlinePrice = item.red_line_price || (item.original_unit_price || item.unit_price) * 0.7;
-      
-      // Calculate new price based on position between redline and cap
-      const newPrice = redlinePrice + (capPrice - redlinePrice) * position;
-      
-      return {
-        ...item,
-        unit_price: newPrice,
-        total_price: newPrice * (item.quantity || 1)
-      };
-    });
-    
-    const newSubtotal = updatedItems.reduce((sum, item) => sum + item.total_price, 0);
-    const newTaxAmount = estimate.tax_rate ? (newSubtotal * estimate.tax_rate / 100) : 0;
-    const newTotal = newSubtotal + newTaxAmount;
-    
-    setEstimate({
-      ...estimate,
-      items: updatedItems,
-      subtotal: newSubtotal,
-      tax_amount: newTaxAmount,
-      total_amount: newTotal
-    });
+    commitItems(estimate.items.map(item => ({
+      ...item,
+      unit_price: priceAt({ redLine: item.red_line_price ?? 0, cap: item.cap_price ?? item.unit_price }, position)
+    })));
   };
 
   // Calculate margin position for indicator
@@ -586,97 +498,47 @@ export const EstimateDetail: React.FC = () => {
             </div>
           </div>
 
-          {/* Cleaner Action Buttons */}
-          <div className="flex items-center gap-3">
-            {/* Invoice Creation - Consolidated */}
-            {estimate.status === 'accepted' && !estimate.converted_to_invoice_id && (
-              <div className="relative">
-                <button
-                  onClick={() => setShowInvoiceDropdown(!showInvoiceDropdown)}
-                  className="flex items-center gap-2 px-4 py-2 bg-[#336699] text-white rounded-lg hover:bg-[#2A5580] transition-colors text-sm font-medium"
-                >
-                  Create Invoice
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                
-                {showInvoiceDropdown && (
-                  <div className="absolute top-full right-0 mt-2 w-48 bg-[#1E1E1E] border border-[#333333] rounded-lg shadow-lg z-50 py-2">
-                    <button
-                      onClick={() => {
-                        handleConvertToInvoice(false);
-                        setShowInvoiceDropdown(false);
-                      }}
-                      className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#333333] transition-colors"
-                    >
-                      Full Invoice
-                    </button>
-                    <button
-                      onClick={() => {
-                        handleConvertToInvoice(true);
-                        setShowInvoiceDropdown(false);
-                      }}
-                      className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#333333] transition-colors"
-                    >
-                      Deposit Invoice
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-            
-            {/* View Invoice - if already converted */}
-            {estimate.converted_to_invoice_id && (
+          {/* Actions: quiet secondary buttons, then the one primary action on the right */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowShareModal(true)}
+              className={secondaryAction}
+            >
+              <Share2 className="w-4 h-4" />
+              Share
+            </button>
+
+            {estimate.items && estimate.items.length > 0 && (
               <button
-                onClick={() => navigate(`/invoices/${estimate.converted_to_invoice_id}`)}
-                className="flex items-center gap-2 px-4 py-2 bg-[#336699] text-white rounded-sm hover:bg-[#2A5580] transition-colors text-sm font-medium"
+                onClick={() => navigate(`/estimates/${estimate.id}/contract`)}
+                className={secondaryAction}
               >
-                View Invoice
+                <FileText className="w-4 h-4" />
+                Contract
               </button>
             )}
-            
-            {/* Send - for draft status */}
-            {estimate.status === 'draft' && (
-              <button 
-                onClick={() => handleStatusUpdate('sent')}
-                className="flex items-center gap-2 px-4 py-2 bg-[#336699] text-white rounded-sm hover:bg-[#2A5580] transition-colors text-sm font-medium"
-              >
-                <Send className="w-4 h-4" />
-                Send
-              </button>
-            )}
-            
+
             {/* Resend - for already sent estimates */}
             {estimate.status === 'sent' && estimate.client?.email && (
-              <button 
+              <button
                 onClick={() => handleStatusUpdate('sent')}
-                className="flex items-center gap-2 px-4 py-2 bg-[#2a2a2a] border border-[#404040] text-white rounded-sm hover:bg-[#333333] transition-colors text-sm"
+                className={secondaryAction}
               >
                 <Send className="w-4 h-4" />
                 Resend
               </button>
             )}
-            
-            {/* View Contract - Always available for estimates with items */}
-            {estimate.items && estimate.items.length > 0 && (
-              <button 
-                onClick={() => navigate(`/estimates/${estimate.id}/contract`)}
-                className="flex items-center gap-2 px-4 py-2 bg-[#fbbf24] text-black rounded-sm hover:bg-[#f59e0b] transition-colors text-sm font-medium"
+
+            {/* Send - for draft status */}
+            {estimate.status === 'draft' && (
+              <button
+                onClick={() => handleStatusUpdate('sent')}
+                className={primaryAction}
               >
-                <FileText className="w-4 h-4" />
-                View Contract
+                <Send className="w-4 h-4" />
+                Send
               </button>
             )}
-            
-            {/* Secondary Actions */}
-            <button 
-              onClick={() => setShowShareModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-[#2a2a2a] border border-[#404040] text-white rounded-sm hover:bg-[#333333] transition-colors text-sm"
-            >
-              <Share2 className="w-4 h-4" />
-              Share
-            </button>
           </div>
         </div>
 
@@ -867,12 +729,8 @@ export const EstimateDetail: React.FC = () => {
           <div className="w-full flex">
             {/* Airtable Sidebar */}
             <AirtableSidebar
-              selectedView={currentPricingStrategy}
-              onViewChange={(viewId, position) => {
-                setCurrentPricingStrategy(viewId);
-                handleBulkPriceAdjust(position);
-              }}
-              estimateTotal={estimate.total_amount}
+              onViewChange={(_viewId, position) => handleBulkPriceAdjust(position)}
+              itemsTotal={estimate.items?.reduce((sum, item) => sum + (item.total_price || 0), 0) || 0}
               capTotal={estimate.items?.reduce((sum, item) => {
                 const capPrice = item.cap_price || item.original_unit_price || item.unit_price;
                 return sum + (capPrice * (item.quantity || 1));
@@ -884,7 +742,7 @@ export const EstimateDetail: React.FC = () => {
             />
             
             {/* Airtable-style Spreadsheet */}
-            <div className="flex-1">
+            <div className="flex-1 min-w-0" ref={setTableColumn}>
               <AirtableEstimateView
           items={estimate.items?.map(item => ({
             id: item.id,
@@ -896,53 +754,15 @@ export const EstimateDetail: React.FC = () => {
             total: item.total_price
           })) || []}
           onUpdateItem={(itemId, field, value) => {
-            const newItems = estimate.items?.map(item => {
+            commitItems(estimate.items.map(item => {
               if (item.id !== itemId) return item;
-              
-              const updatedItem = { ...item };
-              
-              if (field === 'name') {
-                updatedItem.description = value;
-              } else if (field === 'quantity') {
-                updatedItem.quantity = value;
-                updatedItem.total_price = value * updatedItem.unit_price;
-              } else if (field === 'price') {
-                updatedItem.unit_price = value;
-                updatedItem.total_price = updatedItem.quantity * value;
-              }
-              
-              return updatedItem;
-            }) || [];
-            
-            // Recalculate totals
-            const newSubtotal = newItems.reduce((sum, item) => sum + item.total_price, 0);
-            const newTaxAmount = estimate.tax_rate ? (newSubtotal * estimate.tax_rate / 100) : 0;
-            const newTotal = newSubtotal + newTaxAmount;
-            
-            setEstimate({ 
-              ...estimate, 
-              items: newItems,
-              subtotal: newSubtotal,
-              tax_amount: newTaxAmount,
-              total_amount: newTotal
-            });
+              if (field === 'name') return { ...item, description: value };
+              if (field === 'quantity') return { ...item, quantity: value };
+              if (field === 'price') return { ...item, unit_price: value };
+              return item;
+            }));
           }}
           onAddItem={() => setShowPricingSelector(true)}
-          onRemoveItem={(itemId) => {
-            const newItems = estimate.items?.filter(item => item.id !== itemId) || [];
-            // Recalculate totals
-            const newSubtotal = newItems.reduce((sum, item) => sum + item.total_price, 0);
-            const newTaxAmount = estimate.tax_rate ? (newSubtotal * estimate.tax_rate / 100) : 0;
-            const newTotal = newSubtotal + newTaxAmount;
-            
-            setEstimate({ 
-              ...estimate, 
-              items: newItems,
-              subtotal: newSubtotal,
-              tax_amount: newTaxAmount,
-              total_amount: newTotal
-            });
-          }}
           isEditable={true}
           subtotal={estimate.subtotal}
           tax={estimate.tax_amount || 0}
@@ -957,6 +777,7 @@ export const EstimateDetail: React.FC = () => {
             return sum + (redlinePrice * (item.quantity || 1));
           }, 0) || 0}
           showStickyFooter={false}
+          onEditPrice={setPricingItemId}
         />
             </div>
           </div>
@@ -1291,108 +1112,6 @@ export const EstimateDetail: React.FC = () => {
         </div>
       )}
 
-      {/* Deposit Invoice Modal */}
-      {showDepositModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowDepositModal(false)} />
-          <div className="relative bg-[#1E1E1E] rounded-lg border border-[#333333] p-6 max-w-md w-full">
-            <h3 className="text-lg font-semibold text-white mb-4">Create Deposit Invoice</h3>
-            <p className="text-gray-400 mb-6">
-              Create a partial invoice for a deposit payment. The remaining balance can be invoiced later.
-            </p>
-            
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Deposit Percentage
-              </label>
-              <div className="flex items-center gap-4">
-                <input
-                  type="range"
-                  min="10"
-                  max="90"
-                  step="5"
-                  value={depositPercentage}
-                  onChange={(e) => setDepositPercentage(Number(e.target.value))}
-                  className="flex-1"
-                />
-                <div className="w-20 text-center">
-                  <input
-                    type="number"
-                    min="10"
-                    max="90"
-                    value={depositPercentage}
-                    onChange={(e) => setDepositPercentage(Number(e.target.value))}
-                    className="w-full bg-[#333] border border-[#555] rounded px-2 py-1 text-white text-center"
-                  />
-                  <span className="text-sm text-gray-400">%</span>
-                </div>
-              </div>
-              
-              <div className="mt-4 p-4 bg-[#2a2a2a] rounded-lg">
-                <div className="flex justify-between text-sm mb-2">
-                  <span className="text-gray-400">Estimate Total:</span>
-                  <span className="text-white">{formatCurrency(estimate.total_amount)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">Deposit Amount:</span>
-                  <span className="text-[#F9D71C] font-semibold">
-                    {formatCurrency(estimate.total_amount * (depositPercentage / 100))}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setShowDepositModal(false)}
-                className="px-4 py-2 text-gray-300 hover:text-white transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreateDepositInvoice}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-              >
-                Create Deposit Invoice
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Project Selection Modal */}
-      {showProjectSelectionModal && (
-        <ProjectSelectionModal
-          isOpen={showProjectSelectionModal}
-          onClose={() => {
-            setShowProjectSelectionModal(false);
-            setPendingInvoiceType(null);
-          }}
-          onSelect={handleProjectSelection}
-          clientId={estimate?.client_id}
-          estimateTitle={estimate?.title || estimate?.estimate_number}
-        />
-      )}
-
-      {/* Project Creation Modal */}
-      {showProjectSelectionModal && estimate && (
-        <ProjectCreationModal
-          isOpen={showProjectSelectionModal}
-          onClose={() => {
-            setShowProjectSelectionModal(false);
-            setPendingInvoiceType(null);
-          }}
-          onSuccess={handleProjectCreated}
-          workPack={{
-            id: estimate.id || '',
-            name: estimate.title || estimate.estimate_number || 'Project',
-            description: estimate.description || '',
-            base_price: estimate.total_amount,
-            items: estimate.items || []
-          }}
-        />
-      )}
-
       {/* Mobile Sticky Action Bar */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#1a1a1a] border-t border-[#333] p-4 z-40">
         <div className="flex items-center justify-around gap-2">
@@ -1402,15 +1121,6 @@ export const EstimateDetail: React.FC = () => {
               className="flex-1 bg-[#336699] text-white px-3 py-3 rounded-lg text-sm font-medium"
             >
               Send
-            </button>
-          )}
-          
-          {estimate.status === 'accepted' && !estimate.converted_to_invoice_id && (
-            <button
-              onClick={() => handleConvertToInvoice(false)}
-              className="flex-1 bg-green-600 text-white px-3 py-3 rounded-lg text-sm font-medium"
-            >
-              Invoice
             </button>
           )}
           
@@ -1479,27 +1189,41 @@ export const EstimateDetail: React.FC = () => {
         </div>
       )}
 
+      <ItemPricingDrawer
+        item={estimate.items?.find(item => item.id === pricingItemId) ?? null}
+        onClose={() => setPricingItemId(null)}
+        onSave={(changes) => {
+          commitItems(estimate.items.map(item => item.id === pricingItemId ? { ...item, ...changes } : item));
+        }}
+        onRemove={() => {
+          commitItems(estimate.items.filter(item => item.id !== pricingItemId));
+        }}
+      />
+
+      {/* Save problems float over the page so nothing shifts */}
+      {saveError && (
+        <div role="alert" className="fixed top-4 left-1/2 -translate-x-1/2 z-[120] bg-[#1D1F25] border border-red-500/60 px-4 py-2 text-sm text-red-300 shadow-lg">
+          {saveError}
+        </div>
+      )}
+
       {/* Contextual Pricing Selector for adding items in edit mode */}
       {showPricingSelector && selectedOrg && (
         <ContextualPricingSelector
           isOpen={showPricingSelector}
           onClose={() => setShowPricingSelector(false)}
           onAddItems={(items) => {
-            // Add new items to estimate
-            const newEstimateItems = items.map(item => ({
+            const newEstimateItems: EstimateItem[] = items.map(item => ({
               id: `new-${Date.now()}-${Math.random()}`,
               product_id: item.lineItemId,
               description: item.name,
               quantity: item.quantity,
               unit_price: item.price,
               total_price: item.price * item.quantity,
-              unit: item.unit
+              red_line_price: item.red_line_price,
+              cap_price: item.cap_price
             }));
-            
-            setEstimate({
-              ...estimate,
-              items: [...(estimate?.items || []), ...newEstimateItems]
-            });
+            commitItems([...(estimate?.items || []), ...newEstimateItems]);
             setShowPricingSelector(false);
           }}
           organizationId={selectedOrg.id}
@@ -1511,44 +1235,24 @@ export const EstimateDetail: React.FC = () => {
         />
       )}
 
-      {/* Pricing Strategy Modal */}
-      {showPricingStrategy && estimate && (
-        <PricingStrategyModal
-          isOpen={showPricingStrategy}
-          onClose={() => setShowPricingStrategy(false)}
-          items={estimate.items.map(item => ({
-            id: item.id,
-            name: item.name,
-            capPrice: item.cap_price || item.price,
-            currentPrice: item.price,
-            redlinePrice: item.red_line_price || item.price * 0.7,
-            quantity: item.quantity || 1,
-            currentTotal: item.total,
-            capTotal: (item.cap_price || item.price) * (item.quantity || 1),
-            redlineTotal: (item.red_line_price || item.price * 0.7) * (item.quantity || 1)
-          }))}
-          onUpdatePrice={handlePriceUpdate}
-          onBulkAdjust={handleBulkPriceAdjust}
-        />
-      )}
 
       {/* Fixed Total Bar - Always visible at bottom of screen */}
-      {activeTab === 'items' && estimate.items && estimate.items.length > 0 && (
-        <div className="fixed bottom-0 bg-[#15161f] border-t border-[#3c3d51] z-30" style={{ left: '480px', right: '320px' }}>
+      {activeTab === 'items' && estimate.items && estimate.items.length > 0 && totalBarBox && (
+        <div className="fixed bottom-0 bg-[#1D1F25] border-t border-[#333333] z-30" style={{ left: totalBarBox.left, width: totalBarBox.width }}>
           <div className="flex items-center text-[12px] font-medium">
-            <div className="w-20 py-2 px-3 text-gray-500 border-r border-[#3c3d51] text-center">
+            <div className="w-20 py-2 px-3 text-gray-500 border-r border-[#333333] text-center">
               {estimate.items.length} items
             </div>
-            <div className="flex-1 py-2 px-3 text-right text-gray-500 border-r border-[#3c3d51]">
+            <div className="flex-1 py-2 px-3 text-right text-gray-500 border-r border-[#333333]">
               Sum
             </div>
-            <div className="w-32 py-2 px-3 text-right text-gray-300 border-r border-[#3c3d51]">
+            <div className="w-32 py-2 px-3 text-right text-gray-300 border-r border-[#333333]">
               {formatCurrency(estimate.subtotal)}
             </div>
-            <div className="w-28 py-2 px-3 text-center text-gray-300 border-r border-[#3c3d51]">
+            <div className="w-28 py-2 px-3 text-center text-gray-300 border-r border-[#333333]">
               {estimate.items.reduce((sum, item) => sum + (item.quantity || 0), 0)}
             </div>
-            <div className="w-32 py-2 px-3 text-right border-r border-[#3c3d51] flex flex-col items-end">
+            <div className="w-32 py-2 px-3 text-right border-r border-[#333333] flex flex-col items-end">
               <span className="text-gray-300">{formatCurrency(estimate.total_amount)}</span>
               {(() => {
                 const redlineTotal = estimate.items.reduce((sum, item) => {
@@ -1577,7 +1281,6 @@ export const EstimateDetail: React.FC = () => {
                 return null;
               })()}
             </div>
-            <div className="w-10"></div>
           </div>
         </div>
       )}

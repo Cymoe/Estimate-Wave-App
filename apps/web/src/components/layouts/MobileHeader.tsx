@@ -1,19 +1,15 @@
 import React from 'react';
-import { Menu, MessageSquare, Plus } from 'lucide-react';
+import { Menu, Plus } from 'lucide-react';
 
 interface MobileHeaderProps {
   onMenuClick: () => void;
-  onChatClick: () => void;
   onCreateClick: () => void;
-  isChatOpen: boolean;
   title?: string;
 }
 
 export const MobileHeader: React.FC<MobileHeaderProps> = ({
   onMenuClick,
-  onChatClick,
   onCreateClick,
-  isChatOpen,
   title = 'Dashboard'
 }) => {
   const [isEstimateCartOpen, setIsEstimateCartOpen] = React.useState(false);
@@ -56,16 +52,6 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
             </button>
           )}
 
-          {/* Chat Button */}
-          <button
-            onClick={onChatClick}
-            className={`relative p-2 ${isChatOpen ? 'bg-[#336699]' : 'bg-[#2A2A2A]'} hover:bg-[#336699] rounded-[4px] transition-colors`}
-          >
-            <MessageSquare className={`h-4 w-4 ${isChatOpen ? 'text-white' : 'text-gray-400'}`} />
-            {!isChatOpen && (
-              <div className="absolute top-0.5 right-0.5 w-2 h-2 bg-[#F9D71C] rounded-full animate-pulse"></div>
-            )}
-          </button>
         </div>
       </div>
     </div>

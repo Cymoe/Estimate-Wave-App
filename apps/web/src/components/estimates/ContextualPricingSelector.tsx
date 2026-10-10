@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, Search, Layers, Check, Plus, Minus, Package, ChevronRight } from 'lucide-react';
 import { formatCurrency } from '../../utils/format';
-import { LineItemService } from '../../services/LineItemService';
+import { MongoLineItemService as LineItemService } from '../../services/MongoLineItemService';
+import { priceRange } from '../../utils/priceRange';
 import { ServiceCatalogService } from '../../services/ServiceCatalogService';
 
 interface LineItem {
@@ -25,6 +26,8 @@ interface SelectedItem {
   quantity: number;
   unit: string;
   description?: string;
+  red_line_price?: number;
+  cap_price?: number;
 }
 
 interface ProjectContext {
@@ -81,7 +84,11 @@ export const ContextualPricingSelector: React.FC<ContextualPricingSelectorProps>
     setIsLoading(true);
     try {
       // Load all line items for the organization
-      const allItems = await LineItemService.list(organizationId);
+      // Items are offered at their cap price, the starting point for an estimate.
+      const allItems = (await LineItemService.list(organizationId)).map((item: any) => {
+        const range = priceRange(item);
+        return { ...item, red_line_price: range.redLine, cap_price: range.cap, price: range.cap } as LineItem;
+      });
 
       // Filter based on project context
       let filteredItems = allItems;
@@ -198,7 +205,9 @@ export const ContextualPricingSelector: React.FC<ContextualPricingSelectorProps>
         price: item.price,
         quantity: 1,
         unit: item.unit,
-        description: item.description
+        description: item.description,
+        red_line_price: item.red_line_price,
+        cap_price: item.cap_price
       });
     }
     

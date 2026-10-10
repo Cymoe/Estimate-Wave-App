@@ -1,77 +1,119 @@
-# Bill-Breeze
+# FieldQuote
 
-Bill-Breeze is a modern invoicing application built with Vite, React, and TypeScript. It provides a seamless experience for managing clients, products, and invoices with a user-friendly interface.
+Estimating, pricing and invoicing for contractors and trade businesses
+(roofing, painting, carpentry, drywall, concrete and more). The core idea is
+**Sales Mode**: every job and price-book item has a **Redline** (the lowest
+price you'll accept) and a **Cap** (the highest you'll quote), so you can
+price confidently on site.
 
-## Features
+## Stack
 
-- **Dashboard**: Get an overview of your business metrics including total revenue, invoices, clients, and products.
-- **Client Management**: Add, edit, and delete client information with ease.
-- **Product Management**: Manage your product catalog with detailed descriptions and pricing.
-- **Invoice Management**: Create, edit, and manage invoices with support for multiple items and clients.
-- **Templates**: Use and manage invoice templates for quick invoicing.
-- **Dark Mode**: Switch between light and dark themes for a comfortable viewing experience.
+| Part | Tech |
+|---|---|
+| `apps/web` | React 18 + TypeScript + Vite + Tailwind |
+| `apps/web/convex` | [Convex](https://convex.dev) database and backend functions |
+| Sign-in | Convex Auth: Google and email/password |
+| `apps/blog` | Astro marketing blog (no database) |
 
-## Technologies Used
+`apps/backend` (Express + MongoDB) is the previous backend. Nothing in the
+web app calls it any more; it is kept only until the Convex deployment is
+live, then it can be deleted.
 
-- **Vite**: Fast and modern build tool for web applications.
-- **React**: A JavaScript library for building user interfaces.
-- **TypeScript**: A strongly typed programming language that builds on JavaScript.
-- **Tailwind CSS**: A utility-first CSS framework for rapid UI development.
-- **Convex**: A backend-as-a-service for real-time data and serverless functions.
+## Data model (Convex)
 
-## Getting Started
+| Table | Holds |
+|---|---|
+| `organizations`, `memberships` | Companies, and which users belong to which (owner / admin / member) |
+| `users` (+ Convex Auth tables) | Accounts; `role: super_admin` can edit the shared catalog |
+| `clients`, `projects` | A company's customers and jobs |
+| `leads` | Quote requests (new → contacted → quoted → won / lost); one click turns a lead into a client and an estimate |
+| `estimates`, `invoices` | Documents with their line items; totals and tax are computed on the server |
+| `industries`, `organizationIndustries` | Trades (by slug), and which ones each company works in |
+| `lineItems`, `costCodes` | Price book with Redline/Cap pricing. Rows without an organization are the shared industry catalog every company sees |
+| `pricingModes` | Preset and custom price adjustments ("Busy Season" +15%, …) |
+| `activityLogs` | Who did what; the activity feed updates live |
 
-### Prerequisites
+Every function checks that the signed-in user belongs to the organization
+whose data it reads or writes.
 
-- Node.js and npm installed on your machine.
+## Getting started
 
-### Installation
+```bash
+npm install
+cd apps/web
 
-1. Clone the repository:
+# 1. Create/link a Convex project. Writes VITE_CONVEX_URL to .env.local
+#    and keeps the backend in sync while it runs.
+npx convex dev
 
-   ```bash
-   git clone https://github.com/Cymoe/Bill-Breeze.git
-   cd Bill-Breeze
-   ```
+# 2. In another terminal, one-time auth setup (generates signing keys and
+#    sets SITE_URL on the deployment):
+npx @convex-dev/auth
 
-2. Install dependencies:
+# 3. Load the shared catalog (pricing presets + every trade's cost codes
+#    and price book):
+npm run convex:seed
 
-   ```bash
-   npm install
-   ```
+# 4. Start the app on http://localhost:3000
+npm run dev
+```
 
-3. Start the development server:
+### Google sign-in (optional)
 
-   ```bash
-   npm run dev
-   ```
+Create an OAuth client in Google Cloud Console with the redirect URI
+`https://<your-deployment>.convex.site/api/auth/callback/google`, then:
 
-4. Open your browser and navigate to `http://localhost:3000` to view the application.
+```bash
+npx convex env set AUTH_GOOGLE_ID <client id>
+npx convex env set AUTH_GOOGLE_SECRET <client secret>
+```
 
-## Configuration
+Email/password sign-in works without this.
 
-- Environment variables are managed using `.env` files. Ensure that sensitive information is not committed to the repository.
+### Making yourself an admin
 
-## Deployment
+```bash
+npx convex run seed:makeSuperAdmin '{"email":"you@example.com"}'
+```
 
-- The application can be deployed using services like Netlify or Vercel. Ensure that environment variables are set up correctly in the deployment environment.
+## Deploying
 
-## Contributing
+**GitHub Actions:** `.github/workflows/convex-deploy.yml` deploys the Convex
+backend whenever `apps/web/convex` changes on `main` (or when run manually).
+It needs a `CONVEX_DEPLOY_KEY` repository secret, and optionally a `SITE_URL`
+repository variable. It runs the backend tests, pushes the functions, sets up
+Convex Auth keys if they're missing, loads the shared catalog, and then
+smoke-tests sign-up and the main functions against the live deployment.
 
-Contributions are welcome! Please fork the repository and submit a pull request for any improvements or bug fixes.
+**Manually:**
 
-## License
+1. `npx convex deploy` pushes the backend to your production deployment.
+   Repeat steps 2–3 above against production (`--prod` flags), and set
+   `SITE_URL` to your live site URL.
+2. `apps/web/.env.production` holds the Convex URL that Vercel builds use by
+   default. To point production at a different deployment, set
+   `VITE_CONVEX_URL` in Vercel (it overrides the file) and redeploy. To deploy the backend from Vercel too, set `CONVEX_DEPLOY_KEY`
+   and use `npx convex deploy --cmd 'npm run build'` as the build command.
 
-This project is licensed under the MIT License.
+## Tests
 
-## Acknowledgments
+```bash
+cd apps/web
+npm run test:convex   # Convex backend + data layer (vitest + convex-test)
+npm test              # React components (jest)
+```
 
-- Thanks to the developers of Vite, React, TypeScript, Tailwind CSS, and Convex for their amazing tools and libraries.
+## Migration status
 
-[Edit in StackBlitz next generation editor ⚡️](https://stackblitz.com/~/github.com/Cymoe/Bill-Breeze)# project2
-# billlatest
-# late
-# Bill-Breeze
-# Bill-Breeze
-# Bill-Breeze
-# bill
+- **Done (Phase 1):** organizations, users and sign-in, clients, projects,
+  estimates, invoices, price book (line items, cost codes, pricing modes),
+  activity feed. Sales Mode and the Price Book list run on Convex.
+- **Starter catalog:** `convex/catalog/starterCatalog.ts` holds 59 trades,
+  their cost codes and about 730 price-book items, rebuilt from the old
+  Supabase migrations and seed scripts (the live database itself wasn't
+  available). Rows are tagged `catalog_source: "starter"`, so an export of
+  the real database can replace them later.
+- **Phase 2:** screens still written against the old Supabase client (it now
+  returns empty data): expenses, vendors, subcontractors, team members, work
+  packs, service options/packages, templates, price-book overrides. Their
+  table definitions are in `apps/web/supabase/` and `apps/web/scripts/*.sql`.
