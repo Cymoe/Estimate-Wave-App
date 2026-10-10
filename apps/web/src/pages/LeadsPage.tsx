@@ -20,6 +20,7 @@ interface Lead {
   phone?: string;
   email?: string;
   address?: string;
+  city?: string;
   jobType?: string;
   source?: string;
   estimatedValue?: number;
@@ -65,8 +66,11 @@ function matchesSearch(lead: Lead, query: string) {
   if (!q) return true;
   const digits = q.replace(/\D/g, '');
   if (digits.length >= 3 && (lead.phone ?? '').replace(/\D/g, '').includes(digits)) return true;
-  return [lead.name, lead.email, lead.address, lead.notes].some((field) => field?.toLowerCase().includes(q));
+  return [lead.name, lead.email, lead.address, lead.city, lead.notes].some((field) => field?.toLowerCase().includes(q));
 }
+
+const NO_CITY = '__none';
+const KNOWN_CITIES = ['Midland', 'Odessa', 'Andrews', 'Big Spring', 'Stanton', 'Monahans', 'Kermit', 'Gardendale'];
 
 const leadValue = (lead: Lead) => lead.estimate?.totalAmount ?? lead.estimatedValue ?? 0;
 
@@ -109,6 +113,7 @@ const LeadForm: React.FC<{
     phone: lead?.phone ?? '',
     email: lead?.email ?? '',
     address: lead?.address ?? '',
+    city: lead?.city ?? '',
     jobType: lead?.jobType ?? '',
     source: lead?.source ?? '',
     estimatedValue: lead?.estimatedValue?.toString() ?? '',
@@ -184,7 +189,22 @@ const LeadForm: React.FC<{
             <input className={inputClass} placeholder="Phone" value={form.phone} onChange={set('phone')} />
             <input className={inputClass} type="email" placeholder="Email" value={form.email} onChange={set('email')} />
           </div>
-          <input className={inputClass} placeholder="Job address" value={form.address} onChange={set('address')} />
+          <div className="grid grid-cols-[1fr_10rem] gap-3">
+            <input className={inputClass} placeholder="Job address" value={form.address} onChange={set('address')} />
+            <input
+              className={inputClass}
+              placeholder="City"
+              aria-label="City"
+              list="lead-cities"
+              value={form.city}
+              onChange={set('city')}
+            />
+            <datalist id="lead-cities">
+              {KNOWN_CITIES.map((city) => (
+                <option key={city} value={city} />
+              ))}
+            </datalist>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <label className="text-xs text-gray-400 space-y-1">
               <span>Job type</span>
@@ -356,6 +376,8 @@ const LeadsPage: React.FC = () => {
     // Stay live: any saved change (an appointment, a status, a note) shows up
     // on the board and calendar as soon as the server has it.
     if (!organizationId) return;
+    // Works out the city for leads that don't have one yet (once per lead).
+    leadsAPI.fillMissingCities(organizationId).catch((err) => console.error('Error filling in cities:', err));
     return leadsAPI.watch(organizationId, (rows) => {
       setLeads(rows);
       setLoading(false);
@@ -436,6 +458,8 @@ const LeadsPage: React.FC = () => {
     }
   };
   const [leadFilter, setLeadFilter] = useState<LeadFilter>('all');
+  // '' is every city; NO_CITY is leads whose city isn't known.
+  const [cityFilter, setCityFilter] = useState('');
   const [view, setView] = useState<'board' | 'calendar'>(() => {
     try {
       return localStorage.getItem(VIEW_KEY) === 'calendar' ? 'calendar' : 'board';
@@ -481,8 +505,17 @@ const LeadsPage: React.FC = () => {
   // Today's date where you are; the UTC date is already tomorrow on US evenings.
   const todayIso = appointmentDay(toLocalInput(new Date().toISOString()));
   const monthAgo = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  // Cities in the toolbar, busiest first.
+  const cities = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const lead of leads) if (lead.city) counts.set(lead.city, (counts.get(lead.city) ?? 0) + 1);
+    return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [leads]);
+  const noCity = leads.filter((lead) => !lead.city).length;
+
   const visible = leads.filter((lead) => {
     if (!matchesSearch(lead, query)) return false;
+    if (cityFilter === NO_CITY ? lead.city : cityFilter && lead.city !== cityFilter) return false;
     if (leadFilter === 'appointment') return !!lead.appointmentAt;
     if (leadFilter === 'overdue') return !!lead.followUpDate && lead.followUpDate < todayIso && OPEN.includes(lead.status);
     if (leadFilter === 'recent') return (lead.createdAt ?? '') >= monthAgo;
@@ -542,7 +575,19 @@ const LeadsPage: React.FC = () => {
                 <option key={f.value} value={f.value}>{f.label}</option>
               ))}
             </select>
-            {(query || leadFilter !== 'all') && (
+            <select
+              value={cityFilter}
+              onChange={(e) => setCityFilter(e.target.value)}
+              aria-label="Filter by city"
+              className="px-3 py-2 bg-[#121212] border border-[#333333] text-sm text-white focus:outline-none focus:border-[#336699]"
+            >
+              <option value="">All cities</option>
+              {cities.map(([city, count]) => (
+                <option key={city} value={city}>{city} ({count})</option>
+              ))}
+              {noCity > 0 && <option value={NO_CITY}>No city ({noCity})</option>}
+            </select>
+            {(query || leadFilter !== 'all' || cityFilter) && (
               <span className="text-xs text-gray-400">{visible.length} of {leads.length}</span>
             )}
             {view === 'board' && (

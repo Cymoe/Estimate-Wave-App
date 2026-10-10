@@ -1,7 +1,8 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import { STARTER_COST_CODES, STARTER_INDUSTRIES, STARTER_ITEMS } from "./catalog/starterCatalog";
 import { setup, signUp } from "./test.setup";
+import { cityFromSearch, cityFromText } from "./lib/leadCity";
 
 describe("auth and tenancy", () => {
   test("signed-out callers are rejected", async () => {
@@ -495,6 +496,59 @@ describe("leads", () => {
     await expect(
       t.mutation(internal.leads.importLeads, { email: "nobody@example.com", leads: rows }),
     ).rejects.toThrow(/No user/);
+  });
+
+  test("a lead's city comes from the form, the address or the zip", () => {
+    expect(cityFromText("3809 Crestline Ave", "midland")).toBe("Midland");
+    expect(cityFromText("123 Elm", "116 Midland")).toBe("Midland");
+    expect(cityFromText("1658 n Tripp Odessa")).toBe("Odessa");
+    expect(cityFromText("12 Main St, Big Spring, TX 79720")).toBe("Big Spring");
+    expect(cityFromText("4500 E University Blvd TX 79762")).toBe("Odessa");
+    expect(cityFromText("2811 Cimmaron Ave 79705")).toBe("Midland");
+    // A street named after a town isn't the town.
+    expect(cityFromText("500 Crane Ave")).toBeUndefined();
+    expect(cityFromText("3809 Crestline Ave")).toBeUndefined();
+    expect(cityFromText(undefined)).toBeUndefined();
+    // A map search only counts when every match agrees.
+    expect(cityFromSearch([{ address: { city: "Midland" } }, { address: { city: "Midland" } }])).toBe("Midland");
+    expect(cityFromSearch([{ address: { city: "Midland" } }, { address: { city: "Odessa" } }])).toBeUndefined();
+    expect(cityFromSearch([])).toBeUndefined();
+  });
+
+  test("street-only addresses get their city from a map lookup", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async (url: string) => ({
+      ok: true,
+      json: async () => (decodeURIComponent(url).includes("Crestline") ? [{ address: { city: "Midland" } }] : []),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const t = setup();
+      const { as, organizationId } = await signUp(t, "a@example.com");
+      const named = await as.mutation(api.leads.create, { organizationId, data: { name: "Ann", address: "1658 n Tripp Odessa" } });
+      expect(named!.city).toBe("Odessa");
+      const street = await as.mutation(api.leads.create, { organizationId, data: { name: "Bo", address: "3809 Crestline Ave" } });
+      expect(street!.city).toBeUndefined();
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      const list = await as.query(api.leads.list, { organizationId });
+      expect(list.find((lead) => lead.name === "Bo")!.city).toBe("Midland");
+
+      // A new address is looked up again; a city picked by hand is kept.
+      const moved = await as.mutation(api.leads.update, { id: street!._id, data: { address: "9 Nowhere Ln" } });
+      expect(moved!.city).toBeUndefined();
+      const picked = await as.mutation(api.leads.update, { id: street!._id, data: { address: "10 Nowhere Ln", city: "Odessa" } });
+      expect(picked!.city).toBe("Odessa");
+
+      // Leads from before (no city, never checked) are filled in once.
+      await t.run(async (ctx) => {
+        await ctx.db.patch(named!._id, { city: undefined, cityCheckedAt: undefined });
+      });
+      expect(await as.mutation(api.leadCity.fillMissing, { organizationId })).toEqual({ set: 1, queued: 0, none: 0 });
+      expect(await as.mutation(api.leadCity.fillMissing, { organizationId })).toEqual({ set: 0, queued: 0, none: 0 });
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
   });
 
   test("lost keeps its reason only while lost", async () => {

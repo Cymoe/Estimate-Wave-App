@@ -361,6 +361,11 @@ export const leadsAPI = {
     return run('mutation', api.leads.create, { organizationId, data });
   },
 
+  /** Works out the city for leads that don't have one yet. */
+  async fillMissingCities(organizationId: string) {
+    return run('mutation', api.leadCity.fillMissing, { organizationId });
+  },
+
   async update(id: string, data: any) {
     return run('mutation', api.leads.update, { id, data });
   },

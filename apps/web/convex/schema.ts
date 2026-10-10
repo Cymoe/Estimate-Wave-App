@@ -206,6 +206,8 @@ export const leadFields = {
   phone: v.optional(v.string()),
   email: v.optional(v.string()),
   address: v.optional(v.string()),
+  // Town the job is in. Filled from the form, the address or a map lookup, or set by hand.
+  city: v.optional(v.string()),
   // Trade slug (industries.slug).
   jobType: v.optional(v.string()),
   source: v.optional(v.string()),
@@ -341,6 +343,8 @@ export default defineSchema({
     estimateId: v.optional(v.id("estimates")),
     // Example data added from the empty Leads page; removable in one click.
     isSample: v.optional(v.boolean()),
+    // When the city was last worked out automatically, so it isn't looked up again.
+    cityCheckedAt: v.optional(v.string()),
     organizationId: v.id("organizations"),
     userId: v.id("users"),
     ...timestamps,

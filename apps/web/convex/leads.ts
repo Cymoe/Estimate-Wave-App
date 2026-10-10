@@ -4,6 +4,7 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import { fail, getOwned, logActivity, nowIso, pick, requireMember } from "./lib/access";
 import { assertLinksInOrg } from "./lib/documents";
 import { leadFields } from "./schema";
+import { findCity } from "./leadCity";
 
 const OPEN = new Set(["new", "no_answer", "contacted", "scheduled", "quoted"]);
 
@@ -75,6 +76,8 @@ export const create = mutation({
       resourceId: id,
       details: { name: fields.name },
     });
+    const lead = (await ctx.db.get(id))!;
+    if (!lead.city) await findCity(ctx, lead);
     return await ctx.db.get(id);
   },
 });
@@ -92,7 +95,13 @@ export const update = mutation({
     }
     // A reason only makes sense while the lead is lost.
     if ((fields.status ?? doc.status) !== "lost") fields.lostReason = undefined;
+    // A new address gets its city worked out again, unless a city was picked in the same edit.
+    const addressChanged = "address" in fields && (fields.address ?? "") !== (doc.address ?? "");
+    const cityPicked = "city" in fields && (fields.city ?? "") !== (doc.city ?? "");
+    if (addressChanged && !cityPicked) fields.city = undefined;
     await ctx.db.patch(id, { ...fields, updatedAt: nowIso() });
+    const lead = (await ctx.db.get(id))!;
+    if (addressChanged && !cityPicked) await findCity(ctx, lead);
     return await ctx.db.get(id);
   },
 });
