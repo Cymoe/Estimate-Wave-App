@@ -490,10 +490,11 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
               <div className="relative" ref={filterMenuRef}>
                 <button 
                   onClick={() => setShowFilterMenu(!showFilterMenu)}
-                  className={`px-3 py-2 bg-[#1E1E1E] hover:bg-[#252525] text-white border border-[#333333] rounded-[4px] text-sm font-medium transition-colors flex items-center gap-2 ${showFilterMenu ? 'bg-[#252525]' : ''}`}
+                  aria-label="Filters"
+                  title="Filters"
+                  className={`p-2.5 bg-[#1E1E1E] hover:bg-[#252525] text-white border border-[#333333] rounded-[4px] transition-colors flex items-center ${showFilterMenu ? 'bg-[#252525]' : ''}`}
                 >
                   <Filter className="w-4 h-4" />
-                  <span>{isConstrained ? '' : 'More Filters'}</span>
                 </button>
                 
                 {/* Filter Menu Dropdown */}
@@ -540,9 +541,6 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
 
                 {showOptionsMenu && (
                   <div className="absolute top-full right-0 mt-2 w-48 bg-[#1E1E1E] border border-[#333333] rounded-[4px] shadow-lg z-50 py-1">
-                    <div className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wide border-b border-[#333333]">
-                      Export Options
-                    </div>
                     <button
                       onClick={() => {
                         handleExportToCSV();
