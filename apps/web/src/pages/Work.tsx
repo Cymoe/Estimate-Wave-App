@@ -1,22 +1,18 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { 
   FileText, 
   Plus,
-  Search,
-  Zap,
-  List
+  Search
 } from 'lucide-react';
 import { EstimatesList } from '../components/estimates/EstimatesList';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
-import { SalesModeView } from '../components/estimates/SalesModeView';
 import { EstimateService } from '../services/EstimateService';
 import { useAuth } from '../contexts/AuthContext';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { supabase } from '../lib/supabase';
 
 export const Work: React.FC = () => {
-  const navigate = useNavigate();
   const { user } = useAuth();
   const { selectedOrg } = useContext(OrganizationContext);
   const [estimatesCount, setEstimatesCount] = useState(0);
@@ -25,7 +21,14 @@ export const Work: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showCreateEstimate, setShowCreateEstimate] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
-  const [activeTab, setActiveTab] = useState<'list' | 'sales'>('list');
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // "New estimate" elsewhere in the app opens /work?new=1.
+  useEffect(() => {
+    if (searchParams.get('new') !== '1') return;
+    setShowCreateEstimate(true);
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   // Debounce search input
   useEffect(() => {
@@ -79,8 +82,7 @@ export const Work: React.FC = () => {
             </div>
             
             <div className="flex items-center gap-5">
-              {activeTab === 'list' && (
-                <div className="relative">
+              <div className="relative">
                   <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                   <input
                     type="text"
@@ -89,43 +91,16 @@ export const Work: React.FC = () => {
                     onChange={(e) => setSearchInput(e.target.value)}
                     className="bg-[#1E1E1E] border border-[#333333] pl-10 pr-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699] w-[300px]"
                   />
-                </div>
-              )}
+              </div>
               
               <button
                 onClick={handleCreateEstimate}
                 className="bg-white hover:bg-gray-100 text-black px-5 py-2.5 text-sm font-medium transition-colors flex items-center gap-2"
               >
                 <Plus className="w-4 h-4" />
-                <span>{activeTab === 'sales' ? 'Quick Quote' : 'Create Estimate'}</span>
+                <span>Create Estimate</span>
               </button>
             </div>
-          </div>
-
-          {/* Tabs */}
-          <div className="flex border-b border-[#333333]">
-            <button
-              onClick={() => setActiveTab('list')}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
-                activeTab === 'list'
-                  ? 'text-white border-b-2 border-[#336699]'
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              <List className="w-4 h-4" />
-              All Estimates
-            </button>
-            <button
-              onClick={() => setActiveTab('sales')}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
-                activeTab === 'sales'
-                  ? 'text-white border-b-2 border-[#336699]'
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              <Zap className="w-4 h-4" />
-              Sales Mode
-            </button>
           </div>
         </div>
 
@@ -134,15 +109,11 @@ export const Work: React.FC = () => {
       {/* Content Area - Visually connected */}
       <div className="-mt-[1px]">
         <div className="[&>div]:border-t-0">
-          {activeTab === 'list' ? (
-            <EstimatesList 
-              onCreateEstimate={handleCreateEstimate} 
-              searchTerm={searchTerm}
-              refreshTrigger={refreshTrigger}
-            />
-          ) : (
-            <SalesModeView onCreateEstimate={handleCreateEstimate} />
-          )}
+          <EstimatesList 
+            onCreateEstimate={handleCreateEstimate} 
+            searchTerm={searchTerm}
+            refreshTrigger={refreshTrigger}
+          />
         </div>
       </div>
 

@@ -436,11 +436,11 @@ const Dashboard = () => {
               <ArrowRight className="w-4 h-4" />
             </button>
             <button
-              onClick={() => navigate('/sales-mode')}
+              onClick={() => navigate('/work?new=1')}
               className="px-3 py-1.5 bg-[#336699] text-white rounded text-sm font-medium hover:bg-[#2a5a8a] transition-colors flex items-center gap-2"
             >
               <Plus className="w-4 h-4" />
-              Quick Quote
+              New Estimate
             </button>
           </div>
         </div>
@@ -454,7 +454,7 @@ const Dashboard = () => {
             <FileText className="w-12 h-12 text-gray-600 mx-auto mb-4" />
             <p className="text-gray-400 mb-4">No estimates yet</p>
         <button
-              onClick={() => navigate('/sales-mode')}
+              onClick={() => navigate('/work?new=1')}
               className="px-4 py-2 bg-[#336699] text-white rounded-lg hover:bg-[#2a5a8a] transition-colors inline-flex items-center gap-2"
             >
               <Plus className="w-4 h-4" />

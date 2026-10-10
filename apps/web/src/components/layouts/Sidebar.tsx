@@ -253,32 +253,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
             </NavLink>
 
-            {/* Sales Mode */}
-            <NavLink
-              to="/sales-mode"
-              className={({ isActive }) =>
-                isActive || location.pathname.startsWith('/sales-mode')
-                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
-                  : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
-              }
-              title={isSidebarCollapsed ? "Sales Mode - Field Sales Tool" : undefined}
-            >
-              {({ isActive }) => (
-                <>
-                  <div className="relative z-10 flex flex-col items-center">
-                    <div className={`mb-1 ${isActive || location.pathname.startsWith('/sales-mode') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      <span className="text-base">⚡</span>
-                    </div>
-                    {!isSidebarCollapsed && (
-                      <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/sales-mode') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                        Sales Mode
-                      </span>
-                    )}
-                  </div>
-                </>
-              )}
-            </NavLink>
-
             {/* Projects */}
             <NavLink
               to="/projects"

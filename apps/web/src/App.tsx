@@ -38,7 +38,6 @@ import { Work } from './pages/Work';
 import { Projects as ProjectsPage } from './pages/Projects';
 import { ActivityPage } from './pages/ActivityPage';
 import { WhoWeServe } from './pages/WhoWeServe';
-import { SalesMode } from './pages/SalesMode';
 // import { ServicesPackages } from './pages/ServicesPackages'; // Removed - using line items only
 import Marketing from './pages/Marketing';
 
@@ -256,17 +255,8 @@ function AppRoutes() {
         }
       />
       
-      {/* Sales Mode - Field Sales Tool */}
-      <Route
-        path="/sales-mode"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <SalesMode />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
+      {/* Sales Mode was removed; old links go to estimates. */}
+      <Route path="/sales-mode" element={<Navigate to="/work" replace />} />
       <Route
         path="/work/estimates"
         element={

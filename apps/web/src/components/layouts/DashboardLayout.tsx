@@ -404,11 +404,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
         // All other shortcuts require Shift to avoid browser conflicts
         if (e.shiftKey) {
           switch (e.key.toLowerCase()) {
-            case 'q':
-              e.preventDefault();
-              setIsCreateMenuOpen(false);
-              navigate('/sales-mode');
-              break;
             case 'e':
               e.preventDefault();
               setIsCreateMenuOpen(false);
