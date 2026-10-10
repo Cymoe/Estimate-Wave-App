@@ -83,7 +83,26 @@ const LeadForm: React.FC<{
   onDelete?: () => void;
   /** Called when a change saves on its own, without the Save button. */
   onChanged?: () => void;
-}> = ({ organizationId, lead, trades, onClose, onSaved, onDelete, onChanged }) => {
+}> = ({ organizationId, lead, trades, onClose: closeNow, onSaved: savedNow, onDelete, onChanged }) => {
+  // Slides in and out like the estimate drawer: start off-screen, move in on
+  // the next frame, and slide out before the parent removes it.
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setShown(true));
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, []);
+  const slideOut = (then: () => void) => {
+    setShown(false);
+    window.setTimeout(then, 150);
+  };
+  const onClose = () => slideOut(closeNow);
+  const onSaved = () => slideOut(savedNow);
   const [form, setForm] = useState({
     name: lead?.name ?? '',
     phone: lead?.phone ?? '',
@@ -135,9 +154,17 @@ const LeadForm: React.FC<{
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[10000] flex justify-end">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <form onSubmit={save} className="relative w-full md:w-[520px] h-full bg-[#121212] border-l border-[#333333] flex flex-col">
+    <>
+      <div
+        className={`fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity z-[10000] ${shown ? 'opacity-100' : 'opacity-0'}`}
+        onClick={onClose}
+      />
+      <form
+        onSubmit={save}
+        className={`fixed right-0 top-0 h-[100dvh] w-full md:w-[520px] bg-[#121212] border-l border-[#333333] shadow-xl flex flex-col transform transition-transform z-[10001] ${
+          shown ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#333333]">
           <h2 className="text-lg font-semibold text-white">{lead ? 'Edit lead' : 'New lead'}</h2>
           <button type="button" onClick={onClose} className="p-1 text-gray-400 hover:text-white" aria-label="Close">
@@ -212,7 +239,7 @@ const LeadForm: React.FC<{
           </button>
         </div>
       </form>
-    </div>,
+    </>,
     document.body,
   );
 };
