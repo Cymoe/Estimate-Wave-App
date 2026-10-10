@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText, User, UserPlus } from 'lucide-react';
+import { FileText, FolderOpen, User, UserPlus } from 'lucide-react';
 
 interface QuickCreateOption {
   id: string;
@@ -26,6 +26,7 @@ export const QuickCreateMenu: React.FC<Props> = ({ isOpen, onClose }) => {
   const options: QuickCreateOption[] = [
     { id: 'lead', name: 'Lead', icon: UserPlus, action: () => navigate('/leads?new=1') },
     { id: 'estimate', name: 'Estimate', icon: FileText, action: () => navigate('/work?new=1') },
+    { id: 'project', name: 'Project', icon: FolderOpen, action: () => navigate('/projects?new=1') },
     { id: 'client', name: 'Client', icon: User, action: () => navigate('/clients/new') },
   ];
 

@@ -33,7 +33,6 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { organizationsAPI } from '../../lib/api';
-import { NewClientModal } from '../clients/NewClientModal';
 import { LineItemModal } from '../modals/LineItemModal';
 import { Sidebar } from './Sidebar';
 import { MobileHeader } from './MobileHeader';
@@ -45,7 +44,6 @@ import { PageHeaderBar } from '../common/PageHeaderBar';
 import { ActivityPanel } from '../activity/ActivityPanel';
 import { IndustryBanner } from '../common/IndustryBanner';
 import { IndustryManagementDrawer } from '../common/IndustryManagementDrawer';
-import { ProjectPreviewPanel } from '../projects/ProjectPreviewPanel';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -132,7 +130,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
     const saved = localStorage.getItem('sidebarCollapsed');
     return saved ? JSON.parse(saved) : false;
   });
-  const [showNewClientModal, setShowNewClientModal] = useState(false);
   const [showLineItemDrawer, setShowLineItemDrawer] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
@@ -143,22 +140,14 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
   const [orgDropdownOpen, setOrgDropdownOpen] = useState(false);
   const [isProjectsSidebarOpen, setIsProjectsSidebarOpen] = useState(false);
   const [isProjectsSidebarClosing, setIsProjectsSidebarClosing] = useState(false);
-  const [isProjectsSidebarLocked, setIsProjectsSidebarLocked] = useState(() => {
-    const saved = localStorage.getItem('projectsSidebarLocked');
-    return saved ? JSON.parse(saved) : false;
-  });
+  const [isProjectsSidebarLocked, setIsProjectsSidebarLocked] = useState(false);
   const [isIndustryDrawerOpen, setIsIndustryDrawerOpen] = useState(false);
   const [selectedTimePeriod, setSelectedTimePeriod] = useState<'D' | 'W' | 'M' | 'Q' | 'Y'>('D');
-  const [hoveredProject, setHoveredProject] = useState<any>(null);
-  const [previewPosition, setPreviewPosition] = useState({ top: 0 });
   const [hoverTimeout, setHoverTimeout] = useState<NodeJS.Timeout | null>(null);
   const [isLiveRevenuePopoverOpen, setIsLiveRevenuePopoverOpen] = useState(false);
   const liveRevenueButtonRef = useRef<HTMLDivElement>(null);
   const liveRevenuePopoverRef = useRef<HTMLDivElement>(null);
   const projectsSidebarRef = useRef<HTMLDivElement>(null);
-  const [projectsSearch, setProjectsSearch] = useState('');
-  const [isProjectsSearchExpanded, setIsProjectsSearchExpanded] = useState(false);
-  const [projectsSortOrder, setProjectsSortOrder] = useState<'latest' | 'earliest'>('latest');
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const dropdownRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
   const [availableContentWidth, setAvailableContentWidth] = useState<'full' | 'constrained' | 'minimal' | 'compact'>('full');
@@ -335,31 +324,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
     Y: "yearly"
   };
 
-  const allProjects = [
-    { id: 1, name: 'Kitchen Renovation', client: 'Miller Residence', progress: 75, status: 'active' },
-    { id: 2, name: 'HVAC Install', client: 'Johnson Home', progress: 45, status: 'active' },
-    { id: 3, name: 'Office Buildout', client: 'Tech Startup Inc.', progress: 65, status: 'in-progress' },
-    { id: 4, name: 'Bathroom Remodel', client: 'Smith Family', progress: 90, status: 'active' },
-    { id: 5, name: 'Deck Construction', client: 'Brown Residence', progress: 30, status: 'in-progress' },
-    { id: 6, name: 'Electrical Upgrade', client: 'Davis Home', progress: 85, status: 'active' },
-    { id: 7, name: 'Flooring Installation', client: 'Wilson House', progress: 55, status: 'in-progress' },
-    { id: 8, name: 'Roof Repair', client: 'Anderson Property', progress: 100, status: 'completed' },
-    { id: 9, name: 'Plumbing Overhaul', client: 'Taylor Residence', progress: 20, status: 'in-progress' },
-    { id: 10, name: 'Garage Addition', client: 'Martinez Home', progress: 40, status: 'in-progress' },
-  ];
-
-  const filteredProjects = allProjects.filter(project => 
-    project.name.toLowerCase().includes(projectsSearch.toLowerCase()) ||
-    project.client.toLowerCase().includes(projectsSearch.toLowerCase())
-  );
-
-  const sortedProjects = [...filteredProjects].sort((a, b) => {
-    if (projectsSortOrder === 'latest') {
-      return b.id - a.id;
-    } else {
-      return a.id - b.id;
-    }
-  });
 
   const cycleTimePeriod = () => {
     const periods: Array<'D' | 'W' | 'M' | 'Q' | 'Y'> = ['D', 'W', 'M', 'Q', 'Y'];
@@ -385,7 +349,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
         activeElement.getAttribute('contenteditable') === 'true'
       );
       
-      if (isInputFocused || showNewClientModal || showLineItemDrawer || showHelpModal) {
+      if (isInputFocused || showLineItemDrawer || showHelpModal) {
         return;
       }
 
@@ -418,7 +382,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [navigate, isCreateMenuOpen, showNewClientModal, showLineItemDrawer, showHelpModal]);
+  }, [navigate, isCreateMenuOpen, showLineItemDrawer, showHelpModal]);
 
   useEffect(() => {
     const mainContent = document.getElementById('main-content');
@@ -583,197 +547,8 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                       />
                     </div>
                     
-                    {/* Projects Sidebar */}
-                    <div 
-                      ref={projectsSidebarRef} 
-                      className={`h-[100dvh] bg-[#1A1A1A] transition-all duration-100 overflow-hidden ${
-                        (isProjectsSidebarOpen || isProjectsSidebarLocked) ? 'w-[320px] border-l border-gray-700' : 'w-0'
-                      }`}
-                    >
-                      {(isProjectsSidebarOpen || isProjectsSidebarLocked || isProjectsSidebarClosing) && (
-                        <div className="h-full flex flex-col">
-                        <div className="p-3 border-b border-gray-700 flex-shrink-0">
-                          <div className="flex items-center justify-between mb-3">
-                            <h2 className="text-white text-base font-medium">All Projects</h2>
-                            <div className="flex items-center gap-1.5">
-                              <button 
-                                onClick={() => setProjectsSortOrder(projectsSortOrder === 'latest' ? 'earliest' : 'latest')}
-                                className="w-7 h-7 bg-[#333333] hover:bg-[#404040] text-gray-400 hover:text-white rounded-[2px] flex items-center justify-center transition-colors"
-                                title={projectsSortOrder === 'latest' ? "Sort by earliest first" : "Sort by latest first"}
-                              >
-                                {projectsSortOrder === 'latest' ? (
-                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
-                                  </svg>
-                                ) : (
-                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 15l4 4 4-4m0-6l-4-4-4 4" />
-                                  </svg>
-                                )}
-                              </button>
-                              <button 
-                                onClick={() => {
-                                  if (isProjectsSidebarLocked) {
-                                    setProjectsSidebarLockedWithPersistence(false);
-                                    setIsProjectsSidebarClosing(true);
-                                    // Delay closing to allow animation
-                                    setTimeout(() => {
-                                      setIsProjectsSidebarOpen(false);
-                                      setIsProjectsSidebarClosing(false);
-                                    }, 100);
-                                  } else {
-                                    setProjectsSidebarLockedWithPersistence(true);
-                                  }
-                                }}
-                                className={`w-7 h-7 ${isProjectsSidebarLocked ? 'bg-[#F9D71C] text-[#121212]' : 'bg-[#333333] text-gray-400'} hover:bg-[#F9D71C] hover:text-[#121212] rounded-[2px] flex items-center justify-center transition-colors`}
-                                title={isProjectsSidebarLocked ? "Unlock and close projects pane" : "Lock projects pane open"}
-                              >
-                                {isProjectsSidebarLocked ? (
-                                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                                  </svg>
-                                ) : (
-                                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                                    <path d="M10 2a5 5 0 00-5 5v2a2 2 0 00-2 2v5a2 2 0 002 2h10a2 2 0 002-2v-5a2 2 0 00-2-2H7V7a3 3 0 015.905-.75 1 1 0 001.937-.5A5.002 5.002 0 0010 2z" />
-                                  </svg>
-                                )}
-                              </button>
-                            </div>
-                          </div>
-                          
-                          <div className="relative">
-                            {!isProjectsSearchExpanded ? (
-                              <button
-                                onClick={() => setIsProjectsSearchExpanded(true)}
-                                className="w-7 h-7 bg-[#333333] hover:bg-[#404040] text-gray-400 hover:text-white rounded-[2px] flex items-center justify-center transition-colors"
-                                title="Search projects"
-                              >
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                                </svg>
-                              </button>
-                            ) : (
-                              <div className="flex items-center gap-1.5">
-                                <div className="relative flex-1">
-                              <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
-                                <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                                </svg>
-                              </div>
-                              <input
-                                type="text"
-                                placeholder="Search for a project..."
-                                value={projectsSearch}
-                                onChange={(e) => setProjectsSearch(e.target.value)}
-                                      onBlur={() => {
-                                        if (!projectsSearch) {
-                                          setIsProjectsSearchExpanded(false);
-                                        }
-                                      }}
-                                      autoFocus
-                                className="w-full pl-8 pr-3 py-1.5 bg-[#2A2A2A] border border-[#404040] rounded-[2px] text-white text-xs placeholder-gray-400 focus:outline-none focus:border-[#336699] transition-colors"
-                              />
-                                </div>
-                                {projectsSearch && (
-                                  <button
-                                    onClick={() => {
-                                      setProjectsSearch('');
-                                      setIsProjectsSearchExpanded(false);
-                                    }}
-                                    className="w-7 h-7 bg-[#333333] hover:bg-[#404040] text-gray-400 hover:text-white rounded-[2px] flex items-center justify-center transition-colors"
-                                    title="Clear search"
-                                  >
-                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto min-h-0">
-                          <div className="space-y-0">
-                            {sortedProjects.map((project, index) => (
-                              <div key={project.id} className="relative">
-                                <button
-                                  onClick={() => {
-                                    navigate(`/projects/${project.id}`);
-                                    if (!isProjectsSidebarLocked) {
-                                      setIsProjectsSidebarOpen(false);
-                                    }
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    const rect = e.currentTarget.getBoundingClientRect();
-                                    setPreviewPosition({ top: rect.top });
-                                    
-                                    // INSTANT preview - no delay!
-                                    setHoveredProject({
-                                      ...project,
-                                      budget: 50000,
-                                      spent: 35000,
-                                      startDate: '2024-01-15',
-                                      endDate: '2024-03-30',
-                                      recentActivities: [
-                                        { id: '2', type: 'payment', description: 'Payment received: $5,000', timestamp: 'Yesterday' },
-                                        { id: '3', type: 'update', description: 'Electrical work completed', timestamp: '3 days ago' }
-                                      ]
-                                    });
-                                  }}
-                                  onMouseLeave={() => {
-                                    setHoveredProject(null);
-                                  }}
-                                  className={`w-full text-left p-3 project-flash-hover border-b border-gray-700/30 group ${index === sortedProjects.length - 1 ? 'border-b-0' : ''}`}
-                                >
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center mb-0.5">
-                                        <div className={`w-1.5 h-1.5 rounded-full mr-2 flex-shrink-0 ${
-                                          project.status === 'completed' ? 'bg-green-500' :
-                                          project.status === 'active' ? 'bg-green-500' :
-                                          'bg-yellow-500'
-                                        }`}></div>
-                                        <span className="text-white text-xs font-medium truncate leading-tight">{project.name}</span>
-                                      </div>
-                                      <div className="text-gray-400 text-[10px] truncate ml-3.5 leading-tight uppercase tracking-wide">{project.client}</div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <div className="opacity-0 group-hover:opacity-100 transition-none">
-                                        <div className="w-8 h-1 bg-[#374151] rounded-full overflow-hidden">
-                                          <div 
-                                            className="h-full bg-[#3B82F6] rounded-full"
-                                            style={{ width: `${project.progress}%` }}
-                                          />
-                                        </div>
-                                      </div>
-                                      <span className="text-[#6b7280] group-hover:text-[#3B82F6] transition-none text-xs font-medium leading-tight">{project.progress}%</span>
-                                    </div>
-                                  </div>
-                                </button>
-                              </div>
-                            ))}
-                            
-                            {sortedProjects.length === 0 && (
-                              <div className="text-center py-6">
-                                <div className="text-gray-400 text-xs">No projects found</div>
-                                <div className="text-gray-500 text-[10px] mt-1">Try adjusting your search</div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      )}
-                    </div>
-
-                    {/* Project Preview Panel */}
-                    {(isProjectsSidebarOpen || isProjectsSidebarLocked) && (
-                      <ProjectPreviewPanel 
-                        project={hoveredProject}
-                        isVisible={!!hoveredProject}
-                        position={previewPosition}
-                      />
-                    )}
+                    {/* Grid column the projects pane used to fill */}
+                    <div ref={projectsSidebarRef} className="w-0" />
 
                     {/* Main Sidebar */}
                     <Sidebar
@@ -865,16 +640,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                         <span className="text-white/90 text-sm">{currentData.percentage}% of {goalPeriodLabels[selectedTimePeriod]} goal (${(currentData.revenue / (currentData.percentage / 100)).toLocaleString()})</span>
                       </div>
                     </div>
-                  )}
-
-                  {showNewClientModal && (
-                    <NewClientModal
-                      onClose={() => setShowNewClientModal(false)}
-                      onSave={(client) => {
-                        console.log('New client created:', client);
-                        setShowNewClientModal(false);
-                      }}
-                    />
                   )}
 
                   {showLineItemDrawer && (
@@ -1106,7 +871,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                   <MobileCreateMenu
                     isOpen={isCreateMenuOpen}
                     onClose={() => setIsCreateMenuOpen(false)}
-                    onCreateClient={() => setShowNewClientModal(true)}
+                    onCreateClient={() => navigate('/clients/new')}
                     onCreateLineItem={() => setShowLineItemDrawer(true)}
                   />
 

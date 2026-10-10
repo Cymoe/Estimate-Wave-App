@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ScrollRestoration } from './components/ScrollRestoration';
@@ -20,7 +20,6 @@ import { Callback } from './components/auth/Callback';
 import { UserProfile } from './components/settings/UserProfile';
 import { PublicProfileView } from './components/settings/PublicProfileView';
 import { Toaster } from 'react-hot-toast';
-import { ProjectForm, ProjectDetails } from './components/projects';
 import LineItemTestPage from './pages/LineItemTestPage';
 import { DashboardLayout } from './components/layouts/DashboardLayout';
 import MarkdownViewer from './components/docs/MarkdownViewer';
@@ -110,6 +109,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   return <>{children}</>;
+}
+
+/** Old edit links open the project's drawer instead. */
+function ProjectEditRedirect() {
+  const { id } = useParams();
+  return <Navigate to={`/projects/${id}`} replace />;
 }
 
 function AppRoutes() {
@@ -365,35 +370,18 @@ function AppRoutes() {
       />
       
       
-      {/* Project routes */}
-      <Route
-        path="/projects"
-        element={
-          <ProtectedRoute>
-            <Navigate to="/work/projects" replace />
-          </ProtectedRoute>
-        }
-      />
+      {/* A project opens in a drawer over the projects list */}
       <Route
         path="/projects/:id"
         element={
           <ProtectedRoute>
-            <DashboardLayout>
-              <ProjectDetails />
+            <DashboardLayout fullWidth={true}>
+              <ProjectsPage />
             </DashboardLayout>
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/projects/:id/edit"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <ProjectForm />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/projects/:id/edit" element={<ProjectEditRedirect />} />
 
       {/* Client routes */}
       <Route

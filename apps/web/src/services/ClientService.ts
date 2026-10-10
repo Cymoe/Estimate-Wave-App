@@ -1,5 +1,5 @@
-import { supabase } from '../lib/supabase';
-import { ActivityLogService } from './ActivityLogService';
+import { clientsAPI } from '../lib/api';
+import { toLegacyClient } from './EstimateService';
 
 export interface Client {
   id?: string;
@@ -19,117 +19,63 @@ export interface Client {
   updated_at?: string;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Doc = Record<string, any>;
+
+/** A Convex client in the snake_case shape the client screens read. */
+export function toClient(doc: Doc): Client {
+  return {
+    ...toLegacyClient(doc),
+    user_id: doc.userId,
+    created_at: doc.createdAt,
+    updated_at: doc.updatedAt,
+  };
+}
+
+/** The screens' snake_case fields as Convex client fields (empty strings clear a field). */
+export function toConvexClient(client: Partial<Client>) {
+  const out: Record<string, unknown> = {};
+  const set = (key: string, value: unknown) => {
+    if (value === undefined) return;
+    out[key] = typeof value === 'string' && value.trim() === '' ? null : value;
+  };
+  set('name', client.name);
+  set('email', client.email);
+  set('phone', client.phone);
+  set('companyName', client.company_name);
+  set('address', client.address);
+  set('city', client.city);
+  set('state', client.state);
+  set('zip', client.zip);
+  set('notes', client.notes);
+  return out;
+}
+
+/** Clients, stored in Convex. */
 export class ClientService {
   static async list(organizationId: string): Promise<Client[]> {
-    const { data, error } = await supabase
-      .from('clients')
-      .select('*')
-      .eq('organization_id', organizationId)
-      .order('name');
-
-    if (error) throw error;
-    return data || [];
+    const docs = await clientsAPI.list(organizationId);
+    return docs.map(toClient).sort((a: Client, b: Client) => a.name.localeCompare(b.name));
   }
 
   static async getById(id: string): Promise<Client | null> {
-    const { data, error } = await supabase
-      .from('clients')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (error) throw error;
-    return data;
+    try {
+      return toClient(await clientsAPI.getById(id));
+    } catch {
+      return null;
+    }
   }
 
   static async create(client: Omit<Client, 'id' | 'created_at' | 'updated_at'>): Promise<Client> {
-    const { data, error } = await supabase
-      .from('clients')
-      .insert(client)
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    // Log activity
-    try {
-      await ActivityLogService.log({
-        organizationId: client.organization_id!,
-        entityType: 'client',
-        entityId: data.id,
-        action: 'created',
-        description: `created client ${data.name}`,
-        metadata: {
-          client_name: data.name,
-          client_email: data.email,
-          company_name: data.company_name
-        }
-      });
-    } catch (logError) {
-      console.error('Failed to log client creation:', logError);
-    }
-
-    return data;
+    const doc = await clientsAPI.create({ organizationId: client.organization_id, ...toConvexClient(client) });
+    return toClient(doc);
   }
 
   static async update(id: string, updates: Partial<Omit<Client, 'id' | 'created_at' | 'updated_at'>>): Promise<Client> {
-    const { data, error } = await supabase
-      .from('clients')
-      .update(updates)
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    // Log activity
-    try {
-      await ActivityLogService.log({
-        organizationId: data.organization_id,
-        entityType: 'client',
-        entityId: id,
-        action: 'updated',
-        description: `updated client ${data.name}`,
-        metadata: {
-          client_name: data.name,
-          updated_fields: Object.keys(updates)
-        }
-      });
-    } catch (logError) {
-      console.error('Failed to log client update:', logError);
-    }
-
-    return data;
+    return toClient(await clientsAPI.update(id, toConvexClient(updates)));
   }
 
   static async delete(id: string): Promise<void> {
-    // Get client info before deletion for logging
-    const client = await this.getById(id);
-    
-    const { error } = await supabase
-      .from('clients')
-      .delete()
-      .eq('id', id);
-
-    if (error) throw error;
-
-    // Log activity
-    if (client) {
-      try {
-        await ActivityLogService.log({
-          organizationId: client.organization_id!,
-          entityType: 'client',
-          entityId: id,
-          action: 'deleted',
-          description: `deleted client ${client.name}`,
-          metadata: {
-            client_name: client.name,
-            client_email: client.email
-          }
-        });
-      } catch (logError) {
-        console.error('Failed to log client deletion:', logError);
-      }
-    }
+    await clientsAPI.delete(id);
   }
 }
