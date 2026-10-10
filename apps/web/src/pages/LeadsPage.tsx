@@ -1,7 +1,7 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { CalendarClock, CalendarDays, FileText, Kanban, Mail, MapPin, Phone, Plus, Search, Trash2, UserPlus, X } from 'lucide-react';
+import { CalendarDays, FileText, Kanban, Mail, MapPin, Phone, Plus, Search, Trash2, UserPlus, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
 import { industriesAPI, leadsAPI } from '../lib/api';
@@ -9,6 +9,8 @@ import { EstimateService } from '../services/EstimateService';
 import { useAuth } from '../contexts/AuthContext';
 import { formatCurrency } from '../utils/format';
 import { LeadsCalendar } from '../components/leads/LeadsCalendar';
+import { AppointmentField } from '../components/leads/AppointmentField';
+import { appointmentDay, fromLocalInput, toLocalInput } from '../utils/appointments';
 
 type LeadStatus = 'new' | 'no_answer' | 'contacted' | 'scheduled' | 'quoted' | 'won' | 'lost';
 
@@ -67,18 +69,6 @@ function matchesSearch(lead: Lead, query: string) {
 
 const leadValue = (lead: Lead) => lead.estimate?.totalAmount ?? lead.estimatedValue ?? 0;
 
-/** ISO time to the value a datetime-local input wants, in local time. */
-const toLocalInput = (iso?: string) => {
-  if (!iso) return '';
-  const date = new Date(iso);
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-};
-const fromLocalInput = (value: string) => (value ? new Date(value).toISOString() : null);
-const formatAppointment = (iso: string) =>
-  new Date(iso).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-/** The local calendar date of an appointment, for the follow-up date. */
-const appointmentDay = (value: string) => value.slice(0, 10);
-
 const SOURCES = ['Referral', 'Google', 'Facebook', 'Website', 'Yard sign', 'Repeat customer', 'Other'];
 
 const inputClass =
@@ -91,7 +81,9 @@ const LeadForm: React.FC<{
   onClose: () => void;
   onSaved: () => void;
   onDelete?: () => void;
-}> = ({ organizationId, lead, trades, onClose, onSaved, onDelete }) => {
+  /** Called when a change saves on its own, without the Save button. */
+  onChanged?: () => void;
+}> = ({ organizationId, lead, trades, onClose, onSaved, onDelete, onChanged }) => {
   const [form, setForm] = useState({
     name: lead?.name ?? '',
     phone: lead?.phone ?? '',
@@ -108,6 +100,19 @@ const LeadForm: React.FC<{
   const [saving, setSaving] = useState(false);
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm({ ...form, [key]: e.target.value });
+
+  // An existing lead's appointment saves as soon as it's picked or removed.
+  const saveAppointment = async (iso: string | null) => {
+    setForm((current) => ({ ...current, appointmentAt: toLocalInput(iso ?? undefined) }));
+    if (!lead) return;
+    try {
+      await leadsAPI.update(lead.id, { appointmentAt: iso, ...(iso ? { followUpDate: appointmentDay(toLocalInput(iso)) } : {}) });
+      if (iso) setForm((current) => ({ ...current, followUpDate: appointmentDay(toLocalInput(iso)) }));
+      onChanged?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save the appointment');
+    }
+  };
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -183,13 +188,12 @@ const LeadForm: React.FC<{
             </div>
           </div>
           <div className="text-xs text-gray-400 space-y-1">
-            <div className="flex justify-between">
-              <span>Estimate appointment</span>
-              {form.appointmentAt && (
-                <button type="button" onClick={() => setForm({ ...form, appointmentAt: '' })} className="text-gray-400 hover:text-white">Remove appointment</button>
-              )}
-            </div>
-            <input className={inputClass} type="datetime-local" value={form.appointmentAt} onChange={set('appointmentAt')} aria-label="Estimate appointment" />
+            <span>Estimate appointment</span>
+            <AppointmentField
+              value={fromLocalInput(form.appointmentAt) ?? undefined}
+              onChange={saveAppointment}
+              className="text-sm"
+            />
           </div>
           <label className="block text-xs text-gray-400 space-y-1">
             <span>Notes</span>
@@ -219,7 +223,6 @@ const LeadForm: React.FC<{
  */
 const LeadCardDetails: React.FC<{ lead: Lead; onChange: (lead: Lead, data: Partial<Lead>) => void }> = ({ lead, onChange }) => {
   const [notes, setNotes] = useState(lead.notes ?? '');
-  const [pickingTime, setPickingTime] = useState(false);
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 
   // Follow changes made elsewhere (the edit drawer, a reload).
@@ -230,19 +233,14 @@ const LeadCardDetails: React.FC<{ lead: Lead; onChange: (lead: Lead, data: Parti
     onChange(lead, { notes: notes.trim() });
   };
 
-  const clearAppointment = () => {
+  const changeAppointment = (iso: string | null) => {
+    if (iso) {
+      onChange(lead, { appointmentAt: iso, followUpDate: appointmentDay(toLocalInput(iso)) });
+      return;
+    }
+    // Removing it also drops the follow-up date it set.
     const day = lead.appointmentAt ? appointmentDay(toLocalInput(lead.appointmentAt)) : null;
-    // The follow-up date came from the appointment, so it goes too.
     onChange(lead, { appointmentAt: undefined, ...(lead.followUpDate === day ? { followUpDate: undefined } : {}) });
-  };
-
-  const setAppointment = (value: string) => {
-    setPickingTime(false);
-    const appointmentAt = fromLocalInput(value);
-    onChange(lead, {
-      appointmentAt: appointmentAt ?? undefined,
-      ...(appointmentAt ? { followUpDate: appointmentDay(value) } : {}),
-    });
   };
 
   return (
@@ -271,39 +269,7 @@ const LeadCardDetails: React.FC<{ lead: Lead; onChange: (lead: Lead, data: Parti
           )}
         </div>
       )}
-      {pickingTime ? (
-        <input
-          type="datetime-local"
-          autoFocus
-          defaultValue={toLocalInput(lead.appointmentAt)}
-          onBlur={(e) => setAppointment(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') setAppointment(e.currentTarget.value);
-            if (e.key === 'Escape') setPickingTime(false);
-          }}
-          className="w-full bg-[#0A0A0A] border border-[#336699] px-2 py-1.5 text-xs text-white"
-          aria-label="Appointment"
-        />
-      ) : lead.appointmentAt ? (
-        <div className="flex items-stretch border border-[#444444] bg-[#1A1A1A]">
-          <button
-            onClick={() => setPickingTime(true)}
-            className="flex-1 flex items-center gap-2 px-2 py-1.5 text-xs text-white text-left"
-          >
-            <CalendarClock className="w-3.5 h-3.5 text-[#7fb0e0]" /> {formatAppointment(lead.appointmentAt)}
-          </button>
-          <button onClick={clearAppointment} className="px-2 text-gray-400 hover:text-white" aria-label="Remove appointment">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      ) : (
-        <button
-          onClick={() => setPickingTime(true)}
-          className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-gray-400 border border-dashed border-[#333333] hover:text-white text-left"
-        >
-          <CalendarClock className="w-3.5 h-3.5" /> Set appointment
-        </button>
-      )}
+      <AppointmentField value={lead.appointmentAt} onChange={changeAppointment} className="text-xs" />
       <textarea
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
@@ -657,6 +623,7 @@ const LeadsPage: React.FC = () => {
             load();
           }}
           onDelete={editing === 'new' ? undefined : () => remove(editing)}
+          onChanged={load}
         />
       )}
 

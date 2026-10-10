@@ -366,6 +366,8 @@ input[type="time"] {
   max-width: 100%;
   box-sizing: border-box;
   text-align: left;
+  /* Without the native look an empty picker has no height of its own. */
+  min-height: 2.25rem;
 }
 
 input[type="date"]::-webkit-date-and-time-value,
