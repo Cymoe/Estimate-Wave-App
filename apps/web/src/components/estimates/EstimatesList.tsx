@@ -15,6 +15,9 @@ import { TableSkeleton } from '../skeletons/TableSkeleton';
 import { supabase } from '../../lib/supabase';
 import { EstimateExportService } from '../../services/EstimateExportService';
 
+/** Estimate, client, status, date, amount, menu: shared by the header and every row. */
+const ROW_GRID = 'grid grid-cols-[minmax(8.5rem,1fr)_minmax(0,2fr)_6.5rem_7rem_minmax(7rem,1fr)_2rem] gap-4 items-center';
+
 interface EstimatesListProps {
   onCreateEstimate?: () => void;
   searchTerm?: string;
@@ -181,13 +184,13 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
 
   const getStatusColor = (status: Estimate['status']) => {
     switch (status) {
-      case 'draft': return 'bg-gray-600 text-white';
-      case 'sent': return 'bg-blue-600 text-white';
-      case 'opened': return 'bg-purple-600 text-white';
-      case 'accepted': return 'bg-green-600 text-white';
-      case 'rejected': return 'bg-red-600 text-white';
-      case 'expired': return 'bg-orange-600 text-white';
-      default: return 'bg-gray-600 text-white';
+      case 'draft': return 'bg-gray-500/15 text-gray-300';
+      case 'sent': return 'bg-blue-500/15 text-blue-300';
+      case 'opened': return 'bg-purple-500/15 text-purple-300';
+      case 'accepted': return 'bg-green-500/15 text-green-300';
+      case 'rejected': return 'bg-red-500/15 text-red-300';
+      case 'expired': return 'bg-orange-500/15 text-orange-300';
+      default: return 'bg-gray-500/15 text-gray-300';
     }
   };
 
@@ -643,43 +646,28 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
           ) : (
             <div className="overflow-x-auto">
               {/* Table Column Headers */}
-              <div className="px-4 py-1.5 border-b border-[#333333]/50 bg-[#1E1E1E]/50">
-                <div className="grid grid-cols-12 gap-4 text-xs font-medium text-gray-400 uppercase tracking-wider items-center">
-                  <button 
-                    onClick={() => handleSort('estimate_number')}
-                    className={`col-span-6 text-left hover:text-white transition-colors flex items-center gap-1 ${
-                      sortField === 'estimate_number' ? 'text-white' : ''
-                    }`}
-                  >
-                    ESTIMATE
-                    {sortField === 'estimate_number' && (
-                      sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
-                    )}
-                  </button>
-                  <button 
-                    onClick={() => handleSort('amount')}
-                    className={`col-span-3 text-center hover:text-white transition-colors flex items-center justify-center gap-1 ${
-                      sortField === 'amount' ? 'text-white' : ''
-                    }`}
-                  >
-                    AMOUNT
-                    {sortField === 'amount' && (
-                      sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
-                    )}
-                  </button>
-                  <button 
-                    onClick={() => handleSort('date')}
-                    className={`col-span-2 text-left hover:text-white transition-colors flex items-center gap-1 ${
-                      sortField === 'date' ? 'text-white' : ''
-                    }`}
-                  >
-                    DATE
-                    {sortField === 'date' && (
-                      sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
-                    )}
-                  </button>
-                  <div className="col-span-1 text-right"></div>
-                </div>
+              <div className={`${ROW_GRID} px-4 py-2 border-b border-[#333333]/50 text-[11px] font-medium text-gray-500 uppercase tracking-wider`}>
+                {([
+                  ['estimate_number', 'Estimate', ''],
+                  ['client', 'Client', ''],
+                  [null, 'Status', ''],
+                  ['date', 'Date', ''],
+                  ['amount', 'Amount', 'justify-end'],
+                ] as const).map(([field, label, align]) =>
+                  field ? (
+                    <button
+                      key={label}
+                      onClick={() => handleSort(field)}
+                      className={`flex items-center gap-1 uppercase tracking-wider hover:text-white transition-colors ${align} ${sortField === field ? 'text-white' : ''}`}
+                    >
+                      {label}
+                      {sortField === field && (sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
+                    </button>
+                  ) : (
+                    <span key={label}>{label}</span>
+                  ),
+                )}
+                <span />
               </div>
               
               {/* Table Content */}
@@ -689,36 +677,36 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
                     <div
                       key={estimate.id}
                       onClick={() => navigate(`/estimates/${estimate.id}`)}
-                      className={`group grid grid-cols-12 gap-4 px-4 py-1 items-center hover:bg-[#1A1A1A] transition-colors cursor-pointer border-b border-[#333333]/50 last:border-b-0`}
+                      className={`group ${ROW_GRID} px-4 py-2.5 text-sm hover:bg-[#1A1A1A] transition-colors cursor-pointer border-b border-[#333333]/50 last:border-b-0`}
                     >
-                      {/* Estimate Column */}
-                      <div className="col-span-6">
-                        <div className="flex items-center gap-3">
-                          <div className="min-w-0 flex-1">
-                            <div className="font-medium text-white truncate text-sm">
-                              {estimate.estimate_number}
-                            </div>
-                          </div>
-                          <span className={`text-xs px-2 py-1 font-medium min-w-[60px] text-center ${getStatusColor(estimate.status)}`}>
-                            {estimate.status.toUpperCase()}
-                          </span>
-                        </div>
+                      <div className="font-medium text-white truncate">{estimate.estimate_number}</div>
+
+                      <div className="min-w-0 truncate">
+                        {estimate.client?.name ? (
+                          <span className="text-gray-200">{estimate.client.name}</span>
+                        ) : (
+                          <span className="text-gray-500">{estimate.title || 'No client'}</span>
+                        )}
                       </div>
-                      
-                      {/* Amount Column */}
-                      <div className="col-span-3 text-center">
-                        <div className="font-mono font-semibold text-white text-sm">
-                          {formatCurrency(estimate.total_amount)}
-                        </div>
+
+                      <div>
+                        <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize ${getStatusColor(estimate.status)}`}>
+                          {estimate.status}
+                        </span>
                       </div>
-                      
-                      {/* Date Column */}
-                      <div className="col-span-2 text-gray-300 text-xs">
-                        <div>{estimate.created_at ? new Date(estimate.created_at).toLocaleDateString() : 'No date'}</div>
+
+                      <div className="text-gray-400 text-xs whitespace-nowrap">
+                        {estimate.created_at
+                          ? new Date(estimate.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+                          : '—'}
+                      </div>
+
+                      <div className="text-right font-semibold text-white tabular-nums whitespace-nowrap">
+                        {formatCurrency(estimate.total_amount)}
                       </div>
 
                       {/* Actions Column */}
-                      <div className="col-span-1 flex justify-end relative">
+                      <div className="flex justify-end relative">
                         <div className="relative" ref={(el) => estimateDropdownRefs.current[estimate.id!] = el}>
                           <button
                             onClick={(e) => {
