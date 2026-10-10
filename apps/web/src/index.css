@@ -353,3 +353,23 @@ html.light * {
   animation: expandDown 0.2s ease-out forwards;
   transform-origin: top;
 }
+
+/* iPad Safari gives date pickers a fixed minimum width that spills out of
+   cards and narrow fields; let them size to their container like other inputs. */
+input[type="date"],
+input[type="datetime-local"],
+input[type="time"] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+}
+
+input[type="date"]::-webkit-date-and-time-value,
+input[type="datetime-local"]::-webkit-date-and-time-value,
+input[type="time"]::-webkit-date-and-time-value {
+  text-align: left;
+}
