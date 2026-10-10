@@ -21,10 +21,22 @@ export const AppointmentField: React.FC<{ value?: string; onChange: (iso: string
   useEffect(() => {
     if (input.current) input.current.value = toLocalInput(local);
   }, [local]);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  // A pick still waiting on the timer is saved, not dropped, if the field goes
+  // away first (say the drawer is closed right after choosing a time).
+  const pending = useRef<{ iso: string | undefined } | null>(null);
+  const latest = useRef({ value, onChange });
+  latest.current = { value, onChange };
+  useEffect(
+    () => () => {
+      window.clearTimeout(timer.current);
+      if (pending.current && pending.current.iso !== latest.current.value) latest.current.onChange(pending.current.iso ?? null);
+    },
+    [],
+  );
 
   const commit = (iso: string | undefined) => {
     window.clearTimeout(timer.current);
+    pending.current = null;
     if (iso !== value) onChange(iso ?? null);
   };
 
@@ -41,6 +53,7 @@ export const AppointmentField: React.FC<{ value?: string; onChange: (iso: string
           onChange={(e) => {
             const iso = fromLocalInput(e.target.value) ?? undefined;
             setLocal(iso);
+            pending.current = { iso };
             window.clearTimeout(timer.current);
             timer.current = window.setTimeout(() => commit(iso), 800);
           }}

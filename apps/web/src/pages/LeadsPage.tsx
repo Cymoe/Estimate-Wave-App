@@ -83,7 +83,7 @@ const LeadForm: React.FC<{
   onSaved: () => void;
   onDelete?: () => void;
   /** Called when a change saves on its own, without the Save button. */
-  onChanged?: () => void;
+  onChanged?: (lead: Lead, patch: Partial<Lead>) => void;
 }> = ({ organizationId, lead, trades, onClose: closeNow, onSaved: savedNow, onDelete, onChanged }) => {
   // Slides in and out like the estimate drawer: start off-screen, move in on
   // the next frame, and slide out before the parent removes it.
@@ -125,10 +125,12 @@ const LeadForm: React.FC<{
   const saveAppointment = async (iso: string | null) => {
     setForm((current) => ({ ...current, appointmentAt: toLocalInput(iso ?? undefined) }));
     if (!lead) return;
+    const patch = { appointmentAt: iso ?? undefined, ...(iso ? { followUpDate: appointmentDay(toLocalInput(iso)) } : {}) };
+    if (iso) setForm((current) => ({ ...current, followUpDate: appointmentDay(toLocalInput(iso)) }));
+    // Show it on the board and calendar right away, then save.
+    onChanged?.(lead, patch);
     try {
-      await leadsAPI.update(lead.id, { appointmentAt: iso, ...(iso ? { followUpDate: appointmentDay(toLocalInput(iso)) } : {}) });
-      if (iso) setForm((current) => ({ ...current, followUpDate: appointmentDay(toLocalInput(iso)) }));
-      onChanged?.();
+      await leadsAPI.update(lead.id, { ...patch, appointmentAt: iso });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save the appointment');
     }
@@ -142,7 +144,10 @@ const LeadForm: React.FC<{
     const data: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(form)) data[key] = value.trim() === '' ? null : value.trim();
     data.estimatedValue = form.estimatedValue === '' ? null : Number(form.estimatedValue);
-    data.appointmentAt = fromLocalInput(form.appointmentAt);
+    // An existing lead's appointment has already saved itself; sending the
+    // form's copy here could put back an older time.
+    if (lead) delete data.appointmentAt;
+    else data.appointmentAt = fromLocalInput(form.appointmentAt);
     try {
       if (lead) await leadsAPI.update(lead.id, data);
       else await leadsAPI.create(organizationId, data);
@@ -720,13 +725,16 @@ const LeadsPage: React.FC = () => {
           organizationId={organizationId}
           lead={editing === 'new' ? null : editing}
           trades={trades}
-          onClose={() => setEditing(null)}
+          onClose={() => {
+            setEditing(null);
+            load();
+          }}
           onSaved={() => {
             setEditing(null);
             load();
           }}
           onDelete={editing === 'new' ? undefined : () => remove(editing)}
-          onChanged={load}
+          onChanged={(lead, patch) => setLeads((rows) => rows.map((row) => (row.id === lead.id ? { ...row, ...patch } : row)))}
         />
       )}
 

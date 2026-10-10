@@ -35,6 +35,19 @@ describe('AppointmentField', () => {
     expect(onChange).toHaveBeenCalledWith(new Date('2026-10-12T14:30').toISOString());
   });
 
+  it('still saves a just-picked time when the field is closed before the wait is up', () => {
+    const onChange = jest.fn();
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    act(() => root.render(<AppointmentField onChange={onChange} />));
+    act(() => pick(container.querySelector('input')!, '2026-10-12T09:15'));
+    act(() => root.unmount());
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith(new Date('2026-10-12T09:15').toISOString());
+    act(() => jest.advanceTimersByTime(800));
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
   it('removes the appointment straight away with the x', () => {
     const onChange = jest.fn();
     const container = render(<AppointmentField value={new Date('2026-10-12T14:00').toISOString()} onChange={onChange} />);
