@@ -9,8 +9,6 @@ import { EstimateService, Estimate, EstimateItem } from '../../services/Estimate
 import { priceAt } from '../../utils/priceRange';
 import { supabase } from '../../lib/supabase';
 import { formatCurrency } from '../../utils/format';
-import { ProjectSelectionModal } from './ProjectSelectionModal';
-import { ProjectCreationModal } from '../ProjectCreationModal';
 import { CreateEstimateDrawer } from './CreateEstimateDrawer';
 import { MapModal } from '../common/MapModal';
 import { OrganizationContext } from '../layouts/DashboardLayout';
@@ -32,11 +30,6 @@ export const EstimateDetail: React.FC = () => {
   const [estimate, setEstimate] = useState<Estimate | null>(null);
   const [loading, setLoading] = useState(true);
   const [showShareModal, setShowShareModal] = useState(false);
-  const [showDepositModal, setShowDepositModal] = useState(false);
-  const [showInvoiceDropdown, setShowInvoiceDropdown] = useState(false);
-  const [depositPercentage, setDepositPercentage] = useState(25);
-  const [showProjectSelectionModal, setShowProjectSelectionModal] = useState(false);
-  const [pendingInvoiceType, setPendingInvoiceType] = useState<'full' | 'deposit' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showMapModal, setShowMapModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -130,21 +123,6 @@ export const EstimateDetail: React.FC = () => {
     fetchEstimate();
   }, [id]);
 
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (showInvoiceDropdown) {
-        const target = event.target as Element;
-        if (!target.closest('.relative')) {
-          setShowInvoiceDropdown(false);
-        }
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showInvoiceDropdown]);
-
   const handleStatusUpdate = async (status: Estimate['status']) => {
     if (!estimate?.id) return;
 
@@ -173,102 +151,6 @@ export const EstimateDetail: React.FC = () => {
     } catch (error) {
       console.error('Error updating status:', error);
       alert('Failed to update estimate status');
-    }
-  };
-
-  const handleConvertToInvoice = async (useDeposit: boolean = false) => {
-    if (!estimate?.id) return;
-    
-    // Check if estimate already has a project
-    if (!estimate.project_id) {
-      // Store the pending action and show project selection modal
-      setPendingInvoiceType(useDeposit ? 'deposit' : 'full');
-      setShowProjectSelectionModal(true);
-    } else {
-      // Estimate already has a project, proceed with conversion
-      proceedWithInvoiceCreation(useDeposit);
-    }
-  };
-
-  const proceedWithInvoiceCreation = async (useDeposit: boolean = false) => {
-    if (!estimate?.id) return;
-
-    if (useDeposit) {
-      setShowDepositModal(true);
-    } else {
-      if (!confirm('Convert this estimate to a full invoice? This action cannot be undone.')) return;
-
-      try {
-        const invoiceId = await EstimateService.convertToInvoice(estimate.id);
-        navigate(`/invoices/${invoiceId}`);
-      } catch (error: any) {
-        console.error('Error converting to invoice:', error);
-        console.error('Error details:', error.message, error.details);
-        alert('Failed to convert estimate to invoice: ' + (error.message || 'Unknown error'));
-      }
-    }
-  };
-
-  const handleProjectSelection = async (projectId: string | null) => {
-    setShowProjectSelectionModal(false);
-    
-    if (projectId === 'CREATE_NEW') {
-      // Show create project modal
-      setShowProjectSelectionModal(true);
-      return;
-    }
-
-    // Update estimate with selected project (if any)
-    if (projectId && estimate?.id) {
-      try {
-        await EstimateService.update(estimate.id, { project_id: projectId });
-        // Reload estimate to get updated data
-        const result = await EstimateService.getById(estimate.id);
-        setEstimate(result);
-      } catch (error) {
-        console.error('Error updating estimate with project:', error);
-      }
-    }
-
-    // Continue with the pending invoice action
-    if (pendingInvoiceType) {
-      proceedWithInvoiceCreation(pendingInvoiceType === 'deposit');
-      setPendingInvoiceType(null);
-    }
-  };
-
-  const handleCreateDepositInvoice = async () => {
-    if (!estimate?.id) return;
-
-    try {
-      const invoiceId = await EstimateService.convertToInvoice(estimate.id, depositPercentage);
-      setShowDepositModal(false);
-      navigate(`/invoices/${invoiceId}`);
-    } catch (error: any) {
-      console.error('Error creating deposit invoice:', error);
-      console.error('Error details:', error.message, error.details);
-      alert('Failed to create deposit invoice: ' + (error.message || 'Unknown error'));
-    }
-  };
-
-  const handleProjectCreated = async (projectId: string) => {
-    setShowProjectSelectionModal(false);
-    
-    // Update estimate with new project
-    if (estimate?.id) {
-      try {
-        await EstimateService.update(estimate.id, { project_id: projectId });
-        const result = await EstimateService.getById(estimate.id);
-        setEstimate(result);
-      } catch (error) {
-        console.error('Error updating estimate with project:', error);
-      }
-    }
-
-    // Continue with pending invoice action
-    if (pendingInvoiceType) {
-      proceedWithInvoiceCreation(pendingInvoiceType === 'deposit');
-      setPendingInvoiceType(null);
     }
   };
 
@@ -644,54 +526,6 @@ export const EstimateDetail: React.FC = () => {
               >
                 <Send className="w-4 h-4" />
                 Resend
-              </button>
-            )}
-
-            {/* Invoice Creation - Consolidated */}
-            {estimate.status === 'accepted' && !estimate.converted_to_invoice_id && (
-              <div className="relative">
-                <button
-                  onClick={() => setShowInvoiceDropdown(!showInvoiceDropdown)}
-                  className={primaryAction}
-                >
-                  Create Invoice
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                
-                {showInvoiceDropdown && (
-                  <div className="absolute top-full right-0 mt-2 w-48 bg-[#1E1E1E] border border-[#333333] rounded-lg shadow-lg z-50 py-2">
-                    <button
-                      onClick={() => {
-                        handleConvertToInvoice(false);
-                        setShowInvoiceDropdown(false);
-                      }}
-                      className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#333333] transition-colors"
-                    >
-                      Full Invoice
-                    </button>
-                    <button
-                      onClick={() => {
-                        handleConvertToInvoice(true);
-                        setShowInvoiceDropdown(false);
-                      }}
-                      className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#333333] transition-colors"
-                    >
-                      Deposit Invoice
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-            
-            {/* View Invoice - if already converted */}
-            {estimate.converted_to_invoice_id && (
-              <button
-                onClick={() => navigate(`/invoices/${estimate.converted_to_invoice_id}`)}
-                className={primaryAction}
-              >
-                View Invoice
               </button>
             )}
 
@@ -1278,108 +1112,6 @@ export const EstimateDetail: React.FC = () => {
         </div>
       )}
 
-      {/* Deposit Invoice Modal */}
-      {showDepositModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowDepositModal(false)} />
-          <div className="relative bg-[#1E1E1E] rounded-lg border border-[#333333] p-6 max-w-md w-full">
-            <h3 className="text-lg font-semibold text-white mb-4">Create Deposit Invoice</h3>
-            <p className="text-gray-400 mb-6">
-              Create a partial invoice for a deposit payment. The remaining balance can be invoiced later.
-            </p>
-            
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Deposit Percentage
-              </label>
-              <div className="flex items-center gap-4">
-                <input
-                  type="range"
-                  min="10"
-                  max="90"
-                  step="5"
-                  value={depositPercentage}
-                  onChange={(e) => setDepositPercentage(Number(e.target.value))}
-                  className="flex-1"
-                />
-                <div className="w-20 text-center">
-                  <input
-                    type="number"
-                    min="10"
-                    max="90"
-                    value={depositPercentage}
-                    onChange={(e) => setDepositPercentage(Number(e.target.value))}
-                    className="w-full bg-[#333] border border-[#555] rounded px-2 py-1 text-white text-center"
-                  />
-                  <span className="text-sm text-gray-400">%</span>
-                </div>
-              </div>
-              
-              <div className="mt-4 p-4 bg-[#2a2a2a] rounded-lg">
-                <div className="flex justify-between text-sm mb-2">
-                  <span className="text-gray-400">Estimate Total:</span>
-                  <span className="text-white">{formatCurrency(estimate.total_amount)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">Deposit Amount:</span>
-                  <span className="text-[#F9D71C] font-semibold">
-                    {formatCurrency(estimate.total_amount * (depositPercentage / 100))}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setShowDepositModal(false)}
-                className="px-4 py-2 text-gray-300 hover:text-white transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreateDepositInvoice}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-              >
-                Create Deposit Invoice
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Project Selection Modal */}
-      {showProjectSelectionModal && (
-        <ProjectSelectionModal
-          isOpen={showProjectSelectionModal}
-          onClose={() => {
-            setShowProjectSelectionModal(false);
-            setPendingInvoiceType(null);
-          }}
-          onSelect={handleProjectSelection}
-          clientId={estimate?.client_id}
-          estimateTitle={estimate?.title || estimate?.estimate_number}
-        />
-      )}
-
-      {/* Project Creation Modal */}
-      {showProjectSelectionModal && estimate && (
-        <ProjectCreationModal
-          isOpen={showProjectSelectionModal}
-          onClose={() => {
-            setShowProjectSelectionModal(false);
-            setPendingInvoiceType(null);
-          }}
-          onSuccess={handleProjectCreated}
-          workPack={{
-            id: estimate.id || '',
-            name: estimate.title || estimate.estimate_number || 'Project',
-            description: estimate.description || '',
-            base_price: estimate.total_amount,
-            items: estimate.items || []
-          }}
-        />
-      )}
-
       {/* Mobile Sticky Action Bar */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#1a1a1a] border-t border-[#333] p-4 z-40">
         <div className="flex items-center justify-around gap-2">
@@ -1389,15 +1121,6 @@ export const EstimateDetail: React.FC = () => {
               className="flex-1 bg-[#336699] text-white px-3 py-3 rounded-lg text-sm font-medium"
             >
               Send
-            </button>
-          )}
-          
-          {estimate.status === 'accepted' && !estimate.converted_to_invoice_id && (
-            <button
-              onClick={() => handleConvertToInvoice(false)}
-              className="flex-1 bg-green-600 text-white px-3 py-3 rounded-lg text-sm font-medium"
-            >
-              Invoice
             </button>
           )}
           

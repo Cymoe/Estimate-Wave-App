@@ -111,7 +111,6 @@ export const ActivityPage: React.FC = () => {
 
   const entityTypes: Array<{ value: EntityType | '', label: string }> = [
     { value: '', label: 'All Types' },
-    { value: 'invoice', label: 'Invoices' },
     { value: 'estimate', label: 'Estimates' },
     { value: 'client', label: 'Clients' },
     { value: 'project', label: 'Projects' },

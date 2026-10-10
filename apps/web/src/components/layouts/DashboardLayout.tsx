@@ -32,9 +32,8 @@ import {
   Activity
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { invoicesAPI, organizationsAPI } from '../../lib/api';
+import { organizationsAPI } from '../../lib/api';
 import { NewClientModal } from '../clients/NewClientModal';
-import { CreateInvoiceDrawer } from '../invoices/CreateInvoiceDrawer';
 import { LineItemModal } from '../modals/LineItemModal';
 import { Sidebar } from './Sidebar';
 import { MobileHeader } from './MobileHeader';
@@ -134,7 +133,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
     return saved ? JSON.parse(saved) : false;
   });
   const [showNewClientModal, setShowNewClientModal] = useState(false);
-  const [showNewInvoiceDrawer, setShowNewInvoiceDrawer] = useState(false);
   const [showLineItemDrawer, setShowLineItemDrawer] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
@@ -296,7 +294,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
     if (path === '/dashboard') return 'Dashboard';
     if (path.startsWith('/clients')) return 'Clients';
     if (path.startsWith('/projects')) return 'Projects';
-    if (path.startsWith('/invoices')) return 'Invoices';
     if (path.startsWith('/products')) return 'Products';
     if (path.startsWith('/items')) return 'Price Book';
     if (path.startsWith('/price-book')) return 'Price Book';
@@ -388,7 +385,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
         activeElement.getAttribute('contenteditable') === 'true'
       );
       
-      if (isInputFocused || showNewClientModal || showNewInvoiceDrawer || showLineItemDrawer || showHelpModal) {
+      if (isInputFocused || showNewClientModal || showLineItemDrawer || showHelpModal) {
         return;
       }
 
@@ -414,11 +411,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
               setIsCreateMenuOpen(false);
               navigate('/clients/new');
               break;
-            case 'i':
-              e.preventDefault();
-              setIsCreateMenuOpen(false);
-              setShowNewInvoiceDrawer(true);
-              break;
           }
         }
       }
@@ -426,7 +418,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [navigate, isCreateMenuOpen, showNewClientModal, showNewInvoiceDrawer, showLineItemDrawer, showHelpModal]);
+  }, [navigate, isCreateMenuOpen, showNewClientModal, showLineItemDrawer, showHelpModal]);
 
   useEffect(() => {
     const mainContent = document.getElementById('main-content');
@@ -560,8 +552,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                     <QuickCreateMenu 
                       isOpen={isCreateMenuOpen} 
                       onClose={() => setIsCreateMenuOpen(false)} 
-                      showInvoiceDrawer={showNewInvoiceDrawer}
-                      setShowInvoiceDrawer={setShowNewInvoiceDrawer}
                     />
                   </QuickCreateButton>
 
@@ -726,7 +716,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                                       startDate: '2024-01-15',
                                       endDate: '2024-03-30',
                                       recentActivities: [
-                                        { id: '1', type: 'invoice', description: 'Invoice #1234 sent to client', timestamp: '2 hours ago' },
                                         { id: '2', type: 'payment', description: 'Payment received: $5,000', timestamp: 'Yesterday' },
                                         { id: '3', type: 'update', description: 'Electrical work completed', timestamp: '3 days ago' }
                                       ]
@@ -888,56 +877,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                     />
                   )}
 
-                  {/* Invoice Creation Drawer */}
-                  <CreateInvoiceDrawer
-                    isOpen={showNewInvoiceDrawer}
-                    onClose={() => setShowNewInvoiceDrawer(false)}
-                    organizationId={selectedOrg?.id}
-                    onSave={async (data) => {
-                      try {
-                        console.log('Invoice save started with data:', data);
-                        
-                        // Saved straight to Convex (the old Supabase insert no longer exists).
-                        const subtotal = data.total_amount || 0;
-                        const invoice = await invoicesAPI.create({
-                          organizationId: selectedOrg?.id,
-                          clientId: data.client_id || undefined,
-                          status: data.status || 'draft',
-                          dueDate: data.due_date || undefined,
-                          issueDate: data.issue_date || new Date().toISOString().split('T')[0],
-                          subtotal,
-                          taxRate: 0,
-                          taxAmount: 0,
-                          totalAmount: subtotal,
-                          notes: data.description || undefined,
-                          terms: 'Net 30',
-                          items: (data.items || []).map((item, index) => ({
-                            productId: item.product_id || undefined,
-                            description: item.product_name || item.description || 'Item',
-                            quantity: item.quantity || 1,
-                            unitPrice: item.price || 0,
-                            displayOrder: index,
-                          })),
-                        });
-                        console.log('Invoice created:', invoice);
-
-                        console.log('Invoice and items created successfully!');
-                        
-                        // Close the drawer
-                        setShowNewInvoiceDrawer(false);
-                        
-                        // Show success message
-                        alert('Invoice created successfully!');
-                        
-                        // Navigate to the work/invoices page  
-                        navigate('/work/invoices');
-                      } catch (error) {
-                        console.error('Error saving invoice:', error);
-                        alert('Failed to save invoice. Please check the console for details.');
-                      }
-                    }}
-                  />
-
                   {showLineItemDrawer && (
                     <LineItemModal
                       onClose={() => setShowLineItemDrawer(false)}
@@ -1011,29 +950,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                                 </div>
                                 <p className="text-gray-300 text-sm mb-3">
                                   Create projects, track progress, manage budgets, and keep everything organized.
-                                </p>
-                                <div className="flex items-center text-[#336699] text-sm font-medium">
-                                  <span>Start Tutorial</span>
-                                  <ChevronRight className="w-4 h-4 ml-1" />
-                                </div>
-                              </div>
-
-                              <div className="bg-[#333333] rounded-[4px] p-4 border border-[#404040] hover:border-[#336699] transition-colors cursor-pointer"
-                                   onClick={() => {
-                                     setShowHelpModal(false);
-                                     navigate('/invoices?tutorial=true');
-                                   }}>
-                                <div className="flex items-center mb-3">
-                                  <div className="w-10 h-10 bg-[#336699] rounded-[4px] flex items-center justify-center mr-3">
-                                    <span className="text-base">📄</span>
-                                  </div>
-                                  <div>
-                                    <h4 className="text-white font-medium">Invoice Management</h4>
-                                    <p className="text-gray-400 text-sm">5 min tutorial</p>
-                                  </div>
-                                </div>
-                                <p className="text-gray-300 text-sm mb-3">
-                                  Create professional invoices, track payments, and manage your cash flow.
                                 </p>
                                 <div className="flex items-center text-[#336699] text-sm font-medium">
                                   <span>Start Tutorial</span>
@@ -1163,7 +1079,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                               onClick={() => {
                                 localStorage.removeItem('clientsOnboardingCompleted');
                                 localStorage.removeItem('projectsOnboardingCompleted');
-                                localStorage.removeItem('invoicesOnboardingCompleted');
                                 localStorage.removeItem('productsOnboardingCompleted');
                                 localStorage.removeItem('priceBookOnboardingCompleted');
                                 setShowHelpModal(false);
@@ -1192,7 +1107,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                     isOpen={isCreateMenuOpen}
                     onClose={() => setIsCreateMenuOpen(false)}
                     onCreateClient={() => setShowNewClientModal(true)}
-                    onCreateInvoice={() => setShowNewInvoiceDrawer(true)}
                     onCreateLineItem={() => setShowLineItemDrawer(true)}
                   />
 

@@ -304,6 +304,9 @@ export default defineSchema({
     .index("by_organization_and_issue_date", ["organizationId", "issueDate"])
     .index("by_client", ["clientId"]),
 
+  // Invoicing was removed from the app (no payments are taken here). The table
+  // stays defined so any rows saved earlier don't block a deploy; nothing reads
+  // or writes it any more.
   invoices: defineTable({
     ...invoiceFields,
     organizationId: v.id("organizations"),

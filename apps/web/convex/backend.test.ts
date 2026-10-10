@@ -91,7 +91,7 @@ describe("auth and tenancy", () => {
   });
 });
 
-describe("estimates and invoices", () => {
+describe("estimates", () => {
   test("totals are derived from items and tax, and recalculated on update", async () => {
     const t = setup();
     const { as, organizationId } = await signUp(t, "a@example.com");
@@ -168,20 +168,6 @@ describe("estimates and invoices", () => {
     expect(await as.query(api.estimates.list, { organizationId })).toHaveLength(2);
     expect(await as.query(api.estimates.list, { organizationId, clientId: client!._id })).toHaveLength(1);
     expect(await as.query(api.estimates.list, { organizationId, status: "sent" })).toHaveLength(1);
-  });
-
-  test("invoices can be marked paid", async () => {
-    const t = setup();
-    const { as, organizationId } = await signUp(t, "a@example.com");
-    const invoice = await as.mutation(api.invoices.create, {
-      organizationId,
-      data: { items: [{ description: "Work", quantity: 1, unitPrice: 500 }] },
-    });
-    expect(invoice).toMatchObject({ status: "draft", totalAmount: 500, amountPaid: 0 });
-    expect(invoice!.invoiceNumber).toMatch(/^INV-/);
-    const paid = await as.mutation(api.invoices.markAsPaid, { id: invoice!._id, amountPaid: 500 });
-    expect(paid).toMatchObject({ status: "paid", amountPaid: 500 });
-    expect(paid!.paidDate).toEqual(expect.any(String));
   });
 });
 

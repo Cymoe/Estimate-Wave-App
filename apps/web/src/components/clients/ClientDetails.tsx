@@ -109,9 +109,8 @@ export const ClientDetails: React.FC<ClientDetailsProps> = ({
   const [client, setClient] = useState<Client | null>(null);
   const [interactions, setInteractions] = useState<ClientInteraction[]>([]);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
-  const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'projects' | 'invoices' | 'interactions'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'projects' | 'interactions'>('overview');
   const [showAddInteraction, setShowAddInteraction] = useState(false);
 
   useEffect(() => {
@@ -150,18 +149,9 @@ export const ClientDetails: React.FC<ClientDetailsProps> = ({
 
       if (projectsError) throw projectsError;
 
-      const { data: invoicesData, error: invoicesError } = await supabase
-        .from('invoices')
-        .select('id, amount, status, issue_date, due_date, invoice_number')
-        .eq('client_id', clientId)
-        .order('issue_date', { ascending: false });
-
-      if (invoicesError) throw invoicesError;
-
       setClient(clientData);
       setInteractions(interactionsData || []);
       setProjects(projectsData || []);
-      setInvoices(invoicesData || []);
 
     } catch (error) {
       console.error('Error loading client data:', error);
@@ -221,10 +211,6 @@ export const ClientDetails: React.FC<ClientDetailsProps> = ({
   };
 
   const totalProjectValue = projects.reduce((sum, p) => sum + (p.budget || 0), 0);
-  const totalInvoiced = invoices.reduce((sum, i) => sum + (i.amount || 0), 0);
-  const outstandingAmount = invoices
-    .filter(i => i.status !== 'paid')
-    .reduce((sum, i) => sum + (i.amount || 0), 0);
 
   const handleBackClick = () => {
     if (onBack) {
@@ -362,7 +348,6 @@ export const ClientDetails: React.FC<ClientDetailsProps> = ({
           {[
             { key: 'overview', label: 'Overview' },
             { key: 'projects', label: 'Projects', count: projects.length },
-            { key: 'invoices', label: 'Invoices', count: invoices.length },
             { key: 'interactions', label: 'Interactions', count: interactions.length }
           ].map(({ key, label, count }) => (
             <button
@@ -396,27 +381,13 @@ export const ClientDetails: React.FC<ClientDetailsProps> = ({
                 <h3 className="text-sm font-medium uppercase tracking-wider text-gray-400 mb-4">
                   Financial Summary
                 </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 gap-4">
                   <div className="min-w-0 overflow-hidden">
                     <div className="flex items-center gap-1 mb-2">
                       <TrendingUp className="h-4 w-4 text-green-400 flex-shrink-0" />
                       <div className="text-xs text-gray-400 truncate">Total Project Value</div>
                     </div>
                     <div className="text-base md:text-lg font-bold text-green-400 truncate">{formatCurrency(totalProjectValue)}</div>
-                  </div>
-                  <div className="min-w-0 overflow-hidden">
-                    <div className="flex items-center gap-1 mb-2">
-                      <DollarSign className="h-4 w-4 text-blue-400 flex-shrink-0" />
-                      <div className="text-xs text-gray-400 truncate">Total Invoiced</div>
-                    </div>
-                    <div className="text-base md:text-lg font-bold text-white truncate">{formatCurrency(totalInvoiced)}</div>
-                  </div>
-                  <div className="min-w-0 overflow-hidden">
-                    <div className="flex items-center gap-1 mb-2">
-                      <Clock className="h-4 w-4 text-yellow-400 flex-shrink-0" />
-                      <div className="text-xs text-gray-400 truncate">Outstanding</div>
-                    </div>
-                    <div className="text-base md:text-lg font-bold text-yellow-400 truncate">{formatCurrency(outstandingAmount)}</div>
                   </div>
                 </div>
               </div>
@@ -541,10 +512,6 @@ export const ClientDetails: React.FC<ClientDetailsProps> = ({
                   <div className="flex items-center justify-between">
                     <div className="text-gray-400">Projects</div>
                     <div className="text-xl font-bold text-white">{projects.length}</div>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="text-gray-400">Invoices</div>
-                    <div className="text-xl font-bold text-white">{invoices.length}</div>
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="text-gray-400">Interactions</div>

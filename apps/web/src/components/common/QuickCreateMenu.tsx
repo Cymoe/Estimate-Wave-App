@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DollarSign, FileText, User, UserPlus } from 'lucide-react';
+import { FileText, User, UserPlus } from 'lucide-react';
 
 interface QuickCreateOption {
   id: string;
@@ -12,8 +12,6 @@ interface QuickCreateOption {
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  showInvoiceDrawer: boolean;
-  setShowInvoiceDrawer: (value: boolean) => void;
 }
 
 /**
@@ -21,7 +19,7 @@ interface Props {
  * (rendered inside QuickCreateButton so they line up with it), each a round
  * icon with its label beside it, over a dimmed page.
  */
-export const QuickCreateMenu: React.FC<Props> = ({ isOpen, onClose, setShowInvoiceDrawer }) => {
+export const QuickCreateMenu: React.FC<Props> = ({ isOpen, onClose }) => {
   const navigate = useNavigate();
   const [selectedIndex, setSelectedIndex] = useState(-1);
 
@@ -29,7 +27,6 @@ export const QuickCreateMenu: React.FC<Props> = ({ isOpen, onClose, setShowInvoi
     { id: 'lead', name: 'Lead', icon: UserPlus, action: () => navigate('/leads?new=1') },
     { id: 'estimate', name: 'Estimate', icon: FileText, action: () => navigate('/work?new=1') },
     { id: 'client', name: 'Client', icon: User, action: () => navigate('/clients/new') },
-    { id: 'invoice', name: 'Invoice', icon: DollarSign, action: () => setShowInvoiceDrawer(true) },
   ];
 
   const choose = (option: QuickCreateOption) => {

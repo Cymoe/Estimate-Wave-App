@@ -162,33 +162,6 @@ export const estimatesAPI = {
   },
 };
 
-// Invoices API
-export const invoicesAPI = {
-  async list(organizationId: string, filters?: { clientId?: string; status?: string }) {
-    return run('query', api.invoices.list, defined({ organizationId, clientId: filters?.clientId, status: filters?.status }));
-  },
-
-  async getById(id: string) {
-    return run('query', api.invoices.get, { id });
-  },
-
-  async create(data: any) {
-    return run('mutation', api.invoices.create, { organizationId: requireOrganizationId(data), data });
-  },
-
-  async update(id: string, data: any) {
-    return run('mutation', api.invoices.update, { id, data });
-  },
-
-  async delete(id: string) {
-    return run('mutation', api.invoices.remove, { id });
-  },
-
-  async markAsPaid(id: string, amountPaid: number) {
-    return run('mutation', api.invoices.markAsPaid, { id, amountPaid });
-  },
-};
-
 // Projects API
 export const projectsAPI = {
   async list(organizationId: string, filters?: { clientId?: string; status?: string }) {

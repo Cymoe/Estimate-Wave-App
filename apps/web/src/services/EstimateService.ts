@@ -1,4 +1,4 @@
-import { clientsAPI, estimatesAPI, invoicesAPI, projectsAPI } from '../lib/api';
+import { clientsAPI, estimatesAPI, projectsAPI } from '../lib/api';
 
 export interface EstimateItem {
   id?: string;
@@ -38,7 +38,6 @@ export interface Estimate {
   terms?: string;
   client_signature?: string;
   signed_at?: string;
-  converted_to_invoice_id?: string;
   first_opened_at?: string;
   sent_at?: string;
   last_sent_at?: string;
@@ -247,55 +246,6 @@ export class EstimateService {
   static async getByProject(projectId: string, organizationId?: string): Promise<Estimate[]> {
     if (!organizationId) return [];
     return (await this.list(organizationId)).filter((estimate) => estimate.project_id === projectId);
-  }
-
-  /** Creates a draft invoice from an accepted estimate (optionally a deposit). Returns its id. */
-  static async convertToInvoice(estimateId: string, depositPercentage?: number): Promise<string> {
-    const estimate = await this.getById(estimateId);
-    if (!estimate) throw new Error('Estimate not found');
-    if (estimate.status !== 'accepted') {
-      throw new Error('Estimate must be accepted before converting to invoice');
-    }
-
-    const isDeposit = !!depositPercentage && depositPercentage > 0 && depositPercentage < 100;
-    const depositAmount = Math.round(estimate.subtotal * (depositPercentage ?? 100)) / 100;
-    let notes = estimate.notes || '';
-    if (isDeposit) {
-      const depositNote = `This is a ${depositPercentage}% deposit invoice for estimate ${estimate.estimate_number}.`;
-      notes = notes ? `${notes}\n\n${depositNote}` : depositNote;
-    }
-
-    const items = isDeposit
-      ? [{
-          description: `${depositPercentage}% Deposit for: ${estimate.title || estimate.estimate_number}`,
-          quantity: 1,
-          unitPrice: depositAmount,
-          displayOrder: 0,
-        }]
-      : (estimate.items ?? []).map((item, index) => ({
-          description: item.description,
-          quantity: item.quantity,
-          unitPrice: item.unit_price,
-          costCode: item.cost_code,
-          displayOrder: index,
-        }));
-
-    const invoice = await invoicesAPI.create({
-      organization_id: estimate.organization_id,
-      estimateId,
-      clientId: estimate.client_id,
-      projectId: estimate.project_id,
-      invoiceNumber: newNumber('INV'),
-      status: 'draft',
-      issueDate: new Date().toISOString().split('T')[0],
-      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      taxRate: estimate.tax_rate || 0,
-      notes: notes || undefined,
-      terms: estimate.terms,
-      title: estimate.title,
-      items,
-    });
-    return invoice._id;
   }
 
   static async createFromServicePackage(data: {

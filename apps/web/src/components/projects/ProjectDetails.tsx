@@ -10,9 +10,7 @@ import { OrganizationContext } from '../layouts/DashboardLayout';
 import { formatCurrency } from '../../utils/format';
 import { TaskList } from '../tasks/TaskList';
 import { ExpensesList } from '../expenses/ExpensesList';
-import { CreateInvoiceDrawer } from '../invoices/CreateInvoiceDrawer';
 import { ProjectDocuments } from './ProjectDocuments';
-import { BudgetAnalysis } from './BudgetAnalysis';
 import { TimelineView } from './TimelineView';
 import { StatusBadge } from './StatusBadge';
 import { StatusTransition } from './StatusTransition';
@@ -77,7 +75,7 @@ interface Note {
   is_pinned: boolean;
 }
 
-type TabType = 'overview' | 'tasks' | 'expenses' | 'budget' | 'timeline' | 'photos' | 'documents';
+type TabType = 'overview' | 'tasks' | 'expenses' | 'timeline' | 'photos' | 'documents';
 
 export const ProjectDetails: React.FC = () => {
   const { id } = useParams();
@@ -101,8 +99,6 @@ export const ProjectDetails: React.FC = () => {
   const [photoLink, setPhotoLink] = useState<string>('');
   const [isEditingPhotoLink, setIsEditingPhotoLink] = useState(false);
   const [isSavingPhotoLink, setIsSavingPhotoLink] = useState(false);
-  const [projectInvoices, setProjectInvoices] = useState<any[]>([]);
-  const [showInvoiceDrawer, setShowInvoiceDrawer] = useState(false);
 
   // Legacy template data - now replaced by database templates
   // const projectTemplates = {
@@ -209,7 +205,7 @@ export const ProjectDetails: React.FC = () => {
       }
       
       // Run all queries in parallel for faster loading
-      const [projectResult, tasksResult, expensesResult, photosResult, invoicesResult, documentsResult] = await Promise.all([
+      const [projectResult, tasksResult, expensesResult, photosResult, documentsResult] = await Promise.all([
         // Load project with client details
         supabase
           .from('projects')
@@ -237,13 +233,6 @@ export const ProjectDetails: React.FC = () => {
           .from('photos')
           .select('*', { count: 'exact', head: true })
           .eq('project_id', id),
-          
-        // Load invoices
-        supabase
-          .from('invoices')
-          .select('*')
-          .eq('project_id', id)
-          .order('created_at', { ascending: false }),
           
         // Load document count
         supabase
@@ -280,11 +269,6 @@ export const ProjectDetails: React.FC = () => {
         setPhotoCount(photosResult.count);
       }
 
-      // Process invoices data
-      if (!invoicesResult.error && invoicesResult.data) {
-        setProjectInvoices(invoicesResult.data);
-      }
-      
       // Process documents data
       if (!documentsResult.error && documentsResult.count !== null) {
         setDocumentCount(documentsResult.count);
@@ -313,28 +297,6 @@ export const ProjectDetails: React.FC = () => {
       loadProjectData(true); // Show spinner on initial load
     }
   }, [id, user]);
-
-  // Refresh invoices when returning to the page
-  useEffect(() => {
-    const handleFocus = () => {
-      // Only refresh invoices data, not the entire page
-      if (id && user && project) {
-        supabase
-          .from('invoices')
-          .select('*')
-          .eq('project_id', id)
-          .order('created_at', { ascending: false })
-          .then(({ data, error }) => {
-            if (!error && data) {
-              setProjectInvoices(data);
-            }
-          });
-      }
-    };
-
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
-  }, [id, user, project]);
 
   // Removed aggressive refresh on visibility/focus changes - too annoying
   // If you need to refresh data, use the manual refresh button or navigate away and back
@@ -408,10 +370,6 @@ export const ProjectDetails: React.FC = () => {
     return Math.max(0, Math.round(score));
   };
 
-  const handleGenerateInvoice = () => {
-    setShowInvoiceDrawer(true);
-  };
-
   const savePhotoLink = async (link: string) => {
     try {
       setIsSavingPhotoLink(true);
@@ -434,13 +392,6 @@ export const ProjectDetails: React.FC = () => {
     switch (tab) {
       case 'overview':
         return [
-          {
-            icon: <DollarSign className="w-5 h-5" />,
-            label: 'Generate Invoice',
-            action: handleGenerateInvoice,
-            colorClass: 'group-hover:text-[#F9D71C]',
-            primary: true // Made primary since it's the main action now
-          },
           {
             icon: <Phone className="w-5 h-5" />,
             label: 'Contact Client',
@@ -474,13 +425,6 @@ export const ProjectDetails: React.FC = () => {
             primary: true
           },
           {
-            icon: <DollarSign className="w-5 h-5" />,
-            label: 'Generate Invoice',
-            action: handleGenerateInvoice,
-            colorClass: 'group-hover:text-[#F9D71C]',
-            primary: false
-          },
-          {
             icon: <FileText className="w-5 h-5" />,
             label: 'Export Report',
             action: () => {
@@ -502,29 +446,6 @@ export const ProjectDetails: React.FC = () => {
           }
         ];
       
-      case 'budget':
-        return [
-          {
-            icon: <DollarSign className="w-5 h-5" />,
-            label: 'Compare Margins',
-            action: () => {
-              // TODO: Show margin comparison view
-              console.log('Compare margins');
-            },
-            colorClass: 'group-hover:text-[#F9D71C]',
-            primary: true
-          },
-          {
-            icon: <FileText className="w-5 h-5" />,
-            label: 'Export Report',
-            action: () => {
-              // TODO: Export budget report
-              console.log('Export budget report');
-            },
-            colorClass: 'group-hover:text-[#336699]',
-            primary: false
-          }
-        ];
       
       case 'documents':
         return [
@@ -877,16 +798,6 @@ export const ProjectDetails: React.FC = () => {
           <span className="text-xs text-gray-500">{expenseCount}</span>
         </button>
         <button
-          onClick={() => setActiveTab('budget')}
-          className={`flex-1 pb-4 text-sm font-medium transition-colors relative text-center after:absolute after:bottom-[-1px] after:left-0 after:right-0 after:h-[2px] after:transition-colors ${
-            activeTab === 'budget'
-              ? 'text-white after:bg-[#336699]'
-              : 'text-gray-500 hover:text-gray-400 after:bg-transparent hover:after:bg-[#336699]'
-          }`}
-        >
-          Budget
-        </button>
-        <button
           onClick={() => setActiveTab('timeline')}
           className={`flex-1 pb-4 text-sm font-medium transition-colors relative text-center after:absolute after:bottom-[-1px] after:left-0 after:right-0 after:h-[2px] after:transition-colors ${
             activeTab === 'timeline'
@@ -1070,35 +981,9 @@ export const ProjectDetails: React.FC = () => {
             </div>
 
             {/* Quick stats row */}
-            {(projectInvoices.length > 0 || expenseCount > 0) && (
+            {expenseCount > 0 && (
               <div className="mt-4 pt-4 border-t border-[#2a2a2a] flex items-center justify-between text-xs">
                 <div className="flex items-center gap-4">
-                  {projectInvoices.length > 0 && (
-                    <>
-                      <span className="text-gray-500">
-                        {projectInvoices.length} invoice{projectInvoices.length !== 1 ? 's' : ''} generated
-                      </span>
-                      {(() => {
-                        const totalInvoiced = projectInvoices.reduce((sum, inv) => sum + (inv.total_amount || 0), 0);
-                        const paidInvoices = projectInvoices.filter(inv => inv.status === 'paid');
-                        const totalPaid = paidInvoices.reduce((sum, inv) => sum + (inv.total_amount || 0), 0);
-                        
-                        return (
-                          <>
-                            <span className="text-gray-500">
-                              ${totalInvoiced.toLocaleString()} invoiced
-                            </span>
-                            {paidInvoices.length > 0 && (
-                              <span className="text-green-400">
-                                ${totalPaid.toLocaleString()} paid
-                              </span>
-                            )}
-                          </>
-                        );
-                      })()}
-                    </>
-                  )}
-                  
                   {expenseCount > 0 && (
                     <>
                       <span className="text-green-400">
@@ -1113,81 +998,6 @@ export const ProjectDetails: React.FC = () => {
               </div>
             )}
           </section>
-
-          {/* Invoices */}
-          {projectInvoices.length > 0 ? (
-            <section className="bg-[#181818] rounded-xl p-6">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-sm font-semibold uppercase tracking-wider">Invoices</h3>
-                <button 
-                  onClick={handleGenerateInvoice}
-                  className="text-xs text-[#F9D71C] hover:text-[#E6C419]"
-                >
-                  + New Invoice
-                </button>
-              </div>
-              <div className="space-y-3">
-                {projectInvoices.map((invoice) => (
-                  <div 
-                    key={invoice.id} 
-                    className="bg-[#121212] rounded-lg p-4 hover:bg-[#1a1a1a] transition-colors cursor-pointer"
-                    onClick={() => navigate(`/invoices/${invoice.id}`, { 
-                      state: { 
-                        from: 'project', 
-                        projectId: project.id,
-                        projectName: project.name 
-                      } 
-                    })}
-                  >
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm font-medium">Invoice #{invoice.id ? invoice.id.slice(0, 8).toUpperCase() : 'Unknown'}</span>
-                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                            invoice.status === 'paid' 
-                              ? 'bg-green-500/20 text-green-400' 
-                              : invoice.status === 'sent'
-                              ? 'bg-[#336699]/20 text-[#336699]'
-                              : invoice.status === 'overdue'
-                              ? 'bg-red-500/20 text-red-400'
-                              : 'bg-gray-500/20 text-gray-400'
-                          }`}>
-                            {invoice.status}
-                          </span>
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          Created {new Date(invoice.created_at).toLocaleDateString()}
-                          {invoice.due_date && ` • Due ${new Date(invoice.due_date).toLocaleDateString()}`}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-sm font-medium">${(invoice.amount || invoice.total_amount || 0).toLocaleString()}</div>
-                        {invoice.status === 'paid' && invoice.paid_at && (
-                          <div className="text-xs text-gray-500">
-                            Paid {new Date(invoice.paid_at).toLocaleDateString()}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          ) : (
-            <section className="bg-[#181818] rounded-xl p-6">
-              <h3 className="text-sm font-semibold uppercase tracking-wider mb-6">Invoices</h3>
-              <div className="text-center py-8">
-                <FileText className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-                <p className="text-gray-500 text-sm mb-4">No invoices generated yet</p>
-                <button 
-                  onClick={handleGenerateInvoice}
-                  className="px-4 py-2 bg-[#F9D71C] text-black rounded-md text-sm hover:bg-[#E6C419] transition-colors"
-                >
-                  Generate First Invoice
-                </button>
-              </div>
-            </section>
-          )}
 
           {/* Tasks */}
           {taskCount > 0 ? (
@@ -1403,14 +1213,6 @@ export const ProjectDetails: React.FC = () => {
         </div>
       )}
 
-      {activeTab === 'budget' && (
-        <div className="space-y-4">
-          <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-6">
-            <BudgetAnalysis projectId={project.id} />
-          </div>
-        </div>
-      )}
-
       {activeTab === 'timeline' && (
         <div className="space-y-4">
           <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-6">
@@ -1561,84 +1363,6 @@ export const ProjectDetails: React.FC = () => {
         </div>
       )}
 
-      {/* Create Invoice Drawer */}
-      <CreateInvoiceDrawer
-        isOpen={showInvoiceDrawer}
-        onClose={() => setShowInvoiceDrawer(false)}
-        organizationId={selectedOrg?.id}
-        projectContext={project ? {
-          projectId: project.id,
-          clientId: project.client_id,
-          projectName: project.name,
-          projectBudget: project.budget
-        } : undefined}
-        onSave={async (data) => {
-          try {
-            console.log('Invoice save started with data:', data);
-            
-            const invoiceData = {
-              user_id: user?.id,
-              organization_id: selectedOrg?.id,
-              client_id: data.client_id,
-              amount: data.total_amount,
-              status: data.status,
-              issue_date: data.issue_date,
-              due_date: data.due_date,
-              description: data.description,
-              project_id: data.project_id || null
-            };
-            
-            console.log('Invoice data to insert:', invoiceData);
-            
-            const { data: invoice, error: invoiceError } = await supabase
-              .from('invoices')
-              .insert(invoiceData)
-              .select()
-              .single();
-
-            if (invoiceError) {
-              console.error('Error creating invoice:', invoiceError);
-              alert(`Error creating invoice: ${invoiceError.message}`);
-              throw invoiceError;
-            }
-
-            console.log('Invoice created successfully:', invoice);
-
-            // Create invoice items
-            const itemsToInsert = data.items.map(item => ({
-              invoice_id: invoice.id,
-              product_id: item.product_id,
-              quantity: item.quantity,
-              unit_price: item.price,
-              total_price: item.price * item.quantity,
-              description: item.description
-            }));
-
-            console.log('Inserting invoice items:', itemsToInsert);
-
-            const { error: itemsError } = await supabase
-              .from('invoice_items')
-              .insert(itemsToInsert);
-
-            if (itemsError) {
-              console.error('Error inserting invoice items:', itemsError);
-              alert(`Error inserting invoice items: ${itemsError.message}`);
-              throw itemsError;
-            }
-            
-            console.log('Invoice and items created successfully!');
-            
-            // Refresh the invoices list
-            await loadProjectData(false);
-            setShowInvoiceDrawer(false);
-            
-            // Show success message
-            alert('Invoice created successfully!');
-          } catch (error) {
-            console.error('Error saving invoice:', error);
-          }
-        }}
-      />
     </div>
   );
 };

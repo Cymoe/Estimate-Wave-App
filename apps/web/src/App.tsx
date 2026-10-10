@@ -56,29 +56,19 @@ const SimpleExperience = React.lazy(() => import('./pages/SimpleExperience').the
 //     import('./utils/testWebSocket'),
 //     import('./utils/quickWebSocketTest'),
 //     import('./utils/checkActivityDatabase'),
-//     import('./utils/testInvoiceActivity'),
-//     import('./utils/debugInvoiceActivity'),
-//     import('./utils/verifyInvoiceActivityFix'),
 //     import('./utils/diagnoseOrganizationIssue'),
 //     import('./utils/testActivityWithSelectedOrg'),
-//     import('./utils/fixOldInvoiceActivities'),
-//     import('./utils/fixAllBadInvoiceActivities'),
 //     import('./utils/manuallyFixBadActivities'),
 //     import('./utils/debugWhyNotFixing'),
 //     import('./utils/directActivityFix'),
 //     import('./utils/deleteAndRecreateActivities'),
 //     import('./utils/investigateActivityIssue'),
-//     import('./utils/auditAllActivityLogging'),
 //     import('./utils/createHistoricalActivities'),
 //     import('./utils/checkSupabaseData'),
-//     import('./utils/fixEverythingNow'),
 //     import('./utils/checkActivityStatus'),
 //     import('./utils/checkActivityProgress'),
 //     import('./utils/fixActivityDescriptions'),
 //     import('./utils/fixBadActivityDescriptions'),
-//     import('./utils/createTestInvoice'),
-//     import('./utils/directInvoiceInsert'),
-//     import('./utils/verifyInvoiceActivityLogging'),
 //     import('./utils/testRawActivityCreation'),
 //     import('./utils/checkWorkPackTemplateActivities'),
 //     import('./utils/testWorkPackAndTemplateLogging')
@@ -91,18 +81,12 @@ const SimpleExperience = React.lazy(() => import('./pages/SimpleExperience').the
 //     console.log('  - testWebSocket() - Test WebSocket connectivity');
 //     console.log('  - quickWebSocketTest() - Quick WebSocket diagnostic');
 //     console.log('  - checkActivityDatabase() - Check activity logging state');
-//     console.log('  - testInvoiceActivity() - Test invoice activity logging');
-//     console.log('  - debugInvoiceActivity() - Debug invoice activity issue');
-//     console.log('  - verifyInvoiceActivityFix() - Verify invoice activity fix is working');
 //     console.log('  - diagnoseOrganizationIssue() - Diagnose user organization issues');
 //     console.log('  - testActivityWithSelectedOrg() - Test with your selected organization');
-//     console.log('  - fixOldInvoiceActivities() - Fix old invoice activities with improper descriptions');
-//     console.log('  - fixAllBadInvoiceActivities() - Aggressively fix ALL bad invoice activities');
 //     console.log('  - manuallyFixBadActivities() - Manually fix specific problematic activities');
 //     console.log('  - debugWhyNotFixing() - Debug why activities are not getting fixed');
 //     console.log('  - investigateActivityIssue() - Deep investigation of why updates fail');
 //     console.log('  - deleteAndRecreateActivities() - Delete bad activities and recreate them properly');
-//     console.log('  - auditAllActivityLogging() - Audit ALL activity logging across the app');
 //     console.log('  - createHistoricalActivities() - Create activities for existing entities');
 //     console.log('  - checkWorkPackTemplateActivities() - Check work pack & template activities');
 //     console.log('  - testWorkPackAndTemplateLogging() - Test work pack & template logging');
