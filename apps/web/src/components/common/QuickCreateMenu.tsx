@@ -27,7 +27,7 @@ export const QuickCreateMenu: React.FC<Props> = ({ isOpen, onClose, setShowInvoi
 
   const options: QuickCreateOption[] = [
     { id: 'lead', name: 'Lead', icon: UserPlus, action: () => navigate('/leads?new=1') },
-    { id: 'estimate', name: 'Full Estimate', icon: FileText, action: () => navigate('/work') },
+    { id: 'estimate', name: 'Estimate', icon: FileText, action: () => navigate('/work?new=1') },
     { id: 'client', name: 'Client', icon: User, action: () => navigate('/clients/new') },
     { id: 'invoice', name: 'Invoice', icon: DollarSign, action: () => setShowInvoiceDrawer(true) },
   ];

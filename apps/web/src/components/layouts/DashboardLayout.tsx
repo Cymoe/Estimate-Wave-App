@@ -407,7 +407,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
             case 'e':
               e.preventDefault();
               setIsCreateMenuOpen(false);
-              navigate('/work');
+              navigate('/work?new=1');
               break;
             case 'c':
               e.preventDefault();

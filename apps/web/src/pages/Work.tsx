@@ -1,121 +1,31 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { 
-  FileText, 
-  Plus,
-  Search
-} from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { EstimatesList } from '../components/estimates/EstimatesList';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
 import { EstimateService } from '../services/EstimateService';
 import { useAuth } from '../contexts/AuthContext';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
-import { supabase } from '../lib/supabase';
 
+/**
+ * The estimates list. New estimates start from the yellow + button
+ * ("Estimate"), which opens /work?new=1 and with it the drawer below.
+ */
 export const Work: React.FC = () => {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { selectedOrg } = useContext(OrganizationContext);
-  const [estimatesCount, setEstimatesCount] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [searchInput, setSearchInput] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
   const [showCreateEstimate, setShowCreateEstimate] = useState(false);
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // "New estimate" elsewhere in the app opens /work?new=1.
   useEffect(() => {
     if (searchParams.get('new') !== '1') return;
     setShowCreateEstimate(true);
     setSearchParams({}, { replace: true });
   }, [searchParams, setSearchParams]);
 
-  // Debounce search input
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setSearchTerm(searchInput);
-    }, 300);
-    return () => clearTimeout(handler);
-  }, [searchInput]);
-
-  // Function to load estimates count
-  const loadEstimatesCount = async () => {
-    if (!selectedOrg?.id) {
-      setLoading(false);
-      return;
-    }
-
-    try {
-      const { count } = await supabase
-        .from('estimates')
-        .select('id', { count: 'exact' })
-        .eq('organization_id', selectedOrg.id);
-
-      setEstimatesCount(count || 0);
-    } catch (error) {
-      console.error('Error fetching estimates count:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Fetch estimates count
-  useEffect(() => {
-    loadEstimatesCount();
-  }, [selectedOrg]);
-
-  const handleCreateEstimate = () => {
-    setShowCreateEstimate(true);
-  };
-
   return (
     <div className="max-w-[1600px] mx-auto">
-      {/* Single Unified Card */}
-      <div className="bg-transparent border border-[#333333]">
-        {/* Header Section */}
-        <div className="px-6 py-5">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <FileText className="w-5 h-5 text-white" />
-              <h1 className="text-xl font-semibold text-white">Estimates</h1>
-              <span className="text-sm text-gray-500">({estimatesCount})</span>
-            </div>
-            
-            <div className="flex items-center gap-5">
-              <div className="relative">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search estimates..."
-                    value={searchInput}
-                    onChange={(e) => setSearchInput(e.target.value)}
-                    className="bg-[#1E1E1E] border border-[#333333] pl-10 pr-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699] w-[300px]"
-                  />
-              </div>
-              
-              <button
-                onClick={handleCreateEstimate}
-                className="bg-white hover:bg-gray-100 text-black px-5 py-2.5 text-sm font-medium transition-colors flex items-center gap-2"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Create Estimate</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-      </div>
-
-      {/* Content Area - Visually connected */}
-      <div className="-mt-[1px]">
-        <div className="[&>div]:border-t-0">
-          <EstimatesList 
-            onCreateEstimate={handleCreateEstimate} 
-            searchTerm={searchTerm}
-            refreshTrigger={refreshTrigger}
-          />
-        </div>
-      </div>
+      <EstimatesList />
 
       {/* Modals */}
       <CreateEstimateDrawer

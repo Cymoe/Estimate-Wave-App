@@ -9,6 +9,7 @@
 import { ConvexError } from "convex/values";
 import type { FunctionReference } from "convex/server";
 import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 import { convex } from "./convex";
 
 class APIError extends Error {
@@ -344,7 +345,7 @@ export const leadsAPI = {
 
   /** Calls onUpdate with the org's leads now and after every change. Returns a stop function. */
   watch(organizationId: string, onUpdate: (leads: any[]) => void): () => void {
-    const watch = convex.watchQuery(api.leads.list, { organizationId });
+    const watch = convex.watchQuery(api.leads.list, { organizationId: organizationId as Id<'organizations'> });
     const emit = () => {
       try {
         const result = watch.localQueryResult();

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext, useRef, useMemo } from 'react';
 import { 
-  FileText, Filter, MoreVertical, 
+  FileText, Filter, MoreVertical, Search, 
   Eye, Edit, Trash2, Send, Clock, CheckCircle, 
   XCircle, AlertTriangle, Calendar, ChevronDown, ChevronUp, LayoutGrid, Share2, Copy,
   Download, FileSpreadsheet, FileDown, Check
@@ -24,10 +24,18 @@ interface EstimatesListProps {
 
 import { CreateEstimateDrawer } from './CreateEstimateDrawer';
 
-export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, searchTerm = '', refreshTrigger }) => {
+export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, searchTerm: outsideSearch = '', refreshTrigger }) => {
+  // The search box lives in the list's own toolbar; a page can still pass one in.
+  const [searchInput, setSearchInput] = useState('');
+  const [typedSearch, setTypedSearch] = useState('');
+  useEffect(() => {
+    const handler = setTimeout(() => setTypedSearch(searchInput), 300);
+    return () => clearTimeout(handler);
+  }, [searchInput]);
+  const searchTerm = outsideSearch || typedSearch;
   const navigate = useNavigate();
   const { selectedOrg } = useContext(OrganizationContext);
-  const { isConstrained } = React.useContext(LayoutContext);
+  const { isConstrained } = useContext(LayoutContext);
   const [estimates, setEstimates] = useState<Estimate[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -424,12 +432,16 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
               </div>
             </div>
 
-            <button 
-              onClick={onCreateEstimate}
-              className="px-6 py-3 bg-white text-black rounded-[8px] font-medium hover:bg-gray-100 transition-colors"
-            >
-              CREATE FIRST ESTIMATE
-            </button>
+            {onCreateEstimate ? (
+              <button 
+                onClick={onCreateEstimate}
+                className="px-6 py-3 bg-white text-black rounded-[8px] font-medium hover:bg-gray-100 transition-colors"
+              >
+                CREATE FIRST ESTIMATE
+              </button>
+            ) : (
+              <p className="text-sm text-gray-400">Tap the yellow + and choose Estimate to create your first one.</p>
+            )}
           </div>
         </div>
       </div>
@@ -442,57 +454,21 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
       <div className="flex-1 flex flex-col">
         {/* Unified Container */}
         <div className="bg-transparent border border-[#333333] flex flex-col">
-        {/* Stats Section */}
-        <div className={`${isConstrained ? 'px-4 py-1.5' : 'px-4 py-2'} border-b border-[#333333]/50`}>
-          {isConstrained ? (
-            <div className="grid grid-cols-4 gap-4">
-              <div className="text-center">
-                <div className="text-xs text-gray-400 uppercase tracking-wider">TOTAL</div>
-                <div className="text-base font-semibold mt-1">{estimates.length}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-xs text-gray-400 uppercase tracking-wider">VALUE</div>
-                <div className="text-base font-semibold text-yellow-400 mt-1">{formatCurrency(estimates.reduce((sum, est) => sum + est.total_amount, 0))}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-xs text-gray-400 uppercase tracking-wider">ACCEPTED</div>
-                <div className="text-base font-semibold text-green-400 mt-1">{statusCounts.accepted || 0}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-xs text-gray-400 uppercase tracking-wider">PENDING</div>
-                <div className="text-base font-semibold text-blue-400 mt-1">{statusCounts.sent || 0}</div>
-              </div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-4 gap-4">
-              <div>
-                <div className="text-xs text-gray-400 uppercase tracking-wider">TOTAL ESTIMATES</div>
-                <div className="text-lg font-semibold mt-1">{estimates.length}</div>
-                <div className="text-xs text-gray-500">all estimates • lifetime business</div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-400 uppercase tracking-wider">TOTAL VALUE</div>
-                <div className="text-lg font-semibold text-yellow-400 mt-1">{formatCurrency(estimates.reduce((sum, est) => sum + est.total_amount, 0))}</div>
-                <div className="text-xs text-gray-500">potential revenue • win rate pending</div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-400 uppercase tracking-wider">ACCEPTED</div>
-                <div className="text-lg font-semibold text-green-400 mt-1">{statusCounts.accepted || 0}</div>
-                <div className="text-xs text-gray-500">{Math.round(((statusCounts.accepted || 0) / Math.max(estimates.length, 1)) * 100)}% win rate</div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-400 uppercase tracking-wider">PENDING</div>
-                <div className="text-lg font-semibold text-blue-400 mt-1">{statusCounts.sent || 0}</div>
-                <div className="text-xs text-gray-500">{statusCounts.draft || 0} draft • awaiting response</div>
-              </div>
-            </div>
-          )}
-        </div>
-
         {/* Controls Section */}
         <div className={`${isConstrained ? 'px-4 py-1.5' : 'px-4 py-2'} border-b border-[#333333]/50`}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-1 items-center gap-3 min-w-0">
+              <label className="relative flex-1 max-w-md min-w-[10rem]">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                <input
+                  type="search"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  placeholder="Search estimates, clients…"
+                  aria-label="Search estimates"
+                  className="w-full bg-[#1E1E1E] border border-[#333333] rounded-[4px] pl-9 pr-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
+                />
+              </label>
               <div className="relative">
                 <select
                   className="bg-[#1E1E1E] border border-[#333333] rounded-[4px] px-3 py-2 text-sm text-white focus:outline-none focus:border-[#336699] appearance-none pr-10 min-w-[200px]"
@@ -599,6 +575,53 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
           </div>
         </div>
 
+        {/* Stats Section */}
+        <div className={`${isConstrained ? 'px-4 py-1.5' : 'px-4 py-2'} border-b border-[#333333]/50`}>
+          {isConstrained ? (
+            <div className="grid grid-cols-4 gap-4">
+              <div className="text-center">
+                <div className="text-xs text-gray-400 uppercase tracking-wider">TOTAL</div>
+                <div className="text-base font-semibold mt-1">{estimates.length}</div>
+              </div>
+              <div className="text-center">
+                <div className="text-xs text-gray-400 uppercase tracking-wider">VALUE</div>
+                <div className="text-base font-semibold text-yellow-400 mt-1">{formatCurrency(estimates.reduce((sum, est) => sum + est.total_amount, 0))}</div>
+              </div>
+              <div className="text-center">
+                <div className="text-xs text-gray-400 uppercase tracking-wider">ACCEPTED</div>
+                <div className="text-base font-semibold text-green-400 mt-1">{statusCounts.accepted || 0}</div>
+              </div>
+              <div className="text-center">
+                <div className="text-xs text-gray-400 uppercase tracking-wider">PENDING</div>
+                <div className="text-base font-semibold text-blue-400 mt-1">{statusCounts.sent || 0}</div>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-4 gap-4">
+              <div>
+                <div className="text-xs text-gray-400 uppercase tracking-wider">TOTAL ESTIMATES</div>
+                <div className="text-lg font-semibold mt-1">{estimates.length}</div>
+                <div className="text-xs text-gray-500">all estimates • lifetime business</div>
+              </div>
+              <div>
+                <div className="text-xs text-gray-400 uppercase tracking-wider">TOTAL VALUE</div>
+                <div className="text-lg font-semibold text-yellow-400 mt-1">{formatCurrency(estimates.reduce((sum, est) => sum + est.total_amount, 0))}</div>
+                <div className="text-xs text-gray-500">potential revenue • win rate pending</div>
+              </div>
+              <div>
+                <div className="text-xs text-gray-400 uppercase tracking-wider">ACCEPTED</div>
+                <div className="text-lg font-semibold text-green-400 mt-1">{statusCounts.accepted || 0}</div>
+                <div className="text-xs text-gray-500">{Math.round(((statusCounts.accepted || 0) / Math.max(estimates.length, 1)) * 100)}% win rate</div>
+              </div>
+              <div>
+                <div className="text-xs text-gray-400 uppercase tracking-wider">PENDING</div>
+                <div className="text-lg font-semibold text-blue-400 mt-1">{statusCounts.sent || 0}</div>
+                <div className="text-xs text-gray-500">{statusCounts.draft || 0} draft • awaiting response</div>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Content */}
         <div className="overflow-visible min-h-[400px] pb-32">
           {filteredEstimates.length === 0 ? (
@@ -610,10 +633,12 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
               <p className="text-gray-400 mb-6">
                 {searchTerm || statusFilter !== 'all' 
                   ? 'Try adjusting your search or filters.'
-                  : 'Get started by creating your first estimate.'
+                  : onCreateEstimate
+                    ? 'Get started by creating your first estimate.'
+                    : 'Tap the yellow + and choose Estimate to create one.'
                 }
               </p>
-              {(!searchTerm && statusFilter === 'all') && (
+              {(!searchTerm && statusFilter === 'all' && onCreateEstimate) && (
                 <button
                   onClick={onCreateEstimate}
                   className="flex items-center gap-2 px-4 py-2 bg-[#336699] text-white rounded-[8px] font-medium hover:bg-[#2d5a87] transition-colors mx-auto"
