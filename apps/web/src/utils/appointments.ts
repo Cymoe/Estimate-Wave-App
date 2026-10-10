@@ -7,5 +7,10 @@ export const toLocalInput = (iso?: string) => {
 export const fromLocalInput = (value: string) => (value ? new Date(value).toISOString() : null);
 export const formatAppointment = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+/** Short form for tight spots, e.g. "Oct 9 · 10:20 PM". */
+export const formatAppointmentShort = (iso: string) => {
+  const date = new Date(iso);
+  return `${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · ${date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+};
 /** The local calendar date of an appointment, for the follow-up date. */
 export const appointmentDay = (value: string) => value.slice(0, 10);

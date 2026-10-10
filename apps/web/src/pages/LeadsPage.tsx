@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { formatCurrency } from '../utils/format';
 import { LeadsCalendar } from '../components/leads/LeadsCalendar';
 import { AppointmentField } from '../components/leads/AppointmentField';
-import { appointmentDay, formatAppointment, fromLocalInput, toLocalInput } from '../utils/appointments';
+import { appointmentDay, formatAppointmentShort, fromLocalInput, toLocalInput } from '../utils/appointments';
 
 type LeadStatus = 'new' | 'no_answer' | 'contacted' | 'scheduled' | 'quoted' | 'won' | 'lost';
 
@@ -613,19 +613,20 @@ const LeadsPage: React.FC = () => {
                             <div className="min-w-0">
                               <span className="text-sm font-medium leading-tight">{lead.name}</span>
                               {compact && !expanded.has(lead.id) && (
-                                <div className="flex items-center gap-3 mt-0.5 text-xs">
+                                <div className="flex items-center gap-3 mt-0.5 text-xs whitespace-nowrap">
                                   {lead.phone && (
                                     <a
                                       href={`tel:${lead.phone.replace(/[^\d+]/g, '')}`}
                                       onClick={(e) => e.stopPropagation()}
-                                      className="text-gray-300 hover:text-white"
+                                      className="text-gray-300 hover:text-white flex-shrink-0"
                                     >
                                       {lead.phone}
                                     </a>
                                   )}
                                   {lead.appointmentAt && (
-                                    <span className="inline-flex items-center gap-1 text-gray-400">
-                                      <CalendarClock className="w-3 h-3" /> {formatAppointment(lead.appointmentAt)}
+                                    <span className="inline-flex items-center gap-1 min-w-0 text-gray-400">
+                                      <CalendarClock className="w-3 h-3 flex-shrink-0" />
+                                      <span className="truncate">{formatAppointmentShort(lead.appointmentAt)}</span>
                                     </span>
                                   )}
                                 </div>
