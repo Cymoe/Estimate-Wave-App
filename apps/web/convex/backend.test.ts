@@ -605,3 +605,58 @@ describe("sample leads", () => {
     expect((await as.query(api.leads.list, { organizationId })).map((lead) => lead.name)).toEqual(["Real customer"]);
   });
 });
+
+describe("expenses", () => {
+  test("track spending per project, with status changes, tenancy and cleanup", async () => {
+    const t = setup();
+    const alice = await signUp(t, "alice@example.com");
+    const bob = await signUp(t, "bob@example.com");
+    const project = await alice.as.mutation(api.projects.create, {
+      organizationId: alice.organizationId,
+      data: { name: "Kitchen", budget: 10000 },
+    });
+
+    const lumber = await alice.as.mutation(api.expenses.create, {
+      organizationId: alice.organizationId,
+      data: { projectId: project!._id, description: "Lumber", amount: 1200.5, category: "Materials", vendor: "Home Depot", date: "2026-10-01" },
+    });
+    expect(lumber).toMatchObject({ status: "pending", category: "Materials", vendor: "Home Depot" });
+    await alice.as.mutation(api.expenses.create, {
+      organizationId: alice.organizationId,
+      data: { projectId: project!._id, description: "Dumpster", amount: 450, date: "2026-10-03", status: "paid" },
+    });
+    // An expense without a project belongs to the business only.
+    await alice.as.mutation(api.expenses.create, {
+      organizationId: alice.organizationId,
+      data: { description: "Truck fuel", amount: 80 },
+    });
+
+    const forProject = await alice.as.query(api.expenses.list, { organizationId: alice.organizationId, projectId: project!._id });
+    expect(forProject.map((e) => e.description)).toEqual(["Dumpster", "Lumber"]);
+    expect(await alice.as.query(api.expenses.list, { organizationId: alice.organizationId })).toHaveLength(3);
+
+    const paid = await alice.as.mutation(api.expenses.update, { id: lumber!._id, data: { status: "paid", vendor: null } });
+    expect(paid).toMatchObject({ status: "paid" });
+    expect(paid!.vendor).toBeUndefined();
+
+    await expect(
+      alice.as.mutation(api.expenses.create, { organizationId: alice.organizationId, data: { description: " ", amount: 5 } }),
+    ).rejects.toThrow(/what the expense/);
+    await expect(
+      alice.as.mutation(api.expenses.create, { organizationId: alice.organizationId, data: { description: "x", amount: -5 } }),
+    ).rejects.toThrow(/zero or more/);
+    await expect(alice.as.mutation(api.expenses.update, { id: lumber!._id, data: { amount: null } })).rejects.toThrow(/cleared/);
+
+    // Another company can't see, change or attach to it.
+    await expect(bob.as.query(api.expenses.list, { organizationId: alice.organizationId })).rejects.toThrow(/access/);
+    await expect(bob.as.mutation(api.expenses.update, { id: lumber!._id, data: { amount: 1 } })).rejects.toThrow(/Not found/);
+    await expect(
+      bob.as.mutation(api.expenses.create, { organizationId: bob.organizationId, data: { projectId: project!._id, description: "x", amount: 1 } }),
+    ).rejects.toThrow(/Project not found/);
+
+    // Deleting the project deletes its expenses, not the business ones.
+    await alice.as.mutation(api.projects.remove, { id: project!._id });
+    const left = await alice.as.query(api.expenses.list, { organizationId: alice.organizationId });
+    expect(left.map((e) => e.description)).toEqual(["Truck fuel"]);
+  });
+});

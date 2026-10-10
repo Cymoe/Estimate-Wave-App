@@ -35,6 +35,7 @@ import { TeamMemberDetailPage } from './pages/TeamMemberDetailPage';
 import { DebugData } from './pages/DebugData';
 import { Work } from './pages/Work';
 import { Projects as ProjectsPage } from './pages/Projects';
+import { ProjectDetails } from './components/projects/ProjectDetails';
 import { ActivityPage } from './pages/ActivityPage';
 import { WhoWeServe } from './pages/WhoWeServe';
 // import { ServicesPackages } from './pages/ServicesPackages'; // Removed - using line items only
@@ -111,7 +112,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-/** Old edit links open the project's drawer instead. */
+/** Old edit links open the project page instead. */
 function ProjectEditRedirect() {
   const { id } = useParams();
   return <Navigate to={`/projects/${id}`} replace />;
@@ -370,13 +371,12 @@ function AppRoutes() {
       />
       
       
-      {/* A project opens in a drawer over the projects list */}
       <Route
         path="/projects/:id"
         element={
           <ProtectedRoute>
-            <DashboardLayout fullWidth={true}>
-              <ProjectsPage />
+            <DashboardLayout>
+              <ProjectDetails />
             </DashboardLayout>
           </ProtectedRoute>
         }

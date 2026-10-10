@@ -70,19 +70,13 @@ async function render(path = '/projects') {
       <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="/projects" element={<ProjectList />} />
-          <Route path="/projects/:id" element={<ProjectList />} />
+          <Route path="/projects/:id" element={<p>project page</p>} />
         </Routes>
       </MemoryRouter>,
     ),
   );
   await act(async () => {});
   return container;
-}
-
-function type(input: HTMLInputElement, value: string) {
-  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
-  setter.call(input, value);
-  input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 describe('ProjectList', () => {
@@ -133,7 +127,8 @@ describe('ProjectList', () => {
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Roof Replacement – Ann Miller', client_id: 'c1', budget: 12000, category: 'Roof Replacement', status: 'planned', organization_id: 'org1' }),
     );
-    expect(document.body.textContent).toContain('Roof Replacement – Ann Miller');
+    // Then it opens the new project's page.
+    expect(document.body.textContent).toContain('project page');
   });
 
   it('a quote creates the project and a draft estimate holding the package', async () => {
@@ -164,18 +159,5 @@ describe('ProjectList', () => {
     await click('Add Lead');
     expect(createLead).toHaveBeenCalledWith('org1', expect.objectContaining({ name: 'Ann Miller', phone: '432-555-0100', jobType: 'mystery', status: 'new' }));
     expect(create).not.toHaveBeenCalled();
-  });
-
-  it('opens a project at /projects/:id and saves a field when you leave it', async () => {
-    rows = [project(1, 'Kitchen trim')];
-    await render('/projects/p1');
-    const budget = document.body.querySelector('input[aria-label="Budget"]') as HTMLInputElement;
-    expect(budget.value).toBe('1000');
-    await act(async () => type(budget, '2500'));
-    await act(async () => {
-      budget.focus();
-      budget.blur();
-    });
-    expect(update).toHaveBeenCalledWith('p1', { budget: '2500' });
   });
 });

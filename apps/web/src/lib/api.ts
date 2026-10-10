@@ -310,6 +310,25 @@ export const industriesAPI = {
   },
 };
 
+// Expenses: money spent on a job (or on the business).
+export const expensesAPI = {
+  async list(organizationId: string, projectId?: string) {
+    return run('query', api.expenses.list, defined({ organizationId, projectId }));
+  },
+
+  async create(organizationId: string, data: any) {
+    return run('mutation', api.expenses.create, { organizationId, data });
+  },
+
+  async update(id: string, data: any) {
+    return run('mutation', api.expenses.update, { id, data });
+  },
+
+  async delete(id: string) {
+    return run('mutation', api.expenses.remove, { id });
+  },
+};
+
 // Leads: quote requests, from first call to won or lost.
 export const leadsAPI = {
   async list(organizationId: string) {

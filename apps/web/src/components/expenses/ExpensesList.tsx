@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Calendar, ChevronDown, ChevronRight, Filter, ArrowUpDown, X, Edit, Trash2, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import React, { useState, useEffect, useContext } from 'react';
+import { Plus, Calendar, ChevronDown, ChevronRight, Filter, ArrowUpDown, X, Trash2, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
 import { formatCurrency } from '../../utils/format';
-import { useAuth } from '../../contexts/AuthContext';
+import { costCodesAPI, industriesAPI } from '../../lib/api';
+import { OrganizationContext } from '../layouts/DashboardLayout';
+import { ExpenseService, EXPENSE_CATEGORIES, paymentState, type Expense } from '../../services/ExpenseService';
 
 interface CostCode {
   id: string;
@@ -11,177 +12,134 @@ interface CostCode {
   category: string;
 }
 
-interface Expense {
-  id: string;
-  description: string;
-  amount: number;
-  category: string;
-  vendor: string;
-  date: string;
-  status: 'pending' | 'approved' | 'paid' | 'rejected';
-  receipt_url?: string;
-  project_id: string;
-  created_at: string;
-  updated_at: string;
-  cost_code_id?: string;
-  cost_code?: CostCode;
-}
-
 interface ExpensesListProps {
   projectId: string;
   editable?: boolean;
   defaultViewMode?: 'cost-codes' | 'categories' | 'payee' | 'timeline';
+  /** Called with the project's expenses after loading and after every change. */
+  onChange?: (expenses: Expense[]) => void;
+  /** Opens with the add form showing. */
+  startAdding?: boolean;
 }
 
-export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable = true, defaultViewMode = 'cost-codes' }) => {
-  const { user } = useAuth();
-  const [expenses, setExpenses] = useState<Expense[]>([]);
+/** A yyyy-mm-dd date as a local date (not midnight UTC, which is the day before in the US). */
+const localDate = (iso: string) => {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+};
+const todayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable = true, defaultViewMode = 'cost-codes', onChange, startAdding = false }) => {
+  const { selectedOrg } = useContext(OrganizationContext);
+  const organizationId: string | undefined = selectedOrg?.id;
+  const [expenses, setExpensesState] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [costCodes, setCostCodes] = useState<CostCode[]>([]);
-  const [showAddForm, setShowAddForm] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(startAdding);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [viewMode, setViewMode] = useState<'cost-codes' | 'categories' | 'payee' | 'timeline'>(defaultViewMode);
   const [statusFilter, setStatusFilter] = useState<'all' | 'paid' | 'pending' | 'unpaid'>('all');
-  
-  const [newExpense, setNewExpense] = useState({
+  const [saving, setSaving] = useState(false);
+
+  const emptyExpense = () => ({
     description: '',
     vendor: '',
     amount: '',
     category: 'Materials',
     cost_code_id: '',
+    date: todayIso(),
   });
+  const [newExpense, setNewExpense] = useState(emptyExpense);
+
+  const setExpenses = (next: Expense[]) => {
+    setExpensesState(next);
+    onChange?.(next);
+  };
 
   useEffect(() => {
-    if (user && projectId) {
+    if (organizationId && projectId) {
       loadExpenses();
       loadCostCodes();
     }
-  }, [user, projectId]);
+  }, [organizationId, projectId]);
 
   const loadCostCodes = async () => {
     try {
-      const { data, error } = await supabase
-        .from('cost_codes')
-        .select('*')
-        .order('code');
-
-      if (error) throw error;
-      setCostCodes(data || []);
-    } catch (error) {
-      console.error('Error loading cost codes:', error);
+      const [codes, trades] = await Promise.all([
+        costCodesAPI.list(),
+        organizationId ? industriesAPI.forOrganization(organizationId).catch(() => []) : [],
+      ]);
+      // Your own codes plus those of your trades (all trades if none are chosen).
+      const tradeSlugs = new Set((trades as { slug: string }[]).map((t) => t.slug));
+      setCostCodes(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (codes as any[])
+          .filter((cc) => cc.organization_id || tradeSlugs.size === 0 || tradeSlugs.has(cc.industry_id))
+          .map((cc) => ({ id: cc._id, name: cc.name, code: cc.code, category: cc.category })),
+      );
+    } catch (err) {
+      console.error('Error loading cost codes:', err);
     }
   };
 
   const loadExpenses = async () => {
+    if (!organizationId) return;
     try {
       setLoading(true);
-      
-      const { data: expensesData, error: expensesError } = await supabase
-        .from('expenses')
-        .select('*')
-        .eq('project_id', projectId)
-        .order('date', { ascending: false });
-
-      if (expensesError) {
-        console.error('Supabase error details:', expensesError);
-        throw expensesError;
-      }
-
-      if (expensesData && expensesData.length > 0) {
-        const costCodeIds = [...new Set(expensesData
-          .filter(expense => expense.cost_code_id)
-          .map(expense => expense.cost_code_id)
-        )];
-
-        let costCodesMap: Record<string, CostCode> = {};
-        
-        if (costCodeIds.length > 0) {
-          const { data: costCodesData, error: costCodesError } = await supabase
-            .from('cost_codes')
-            .select('*')
-            .in('id', costCodeIds);
-
-          if (!costCodesError && costCodesData) {
-            costCodesMap = costCodesData.reduce((acc, cc) => {
-              acc[cc.id] = cc;
-              return acc;
-            }, {} as Record<string, CostCode>);
-          }
-        }
-
-        const expensesWithCostCodes = expensesData.map(expense => ({
-          ...expense,
-          cost_code: expense.cost_code_id ? costCodesMap[expense.cost_code_id] : undefined
-        }));
-
-        setExpenses(expensesWithCostCodes);
-      } else {
-        setExpenses([]);
-      }
-    } catch (error) {
-      console.error('Error loading expenses:', error);
-      setExpenses([]);
+      setExpenses(await ExpenseService.list(organizationId, projectId));
+    } catch (err) {
+      console.error('Error loading expenses:', err);
+      setError('Could not load expenses');
     } finally {
       setLoading(false);
     }
   };
 
   const handleAddExpense = async () => {
-    if (!newExpense.description.trim() || !newExpense.amount) return;
-
+    if (!organizationId || !newExpense.description.trim() || !newExpense.amount) return;
+    setSaving(true);
+    setError(null);
     try {
-      const { data, error } = await supabase
-        .from('expenses')
-        .insert({
-          description: newExpense.description,
-          amount: parseFloat(newExpense.amount),
-          vendor: newExpense.vendor || null,
-          category: newExpense.category,
-          cost_code_id: newExpense.cost_code_id || null,
-          date: new Date().toISOString().split('T')[0],
-          status: 'pending',
-          project_id: projectId,
-          user_id: user?.id
-        })
-        .select('*')
-        .single();
-
-      if (error) throw error;
-
-      loadExpenses();
-      
-      setNewExpense({
-        description: '',
-        vendor: '',
-        amount: '',
-        category: 'Materials',
-        cost_code_id: '',
+      const created = await ExpenseService.create({
+        organization_id: organizationId,
+        project_id: projectId,
+        description: newExpense.description.trim(),
+        amount: parseFloat(newExpense.amount),
+        vendor: newExpense.vendor,
+        category: newExpense.category,
+        cost_code_id: newExpense.cost_code_id,
+        date: newExpense.date || todayIso(),
+        status: 'pending',
       });
+      setExpenses([created, ...expenses].sort((a, b) => b.date.localeCompare(a.date)));
+      setNewExpense(emptyExpense());
       setShowAddForm(false);
-    } catch (error) {
-      console.error('Error creating expense:', error);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not add the expense');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleDeleteExpense = async (expenseId: string) => {
+  const handleDeleteExpense = async (expense: Expense) => {
+    if (!window.confirm(`Delete “${expense.description}” (${formatCurrency(expense.amount)})?`)) return;
     try {
-      const { error } = await supabase
-        .from('expenses')
-        .delete()
-        .eq('id', expenseId);
-
-      if (error) throw error;
-
-      setExpenses(expenses.filter(expense => expense.id !== expenseId));
-    } catch (error) {
-      console.error('Error deleting expense:', error);
+      await ExpenseService.delete(expense.id);
+      setExpenses(expenses.filter((e) => e.id !== expense.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not delete the expense');
     }
   };
 
   const formatExpenseDate = (date: string) => {
-    const expenseDate = new Date(date);
+    const expenseDate = localDate(date);
     const now = new Date();
+    now.setHours(0, 0, 0, 0);
     const diffTime = now.getTime() - expenseDate.getTime();
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
     
@@ -202,19 +160,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
     setExpandedGroups(newExpanded);
   };
 
-  // Map our status system to the display statuses
-  const mapStatusToDisplay = (status: string): 'paid' | 'pending' | 'unpaid' => {
-    switch (status) {
-      case 'paid':
-        return 'paid';
-      case 'pending':
-      case 'approved':
-        return 'pending';
-      case 'rejected':
-      default:
-        return 'unpaid';
-    }
-  };
+  const mapStatusToDisplay = paymentState;
 
   const getStatusIcon = (status: 'paid' | 'pending' | 'unpaid') => {
     switch (status) {
@@ -255,36 +201,14 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
   };
 
   const handleUpdateStatus = async (expenseId: string, newStatus: 'paid' | 'pending' | 'unpaid') => {
-    // Map display status back to our database status
-    let dbStatus: 'pending' | 'approved' | 'paid' | 'rejected';
-    switch (newStatus) {
-      case 'paid':
-        dbStatus = 'paid';
-        break;
-      case 'pending':
-        dbStatus = 'pending';
-        break;
-      case 'unpaid':
-        dbStatus = 'rejected';
-        break;
-    }
-
+    const dbStatus = newStatus === 'unpaid' ? 'rejected' : newStatus;
+    const before = expenses;
+    setExpenses(expenses.map((e) => (e.id === expenseId ? { ...e, status: dbStatus } : e)));
     try {
-      const { error } = await supabase
-        .from('expenses')
-        .update({ status: dbStatus })
-        .eq('id', expenseId);
-
-      if (error) throw error;
-
-      // Update local state
-      setExpenses(expenses.map(expense => 
-        expense.id === expenseId 
-          ? { ...expense, status: dbStatus }
-          : expense
-      ));
-    } catch (error) {
-      console.error('Error updating expense status:', error);
+      await ExpenseService.update(expenseId, { status: dbStatus });
+    } catch (err) {
+      setExpenses(before);
+      setError(err instanceof Error ? err.message : 'Could not update the expense');
     }
   };
 
@@ -295,12 +219,6 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
       </div>
     );
   }
-
-  // Calculate totals
-  const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0);
-  const paidExpenses = expenses.filter(e => mapStatusToDisplay(e.status) === 'paid').reduce((sum, expense) => sum + expense.amount, 0);
-  const pendingExpenses = expenses.filter(e => mapStatusToDisplay(e.status) === 'pending').reduce((sum, expense) => sum + expense.amount, 0);
-  const unpaidExpenses = expenses.filter(e => mapStatusToDisplay(e.status) === 'unpaid').reduce((sum, expense) => sum + expense.amount, 0);
 
   // Filter expenses by status
   const filteredExpenses = expenses.filter(expense => {
@@ -319,7 +237,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
       groupKey = expense.vendor || 'No Vendor';
     } else {
       // Timeline mode
-      const expenseDate = new Date(expense.date);
+      const expenseDate = localDate(expense.date);
       const today = new Date();
       const yesterday = new Date(today);
       yesterday.setDate(today.getDate() - 1);
@@ -430,6 +348,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
           {editable && (
             <button
               onClick={() => setShowAddForm(true)}
+              aria-label="Add expense"
               className="flex items-center gap-2 px-3 py-1.5 bg-white hover:bg-gray-100 text-black rounded-[8px] text-sm font-medium transition-colors"
             >
               <Plus className="w-4 h-4" />
@@ -485,6 +404,8 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
         </button>
       </div>
 
+      {error && <p className="text-sm text-red-400">{error}</p>}
+
       {/* Add Expense Form */}
       {showAddForm && (
         <div className="bg-[#111827]/50 border border-gray-700 rounded-[4px] p-4">
@@ -499,6 +420,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
             <div className="lg:col-span-2">
               <input
                 type="text"
+                aria-label="What did you pay for?"
                 placeholder="What did you pay for?"
                 value={newExpense.description}
                 onChange={(e) => setNewExpense({ ...newExpense, description: e.target.value })}
@@ -509,6 +431,8 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
             <div>
               <input
                 type="number"
+                inputMode="decimal"
+                aria-label="Amount"
                 placeholder="0.00"
                 step="0.01"
                 value={newExpense.amount}
@@ -533,19 +457,25 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
                 onChange={(e) => setNewExpense({ ...newExpense, category: e.target.value })}
                 className="w-full bg-gray-900/50 border border-gray-700 rounded-[4px] px-3 py-2 text-white focus:outline-none focus:border-[#336699] cursor-pointer"
               >
-                <option value="Materials">Materials</option>
-                <option value="Labor">Labor</option>
-                <option value="Equipment">Equipment</option>
-                <option value="Service">Service</option>
-                <option value="Permits">Permits</option>
-                <option value="Subcontractor">Subcontractor</option>
-                <option value="Disposal">Disposal</option>
-                <option value="Other">Other</option>
+                {EXPENSE_CATEGORIES.map((category) => (
+                  <option key={category} value={category}>{category}</option>
+                ))}
               </select>
             </div>
 
             <div>
+              <input
+                type="date"
+                aria-label="Date"
+                value={newExpense.date}
+                onChange={(e) => setNewExpense({ ...newExpense, date: e.target.value })}
+                className="w-full bg-gray-900/50 border border-gray-700 rounded-[4px] px-3 py-2 text-white focus:outline-none focus:border-[#336699]"
+              />
+            </div>
+
+            <div>
               <select
+                aria-label="Cost code"
                 value={newExpense.cost_code_id}
                 onChange={(e) => setNewExpense({ ...newExpense, cost_code_id: e.target.value })}
                 className="w-full bg-gray-900/50 border border-gray-700 rounded-[4px] px-3 py-2 text-white focus:outline-none focus:border-[#336699] cursor-pointer"
@@ -569,9 +499,10 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
             </button>
             <button
               onClick={handleAddExpense}
-                              className="px-4 py-2 bg-white hover:bg-gray-100 text-black rounded-[8px] font-medium transition-colors"
+              disabled={saving || !newExpense.description.trim() || !newExpense.amount}
+              className="px-4 py-2 bg-white hover:bg-gray-100 text-black rounded-[8px] font-medium transition-colors disabled:opacity-50"
             >
-              Add Expense
+              {saving ? 'Adding…' : 'Add Expense'}
             </button>
           </div>
         </div>
@@ -734,7 +665,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
                                 <button 
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleDeleteExpense(expense.id);
+                                    handleDeleteExpense(expense);
                                   }}
                                   className="p-1 text-gray-400 hover:text-red-400 transition-colors"
                                 >

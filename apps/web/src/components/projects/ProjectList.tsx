@@ -1,13 +1,12 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Download, FileSpreadsheet, FolderOpen, MoreVertical, Search } from 'lucide-react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { ProjectService, type Project, type ProjectStatus } from '../../services/ProjectService';
 import { ProjectExportService } from '../../services/ProjectExportService';
 import { formatCurrency } from '../../utils/format';
 import { TableSkeleton } from '../skeletons/TableSkeleton';
 import { PROJECT_STATUSES, formatProjectDate, projectStatusInfo } from './projectStatus';
-import { ProjectDrawer } from './ProjectDrawer';
 import { CreateProjectWizard } from './CreateProjectWizard';
 
 /** Project, client, status, dates, budget: shared by the header and every row. */
@@ -29,11 +28,9 @@ export const ProjectList: React.FC = () => {
   const [sortAsc, setSortAsc] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
   const optionsRef = useRef<HTMLDivElement>(null);
-  // The drawer follows the address: /projects/:id for a project, ?new=1 for a new one.
-  const { id: openId } = useParams();
+  // ?new=1 (the + menu) opens the new-project wizard.
   const [searchParams] = useSearchParams();
   const creating = searchParams.get('new') === '1';
-  const openProject = openId ? projects.find((p) => p.id === openId) : undefined;
 
   useEffect(() => {
     const handler = setTimeout(() => setSearch(searchInput.trim().toLowerCase()), 300);
@@ -273,21 +270,6 @@ export const ProjectList: React.FC = () => {
         />
       )}
 
-      {selectedOrg?.id && openProject && (
-        <ProjectDrawer
-          key={openProject.id}
-          organizationId={selectedOrg.id}
-          project={openProject}
-          onClose={() => navigate('/projects')}
-          onSaved={(saved) =>
-            setProjects((current) => current.map((p) => (p.id === saved.id ? saved : p)))
-          }
-          onDeleted={(id) => {
-            setProjects((current) => current.filter((p) => p.id !== id));
-            navigate('/projects');
-          }}
-        />
-      )}
     </div>
   );
 };

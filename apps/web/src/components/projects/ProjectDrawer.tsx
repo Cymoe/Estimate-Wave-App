@@ -1,11 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowUpRight, CalendarDays, CalendarCheck, DollarSign, FileText, Trash2, User, X } from 'lucide-react';
+import { ArrowUpRight, CalendarDays, CalendarCheck, DollarSign, Trash2, User, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { ProjectService, type Project, type ProjectStatus } from '../../services/ProjectService';
 import { ClientService, type Client } from '../../services/ClientService';
-import { EstimateService, type Estimate } from '../../services/EstimateService';
-import { formatCurrency } from '../../utils/format';
 import { NoteDate, NoteRow, SaveStatus, noteInput, noteSelect, noteTextarea, noteTitle, useNoteFields, useSlideIn } from '../common/StructuredNote';
 import { PROJECT_STATUSES, projectStatusInfo } from './projectStatus';
 
@@ -27,18 +25,9 @@ const draftOf = (project: Project | null): Draft => ({
   description: project?.description ?? '',
 });
 
-const ESTIMATE_PILL: Record<string, string> = {
-  draft: 'bg-gray-500/15 text-gray-300',
-  sent: 'bg-blue-500/15 text-blue-300',
-  opened: 'bg-purple-500/15 text-purple-300',
-  accepted: 'bg-green-500/15 text-green-300',
-  rejected: 'bg-red-500/15 text-red-300',
-  expired: 'bg-yellow-500/15 text-yellow-300',
-};
-
 /**
  * A project as a structured note: name, status, client, budget, dates, a
- * description and the project's estimates. An existing project saves each
+ * description. An existing project saves each
  * field as you leave it; a new one is added with the button.
  */
 export const ProjectDrawer: React.FC<{
@@ -52,7 +41,6 @@ export const ProjectDrawer: React.FC<{
   const navigate = useNavigate();
   const { shown, slideOut } = useSlideIn();
   const [clients, setClients] = useState<Client[]>([]);
-  const [estimates, setEstimates] = useState<Estimate[] | null>(null);
   const [status, setStatus] = useState<ProjectStatus>(project?.status ?? 'planned');
 
   const fields = useNoteFields<Draft>(
@@ -66,9 +54,6 @@ export const ProjectDrawer: React.FC<{
 
   useEffect(() => {
     ClientService.list(organizationId).then(setClients).catch(() => setClients([]));
-    if (project?.id) {
-      EstimateService.getByProject(project.id, organizationId).then(setEstimates).catch(() => setEstimates([]));
-    }
   }, [organizationId, project?.id]);
 
   const changeStatus = async (next: ProjectStatus) => {
@@ -226,38 +211,6 @@ export const ProjectDrawer: React.FC<{
             />
           </div>
 
-          {project && (
-            <div className="mt-5 pt-5 border-t border-[#222222]">
-              <h3 className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-                <FileText className="w-4 h-4 text-gray-600" /> Estimates
-              </h3>
-              {estimates === null ? (
-                <p className="text-sm text-gray-600">Loading…</p>
-              ) : estimates.length === 0 ? (
-                <p className="text-sm text-gray-600">No estimates for this project yet.</p>
-              ) : (
-                <div className="-mx-2">
-                  {estimates.map((estimate) => (
-                    <button
-                      key={estimate.id}
-                      type="button"
-                      onClick={() => navigate(`/estimates/${estimate.id}`)}
-                      className="w-full grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-2 py-2 rounded-md hover:bg-[#1B1B1B] text-left text-sm"
-                    >
-                      <span className="truncate text-gray-100">
-                        {estimate.estimate_number}
-                        {estimate.title && <span className="text-gray-500"> · {estimate.title}</span>}
-                      </span>
-                      <span className={`rounded-full px-2 py-0.5 text-xs capitalize ${ESTIMATE_PILL[estimate.status] ?? ESTIMATE_PILL.draft}`}>
-                        {estimate.status}
-                      </span>
-                      <span className="tabular-nums text-gray-100">{formatCurrency(estimate.total_amount)}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
         </div>
 
         <div className="px-7 py-3.5 border-t border-[#222222] flex items-center justify-between text-sm">

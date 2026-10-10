@@ -220,6 +220,29 @@ export const leadFields = {
   lostReason: v.optional(v.string()),
 };
 
+export const expenseStatus = v.union(
+  v.literal("pending"),
+  v.literal("approved"),
+  v.literal("paid"),
+  v.literal("rejected"),
+);
+
+// Money spent on a job (or on the business, without a project).
+export const expenseFields = {
+  projectId: v.optional(v.id("projects")),
+  description: v.string(),
+  amount: v.number(),
+  // Materials, Labor, Equipment, Service, Permits, Subcontractor, Disposal or Other.
+  category: v.string(),
+  vendor: v.optional(v.string()),
+  // yyyy-mm-dd
+  date: v.string(),
+  status: expenseStatus,
+  costCodeId: v.optional(v.id("costCodes")),
+  receiptUrl: v.optional(v.string()),
+  notes: v.optional(v.string()),
+};
+
 export const pricingAdjustments = v.object({
   all: v.optional(v.number()),
   labor: v.optional(v.number()),
@@ -352,6 +375,15 @@ export default defineSchema({
     userId: v.id("users"),
     ...timestamps,
   }).index("by_organization", ["organizationId"]),
+
+  expenses: defineTable({
+    ...expenseFields,
+    organizationId: v.id("organizations"),
+    userId: v.id("users"),
+    ...timestamps,
+  })
+    .index("by_organization", ["organizationId"])
+    .index("by_project", ["projectId"]),
 
   // Trades. Cost codes refer to them by slug (costCodes.industry_id).
   industries: defineTable({

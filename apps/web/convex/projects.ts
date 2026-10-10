@@ -71,6 +71,9 @@ export const remove = mutation({
   args: { id: v.id("projects") },
   handler: async (ctx, { id }) => {
     const { doc, user } = await getOwned(ctx, "projects", id);
+    // A project's expenses go with it.
+    const expenses = await ctx.db.query("expenses").withIndex("by_project", (q) => q.eq("projectId", id)).take(2000);
+    for (const expense of expenses) await ctx.db.delete(expense._id);
     await ctx.db.delete(id);
     await logActivity(ctx, {
       organizationId: doc.organizationId,

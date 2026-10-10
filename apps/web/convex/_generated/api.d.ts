@@ -19,6 +19,7 @@ import type * as catalog_starterCatalog from "../catalog/starterCatalog.js";
 import type * as clients from "../clients.js";
 import type * as costCodes from "../costCodes.js";
 import type * as estimates from "../estimates.js";
+import type * as expenses from "../expenses.js";
 import type * as http from "../http.js";
 import type * as industries from "../industries.js";
 import type * as leadCity from "../leadCity.js";
@@ -50,6 +51,7 @@ declare const fullApi: ApiFromModules<{
   clients: typeof clients;
   costCodes: typeof costCodes;
   estimates: typeof estimates;
+  expenses: typeof expenses;
   http: typeof http;
   industries: typeof industries;
   leadCity: typeof leadCity;
