@@ -172,15 +172,25 @@ const LeadForm: React.FC<{
               <span>Estimated value</span>
               <input className={inputClass} type="number" min="0" step="1" placeholder="$" value={form.estimatedValue} onChange={set('estimatedValue')} />
             </label>
-            <label className="text-xs text-gray-400 space-y-1">
-              <span>Follow up on</span>
-              <input className={inputClass} type="date" value={form.followUpDate} onChange={set('followUpDate')} />
-            </label>
+            <div className="text-xs text-gray-400 space-y-1">
+              <div className="flex justify-between">
+                <span>Follow up on</span>
+                {form.followUpDate && (
+                  <button type="button" onClick={() => setForm({ ...form, followUpDate: '' })} className="text-gray-400 hover:text-white">Clear</button>
+                )}
+              </div>
+              <input className={inputClass} type="date" value={form.followUpDate} onChange={set('followUpDate')} aria-label="Follow up on" />
+            </div>
           </div>
-          <label className="block text-xs text-gray-400 space-y-1">
-            <span>Estimate appointment</span>
-            <input className={inputClass} type="datetime-local" value={form.appointmentAt} onChange={set('appointmentAt')} />
-          </label>
+          <div className="text-xs text-gray-400 space-y-1">
+            <div className="flex justify-between">
+              <span>Estimate appointment</span>
+              {form.appointmentAt && (
+                <button type="button" onClick={() => setForm({ ...form, appointmentAt: '' })} className="text-gray-400 hover:text-white">Remove appointment</button>
+              )}
+            </div>
+            <input className={inputClass} type="datetime-local" value={form.appointmentAt} onChange={set('appointmentAt')} aria-label="Estimate appointment" />
+          </div>
           <label className="block text-xs text-gray-400 space-y-1">
             <span>Notes</span>
             <textarea className={inputClass} rows={6} placeholder="Called, left VM, best time to call…" value={form.notes} onChange={set('notes')} />
@@ -218,6 +228,12 @@ const LeadCardDetails: React.FC<{ lead: Lead; onChange: (lead: Lead, data: Parti
   const saveNotes = () => {
     if (notes.trim() === (lead.notes ?? '').trim()) return;
     onChange(lead, { notes: notes.trim() });
+  };
+
+  const clearAppointment = () => {
+    const day = lead.appointmentAt ? appointmentDay(toLocalInput(lead.appointmentAt)) : null;
+    // The follow-up date came from the appointment, so it goes too.
+    onChange(lead, { appointmentAt: undefined, ...(lead.followUpDate === day ? { followUpDate: undefined } : {}) });
   };
 
   const setAppointment = (value: string) => {
@@ -269,12 +285,17 @@ const LeadCardDetails: React.FC<{ lead: Lead; onChange: (lead: Lead, data: Parti
           aria-label="Appointment"
         />
       ) : lead.appointmentAt ? (
-        <button
-          onClick={() => setPickingTime(true)}
-          className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-white border border-[#444444] bg-[#1A1A1A] text-left"
-        >
-          <CalendarClock className="w-3.5 h-3.5 text-[#7fb0e0]" /> {formatAppointment(lead.appointmentAt)}
-        </button>
+        <div className="flex items-stretch border border-[#444444] bg-[#1A1A1A]">
+          <button
+            onClick={() => setPickingTime(true)}
+            className="flex-1 flex items-center gap-2 px-2 py-1.5 text-xs text-white text-left"
+          >
+            <CalendarClock className="w-3.5 h-3.5 text-[#7fb0e0]" /> {formatAppointment(lead.appointmentAt)}
+          </button>
+          <button onClick={clearAppointment} className="px-2 text-gray-400 hover:text-white" aria-label="Remove appointment">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
       ) : (
         <button
           onClick={() => setPickingTime(true)}
@@ -356,7 +377,8 @@ const LeadsPage: React.FC = () => {
   const saveLead = async (lead: Lead, data: Partial<Lead>) => {
     setLeads((rows) => rows.map((row) => (row.id === lead.id ? { ...row, ...data } : row)));
     try {
-      await leadsAPI.update(lead.id, { ...data, ...('appointmentAt' in data ? { appointmentAt: data.appointmentAt ?? null } : {}) });
+      // A field set to undefined is cleared, which the server needs as null.
+      await leadsAPI.update(lead.id, Object.fromEntries(Object.entries(data).map(([key, value]) => [key, value ?? null])));
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Could not save the lead');
       load();
