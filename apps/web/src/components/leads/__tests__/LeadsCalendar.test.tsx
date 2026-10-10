@@ -21,7 +21,7 @@ describe('LeadsCalendar', () => {
     { id: 'b', name: 'No appointment' },
   ];
 
-  it("shows this week's appointments with their time and opens the lead when tapped", () => {
+  it("shows this month's appointments with their time and opens the lead when tapped", () => {
     const onOpen = jest.fn();
     const container = render(<LeadsCalendar leads={leads} onOpen={onOpen} />);
     const button = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Rocky Vansau'))!;
@@ -31,11 +31,20 @@ describe('LeadsCalendar', () => {
     expect(onOpen).toHaveBeenCalledWith(leads[0]);
   });
 
-  it('switches to the month and back with the range buttons', () => {
+  it('shows the month only, with no week view to switch to', () => {
     const container = render(<LeadsCalendar leads={leads} onOpen={() => {}} />);
-    const month = [...container.querySelectorAll('button')].find((b) => b.textContent === 'month')!;
-    act(() => month.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-    expect(container.textContent).toContain('Mon');
-    expect(container.textContent).toContain('Rocky Vansau');
+    const labels = [...container.querySelectorAll('button')].map((b) => b.textContent);
+    expect(labels).not.toContain('week');
+    expect(labels).not.toContain('month');
+    expect(container.textContent).toContain(at.toLocaleString('en-US', { month: 'long', year: 'numeric' }));
+  });
+
+  it('shows every appointment on a busy day after tapping "more"', () => {
+    const busy = Array.from({ length: 5 }, (_, i) => ({ id: `x${i}`, name: `Lead ${i}`, appointmentAt: new Date(at.getTime() + i * 3600_000).toISOString() }));
+    const container = render(<LeadsCalendar leads={busy} onOpen={() => {}} />);
+    expect(container.textContent).not.toContain('Lead 4');
+    const more = [...container.querySelectorAll('button')].find((b) => b.textContent === '+2 more')!;
+    act(() => more.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(container.textContent).toContain('Lead 4');
   });
 });
