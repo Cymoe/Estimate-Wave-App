@@ -478,7 +478,8 @@ const LeadsPage: React.FC = () => {
     [quoting, tradeName],
   );
 
-  const todayIso = new Date().toISOString().split('T')[0];
+  // Today's date where you are; the UTC date is already tomorrow on US evenings.
+  const todayIso = appointmentDay(toLocalInput(new Date().toISOString()));
   const monthAgo = new Date(Date.now() - 30 * 86_400_000).toISOString();
   const visible = leads.filter((lead) => {
     if (!matchesSearch(lead, query)) return false;
