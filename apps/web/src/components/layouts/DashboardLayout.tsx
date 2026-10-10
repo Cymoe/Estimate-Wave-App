@@ -95,10 +95,26 @@ export const LayoutContext = createContext<{
   availableWidth: 'full'
 });
 
+/** Whether the screen is at least Tailwind's md width, kept up to date as it changes. */
+function useIsDesktop() {
+  const query = '(min-width: 768px)';
+  const [isDesktop, setIsDesktop] = useState(() => (typeof window === 'undefined' ? true : window.matchMedia(query).matches));
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const onChange = () => setIsDesktop(media.matches);
+    media.addEventListener('change', onChange);
+    return () => media.removeEventListener('change', onChange);
+  }, []);
+  return isDesktop;
+}
+
 export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, fullWidth = false }) => {
   const { user, signOut, session, isLoading } = useAuth();
   const isAuthenticated = !!session;
   const location = useLocation();
+  // The page renders once, in the desktop or the phone layout. Rendering it in
+  // both (one hidden) ran every page twice and stacked two of each pop-up.
+  const isDesktop = useIsDesktop();
   
   // Only show industry banner on pages where it's useful for filtering content
   const shouldShowIndustryBanner = 
@@ -566,7 +582,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                       {/* Industry Banner - Hidden on estimate detail pages */}
                       {!shouldHideIndustryBanner && <IndustryBanner />}
                       <div className={`min-h-full ${fullWidth ? '' : 'max-w-5xl mx-auto px-4'}`}>
-                        {children}
+                        {isDesktop && children}
                       </div>
                     </div>
                     
@@ -805,7 +821,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                   {/* Mobile Layout - unchanged */}
                   <div className="md:hidden flex-1 pt-14 pb-16">
                     <div className="px-4">
-                      {children}
+                      {!isDesktop && children}
                     </div>
                   </div>
 
