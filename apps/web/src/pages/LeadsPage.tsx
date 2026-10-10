@@ -1,7 +1,7 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { CalendarDays, FileText, Kanban, Mail, MapPin, Phone, Plus, Search, Trash2, UserPlus, X } from 'lucide-react';
+import { CalendarClock, CalendarDays, ChevronDown, ChevronsDownUp, ChevronsUpDown, FileText, Kanban, Mail, MapPin, Phone, Plus, Search, Trash2, UserPlus, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
 import { industriesAPI, leadsAPI } from '../lib/api';
@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { formatCurrency } from '../utils/format';
 import { LeadsCalendar } from '../components/leads/LeadsCalendar';
 import { AppointmentField } from '../components/leads/AppointmentField';
-import { appointmentDay, fromLocalInput, toLocalInput } from '../utils/appointments';
+import { appointmentDay, formatAppointment, fromLocalInput, toLocalInput } from '../utils/appointments';
 
 type LeadStatus = 'new' | 'no_answer' | 'contacted' | 'scheduled' | 'quoted' | 'won' | 'lost';
 
@@ -57,6 +57,7 @@ const FILTERS: { value: LeadFilter; label: string }[] = [
   { value: 'recent', label: 'Added in the last 30 days' },
 ];
 const VIEW_KEY = 'leadsView';
+const COMPACT_KEY = 'leadsCompact';
 
 /** Whether a lead matches the search box: name, phone (any format), email, address or notes. */
 function matchesSearch(lead: Lead, query: string) {
@@ -397,6 +398,31 @@ const LeadsPage: React.FC = () => {
   const hasSamples = leads.some((lead) => lead.isSample);
 
   const [query, setQuery] = useState('');
+  // Compact cards show just the name and phone; tapping one opens it in place.
+  const [compact, setCompact] = useState(() => {
+    try {
+      return localStorage.getItem(COMPACT_KEY) !== 'false';
+    } catch {
+      return true;
+    }
+  });
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const toggleExpanded = (id: string) =>
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const chooseCompact = (next: boolean) => {
+    setCompact(next);
+    setExpanded(new Set());
+    try {
+      localStorage.setItem(COMPACT_KEY, String(next));
+    } catch {
+      // Not remembered; the cards still switch.
+    }
+  };
   const [leadFilter, setLeadFilter] = useState<LeadFilter>('all');
   const [view, setView] = useState<'board' | 'calendar'>(() => {
     try {
@@ -506,7 +532,18 @@ const LeadsPage: React.FC = () => {
             {(query || leadFilter !== 'all') && (
               <span className="text-xs text-gray-400">{visible.length} of {leads.length}</span>
             )}
-            <div className="ml-auto flex border border-[#333333]" role="group" aria-label="View">
+            {view === 'board' && (
+              <button
+                onClick={() => chooseCompact(!compact)}
+                aria-pressed={compact}
+                title={compact ? 'Show full cards' : 'Show compact cards'}
+                className="ml-auto inline-flex items-center gap-1.5 px-3 py-2 text-sm border border-[#333333] text-gray-300 hover:text-white"
+              >
+                {compact ? <ChevronsUpDown className="w-4 h-4" /> : <ChevronsDownUp className="w-4 h-4" />}
+                {compact ? 'Expand cards' : 'Compact cards'}
+              </button>
+            )}
+            <div className={`${view === 'board' ? '' : 'ml-auto '}flex border border-[#333333]`} role="group" aria-label="View">
               {([['board', Kanban, 'Board'], ['calendar', CalendarDays, 'Calendar']] as const).map(([key, Icon, label]) => (
                 <button
                   key={key}
@@ -563,15 +600,51 @@ const LeadsPage: React.FC = () => {
                             e.dataTransfer.setData('text/plain', lead.id);
                             e.dataTransfer.effectAllowed = 'move';
                           }}
-                          onClick={() => setEditing(lead)}
-                          className="bg-[#121212] border border-[#333333] hover:border-[#555555] p-3 cursor-grab active:cursor-grabbing"
+                          onClick={() => (compact && !expanded.has(lead.id) ? toggleExpanded(lead.id) : setEditing(lead))}
+                          className={`bg-[#121212] border border-[#333333] hover:border-[#555555] cursor-grab active:cursor-grabbing ${compact && !expanded.has(lead.id) ? 'px-3 py-2' : 'p-3'}`}
                         >
-                          <div className="flex items-start justify-between gap-2">
-                            <span className="text-sm font-medium leading-tight">{lead.name}</span>
-                            {lead.isSample && (
-                              <span className="text-[10px] uppercase tracking-wide text-gray-500 border border-[#333333] px-1">Sample</span>
-                            )}
+                          <div
+                            className="flex items-start justify-between gap-2"
+                            onClick={compact ? (e) => {
+                              e.stopPropagation();
+                              toggleExpanded(lead.id);
+                            } : undefined}
+                          >
+                            <div className="min-w-0">
+                              <span className="text-sm font-medium leading-tight">{lead.name}</span>
+                              {compact && !expanded.has(lead.id) && (
+                                <div className="flex items-center gap-3 mt-0.5 text-xs">
+                                  {lead.phone && (
+                                    <a
+                                      href={`tel:${lead.phone.replace(/[^\d+]/g, '')}`}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="text-gray-300 hover:text-white"
+                                    >
+                                      {lead.phone}
+                                    </a>
+                                  )}
+                                  {lead.appointmentAt && (
+                                    <span className="inline-flex items-center gap-1 text-gray-400">
+                                      <CalendarClock className="w-3 h-3" /> {formatAppointment(lead.appointmentAt)}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              {lead.isSample && (
+                                <span className="text-[10px] uppercase tracking-wide text-gray-500 border border-[#333333] px-1">Sample</span>
+                              )}
+                              {compact && (
+                                <ChevronDown
+                                  className={`w-4 h-4 text-gray-500 transition-transform ${expanded.has(lead.id) ? 'rotate-180' : ''}`}
+                                  aria-hidden
+                                />
+                              )}
+                            </div>
                           </div>
+                          {(!compact || expanded.has(lead.id)) && (
+                          <>
                           {lead.jobType && <div className="text-xs text-gray-400 mt-0.5">{tradeName.get(lead.jobType) ?? lead.jobType}</div>}
                           {(leadValue(lead) > 0 || showFollowUp) && (
                             <div className="flex items-center justify-between mt-2 text-xs">
@@ -625,6 +698,8 @@ const LeadsPage: React.FC = () => {
                               ))}
                             </select>
                           </div>
+                          </>
+                          )}
                         </div>
                       );
                     })}
