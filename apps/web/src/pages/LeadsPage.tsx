@@ -536,11 +536,11 @@ const LeadsPage: React.FC = () => {
               <button
                 onClick={() => chooseCompact(!compact)}
                 aria-pressed={compact}
-                title={compact ? 'Show full cards' : 'Show compact cards'}
+                title={compact ? 'Show every lead in full' : 'Show just names and phones'}
                 className="ml-auto inline-flex items-center gap-1.5 px-3 py-2 text-sm border border-[#333333] text-gray-300 hover:text-white"
               >
                 {compact ? <ChevronsUpDown className="w-4 h-4" /> : <ChevronsDownUp className="w-4 h-4" />}
-                {compact ? 'Expand cards' : 'Compact cards'}
+                {compact ? 'Expand leads' : 'Collapse leads'}
               </button>
             )}
             <div className={`${view === 'board' ? '' : 'ml-auto '}flex border border-[#333333]`} role="group" aria-label="View">
