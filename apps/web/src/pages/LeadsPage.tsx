@@ -1,7 +1,6 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { CalendarClock, CalendarDays, ChevronDown, ChevronsDownUp, ChevronsUpDown, FileText, Kanban, Mail, MapPin, Phone, Plus, Search, Trash2, UserPlus, X } from 'lucide-react';
+import { CalendarClock, CalendarDays, ChevronDown, ChevronsDownUp, ChevronsUpDown, FileText, Kanban, Mail, MapPin, Phone, Plus, Search, UserPlus } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
 import { industriesAPI, leadsAPI } from '../lib/api';
@@ -10,45 +9,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { formatCurrency } from '../utils/format';
 import { LeadsCalendar } from '../components/leads/LeadsCalendar';
 import { AppointmentField } from '../components/leads/AppointmentField';
-import { appointmentDay, formatAppointmentShort, fromLocalInput, toLocalInput } from '../utils/appointments';
+import { LeadDrawer } from '../components/leads/LeadDrawer';
+import { STATUSES, type Lead, type LeadStatus, type Trade } from '../components/leads/leadTypes';
+import { appointmentDay, formatAppointmentShort, toLocalInput } from '../utils/appointments';
 
-type LeadStatus = 'new' | 'no_answer' | 'contacted' | 'scheduled' | 'quoted' | 'won' | 'lost';
-
-interface Lead {
-  id: string;
-  name: string;
-  phone?: string;
-  email?: string;
-  address?: string;
-  city?: string;
-  jobType?: string;
-  source?: string;
-  estimatedValue?: number;
-  followUpDate?: string;
-  appointmentAt?: string;
-  notes?: string;
-  status: LeadStatus;
-  lostReason?: string;
-  clientId?: string;
-  isSample?: boolean;
-  createdAt?: string;
-  estimate: { id: string; estimateNumber: string; status: string; totalAmount: number } | null;
-}
-
-interface Trade {
-  id: string;
-  name: string;
-}
-
-const STATUSES: { value: LeadStatus; label: string; color: string }[] = [
-  { value: 'new', label: 'New', color: 'text-sky-300' },
-  { value: 'no_answer', label: 'No Answer', color: 'text-rose-300' },
-  { value: 'contacted', label: 'Contacted', color: 'text-amber-300' },
-  { value: 'scheduled', label: 'Estimate Scheduled', color: 'text-orange-300' },
-  { value: 'quoted', label: 'Estimate Sent', color: 'text-violet-300' },
-  { value: 'won', label: 'Won', color: 'text-emerald-300' },
-  { value: 'lost', label: 'Lost', color: 'text-gray-500' },
-];
 const OPEN: LeadStatus[] = ['new', 'no_answer', 'contacted', 'scheduled', 'quoted'];
 type LeadFilter = 'all' | 'appointment' | 'overdue' | 'recent';
 const FILTERS: { value: LeadFilter; label: string }[] = [
@@ -70,205 +34,8 @@ function matchesSearch(lead: Lead, query: string) {
 }
 
 const NO_CITY = '__none';
-const KNOWN_CITIES = ['Midland', 'Odessa', 'Andrews', 'Big Spring', 'Stanton', 'Monahans', 'Kermit', 'Gardendale'];
 
 const leadValue = (lead: Lead) => lead.estimate?.totalAmount ?? lead.estimatedValue ?? 0;
-
-const SOURCES = ['Referral', 'Google', 'Facebook', 'Website', 'Yard sign', 'Repeat customer', 'Other'];
-
-const inputClass =
-  'w-full bg-[#0A0A0A] border border-[#333333] px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]';
-
-const LeadForm: React.FC<{
-  organizationId: string;
-  lead: Lead | null;
-  trades: Trade[];
-  onClose: () => void;
-  onSaved: () => void;
-  onDelete?: () => void;
-  /** Called when a change saves on its own, without the Save button. */
-  onChanged?: (lead: Lead, patch: Partial<Lead>) => void;
-}> = ({ organizationId, lead, trades, onClose: closeNow, onSaved: savedNow, onDelete, onChanged }) => {
-  // Slides in and out like the estimate drawer: start off-screen, move in on
-  // the next frame, and slide out before the parent removes it.
-  const [shown, setShown] = useState(false);
-  useEffect(() => {
-    let inner = 0;
-    const outer = requestAnimationFrame(() => {
-      inner = requestAnimationFrame(() => setShown(true));
-    });
-    return () => {
-      cancelAnimationFrame(outer);
-      cancelAnimationFrame(inner);
-    };
-  }, []);
-  const slideOut = (then: () => void) => {
-    setShown(false);
-    window.setTimeout(then, 150);
-  };
-  const onClose = () => slideOut(closeNow);
-  const onSaved = () => slideOut(savedNow);
-  const [form, setForm] = useState({
-    name: lead?.name ?? '',
-    phone: lead?.phone ?? '',
-    email: lead?.email ?? '',
-    address: lead?.address ?? '',
-    city: lead?.city ?? '',
-    jobType: lead?.jobType ?? '',
-    source: lead?.source ?? '',
-    estimatedValue: lead?.estimatedValue?.toString() ?? '',
-    followUpDate: lead?.followUpDate ?? '',
-    appointmentAt: toLocalInput(lead?.appointmentAt),
-    notes: lead?.notes ?? '',
-  });
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-    setForm({ ...form, [key]: e.target.value });
-
-  // An existing lead's appointment saves as soon as it's picked or removed.
-  const saveAppointment = async (iso: string | null) => {
-    setForm((current) => ({ ...current, appointmentAt: toLocalInput(iso ?? undefined) }));
-    if (!lead) return;
-    const patch = { appointmentAt: iso ?? undefined, ...(iso ? { followUpDate: appointmentDay(toLocalInput(iso)) } : {}) };
-    if (iso) setForm((current) => ({ ...current, followUpDate: appointmentDay(toLocalInput(iso)) }));
-    // Show it on the board and calendar right away, then save.
-    onChanged?.(lead, patch);
-    try {
-      await leadsAPI.update(lead.id, { ...patch, appointmentAt: iso });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save the appointment');
-    }
-  };
-
-  const save = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setError(null);
-    setSaving(true);
-    // Empty fields are sent as null so editing can clear them.
-    const data: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(form)) data[key] = value.trim() === '' ? null : value.trim();
-    data.estimatedValue = form.estimatedValue === '' ? null : Number(form.estimatedValue);
-    // An existing lead's appointment has already saved itself; sending the
-    // form's copy here could put back an older time.
-    if (lead) delete data.appointmentAt;
-    else data.appointmentAt = fromLocalInput(form.appointmentAt);
-    try {
-      if (lead) await leadsAPI.update(lead.id, data);
-      else await leadsAPI.create(organizationId, data);
-      onSaved();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save the lead');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return createPortal(
-    <>
-      <div
-        className={`fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity z-[10000] ${shown ? 'opacity-100' : 'opacity-0'}`}
-        onClick={onClose}
-      />
-      <form
-        onSubmit={save}
-        className={`fixed right-0 top-0 h-[100dvh] w-full md:w-[520px] bg-[#121212] border-l border-[#333333] shadow-xl flex flex-col transform transition-transform z-[10001] ${
-          shown ? 'translate-x-0' : 'translate-x-full'
-        }`}
-      >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#333333]">
-          <h2 className="text-lg font-semibold text-white">{lead ? 'Edit lead' : 'New lead'}</h2>
-          <button type="button" onClick={onClose} className="p-1 text-gray-400 hover:text-white" aria-label="Close">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-          {error && <p className="text-sm text-red-400 border border-red-900 bg-red-950/40 px-3 py-2">{error}</p>}
-          <input className={inputClass} placeholder="Name *" value={form.name} onChange={set('name')} required />
-          <div className="grid grid-cols-2 gap-3">
-            <input className={inputClass} placeholder="Phone" value={form.phone} onChange={set('phone')} />
-            <input className={inputClass} type="email" placeholder="Email" value={form.email} onChange={set('email')} />
-          </div>
-          <div className="grid grid-cols-[1fr_10rem] gap-3">
-            <input className={inputClass} placeholder="Job address" value={form.address} onChange={set('address')} />
-            <input
-              className={inputClass}
-              placeholder="City"
-              aria-label="City"
-              list="lead-cities"
-              value={form.city}
-              onChange={set('city')}
-            />
-            <datalist id="lead-cities">
-              {KNOWN_CITIES.map((city) => (
-                <option key={city} value={city} />
-              ))}
-            </datalist>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="text-xs text-gray-400 space-y-1">
-              <span>Job type</span>
-              <select className={inputClass} value={form.jobType} onChange={set('jobType')}>
-                <option value="">Choose a trade</option>
-                {trades.map((trade) => (
-                  <option key={trade.id} value={trade.id}>{trade.name}</option>
-                ))}
-              </select>
-            </label>
-            <label className="text-xs text-gray-400 space-y-1">
-              <span>Source</span>
-              <select className={inputClass} value={form.source} onChange={set('source')}>
-                <option value="">How did they find you?</option>
-                {SOURCES.map((source) => (
-                  <option key={source} value={source}>{source}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="text-xs text-gray-400 space-y-1">
-              <span>Estimated value</span>
-              <input className={inputClass} type="number" min="0" step="1" placeholder="$" value={form.estimatedValue} onChange={set('estimatedValue')} />
-            </label>
-            <div className="text-xs text-gray-400 space-y-1">
-              <div className="flex justify-between">
-                <span>Follow up on</span>
-                {form.followUpDate && (
-                  <button type="button" onClick={() => setForm({ ...form, followUpDate: '' })} className="text-gray-400 hover:text-white">Clear</button>
-                )}
-              </div>
-              <input className={inputClass} type="date" value={form.followUpDate} onChange={set('followUpDate')} aria-label="Follow up on" />
-            </div>
-          </div>
-          <div className="text-xs text-gray-400 space-y-1">
-            <span>Estimate appointment</span>
-            <AppointmentField
-              value={fromLocalInput(form.appointmentAt) ?? undefined}
-              onChange={saveAppointment}
-              className="text-sm"
-            />
-          </div>
-          <label className="block text-xs text-gray-400 space-y-1">
-            <span>Notes</span>
-            <textarea className={inputClass} rows={6} placeholder="Called, left VM, best time to call…" value={form.notes} onChange={set('notes')} />
-          </label>
-        </div>
-        <div className="px-6 py-4 border-t border-[#333333] flex items-center justify-end gap-2">
-          {lead && onDelete && (
-            <button type="button" onClick={onDelete} className="mr-auto inline-flex items-center gap-1.5 px-2 py-2 text-sm text-red-400 hover:text-red-300">
-              <Trash2 className="w-4 h-4" /> Delete lead
-            </button>
-          )}
-          <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-300 hover:text-white">Cancel</button>
-          <button type="submit" disabled={saving} className="px-4 py-2 text-sm text-white bg-[#336699] hover:bg-[#2a5580] disabled:opacity-50">
-            {saving ? 'Saving…' : 'Save lead'}
-          </button>
-        </div>
-      </form>
-    </>,
-    document.body,
-  );
-};
 
 /**
  * The working part of a board card: contact details, the booked
@@ -777,17 +544,20 @@ const LeadsPage: React.FC = () => {
       </div>
 
       {editing && organizationId && (
-        <LeadForm
+        <LeadDrawer
+          // A fresh drawer per lead; the live copy of the lead keeps it up to date.
+          key={editing === 'new' ? 'new' : editing.id}
           organizationId={organizationId}
-          lead={editing === 'new' ? null : editing}
+          lead={editing === 'new' ? null : leads.find((row) => row.id === editing.id) ?? editing}
           trades={trades}
           onClose={() => setEditing(null)}
-          onSaved={() => {
+          onCreated={() => {
             setEditing(null);
             load();
           }}
           onDelete={editing === 'new' ? undefined : () => remove(editing)}
           onChanged={(lead, patch) => setLeads((rows) => rows.map((row) => (row.id === lead.id ? { ...row, ...patch } : row)))}
+          onStatus={changeStatus}
         />
       )}
 

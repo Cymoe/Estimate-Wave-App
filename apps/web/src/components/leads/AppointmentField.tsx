@@ -7,11 +7,13 @@ import { formatAppointment, fromLocalInput, toLocalInput } from '../../utils/app
  * date and time picker; the choice saves on its own a moment after you stop
  * changing it, and the x removes it straight away.
  */
-export const AppointmentField: React.FC<{ value?: string; onChange: (iso: string | null) => void; className?: string }> = ({
-  value,
-  onChange,
-  className = '',
-}) => {
+export const AppointmentField: React.FC<{
+  value?: string;
+  onChange: (iso: string | null) => void;
+  className?: string;
+  /** Plain text with no box, for the lead drawer's property list. */
+  plain?: boolean;
+}> = ({ value, onChange, className = '', plain = false }) => {
   const [local, setLocal] = useState(value);
   const timer = useRef<number>();
   const input = useRef<HTMLInputElement>(null);
@@ -41,9 +43,17 @@ export const AppointmentField: React.FC<{ value?: string; onChange: (iso: string
   };
 
   return (
-    <div className={`flex items-stretch border ${local ? 'border-[#444444] bg-[#1A1A1A]' : 'border-dashed border-[#333333]'} ${className}`}>
-      <label className={`relative flex-1 min-w-0 flex items-center gap-2 px-2 py-1.5 cursor-pointer ${local ? 'text-white' : 'text-gray-400'}`}>
-        <CalendarClock className={`w-3.5 h-3.5 flex-shrink-0 ${local ? 'text-[#7fb0e0]' : ''}`} />
+    <div
+      className={`flex items-stretch ${
+        plain ? '' : `border ${local ? 'border-[#444444] bg-[#1A1A1A]' : 'border-dashed border-[#333333]'}`
+      } ${className}`}
+    >
+      <label
+        className={`relative flex-1 min-w-0 flex items-center gap-2 cursor-pointer ${plain ? 'py-1' : 'px-2 py-1.5'} ${
+          local ? (plain ? 'text-[#9cc4ea]' : 'text-white') : plain ? 'text-gray-600' : 'text-gray-400'
+        }`}
+      >
+        {!plain && <CalendarClock className={`w-3.5 h-3.5 flex-shrink-0 ${local ? 'text-[#7fb0e0]' : ''}`} />}
         <span className="truncate">{local ? formatAppointment(local) : 'Set appointment'}</span>
         {/* The real picker sits invisibly over the label, so a tap opens it. */}
         <input

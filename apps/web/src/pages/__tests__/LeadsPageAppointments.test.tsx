@@ -116,6 +116,6 @@ describe('Leads board', () => {
 
     const name = Array.from(container.querySelectorAll('span')).find((el) => el.textContent === 'Rocky Vansau')!;
     act(() => click(name));
-    expect(document.body.querySelector('form h2')?.textContent).toBe('Edit lead');
+    expect((document.body.querySelector('form input[aria-label="Name"]') as HTMLInputElement).value).toBe('Rocky Vansau');
   });
 });
