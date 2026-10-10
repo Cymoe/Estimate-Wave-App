@@ -432,7 +432,7 @@ const LeadsPage: React.FC = () => {
   const hasSamples = leads.some((lead) => lead.isSample);
 
   const [query, setQuery] = useState('');
-  // Compact cards show just the name and phone; tapping one opens it in place.
+  // Compact cards show just the name and phone; the arrow opens one in place.
   const [compact, setCompact] = useState(() => {
     try {
       return localStorage.getItem(COMPACT_KEY) !== 'false';
@@ -658,16 +658,10 @@ const LeadsPage: React.FC = () => {
                             e.dataTransfer.setData('text/plain', lead.id);
                             e.dataTransfer.effectAllowed = 'move';
                           }}
-                          onClick={() => (compact && !expanded.has(lead.id) ? toggleExpanded(lead.id) : setEditing(lead))}
+                          onClick={() => setEditing(lead)}
                           className={`bg-[#121212] border border-[#333333] hover:border-[#555555] cursor-grab active:cursor-grabbing ${compact && !expanded.has(lead.id) ? 'px-3 py-2' : 'p-3'}`}
                         >
-                          <div
-                            className="flex items-start justify-between gap-2"
-                            onClick={compact ? (e) => {
-                              e.stopPropagation();
-                              toggleExpanded(lead.id);
-                            } : undefined}
-                          >
+                          <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <span className="text-sm font-medium leading-tight">{lead.name}</span>
                               {compact && !expanded.has(lead.id) && (
@@ -695,10 +689,19 @@ const LeadsPage: React.FC = () => {
                                 <span className="text-[10px] uppercase tracking-wide text-gray-500 border border-[#333333] px-1">Sample</span>
                               )}
                               {compact && (
-                                <ChevronDown
-                                  className={`w-4 h-4 text-gray-500 transition-transform ${expanded.has(lead.id) ? 'rotate-180' : ''}`}
-                                  aria-hidden
-                                />
+                                // Only the arrow opens the card in place; tapping anywhere else opens the lead.
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleExpanded(lead.id);
+                                  }}
+                                  aria-label={expanded.has(lead.id) ? 'Collapse lead' : 'Expand lead'}
+                                  aria-expanded={expanded.has(lead.id)}
+                                  className="-m-2 p-2 text-gray-500 hover:text-white"
+                                >
+                                  <ChevronDown className={`w-4 h-4 transition-transform ${expanded.has(lead.id) ? 'rotate-180' : ''}`} />
+                                </button>
                               )}
                             </div>
                           </div>

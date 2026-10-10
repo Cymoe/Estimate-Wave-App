@@ -97,3 +97,25 @@ describe('Leads calendar', () => {
     expect(calendarItem()?.textContent).toContain('8:45');
   });
 });
+
+describe('Leads board', () => {
+  beforeEach(() => localStorage.setItem('leadsView', 'board'));
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('opens the lead when its name is tapped, and only the arrow expands the card', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
+    await flush();
+
+    act(() => click(container.querySelector('button[aria-label="Expand lead"]')!));
+    expect(document.body.querySelector('form')).toBeNull();
+    expect(container.querySelector('button[aria-label="Collapse lead"]')).toBeTruthy();
+
+    const name = Array.from(container.querySelectorAll('span')).find((el) => el.textContent === 'Rocky Vansau')!;
+    act(() => click(name));
+    expect(document.body.querySelector('form h2')?.textContent).toBe('Edit lead');
+  });
+});
