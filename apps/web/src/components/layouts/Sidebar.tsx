@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { useNavigate, useLocation, NavLink } from 'react-router-dom';
+import type { ProjectShortcut } from '../projects/useProjectShortcuts';
 import {
   ChevronDown,
   ChevronRight,
@@ -25,6 +26,9 @@ interface SidebarProps {
   isProjectsSidebarOpen: boolean;
   setIsProjectsSidebarOpen: (value: boolean) => void;
   isProjectsSidebarLocked: boolean;
+  setProjectsSidebarLockedWithPersistence?: (value: boolean) => void;
+  /** The org's projects, open and most recently touched first. */
+  recentProjects: ProjectShortcut[];
   selectedTimePeriod: 'D' | 'W' | 'M' | 'Q' | 'Y';
   setSelectedTimePeriod: (period: 'D' | 'W' | 'M' | 'Q' | 'Y') => void;
   currentData: { revenue: number; profit: number; goal: number; percentage: number };
@@ -49,6 +53,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isProjectsSidebarOpen,
   setIsProjectsSidebarOpen,
   isProjectsSidebarLocked,
+  recentProjects,
   selectedTimePeriod,
   setSelectedTimePeriod,
   currentData,
@@ -281,6 +286,77 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           </div>
 
+
+          {/* Recent Projects Section */}
+          {!isSidebarCollapsed && (
+            <div>
+              {/* Projects without padding */}
+              <div className="mb-2">
+                <div className="space-y-0">
+                  {recentProjects.slice(0, 2).map((project) => {
+                    const path = `/projects/${project.id}`;
+                    const here = location.pathname === path;
+                    return (
+                      <button
+                        key={project.id}
+                        onClick={() => navigate(path)}
+                        title={project.client ? `${project.name} · ${project.client}` : project.name}
+                        className={`w-full flex items-center justify-between px-1.5 py-2 transition-colors group border-b border-[#333333] last:border-b-0 hover:bg-[#2A2A2A] first:rounded-t-[4px] last:rounded-b-[4px] ${here ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border-l border-[#336699]/50' : ''}`}
+                      >
+                        <div className="flex items-center flex-1 min-w-0">
+                          <div className={`w-1.5 h-1.5 rounded-full mr-2 flex-shrink-0 ${project.status === 'active' || project.status === 'completed' ? 'bg-green-500' : 'bg-yellow-500'}`}></div>
+                          <span className={`text-white text-xs font-medium truncate ${here ? 'text-[#336699]' : 'group-hover:text-[#336699]'} transition-colors leading-tight`}>{project.name}</span>
+                        </div>
+                        {project.budget ? (
+                          <div className="flex-shrink-0 ml-2">
+                            <span className={`${project.progress > 100 ? 'text-red-400' : 'text-[#6b7280]'} text-xs font-medium leading-tight`}>{project.progress}%</span>
+                          </div>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                  {recentProjects.length === 0 && (
+                    <div className="px-1.5 py-2 text-[11px] text-gray-500">No projects yet</div>
+                  )}
+                </div>
+              </div>
+              
+              {/* View All Projects Link with padding */}
+              <div className="px-2 pb-2">
+                <div className="mt-3">
+                  <button 
+                    data-projects-more-button
+                    onClick={() => {
+                      // Only allow toggle if sidebar is not locked
+                      if (!isProjectsSidebarLocked) {
+                        if (isProjectsSidebarOpen) {
+                          // If sidebar is open, close it with animation
+                          window.dispatchEvent(new CustomEvent('closeProjectsSidebar'));
+                        } else {
+                          // If sidebar is closed, open it
+                          setIsProjectsSidebarOpen(true);
+                        }
+                      }
+                    }}
+                    className={`${isProjectsSidebarLocked ? 'text-[#F9D71C]' : 'text-[#336699]'} text-[10px] font-medium hover:text-white transition-colors flex items-center justify-end uppercase tracking-wide ${isProjectsSidebarLocked ? 'cursor-default' : 'cursor-pointer'} w-full`}
+                  >
+                    <ChevronLeft className={`w-2.5 h-2.5 mr-1 transition-transform ${isProjectsSidebarOpen && !isProjectsSidebarLocked ? 'rotate-90' : ''}`} />
+                    <span className="mr-1">{isProjectsSidebarLocked ? 'locked' : (isProjectsSidebarOpen ? 'close' : 'more')}</span>
+                    {isProjectsSidebarOpen && !isProjectsSidebarLocked ? (
+                      <span className="flex items-center">×</span>
+                    ) : (
+                      <span className="flex items-center">⋮⋮</span>
+                    )}
+                    {isProjectsSidebarLocked && (
+                      <svg className="w-2.5 h-2.5 ml-1" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Activity Button */}
           <div className="px-2 mt-4">
