@@ -761,28 +761,49 @@ describe("estimate item categories", () => {
   async function priceBookItem() {
     const t = setup();
     const { as, organizationId } = await signUp(t, "a@example.com");
-    const code = await as.mutation(api.costCodes.create, {
-      data: { code: "PT200", name: "Interior Painting", organization_id: organizationId },
+    await t.run(async (ctx) => {
+      const now = new Date().toISOString();
+      await ctx.db.insert("industries", {
+        slug: "painting",
+        name: "Painting",
+        display_order: 1,
+        is_active: true,
+        created_at: now,
+        updated_at: now,
+      });
     });
-    const lineItem = await as.mutation(api.lineItems.create, {
-      data: { name: "Paint walls", organization_id: organizationId, cost_code_id: code!._id, base_price: 3, unit: "sqft" },
-    });
-    return { t, as, organizationId, productId: lineItem._id as string };
+    const product = async (code: string, name: string) => {
+      const costCode = await as.mutation(api.costCodes.create, {
+        data: { code, name, industry_id: "painting", organization_id: organizationId },
+      });
+      const lineItem = await as.mutation(api.lineItems.create, {
+        data: { name, organization_id: organizationId, cost_code_id: costCode!._id, base_price: 3, unit: "sqft" },
+      });
+      return lineItem._id as string;
+    };
+    return {
+      t,
+      as,
+      organizationId,
+      productId: await product("PT100", "Painting Labor"),
+      materialsId: await product("PT500", "Painting Materials"),
+    };
   }
 
-  test("an item from the price book keeps its cost code name as its category", async () => {
-    const { as, organizationId, productId } = await priceBookItem();
+  test("an item from the price book is categorised by its trade, so labor and materials group together", async () => {
+    const { as, organizationId, productId, materialsId } = await priceBookItem();
     const estimate = await as.mutation(api.estimates.create, {
       organizationId,
       data: {
         items: [
           { description: "Paint walls", quantity: 100, unitPrice: 3, productId },
+          { description: "Paint", quantity: 5, unitPrice: 40, productId: materialsId },
           { description: "Custom work", quantity: 1, unitPrice: 50 },
           { description: "Bad link", quantity: 1, unitPrice: 5, productId: "not-an-id" },
         ],
       },
     });
-    expect(estimate!.items.map((i) => i.category)).toEqual(["Interior Painting", undefined, undefined]);
+    expect(estimate!.items.map((i) => i.category)).toEqual(["Painting", "Painting", undefined, undefined]);
   });
 
   test("older items get their category when read, and the signed contract keeps it", async () => {
@@ -792,17 +813,17 @@ describe("estimate item categories", () => {
       data: { items: [{ description: "Paint walls", quantity: 1, unitPrice: 3, productId }] },
     });
     const id = estimate!._id;
-    // As if saved before categories existed.
+    // As if saved before categories were trades.
     await t.run(async (ctx) => {
       const doc = (await ctx.db.get(id))!;
-      await ctx.db.patch(id, { items: doc.items.map(({ category: _c, ...item }) => item) });
+      await ctx.db.patch(id, { items: doc.items.map((item) => ({ ...item, category: "Painting Labor" })) });
     });
-    expect((await as.query(api.estimates.get, { id }))!.items[0].category).toBe("Interior Painting");
+    expect((await as.query(api.estimates.get, { id }))!.items[0].category).toBe("Painting");
     const token = await as.mutation(api.estimates.shareLink, { id });
-    expect((await t.query(api.publicEstimates.get, { token }))!.items[0].category).toBe("Interior Painting");
+    expect((await t.query(api.publicEstimates.get, { token }))!.items[0].category).toBe("Painting");
     await as.mutation(api.estimates.update, { id, data: { status: "accepted" } });
     const accepted = await t.run(async (ctx) => ctx.db.get(id));
-    expect(accepted!.contractSnapshot!.items[0].category).toBe("Interior Painting");
+    expect(accepted!.contractSnapshot!.items[0].category).toBe("Painting");
   });
 });
 
