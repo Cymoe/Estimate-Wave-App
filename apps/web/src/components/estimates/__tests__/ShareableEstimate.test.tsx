@@ -69,6 +69,20 @@ describe('client estimate page', () => {
     expect(markOpened).toHaveBeenCalledWith('tok123');
   });
 
+  it('shows the agreement terms above the one signature', async () => {
+    view = {
+      ...sent,
+      agreement: { propertyAddress: '12 Elm St', startDate: '2026-11-02', paymentTerms: 'Net 15', warrantyPeriod: '1 year' },
+    };
+    await open();
+    const agreement = document.body.querySelector('[data-testid="agreement"]')!;
+    expect(agreement.textContent).toContain('12 Elm St');
+    expect(agreement.textContent).toContain('Change Order Policy');
+    expect(agreement.textContent).toContain('Shah Builders');
+    expect(document.body.textContent).toContain('By signing, you accept this estimate and agree to the terms above.');
+    expect(document.body.querySelectorAll('canvas')).toHaveLength(1);
+  });
+
   it('accepts with the drawn signature, then shows it accepted', async () => {
     view = { ...sent };
     await open();
@@ -78,9 +92,9 @@ describe('client estimate page', () => {
       canvas.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       canvas.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
     });
-    await act(async () => button('Accept Estimate')!.click());
+    await act(async () => button('Accept & Sign')!.click());
     expect(accept).toHaveBeenCalledWith('tok123', 'data:image/png;base64,sig');
-    expect(document.body.textContent).toContain('Estimate Accepted');
+    expect(document.body.textContent).toContain('Accepted & Signed');
   });
 
   it('can be declined', async () => {

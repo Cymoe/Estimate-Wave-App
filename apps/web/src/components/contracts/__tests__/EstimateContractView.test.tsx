@@ -80,6 +80,8 @@ describe('contract page', () => {
       ...base,
       status: 'accepted',
       contract_locked_at: '2026-10-11T12:00:00Z',
+      client_signature: 'data:image/png;base64,sig',
+      signed_at: '2026-10-11T12:00:00Z',
       contract_snapshot: { items: base.items.map((i) => ({ _id: i.id, description: i.description, quantity: 1, unitPrice: 900, totalPrice: 900 })), totalAmount: 900 },
     };
     await render();
@@ -87,6 +89,16 @@ describe('contract page', () => {
     expect(document.body.textContent).toContain('change order');
     expect(button('Edit terms')).toBeUndefined();
     expect(button('Print/PDF')).toBeTruthy();
+    const signature = document.body.querySelector('img[alt="Client signature"]') as HTMLImageElement;
+    expect(signature.src).toBe('data:image/png;base64,sig');
+    expect(document.body.textContent).not.toContain('Awaiting client signature');
+  });
+
+  it('before the client signs, says the signature comes from the estimate link', async () => {
+    stored = { ...base };
+    await render();
+    expect(document.body.textContent).toContain('Awaiting client signature');
+    expect(document.body.querySelector('img[alt="Client signature"]')).toBeNull();
   });
 
   it('shows the agreed design', async () => {

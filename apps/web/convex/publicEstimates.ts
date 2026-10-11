@@ -4,6 +4,7 @@ import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { fail, logActivity, nowIso } from "./lib/access";
 import { lockContract } from "./lib/contract";
+import { DEFAULT_PAYMENT_TERMS, DEFAULT_WARRANTY } from "./lib/contractDefaults";
 
 // The client's side of an estimate, reached through its share link. No login:
 // the link's token is the only key, and only what a client should see leaves
@@ -38,6 +39,15 @@ export const get = query({
     const address = organization
       ? [organization.address, organization.city, organization.state, organization.zip].filter(Boolean).join(", ")
       : "";
+    // Once signed, the client sees what they signed, not later edits.
+    const signed = estimate.contractSnapshot;
+    const terms = (signed ? signed.terms : estimate.contractTerms) ?? {};
+    const design = signed ? signed.design : estimate.design;
+    const clientAddress = signed
+      ? signed.client?.address
+      : client
+        ? [client.address, client.city, client.state, client.zip].filter(Boolean).join(", ") || undefined
+        : undefined;
     return {
       estimateNumber: estimate.estimateNumber,
       title: estimate.title,
@@ -45,21 +55,28 @@ export const get = query({
       status: estimate.status,
       issueDate: estimate.issueDate,
       expiryDate: estimate.expiryDate,
-      items: estimate.items.map((item) => ({
+      items: (signed ? signed.items : estimate.items).map((item) => ({
         description: item.description,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
         totalPrice: item.totalPrice,
       })),
-      subtotal: estimate.subtotal,
+      subtotal: signed ? signed.subtotal : estimate.subtotal,
       taxRate: estimate.taxRate,
-      taxAmount: estimate.taxAmount,
-      totalAmount: estimate.totalAmount,
+      taxAmount: signed ? signed.taxAmount : estimate.taxAmount,
+      totalAmount: signed ? signed.totalAmount : estimate.totalAmount,
       notes: estimate.notes,
       terms: estimate.terms,
-      design: estimate.design
-        ? { url: estimate.design.url, name: estimate.design.name, contentType: estimate.design.contentType }
-        : undefined,
+      design: design ? { url: design.url, name: design.name, contentType: design.contentType } : undefined,
+      agreement: {
+        propertyAddress: terms.propertyAddress || clientAddress,
+        workDescription: terms.workDescription || estimate.description,
+        startDate: terms.startDate,
+        completionDate: terms.completionDate,
+        paymentTerms: terms.paymentTerms || DEFAULT_PAYMENT_TERMS,
+        warrantyPeriod: terms.warrantyPeriod || DEFAULT_WARRANTY,
+      },
+      lockedAt: estimate.contractLockedAt,
       clientSignature: estimate.clientSignature,
       signedAt: estimate.signedAt,
       client: client ? { name: client.name } : undefined,

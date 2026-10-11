@@ -105,7 +105,7 @@ describe('estimate contract tab', () => {
 
   it('names the business on the affidavit, and has no change order before signing', async () => {
     await openContractTab();
-    expect(document.body.textContent).toContain('follows this estimate');
+    expect(document.body.textContent).toContain('Signed together with the estimate');
     await act(async () => byText('Affidavit of Completion')!.click());
     expect(document.body.textContent).toContain('Shah Builders');
     expect(document.body.textContent).not.toContain('Campos');

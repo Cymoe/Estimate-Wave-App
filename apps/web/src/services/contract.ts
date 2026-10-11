@@ -52,8 +52,8 @@ export interface Business {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Snapshot = Record<string, any>;
 
-export const DEFAULT_PAYMENT_TERMS = '50% deposit upon signing, 50% upon completion';
-export const DEFAULT_WARRANTY = '1 year';
+export { DEFAULT_PAYMENT_TERMS, DEFAULT_WARRANTY } from '../../convex/lib/contractDefaults';
+import { DEFAULT_PAYMENT_TERMS, DEFAULT_WARRANTY } from '../../convex/lib/contractDefaults';
 
 const joinAddress = (parts: Array<string | undefined>) => parts.filter(Boolean).join(', ');
 

@@ -810,6 +810,35 @@ describe("client link", () => {
     await expect(t.mutation(api.publicEstimates.accept, { token, signature: "x" })).rejects.toThrow(/no longer/);
   });
 
+  test("the client sees the agreement terms they're signing", async () => {
+    const { t, as, id, token } = await sharedEstimate();
+    let view = await t.query(api.publicEstimates.get, { token });
+    expect(view!.agreement).toMatchObject({
+      paymentTerms: "50% deposit upon signing, 50% upon completion",
+      warrantyPeriod: "1 year",
+    });
+    await as.mutation(api.estimates.update, {
+      id,
+      data: { contractTerms: { startDate: "2026-11-02", paymentTerms: "Net 15", propertyAddress: "12 Elm St" } },
+    });
+    view = await t.query(api.publicEstimates.get, { token });
+    expect(view!.agreement).toMatchObject({ startDate: "2026-11-02", paymentTerms: "Net 15", propertyAddress: "12 Elm St" });
+    expect(view!.lockedAt).toBeUndefined();
+  });
+
+  test("after signing, the link shows what was signed, not later edits", async () => {
+    const { t, as, id, token } = await sharedEstimate();
+    await t.mutation(api.publicEstimates.accept, { token, signature: "data:image/png;base64,abc" });
+    await as.mutation(api.estimates.update, {
+      id,
+      data: { items: [{ description: "Bigger vanity", quantity: 1, unitPrice: 1500, redLinePrice: 600, capPrice: 1500 }] },
+    });
+    const view = await t.query(api.publicEstimates.get, { token });
+    expect(view!.items).toEqual([{ description: "Vanity", quantity: 1, unitPrice: 900, totalPrice: 900 }]);
+    expect(view!.totalAmount).toBe(900);
+    expect(view!.lockedAt).toEqual(expect.any(String));
+  });
+
   test("the client can decline", async () => {
     const { t, as, id, token } = await sharedEstimate();
     await t.mutation(api.publicEstimates.decline, { token });

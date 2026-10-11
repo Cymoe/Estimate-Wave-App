@@ -3,6 +3,8 @@ import { useParams } from 'react-router-dom';
 import { CheckCircle, XCircle, Mail, Phone, MapPin, FileText } from 'lucide-react';
 import { publicEstimatesAPI } from '../../lib/api';
 import { formatCurrency } from '../../utils/format';
+import type { ContractData } from '../../services/contract';
+import { AgreementTerms } from '../contracts/AgreementTerms';
 
 /** What the client sees, from the estimate's link (no login). */
 interface ClientEstimate {
@@ -23,6 +25,15 @@ interface ClientEstimate {
   client?: { name: string };
   business?: { name?: string; email?: string; phone?: string; address?: string };
   design?: { url: string; name: string; contentType?: string };
+  agreement?: {
+    propertyAddress?: string;
+    workDescription?: string;
+    startDate?: string;
+    completionDate?: string;
+    paymentTerms: string;
+    warrantyPeriod: string;
+  };
+  locked_at?: string;
   items: Array<{ id: string; description: string; quantity: number; unit_price: number; total_price: number }>;
 }
 
@@ -46,6 +57,8 @@ function fromView(view: any): ClientEstimate {
     client: view.client,
     business: view.business,
     design: view.design,
+    agreement: view.agreement,
+    locked_at: view.lockedAt,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     items: (view.items ?? []).map((item: any, i: number) => ({
       id: String(i),
@@ -54,6 +67,35 @@ function fromView(view: any): ClientEstimate {
       unit_price: item.unitPrice,
       total_price: item.totalPrice,
     })),
+  };
+}
+
+/** The agreement the client signs, in the shape the contract wording reads. */
+function agreementFor(estimate: ClientEstimate): ContractData {
+  const terms = estimate.agreement;
+  return {
+    propertyAddress: terms?.propertyAddress ?? '',
+    clientName: estimate.client?.name ?? '',
+    clientAddress: '',
+    contractorName: estimate.business?.name ?? '',
+    contractorAddress: estimate.business?.address ?? '',
+    contractorEmail: estimate.business?.email ?? '',
+    contractorPhone: estimate.business?.phone ?? '',
+    workDescription: terms?.workDescription ?? estimate.description ?? '',
+    totalAmount: estimate.total_amount,
+    lineItems: estimate.items.map((item) => ({
+      description: item.description,
+      quantity: item.quantity,
+      unit: 'ea',
+      unitPrice: item.unit_price,
+      total: item.total_price,
+    })),
+    startDate: terms?.startDate ?? '',
+    completionDate: terms?.completionDate ?? '',
+    paymentTerms: terms?.paymentTerms ?? '',
+    warrantyPeriod: terms?.warrantyPeriod ?? '',
+    lockedAt: estimate.locked_at,
+    agreedDesign: estimate.design && { url: estimate.design.url, name: estimate.design.name, type: estimate.design.contentType },
   };
 }
 
@@ -216,9 +258,9 @@ export const ShareableEstimate: React.FC = () => {
           <div className="flex justify-between items-start mb-6">
             <div>
               <h1 className="text-3xl font-bold text-gray-900 mb-2">
-                {estimate.title || 'Project Estimate'}
+                {estimate.title || 'Estimate & Agreement'}
               </h1>
-              <p className="text-lg text-gray-600">{estimate.estimate_number}</p>
+              <p className="text-lg text-gray-600">Estimate &amp; Agreement · {estimate.estimate_number}</p>
             </div>
             
             <div className="text-right">
@@ -375,20 +417,11 @@ export const ShareableEstimate: React.FC = () => {
           </div>
         </div>
 
-        {/* Agreed design */}
-        {estimate.design && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-3">Design</h3>
-            {estimate.design.contentType === 'application/pdf' || estimate.design.name.toLowerCase().endsWith('.pdf') ? (
-              <a href={estimate.design.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-blue-600 underline">
-                <FileText className="w-5 h-5" />
-                {estimate.design.name}
-              </a>
-            ) : (
-              <img src={estimate.design.url} alt={estimate.design.name} className="w-full max-h-[480px] object-contain" />
-            )}
-          </div>
-        )}
+        {/* The agreement, signed together with the estimate (it includes the agreed design) */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6 text-gray-900" data-testid="agreement">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Agreement</h3>
+          <AgreementTerms contract={agreementFor(estimate)} />
+        </div>
 
         {/* Terms and Notes */}
         {(estimate.notes || estimate.terms) && (
@@ -414,7 +447,7 @@ export const ShareableEstimate: React.FC = () => {
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
               <CheckCircle className="w-5 h-5 text-green-500 inline mr-2" />
-              Estimate Accepted
+              Accepted &amp; Signed
             </h3>
             <div className="border border-gray-300 rounded-lg p-4 bg-gray-50 mb-4">
               <img 
@@ -429,11 +462,11 @@ export const ShareableEstimate: React.FC = () => {
           </div>
         ) : canSign ? (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Accept or Decline</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Accept &amp; Sign</h3>
             
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Signature (required to accept)
+                Your signature
               </label>
               <div className="border border-gray-300 rounded-lg">
                 <canvas
@@ -452,7 +485,7 @@ export const ShareableEstimate: React.FC = () => {
                 />
               </div>
               <div className="flex justify-between items-center mt-2">
-                <p className="text-xs text-gray-500">Sign above to accept this estimate</p>
+                <p className="text-xs text-gray-500">By signing, you accept this estimate and agree to the terms above.</p>
                 <button
                   onClick={clearSignature}
                   className="text-xs text-blue-600 hover:text-blue-800"
@@ -470,7 +503,7 @@ export const ShareableEstimate: React.FC = () => {
                 className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
               >
                 <CheckCircle className="w-5 h-5" />
-                {signing ? 'Processing...' : 'Accept Estimate'}
+                {signing ? 'Signing...' : 'Accept & Sign'}
               </button>
               
               <button

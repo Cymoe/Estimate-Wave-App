@@ -867,7 +867,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                        <span className="block text-xs text-gray-400">
                          {estimate.contract_locked_at
                            ? `Signed ${new Date(estimate.contract_locked_at).toLocaleDateString()}`
-                           : 'Work agreement and terms · follows this estimate'}
+                           : 'Signed together with the estimate · follows it until then'}
                        </span>
                      </span>
                      <ChevronRight className="w-4 h-4 text-gray-500 flex-shrink-0" />
