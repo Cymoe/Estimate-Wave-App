@@ -564,7 +564,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
                     <div
                       key={estimate.id}
                       onClick={() => navigate(`/estimates/${estimate.id}`)}
-                      className={`group ${ROW_GRID} px-4 py-2.5 text-sm hover:bg-[#1A1A1A] transition-colors cursor-pointer border-b border-[#333333]/50 last:border-b-0`}
+                      className={`group ${ROW_GRID} px-4 py-2.5 text-sm [@media(hover:hover)]:hover:bg-[#1A1A1A] active:bg-[#1A1A1A] transition-colors cursor-pointer border-b border-[#333333]/50 last:border-b-0`}
                     >
                       <div className="font-medium text-white truncate">{estimate.estimate_number}</div>
 

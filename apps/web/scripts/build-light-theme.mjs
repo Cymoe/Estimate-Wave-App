@@ -134,10 +134,12 @@ const PSEUDO = {
   active: ':active', disabled: ':disabled', first: ':first-child', last: ':last-child', odd: ':nth-child(odd)', even: ':nth-child(even)',
 };
 const SCREENS = { sm: 640, md: 768, lg: 1024, xl: 1280, '2xl': 1536 };
+// Hover styles only for devices that really hover (no sticky hover after a tap on iPad).
+const HOVER_ONLY = '[@media(hover:hover)]';
 
 const escapeClass = (cls) => cls.replace(/[^a-zA-Z0-9_-]/g, (c) => '\\' + c);
 
-const CLASS_RE = /(?<![\w-])((?:[a-z0-9-]+:)*)((?:bg|text|placeholder|border(?:-[tblrxy])?|divide|ring|outline|fill|stroke|caret)-(?:\[#[0-9A-Fa-f]{3,8}\]|white|black|gray-[1-9]00|[a-z]+-[2-4]00)(?:\/\d{1,3})?)(?![\w\]-])/g;
+const CLASS_RE = /(?<![\w-])((?:\[@media\(hover:hover\)\]:)?(?:[a-z0-9-]+:)*)((?:bg|text|placeholder|border(?:-[tblrxy])?|divide|ring|outline|fill|stroke|caret)-(?:\[#[0-9A-Fa-f]{3,8}\]|white|black|gray-[1-9]00|[a-z]+-[2-4]00)(?:\/\d{1,3})?)(?![\w\]-])/g;
 
 function lightDeclaration(utility) {
   const m = utility.match(/^([a-z-]+?)-(\[#([0-9A-Fa-f]{3,8})\]|white|black|gray-[1-9]00|[a-z]+-[2-4]00)(?:\/(\d{1,3}))?$/);
@@ -175,7 +177,8 @@ function ruleFor(variants, utility) {
     if (PSEUDO[v]) pseudo += PSEUDO[v];
     else if (v === 'group-hover') parent = '.group:hover ';
     else if (v === 'placeholder') pseudo += '::placeholder';
-    else if (SCREENS[v]) media = SCREENS[v];
+    else if (SCREENS[v]) media = `(min-width: ${SCREENS[v]}px)`;
+    else if (v === HOVER_ONLY) media = '(hover: hover)';
     else return null; // dark:, peer-…, and other variants are left alone
   }
   const cls = escapeClass([...variants, utility].join(':'));
@@ -203,7 +206,7 @@ for (const file of files(SRC)) {
 const plain = [];
 const byScreen = {};
 for (const cls of [...found].sort()) {
-  const parts = cls.split(':');
+  const parts = cls.replace(HOVER_ONLY + ':', 'HOVER_ONLY:').split(':').map((v) => (v === 'HOVER_ONLY' ? HOVER_ONLY : v));
   const rule = ruleFor(parts.slice(0, -1), parts.at(-1));
   if (!rule) continue;
   if (rule.media) (byScreen[rule.media] ??= []).push(rule.css);
@@ -229,8 +232,8 @@ const out = [
   '',
   ...plain,
   ...Object.keys(byScreen)
-    .sort((a, b) => a - b)
-    .map((w) => `@media (min-width: ${w}px) {\n${byScreen[w].map((r) => '  ' + r).join('\n')}\n}`),
+    .sort((a, b) => (parseInt(a.slice(12)) || 0) - (parseInt(b.slice(12)) || 0))
+    .map((m) => `@media ${m} {\n${byScreen[m].map((r) => '  ' + r).join('\n')}\n}`),
   '',
   `html.light ${keepWhite}[class*="text-white"], html.light ${keepWhite} [class*="text-white"] { color: #FFFFFF !important; }`,
   '',
