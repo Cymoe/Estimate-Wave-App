@@ -11,7 +11,6 @@ import { OrganizationContext, LayoutContext } from '../layouts/DashboardLayout';
 import { formatCurrency } from '../../utils/format';
 import { advancedSearch, SearchableField } from '../../utils/searchUtils';
 import { TableSkeleton } from '../skeletons/TableSkeleton';
-import { supabase } from '../../lib/supabase';
 import { EstimateExportService } from '../../services/EstimateExportService';
 
 /** Estimate, client, status, date, amount: shared by the header and every row. */
@@ -37,7 +36,6 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
   const { selectedOrg } = useContext(OrganizationContext);
   const { isConstrained } = useContext(LayoutContext);
   const [estimates, setEstimates] = useState<Estimate[]>([]);
-  const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<'all' | Estimate['status']>('all');
   const [showFilterMenu, setShowFilterMenu] = useState(false);
@@ -57,39 +55,23 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
     }
   }, [selectedOrg?.id, refreshTrigger]);
 
+  // The org whose estimates are on screen; reloading the same org (after closing
+  // an estimate) updates the rows quietly instead of showing the loading skeleton.
+  const loadedOrg = useRef<string | null>(null);
+
   const loadEstimates = async () => {
     if (!selectedOrg?.id) return;
-    
+    const orgId = selectedOrg.id;
+    const quiet = loadedOrg.current === orgId;
     try {
-      setLoading(true);
-      
-      // Load both estimates and projects
-      const [estimatesData, projectsData] = await Promise.all([
-        EstimateService.list(selectedOrg.id),
-        supabase
-          .from('projects')
-          .select('id, name, organization_id')
-          .eq('organization_id', selectedOrg.id)
-      ]);
-      
+      if (!quiet) setLoading(true);
+      const estimatesData = await EstimateService.list(orgId);
       setEstimates(estimatesData);
-      
-      if (projectsData.error) {
-        console.warn('Error loading projects:', projectsData.error);
-        setProjects([]);
-      } else {
-        setProjects(projectsData.data || []);
-      }
-    } catch (error: any) {
+      loadedOrg.current = orgId;
+    } catch (error) {
       console.error('Error loading estimates:', error);
-      // Check if it's a "table doesn't exist" error
-      if (error?.message?.includes('estimates') || error?.code === '42P01') {
-        console.warn('Estimates table does not exist yet. Please apply database migrations.');
-        setEstimates([]);
-      } else {
-        setEstimates([]);
-      }
-      setProjects([]);
+      // A failed quiet refresh keeps the rows already shown.
+      if (!quiet) setEstimates([]);
     } finally {
       setLoading(false);
     }

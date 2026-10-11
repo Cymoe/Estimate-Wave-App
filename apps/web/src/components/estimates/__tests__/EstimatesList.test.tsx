@@ -5,8 +5,9 @@ import { MemoryRouter } from 'react-router-dom';
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let rows: Array<Record<string, unknown>> = [];
+let listCall: () => Promise<unknown> = async () => rows;
 jest.mock('../../../services/EstimateService', () => ({
-  EstimateService: { list: jest.fn(async () => rows) },
+  EstimateService: { list: jest.fn(() => listCall()) },
 }));
 jest.mock('../../../services/EstimateExportService', () => ({ EstimateExportService: {} }));
 jest.mock('../../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }));
@@ -74,5 +75,27 @@ describe('EstimatesList', () => {
     const container = await render();
     expect(container.textContent).toContain('Tap the yellow + and choose Estimate');
     expect(container.querySelector('button')?.textContent ?? '').not.toMatch(/CREATE FIRST ESTIMATE/);
+  });
+
+  it('reloading after an estimate closes keeps the rows on screen instead of a loading state', async () => {
+    rows = [estimate(1, 'Kitchen trim')];
+    listCall = async () => rows;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => root.render(<MemoryRouter><EstimatesList refreshTrigger={0} /></MemoryRouter>));
+    await act(async () => {});
+    expect(container.textContent).toContain('EST-2026-001');
+
+    let finish: (value: unknown) => void = () => {};
+    listCall = () => new Promise((resolve) => (finish = resolve));
+    await act(async () => root.render(<MemoryRouter><EstimatesList refreshTrigger={1} /></MemoryRouter>));
+    // While the reload is in flight the old rows stay.
+    expect(container.textContent).toContain('EST-2026-001');
+    expect(container.textContent).toContain('Kitchen trim');
+
+    await act(async () => finish([estimate(1, 'Kitchen trim'), estimate(2, 'Garage door')]));
+    expect(container.textContent).toContain('EST-2026-002');
+    listCall = async () => rows;
   });
 });
