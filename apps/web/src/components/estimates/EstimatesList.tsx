@@ -711,7 +711,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
                               e.stopPropagation();
                               setDropdownOpen(dropdownOpen === estimate.id ? null : estimate.id || null);
                             }}
-                            className="opacity-0 group-hover:opacity-100 transition-all p-1 hover:bg-gray-600 rounded"
+                            className="opacity-60 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 transition-all p-1 hover:bg-gray-600 rounded"
                           >
                             <MoreVertical className="w-4 h-4 text-gray-400" />
                           </button>

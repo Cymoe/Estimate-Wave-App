@@ -5,7 +5,7 @@ import { EstimateDetail } from './EstimateDetail';
 
 /**
  * One estimate, in a drawer over the estimates list: the same screen as the
- * estimate page, the size of the create-estimate drawer.
+ * estimate page, in a narrow panel so the list stays in view.
  */
 export const EstimateDrawer: React.FC<{ estimateId: string; onClose: () => void }> = ({ estimateId, onClose }) => {
   const { shown, slideOut } = useSlideIn();
@@ -37,7 +37,7 @@ export const EstimateDrawer: React.FC<{ estimateId: string; onClose: () => void 
         ref={panel}
         role="dialog"
         aria-label="Estimate"
-        className={`fixed right-0 top-0 h-[100dvh] w-full md:w-[80%] max-w-[1200px] bg-[#000000] shadow-xl transform transition-transform z-[10001] flex flex-col overflow-hidden ${
+        className={`fixed right-0 top-0 h-[100dvh] w-full md:w-[720px] max-w-full bg-[#000000] shadow-xl transform transition-transform z-[10001] flex flex-col overflow-hidden ${
           shown ? 'translate-x-0' : 'translate-x-full'
         }`}
       >

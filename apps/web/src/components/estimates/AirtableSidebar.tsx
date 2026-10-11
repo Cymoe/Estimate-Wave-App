@@ -37,7 +37,7 @@ export const AirtableSidebar: React.FC<AirtableSidebarProps> = ({
     : views.find(view => Math.abs(view.position - currentPosition) < 0.005)?.id ?? null;
 
   return (
-    <div className={`w-[220px] bg-[#0A0A0A] border-r border-[#333333] flex flex-col ${fill ? 'h-full' : 'h-screen'}`}>
+    <div className={`${fill ? 'w-[168px]' : 'w-[220px]'} flex-shrink-0 bg-[#0A0A0A] border-r border-[#333333] flex flex-col ${fill ? 'h-full' : 'h-screen'}`}>
       {/* Views List */}
       <div className="flex-1 overflow-y-auto py-1">
         {views.map((view) => (
