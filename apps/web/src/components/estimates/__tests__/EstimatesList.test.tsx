@@ -6,8 +6,14 @@ import { MemoryRouter } from 'react-router-dom';
 
 let rows: Array<Record<string, unknown>> = [];
 let listCall: () => Promise<unknown> = async () => rows;
+const actions = { shareUrl: jest.fn(async () => 'https://app.example/share/estimate/tok'), delete: jest.fn(async () => {}), updateStatus: jest.fn(async () => ({})) };
 jest.mock('../../../services/EstimateService', () => ({
-  EstimateService: { list: jest.fn(() => listCall()) },
+  EstimateService: {
+    list: jest.fn(() => listCall()),
+    shareUrl: (id: string) => actions.shareUrl(id),
+    delete: (id: string) => actions.delete(id),
+    updateStatus: (id: string, status: string) => actions.updateStatus(id, status),
+  },
 }));
 jest.mock('../../../services/EstimateExportService', () => ({ EstimateExportService: {} }));
 jest.mock('../../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }));
@@ -115,5 +121,73 @@ describe('EstimatesList', () => {
 
     await act(async () => root.render(<MemoryRouter><EstimatesList /></MemoryRouter>));
     expect(highlighted(rowOf('Garage door'))).toBe(false);
+  });
+
+  describe('holding a row down', () => {
+    async function renderRows() {
+      rows = [estimate(1, 'Kitchen trim'), { ...estimate(2, 'Garage door'), status: 'sent' }];
+      listCall = async () => rows;
+      return render();
+    }
+    const rowOf = (container: HTMLElement, text: string) =>
+      Array.from(container.querySelectorAll('[class*="cursor-pointer"]')).find((el) => el.textContent?.includes(text))!;
+    const menuItems = () => Array.from(document.body.querySelectorAll('[role="menuitem"]')).map((b) => b.textContent);
+    const tapMenu = async (label: string) =>
+      act(async () => (Array.from(document.body.querySelectorAll('[role="menuitem"]')).find((b) => b.textContent === label) as HTMLElement).click());
+
+    it('opens the actions menu after a hold', async () => {
+      jest.useFakeTimers();
+      const container = await renderRows();
+      const row = rowOf(container, 'Kitchen trim');
+      const touch = { clientX: 100, clientY: 200 };
+      await act(async () => {
+        row.dispatchEvent(Object.assign(new Event('touchstart', { bubbles: true }), { touches: [touch] }));
+        jest.advanceTimersByTime(600);
+      });
+      expect(menuItems()).toEqual(['Send to client', 'Copy client link', 'Duplicate', 'Delete']);
+    });
+
+    it('a quick tap or a scroll does not open it', async () => {
+      jest.useFakeTimers();
+      const container = await renderRows();
+      const row = rowOf(container, 'Kitchen trim');
+      await act(async () => {
+        row.dispatchEvent(Object.assign(new Event('touchstart', { bubbles: true }), { touches: [{ clientX: 100, clientY: 200 }] }));
+        row.dispatchEvent(Object.assign(new Event('touchmove', { bubbles: true }), { touches: [{ clientX: 100, clientY: 260 }] }));
+        jest.advanceTimersByTime(600);
+      });
+      expect(menuItems()).toEqual([]);
+    });
+
+    it('right-click opens it too; sent estimates can be marked accepted or declined', async () => {
+      const container = await renderRows();
+      await act(async () => {
+        rowOf(container, 'Garage door').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 50, clientY: 60 }));
+      });
+      expect(menuItems()).toContain('Mark as accepted');
+      await tapMenu('Mark as accepted');
+      expect(actions.updateStatus).toHaveBeenCalledWith('e2', 'accepted');
+    });
+
+    it('copies the client link, and deletes only after confirming', async () => {
+      const container = await renderRows();
+      const writeText = jest.fn(async () => {});
+      Object.assign(navigator, { clipboard: { writeText } });
+      const open = async () =>
+        act(async () => {
+          rowOf(container, 'Kitchen trim').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
+        });
+      await open();
+      await tapMenu('Copy client link');
+      expect(writeText).toHaveBeenCalledWith('https://app.example/share/estimate/tok');
+      expect(document.body.textContent).toContain('Client link copied');
+
+      await open();
+      await tapMenu('Delete');
+      expect(actions.delete).not.toHaveBeenCalled();
+      const confirm = Array.from(document.body.querySelectorAll('[role="dialog"] button')).find((b) => b.textContent === 'Delete') as HTMLElement;
+      await act(async () => confirm.click());
+      expect(actions.delete).toHaveBeenCalledWith('e1');
+    });
   });
 });

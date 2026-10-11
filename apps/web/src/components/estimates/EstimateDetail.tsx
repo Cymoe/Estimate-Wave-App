@@ -19,25 +19,12 @@ import { AirtableSidebar } from './AirtableSidebar';
 import { ItemPricingDrawer } from './ItemPricingDrawer';
 import { ContextualPricingSelector } from './ContextualPricingSelector';
 import { DesignUpload } from './DesignUpload';
+import { copyText, duplicateEstimate, sendEstimateLink } from './estimateActions';
 
 // Header actions share one size so they line up; only the main action is filled.
 const actionBase = 'h-9 flex items-center gap-2 px-4 border rounded-sm transition-colors text-sm font-medium';
 const primaryAction = `${actionBase} bg-[#336699] border-[#336699] text-white hover:bg-[#2a5580]`;
 const secondaryAction = `${actionBase} bg-transparent border-[#333333] text-gray-200 hover:bg-[#22272d] hover:text-white`;
-
-/** Copies text, falling back to a hidden textarea where the clipboard API isn't allowed. */
-async function copyText(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const textArea = document.createElement('textarea');
-    textArea.value = text;
-    document.body.appendChild(textArea);
-    textArea.select();
-    document.execCommand('copy');
-    document.body.removeChild(textArea);
-  }
-}
 
 /** Pop-ups centred on the whole screen and above the estimate drawer, not boxed inside it. */
 const OnTop: React.FC<{ children: React.ReactNode }> = ({ children }) =>
@@ -221,27 +208,9 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   const handleSend = async () => {
     if (!estimate?.id) return;
     try {
-      const url = await EstimateService.shareUrl(estimate.id);
+      const url = await sendEstimateLink(estimate);
+      if (!url) return;
       setShareUrl(url);
-      let shared = false;
-      if (typeof navigator.share === 'function') {
-        try {
-          const name = estimate.client?.name?.split(' ')[0];
-          await navigator.share({
-            title: `Estimate ${estimate.estimate_number ?? ''}`.trim(),
-            text: `${name ? `Hi ${name}, here` : 'Here'}'s your estimate. You can review and accept it here:`,
-            url,
-          });
-          shared = true;
-        } catch (err) {
-          if ((err as Error)?.name === 'AbortError') return; // closed the share sheet
-        }
-      }
-      if (!shared) {
-        await copyText(url);
-        alert('Link copied. Paste it into a text or email to your client.');
-      }
-      if (estimate.status === 'draft') await EstimateService.updateStatus(estimate.id, 'sent');
       await loadEstimate(true);
     } catch (error) {
       console.error('Error sending estimate:', error);
@@ -254,36 +223,8 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
     if (!estimate) return;
     const orgId = estimate.organization_id || selectedOrg?.id;
     if (!orgId) return;
-    const today = new Date();
-    const iso = (d: Date) =>
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     try {
-      const copy = await EstimateService.create({
-        organization_id: orgId,
-        client_id: estimate.client_id,
-        project_id: estimate.project_id,
-        title: estimate.title ? `${estimate.title} (copy)` : '',
-        description: estimate.description,
-        notes: estimate.notes,
-        terms: estimate.terms,
-        tax_rate: estimate.tax_rate,
-        status: 'draft',
-        issue_date: iso(today),
-        expiry_date: iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 30)),
-        subtotal: 0,
-        total_amount: 0,
-        items: (estimate.items || []).map((item, index) => ({
-          description: item.description,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          total_price: item.total_price,
-          red_line_price: item.red_line_price,
-          cap_price: item.cap_price,
-          cost_code: item.cost_code,
-          product_id: item.product_id,
-          display_order: item.display_order ?? index,
-        })),
-      });
+      const copy = await duplicateEstimate(estimate, orgId);
       if (copy.id) navigate(`/estimates/${copy.id}`, { replace: inDrawer });
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Could not duplicate the estimate');

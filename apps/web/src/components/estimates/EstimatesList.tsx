@@ -12,6 +12,9 @@ import { formatCurrency } from '../../utils/format';
 import { advancedSearch, SearchableField } from '../../utils/searchUtils';
 import { TableSkeleton } from '../skeletons/TableSkeleton';
 import { EstimateExportService } from '../../services/EstimateExportService';
+import { EstimateActionsMenu, EstimateAction } from './EstimateActionsMenu';
+import { copyText, duplicateEstimate, sendEstimateLink } from './estimateActions';
+import { createPortal } from 'react-dom';
 
 /** Estimate, client, status, date, amount: shared by the header and every row. */
 const ROW_GRID = 'grid grid-cols-[minmax(8.5rem,1fr)_minmax(0,2fr)_6.5rem_7rem_minmax(7rem,1fr)] gap-4 items-center';
@@ -47,6 +50,98 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
   const [sortField, setSortField] = useState<'amount' | 'date' | 'estimate_number' | 'client'>('date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   
+  // Holding a row down (or right-clicking it) opens its actions menu.
+  const [menuFor, setMenuFor] = useState<{ estimate: Estimate; x: number; y: number } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Estimate | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const press = useRef<{ timer?: ReturnType<typeof setTimeout>; x: number; y: number; opened: boolean }>({ x: 0, y: 0, opened: false });
+
+  const showNotice = (text: string) => {
+    setNotice(text);
+    setTimeout(() => setNotice((current) => (current === text ? null : current)), 2500);
+  };
+
+  const pressHandlers = (estimate: Estimate) => ({
+    onTouchStart: (e: React.TouchEvent) => {
+      const touch = e.touches[0];
+      clearTimeout(press.current.timer);
+      press.current = {
+        x: touch.clientX,
+        y: touch.clientY,
+        opened: false,
+        timer: setTimeout(() => {
+          press.current.opened = true;
+          navigator.vibrate?.(10);
+          setMenuFor({ estimate, x: touch.clientX, y: touch.clientY });
+        }, 500),
+      };
+    },
+    onTouchMove: (e: React.TouchEvent) => {
+      const touch = e.touches[0];
+      // Scrolling isn't holding.
+      if (Math.abs(touch.clientX - press.current.x) > 10 || Math.abs(touch.clientY - press.current.y) > 10) {
+        clearTimeout(press.current.timer);
+      }
+    },
+    onTouchEnd: (e: React.TouchEvent) => {
+      clearTimeout(press.current.timer);
+      // The finger lifting after a hold shouldn't also open the estimate.
+      if (press.current.opened) e.preventDefault();
+    },
+    onContextMenu: (e: React.MouseEvent) => {
+      e.preventDefault();
+      clearTimeout(press.current.timer);
+      setMenuFor({ estimate, x: e.clientX, y: e.clientY });
+    },
+  });
+
+  const runAction = async (estimate: Estimate, action: EstimateAction) => {
+    if (!estimate.id) return;
+    try {
+      switch (action) {
+        case 'send':
+          if (await sendEstimateLink(estimate)) await loadEstimates();
+          break;
+        case 'copy-link':
+          await copyText(await EstimateService.shareUrl(estimate.id));
+          showNotice('Client link copied');
+          break;
+        case 'duplicate': {
+          if (!selectedOrg?.id) return;
+          const copy = await duplicateEstimate(estimate, selectedOrg.id);
+          await loadEstimates();
+          if (copy.id) navigate(`/estimates/${copy.id}`);
+          break;
+        }
+        case 'accept':
+        case 'decline':
+          await EstimateService.updateStatus(estimate.id, action === 'accept' ? 'accepted' : 'rejected');
+          await loadEstimates();
+          break;
+        case 'delete':
+          setConfirmDelete(estimate);
+          break;
+      }
+    } catch (error) {
+      console.error('Estimate action failed:', error);
+      alert(error instanceof Error ? error.message : 'Something went wrong. Please try again.');
+    }
+  };
+
+  const deleteConfirmed = async () => {
+    const estimate = confirmDelete;
+    setConfirmDelete(null);
+    if (!estimate?.id) return;
+    try {
+      await EstimateService.delete(estimate.id);
+      await loadEstimates();
+      showNotice(`${estimate.estimate_number} deleted`);
+    } catch (error) {
+      console.error('Error deleting estimate:', error);
+      alert("The estimate couldn't be deleted. Please try again.");
+    }
+  };
+
   // Refs for click outside
   const filterMenuRef = useRef<HTMLDivElement>(null);
   const optionsMenuRef = useRef<HTMLDivElement>(null);
@@ -565,8 +660,15 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
                   {filteredEstimates.map((estimate) => (
                     <div
                       key={estimate.id}
-                      onClick={() => navigate(`/estimates/${estimate.id}`)}
-                      className={`group ${ROW_GRID} px-4 py-2.5 text-sm [@media(hover:hover)]:hover:bg-[#1A1A1A] active:bg-[#1A1A1A] ${estimate.id === selectedId ? 'bg-[#1A1A1A]' : ''} transition-colors cursor-pointer border-b border-[#333333]/50 last:border-b-0`}
+                      {...pressHandlers(estimate)}
+                      onClick={() => {
+                        if (press.current.opened) {
+                          press.current.opened = false;
+                          return;
+                        }
+                        navigate(`/estimates/${estimate.id}`);
+                      }}
+                      className={`group ${ROW_GRID} select-none [-webkit-touch-callout:none] px-4 py-2.5 text-sm [@media(hover:hover)]:hover:bg-[#1A1A1A] active:bg-[#1A1A1A] ${estimate.id === selectedId || estimate.id === menuFor?.estimate.id ? 'bg-[#1A1A1A]' : ''} transition-colors cursor-pointer border-b border-[#333333]/50 last:border-b-0`}
                     >
                       <div className="font-medium text-white truncate">{estimate.estimate_number}</div>
 
@@ -602,6 +704,41 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
         </div>
         </div>
       </div>
+      {menuFor && (
+        <EstimateActionsMenu
+          estimate={menuFor.estimate}
+          x={menuFor.x}
+          y={menuFor.y}
+          onClose={() => setMenuFor(null)}
+          onAction={(action) => runAction(menuFor.estimate, action)}
+        />
+      )}
+      {confirmDelete &&
+        createPortal(
+          <div role="dialog" className="fixed inset-0 z-[10030] flex items-center justify-center p-4">
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setConfirmDelete(null)} />
+            <div className="relative bg-[#1E1E1E] rounded-lg border border-[#333333] p-6 max-w-sm w-full">
+              <h3 className="text-lg font-semibold text-white mb-2">Delete {confirmDelete.estimate_number}?</h3>
+              <p className="text-sm text-gray-400 mb-6">This can't be undone.</p>
+              <div className="flex justify-end gap-3">
+                <button onClick={() => setConfirmDelete(null)} className="px-4 py-2 text-gray-300 hover:text-white">
+                  Cancel
+                </button>
+                <button onClick={deleteConfirmed} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg">
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+      {notice &&
+        createPortal(
+          <div role="status" className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[10030] px-4 py-2 rounded-lg bg-[#1E1E1E] border border-[#333333] text-sm text-white shadow-xl">
+            {notice}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 };
