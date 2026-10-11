@@ -103,12 +103,12 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
         role="dialog"
         aria-label={`Price ${shownItem.description}`}
         aria-hidden={!open}
-        className={`fixed right-0 top-0 h-[100dvh] w-full max-w-md bg-[#121212] border-l border-[#333333] shadow-xl transform transition-transform z-[10003] flex flex-col ${
+        className={`fixed right-0 top-0 h-[100dvh] w-full sm:w-[340px] bg-[#121212] border-l border-[#333333] shadow-xl transform transition-transform z-[10003] flex flex-col ${
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
         {/* Header: close on the left, Save alone on the right */}
-        <div className="flex items-start gap-3 px-6 py-4 border-b border-[#333333] flex-shrink-0">
+        <div className="flex items-start gap-3 px-4 py-4 border-b border-[#333333] flex-shrink-0">
           <button onClick={onClose} className="p-1 -ml-1 mt-0.5 text-gray-400 hover:text-white flex-shrink-0" aria-label="Close">
             <X className="w-5 h-5" />
           </button>
@@ -118,12 +118,12 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
               Red line {formatCurrency(range.redLine)} · Cap {formatCurrency(range.cap)}
             </p>
           </div>
-          <button onClick={save} className="px-5 py-2 text-sm text-white bg-[#336699] hover:bg-[#2a5580] flex-shrink-0">
+          <button onClick={save} className="px-4 py-2 text-sm text-white bg-[#336699] hover:bg-[#2a5580] flex-shrink-0">
             Save
           </button>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-6">
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-5">
           {/* Price and quantity */}
           <div className="flex gap-3">
             <label className="flex-1 min-w-0">
@@ -147,7 +147,7 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
                 <button
                   type="button"
                   onClick={() => setQuantity(q => Math.max(1, q - 1))}
-                  className="p-2.5 text-gray-300 hover:bg-[#1E1E1E]"
+                  className="p-2 text-gray-300 hover:bg-[#1E1E1E]"
                   aria-label="Decrease quantity"
                 >
                   <Minus className="w-4 h-4" />
@@ -161,12 +161,12 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
                     setQuantity(Number.isFinite(n) && n > 0 ? n : 1);
                   }}
                   aria-label="Quantity"
-                  className="w-12 py-2 bg-transparent text-center text-white focus:outline-none"
+                  className="w-10 py-2 bg-transparent text-center text-white focus:outline-none"
                 />
                 <button
                   type="button"
                   onClick={() => setQuantity(q => q + 1)}
-                  className="p-2.5 text-gray-300 hover:bg-[#1E1E1E]"
+                  className="p-2 text-gray-300 hover:bg-[#1E1E1E]"
                   aria-label="Increase quantity"
                 >
                   <Plus className="w-4 h-4" />
@@ -241,7 +241,7 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
         </div>
 
         {/* Footer */}
-        <div className="border-t border-[#333333] px-6 py-4 flex items-center justify-between flex-shrink-0 text-sm text-gray-400">
+        <div className="border-t border-[#333333] px-4 py-4 flex items-center justify-between flex-shrink-0 text-sm text-gray-400">
           <span>Total</span>
           <span className="font-mono text-white">{formatCurrency(price * quantity)}</span>
         </div>
