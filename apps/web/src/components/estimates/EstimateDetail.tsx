@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Edit, Send, Download, Share2, Trash2,
@@ -22,6 +23,10 @@ import { DesignUpload } from './DesignUpload';
 const actionBase = 'h-9 flex items-center gap-2 px-4 border rounded-sm transition-colors text-sm font-medium';
 const primaryAction = `${actionBase} bg-[#336699] border-[#336699] text-white hover:bg-[#2a5580]`;
 const secondaryAction = `${actionBase} bg-transparent border-[#333333] text-gray-200 hover:bg-[#22272d] hover:text-white`;
+
+/** Pop-ups centred on the whole screen and above the estimate drawer, not boxed inside it. */
+const OnTop: React.FC<{ children: React.ReactNode }> = ({ children }) =>
+  createPortal(<div className="relative z-[10010]">{children}</div>, document.body);
 
 interface EstimateDetailProps {
   /** The estimate to show; the route's :id when not given. */
@@ -1240,6 +1245,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
 
       {/* Share Modal */}
       {showShareModal && (
+        <OnTop>
         <div role="dialog" className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowShareModal(false)} />
           <div className="relative bg-[#1E1E1E] rounded-lg border border-[#333333] p-6 max-w-md w-full">
@@ -1285,6 +1291,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
             </div>
           </div>
         </div>
+        </OnTop>
       )}
 
       {/* Mobile Sticky Action Bar */}
@@ -1327,16 +1334,19 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
 
       {/* Map Modal */}
       {showMapModal && estimate?.client?.address && (
+        <OnTop>
         <MapModal
           isOpen={showMapModal}
           onClose={() => setShowMapModal(false)}
           address={estimate.client.address}
           clientName={estimate.client.name}
         />
+        </OnTop>
       )}
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
+        <OnTop>
         <div role="dialog" className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-[#0a0a0a] rounded-xl max-w-md w-full border border-white/10 shadow-2xl">
             <div className="p-6">
@@ -1362,6 +1372,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
             </div>
           </div>
         </div>
+        </OnTop>
       )}
 
       <ItemPricingDrawer
@@ -1384,6 +1395,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
 
       {/* Contextual Pricing Selector for adding items in edit mode */}
       {showPricingSelector && selectedOrg && (
+        <OnTop>
         <ContextualPricingSelector
           isOpen={showPricingSelector}
           onClose={() => setShowPricingSelector(false)}
@@ -1408,6 +1420,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
             packageId: estimate?.package_id
           }}
         />
+        </OnTop>
       )}
 
 
