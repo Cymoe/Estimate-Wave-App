@@ -155,7 +155,7 @@ export const DesignUpload: React.FC<DesignUploadProps> = ({ estimateId, design, 
           <div className="space-y-3">
             <FileImage size={32} className="mx-auto text-gray-400" />
             <div className="space-y-1">
-              <p className="text-sm text-white">Drop your ArcSite design here or</p>
+              <p className="text-sm text-white">Drop your design or asset here, or</p>
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
