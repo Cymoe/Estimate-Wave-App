@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Edit, Send, Download, Share2, Trash2,
   CheckCircle, XCircle, FileText, User,
-  Phone, Mail, MapPin, Copy, Eye, Calendar, X
+  Phone, Mail, MapPin, Copy, Eye, Calendar, X, MoreVertical
 } from 'lucide-react';
 import { EstimateService, Estimate, EstimateItem } from '../../services/EstimateService';
 import { priceAt } from '../../utils/priceRange';
@@ -45,6 +45,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   const [showMapModal, setShowMapModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   // Edit mode removed - cells are always editable
   const [showPricingSelector, setShowPricingSelector] = useState(false);
   // Item edits save in the background, one save at a time with the latest items.
@@ -526,7 +527,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   return (
     <div className={`${inDrawer ? 'h-full' : 'min-h-screen'} bg-[#000000] flex flex-col`}>
       {/* Fixed Header */}
-      <div className="sticky top-0 z-10 bg-[#1a1a1a] border-b border-[#333333] flex-shrink-0">
+      <div className="sticky top-0 z-30 bg-[#1a1a1a] border-b border-[#333333] flex-shrink-0">
         {/* Row 1: Navigation + Document Info */}
         <div className="flex items-center justify-between mb-2 px-3 py-2">
           <div className="flex items-center gap-4">
@@ -597,6 +598,59 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                 Send
               </button>
             )}
+
+            {/* The rest: the client's answer and delete */}
+            <div className="relative">
+              <button
+                onClick={() => setShowMoreMenu((open) => !open)}
+                aria-label="More actions"
+                className={`${secondaryAction} px-2.5`}
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+              {showMoreMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowMoreMenu(false)} />
+                  <div className="absolute right-0 top-full mt-1 w-52 bg-[#1E1E1E] border border-[#333333] shadow-lg z-50 py-1">
+                    {(estimate.status === 'sent' || estimate.status === 'opened') && (
+                      <>
+                        <button
+                          onClick={() => {
+                            setShowMoreMenu(false);
+                            handleStatusUpdate('accepted');
+                          }}
+                          className="w-full flex items-center px-3 py-2.5 text-sm text-white hover:bg-[#333333]"
+                        >
+                          <CheckCircle className="w-4 h-4 mr-3 text-green-400" />
+                          Mark as accepted
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowMoreMenu(false);
+                            handleStatusUpdate('rejected');
+                          }}
+                          className="w-full flex items-center px-3 py-2.5 text-sm text-white hover:bg-[#333333]"
+                        >
+                          <XCircle className="w-4 h-4 mr-3 text-gray-400" />
+                          Mark as declined
+                        </button>
+                        <div className="border-t border-[#333333] my-1" />
+                      </>
+                    )}
+                    <button
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        handleDeleteClick();
+                      }}
+                      className="w-full flex items-center px-3 py-2.5 text-sm text-red-400 hover:bg-[#333333]"
+                    >
+                      <Trash2 className="w-4 h-4 mr-3" />
+                      Delete estimate
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 

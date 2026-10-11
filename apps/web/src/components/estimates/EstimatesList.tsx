@@ -1,13 +1,12 @@
-import React, { useState, useEffect, useContext, useRef, useMemo } from 'react';
-import { 
-  FileText, Filter, MoreVertical, Search, 
-  Eye, Edit, Trash2, Send, Clock, CheckCircle, 
-  XCircle, AlertTriangle, Calendar, ChevronDown, ChevronUp, LayoutGrid, Share2, Copy,
-  Download, FileSpreadsheet, FileDown, Check
+import React, { useState, useEffect, useContext, useRef } from 'react';
+import {
+  FileText, Filter, MoreVertical, Search,
+  Eye, Edit, Send, CheckCircle,
+  XCircle, AlertTriangle, ChevronDown, ChevronUp,
+  Download, FileSpreadsheet
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { EstimateService, Estimate } from '../../services/EstimateService';
-import { useAuth } from '../../contexts/AuthContext';
 import { OrganizationContext, LayoutContext } from '../layouts/DashboardLayout';
 import { formatCurrency } from '../../utils/format';
 import { advancedSearch, SearchableField } from '../../utils/searchUtils';
@@ -15,8 +14,8 @@ import { TableSkeleton } from '../skeletons/TableSkeleton';
 import { supabase } from '../../lib/supabase';
 import { EstimateExportService } from '../../services/EstimateExportService';
 
-/** Estimate, client, status, date, amount, menu: shared by the header and every row. */
-const ROW_GRID = 'grid grid-cols-[minmax(8.5rem,1fr)_minmax(0,2fr)_6.5rem_7rem_minmax(7rem,1fr)_2rem] gap-4 items-center';
+/** Estimate, client, status, date, amount: shared by the header and every row. */
+const ROW_GRID = 'grid grid-cols-[minmax(8.5rem,1fr)_minmax(0,2fr)_6.5rem_7rem_minmax(7rem,1fr)] gap-4 items-center';
 
 interface EstimatesListProps {
   onCreateEstimate?: () => void;
@@ -24,7 +23,6 @@ interface EstimatesListProps {
   refreshTrigger?: number;
 }
 
-import { CreateEstimateDrawer } from './CreateEstimateDrawer';
 
 export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, searchTerm: outsideSearch = '', refreshTrigger }) => {
   // The search box lives in the list's own toolbar; a page can still pass one in.
@@ -42,17 +40,8 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<'all' | Estimate['status']>('all');
-  const [dropdownOpen, setDropdownOpen] = useState<string | null>(null);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
-  const [editingEstimate, setEditingEstimate] = useState<Estimate | null>(null);
-  const [showEditDrawer, setShowEditDrawer] = useState(false);
-  const [showShareModal, setShowShareModal] = useState(false);
-  const [sharingEstimate, setSharingEstimate] = useState<Estimate | null>(null);
-  const [deletingEstimate, setDeletingEstimate] = useState<Estimate | null>(null);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [showDeleteSuccess, setShowDeleteSuccess] = useState(false);
-  const [deletedEstimateName, setDeletedEstimateName] = useState<string>('');
   
   // Sort state
   const [sortField, setSortField] = useState<'amount' | 'date' | 'estimate_number' | 'client'>('date');
@@ -61,7 +50,6 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
   // Refs for click outside
   const filterMenuRef = useRef<HTMLDivElement>(null);
   const optionsMenuRef = useRef<HTMLDivElement>(null);
-  const estimateDropdownRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
   useEffect(() => {
     if (selectedOrg?.id) {
@@ -104,69 +92,6 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
       setProjects([]);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleEditEstimate = (estimate: Estimate) => {
-    console.log('handleEditEstimate called', estimate);
-    setEditingEstimate(estimate);
-    setShowEditDrawer(true);
-  };
-
-  const handleDeleteClick = (estimate: Estimate) => {
-    setDeletingEstimate(estimate);
-    setShowDeleteConfirm(true);
-    setDropdownOpen(null);
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (!deletingEstimate?.id) return;
-    
-    try {
-      const estimateName = deletingEstimate.title || deletingEstimate.estimate_number || 'Estimate';
-      const clientName = deletingEstimate.client?.name || 'Unknown Client';
-      const projectName = deletingEstimate.project_id && projectMap.get(deletingEstimate.project_id) 
-        ? ` - ${projectMap.get(deletingEstimate.project_id)?.name}` 
-        : '';
-      const successMessage = `${estimateName} for ${clientName}${projectName}`;
-      
-      await EstimateService.delete(deletingEstimate.id);
-      await loadEstimates();
-      setShowDeleteConfirm(false);
-      setDeletingEstimate(null);
-      
-      // Show success message with full context
-      setDeletedEstimateName(successMessage);
-      setShowDeleteSuccess(true);
-      
-      // Auto-hide success message after 3 seconds
-      setTimeout(() => {
-        setShowDeleteSuccess(false);
-        setDeletedEstimateName('');
-      }, 3000);
-    } catch (error) {
-      console.error('Error deleting estimate:', error);
-    }
-  };
-
-  const handleDeleteCancel = () => {
-    setShowDeleteConfirm(false);
-    setDeletingEstimate(null);
-  };
-
-  // Create project lookup map for better performance
-  const projectMap = useMemo(() => {
-    const map = new Map();
-    projects.forEach(project => map.set(project.id, project));
-    return map;
-  }, [projects]);
-
-  const handleStatusUpdate = async (id: string, status: Estimate['status']) => {
-    try {
-      await EstimateService.updateStatus(id, status);
-      await loadEstimates();
-    } catch (error) {
-      console.error('Error updating estimate status:', error);
     }
   };
 
@@ -327,16 +252,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
     }
   };
 
-  const handleExportToPDF = async (estimateId: string) => {
-    if (!selectedOrg?.id) return;
-    
-    try {
-      await EstimateExportService.exportEstimateToPDF(estimateId, selectedOrg.id);
-    } catch (error) {
-      console.error('Error exporting estimate to PDF:', error);
-      alert('Failed to export estimate. Please try again.');
-    }
-  };
+
 
 
 
@@ -371,15 +287,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
       if (filterMenuRef.current && !filterMenuRef.current.contains(event.target as Node)) {
         setShowFilterMenu(false);
       }
-      
-      // Check if click is outside all dropdown menus
-      const isOutsideDropdown = Object.values(estimateDropdownRefs.current).every(ref => 
-        !ref || !ref.contains(event.target as Node)
-      );
-      
-      if (isOutsideDropdown && dropdownOpen) {
-        setDropdownOpen(null);
-      }
+
     };
 
     document.addEventListener('mousedown', handleClickOutside);
@@ -387,7 +295,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [dropdownOpen]);
+  }, []);
 
   if (loading) {
     return (
@@ -665,7 +573,6 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
                     <span key={label}>{label}</span>
                   ),
                 )}
-                <span />
               </div>
               
               {/* Table Content */}
@@ -702,109 +609,6 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
                       <div className="text-right font-semibold text-white tabular-nums whitespace-nowrap">
                         {formatCurrency(estimate.total_amount)}
                       </div>
-
-                      {/* Actions Column */}
-                      <div className="flex justify-end relative">
-                        <div className="relative" ref={(el) => estimateDropdownRefs.current[estimate.id!] = el}>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setDropdownOpen(dropdownOpen === estimate.id ? null : estimate.id || null);
-                            }}
-                            className="opacity-60 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 transition-all p-1 hover:bg-gray-600 rounded"
-                          >
-                            <MoreVertical className="w-4 h-4 text-gray-400" />
-                          </button>
-
-                          {dropdownOpen === estimate.id && (
-                            <div className="absolute top-full right-0 mt-1 w-48 bg-[#1E1E1E] border border-[#333333] shadow-lg z-50 py-1">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (estimate.id) navigate(`/estimates/${estimate.id}`);
-                                  setDropdownOpen(null);
-                                }}
-                                className="w-full flex items-center px-3 py-2 text-sm text-white hover:bg-[#333333] transition-colors"
-                              >
-                                <Eye className="w-3 h-3 mr-3 text-gray-400" />
-                                View Estimate
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleEditEstimate(estimate);
-                                  setDropdownOpen(null);
-                                }}
-                                className="w-full flex items-center px-3 py-2 text-sm text-white hover:bg-[#333333] transition-colors"
-                              >
-                                <Edit className="w-3 h-3 mr-3 text-gray-400" />
-                                Edit Estimate
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSharingEstimate(estimate);
-                                  setShowShareModal(true);
-                                  setDropdownOpen(null);
-                                }}
-                                className="w-full flex items-center px-3 py-2 text-sm text-white hover:bg-[#333333] transition-colors"
-                              >
-                                <Share2 className="w-3 h-3 mr-3 text-gray-400" />
-                                Share Estimate
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (estimate.id) handleExportToPDF(estimate.id);
-                                  setDropdownOpen(null);
-                                }}
-                                className="w-full flex items-center px-3 py-2 text-sm text-white hover:bg-[#333333] transition-colors"
-                              >
-                                <FileDown className="w-3 h-3 mr-3 text-gray-400" />
-                                Export as PDF
-                              </button>
-                              {estimate.status === 'draft' && (
-                                <button
-                                                                  onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (estimate.id) handleStatusUpdate(estimate.id, 'sent');
-                                  setDropdownOpen(null);
-                                }}
-                                  className="w-full flex items-center px-3 py-2 text-sm text-white hover:bg-[#333333] transition-colors"
-                                >
-                                  <Send className="w-3 h-3 mr-3 text-gray-400" />
-                                  Send to Client
-                                </button>
-                              )}
-                              {estimate.status === 'sent' && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleStatusUpdate(estimate.id, 'accepted');
-                                    setDropdownOpen(null);
-                                  }}
-                                  className="w-full flex items-center px-3 py-2 text-sm text-white hover:bg-[#333333] transition-colors"
-                                >
-                                  <CheckCircle className="w-3 h-3 mr-3 text-gray-400" />
-                                  Mark as Accepted
-                                </button>
-                              )}
-                              <div className="border-t border-[#333333] mt-1 pt-1">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDeleteClick(estimate);
-                                  }}
-                                  className="w-full flex items-center px-3 py-2 text-sm text-red-400 hover:bg-[#333333] transition-colors"
-                                >
-                                  <Trash2 className="w-3 h-3 mr-3" />
-                                  Delete Estimate
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
                     </div>
                   ))}
                 </div>
@@ -814,157 +618,6 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
         </div>
         </div>
       </div>
-
-      {/* Edit Estimate Drawer */}
-      <CreateEstimateDrawer
-        isOpen={showEditDrawer}
-        onClose={() => {
-          setShowEditDrawer(false);
-          setEditingEstimate(null);
-        }}
-        editingEstimate={editingEstimate}
-        onSave={async (data) => {
-          try {
-            if (editingEstimate) {
-              // Update the estimate
-              await EstimateService.update(editingEstimate.id, {
-                ...data,
-                organization_id: selectedOrg?.id || '',
-              });
-              await loadEstimates();
-              setShowEditDrawer(false);
-              setEditingEstimate(null);
-            }
-          } catch (error) {
-            console.error('Error updating estimate:', error);
-          }
-        }}
-      />
-
-      {/* Share Modal */}
-      {showShareModal && sharingEstimate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => {
-            setShowShareModal(false);
-            setSharingEstimate(null);
-          }} />
-          <div className="relative bg-[#1E1E1E] rounded-lg border border-[#333333] p-6 max-w-md w-full">
-            <h3 className="text-lg font-semibold text-white mb-4">Share Estimate</h3>
-            <p className="text-gray-400 mb-4">
-              Generate a shareable link for this estimate. Clients can view the estimate without needing to log in.
-            </p>
-            
-            <div className="bg-[#121212] border border-[#333333] rounded-lg p-3 mb-4">
-              <div className="text-xs text-gray-400 mb-1">Shareable Link</div>
-              <div className="text-sm text-white break-all">
-                {`${window.location.origin}/share/estimate/${sharingEstimate.id}`}
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  setShowShareModal(false);
-                  setSharingEstimate(null);
-                }}
-                className="px-4 py-2 text-gray-300 hover:text-white transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={async () => {
-                  const shareUrl = `${window.location.origin}/share/estimate/${sharingEstimate.id}`;
-                  try {
-                    await navigator.clipboard.writeText(shareUrl);
-                    alert('Share link copied to clipboard!');
-                  } catch (err) {
-                    console.error('Failed to copy link:', err);
-                    const textArea = document.createElement('textarea');
-                    textArea.value = shareUrl;
-                    document.body.appendChild(textArea);
-                    textArea.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(textArea);
-                    alert('Share link copied to clipboard!');
-                  }
-                  setShowShareModal(false);
-                  setSharingEstimate(null);
-                }}
-                className="px-4 py-2 bg-[#336699] hover:bg-[#2A5580] text-white rounded-lg transition-colors flex items-center gap-2"
-              >
-                <Copy className="w-4 h-4" />
-                Copy Link
-              </button>
-              <button
-                onClick={() => {
-                  window.open(`/share/estimate/${sharingEstimate.id}`, '_blank');
-                  setShowShareModal(false);
-                  setSharingEstimate(null);
-                }}
-                className="px-4 py-2 bg-[#EAB308] hover:bg-[#D97706] text-black rounded-lg transition-colors flex items-center gap-2"
-              >
-                <Eye className="w-4 h-4" />
-                Preview
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Confirmation Modal */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-[#0a0a0a] rounded-xl max-w-md w-full border border-white/10 shadow-2xl">
-            <div className="p-6">
-              <h3 className="text-lg font-semibold text-white mb-2">Delete Estimate</h3>
-              <p className="text-white/60 mb-6">
-                Are you sure you want to delete estimate <strong>"{deletingEstimate?.title || deletingEstimate?.estimate_number}"</strong> for <strong>{deletingEstimate?.client?.name}</strong>{deletingEstimate?.project_id && projectMap.get(deletingEstimate.project_id) ? ` - ${projectMap.get(deletingEstimate.project_id)?.name}` : ''}? This action cannot be undone.
-              </p>
-              <div className="flex justify-end gap-4">
-                <button
-                  onClick={handleDeleteCancel}
-                  className="h-12 px-6 bg-white/10 text-white rounded-xl hover:bg-white/20 transition-all font-medium border border-white/10"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleDeleteConfirm}
-                  className="h-12 px-6 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl hover:from-red-400 hover:to-red-500 transition-all font-medium flex items-center gap-3 shadow-lg"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Delete
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Success Modal */}
-      {showDeleteSuccess && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-[#0a0a0a] rounded-xl max-w-md w-full border border-green-500/20 shadow-2xl">
-            <div className="p-6 text-center">
-              <div className="w-12 h-12 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Check className="w-6 h-6 text-green-400" />
-              </div>
-              <h3 className="text-lg font-semibold text-white mb-2">Estimate Deleted</h3>
-              <p className="text-white/60 mb-6">
-                <strong>"{deletedEstimateName}"</strong> has been successfully deleted.
-              </p>
-              <button
-                onClick={() => {
-                  setShowDeleteSuccess(false);
-                  setDeletedEstimateName('');
-                }}
-                className="h-10 px-6 bg-green-500 hover:bg-green-600 text-white rounded-xl transition-all font-medium"
-              >
-                OK
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
