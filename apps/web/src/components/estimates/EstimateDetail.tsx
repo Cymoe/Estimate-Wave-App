@@ -342,171 +342,56 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   const marginColor = marginPosition > 0.3 ? 'text-green-500' : marginPosition > 0.15 ? 'text-yellow-500' : 'text-red-500';
 
   if (loading) {
+    // Shaped like the estimate itself: header, tabs, pricing options and line items.
+    const bar = (w: string, h = 'h-4') => <div className={`${w} ${h} bg-[#262626] rounded animate-pulse`} />;
     return (
-      <div className={`${inDrawer ? 'h-full overflow-hidden' : 'min-h-screen'} bg-[#000000] text-white`}>
-        {/* Header Skeleton */}
-        <div className="border-b border-[#333333] px-6 py-4">
-          {/* Row 1: Navigation + Document Info */}
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-4">
-              <div className="w-8 h-8 bg-[#333333] rounded animate-pulse"></div>
-              <div className="flex items-center gap-3">
-                <div className="w-32 h-6 bg-[#333333] rounded animate-pulse"></div>
-                <div className="w-20 h-5 bg-[#333333] rounded animate-pulse"></div>
-              </div>
-            </div>
+      <div className={`${inDrawer ? 'h-full overflow-hidden' : 'min-h-screen'} bg-[#000000] text-white flex flex-col`} aria-busy="true">
+        {/* Header: close, number and status; actions on the right */}
+        <div className="border-b border-[#333333] px-4 pt-3 pb-2">
+          <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="w-28 h-9 bg-[#333333] rounded-lg animate-pulse"></div>
-              <div className="w-20 h-9 bg-[#333333] rounded-lg animate-pulse"></div>
-              <div className="w-16 h-9 bg-[#333333] rounded-lg animate-pulse"></div>
+              {bar('w-6', 'h-6')}
+              {bar('w-44', 'h-7')}
+              {bar('w-14', 'h-6')}
+            </div>
+            <div className="flex items-center gap-2">
+              {bar('w-20', 'h-9')}
+              {bar('w-20', 'h-9')}
+              {bar('w-9', 'h-9')}
             </div>
           </div>
-
-          {/* Row 2: Client Information */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4 min-w-0 flex-1">
-              <div className="w-48 h-5 bg-[#333333] rounded animate-pulse"></div>
-              <div className="w-32 h-4 bg-[#333333] rounded animate-pulse"></div>
-            </div>
-            <div className="w-24 h-5 bg-[#333333] rounded animate-pulse"></div>
-          </div>
+          <div className="mt-3">{bar('w-48')}</div>
         </div>
 
-        {/* Content Skeleton */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
-          {/* Mobile: Total amount card skeleton */}
-          <div className="md:hidden bg-[#1a1a1a] rounded-lg border border-[#333] p-4 mb-6">
-            <div className="flex justify-between items-center">
-              <div className="w-24 h-4 bg-[#333333] rounded animate-pulse"></div>
-              <div className="w-32 h-6 bg-[#333333] rounded animate-pulse"></div>
-            </div>
+        {/* Tabs */}
+        <div className="flex gap-6 px-4 py-3 border-b border-[#333333]">
+          {bar('w-20')}
+          {bar('w-16')}
+          {bar('w-16')}
+        </div>
+
+        {/* Pricing options beside the line items */}
+        <div className="flex flex-1 min-h-0">
+          <div className="w-[168px] flex-shrink-0 border-r border-[#333333] py-2 space-y-4 px-3">
+            {['w-28', 'w-24', 'w-24', 'w-24', 'w-20', 'w-20'].map((w, i) => (
+              <div key={i}>{bar(w)}</div>
+            ))}
           </div>
-
-          {/* Client & Project Info Section - 2 Column Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            {/* Client Information Card */}
-            <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-5 h-5 bg-[#333333] rounded animate-pulse"></div>
-                <div className="w-32 h-5 bg-[#333333] rounded animate-pulse"></div>
-              </div>
-              <div className="space-y-2">
-                <div className="w-40 h-4 bg-[#333333] rounded animate-pulse"></div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 bg-[#333333] rounded animate-pulse"></div>
-                  <div className="w-36 h-4 bg-[#333333] rounded animate-pulse"></div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 bg-[#333333] rounded animate-pulse"></div>
-                  <div className="w-32 h-4 bg-[#333333] rounded animate-pulse"></div>
-                </div>
-                <div className="flex items-start gap-2 p-2 rounded-lg">
-                  <div className="w-4 h-4 bg-[#333333] rounded animate-pulse mt-0.5"></div>
-                  <div className="flex-1">
-                    <div className="w-48 h-4 bg-[#333333] rounded animate-pulse mb-1"></div>
-                    <div className="w-28 h-3 bg-[#333333] rounded animate-pulse"></div>
-                  </div>
-                </div>
-              </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-4 px-3 py-3 border-b border-[#333333]">
+              <div className="flex-1">{bar('w-24')}</div>
+              {bar('w-14')}
+              {bar('w-8')}
+              {bar('w-14')}
             </div>
-
-            {/* Estimate Details Card */}
-            <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-5 h-5 bg-[#333333] rounded animate-pulse"></div>
-                <div className="w-28 h-5 bg-[#333333] rounded animate-pulse"></div>
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex items-center gap-4 px-3 py-3 border-b border-[#333333]">
+                <div className="flex-1">{bar(i % 2 ? 'w-40' : 'w-56')}</div>
+                {bar('w-16')}
+                {bar('w-6')}
+                {bar('w-16')}
               </div>
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <div className="w-20 h-4 bg-[#333333] rounded animate-pulse"></div>
-                  <div className="w-24 h-4 bg-[#333333] rounded animate-pulse"></div>
-                </div>
-                <div className="flex justify-between">
-                  <div className="w-16 h-4 bg-[#333333] rounded animate-pulse"></div>
-                  <div className="w-24 h-4 bg-[#333333] rounded animate-pulse"></div>
-                </div>
-                <div className="flex justify-between">
-                  <div className="w-18 h-4 bg-[#333333] rounded animate-pulse"></div>
-                  <div className="w-20 h-4 bg-[#333333] rounded animate-pulse"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Main Content Area - Single Column */}
-          <div className="space-y-6">
-            {/* Cost Breakdown Card */}
-            <div className="bg-[#1a1a1a] rounded-lg border border-[#333] overflow-hidden">
-              <div className="px-6 py-4 border-b border-[#333]">
-                <div className="w-48 h-5 bg-[#333333] rounded animate-pulse"></div>
-              </div>
-              <div className="p-6 space-y-2">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="flex justify-between items-center py-1.5">
-                    <div className="w-24 h-4 bg-[#333333] rounded animate-pulse"></div>
-                    <div className="w-20 h-4 bg-[#333333] rounded animate-pulse"></div>
-                  </div>
-                ))}
-                <div className="flex justify-between items-center pt-2 mt-2 border-t border-[#555]">
-                  <div className="w-16 h-4 bg-[#333333] rounded animate-pulse"></div>
-                  <div className="w-24 h-4 bg-[#333333] rounded animate-pulse"></div>
-                </div>
-                <div className="flex justify-between items-center py-1">
-                  <div className="w-20 h-4 bg-[#333333] rounded animate-pulse"></div>
-                  <div className="w-20 h-4 bg-[#333333] rounded animate-pulse"></div>
-                </div>
-                <div className="flex justify-between items-center pt-1 border-t border-[#555]">
-                  <div className="w-12 h-4 bg-[#333333] rounded animate-pulse"></div>
-                  <div className="w-24 h-4 bg-[#333333] rounded animate-pulse"></div>
-                </div>
-              </div>
-            </div>
-
-            {/* Line Items Card */}
-            <div className="bg-[#1a1a1a] rounded-lg border border-[#333] overflow-hidden">
-              <div className="px-6 py-4 border-b border-[#333]">
-                <div className="w-20 h-5 bg-[#333333] rounded animate-pulse"></div>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-[#0a0a0a]">
-                    <tr>
-                      <th className="px-4 py-3 text-left">
-                        <div className="w-20 h-3 bg-[#333333] rounded animate-pulse"></div>
-                      </th>
-                      <th className="px-3 py-3 text-center">
-                        <div className="w-8 h-3 bg-[#333333] rounded animate-pulse mx-auto"></div>
-                      </th>
-                      <th className="px-3 py-3 text-right">
-                        <div className="w-16 h-3 bg-[#333333] rounded animate-pulse ml-auto"></div>
-                      </th>
-                      <th className="px-4 py-3 text-right">
-                        <div className="w-12 h-3 bg-[#333333] rounded animate-pulse ml-auto"></div>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#333]">
-                    {[1, 2, 3, 4].map((i) => (
-                      <tr key={i}>
-                        <td className="px-4 py-4">
-                          <div className="w-48 h-4 bg-[#333333] rounded animate-pulse mb-1"></div>
-                          <div className="w-24 h-3 bg-[#333333] rounded animate-pulse"></div>
-                        </td>
-                        <td className="px-3 py-4 text-center">
-                          <div className="w-8 h-4 bg-[#333333] rounded animate-pulse mx-auto"></div>
-                        </td>
-                        <td className="px-3 py-4 text-right">
-                          <div className="w-16 h-4 bg-[#333333] rounded animate-pulse ml-auto"></div>
-                        </td>
-                        <td className="px-4 py-4 text-right">
-                          <div className="w-20 h-4 bg-[#333333] rounded animate-pulse ml-auto"></div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
       </div>
