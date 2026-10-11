@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, FileText, Edit, Save, Download, Send } from 'lucide-react';
 import { EstimateService, Estimate } from '../../services/EstimateService';
 import { ContractService, ContractData } from '../../services/ContractService';
@@ -9,6 +9,13 @@ import { OrganizationContext } from '../layouts/DashboardLayout';
 export const EstimateContractView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Back to the estimate by stepping back, so closing the estimate afterwards
+  // doesn't return here. Opened directly, replace this page with the estimate.
+  const backToEstimate = () => {
+    if (location.key !== 'default') navigate(-1);
+    else navigate(`/estimates/${id}`, { replace: true, state: { closeTo: '/work' } });
+  };
   const { selectedOrg } = useContext(OrganizationContext);
   const [estimate, setEstimate] = useState<Estimate | null>(null);
   const [contractData, setContractData] = useState<ContractData | null>(null);
@@ -151,7 +158,7 @@ export const EstimateContractView: React.FC = () => {
           <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-white mb-2">Contract not found</h3>
           <button
-            onClick={() => navigate(`/estimates/${id}`)}
+            onClick={backToEstimate}
             className="text-[#fbbf24] hover:text-white transition-colors"
           >
             Back to Estimate
@@ -168,7 +175,7 @@ export const EstimateContractView: React.FC = () => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
-              onClick={() => navigate(`/estimates/${id}`)}
+              onClick={backToEstimate}
               className="p-2 hover:bg-[#333333] rounded transition-colors"
             >
               <ArrowLeft className="w-5 h-5 text-gray-400" />

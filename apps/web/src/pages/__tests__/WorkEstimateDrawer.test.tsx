@@ -29,7 +29,8 @@ jest.mock('../../components/estimates/EstimateDetail', () => ({
   ),
 }));
 jest.mock('../../components/estimates/CreateEstimateDrawer', () => ({ CreateEstimateDrawer: () => null }));
-jest.mock('../../services/EstimateService', () => ({ EstimateService: {} }));
+jest.mock('../../services/EstimateService', () => ({ EstimateService: { getById: async () => null } }));
+jest.mock('../../services/ContractService', () => ({ ContractService: {} }));
 jest.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }));
 jest.mock('../../components/layouts/DashboardLayout', () => {
   const { createContext } = jest.requireActual('react');
@@ -37,6 +38,7 @@ jest.mock('../../components/layouts/DashboardLayout', () => {
 });
 
 import { Work } from '../Work';
+import { EstimateContractView } from '../../components/contracts/EstimateContractView';
 
 let path = '';
 const Where = () => {
@@ -50,7 +52,7 @@ const Nav = () => {
   return null;
 };
 
-async function render(initial: string[]) {
+async function render(initial: (string | { pathname: string; state?: unknown })[]) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   await act(async () =>
@@ -63,6 +65,7 @@ async function render(initial: string[]) {
             <Route path="/work" element={null} />
             <Route path="/estimates/:id" element={null} />
           </Route>
+          <Route path="/estimates/:id/contract" element={<EstimateContractView />} />
           <Route path="/projects/:id" element={<p>project page</p>} />
         </Routes>
       </MemoryRouter>,
@@ -116,6 +119,29 @@ describe('estimates open in a drawer over the list', () => {
   it('opening an estimate URL directly closes to the list', async () => {
     await render(['/estimates/e9']);
     expect(document.body.textContent).toContain('estimate e9 in drawer');
+    await click('Back');
+    await act(async () => jest.advanceTimersByTime(200));
+    expect(path).toBe('/work');
+  });
+
+  it('going to the contract and back, closing the estimate returns to the list, not the contract', async () => {
+    await render(['/work']);
+    await click('EST-2 row');
+    await act(async () => goTo('/estimates/e2/contract')); // the Contract button
+    await act(async () => {});
+    expect(path).toBe('/estimates/e2/contract');
+    await click('Back to Estimate');
+    expect(path).toBe('/estimates/e2');
+    await click('Back');
+    await act(async () => jest.advanceTimersByTime(200));
+    expect(path).toBe('/work');
+  });
+
+  it('a contract opened directly goes back to its estimate, and closing that goes to the list', async () => {
+    await render(['/estimates/e3/contract']);
+    await act(async () => {});
+    await click('Back to Estimate');
+    expect(path).toBe('/estimates/e3');
     await click('Back');
     await act(async () => jest.advanceTimersByTime(200));
     expect(path).toBe('/work');

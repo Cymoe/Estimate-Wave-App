@@ -25,7 +25,9 @@ export const Work: React.FC = () => {
   // Back where the estimate was opened from (a project, a client…), or to the list.
   const closeEstimate = () => {
     setRefreshList((n) => n + 1);
-    if (location.key !== 'default') navigate(-1);
+    const closeTo = (location.state as { closeTo?: string } | null)?.closeTo;
+    if (closeTo) navigate(closeTo, { replace: true });
+    else if (location.key !== 'default') navigate(-1);
     else navigate('/work', { replace: true });
   };
 
