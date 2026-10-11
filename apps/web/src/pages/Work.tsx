@@ -21,6 +21,9 @@ export const Work: React.FC = () => {
   const openEstimateId = useMatch('/estimates/:id')?.params.id;
   const location = useLocation();
   const [refreshList, setRefreshList] = useState(0);
+  // The estimate whose drawer is closing: its row stops being highlighted at once.
+  const [closingId, setClosingId] = useState<string | null>(null);
+  useEffect(() => setClosingId(null), [openEstimateId]);
 
   // Back where the estimate was opened from (a project, a client…), or to the list.
   const closeEstimate = () => {
@@ -39,9 +42,18 @@ export const Work: React.FC = () => {
 
   return (
     <div className="max-w-[1600px] mx-auto">
-      <EstimatesList refreshTrigger={refreshList} selectedId={openEstimateId} />
+      <EstimatesList
+        refreshTrigger={refreshList}
+        selectedId={openEstimateId && openEstimateId !== closingId ? openEstimateId : undefined}
+      />
 
-      {openEstimateId && <EstimateDrawer estimateId={openEstimateId} onClose={closeEstimate} />}
+      {openEstimateId && (
+        <EstimateDrawer
+          estimateId={openEstimateId}
+          onClose={closeEstimate}
+          onClosing={() => setClosingId(openEstimateId)}
+        />
+      )}
 
       {/* Modals */}
       <CreateEstimateDrawer

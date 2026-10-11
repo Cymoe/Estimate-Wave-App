@@ -7,9 +7,17 @@ import { EstimateDetail } from './EstimateDetail';
  * One estimate, in a drawer over the estimates list: the same screen as the
  * estimate page, in a narrow panel so the list stays in view.
  */
-export const EstimateDrawer: React.FC<{ estimateId: string; onClose: () => void }> = ({ estimateId, onClose }) => {
+export const EstimateDrawer: React.FC<{
+  estimateId: string;
+  onClose: () => void;
+  /** Called as soon as closing starts, before the slide-out finishes. */
+  onClosing?: () => void;
+}> = ({ estimateId, onClose, onClosing }) => {
   const { shown, slideOut } = useSlideIn();
-  const close = () => slideOut(onClose);
+  const close = () => {
+    onClosing?.();
+    slideOut(onClose);
+  };
   const panel = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

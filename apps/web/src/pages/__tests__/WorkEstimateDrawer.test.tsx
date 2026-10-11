@@ -5,12 +5,14 @@ import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-rou
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const listRenders: number[] = [];
+let highlighted: string | undefined;
 let listMounts = 0;
 jest.mock('../../components/estimates/EstimatesList', () => {
   const { useEffect } = jest.requireActual('react');
   const { useNavigate } = jest.requireActual('react-router-dom');
   return {
-    EstimatesList: ({ refreshTrigger }: { refreshTrigger?: number }) => {
+    EstimatesList: ({ refreshTrigger, selectedId }: { refreshTrigger?: number; selectedId?: string }) => {
+      highlighted = selectedId;
       const navigate = useNavigate();
       useEffect(() => {
         listMounts++;
@@ -146,4 +148,18 @@ describe('estimates open in a drawer over the list', () => {
     await act(async () => jest.advanceTimersByTime(200));
     expect(path).toBe('/work');
   });
+
+  it('the open estimate is highlighted, and stops being highlighted as soon as closing starts', async () => {
+    await render(['/work']);
+    await click('EST-2 row');
+    expect(highlighted).toBe('e2');
+    await click('Back');
+    // Still sliding out, but the row is no longer highlighted.
+    expect(path).toBe('/estimates/e2');
+    expect(highlighted).toBeUndefined();
+    await act(async () => jest.advanceTimersByTime(200));
+    expect(path).toBe('/work');
+    expect(highlighted).toBeUndefined();
+  });
 });
+
