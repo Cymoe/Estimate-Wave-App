@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, FileText, Edit, Save, Download, Send } from 'lucide-react';
+import { ArrowLeft, FileText, Edit, Save, Download } from 'lucide-react';
 import { EstimateService, Estimate } from '../../services/EstimateService';
-import { ContractService, ContractData } from '../../services/ContractService';
+import { Business, ContractData, ContractTerms, contractFor, missingBusinessDetails } from '../../services/contract';
+import { organizationsAPI } from '../../lib/api';
 import { formatCurrency } from '../../utils/format';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 
@@ -18,121 +19,87 @@ export const EstimateContractView: React.FC = () => {
   };
   const { selectedOrg } = useContext(OrganizationContext);
   const [estimate, setEstimate] = useState<Estimate | null>(null);
-  const [contractData, setContractData] = useState<ContractData | null>(null);
-  const [contractId, setContractId] = useState<string | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
+  const [business, setBusiness] = useState<Business | null>(null);
+  const [businessLoaded, setBusinessLoaded] = useState(false);
+  // The terms being edited; the rest of the contract comes from the estimate.
+  const [draftTerms, setDraftTerms] = useState<ContractTerms | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [autoGenerating, setAutoGenerating] = useState(false);
+  const isEditing = draftTerms !== null;
 
   useEffect(() => {
     if (!id) return;
-    
-    const fetchEstimateAndContract = async () => {
+    let cancelled = false;
+    (async () => {
       try {
         setLoading(true);
         const result = await EstimateService.getById(id);
-        setEstimate(result);
-        
-        if (result) {
-          // Check if a contract already exists for this estimate
-          let existingContract = null;
-          if (result.project_id) {
-            try {
-              const projectContracts = await ContractService.getProjectContracts(result.project_id);
-              existingContract = projectContracts.find(contract => 
-                contract.name.includes(result.estimate_number)
-              );
-              if (existingContract) {
-                setContractId(existingContract.id);
-              }
-            } catch (error) {
-              // No existing contract found, which is fine
-              console.log('No existing contract found, will auto-generate');
-            }
-          }
-
-          // Convert estimate to contract data (always generate fresh data)
-          const contract: ContractData = {
-            propertyAddress: result.client?.address || '',
-            clientName: result.client?.name || '',
-            clientAddress: result.client?.address || '',
-            contractorName: 'Campos Family Properties, LLC',
-            contractorAddress: 'Your Company Address', // TODO: Get from organization settings
-            contractorEmail: 'camposfamilypropertiesllc@gmail.com', // TODO: Get from organization settings
-            authorizedRepresentative: 'Marcel Campos', // TODO: Get from organization settings
-            workDescription: result.description || 'Service work based on estimate',
-            totalAmount: result.total_amount,
-            lineItems: result.items?.map(item => ({
-              description: item.description || 'Service',
-              quantity: item.quantity || 1,
-              unit: item.unit || 'ea',
-              unitPrice: item.unit_price,
-              total: item.total_price
-            })) || [],
-            startDate: new Date().toISOString().split('T')[0], // Default to today
-            completionDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Default 30 days from now
-            paymentTerms: '50% deposit upon signing, 50% upon completion',
-            warrantyPeriod: '1 year'
-          };
-
-
-          setContractData(contract);
-
-          // Auto-generate and save contract if it doesn't exist yet
-          if (!existingContract && selectedOrg?.id) {
-            try {
-              setAutoGenerating(true);
-              const contractResult = await ContractService.saveContract(result.id, contract, selectedOrg.id);
-              setContractId(contractResult.contractId);
-              console.log('Contract auto-generated successfully');
-            } catch (error) {
-              console.error('Error auto-generating contract:', error);
-              // Don't fail the whole load - user can still view the contract preview
-            } finally {
-              setAutoGenerating(false);
-            }
-          }
-        }
+        if (!cancelled) setEstimate(result);
       } catch (error) {
         console.error('Error fetching estimate:', error);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
+    })();
+    return () => {
+      cancelled = true;
     };
+  }, [id]);
 
-    fetchEstimateAndContract();
-  }, [id, selectedOrg?.id]);
+  // The business details fill in when they arrive; the contract doesn't wait for them.
+  useEffect(() => {
+    if (!selectedOrg?.id) return;
+    let cancelled = false;
+    organizationsAPI
+      .getById(selectedOrg.id)
+      .then((org: Business | null) => {
+        if (cancelled) return;
+        setBusiness(org);
+        setBusinessLoaded(true);
+      })
+      .catch(() => !cancelled && setBusinessLoaded(true));
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedOrg?.id]);
+
+  const contract: ContractData | null = estimate ? contractFor(estimate, business) : null;
+  // While editing, show the terms being typed.
+  const contractData: ContractData | null = contract && draftTerms ? { ...contract, ...draftTerms } : contract;
+  const locked = Boolean(contract?.lockedAt);
+  const missing = businessLoaded ? missingBusinessDetails(business) : [];
+
+  const startEditing = () => {
+    if (!contract) return;
+    setDraftTerms({
+      startDate: contract.startDate,
+      completionDate: contract.completionDate,
+      paymentTerms: contract.paymentTerms,
+      warrantyPeriod: contract.warrantyPeriod,
+      workDescription: contract.workDescription,
+      propertyAddress: contract.propertyAddress,
+    });
+  };
 
   const handleSave = async () => {
-    if (!contractData || !estimate?.id || !selectedOrg?.id) return;
-    
+    if (!estimate?.id || !draftTerms) return;
     try {
       setSaving(true);
-      
-      if (contractId) {
-        // Update existing contract
-        await ContractService.updateContract(contractId, contractData);
-      } else {
-        // Create new contract
-        const result = await ContractService.saveContract(estimate.id, contractData, selectedOrg.id);
-        setContractId(result.contractId);
-      }
-      
-      alert('Contract saved successfully!');
-      setIsEditing(false);
+      setEstimate(await EstimateService.update(estimate.id, { contract_terms: draftTerms }));
+      setDraftTerms(null);
     } catch (error) {
       console.error('Error saving contract:', error);
-      alert('Failed to save contract');
+      alert(error instanceof Error ? error.message : 'Failed to save contract');
     } finally {
       setSaving(false);
     }
   };
 
-  const handleFieldChange = (field: keyof ContractData, value: any) => {
-    if (!contractData) return;
-    setContractData({ ...contractData, [field]: value });
+  const handleFieldChange = (field: keyof ContractTerms, value: string) => {
+    if (draftTerms) setDraftTerms({ ...draftTerms, [field]: value });
   };
+
+  const formatDate = (date: string) => (date ? new Date(`${date.slice(0, 10)}T00:00:00`).toLocaleDateString() : 'To be agreed');
 
   if (loading) {
     return (
@@ -140,11 +107,7 @@ export const EstimateContractView: React.FC = () => {
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#fbbf24] mx-auto mb-4"></div>
-            {autoGenerating ? (
-              <p className="text-gray-400 text-sm">Setting up your contract...</p>
-            ) : (
-              <p className="text-gray-400 text-sm">Loading contract...</p>
-            )}
+            <p className="text-gray-400 text-sm">Loading contract...</p>
           </div>
         </div>
       </div>
@@ -183,8 +146,9 @@ export const EstimateContractView: React.FC = () => {
             <div>
               <h1 className="text-xl font-semibold text-white">Contract - {estimate.estimate_number}</h1>
               <p className="text-sm text-gray-400">
-                {contractId ? 'Contract ready for' : 'Contract for'} {contractData.clientName}
-                {autoGenerating && <span className="ml-2 text-[#fbbf24]">• Setting up...</span>}
+                {locked
+                  ? `Signed ${new Date(contractData.lockedAt!).toLocaleDateString()} · changes go on a change order`
+                  : `Contract for ${contractData.clientName || 'no client yet'} · follows the estimate`}
               </p>
             </div>
           </div>
@@ -192,13 +156,13 @@ export const EstimateContractView: React.FC = () => {
           <div className="flex items-center gap-3">
             {!isEditing ? (
               <>
-                <button
-                  onClick={() => setIsEditing(true)}
+                {!locked && <button
+                  onClick={startEditing}
                   className="flex items-center gap-2 px-4 py-2 bg-[#2a2a2a] border border-[#404040] text-white rounded-lg hover:bg-[#333333] transition-colors"
                 >
                   <Edit className="w-4 h-4" />
-                  Edit
-                </button>
+                  Edit terms
+                </button>}
                 <button
                   onClick={() => window.print()}
                   className="flex items-center gap-2 px-4 py-2 bg-[#336699] text-white rounded-lg hover:bg-[#2A5580] transition-colors"
@@ -210,7 +174,7 @@ export const EstimateContractView: React.FC = () => {
             ) : (
               <>
                 <button
-                  onClick={() => setIsEditing(false)}
+                  onClick={() => setDraftTerms(null)}
                   className="px-4 py-2 bg-[#2a2a2a] border border-[#404040] text-white rounded-lg hover:bg-[#333333] transition-colors"
                 >
                   Cancel
@@ -231,6 +195,11 @@ export const EstimateContractView: React.FC = () => {
 
       {/* Contract Content */}
       <div className="max-w-4xl mx-auto px-6 py-8">
+        {missing.length > 0 && (
+          <div className="mb-4 p-3 border border-yellow-500/40 bg-yellow-500/10 text-sm text-yellow-200 print:hidden">
+            Add your {missing.join(', ')} to your organization so they appear on your contracts.
+          </div>
+        )}
         <div className="bg-white text-black p-8 rounded-lg shadow-lg print:shadow-none print:rounded-none">
           {/* Contract Header */}
           <div className="text-center mb-8">
@@ -250,30 +219,10 @@ export const EstimateContractView: React.FC = () => {
                   className="mx-1 p-1 border border-gray-300 rounded text-xs"
                 />
               ) : (
-                new Date(contractData.startDate).toLocaleDateString()
+                formatDate(contractData.startDate)
               )} (The effective date), by and between{' '}
-              {isEditing ? (
-                <input
-                  type="text"
-                  value={contractData.contractorName}
-                  onChange={(e) => handleFieldChange('contractorName', e.target.value)}
-                  className="mx-1 p-1 border border-gray-300 rounded text-xs"
-                  placeholder="Contractor Name"
-                />
-              ) : (
-                <strong>{contractData.contractorName}</strong>
-              )} (Hereinafter referred to as the "Constructor") and{' '}
-              {isEditing ? (
-                <input
-                  type="text"
-                  value={contractData.clientName}
-                  onChange={(e) => handleFieldChange('clientName', e.target.value)}
-                  className="mx-1 p-1 border border-gray-300 rounded text-xs"
-                  placeholder="Client Name"
-                />
-              ) : (
-                <strong>{contractData.clientName}</strong>
-              )} (Hereinafter referred to as the "Client") (Collectively referred to as the "Parties").
+              <strong>{contractData.contractorName || 'Your business'}</strong> (Hereinafter referred to as the "Constructor") and{' '}
+              <strong>{contractData.clientName || 'the client'}</strong> (Hereinafter referred to as the "Client") (Collectively referred to as the "Parties").
             </p>
           </div>
 
@@ -374,21 +323,20 @@ export const EstimateContractView: React.FC = () => {
                     className="ml-1 p-1 border border-gray-300 rounded text-xs"
                   />
                 ) : (
-                  new Date(contractData.startDate).toLocaleDateString()
+                  formatDate(contractData.startDate)
                 )}
               </div>
               <div>
-                <strong>Project Duration:</strong>{' '}
+                <strong>Estimated completion date:</strong>{' '}
                 {isEditing ? (
                   <input
-                    type="text"
-                    value={contractData.warrantyPeriod}
-                    onChange={(e) => handleFieldChange('warrantyPeriod', e.target.value)}
-                    className="ml-1 p-1 border border-gray-300 rounded text-xs w-32"
-                    placeholder="6 working days"
+                    type="date"
+                    value={contractData.completionDate}
+                    onChange={(e) => handleFieldChange('completionDate', e.target.value)}
+                    className="ml-1 p-1 border border-gray-300 rounded text-xs"
                   />
                 ) : (
-                  contractData.warrantyPeriod || '6 working days'
+                  formatDate(contractData.completionDate)
                 )}
               </div>
             </div>
@@ -517,7 +465,6 @@ export const EstimateContractView: React.FC = () => {
             <div>
               <h3 className="font-medium mb-4">{contractData.contractorName}</h3>
               <div className="border-b border-gray-400 mb-2 h-12"></div>
-              <p className="text-sm">Marcel Campos</p>
               <p className="text-sm">Authorized Representative</p>
               <div className="border-b border-gray-400 mb-2 h-8 mt-4"></div>
               <p className="text-sm">Date: {new Date().toLocaleDateString()}</p>
@@ -539,7 +486,7 @@ export const EstimateContractView: React.FC = () => {
               the instructions of the seller regarding the return shipment of the goods at the seller's expense and risk.
             </p>
             <p className="mb-2">
-              To cancel this transaction, customer should email camposfamilypropertiesllc@gmail.com
+              To cancel this transaction, customer should contact {contractData.contractorEmail || contractData.contractorPhone || contractData.contractorName || 'the contractor'}
             </p>
           </div>
 

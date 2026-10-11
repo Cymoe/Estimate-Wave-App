@@ -30,7 +30,7 @@ jest.mock('../../components/estimates/EstimateDetail', () => ({
 }));
 jest.mock('../../components/estimates/CreateEstimateDrawer', () => ({ CreateEstimateDrawer: () => null }));
 jest.mock('../../services/EstimateService', () => ({ EstimateService: { getById: async () => null } }));
-jest.mock('../../services/ContractService', () => ({ ContractService: {} }));
+jest.mock('../../lib/api', () => ({ organizationsAPI: { getById: async () => null } }));
 jest.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }));
 jest.mock('../../components/layouts/DashboardLayout', () => {
   const { createContext } = jest.requireActual('react');

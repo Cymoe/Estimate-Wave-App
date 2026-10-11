@@ -10,6 +10,8 @@ import { EstimateService, Estimate, EstimateItem } from '../../services/Estimate
 import { priceAt } from '../../utils/priceRange';
 import { supabase } from '../../lib/supabase';
 import { formatCurrency } from '../../utils/format';
+import { organizationsAPI } from '../../lib/api';
+import { Business, changesSinceSigned, contractFor } from '../../services/contract';
 import { CreateEstimateDrawer } from './CreateEstimateDrawer';
 import { MapModal } from '../common/MapModal';
 import { OrganizationContext } from '../layouts/DashboardLayout';
@@ -43,6 +45,19 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   const navigate = useNavigate();
   const leave = () => (onClose ? onClose() : navigate('/estimates'));
   const { selectedOrg } = useContext(OrganizationContext);
+  // The business named on the contract documents.
+  const [business, setBusiness] = useState<Business | null>(null);
+  useEffect(() => {
+    if (!selectedOrg?.id) return;
+    let cancelled = false;
+    organizationsAPI
+      .getById(selectedOrg.id)
+      .then((org: Business | null) => !cancelled && setBusiness(org))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedOrg?.id]);
   const [estimate, setEstimate] = useState<Estimate | null>(null);
   const [loading, setLoading] = useState(true);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -572,6 +587,10 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
     </div>
   ) : null;
 
+  // The contract documents follow the estimate until it's accepted.
+  const contract = contractFor(estimate, business);
+  const changeOrder = changesSinceSigned(estimate);
+
   return (
     <div className={`${inDrawer ? 'h-full' : 'min-h-screen'} bg-[#000000] flex flex-col`}>
       {/* Fixed Header */}
@@ -973,7 +992,11 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                      <FileText className="w-5 h-5 text-gray-400 flex-shrink-0" />
                      <span className="flex-1 min-w-0">
                        <span className="block text-sm font-medium text-white">Service Contract Agreement</span>
-                       <span className="block text-xs text-gray-400">Work agreement and terms</span>
+                       <span className="block text-xs text-gray-400">
+                         {estimate.contract_locked_at
+                           ? `Signed ${new Date(estimate.contract_locked_at).toLocaleDateString()}`
+                           : 'Work agreement and terms · follows this estimate'}
+                       </span>
                      </span>
                      <ChevronRight className="w-4 h-4 text-gray-500 flex-shrink-0" />
                    </button>
@@ -1005,7 +1028,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                            <div>
                              <h3 className="font-semibold mb-2">PROJECT COMPLETION</h3>
                              <p>
-                               I, <strong>Campos Family Properties, LLC</strong>, hereby certify that all work 
+                               I, <strong>{contract.contractorName || 'Your business'}</strong>, hereby certify that all work 
                                described in Contract {estimate.estimate_number} has been completed in accordance 
                                with the agreed specifications and to the satisfaction of the client.
                              </p>
@@ -1015,7 +1038,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                              <h3 className="font-semibold mb-2">LIEN RELEASE</h3>
                              <p>
                                This affidavit serves as a release of any and all liens, claims, or encumbrances 
-                               against the property located at {estimate.client?.address || 'Property address'} 
+                               against the property located at {contract.propertyAddress || 'the property address'} 
                                arising from the work performed under this contract.
                              </p>
                            </div>
@@ -1031,11 +1054,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                            <div className="pt-4 border-t border-gray-300">
                              <div className="flex justify-between">
                                <span>Total Contract Amount</span>
-                               <span>{formatCurrency(estimate.total_amount)}</span>
-                             </div>
-                             <div className="flex justify-between">
-                               <span>Final Payment Received</span>
-                               <span>{formatCurrency(estimate.total_amount * 0.1)}</span>
+                               <span>{formatCurrency(contract.totalAmount)}</span>
                              </div>
                            </div>
                          </div>
@@ -1060,7 +1079,11 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                      <FileText className="w-5 h-5 text-gray-400 flex-shrink-0" />
                      <span className="flex-1 min-w-0">
                        <span className="block text-sm font-medium text-white">Change Order</span>
-                       <span className="block text-xs text-gray-400">Changes to the original scope</span>
+                       <span className="block text-xs text-gray-400">
+                         {changeOrder && changeOrder.changes.length > 0
+                           ? `${changeOrder.changes.length} change${changeOrder.changes.length === 1 ? '' : 's'} since signing`
+                           : 'Changes to the original scope'}
+                       </span>
                      </span>
                      <ChevronDown className={`w-4 h-4 text-gray-500 flex-shrink-0 transition-transform ${expandedDoc === 'change-order' ? 'rotate-180' : ''}`} />
                    </button>
@@ -1076,35 +1099,54 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                            <div>
                              <h3 className="font-semibold mb-2">CHANGE ORDER DETAILS</h3>
                              <p>
-                               This change order modifies the original Service Contract Agreement 
-                               {estimate.estimate_number} dated {new Date(estimate.issue_date).toLocaleDateString()}.
+                               {changeOrder
+                                 ? `This change order modifies the Service Contract Agreement ${estimate.estimate_number} signed ${new Date(estimate.contract_locked_at!).toLocaleDateString()}.`
+                                 : 'Change orders start once the estimate is accepted. Until then, the contract follows the estimate, so just edit the estimate.'}
                              </p>
                            </div>
 
-                           <div>
-                             <h3 className="font-semibold mb-2">MODIFICATIONS</h3>
-                             <div className="space-y-2">
-                               <div className="border border-gray-300 rounded p-3">
-                                 <p className="text-gray-600 italic">No change orders have been issued for this project.</p>
+                           {changeOrder && (
+                             <>
+                               <div>
+                                 <h3 className="font-semibold mb-2">MODIFICATIONS</h3>
+                                 {changeOrder.changes.length === 0 ? (
+                                   <p className="text-gray-600 italic">No changes since signing.</p>
+                                 ) : (
+                                   <div className="divide-y divide-gray-200 border border-gray-300">
+                                     {changeOrder.changes.map((change, i) => (
+                                       <div key={i} className="flex justify-between gap-4 px-3 py-2">
+                                         <span>
+                                           {change.before === undefined ? 'Added: ' : change.after === undefined ? 'Removed: ' : ''}
+                                           {change.description}
+                                         </span>
+                                         <span className="whitespace-nowrap">
+                                           {change.before !== undefined && change.after !== undefined
+                                             ? `${formatCurrency(change.before)} → ${formatCurrency(change.after)}`
+                                             : formatCurrency(change.after ?? -(change.before ?? 0))}
+                                         </span>
+                                       </div>
+                                     ))}
+                                   </div>
+                                 )}
                                </div>
-                             </div>
-                           </div>
 
-                           <div>
-                             <h3 className="font-semibold mb-2">COST IMPACT</h3>
-                             <div className="flex justify-between">
-                               <span>Original Contract Amount</span>
-                               <span>{formatCurrency(estimate.total_amount)}</span>
-                             </div>
-                             <div className="flex justify-between">
-                               <span>Change Order Amount</span>
-                               <span>$0.00</span>
-                             </div>
-                             <div className="flex justify-between font-semibold border-t border-gray-300 pt-2">
-                               <span>New Total Contract Amount</span>
-                               <span>{formatCurrency(estimate.total_amount)}</span>
-                             </div>
-                           </div>
+                               <div>
+                                 <h3 className="font-semibold mb-2">COST IMPACT</h3>
+                                 <div className="flex justify-between">
+                                   <span>Original Contract Amount</span>
+                                   <span>{formatCurrency(contract.totalAmount)}</span>
+                                 </div>
+                                 <div className="flex justify-between">
+                                   <span>Change Order Amount</span>
+                                   <span>{formatCurrency(changeOrder.difference)}</span>
+                                 </div>
+                                 <div className="flex justify-between font-semibold border-t border-gray-300 pt-2">
+                                   <span>New Total Contract Amount</span>
+                                   <span>{formatCurrency(estimate.total_amount)}</span>
+                                 </div>
+                               </div>
+                             </>
+                           )}
                          </div>
 
                          <div className="mt-6 p-4 bg-gray-100 rounded-lg text-center">

@@ -148,6 +148,61 @@ describe("estimates", () => {
     expect(updated!.subtotal).toBe(185);
   });
 
+  test("the contract follows the estimate until it is accepted, then stays as agreed", async () => {
+    const t = setup();
+    const { as, organizationId } = await signUp(t, "a@example.com");
+    const client = await as.mutation(api.clients.create, {
+      organizationId,
+      data: { name: "Dan Shah", email: "dan@example.com", address: "1 Main St", city: "Austin", state: "TX" },
+    });
+    const estimate = await as.mutation(api.estimates.create, {
+      organizationId,
+      data: { clientId: client!._id, items: [{ description: "Vanity", quantity: 1, unitPrice: 900 }] },
+    });
+    const terms = { startDate: "2026-11-01", paymentTerms: "50% deposit, 50% on completion" };
+    const withTerms = await as.mutation(api.estimates.update, { id: estimate!._id, data: { contractTerms: terms } });
+    expect(withTerms!.contractTerms).toEqual(terms);
+    expect(withTerms).not.toHaveProperty("contractLockedAt");
+
+    const accepted = await as.mutation(api.estimates.update, { id: estimate!._id, data: { status: "accepted" } });
+    expect(accepted!.contractLockedAt).toEqual(expect.any(String));
+    expect(accepted!.contractSnapshot).toMatchObject({
+      client: { name: "Dan Shah", email: "dan@example.com", address: "1 Main St, Austin, TX" },
+      totalAmount: 900,
+      terms,
+    });
+
+    // Later estimate changes don't touch the agreed contract.
+    const changed = await as.mutation(api.estimates.update, {
+      id: estimate!._id,
+      data: { items: [{ ...accepted!.items[0], unitPrice: 1200 }] },
+    });
+    expect(changed!.totalAmount).toBe(1200);
+    expect(changed!.contractSnapshot!.totalAmount).toBe(900);
+    expect(changed!.contractLockedAt).toBe(accepted!.contractLockedAt);
+    await expect(
+      as.mutation(api.estimates.update, { id: estimate!._id, data: { contractTerms: { startDate: "2027-01-01" } } }),
+    ).rejects.toThrow(/change order/);
+  });
+
+  test("signing locks the contract, and the lock can't be set or cleared directly", async () => {
+    const t = setup();
+    const { as, organizationId } = await signUp(t, "a@example.com");
+    const estimate = await as.mutation(api.estimates.create, {
+      organizationId,
+      data: { contractLockedAt: "2020-01-01", contractSnapshot: { items: [], subtotal: 0, taxAmount: 0, totalAmount: 0 } },
+    });
+    expect(estimate).not.toHaveProperty("contractLockedAt");
+    expect(estimate).not.toHaveProperty("contractSnapshot");
+    const signed = await as.mutation(api.estimates.sign, { id: estimate!._id, signature: "J. Smith" });
+    expect(signed!.contractLockedAt).toEqual(expect.any(String));
+    const cleared = await as.mutation(api.estimates.update, {
+      id: estimate!._id,
+      data: { contractLockedAt: null, contractSnapshot: null },
+    });
+    expect(cleared!.contractLockedAt).toBe(signed!.contractLockedAt);
+  });
+
   test("signature can only be set through sign", async () => {
     const t = setup();
     const { as, organizationId } = await signUp(t, "a@example.com");

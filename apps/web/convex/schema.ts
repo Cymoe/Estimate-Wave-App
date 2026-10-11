@@ -133,6 +133,35 @@ const documentFields = {
   items: v.array(documentItem),
 };
 
+// The parts of the contract the user writes. Everything else on the
+// contract (client, items, totals) comes from the estimate.
+export const contractTerms = v.object({
+  startDate: v.optional(v.string()),
+  completionDate: v.optional(v.string()),
+  paymentTerms: v.optional(v.string()),
+  warrantyPeriod: v.optional(v.string()),
+  workDescription: v.optional(v.string()),
+  propertyAddress: v.optional(v.string()),
+});
+
+// The contract as agreed, kept when the estimate is accepted so later
+// estimate changes don't alter it (they become a change order instead).
+export const contractSnapshot = v.object({
+  client: v.optional(
+    v.object({
+      name: v.string(),
+      email: v.optional(v.string()),
+      phone: v.optional(v.string()),
+      address: v.optional(v.string()),
+    }),
+  ),
+  items: v.array(documentItem),
+  subtotal: v.number(),
+  taxAmount: v.number(),
+  totalAmount: v.number(),
+  terms: v.optional(contractTerms),
+});
+
 export const estimateFields = {
   ...documentFields,
   estimateNumber: v.string(),
@@ -140,6 +169,9 @@ export const estimateFields = {
   expiryDate: v.optional(v.string()),
   clientSignature: v.optional(v.string()),
   signedAt: v.optional(v.string()),
+  contractTerms: v.optional(contractTerms),
+  contractLockedAt: v.optional(v.string()),
+  contractSnapshot: v.optional(contractSnapshot),
 };
 
 export const invoiceFields = {

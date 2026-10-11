@@ -4,9 +4,11 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+let extra: Record<string, unknown> = {};
 jest.mock('../../../services/EstimateService', () => ({
   EstimateService: {
     getById: async () => ({
+      ...extra,
       id: 'e1',
       estimate_number: 'EST-2026-000001',
       status: 'draft',
@@ -15,6 +17,7 @@ jest.mock('../../../services/EstimateService', () => ({
       created_at: '2026-10-08T12:00:00Z',
       issue_date: '2026-10-08',
       items: [{ id: 'i1', description: 'Vanity', quantity: 1, unit_price: 100, total_price: 100 }],
+      ...extra,
     }),
   },
 }));
@@ -24,6 +27,9 @@ jest.mock('../../../lib/supabase', () => {
   chain.then = (resolve: (v: unknown) => void) => resolve({ data: [], error: null });
   return { supabase: chain };
 });
+jest.mock('../../../lib/api', () => ({
+  organizationsAPI: { getById: async () => ({ name: 'Shah Builders', address: '9 Oak Ave', email: 'hi@shah.example' }) },
+}));
 jest.mock('../CreateEstimateDrawer', () => ({ CreateEstimateDrawer: () => null }));
 jest.mock('../../common/MapModal', () => ({ MapModal: () => null }));
 jest.mock('../DesignUpload', () => ({ DesignUpload: () => null }));
@@ -47,6 +53,7 @@ const byText = (text: string) => buttons().find((b) => b.textContent?.includes(t
 describe('estimate contract tab', () => {
   afterEach(() => {
     document.body.innerHTML = '';
+    extra = {};
   });
 
   async function openContractTab() {
@@ -92,5 +99,31 @@ describe('estimate contract tab', () => {
     expect(document.body.textContent).not.toContain('LIEN RELEASE CERTIFICATE');
     await act(async () => byText('Change Order')!.click());
     expect(document.body.textContent).not.toContain('SCOPE MODIFICATION CONTRACT');
+  });
+
+  it('names the business on the affidavit, and has no change order before signing', async () => {
+    await openContractTab();
+    expect(document.body.textContent).toContain('follows this estimate');
+    await act(async () => byText('Affidavit of Completion')!.click());
+    expect(document.body.textContent).toContain('Shah Builders');
+    expect(document.body.textContent).not.toContain('Campos');
+    await act(async () => byText('Change Order')!.click());
+    expect(document.body.textContent).toContain('Change orders start once the estimate is accepted');
+  });
+
+  it('once signed, shows the date and what changed since as the change order', async () => {
+    extra = {
+      status: 'accepted',
+      total_amount: 150,
+      items: [{ id: 'i1', description: 'Vanity', quantity: 1, unit_price: 150, total_price: 150 }],
+      contract_locked_at: '2026-10-11T12:00:00Z',
+      contract_snapshot: { items: [{ _id: 'i1', description: 'Vanity', totalPrice: 100 }], totalAmount: 100 },
+    };
+    await openContractTab();
+    expect(document.body.textContent).toContain(`Signed ${new Date('2026-10-11T12:00:00Z').toLocaleDateString()}`);
+    expect(document.body.textContent).toContain('1 change since signing');
+    await act(async () => byText('Change Order')!.click());
+    expect(document.body.textContent).toContain('$100.00 → $150.00');
+    expect(document.body.textContent).toMatch(/Change Order Amount\$50\.00/);
   });
 });

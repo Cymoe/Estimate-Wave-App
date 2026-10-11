@@ -38,6 +38,12 @@ export interface Estimate {
   terms?: string;
   client_signature?: string;
   signed_at?: string;
+  /** Contract terms the user wrote (see services/contract.ts). */
+  contract_terms?: import('./contract').ContractTerms;
+  /** Set when the estimate was accepted: the contract as agreed. */
+  contract_locked_at?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  contract_snapshot?: Record<string, any>;
   first_opened_at?: string;
   sent_at?: string;
   last_sent_at?: string;
@@ -113,6 +119,9 @@ function toLegacy(doc: Doc, clients?: Map<string, Doc>, projects?: Map<string, D
     terms: doc.terms,
     client_signature: doc.clientSignature,
     signed_at: doc.signedAt,
+    contract_terms: doc.contractTerms,
+    contract_locked_at: doc.contractLockedAt,
+    contract_snapshot: doc.contractSnapshot,
     created_at: doc.createdAt,
     updated_at: doc.updatedAt,
     items: (doc.items ?? []).map((item: Doc) => ({
@@ -146,6 +155,7 @@ function toConvex(estimate: Partial<Estimate> & Doc): Doc {
     tax_rate: 'taxRate',
     notes: 'notes',
     terms: 'terms',
+    contract_terms: 'contractTerms',
   };
   const out: Doc = {};
   for (const [from, to] of Object.entries(map)) {
@@ -154,6 +164,8 @@ function toConvex(estimate: Partial<Estimate> & Doc): Doc {
   }
   if (estimate.items) {
     out.items = estimate.items.map((item: Doc, index: number) => ({
+      // Keeping the id lets a signed contract match items to the estimate's.
+      _id: item.id || undefined,
       description: item.description || item.product_name || '',
       quantity: Number(item.quantity) || 1,
       unitPrice: Number(item.unit_price ?? item.price) || 0,

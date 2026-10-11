@@ -1,13 +1,34 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { getOwned, logActivity, nowIso, pick, requireMember } from "./lib/access";
+import { fail, getOwned, logActivity, nowIso, pick, requireMember } from "./lib/access";
+import type { Doc } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 import { assertLinksInOrg, documentNumber, normalizeItems, withTotals } from "./lib/documents";
 import { estimateFields, estimateStatus } from "./schema";
 
-// Fields the UI may set directly; signature fields only change via `sign`.
-const writableFields = Object.fromEntries(
-  Object.entries(estimateFields).filter(([key]) => key !== "clientSignature" && key !== "signedAt"),
-);
+// Fields the UI may set directly; signature fields only change via `sign`,
+// and the contract is locked by the server when the estimate is accepted.
+const serverOnly = new Set(["clientSignature", "signedAt", "contractLockedAt", "contractSnapshot"]);
+const writableFields = Object.fromEntries(Object.entries(estimateFields).filter(([key]) => !serverOnly.has(key)));
+
+/** Freezes the contract as it stands, for an estimate being accepted. */
+async function lockContract(ctx: MutationCtx, estimate: Doc<"estimates">, now: string) {
+  const client = estimate.clientId ? await ctx.db.get(estimate.clientId) : null;
+  const address = client ? [client.address, client.city, client.state, client.zip].filter(Boolean).join(", ") : "";
+  return {
+    contractLockedAt: now,
+    contractSnapshot: {
+      client: client
+        ? { name: client.name, email: client.email, phone: client.phone, address: address || undefined }
+        : undefined,
+      items: estimate.items,
+      subtotal: estimate.subtotal,
+      taxAmount: estimate.taxAmount,
+      totalAmount: estimate.totalAmount,
+      terms: estimate.contractTerms,
+    },
+  };
+}
 
 export const list = query({
   args: {
@@ -73,10 +94,16 @@ export const update = mutation({
   handler: async (ctx, { id, data }) => {
     const { doc, user } = await getOwned(ctx, "estimates", id);
     const patch = pick(data, writableFields, { forPatch: true });
+    if ("contractTerms" in patch && doc.contractLockedAt) {
+      fail("INVALID", "The contract was accepted, so its terms can't change. Use a change order.");
+    }
     await assertLinksInOrg(ctx, doc.organizationId, patch);
     if ("items" in patch) patch.items = normalizeItems(patch.items);
     const { subtotal, taxAmount, totalAmount } = withTotals({ ...doc, ...patch });
-    await ctx.db.patch(id, { ...patch, subtotal, taxAmount, totalAmount, updatedAt: nowIso() });
+    const now = nowIso();
+    const updated = { ...doc, ...patch, subtotal, taxAmount, totalAmount };
+    const lock = patch.status === "accepted" && !doc.contractLockedAt ? await lockContract(ctx, updated, now) : {};
+    await ctx.db.patch(id, { ...patch, subtotal, taxAmount, totalAmount, ...lock, updatedAt: now });
     if (patch.status !== undefined && patch.status !== doc.status) {
       await logActivity(ctx, {
         organizationId: doc.organizationId,
@@ -113,7 +140,8 @@ export const sign = mutation({
   handler: async (ctx, { id, signature }) => {
     const { doc, user } = await getOwned(ctx, "estimates", id);
     const now = nowIso();
-    await ctx.db.patch(id, { clientSignature: signature, signedAt: now, status: "accepted", updatedAt: now });
+    const lock = doc.contractLockedAt ? {} : await lockContract(ctx, doc, now);
+    await ctx.db.patch(id, { clientSignature: signature, signedAt: now, status: "accepted", ...lock, updatedAt: now });
     await logActivity(ctx, {
       organizationId: doc.organizationId,
       userId: user._id,

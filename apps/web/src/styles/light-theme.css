@@ -254,6 +254,7 @@ html.light .text-white\/64 { color: rgba(17, 24, 39, 0.64); }
 html.light .text-white\/70 { color: rgba(17, 24, 39, 0.7); }
 html.light .text-white\/80 { color: rgba(17, 24, 39, 0.8); }
 html.light .text-white\/90 { color: rgba(17, 24, 39, 0.9); }
+html.light .text-yellow-200 { color: #854d0e; }
 html.light .text-yellow-300 { color: #854d0e; }
 html.light .text-yellow-400 { color: #854d0e; }
 html.light .text-yellow-400\/70 { color: rgba(133, 77, 14, 0.7); }
