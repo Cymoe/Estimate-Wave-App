@@ -1,5 +1,6 @@
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { withCategories } from "./categories";
 
 /** Freezes the contract as it stands, for an estimate being accepted. */
 export async function lockContract(ctx: MutationCtx, estimate: Doc<"estimates">, now: string) {
@@ -11,7 +12,7 @@ export async function lockContract(ctx: MutationCtx, estimate: Doc<"estimates">,
       client: client
         ? { name: client.name, email: client.email, phone: client.phone, address: address || undefined }
         : undefined,
-      items: estimate.items,
+      items: await withCategories(ctx, estimate.items),
       subtotal: estimate.subtotal,
       taxAmount: estimate.taxAmount,
       totalAmount: estimate.totalAmount,

@@ -101,6 +101,25 @@ describe('contract page', () => {
     expect(document.body.querySelector('img[alt="Client signature"]')).toBeNull();
   });
 
+  it("the scope and price table come from the estimate's categories", async () => {
+    stored = {
+      ...base,
+      items: [
+        { id: 'i1', description: 'Paint walls', quantity: 1, unit_price: 600, total_price: 600, category: 'Interior Painting' },
+        { id: 'i2', description: 'Vanity', quantity: 1, unit_price: 900, total_price: 900, category: 'Plumbing' },
+      ],
+      subtotal: 1500,
+      total_amount: 1500,
+    };
+    await render();
+    const scope = document.body.querySelector('[data-testid="scope-categories"]')!;
+    expect(Array.from(scope.querySelectorAll('li')).map((li) => li.textContent)).toEqual(['Interior Painting', 'Plumbing']);
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('Interior Painting$600.00');
+    expect(text).toContain('Plumbing$900.00');
+    expect(text).not.toContain('Outdoor Kitchen');
+  });
+
   it('shows the agreed design', async () => {
     stored = { ...base, design: { url: 'https://files.example/plan.png', name: 'plan.png', type: 'image/png' } };
     await render();

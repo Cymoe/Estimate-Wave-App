@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { fail, logActivity, nowIso } from "./lib/access";
+import { withCategories } from "./lib/categories";
 import { lockContract } from "./lib/contract";
 import {
   DEFAULT_PAYMENT_TERMS,
@@ -73,11 +74,14 @@ export const get = query({
       status: estimate.status,
       issueDate: estimate.issueDate,
       expiryDate: estimate.expiryDate,
-      items: (signed ? signed.items : estimate.items).map((item) => ({
+      items: (
+        await withCategories(ctx, signed ? signed.items : estimate.items)
+      ).map((item) => ({
         description: item.description,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
         totalPrice: item.totalPrice,
+        category: item.category,
       })),
       subtotal: signed ? signed.subtotal : estimate.subtotal,
       taxRate: estimate.taxRate,

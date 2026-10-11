@@ -15,6 +15,8 @@ export interface EstimateItem {
   product_id?: string;
   cost_code?: string;
   cost_code_name?: string;
+  /** The price book cost code's name, e.g. "Interior Painting". */
+  category?: string;
   display_order?: number;
 }
 
@@ -137,6 +139,7 @@ function toLegacy(doc: Doc, clients?: Map<string, Doc>, projects?: Map<string, D
       cap_price: item.capPrice,
       product_id: item.productId,
       cost_code: item.costCode,
+      category: item.category,
       display_order: item.displayOrder,
     })),
     client: client ? toLegacyClient(client) : undefined,
@@ -175,6 +178,7 @@ function toConvex(estimate: Partial<Estimate> & Doc): Doc {
       redLinePrice: item.red_line_price ?? undefined,
       capPrice: item.cap_price ?? undefined,
       costCode: item.cost_code,
+      category: item.category || undefined,
       productId: item.product_id,
       displayOrder: item.display_order ?? index,
     }));

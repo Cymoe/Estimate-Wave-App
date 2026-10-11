@@ -64,9 +64,28 @@ describe('client estimate page', () => {
     const text = document.body.textContent ?? '';
     expect(text).toContain('Shah Builders');
     expect(text).toContain('Prepared for Dan Shah');
-    expect(text).toContain('Vanity');
     expect(text).toContain('$900.00');
     expect(markOpened).toHaveBeenCalledWith('tok123');
+  });
+
+  it('leads with totals by category; line items open on request', async () => {
+    view = {
+      ...sent,
+      items: [
+        { description: 'Paint walls', quantity: 100, unitPrice: 3, totalPrice: 300, category: 'Interior Painting' },
+        { description: 'Paint ceilings', quantity: 50, unitPrice: 4, totalPrice: 200, category: 'Interior Painting' },
+        { description: 'New outlet', quantity: 2, unitPrice: 150, totalPrice: 300, category: 'Electrical' },
+        { description: 'Haul away', quantity: 1, unitPrice: 100, totalPrice: 100 },
+      ],
+      subtotal: 900,
+      totalAmount: 900,
+    };
+    await open();
+    const rows = Array.from(document.body.querySelectorAll('[data-testid="category-summary"] tbody tr')).map((r) => r.textContent);
+    expect(rows).toEqual(['Electrical$300.00', 'Interior Painting$500.00', 'Other$100.00']);
+    expect(document.body.textContent).not.toContain('Paint ceilings');
+    await act(async () => button('Line item details (4)')!.click());
+    expect(document.body.textContent).toContain('Paint ceilings');
   });
 
   it('shows the agreement terms above the one signature', async () => {

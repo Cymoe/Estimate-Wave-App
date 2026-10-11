@@ -73,6 +73,8 @@ export const documentItem = v.object({
   redLinePrice: v.optional(v.number()),
   capPrice: v.optional(v.number()),
   costCode: v.optional(v.string()),
+  // The price book cost code's name (e.g. "Interior Painting"), for category totals.
+  category: v.optional(v.string()),
   displayOrder: v.number(),
 });
 

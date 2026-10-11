@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ContractData, ContractTerms } from '../../services/contract';
+import { categoryTotals, type ContractData, type ContractTerms } from '../../services/contract';
 import { formatCurrency } from '../../utils/format';
 
 interface AgreementTermsProps {
@@ -19,6 +19,7 @@ const formatDate = (date: string) => (date ? new Date(`${date.slice(0, 10)}T00:0
 export const AgreementTerms: React.FC<AgreementTermsProps> = ({ contract: contractData, onFieldChange, signature }) => {
   const isEditing = Boolean(onFieldChange);
   const handleFieldChange = (field: keyof ContractTerms, value: string) => onFieldChange?.(field, value);
+  const categories = categoryTotals(contractData.lineItems);
   return (
     <>
           {/* Parties Section */}
@@ -84,30 +85,16 @@ export const AgreementTerms: React.FC<AgreementTermsProps> = ({ contract: contra
           {/* Scope of Work */}
           <div className="mb-6">
             <h2 className="text-lg font-semibold mb-3">SCOPE OF WORK</h2>
-            <p className="text-sm mb-4">
-              The Constructor agrees to perform the construction described checked below:
-              <br />
-              <strong>Only Selected (X) work Items apply.</strong>
-            </p>
-            
-            {/* Service Categories Grid */}
-            <div className="grid grid-cols-3 gap-2 text-sm mb-6">
-              {[
-                'Demolition', 'Electrical', 'Plumbing', 'Sprinkler', 'Concrete', 'Rock/Stone',
-                'Fencing', 'Masonry', 'Tree/Plants', 'Pergola', 'Gazebo', 'Sheds',
-                'Sod', 'Art. Turf', 'Outdoor Kitchen'
-              ].map((service, index) => {
-                const isSelected = contractData.lineItems.some(item => 
-                  item.description.toLowerCase().includes(service.toLowerCase())
-                );
-                return (
-                  <div key={index} className="flex items-center">
-                    <span className="mr-2">{isSelected ? '☑' : '☐'}</span>
-                    <span>{service}</span>
-                  </div>
-                );
-              })}
-            </div>
+            <p className="text-sm mb-2">The Constructor agrees to perform the following work, as itemised in the estimate:</p>
+            {categories.length > 0 ? (
+              <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-sm mb-6 list-disc list-inside" data-testid="scope-categories">
+                {categories.map(({ category }) => (
+                  <li key={category}>{category}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm italic mb-6">No work has been added to the estimate yet.</p>
+            )}
 
             {/* Stages */}
             <div className="space-y-4 text-sm">
@@ -185,43 +172,13 @@ export const AgreementTerms: React.FC<AgreementTermsProps> = ({ contract: contra
             <div className="overflow-x-auto">
               <table className="w-full border-collapse border border-gray-300 text-sm">
                 <tbody>
-                  {/* Service Categories with auto-population from estimate */}
-                  {[
-                    'Demolition', 'Electrical', 'Plumbing', 'Sprinkler', 'Concrete', 'Paver',
-                    'Rock/Stone', 'Fencing', 'Masonry', 'Trees/Plants/Shrubs', 'Pergola', 'Gazebo',
-                    'Shed', 'Sod', 'Artificial Turf', 'Outdoor Kitchen'
-                  ].map((service, index) => {
-                    const matchingItems = contractData.lineItems.filter(item => 
-                      item.description.toLowerCase().includes(service.toLowerCase()) ||
-                      (service === 'Trees/Plants/Shrubs' && (
-                        item.description.toLowerCase().includes('tree') ||
-                        item.description.toLowerCase().includes('plant') ||
-                        item.description.toLowerCase().includes('shrub')
-                      )) ||
-                      (service === 'Rock/Stone' && (
-                        item.description.toLowerCase().includes('rock') ||
-                        item.description.toLowerCase().includes('stone')
-                      )) ||
-                      (service === 'Artificial Turf' && (
-                        item.description.toLowerCase().includes('artificial') ||
-                        item.description.toLowerCase().includes('turf')
-                      ))
-                    );
-                    const serviceTotal = matchingItems.reduce((sum, item) => sum + item.total, 0);
-                    
-                    return (
-                      <tr key={index}>
-                        <td className="border border-gray-300 px-3 py-2 w-1/2">{service}</td>
-                        <td className="border border-gray-300 px-3 py-2 text-right">
-                          {serviceTotal > 0 ? formatCurrency(serviceTotal) : '$'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  <tr>
-                    <td className="border border-gray-300 px-3 py-2">Discounts</td>
-                    <td className="border border-gray-300 px-3 py-2 text-right">$</td>
-                  </tr>
+                  {/* The estimate summed by category */}
+                  {categories.map(({ category, total }) => (
+                    <tr key={category}>
+                      <td className="border border-gray-300 px-3 py-2 w-1/2">{category}</td>
+                      <td className="border border-gray-300 px-3 py-2 text-right">{formatCurrency(total)}</td>
+                    </tr>
+                  ))}
                   <tr className="font-bold bg-gray-100">
                     <td className="border border-gray-300 px-3 py-2">Total</td>
                     <td className="border border-gray-300 px-3 py-2 text-right">{formatCurrency(contractData.totalAmount)}</td>

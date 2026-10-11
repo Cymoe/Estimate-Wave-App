@@ -1,4 +1,4 @@
-import { changesSinceSigned, contractFor, missingBusinessDetails, DEFAULT_PAYMENT_TERMS } from '../contract';
+import { categoryTotals, changesSinceSigned, contractFor, missingBusinessDetails, DEFAULT_PAYMENT_TERMS } from '../contract';
 import type { Estimate } from '../EstimateService';
 
 const estimate = (overrides: Partial<Estimate> = {}): Estimate => ({
@@ -112,5 +112,35 @@ describe('agreed design', () => {
       }),
     );
     expect(signed.agreedDesign).toEqual({ url: 'https://files.example/b.pdf', name: 'b.pdf', type: 'application/pdf' });
+  });
+});
+
+describe('categoryTotals', () => {
+  it('sums by category, alphabetically, with uncategorised items under Other last', () => {
+    expect(
+      categoryTotals([
+        { category: 'Plumbing', total: 400 },
+        { total: 50 },
+        { category: 'Drywall', total: 100 },
+        { category: 'Plumbing', total: 100 },
+        { category: ' ', total: 25 },
+      ]),
+    ).toEqual([
+      { category: 'Drywall', total: 100, count: 1 },
+      { category: 'Plumbing', total: 500, count: 2 },
+      { category: 'Other', total: 75, count: 2 },
+    ]);
+  });
+
+  it('carries item categories into the contract, live and signed', () => {
+    const live = contractFor(estimate({ items: [{ id: 'i1', description: 'Vanity', quantity: 1, unit_price: 900, total_price: 900, category: 'Plumbing' }] }));
+    expect(live.lineItems[0].category).toBe('Plumbing');
+    const signed = contractFor(
+      estimate({
+        contract_locked_at: '2026-10-11',
+        contract_snapshot: { items: [{ _id: 'i1', description: 'Vanity', quantity: 1, unitPrice: 900, totalPrice: 900, category: 'Plumbing' }], totalAmount: 900 },
+      }),
+    );
+    expect(signed.lineItems[0].category).toBe('Plumbing');
   });
 });

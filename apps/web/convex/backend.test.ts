@@ -757,6 +757,55 @@ describe("expenses", () => {
   });
 });
 
+describe("estimate item categories", () => {
+  async function priceBookItem() {
+    const t = setup();
+    const { as, organizationId } = await signUp(t, "a@example.com");
+    const code = await as.mutation(api.costCodes.create, {
+      data: { code: "PT200", name: "Interior Painting", organization_id: organizationId },
+    });
+    const lineItem = await as.mutation(api.lineItems.create, {
+      data: { name: "Paint walls", organization_id: organizationId, cost_code_id: code!._id, base_price: 3, unit: "sqft" },
+    });
+    return { t, as, organizationId, productId: lineItem._id as string };
+  }
+
+  test("an item from the price book keeps its cost code name as its category", async () => {
+    const { as, organizationId, productId } = await priceBookItem();
+    const estimate = await as.mutation(api.estimates.create, {
+      organizationId,
+      data: {
+        items: [
+          { description: "Paint walls", quantity: 100, unitPrice: 3, productId },
+          { description: "Custom work", quantity: 1, unitPrice: 50 },
+          { description: "Bad link", quantity: 1, unitPrice: 5, productId: "not-an-id" },
+        ],
+      },
+    });
+    expect(estimate!.items.map((i) => i.category)).toEqual(["Interior Painting", undefined, undefined]);
+  });
+
+  test("older items get their category when read, and the signed contract keeps it", async () => {
+    const { t, as, organizationId, productId } = await priceBookItem();
+    const estimate = await as.mutation(api.estimates.create, {
+      organizationId,
+      data: { items: [{ description: "Paint walls", quantity: 1, unitPrice: 3, productId }] },
+    });
+    const id = estimate!._id;
+    // As if saved before categories existed.
+    await t.run(async (ctx) => {
+      const doc = (await ctx.db.get(id))!;
+      await ctx.db.patch(id, { items: doc.items.map(({ category: _c, ...item }) => item) });
+    });
+    expect((await as.query(api.estimates.get, { id }))!.items[0].category).toBe("Interior Painting");
+    const token = await as.mutation(api.estimates.shareLink, { id });
+    expect((await t.query(api.publicEstimates.get, { token }))!.items[0].category).toBe("Interior Painting");
+    await as.mutation(api.estimates.update, { id, data: { status: "accepted" } });
+    const accepted = await t.run(async (ctx) => ctx.db.get(id));
+    expect(accepted!.contractSnapshot!.items[0].category).toBe("Interior Painting");
+  });
+});
+
 describe("client link", () => {
   async function sharedEstimate() {
     const t = setup();

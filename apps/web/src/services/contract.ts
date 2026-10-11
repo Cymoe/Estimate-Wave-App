@@ -17,6 +17,7 @@ export interface ContractData {
     unit: string;
     unitPrice: number;
     total: number;
+    category?: string;
   }>;
   startDate: string;
   completionDate: string;
@@ -74,6 +75,7 @@ export function contractFor(estimate: Estimate, business?: Business | null): Con
         unit: 'ea',
         unitPrice: item.unitPrice,
         total: item.totalPrice,
+        category: item.category,
       }))
     : (estimate.items ?? []).map((item) => ({
         description: item.description,
@@ -81,6 +83,7 @@ export function contractFor(estimate: Estimate, business?: Business | null): Con
         unit: 'ea',
         unitPrice: item.unit_price,
         total: item.total_price,
+        category: item.category,
       }));
   const clientAddress = client?.address ?? '';
   return {
@@ -148,4 +151,30 @@ export function changesSinceSigned(estimate: Estimate): { changes: ContractChang
     if (!matched.has(item)) changes.push({ description: item.description, before: item.totalPrice });
   }
   return { changes, difference: estimate.total_amount - snapshot.totalAmount };
+}
+
+export const OTHER_CATEGORY = 'Other';
+
+export interface CategoryTotal {
+  category: string;
+  total: number;
+  count: number;
+}
+
+/**
+ * The estimate summed by category, the way a client first reads it:
+ * alphabetical, with uncategorised items under Other at the end.
+ */
+export function categoryTotals(items: Array<{ category?: string; total: number }>): CategoryTotal[] {
+  const byCategory = new Map<string, CategoryTotal>();
+  for (const item of items) {
+    const category = item.category?.trim() || OTHER_CATEGORY;
+    const entry = byCategory.get(category) ?? { category, total: 0, count: 0 };
+    entry.total += item.total;
+    entry.count += 1;
+    byCategory.set(category, entry);
+  }
+  return Array.from(byCategory.values()).sort((a, b) =>
+    a.category === OTHER_CATEGORY ? 1 : b.category === OTHER_CATEGORY ? -1 : a.category.localeCompare(b.category),
+  );
 }

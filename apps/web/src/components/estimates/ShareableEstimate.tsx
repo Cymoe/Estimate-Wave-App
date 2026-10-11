@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { CheckCircle, XCircle, Mail, Phone, MapPin, FileText } from 'lucide-react';
+import { CheckCircle, XCircle, Mail, Phone, MapPin, FileText, ChevronDown } from 'lucide-react';
 import { publicEstimatesAPI } from '../../lib/api';
 import { formatCurrency } from '../../utils/format';
-import type { ContractData } from '../../services/contract';
+import { categoryTotals, type ContractData } from '../../services/contract';
 import { AgreementTerms } from '../contracts/AgreementTerms';
 
 /** What the client sees, from the estimate's link (no login). */
@@ -34,7 +34,7 @@ interface ClientEstimate {
     warrantyPeriod: string;
   };
   locked_at?: string;
-  items: Array<{ id: string; description: string; quantity: number; unit_price: number; total_price: number }>;
+  items: Array<{ id: string; description: string; quantity: number; unit_price: number; total_price: number; category?: string }>;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -66,6 +66,7 @@ function fromView(view: any): ClientEstimate {
       quantity: item.quantity,
       unit_price: item.unitPrice,
       total_price: item.totalPrice,
+      category: item.category,
     })),
   };
 }
@@ -89,6 +90,7 @@ function agreementFor(estimate: ClientEstimate): ContractData {
       unit: 'ea',
       unitPrice: item.unit_price,
       total: item.total_price,
+      category: item.category,
     })),
     startDate: terms?.startDate ?? '',
     completionDate: terms?.completionDate ?? '',
@@ -109,6 +111,7 @@ export const ShareableEstimate: React.FC = () => {
   const [isDrawing, setIsDrawing] = useState(false);
   const [signature, setSignature] = useState<string>('');
   const [actionError, setActionError] = useState<string | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [lastPoint, setLastPoint] = useState<{ x: number; y: number } | null>(null);
 
@@ -343,13 +346,54 @@ export const ShareableEstimate: React.FC = () => {
           </div>
         )}
 
-        {/* Line Items */}
+        {/* Summary by category: what the client reads first */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6" data-testid="category-summary">
+          <h3 className="text-lg font-semibold text-gray-900 mb-3">Summary</h3>
+          <table className="w-full text-gray-900">
+            <tbody>
+              {categoryTotals(estimate.items.map((item) => ({ category: item.category, total: item.total_price }))).map(
+                ({ category, total }) => (
+                  <tr key={category} className="border-b border-gray-200">
+                    <td className="py-3 pr-4">{category}</td>
+                    <td className="py-3 text-right whitespace-nowrap">{formatCurrency(total)}</td>
+                  </tr>
+                ),
+              )}
+            </tbody>
+            <tfoot>
+              {(estimate.tax_rate ?? 0) > 0 && (
+                <>
+                  <tr>
+                    <td className="pt-3 text-gray-600">Subtotal</td>
+                    <td className="pt-3 text-right text-gray-600">{formatCurrency(estimate.subtotal)}</td>
+                  </tr>
+                  <tr>
+                    <td className="pt-1 text-gray-600">Tax ({estimate.tax_rate}%)</td>
+                    <td className="pt-1 text-right text-gray-600">{formatCurrency(estimate.tax_amount || 0)}</td>
+                  </tr>
+                </>
+              )}
+              <tr>
+                <td className="pt-3 text-lg font-bold">Total</td>
+                <td className="pt-3 text-right text-xl font-bold text-blue-600">{formatCurrency(estimate.total_amount)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        {/* Line items: the detail behind the summary, opened on request */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden mb-6">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">Line Items</h3>
-          </div>
-          
-          <div className="overflow-x-auto">
+          <button
+            type="button"
+            onClick={() => setShowDetails((open) => !open)}
+            aria-expanded={showDetails}
+            className="w-full px-6 py-4 flex items-center justify-between text-left"
+          >
+            <h3 className="text-lg font-semibold text-gray-900">Line item details ({estimate.items.length})</h3>
+            <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform ${showDetails ? 'rotate-180' : ''}`} />
+          </button>
+
+          {showDetails && <div className="overflow-x-auto border-t border-gray-200">
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
@@ -414,7 +458,7 @@ export const ShareableEstimate: React.FC = () => {
                 </tr>
               </tfoot>
             </table>
-          </div>
+          </div>}
         </div>
 
         {/* The agreement, signed together with the estimate (it includes the agreed design) */}
