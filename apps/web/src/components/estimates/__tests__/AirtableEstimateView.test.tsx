@@ -55,3 +55,41 @@ describe('AirtableEstimateView quantity editing', () => {
     select.mockRestore();
   });
 });
+
+describe('AirtableEstimateView with a pricing drawer', () => {
+  it('opens the item drawer from any cell and never edits inline', () => {
+    const onEditPrice = jest.fn();
+    const onUpdateItem = jest.fn();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() => {
+      root.render(
+        <AirtableEstimateView
+          items={[{ id: 'a', name: 'Wire', quantity: 2, price: 125, unit: 'ea', total: 250 }]}
+          onUpdateItem={onUpdateItem}
+          onAddItem={() => {}}
+          isEditable
+          subtotal={250}
+          tax={0}
+          total={250}
+          showStickyFooter={false}
+          onEditPrice={onEditPrice}
+        />,
+      );
+    });
+    const cells = container.querySelectorAll('tbody tr')[0].querySelectorAll('td');
+    cells.forEach((cell) => {
+      act(() => {
+        cell.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+    });
+    expect(onEditPrice).toHaveBeenCalledTimes(4); // description, price, quantity, total
+    expect(onEditPrice).toHaveBeenCalledWith('a');
+    expect(container.querySelector('input')).toBeNull();
+    expect(onUpdateItem).not.toHaveBeenCalled();
+    act(() => root.unmount());
+    container.remove();
+  });
+});
+

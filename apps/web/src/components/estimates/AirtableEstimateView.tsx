@@ -157,25 +157,22 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
         </thead>
         <tbody>
           {items.map((item, index) => (
-              <tr 
+              <tr
                 key={item.id}
-                className="border-b border-[#333333] bg-[#0A0A0A] hover:bg-[#22272d] transition-colors"
+                // With a pricing drawer, the whole row opens it: items are edited there, not in the table.
+                onClick={onEditPrice ? () => onEditPrice(item.id) : undefined}
+                className={`border-b border-[#333333] bg-[#0A0A0A] [@media(hover:hover)]:hover:bg-[#22272d] active:bg-[#22272d] transition-colors ${onEditPrice ? 'cursor-pointer' : ''}`}
               >
               
               {/* Name Cell - opens the item's pricing editor when there is one */}
-              <td
-                className={`py-1.5 px-3 text-white text-[13px] font-normal border-r border-[#333333] ${onEditPrice ? 'cursor-pointer' : ''}`}
-                onClick={onEditPrice ? () => onEditPrice(item.id) : undefined}
-              >
-                <div className={`px-1 py-0.5 -mx-1 -my-0.5 ${onEditPrice ? 'hover:bg-[#22272d] rounded-sm' : ''}`}>
-                  {item.name}
-                </div>
+              <td className="py-1.5 px-3 text-white text-[13px] font-normal border-r border-[#333333]">
+                {item.name}
               </td>
               
               {/* Price Cell */}
               <td 
                 className="py-1.5 px-3 text-right text-white text-[13px] font-normal cursor-pointer border-r border-[#333333]"
-                onClick={() => onEditPrice ? onEditPrice(item.id) : handleCellClick(item.id, 'price', item.price)}
+                onClick={onEditPrice ? undefined : () => handleCellClick(item.id, 'price', item.price)}
               >
                 {editingCell?.itemId === item.id && editingCell?.field === 'price' ? (
                   <input
@@ -189,7 +186,7 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
                     className="w-full px-1 py-0.5 bg-[#0A0A0A] border border-[#336699] rounded-sm outline-none text-white text-right text-[13px]"
                   />
                 ) : (
-                  <div className='hover:bg-[#22272d] px-1 py-0.5 -mx-1 -my-0.5 rounded-sm inline-block cursor-pointer'>
+                  <div className={`px-1 py-0.5 -mx-1 -my-0.5 rounded-sm inline-block ${onEditPrice ? '' : 'hover:bg-[#22272d] cursor-pointer'}`}>
                     {formatCurrency(item.price)}
                   </div>
                 )}
@@ -198,7 +195,7 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
               {/* Quantity Cell */}
               <td 
                 className="py-1.5 px-2 text-center text-white text-[13px] font-normal cursor-pointer border-r border-[#333333]"
-                onClick={() => handleCellClick(item.id, 'quantity', item.quantity)}
+                onClick={onEditPrice ? undefined : () => handleCellClick(item.id, 'quantity', item.quantity)}
               >
                 {editingCell?.itemId === item.id && editingCell?.field === 'quantity' ? (
                   <input
@@ -212,7 +209,7 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
                     className="w-full px-1 py-0.5 bg-[#0A0A0A] border border-[#336699] rounded-sm outline-none text-white text-center text-[13px]"
                   />
                 ) : (
-                  <div className='hover:bg-[#22272d] px-1 py-0.5 -mx-1 -my-0.5 rounded-sm inline-block cursor-pointer'>
+                  <div className={`px-1 py-0.5 -mx-1 -my-0.5 rounded-sm inline-block ${onEditPrice ? '' : 'hover:bg-[#22272d] cursor-pointer'}`}>
                     {item.quantity}
                   </div>
                 )}
