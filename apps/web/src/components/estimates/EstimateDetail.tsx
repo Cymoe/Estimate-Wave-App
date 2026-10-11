@@ -196,8 +196,8 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   };
 
   useEffect(() => {
-    // Scroll to top when component mounts
-    window.scrollTo(0, 0);
+    // As a page it opens at the top; in the drawer the list behind stays put.
+    if (!inDrawer) window.scrollTo(0, 0);
     loadEstimate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
