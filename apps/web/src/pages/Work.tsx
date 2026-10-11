@@ -37,7 +37,7 @@ export const Work: React.FC = () => {
 
   return (
     <div className="max-w-[1600px] mx-auto">
-      <EstimatesList refreshTrigger={refreshList} />
+      <EstimatesList refreshTrigger={refreshList} selectedId={openEstimateId} />
 
       {openEstimateId && <EstimateDrawer estimateId={openEstimateId} onClose={closeEstimate} />}
 

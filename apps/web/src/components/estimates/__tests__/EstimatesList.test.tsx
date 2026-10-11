@@ -98,4 +98,22 @@ describe('EstimatesList', () => {
     expect(container.textContent).toContain('EST-2026-002');
     listCall = async () => rows;
   });
+
+  it('highlights the open estimate only while its drawer is open', async () => {
+    rows = [estimate(1, 'Kitchen trim'), estimate(2, 'Garage door')];
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const rowOf = (text: string) =>
+      Array.from(container.querySelectorAll('[class*="cursor-pointer"]')).find((el) => el.textContent?.includes(text))!;
+    const highlighted = (el: Element) => el.className.split(/\s+/).includes('bg-[#1A1A1A]');
+
+    await act(async () => root.render(<MemoryRouter><EstimatesList selectedId="e2" /></MemoryRouter>));
+    await act(async () => {});
+    expect(highlighted(rowOf('Garage door'))).toBe(true);
+    expect(highlighted(rowOf('Kitchen trim'))).toBe(false);
+
+    await act(async () => root.render(<MemoryRouter><EstimatesList /></MemoryRouter>));
+    expect(highlighted(rowOf('Garage door'))).toBe(false);
+  });
 });
