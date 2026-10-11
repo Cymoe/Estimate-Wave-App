@@ -2,9 +2,9 @@ import React, { useState, useEffect, useContext, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
-  ArrowLeft, Edit, Send, Download, Share2, Trash2,
+  ArrowLeft, Edit, Send, Share2, Trash2,
   CheckCircle, XCircle, FileText, User,
-  Phone, Mail, MapPin, Copy, Eye, Calendar, X, MoreVertical
+  Phone, Mail, MapPin, Copy, Eye, Calendar, X, MoreVertical, ChevronRight, ChevronDown
 } from 'lucide-react';
 import { EstimateService, Estimate, EstimateItem } from '../../services/EstimateService';
 import { priceAt } from '../../utils/priceRange';
@@ -62,6 +62,8 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   
   // Tab state - Default to Line Items for immediate visibility (3-tab structure)
   const [activeTab, setActiveTab] = useState<'items' | 'overview' | 'contract'>('items');
+  // The contract tab's inline document preview that's open.
+  const [expandedDoc, setExpandedDoc] = useState<'affidavit' | 'change-order' | null>(null);
   // The total bar is fixed to the screen bottom; it follows the table column's position and width.
   const [tableColumn, setTableColumn] = useState<HTMLDivElement | null>(null);
   const [totalBarBox, setTotalBarBox] = useState<{ left: number; width: number } | null>(null);
@@ -613,15 +615,6 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
               Share
             </button>
 
-            {estimate.items && estimate.items.length > 0 && (
-              <button
-                onClick={() => navigate(`/estimates/${estimate.id}/contract`)}
-                className={secondaryAction}
-              >
-                <FileText className="w-4 h-4" />
-                Contract
-              </button>
-            )}
 
             {/* Resend - for already sent estimates */}
             {estimate.status === 'sent' && estimate.client?.email && (
@@ -966,272 +959,164 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
 
          {/* Contract Tab */}
          {activeTab === 'contract' && (
-           <div className="p-6 space-y-6">
+           <div className="p-4">
              {estimate.items && estimate.items.length > 0 ? (
-               <>
-                 {/* Contract Header */}
-                 <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6">
-                   <div className="flex justify-between items-center mb-6">
-                     <div>
-                       <h2 className="text-lg font-semibold text-white">Contracts & Agreements - {estimate.estimate_number}</h2>
-                       <p className="text-sm text-gray-400">Complete contract package for {estimate.client?.name || 'No client'}</p>
-                     </div>
-                     <div className="flex items-center gap-3">
-                       <button 
-                         onClick={() => navigate(`/estimates/${estimate.id}/contract`)}
-                         className="flex items-center gap-2 px-4 py-2 bg-[#336699] text-white rounded-lg hover:bg-[#2A5580] transition-colors text-sm font-medium"
-                       >
-                         <FileText className="w-4 h-4" />
-                         Full Contract View
-                       </button>
-                     </div>
-                   </div>
+               <div className="bg-[#1a1a1a] border border-[#333] divide-y divide-[#333]">
+                 {/* Service contract: opens the full page (edit, Print/PDF) */}
+                 <div>
+                   <button
+                     type="button"
+                     onClick={() => navigate(`/estimates/${estimate.id}/contract`)}
+                     aria-expanded={undefined}
+                     className="w-full flex items-center gap-3 px-4 py-3 text-left [@media(hover:hover)]:hover:bg-[#1E1E1E] active:bg-[#1E1E1E] transition-colors"
+                   >
+                     <FileText className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                     <span className="flex-1 min-w-0">
+                       <span className="block text-sm font-medium text-white">Service Contract Agreement</span>
+                       <span className="block text-xs text-gray-400">Work agreement and terms</span>
+                     </span>
+                     <ChevronRight className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                   </button>
                  </div>
-
-                 {/* 1. Service Contract Agreement */}
-                 <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6">
-                   <div className="flex justify-between items-center mb-4">
-                     <div>
-                       <h3 className="text-lg font-semibold text-white">1. Service Contract Agreement</h3>
-                       <p className="text-sm text-gray-400">Initial work agreement and terms</p>
-                     </div>
-                     <div className="flex items-center gap-2">
-                       <span className="px-2 py-1 bg-green-500/20 text-green-300 text-xs rounded">Active</span>
-                       <button className="text-[#336699] hover:text-white transition-colors">
-                         <Download className="w-4 h-4" />
-                       </button>
-                     </div>
-                   </div>
-
-                {/* Contract Preview */}
-                <div className="bg-white text-black p-6 rounded-lg">
-                  <div className="text-center mb-6">
-                    <h1 className="text-xl font-bold">SERVICES CONTRACT AGREEMENT</h1>
-                  </div>
-
-                  {/* Contract Summary */}
-                  <div className="space-y-4 text-sm">
-                    <div>
-                      <h3 className="font-semibold mb-2">PARTIES</h3>
-                      <p>
-                        This services contract agreement is entered into between{' '}
-                        <strong>Campos Family Properties, LLC</strong> (Constructor) and{' '}
-                        <strong>{estimate.client?.name || 'Client'}</strong> (Client).
-                      </p>
-                    </div>
-
-                    <div>
-                      <h3 className="font-semibold mb-2">AGREED DESIGN</h3>
-                      {designImageUrl ? (
-                        <div className="space-y-2">
-                          <img
-                            src={designImageUrl}
-                            alt="Agreed Design"
-                            className="max-w-full h-auto max-h-48 object-contain border border-gray-300 rounded"
-                          />
-                          <p className="text-xs text-gray-600">{designImageName}</p>
-                        </div>
-                      ) : (
-                        <p className="text-gray-600 italic">Design to be uploaded in Overview tab</p>
-                      )}
-                    </div>
-
-                    <div>
-                      <h3 className="font-semibold mb-2">CONSTRUCTION PROPERTY</h3>
-                      <p>{estimate.client?.address || 'Property address to be specified'}</p>
-                    </div>
-
-                    <div>
-                      <h3 className="font-semibold mb-2">SCOPE OF WORK</h3>
-                      <p>{estimate.description || 'Work description based on selected services'}</p>
-                    </div>
-
-                    {/* Line Items Summary */}
-                    <div>
-                      <h3 className="font-semibold mb-2">PROJECT ITEMS</h3>
-                      <div className="space-y-2">
-                        {estimate.items.slice(0, 5).map((item, index) => (
-                          <div key={index} className="flex justify-between">
-                            <span>{item.description}</span>
-                            <span>{formatCurrency(item.total_price)}</span>
-                          </div>
-                        ))}
-                        {estimate.items.length > 5 && (
-                          <div className="text-gray-600 text-center">
-                            ... and {estimate.items.length - 5} more items
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="pt-4 border-t border-gray-300">
-                      <div className="flex justify-between text-lg font-bold">
-                        <span>Total Contract Amount</span>
-                        <span>{formatCurrency(estimate.total_amount)}</span>
-                      </div>
-                    </div>
-
-                    <div className="pt-4">
-                      <h3 className="font-semibold mb-2">PAYMENT TERMS</h3>
-                      <div className="space-y-1">
-                        <div className="flex justify-between">
-                          <span>Initial deposit (50%)</span>
-                          <span>{formatCurrency(estimate.total_amount * 0.5)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Stage 2 (40%)</span>
-                          <span>{formatCurrency(estimate.total_amount * 0.4)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Final payment (10%)</span>
-                          <span>{formatCurrency(estimate.total_amount * 0.1)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-6 p-4 bg-gray-100 rounded-lg text-center">
-                    <p className="text-sm text-gray-600">
-                      This is a preview of your service contract. Click "Full Contract View" above to see the complete contract with all terms and conditions.
-                    </p>
-                  </div>
-                </div>
-                 </div>
-
-                 {/* 2. Affidavit of Completion (Lien Release) */}
-                 <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6">
-                   <div className="flex justify-between items-center mb-4">
-                     <div>
-                       <h3 className="text-lg font-semibold text-white">2. Affidavit of Completion</h3>
-                       <p className="text-sm text-gray-400">Lien release and completion certification</p>
-                     </div>
-                     <div className="flex items-center gap-2">
-                       <span className="px-2 py-1 bg-gray-500/20 text-gray-300 text-xs rounded">Pending</span>
-                       <button className="text-[#336699] hover:text-white transition-colors">
-                         <Download className="w-4 h-4" />
-                       </button>
-                     </div>
-                   </div>
-
-                   {/* Affidavit Preview */}
-                   <div className="bg-white text-black p-6 rounded-lg">
-                     <div className="text-center mb-6">
-                       <h1 className="text-xl font-bold">AFFIDAVIT OF COMPLETION</h1>
-                       <p className="text-sm text-gray-600 mt-2">LIEN RELEASE CERTIFICATE</p>
-                     </div>
-
-                     <div className="space-y-4 text-sm">
-                       <div>
-                         <h3 className="font-semibold mb-2">PROJECT COMPLETION</h3>
-                         <p>
-                           I, <strong>Campos Family Properties, LLC</strong>, hereby certify that all work 
-                           described in Contract {estimate.estimate_number} has been completed in accordance 
-                           with the agreed specifications and to the satisfaction of the client.
-                         </p>
-                       </div>
-
-                       <div>
-                         <h3 className="font-semibold mb-2">LIEN RELEASE</h3>
-                         <p>
-                           This affidavit serves as a release of any and all liens, claims, or encumbrances 
-                           against the property located at {estimate.client?.address || 'Property address'} 
-                           arising from the work performed under this contract.
-                         </p>
-                       </div>
-
-                       <div>
-                         <h3 className="font-semibold mb-2">FINAL PAYMENT</h3>
-                         <p>
-                           All payments due under the contract have been received, and no additional 
-                           amounts are owed for the work performed.
-                         </p>
-                       </div>
-
-                       <div className="pt-4 border-t border-gray-300">
-                         <div className="flex justify-between">
-                           <span>Total Contract Amount</span>
-                           <span>{formatCurrency(estimate.total_amount)}</span>
+                 {/* Affidavit of Completion (lien release): preview inline */}
+                 <div>
+                   <button
+                     type="button"
+                     onClick={() => setExpandedDoc(expandedDoc === 'affidavit' ? null : 'affidavit')}
+                     aria-expanded={expandedDoc === 'affidavit'}
+                     className="w-full flex items-center gap-3 px-4 py-3 text-left [@media(hover:hover)]:hover:bg-[#1E1E1E] active:bg-[#1E1E1E] transition-colors"
+                   >
+                     <FileText className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                     <span className="flex-1 min-w-0">
+                       <span className="block text-sm font-medium text-white">Affidavit of Completion</span>
+                       <span className="block text-xs text-gray-400">Lien release at completion</span>
+                     </span>
+                     <ChevronDown className={`w-4 h-4 text-gray-500 flex-shrink-0 transition-transform ${expandedDoc === 'affidavit' ? 'rotate-180' : ''}`} />
+                   </button>
+                   {expandedDoc === 'affidavit' && (
+                     <div className="p-4">
+                       <div className="bg-white text-black p-6 rounded-lg">
+                         <div className="text-center mb-6">
+                           <h1 className="text-xl font-bold">AFFIDAVIT OF COMPLETION</h1>
+                           <p className="text-sm text-gray-600 mt-2">LIEN RELEASE CERTIFICATE</p>
                          </div>
-                         <div className="flex justify-between">
-                           <span>Final Payment Received</span>
-                           <span>{formatCurrency(estimate.total_amount * 0.1)}</span>
-                         </div>
-                       </div>
-                     </div>
 
-                     <div className="mt-6 p-4 bg-gray-100 rounded-lg text-center">
-                       <p className="text-sm text-gray-600">
-                         This affidavit will be available for download upon project completion and final payment.
-                       </p>
-                     </div>
-                   </div>
-                 </div>
+                         <div className="space-y-4 text-sm">
+                           <div>
+                             <h3 className="font-semibold mb-2">PROJECT COMPLETION</h3>
+                             <p>
+                               I, <strong>Campos Family Properties, LLC</strong>, hereby certify that all work 
+                               described in Contract {estimate.estimate_number} has been completed in accordance 
+                               with the agreed specifications and to the satisfaction of the client.
+                             </p>
+                           </div>
 
-                 {/* 3. Change Order Contract */}
-                 <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6">
-                   <div className="flex justify-between items-center mb-4">
-                     <div>
-                       <h3 className="text-lg font-semibold text-white">3. Change Order Contract</h3>
-                       <p className="text-sm text-gray-400">Modifications and additions to original scope</p>
-                     </div>
-                     <div className="flex items-center gap-2">
-                       <span className="px-2 py-1 bg-gray-500/20 text-gray-300 text-xs rounded">Not Applicable</span>
-                       <button className="text-[#336699] hover:text-white transition-colors">
-                         <Download className="w-4 h-4" />
-                       </button>
-                     </div>
-                   </div>
+                           <div>
+                             <h3 className="font-semibold mb-2">LIEN RELEASE</h3>
+                             <p>
+                               This affidavit serves as a release of any and all liens, claims, or encumbrances 
+                               against the property located at {estimate.client?.address || 'Property address'} 
+                               arising from the work performed under this contract.
+                             </p>
+                           </div>
 
-                   {/* Change Order Preview */}
-                   <div className="bg-white text-black p-6 rounded-lg">
-                     <div className="text-center mb-6">
-                       <h1 className="text-xl font-bold">CHANGE ORDER AGREEMENT</h1>
-                       <p className="text-sm text-gray-600 mt-2">SCOPE MODIFICATION CONTRACT</p>
-                     </div>
+                           <div>
+                             <h3 className="font-semibold mb-2">FINAL PAYMENT</h3>
+                             <p>
+                               All payments due under the contract have been received, and no additional 
+                               amounts are owed for the work performed.
+                             </p>
+                           </div>
 
-                     <div className="space-y-4 text-sm">
-                       <div>
-                         <h3 className="font-semibold mb-2">CHANGE ORDER DETAILS</h3>
-                         <p>
-                           This change order modifies the original Service Contract Agreement 
-                           {estimate.estimate_number} dated {new Date(estimate.issue_date).toLocaleDateString()}.
-                         </p>
-                       </div>
-
-                       <div>
-                         <h3 className="font-semibold mb-2">MODIFICATIONS</h3>
-                         <div className="space-y-2">
-                           <div className="border border-gray-300 rounded p-3">
-                             <p className="text-gray-600 italic">No change orders have been issued for this project.</p>
+                           <div className="pt-4 border-t border-gray-300">
+                             <div className="flex justify-between">
+                               <span>Total Contract Amount</span>
+                               <span>{formatCurrency(estimate.total_amount)}</span>
+                             </div>
+                             <div className="flex justify-between">
+                               <span>Final Payment Received</span>
+                               <span>{formatCurrency(estimate.total_amount * 0.1)}</span>
+                             </div>
                            </div>
                          </div>
-                       </div>
 
-                       <div>
-                         <h3 className="font-semibold mb-2">COST IMPACT</h3>
-                         <div className="flex justify-between">
-                           <span>Original Contract Amount</span>
-                           <span>{formatCurrency(estimate.total_amount)}</span>
-                         </div>
-                         <div className="flex justify-between">
-                           <span>Change Order Amount</span>
-                           <span>$0.00</span>
-                         </div>
-                         <div className="flex justify-between font-semibold border-t border-gray-300 pt-2">
-                           <span>New Total Contract Amount</span>
-                           <span>{formatCurrency(estimate.total_amount)}</span>
+                         <div className="mt-6 p-4 bg-gray-100 rounded-lg text-center">
+                           <p className="text-sm text-gray-600">
+                             This affidavit will be available for download upon project completion and final payment.
+                           </p>
                          </div>
                        </div>
                      </div>
-
-                     <div className="mt-6 p-4 bg-gray-100 rounded-lg text-center">
-                       <p className="text-sm text-gray-600">
-                         Change orders will appear here when modifications are made to the original contract scope.
-                       </p>
-                     </div>
-                   </div>
+                   )}
                  </div>
-               </>
+                 {/* Change order: preview inline */}
+                 <div>
+                   <button
+                     type="button"
+                     onClick={() => setExpandedDoc(expandedDoc === 'change-order' ? null : 'change-order')}
+                     aria-expanded={expandedDoc === 'change-order'}
+                     className="w-full flex items-center gap-3 px-4 py-3 text-left [@media(hover:hover)]:hover:bg-[#1E1E1E] active:bg-[#1E1E1E] transition-colors"
+                   >
+                     <FileText className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                     <span className="flex-1 min-w-0">
+                       <span className="block text-sm font-medium text-white">Change Order</span>
+                       <span className="block text-xs text-gray-400">Changes to the original scope</span>
+                     </span>
+                     <ChevronDown className={`w-4 h-4 text-gray-500 flex-shrink-0 transition-transform ${expandedDoc === 'change-order' ? 'rotate-180' : ''}`} />
+                   </button>
+                   {expandedDoc === 'change-order' && (
+                     <div className="p-4">
+                       <div className="bg-white text-black p-6 rounded-lg">
+                         <div className="text-center mb-6">
+                           <h1 className="text-xl font-bold">CHANGE ORDER AGREEMENT</h1>
+                           <p className="text-sm text-gray-600 mt-2">SCOPE MODIFICATION CONTRACT</p>
+                         </div>
+
+                         <div className="space-y-4 text-sm">
+                           <div>
+                             <h3 className="font-semibold mb-2">CHANGE ORDER DETAILS</h3>
+                             <p>
+                               This change order modifies the original Service Contract Agreement 
+                               {estimate.estimate_number} dated {new Date(estimate.issue_date).toLocaleDateString()}.
+                             </p>
+                           </div>
+
+                           <div>
+                             <h3 className="font-semibold mb-2">MODIFICATIONS</h3>
+                             <div className="space-y-2">
+                               <div className="border border-gray-300 rounded p-3">
+                                 <p className="text-gray-600 italic">No change orders have been issued for this project.</p>
+                               </div>
+                             </div>
+                           </div>
+
+                           <div>
+                             <h3 className="font-semibold mb-2">COST IMPACT</h3>
+                             <div className="flex justify-between">
+                               <span>Original Contract Amount</span>
+                               <span>{formatCurrency(estimate.total_amount)}</span>
+                             </div>
+                             <div className="flex justify-between">
+                               <span>Change Order Amount</span>
+                               <span>$0.00</span>
+                             </div>
+                             <div className="flex justify-between font-semibold border-t border-gray-300 pt-2">
+                               <span>New Total Contract Amount</span>
+                               <span>{formatCurrency(estimate.total_amount)}</span>
+                             </div>
+                           </div>
+                         </div>
+
+                         <div className="mt-6 p-4 bg-gray-100 rounded-lg text-center">
+                           <p className="text-sm text-gray-600">
+                             Change orders will appear here when modifications are made to the original contract scope.
+                           </p>
+                         </div>
+                       </div>
+                     </div>
+                   )}
+                 </div>
+               </div>
              ) : (
                <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6 text-center">
                  <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
