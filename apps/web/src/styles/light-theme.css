@@ -148,6 +148,7 @@ html.light .hover\:bg-\[\#1f2937\]:hover { background-color: #F1F2F4; }
 html.light .hover\:bg-\[\#222222\]:hover { background-color: #F7F8FA; }
 html.light .hover\:bg-\[\#22272d\]:hover { background-color: #F1F2F4; }
 html.light .hover\:bg-\[\#22272d\]\/50:hover { background-color: rgba(241, 242, 244, 0.5); }
+html.light .hover\:bg-\[\#222\]:hover { background-color: #F7F8FA; }
 html.light .hover\:bg-\[\#232323\]:hover { background-color: #F7F8FA; }
 html.light .hover\:bg-\[\#232D3F\]:hover { background-color: #E8EAED; }
 html.light .hover\:bg-\[\#252525\]:hover { background-color: #F1F2F4; }

@@ -160,6 +160,19 @@ export const estimatesAPI = {
   async sign(id: string, signature: string) {
     return run('mutation', api.estimates.sign, { id, signature });
   },
+
+  /** A one-time URL to upload a design file to. */
+  async designUploadUrl(id: string): Promise<string> {
+    return run('mutation', api.estimates.designUploadUrl, { id });
+  },
+
+  async setDesign(id: string, storageId: string, name: string) {
+    return run('mutation', api.estimates.setDesign, { id, storageId, name });
+  },
+
+  async removeDesign(id: string) {
+    return run('mutation', api.estimates.removeDesign, { id });
+  },
 };
 
 // Projects API

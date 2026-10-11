@@ -88,4 +88,11 @@ describe('contract page', () => {
     expect(button('Edit terms')).toBeUndefined();
     expect(button('Print/PDF')).toBeTruthy();
   });
+
+  it('shows the agreed design', async () => {
+    stored = { ...base, design: { url: 'https://files.example/plan.png', name: 'plan.png', type: 'image/png' } };
+    await render();
+    expect(document.body.textContent).toContain('AGREED DESIGN');
+    expect((document.body.querySelector('img[alt="plan.png"]') as HTMLImageElement).src).toBe('https://files.example/plan.png');
+  });
 });

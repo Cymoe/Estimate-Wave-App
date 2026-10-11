@@ -99,3 +99,18 @@ describe('changesSinceSigned', () => {
     });
   });
 });
+
+describe('agreed design', () => {
+  it('comes from the estimate, or from the signed contract once accepted', () => {
+    const design = { url: 'https://files.example/a.png', name: 'a.png', type: 'image/png' };
+    expect(contractFor(estimate({ design })).agreedDesign).toEqual(design);
+    const signed = contractFor(
+      estimate({
+        design: undefined,
+        contract_locked_at: '2026-10-11T07:00:00Z',
+        contract_snapshot: { items: [], totalAmount: 0, design: { url: 'https://files.example/b.pdf', name: 'b.pdf', contentType: 'application/pdf' } },
+      }),
+    );
+    expect(signed.agreedDesign).toEqual({ url: 'https://files.example/b.pdf', name: 'b.pdf', type: 'application/pdf' });
+  });
+});

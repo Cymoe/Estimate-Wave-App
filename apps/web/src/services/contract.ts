@@ -24,6 +24,8 @@ export interface ContractData {
   warrantyPeriod: string;
   /** When the estimate was accepted and this contract stopped following it. */
   lockedAt?: string;
+  /** The agreed design (image or PDF) attached to the estimate. */
+  agreedDesign?: { url: string; name: string; type?: string };
 }
 
 /** The parts of the contract the user writes, saved on the estimate. */
@@ -97,6 +99,9 @@ export function contractFor(estimate: Estimate, business?: Business | null): Con
     paymentTerms: terms.paymentTerms || DEFAULT_PAYMENT_TERMS,
     warrantyPeriod: terms.warrantyPeriod || DEFAULT_WARRANTY,
     lockedAt: estimate.contract_locked_at,
+    agreedDesign: snapshot
+      ? snapshot.design && { url: snapshot.design.url, name: snapshot.design.name, type: snapshot.design.contentType }
+      : estimate.design,
   };
 }
 

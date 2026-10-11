@@ -29,6 +29,7 @@ jest.mock('../../../lib/supabase', () => {
 });
 jest.mock('../../../lib/api', () => ({
   organizationsAPI: { getById: async () => ({ name: 'Shah Builders', address: '9 Oak Ave', email: 'hi@shah.example' }) },
+  clientsAPI: { list: async () => [] },
 }));
 jest.mock('../CreateEstimateDrawer', () => ({ CreateEstimateDrawer: () => null }));
 jest.mock('../../common/MapModal', () => ({ MapModal: () => null }));

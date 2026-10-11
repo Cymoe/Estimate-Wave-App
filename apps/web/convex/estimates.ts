@@ -1,14 +1,32 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { fail, getOwned, logActivity, nowIso, pick, requireMember } from "./lib/access";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { assertLinksInOrg, documentNumber, normalizeItems, withTotals } from "./lib/documents";
 import { estimateFields, estimateStatus } from "./schema";
 
 // Fields the UI may set directly; signature fields only change via `sign`,
 // and the contract is locked by the server when the estimate is accepted.
-const serverOnly = new Set(["clientSignature", "signedAt", "contractLockedAt", "contractSnapshot"]);
+// The design changes only through setDesign/removeDesign.
+const serverOnly = new Set(["clientSignature", "signedAt", "contractLockedAt", "contractSnapshot", "design"]);
+
+const MAX_DESIGN_BYTES = 10 * 1024 * 1024;
+
+/** The file's type, or one guessed from its name when the upload didn't say. */
+function designType(contentType: string | undefined, name: string): string {
+  if (contentType) return contentType;
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  if (ext === "pdf") return "application/pdf";
+  if (["png", "jpg", "jpeg", "gif", "webp", "heic"].includes(ext)) return `image/${ext === "jpg" ? "jpeg" : ext}`;
+  return "";
+}
+
+/** Deletes a design file unless the signed contract still shows it. */
+async function deleteDesignFile(ctx: MutationCtx, estimate: Doc<"estimates">, storageId: Id<"_storage">) {
+  if (estimate.contractSnapshot?.design?.storageId === storageId) return;
+  if ((await ctx.db.system.get(storageId)) !== null) await ctx.storage.delete(storageId);
+}
 const writableFields = Object.fromEntries(Object.entries(estimateFields).filter(([key]) => !serverOnly.has(key)));
 
 /** Freezes the contract as it stands, for an estimate being accepted. */
@@ -26,6 +44,7 @@ async function lockContract(ctx: MutationCtx, estimate: Doc<"estimates">, now: s
       taxAmount: estimate.taxAmount,
       totalAmount: estimate.totalAmount,
       terms: estimate.contractTerms,
+      design: estimate.design,
     },
   };
 }
@@ -123,6 +142,9 @@ export const remove = mutation({
   handler: async (ctx, { id }) => {
     const { doc, user } = await getOwned(ctx, "estimates", id);
     await ctx.db.delete(id);
+    for (const file of [doc.design, doc.contractSnapshot?.design]) {
+      if (file && (await ctx.db.system.get(file.storageId)) !== null) await ctx.storage.delete(file.storageId);
+    }
     await logActivity(ctx, {
       organizationId: doc.organizationId,
       userId: user._id,
@@ -150,6 +172,44 @@ export const sign = mutation({
       resourceId: id,
       details: { estimateNumber: doc.estimateNumber },
     });
+    return await ctx.db.get(id);
+  },
+});
+
+/** Where the browser uploads a design file before attaching it with setDesign. */
+export const designUploadUrl = mutation({
+  args: { id: v.id("estimates") },
+  handler: async (ctx, { id }) => {
+    await getOwned(ctx, "estimates", id);
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+/** Attaches an uploaded image or PDF as the estimate's design, replacing any earlier one. */
+export const setDesign = mutation({
+  args: { id: v.id("estimates"), storageId: v.id("_storage"), name: v.string() },
+  handler: async (ctx, { id, storageId, name }) => {
+    const { doc } = await getOwned(ctx, "estimates", id);
+    const file = await ctx.db.system.get(storageId);
+    if (file === null) fail("NOT_FOUND", "The uploaded file wasn't found");
+    const type = designType(file.contentType, name);
+    if (!(type.startsWith("image/") || type === "application/pdf") || file.size > MAX_DESIGN_BYTES) {
+      fail("INVALID", "The design must be an image or PDF of 10MB or less");
+    }
+    const url = await ctx.storage.getUrl(storageId);
+    if (url === null) fail("NOT_FOUND", "The uploaded file wasn't found");
+    if (doc.design && doc.design.storageId !== storageId) await deleteDesignFile(ctx, doc, doc.design.storageId);
+    await ctx.db.patch(id, { design: { storageId, name, contentType: type, url }, updatedAt: nowIso() });
+    return await ctx.db.get(id);
+  },
+});
+
+export const removeDesign = mutation({
+  args: { id: v.id("estimates") },
+  handler: async (ctx, { id }) => {
+    const { doc } = await getOwned(ctx, "estimates", id);
+    if (doc.design) await deleteDesignFile(ctx, doc, doc.design.storageId);
+    await ctx.db.patch(id, { design: undefined, updatedAt: nowIso() });
     return await ctx.db.get(id);
   },
 });

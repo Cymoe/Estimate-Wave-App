@@ -8,9 +8,8 @@ import {
 } from 'lucide-react';
 import { EstimateService, Estimate, EstimateItem } from '../../services/EstimateService';
 import { priceAt } from '../../utils/priceRange';
-import { supabase } from '../../lib/supabase';
 import { formatCurrency } from '../../utils/format';
-import { organizationsAPI } from '../../lib/api';
+import { clientsAPI, organizationsAPI } from '../../lib/api';
 import { Business, changesSinceSigned, contractFor } from '../../services/contract';
 import { CreateEstimateDrawer } from './CreateEstimateDrawer';
 import { MapModal } from '../common/MapModal';
@@ -58,6 +57,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
       cancelled = true;
     };
   }, [selectedOrg?.id]);
+
   const [estimate, setEstimate] = useState<Estimate | null>(null);
   const [loading, setLoading] = useState(true);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -79,6 +79,48 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   const [activeTab, setActiveTab] = useState<'items' | 'overview' | 'contract'>('items');
   // The contract tab's inline document preview that's open.
   const [expandedDoc, setExpandedDoc] = useState<'affidavit' | 'change-order' | null>(null);
+
+  // Choosing the estimate's client from the Overview.
+  const [choosingClient, setChoosingClient] = useState(false);
+  const [clientOptions, setClientOptions] = useState<Array<{ id: string; name: string }> | null>(null);
+  const [savingClient, setSavingClient] = useState(false);
+  const loadClientOptions = async () => {
+    if (clientOptions !== null || !selectedOrg?.id) return;
+    try {
+      const rows = await clientsAPI.list(selectedOrg.id);
+      setClientOptions(
+        rows
+          .map((c: { _id?: string; id?: string; name: string }) => ({ id: (c.id ?? c._id) as string, name: c.name }))
+          .sort((a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name)),
+      );
+    } catch (err) {
+      console.error('Error loading clients:', err);
+      setClientOptions([]);
+    }
+  };
+  // With no client yet, the picker shows straight away on the Overview.
+  useEffect(() => {
+    if (activeTab === 'overview' && estimate && !estimate.client) loadClientOptions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, estimate?.client]);
+  const startChoosingClient = () => {
+    setChoosingClient(true);
+    loadClientOptions();
+  };
+  const chooseClient = async (clientId: string) => {
+    if (!estimate?.id) return;
+    setSavingClient(true);
+    try {
+      await EstimateService.update(estimate.id, { client_id: clientId });
+      await loadEstimate(true);
+      setChoosingClient(false);
+    } catch (err) {
+      console.error('Error setting client:', err);
+      alert("The client couldn't be saved. Please try again.");
+    } finally {
+      setSavingClient(false);
+    }
+  };
   // The total bar is fixed to the screen bottom; it follows the table column's position and width.
   const [tableColumn, setTableColumn] = useState<HTMLDivElement | null>(null);
   const [totalBarBox, setTotalBarBox] = useState<{ left: number; width: number } | null>(null);
@@ -99,62 +141,38 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
     };
   }, [tableColumn]);
 
-  // Design image state
-  const [designImageUrl, setDesignImageUrl] = useState<string | null>(null);
-  const [designImageName, setDesignImageName] = useState<string | null>(null);
+  // Loads the estimate; quietly (no loading screen) after a change made here.
+  const loadEstimate = async (quiet = false) => {
+    if (!id) return;
+    if (!quiet) {
+      setLoading(true);
+      setError(null);
+    }
+    try {
+      const result = await EstimateService.getById(id);
+      // Store original prices for pricing strategy calculations
+      if (result && result.items) {
+        result.items = result.items.map(item => ({
+          ...item,
+          original_unit_price: item.original_unit_price || item.unit_price,
+          cap_price: item.cap_price || item.unit_price,
+          red_line_price: item.red_line_price || item.unit_price * 0.7
+        }));
+      }
+      setEstimate(result);
+    } catch (err) {
+      console.error('Error fetching estimate:', err);
+      if (!quiet) setError('Failed to load estimate');
+    } finally {
+      if (!quiet) setLoading(false);
+    }
+  };
 
   useEffect(() => {
     // Scroll to top when component mounts
     window.scrollTo(0, 0);
-    
-    if (!id) return;
-    
-    const fetchEstimate = async () => {
-      setLoading(true);
-      setError(null);
-      
-      try {
-        const result = await EstimateService.getById(id);
-        // Store original prices for pricing strategy calculations
-        if (result && result.items) {
-          result.items = result.items.map(item => ({
-            ...item,
-            original_unit_price: item.original_unit_price || item.unit_price,
-            cap_price: item.cap_price || item.unit_price,
-            red_line_price: item.red_line_price || item.unit_price * 0.7
-          }));
-        }
-        setEstimate(result);
-
-        // Fetch design image if project exists
-        if (result?.project_id) {
-          try {
-            const { data: designDocs } = await supabase
-              .from('project_documents')
-              .select('*')
-              .eq('project_id', result.project_id)
-              .eq('type', 'agreed_design')
-              .order('created_at', { ascending: false })
-              .limit(1);
-
-            if (designDocs && designDocs.length > 0) {
-              const designDoc = designDocs[0];
-              setDesignImageUrl(designDoc.content);
-              setDesignImageName(designDoc.name?.replace('Agreed Design - ', '') || 'Project Design');
-            }
-          } catch (error) {
-            console.log('No design document found:', error);
-          }
-        }
-      } catch (err) {
-        console.error('Error fetching estimate:', err);
-        setError('Failed to load estimate');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchEstimate();
+    loadEstimate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const handleStatusUpdate = async (status: Estimate['status']) => {
@@ -759,114 +777,104 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
       >
         {/* Overview Tab */}
         {activeTab === 'overview' && (
-          <div className="p-6 space-y-6">
-            {/* Summary Cards Row */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Total & Status Card */}
-              <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6">
-                <h3 className="text-sm font-medium text-gray-400 mb-3 uppercase tracking-wide">Estimate Summary</h3>
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-400">Total Amount</span>
-                    <span className="text-xl font-bold text-[#F9D71C]">{formatCurrency(estimate.total_amount)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-400">Status</span>
-                    <span className={`text-sm px-2 py-1 rounded-[4px] font-medium uppercase ${
-                      estimate.status === 'accepted' ? 'bg-green-500/20 text-green-300' :
-                      estimate.status === 'rejected' ? 'bg-red-500/20 text-red-300' :
-                      estimate.status === 'sent' ? 'bg-blue-500/20 text-blue-300' :
-                      'bg-gray-500/20 text-gray-300'
-                    }`}>
-                      {estimate.status}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-400">Items</span>
-                    <span className="text-sm text-white">{estimate.items?.length || 0}</span>
-                  </div>
+          <div className="p-4 space-y-4">
+            {/* Summary: total, items and dates (status is in the header) */}
+            <div className="bg-[#1a1a1a] rounded-lg border border-[#333] grid grid-cols-3 divide-x divide-[#333]">
+              <div className="p-4 min-w-0">
+                <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Total</div>
+                <div className="text-lg font-semibold text-[#F9D71C] whitespace-nowrap overflow-hidden text-ellipsis">
+                  {formatCurrency(estimate.total_amount)}
                 </div>
               </div>
-
-              {/* Client Information Card */}
-              <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6">
-                <h3 className="text-sm font-medium text-gray-400 mb-3 uppercase tracking-wide">Client</h3>
-                {estimate.client ? (
-                  <div className="space-y-2">
-                    <div className="text-base font-medium text-white">{estimate.client.name}</div>
-                    {estimate.client.email && (
-                      <div className="flex items-center gap-2 text-sm text-gray-400">
-                        <Mail className="w-4 h-4" />
-                        <span>{estimate.client.email}</span>
-                      </div>
-                    )}
-                    {estimate.client.phone && (
-                      <div className="flex items-center gap-2 text-sm text-gray-400">
-                        <Phone className="w-4 h-4" />
-                        <span>{estimate.client.phone}</span>
-                      </div>
-                    )}
-                    {estimate.client.address && (
-                      <button
-                        onClick={() => setShowMapModal(true)}
-                        className="flex items-start gap-2 text-sm text-gray-400 hover:text-white transition-colors cursor-pointer w-full text-left p-2 -m-2 rounded-lg hover:bg-[#2a2a2a]"
-                        title="Click to view on map"
-                      >
-                        <MapPin className="w-4 h-4 mt-0.5" />
-                        <span className="hover:underline">{estimate.client.address}</span>
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-400">No client assigned</p>
+              <div className="p-4">
+                <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Items</div>
+                <div className="text-lg font-semibold text-white">{estimate.items?.length || 0}</div>
+              </div>
+              <div className="p-4 text-sm space-y-0.5">
+                <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Dates</div>
+                <div className="text-white">Created {new Date(estimate.issue_date).toLocaleDateString()}</div>
+                {estimate.expiry_date && (
+                  <div className="text-gray-400">Expires {new Date(estimate.expiry_date).toLocaleDateString()}</div>
+                )}
+                {estimate.last_sent_at && (
+                  <div className="text-gray-400">Sent {new Date(estimate.last_sent_at).toLocaleDateString()}</div>
                 )}
               </div>
+            </div>
+            {estimate.project && (
+              <button
+                type="button"
+                onClick={() => navigate(`/projects/${estimate.project!.id}`)}
+                className="-mt-3 text-sm text-gray-400 hover:text-white"
+              >
+                Project: <span className="text-[#336699] hover:underline">{estimate.project.name}</span>
+              </button>
+            )}
 
-              {/* Dates & Timeline Card */}
-              <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6">
-                <h3 className="text-sm font-medium text-gray-400 mb-3 uppercase tracking-wide">Timeline</h3>
-                <div className="space-y-3">
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-400">Created</span>
-                    <span className="text-sm text-white">{new Date(estimate.issue_date).toLocaleDateString()}</span>
-                  </div>
-                  {estimate.expiry_date && (
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-400">Expires</span>
-                      <span className="text-sm text-white">{new Date(estimate.expiry_date).toLocaleDateString()}</span>
-                    </div>
+            {/* Client: pick one here when there's none, or change it */}
+            <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wide">Client</h3>
+                {estimate.client && !choosingClient && (
+                  <button type="button" onClick={startChoosingClient} className="text-xs text-[#336699] hover:text-white">
+                    Change
+                  </button>
+                )}
+              </div>
+              {estimate.client && !choosingClient ? (
+                <div className="space-y-1.5">
+                  <div className="text-base font-medium text-white">{estimate.client.name}</div>
+                  {estimate.client.email && (
+                    <a href={`mailto:${estimate.client.email}`} className="flex items-center gap-2 text-sm text-gray-400 hover:text-white">
+                      <Mail className="w-4 h-4" />
+                      <span>{estimate.client.email}</span>
+                    </a>
                   )}
-                  {estimate.last_sent_at && (
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-400">Last Sent</span>
-                      <span className="text-sm text-white">{new Date(estimate.last_sent_at).toLocaleDateString()}</span>
-                    </div>
+                  {estimate.client.phone && (
+                    <a href={`tel:${estimate.client.phone}`} className="flex items-center gap-2 text-sm text-gray-400 hover:text-white">
+                      <Phone className="w-4 h-4" />
+                      <span>{estimate.client.phone}</span>
+                    </a>
                   )}
-                  {estimate.project_id && (
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-400">Project</span>
-                      <span className="text-sm text-green-400">Linked</span>
-                    </div>
+                  {estimate.client.address && (
+                    <button
+                      type="button"
+                      onClick={() => setShowMapModal(true)}
+                      className="flex items-start gap-2 text-sm text-gray-400 hover:text-white text-left"
+                      title="View on map"
+                    >
+                      <MapPin className="w-4 h-4 mt-0.5" />
+                      <span className="hover:underline">{estimate.client.address}</span>
+                    </button>
                   )}
                 </div>
-              </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <select
+                    aria-label="Choose client"
+                    value=""
+                    disabled={clientOptions === null || savingClient}
+                    onChange={(e) => e.target.value && chooseClient(e.target.value)}
+                    className="flex-1 min-w-0 bg-[#0A0A0A] border border-[#333] rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-[#336699]"
+                  >
+                    <option value="">
+                      {savingClient ? 'Saving…' : clientOptions === null ? 'Loading clients…' : clientOptions.length ? 'Choose client' : 'No clients yet'}
+                    </option>
+                    {(clientOptions ?? []).map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                  {estimate.client && (
+                    <button type="button" onClick={() => setChoosingClient(false)} className="text-xs text-gray-400 hover:text-white px-2 py-2">
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
-            {/* Design Upload Section */}
-            <DesignUpload
-              estimateId={id!}
-              projectId={estimate?.project_id}
-              currentImageUrl={designImageUrl || undefined}
-              currentImageName={designImageName || undefined}
-              onUploadComplete={(imageUrl, imageName) => {
-                setDesignImageUrl(imageUrl);
-                setDesignImageName(imageName);
-              }}
-              onRemove={() => {
-                setDesignImageUrl(null);
-                setDesignImageName(null);
-              }}
-            />
+            {/* Agreed design: shown on the contract */}
+            <DesignUpload estimateId={estimate.id!} design={estimate.design} onChange={() => loadEstimate(true)} />
 
             {/* Notes and Terms */}
             {(estimate.notes || estimate.terms) && (

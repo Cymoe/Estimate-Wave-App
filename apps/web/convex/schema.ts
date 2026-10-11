@@ -144,6 +144,15 @@ export const contractTerms = v.object({
   propertyAddress: v.optional(v.string()),
 });
 
+// A design file (image or PDF) attached to the estimate, shown on the
+// contract under "Agreed Design".
+export const estimateDesign = v.object({
+  storageId: v.id("_storage"),
+  name: v.string(),
+  contentType: v.optional(v.string()),
+  url: v.string(),
+});
+
 // The contract as agreed, kept when the estimate is accepted so later
 // estimate changes don't alter it (they become a change order instead).
 export const contractSnapshot = v.object({
@@ -160,6 +169,7 @@ export const contractSnapshot = v.object({
   taxAmount: v.number(),
   totalAmount: v.number(),
   terms: v.optional(contractTerms),
+  design: v.optional(estimateDesign),
 });
 
 export const estimateFields = {
@@ -172,6 +182,7 @@ export const estimateFields = {
   contractTerms: v.optional(contractTerms),
   contractLockedAt: v.optional(v.string()),
   contractSnapshot: v.optional(contractSnapshot),
+  design: v.optional(estimateDesign),
 };
 
 export const invoiceFields = {

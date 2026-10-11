@@ -203,6 +203,47 @@ describe("estimates", () => {
     expect(cleared!.contractLockedAt).toBe(signed!.contractLockedAt);
   });
 
+  test("a design file is attached, replaced and removed; the signed contract keeps its copy", async () => {
+    const t = setup();
+    const { as, organizationId } = await signUp(t, "a@example.com");
+    const estimate = await as.mutation(api.estimates.create, { organizationId, data: {} });
+    const store = (type: string, body = "x") => t.run((ctx) => ctx.storage.store(new Blob([body], { type })));
+    const exists = (id: Id<"_storage">) => t.run(async (ctx) => (await ctx.db.system.get(id)) !== null);
+
+    expect(await as.mutation(api.estimates.designUploadUrl, { id: estimate!._id })).toEqual(expect.any(String));
+    const first = await store("image/png");
+    const withDesign = await as.mutation(api.estimates.setDesign, { id: estimate!._id, storageId: first, name: "plan.png" });
+    expect(withDesign!.design).toMatchObject({ storageId: first, name: "plan.png" });
+    expect(withDesign!.design!.contentType).toMatch(/^image\//);
+    expect(withDesign!.design!.url).toEqual(expect.any(String));
+
+    // Replacing deletes the old file.
+    const second = await store("application/pdf");
+    await as.mutation(api.estimates.setDesign, { id: estimate!._id, storageId: second, name: "plan.pdf" });
+    expect(await exists(first)).toBe(false);
+
+    // Other file types are refused.
+    const text = await store("text/plain");
+    await expect(
+      as.mutation(api.estimates.setDesign, { id: estimate!._id, storageId: text, name: "notes.txt" }),
+    ).rejects.toThrow(/image or PDF/);
+
+    // The design can't be set through update.
+    const updated = await as.mutation(api.estimates.update, { id: estimate!._id, data: { design: null } });
+    expect(updated!.design!.storageId).toBe(second);
+
+    // Once accepted, removing the design leaves the signed contract's copy.
+    const accepted = await as.mutation(api.estimates.update, { id: estimate!._id, data: { status: "accepted" } });
+    expect(accepted!.contractSnapshot!.design!.storageId).toBe(second);
+    const removed = await as.mutation(api.estimates.removeDesign, { id: estimate!._id });
+    expect(removed).not.toHaveProperty("design");
+    expect(await exists(second)).toBe(true);
+
+    // Deleting the estimate deletes its files.
+    await as.mutation(api.estimates.remove, { id: estimate!._id });
+    expect(await exists(second)).toBe(false);
+  });
+
   test("signature can only be set through sign", async () => {
     const t = setup();
     const { as, organizationId } = await signUp(t, "a@example.com");

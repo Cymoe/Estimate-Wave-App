@@ -44,6 +44,8 @@ export interface Estimate {
   contract_locked_at?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   contract_snapshot?: Record<string, any>;
+  /** The agreed design (image or PDF) attached to the estimate. */
+  design?: { url: string; name: string; type?: string };
   first_opened_at?: string;
   sent_at?: string;
   last_sent_at?: string;
@@ -122,6 +124,7 @@ function toLegacy(doc: Doc, clients?: Map<string, Doc>, projects?: Map<string, D
     contract_terms: doc.contractTerms,
     contract_locked_at: doc.contractLockedAt,
     contract_snapshot: doc.contractSnapshot,
+    design: doc.design ? { url: doc.design.url, name: doc.design.name, type: doc.design.contentType } : undefined,
     created_at: doc.createdAt,
     updated_at: doc.updatedAt,
     items: (doc.items ?? []).map((item: Doc) => ({
@@ -240,6 +243,23 @@ export class EstimateService {
 
   static async addSignature(id: string, signature: string): Promise<Estimate> {
     return toLegacy(await estimatesAPI.sign(id, signature));
+  }
+
+  /** Uploads an image or PDF and attaches it as the estimate's agreed design. */
+  static async uploadDesign(id: string, file: File): Promise<Estimate> {
+    const uploadUrl = await estimatesAPI.designUploadUrl(id);
+    const response = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+    });
+    if (!response.ok) throw new Error('Upload failed');
+    const { storageId } = await response.json();
+    return toLegacy(await estimatesAPI.setDesign(id, storageId, file.name));
+  }
+
+  static async removeDesign(id: string): Promise<Estimate> {
+    return toLegacy(await estimatesAPI.removeDesign(id));
   }
 
   static async updateStatus(id: string, status: Estimate['status']): Promise<Estimate> {

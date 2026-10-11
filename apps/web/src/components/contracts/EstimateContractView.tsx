@@ -226,6 +226,27 @@ export const EstimateContractView: React.FC = () => {
             </p>
           </div>
 
+          {/* Agreed Design */}
+          {contractData.agreedDesign && (
+            <div className="mb-6">
+              <h2 className="text-lg font-semibold mb-3">AGREED DESIGN</h2>
+              {contractData.agreedDesign.type === 'application/pdf' || contractData.agreedDesign.name.toLowerCase().endsWith('.pdf') ? (
+                <p className="text-sm">
+                  The agreed design is attached:{' '}
+                  <a href={contractData.agreedDesign.url} target="_blank" rel="noreferrer" className="text-blue-700 underline">
+                    {contractData.agreedDesign.name}
+                  </a>
+                </p>
+              ) : (
+                <img
+                  src={contractData.agreedDesign.url}
+                  alt={contractData.agreedDesign.name}
+                  className="w-full max-h-[480px] object-contain border border-gray-300"
+                />
+              )}
+            </div>
+          )}
+
           {/* Construction Property */}
           <div className="mb-6">
             <h2 className="text-lg font-semibold mb-3">CONSTRUCTION PROPERTY</h2>
