@@ -166,6 +166,47 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
     }
   };
 
+  /** A new draft with the same client, project and items, opened straight away. */
+  const handleDuplicate = async () => {
+    if (!estimate) return;
+    const orgId = estimate.organization_id || selectedOrg?.id;
+    if (!orgId) return;
+    const today = new Date();
+    const iso = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    try {
+      const copy = await EstimateService.create({
+        organization_id: orgId,
+        client_id: estimate.client_id,
+        project_id: estimate.project_id,
+        title: estimate.title ? `${estimate.title} (copy)` : '',
+        description: estimate.description,
+        notes: estimate.notes,
+        terms: estimate.terms,
+        tax_rate: estimate.tax_rate,
+        status: 'draft',
+        issue_date: iso(today),
+        expiry_date: iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 30)),
+        subtotal: 0,
+        total_amount: 0,
+        items: (estimate.items || []).map((item, index) => ({
+          description: item.description,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          total_price: item.total_price,
+          red_line_price: item.red_line_price,
+          cap_price: item.cap_price,
+          cost_code: item.cost_code,
+          product_id: item.product_id,
+          display_order: item.display_order ?? index,
+        })),
+      });
+      if (copy.id) navigate(`/estimates/${copy.id}`, { replace: inDrawer });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not duplicate the estimate');
+    }
+  };
+
   const handleDeleteClick = () => {
     setShowDeleteConfirm(true);
   };
@@ -599,7 +640,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
               </button>
             )}
 
-            {/* The rest: the client's answer and delete */}
+            {/* The rest: the client's answer, duplicate and delete */}
             <div className="relative">
               <button
                 onClick={() => setShowMoreMenu((open) => !open)}
@@ -637,6 +678,17 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                         <div className="border-t border-[#333333] my-1" />
                       </>
                     )}
+                    <button
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        handleDuplicate();
+                      }}
+                      className="w-full flex items-center px-3 py-2.5 text-sm text-white hover:bg-[#333333]"
+                    >
+                      <Copy className="w-4 h-4 mr-3 text-gray-400" />
+                      Duplicate
+                    </button>
+                    <div className="border-t border-[#333333] my-1" />
                     <button
                       onClick={() => {
                         setShowMoreMenu(false);
