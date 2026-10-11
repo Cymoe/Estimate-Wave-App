@@ -136,19 +136,18 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
                 <span>Description</span>
               </div>
             </th>
-            <th className="text-right py-2 px-3 font-medium text-gray-300 text-[13px] w-32 border-r border-[#333333]">
+            <th className="text-right py-2 px-3 font-medium text-gray-300 text-[13px] w-28 border-r border-[#333333]">
               <div className="flex items-center justify-end gap-1.5">
                 <span className="text-gray-500">$</span>
-                <span>Unit Price</span>
+                <span>Price</span>
               </div>
             </th>
-            <th className="text-center py-2 px-3 font-medium text-gray-300 text-[13px] w-28 border-r border-[#333333]">
+            <th className="text-center py-2 px-2 font-medium text-gray-300 text-[13px] w-16 border-r border-[#333333]">
               <div className="flex items-center justify-center gap-1.5">
-                <span className="text-gray-500">123</span>
-                <span>Quantity</span>
+                <span>Qty</span>
               </div>
             </th>
-            <th className="text-right py-2 px-3 font-medium text-gray-300 text-[13px] w-32 border-r border-[#333333]">
+            <th className="text-right py-2 px-3 font-medium text-gray-300 text-[13px] w-28 border-r border-[#333333]">
               <div className="flex items-center justify-end gap-1.5">
                 <span className="text-gray-500">ƒ</span>
                 <span>Total</span>
@@ -198,7 +197,7 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
               
               {/* Quantity Cell */}
               <td 
-                className="py-1.5 px-3 text-center text-white text-[13px] font-normal cursor-pointer border-r border-[#333333]"
+                className="py-1.5 px-2 text-center text-white text-[13px] font-normal cursor-pointer border-r border-[#333333]"
                 onClick={() => handleCellClick(item.id, 'quantity', item.quantity)}
               >
                 {editingCell?.itemId === item.id && editingCell?.field === 'quantity' ? (
@@ -254,13 +253,13 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
             <div className="flex-1 py-2 px-3 text-right text-gray-500 border-r border-[#333333]">
               Sum
             </div>
-            <div className="w-32 py-2 px-3 text-right text-gray-300 border-r border-[#333333]">
+            <div className="w-28 py-2 px-3 text-right text-gray-300 border-r border-[#333333]">
               {formatCurrency(subtotal)}
             </div>
-            <div className="w-28 py-2 px-3 text-center text-gray-300 border-r border-[#333333]">
+            <div className="w-16 py-2 px-2 text-center text-gray-300 border-r border-[#333333]">
               {items.reduce((sum, item) => sum + (item.quantity || 0), 0)}
             </div>
-            <div className="w-32 py-2 px-3 text-right border-r border-[#333333] flex flex-col items-end">
+            <div className="w-28 py-2 px-3 text-right border-r border-[#333333] flex flex-col items-end">
               <span className="text-gray-300">{formatCurrency(total)}</span>
               {marginIndicator && redlineTotal > 0 && (
                 <div className="flex items-center gap-1.5 mt-0.5">

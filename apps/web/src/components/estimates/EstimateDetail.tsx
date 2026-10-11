@@ -532,13 +532,13 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
       <div className="flex-1 py-2 px-3 text-right text-gray-500 border-r border-[#333333]">
         Sum
       </div>
-      <div className="w-32 py-2 px-3 text-right text-gray-300 border-r border-[#333333]">
+      <div className="w-28 py-2 px-3 text-right text-gray-300 border-r border-[#333333]">
         {formatCurrency(estimate.subtotal)}
       </div>
-      <div className="w-28 py-2 px-3 text-center text-gray-300 border-r border-[#333333]">
+      <div className="w-16 py-2 px-2 text-center text-gray-300 border-r border-[#333333]">
         {estimate.items.reduce((sum, item) => sum + (item.quantity || 0), 0)}
       </div>
-      <div className="w-32 py-2 px-3 text-right border-r border-[#333333] flex flex-col items-end">
+      <div className="w-28 py-2 px-3 text-right border-r border-[#333333] flex flex-col items-end">
         <span className="text-gray-300">{formatCurrency(estimate.total_amount)}</span>
         {(() => {
           const redlineTotal = estimate.items.reduce((sum, item) => {
