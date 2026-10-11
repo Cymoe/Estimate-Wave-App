@@ -7,6 +7,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 let extra: Record<string, unknown> = {};
 jest.mock('../../../services/EstimateService', () => ({
   EstimateService: {
+    cached: () => undefined,
     getById: async () => ({
       ...extra,
       id: 'e1',

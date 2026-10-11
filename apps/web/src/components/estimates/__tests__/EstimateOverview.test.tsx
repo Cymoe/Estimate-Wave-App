@@ -5,11 +5,17 @@ import { MemoryRouter } from 'react-router-dom';
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let stored: Record<string, unknown> = {};
+let cachedCopy: Record<string, unknown> | undefined;
+let loadGate: Promise<void> | null = null;
 const update = jest.fn();
 const uploadDesign = jest.fn();
 jest.mock('../../../services/EstimateService', () => ({
   EstimateService: {
-    getById: async () => stored,
+    cached: () => cachedCopy,
+    getById: async () => {
+      if (loadGate) await loadGate;
+      return stored;
+    },
     update: async (id: string, changes: Record<string, unknown>) => {
       update(id, changes);
       if (changes.client_id === 'c2') stored = { ...stored, client_id: 'c2', client: { name: 'Priya Shah', email: 'priya@example.com' } };
@@ -134,4 +140,32 @@ describe('estimate overview', () => {
     expect(update).toHaveBeenCalledWith('e1', { status: 'sent' });
     delete (navigator as { share?: unknown }).share;
   });
+
+  it('opens at once from the estimate already loaded, then shows the latest copy', async () => {
+    cachedCopy = { ...base, total_amount: 100, subtotal: 100, items: [{ id: 'i1', description: 'Vanity', quantity: 1, unit_price: 100, total_price: 100 }] };
+    stored = { ...base, total_amount: 250, subtotal: 250, items: [{ id: 'i1', description: 'Vanity', quantity: 1, unit_price: 250, total_price: 250 }] };
+    let release: () => void = () => {};
+    loadGate = new Promise((resolve) => (release = resolve));
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () =>
+      createRoot(container).render(
+        <MemoryRouter>
+          <EstimateDetail estimateId="e1" onClose={() => {}} inDrawer />
+        </MemoryRouter>,
+      ),
+    );
+    // Drawn straight away from the known copy, with no loading skeleton.
+    expect(document.body.textContent).toContain('EST-2026-523077');
+    expect(document.body.textContent).toContain('Vanity');
+    expect(document.body.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(document.body.textContent).toContain('$100.00');
+
+    await act(async () => release());
+    await act(async () => {});
+    expect(document.body.textContent).toContain('$250.00');
+    cachedCopy = undefined;
+    loadGate = null;
+  });
 });
+

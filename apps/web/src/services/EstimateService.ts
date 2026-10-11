@@ -190,15 +190,36 @@ async function byId(load: Promise<Doc[]>): Promise<Map<string, Doc>> {
   return new Map((await load).map((row) => [row._id, row]));
 }
 
+// The estimates loaded so far (memory only), so an estimate opened from the
+// list shows at once while the latest copy loads behind it.
+const cache = new Map<string, Estimate>();
+
+/** Keeps an estimate; a copy without client/project details keeps the ones already known. */
+function remember(estimate: Estimate): Estimate {
+  if (!estimate?.id) return estimate;
+  const known = cache.get(estimate.id);
+  cache.set(estimate.id, {
+    ...estimate,
+    client: estimate.client ?? (estimate.client_id && estimate.client_id === known?.client_id ? known.client : undefined),
+    project: estimate.project ?? (estimate.project_id && estimate.project_id === known?.project_id ? known.project : undefined),
+  });
+  return estimate;
+}
+
 /** Estimates, stored in Convex (totals and tax are computed by the server). */
 export class EstimateService {
+  /** The last copy loaded of an estimate, if any. */
+  static cached(id: string): Estimate | undefined {
+    return cache.get(id);
+  }
+
   static async list(organizationId: string, filters?: { clientId?: string; status?: string }): Promise<Estimate[]> {
     const [estimates, clients, projects] = await Promise.all([
       estimatesAPI.list(organizationId, filters),
       byId(clientsAPI.list(organizationId)),
       byId(projectsAPI.list(organizationId)),
     ]);
-    return estimates.map((doc: Doc) => toLegacy(doc, clients, projects));
+    return estimates.map((doc: Doc) => remember(toLegacy(doc, clients, projects)));
   }
 
   static async getById(id: string): Promise<Estimate | null> {
@@ -208,10 +229,12 @@ export class EstimateService {
       doc.clientId ? clientsAPI.getById(doc.clientId).catch(() => null) : null,
       doc.projectId ? projectsAPI.getById(doc.projectId).catch(() => null) : null,
     ]);
-    return toLegacy(
-      doc,
-      new Map(client ? [[client._id, client]] : []),
-      new Map(project ? [[project._id, project]] : []),
+    return remember(
+      toLegacy(
+        doc,
+        new Map(client ? [[client._id, client]] : []),
+        new Map(project ? [[project._id, project]] : []),
+      ),
     );
   }
 
@@ -230,15 +253,16 @@ export class EstimateService {
       organization_id: estimate.organization_id,
     };
     if (!data.estimateNumber) data.estimateNumber = newNumber('EST');
-    return toLegacy(await estimatesAPI.create(data));
+    return remember(toLegacy(await estimatesAPI.create(data)));
   }
 
   static async update(id: string, updates: Partial<Estimate> & { items?: EstimateItem[] }): Promise<Estimate> {
-    return toLegacy(await estimatesAPI.update(id, toConvex(updates)));
+    return remember(toLegacy(await estimatesAPI.update(id, toConvex(updates))));
   }
 
   static async delete(id: string): Promise<void> {
     await estimatesAPI.delete(id);
+    cache.delete(id);
   }
 
   static async addSignature(id: string, signature: string): Promise<Estimate> {

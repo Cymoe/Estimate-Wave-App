@@ -26,6 +26,20 @@ const actionBase = 'h-9 flex items-center gap-2 px-4 border rounded-sm transitio
 const primaryAction = `${actionBase} bg-[#336699] border-[#336699] text-white hover:bg-[#2a5580]`;
 const secondaryAction = `${actionBase} bg-transparent border-[#333333] text-gray-200 hover:bg-[#22272d] hover:text-white`;
 
+/** Fills in the price-range defaults the pricing tools expect, on a copy. */
+function prepare(estimate: Estimate): Estimate {
+  if (!estimate.items) return estimate;
+  return {
+    ...estimate,
+    items: estimate.items.map((item) => ({
+      ...item,
+      original_unit_price: item.original_unit_price || item.unit_price,
+      cap_price: item.cap_price || item.unit_price,
+      red_line_price: item.red_line_price || item.unit_price * 0.7,
+    })),
+  };
+}
+
 /** Pop-ups centred on the whole screen and above the estimate drawer, not boxed inside it. */
 const OnTop: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   createPortal(<div className="relative z-[10010]">{children}</div>, document.body);
@@ -59,8 +73,12 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
     };
   }, [selectedOrg?.id]);
 
-  const [estimate, setEstimate] = useState<Estimate | null>(null);
-  const [loading, setLoading] = useState(true);
+  // An estimate already loaded (from the list) shows at once; the latest copy loads behind it.
+  const [estimate, setEstimate] = useState<Estimate | null>(() => {
+    const known = id ? EstimateService.cached(id) : undefined;
+    return known ? prepare(known) : null;
+  });
+  const [loading, setLoading] = useState(() => !(id && EstimateService.cached(id)));
   const [showShareModal, setShowShareModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showMapModal, setShowMapModal] = useState(false);
@@ -164,16 +182,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
     }
     try {
       const result = await EstimateService.getById(id);
-      // Store original prices for pricing strategy calculations
-      if (result && result.items) {
-        result.items = result.items.map(item => ({
-          ...item,
-          original_unit_price: item.original_unit_price || item.unit_price,
-          cap_price: item.cap_price || item.unit_price,
-          red_line_price: item.red_line_price || item.unit_price * 0.7
-        }));
-      }
-      setEstimate(result);
+      setEstimate(result ? prepare(result) : result);
     } catch (err) {
       console.error('Error fetching estimate:', err);
       if (!quiet) setError('Failed to load estimate');
@@ -185,7 +194,8 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   useEffect(() => {
     // As a page it opens at the top; in the drawer the list behind stays put.
     if (!inDrawer) window.scrollTo(0, 0);
-    loadEstimate();
+    // Shown from what's already loaded: refresh without the loading screen.
+    loadEstimate(Boolean(id && EstimateService.cached(id)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
