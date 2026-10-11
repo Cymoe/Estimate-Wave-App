@@ -7,13 +7,16 @@ interface AirtableSidebarProps {
   itemsTotal?: number; // Current total of the line items (before tax)
   capTotal?: number; // CAP pricing total
   redlineTotal?: number; // Redline pricing total
+  /** Fill the parent's height instead of the screen's. */
+  fill?: boolean;
 }
 
 export const AirtableSidebar: React.FC<AirtableSidebarProps> = ({
   onViewChange,
   itemsTotal = 0,
   capTotal = 0,
-  redlineTotal = 0
+  redlineTotal = 0,
+  fill = false
 }) => {
   const [hoveredView, setHoveredView] = useState<string | null>(null);
   
@@ -34,7 +37,7 @@ export const AirtableSidebar: React.FC<AirtableSidebarProps> = ({
     : views.find(view => Math.abs(view.position - currentPosition) < 0.005)?.id ?? null;
 
   return (
-    <div className="w-[220px] bg-[#0A0A0A] border-r border-[#333333] flex flex-col h-screen">
+    <div className={`w-[220px] bg-[#0A0A0A] border-r border-[#333333] flex flex-col ${fill ? 'h-full' : 'h-screen'}`}>
       {/* Views List */}
       <div className="flex-1 overflow-y-auto py-1">
         {views.map((view) => (

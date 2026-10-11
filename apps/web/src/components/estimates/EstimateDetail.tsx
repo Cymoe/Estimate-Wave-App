@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Edit, Send, Download, Share2, Trash2,
   CheckCircle, XCircle, FileText, User,
-  Phone, Mail, MapPin, Copy, Eye, Calendar
+  Phone, Mail, MapPin, Copy, Eye, Calendar, X
 } from 'lucide-react';
 import { EstimateService, Estimate, EstimateItem } from '../../services/EstimateService';
 import { priceAt } from '../../utils/priceRange';
@@ -23,9 +23,20 @@ const actionBase = 'h-9 flex items-center gap-2 px-4 border rounded-sm transitio
 const primaryAction = `${actionBase} bg-[#336699] border-[#336699] text-white hover:bg-[#2a5580]`;
 const secondaryAction = `${actionBase} bg-transparent border-[#333333] text-gray-200 hover:bg-[#22272d] hover:text-white`;
 
-export const EstimateDetail: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
+interface EstimateDetailProps {
+  /** The estimate to show; the route's :id when not given. */
+  estimateId?: string;
+  /** Closes the estimate (the drawer); without it, leaving goes to the list. */
+  onClose?: () => void;
+  /** Shown in the estimate drawer rather than as a page. */
+  inDrawer?: boolean;
+}
+
+export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onClose, inDrawer = false }) => {
+  const params = useParams<{ id: string }>();
+  const id = estimateId ?? params.id;
   const navigate = useNavigate();
+  const leave = () => (onClose ? onClose() : navigate('/estimates'));
   const { selectedOrg } = useContext(OrganizationContext);
   const [estimate, setEstimate] = useState<Estimate | null>(null);
   const [loading, setLoading] = useState(true);
@@ -163,7 +174,7 @@ export const EstimateDetail: React.FC = () => {
 
     try {
       await EstimateService.delete(estimate.id);
-      navigate('/estimates');
+      leave();
     } catch (error) {
       console.error('Error deleting estimate:', error);
     }
@@ -281,7 +292,7 @@ export const EstimateDetail: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#000000] text-white">
+      <div className={`${inDrawer ? 'h-full overflow-hidden' : 'min-h-screen'} bg-[#000000] text-white`}>
         {/* Header Skeleton */}
         <div className="border-b border-[#333333] px-6 py-4">
           {/* Row 1: Navigation + Document Info */}
@@ -457,7 +468,7 @@ export const EstimateDetail: React.FC = () => {
         <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
         <h3 className="text-lg font-medium text-white mb-2">Estimate not found</h3>
         <button
-          onClick={() => navigate('/estimates')}
+          onClick={leave}
           className="text-[#F9D71C] hover:text-white transition-colors"
         >
           Back to Estimates
@@ -466,18 +477,65 @@ export const EstimateDetail: React.FC = () => {
     );
   }
 
+  const totalBar = estimate.items && estimate.items.length > 0 ? (
+          <div className="flex items-center text-[12px] font-medium">
+      <div className="w-20 py-2 px-3 text-gray-500 border-r border-[#333333] text-center">
+        {estimate.items.length} items
+      </div>
+      <div className="flex-1 py-2 px-3 text-right text-gray-500 border-r border-[#333333]">
+        Sum
+      </div>
+      <div className="w-32 py-2 px-3 text-right text-gray-300 border-r border-[#333333]">
+        {formatCurrency(estimate.subtotal)}
+      </div>
+      <div className="w-28 py-2 px-3 text-center text-gray-300 border-r border-[#333333]">
+        {estimate.items.reduce((sum, item) => sum + (item.quantity || 0), 0)}
+      </div>
+      <div className="w-32 py-2 px-3 text-right border-r border-[#333333] flex flex-col items-end">
+        <span className="text-gray-300">{formatCurrency(estimate.total_amount)}</span>
+        {(() => {
+          const redlineTotal = estimate.items.reduce((sum, item) => {
+            const redlinePrice = item.red_line_price || (item.original_unit_price || item.unit_price) * 0.7;
+            return sum + (redlinePrice * (item.quantity || 1));
+          }, 0);
+          const capTotal = estimate.items.reduce((sum, item) => {
+            const capPrice = item.cap_price || item.original_unit_price || item.unit_price;
+            return sum + (capPrice * (item.quantity || 1));
+          }, 0);
+          
+          if (redlineTotal > 0) {
+            return (
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="text-[10px] text-gray-500">Comm:</span>
+                <span className={`text-[11px] font-medium ${
+                  estimate.total_amount <= redlineTotal ? 'text-red-400' : 
+                  estimate.total_amount - redlineTotal > (capTotal - redlineTotal) * 0.6 ? 'text-green-400' : 
+                  estimate.total_amount - redlineTotal > (capTotal - redlineTotal) * 0.3 ? 'text-yellow-400' : 'text-orange-400'
+                }`}>
+                  {formatCurrency(Math.max(0, estimate.total_amount - redlineTotal))}
+                </span>
+              </div>
+            );
+          }
+          return null;
+        })()}
+      </div>
+    </div>
+  ) : null;
+
   return (
-    <div className="min-h-screen bg-[#000000] flex flex-col">
+    <div className={`${inDrawer ? 'h-full' : 'min-h-screen'} bg-[#000000] flex flex-col`}>
       {/* Fixed Header */}
-      <div className="sticky top-0 z-10 bg-[#1a1a1a] border-b border-[#333333]">
+      <div className="sticky top-0 z-10 bg-[#1a1a1a] border-b border-[#333333] flex-shrink-0">
         {/* Row 1: Navigation + Document Info */}
         <div className="flex items-center justify-between mb-2 px-3 py-2">
           <div className="flex items-center gap-4">
             <button
-              onClick={() => navigate('/estimates')}
+              onClick={leave}
+              aria-label={inDrawer ? 'Close' : 'Back to estimates'}
               className="p-2 hover:bg-[#333333] rounded-[4px] transition-colors"
             >
-              <ArrowLeft className="w-4 h-4 text-gray-400" />
+              {inDrawer ? <X className="w-4 h-4 text-gray-400" /> : <ArrowLeft className="w-4 h-4 text-gray-400" />}
             </button>
             
             <div className="flex items-center gap-3">
@@ -572,7 +630,10 @@ export const EstimateDetail: React.FC = () => {
       </div>
 
       {/* Scrollable Content Area */}
-      <div className="flex-1 overflow-y-auto" style={{ paddingBottom: activeTab === 'items' ? '60px' : '0' }}>
+      <div
+        className={`flex-1 ${inDrawer ? 'min-h-0' : ''} ${inDrawer && activeTab === 'items' ? 'overflow-hidden' : 'overflow-y-auto'}`}
+        style={{ paddingBottom: activeTab === 'items' && !inDrawer ? '60px' : '0' }}
+      >
         {/* Overview Tab */}
         {activeTab === 'overview' && (
           <div className="p-6 space-y-6">
@@ -726,9 +787,10 @@ export const EstimateDetail: React.FC = () => {
 
         {/* Line Items Tab */}
         {activeTab === 'items' && (
-          <div className="w-full flex">
+          <div className={`w-full flex ${inDrawer ? 'h-full' : ''}`}>
             {/* Airtable Sidebar */}
             <AirtableSidebar
+              fill={inDrawer}
               onViewChange={(_viewId, position) => handleBulkPriceAdjust(position)}
               itemsTotal={estimate.items?.reduce((sum, item) => sum + (item.total_price || 0), 0) || 0}
               capTotal={estimate.items?.reduce((sum, item) => {
@@ -742,8 +804,10 @@ export const EstimateDetail: React.FC = () => {
             />
             
             {/* Airtable-style Spreadsheet */}
-            <div className="flex-1 min-w-0" ref={setTableColumn}>
+            <div className={`flex-1 min-w-0 ${inDrawer ? 'flex flex-col min-h-0' : ''}`} ref={inDrawer ? undefined : setTableColumn}>
+              <div className={inDrawer ? 'flex-1 min-h-0' : ''}>
               <AirtableEstimateView
+          fill={inDrawer}
           items={estimate.items?.map(item => ({
             id: item.id,
             name: item.description || 'Unnamed Item',
@@ -779,6 +843,11 @@ export const EstimateDetail: React.FC = () => {
           showStickyFooter={false}
           onEditPrice={setPricingItemId}
         />
+              </div>
+              {/* In the drawer the total bar sits at the bottom of the table column. */}
+              {inDrawer && totalBar && (
+                <div className="flex-shrink-0 bg-[#1D1F25] border-t border-[#333333]">{totalBar}</div>
+              )}
             </div>
           </div>
         )}
@@ -1065,7 +1134,7 @@ export const EstimateDetail: React.FC = () => {
 
       {/* Share Modal */}
       {showShareModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div role="dialog" className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowShareModal(false)} />
           <div className="relative bg-[#1E1E1E] rounded-lg border border-[#333333] p-6 max-w-md w-full">
             <h3 className="text-lg font-semibold text-white mb-4">Share Estimate</h3>
@@ -1162,7 +1231,7 @@ export const EstimateDetail: React.FC = () => {
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+        <div role="dialog" className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-[#0a0a0a] rounded-xl max-w-md w-full border border-white/10 shadow-2xl">
             <div className="p-6">
               <h3 className="text-lg font-semibold text-white mb-2">Delete Estimate</h3>
@@ -1237,51 +1306,9 @@ export const EstimateDetail: React.FC = () => {
 
 
       {/* Fixed Total Bar - Always visible at bottom of screen */}
-      {activeTab === 'items' && estimate.items && estimate.items.length > 0 && totalBarBox && (
+      {!inDrawer && activeTab === 'items' && totalBar && totalBarBox && (
         <div className="fixed bottom-0 bg-[#1D1F25] border-t border-[#333333] z-30" style={{ left: totalBarBox.left, width: totalBarBox.width }}>
-          <div className="flex items-center text-[12px] font-medium">
-            <div className="w-20 py-2 px-3 text-gray-500 border-r border-[#333333] text-center">
-              {estimate.items.length} items
-            </div>
-            <div className="flex-1 py-2 px-3 text-right text-gray-500 border-r border-[#333333]">
-              Sum
-            </div>
-            <div className="w-32 py-2 px-3 text-right text-gray-300 border-r border-[#333333]">
-              {formatCurrency(estimate.subtotal)}
-            </div>
-            <div className="w-28 py-2 px-3 text-center text-gray-300 border-r border-[#333333]">
-              {estimate.items.reduce((sum, item) => sum + (item.quantity || 0), 0)}
-            </div>
-            <div className="w-32 py-2 px-3 text-right border-r border-[#333333] flex flex-col items-end">
-              <span className="text-gray-300">{formatCurrency(estimate.total_amount)}</span>
-              {(() => {
-                const redlineTotal = estimate.items.reduce((sum, item) => {
-                  const redlinePrice = item.red_line_price || (item.original_unit_price || item.unit_price) * 0.7;
-                  return sum + (redlinePrice * (item.quantity || 1));
-                }, 0);
-                const capTotal = estimate.items.reduce((sum, item) => {
-                  const capPrice = item.cap_price || item.original_unit_price || item.unit_price;
-                  return sum + (capPrice * (item.quantity || 1));
-                }, 0);
-                
-                if (redlineTotal > 0) {
-                  return (
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-[10px] text-gray-500">Comm:</span>
-                      <span className={`text-[11px] font-medium ${
-                        estimate.total_amount <= redlineTotal ? 'text-red-400' : 
-                        estimate.total_amount - redlineTotal > (capTotal - redlineTotal) * 0.6 ? 'text-green-400' : 
-                        estimate.total_amount - redlineTotal > (capTotal - redlineTotal) * 0.3 ? 'text-yellow-400' : 'text-orange-400'
-                      }`}>
-                        {formatCurrency(Math.max(0, estimate.total_amount - redlineTotal))}
-                      </span>
-                    </div>
-                  );
-                }
-                return null;
-              })()}
-            </div>
-          </div>
+          {totalBar}
         </div>
       )}
     </div>

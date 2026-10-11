@@ -28,6 +28,8 @@ interface AirtableEstimateViewProps {
   showStickyFooter?: boolean;
   /** Opens a pricing editor for the item instead of editing the price inline. */
   onEditPrice?: (itemId: string) => void;
+  /** Fill the parent's height instead of the screen's. */
+  fill?: boolean;
 }
 
 interface EditingCell {
@@ -48,7 +50,8 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
   capTotal = 0,
   redlineTotal = 0,
   showStickyFooter = true,
-  onEditPrice
+  onEditPrice,
+  fill = false
 }) => {
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -122,7 +125,7 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
   };
 
   return (
-    <div className="w-full bg-[#0A0A0A] flex flex-col h-screen">
+    <div className={`w-full bg-[#0A0A0A] flex flex-col ${fill ? 'h-full' : 'h-screen'}`}>
       <div className="flex-1 overflow-y-auto pb-12">
         <table className="w-full" style={{ borderCollapse: 'collapse' }}>
           <thead className="sticky top-0 z-10">

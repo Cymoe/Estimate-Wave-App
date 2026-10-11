@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useMatch, useNavigate, useSearchParams } from 'react-router-dom';
 import { EstimatesList } from '../components/estimates/EstimatesList';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
+import { EstimateDrawer } from '../components/estimates/EstimateDrawer';
 import { EstimateService } from '../services/EstimateService';
 import { useAuth } from '../contexts/AuthContext';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
@@ -9,6 +10,7 @@ import { OrganizationContext } from '../components/layouts/DashboardLayout';
 /**
  * The estimates list. New estimates start from the yellow + button
  * ("Estimate"), which opens /work?new=1 and with it the drawer below.
+ * /estimates/:id opens that estimate in a drawer over the list.
  */
 export const Work: React.FC = () => {
   const navigate = useNavigate();
@@ -16,6 +18,16 @@ export const Work: React.FC = () => {
   const { selectedOrg } = useContext(OrganizationContext);
   const [showCreateEstimate, setShowCreateEstimate] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
+  const openEstimateId = useMatch('/estimates/:id')?.params.id;
+  const location = useLocation();
+  const [refreshList, setRefreshList] = useState(0);
+
+  // Back where the estimate was opened from (a project, a client…), or to the list.
+  const closeEstimate = () => {
+    setRefreshList((n) => n + 1);
+    if (location.key !== 'default') navigate(-1);
+    else navigate('/work', { replace: true });
+  };
 
   useEffect(() => {
     if (searchParams.get('new') !== '1') return;
@@ -25,7 +37,9 @@ export const Work: React.FC = () => {
 
   return (
     <div className="max-w-[1600px] mx-auto">
-      <EstimatesList />
+      <EstimatesList refreshTrigger={refreshList} />
+
+      {openEstimateId && <EstimateDrawer estimateId={openEstimateId} onClose={closeEstimate} />}
 
       {/* Modals */}
       <CreateEstimateDrawer

@@ -245,7 +245,7 @@ export const ContextualPricingSelector: React.FC<ContextualPricingSelectorProps>
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+    <div role="dialog" className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
       <div className="bg-[#1D1F25] w-full max-w-6xl h-[80vh] rounded-lg shadow-2xl flex flex-col">
         {/* Header */}
         <div className="px-6 py-4 border-b border-[#333333] flex items-center justify-between">

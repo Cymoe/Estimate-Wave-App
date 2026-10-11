@@ -7,7 +7,6 @@ import Dashboard from './pages/dashboard/Dashboard';
 import { TestAuth } from './components/auth/TestAuth';
 import { PriceBook as PriceBookPage } from './pages/PriceBook';
 // Invoices removed - contractors use QuickBooks for invoicing
-import { EstimateDetail } from './components/estimates/EstimateDetail';
 import { EditEstimatePage } from './pages/EditEstimatePage';
 import { ShareableEstimate } from './components/estimates/ShareableEstimate';
 import { EstimateContractView } from './components/contracts/EstimateContractView';
@@ -233,9 +232,9 @@ function AppRoutes() {
         }
       />
       
-      {/* Work - Estimates only */}
+      {/* The estimates list; /estimates/:id opens one estimate in a drawer over it.
+          One layout route, so opening and closing an estimate keeps the list in place. */}
       <Route
-        path="/work"
         element={
           <ProtectedRoute>
             <DashboardLayout fullWidth={true}>
@@ -243,7 +242,10 @@ function AppRoutes() {
             </DashboardLayout>
           </ProtectedRoute>
         }
-      />
+      >
+        <Route path="/work" element={null} />
+        <Route path="/estimates/:id" element={null} />
+      </Route>
       
       {/* Sales Mode was removed; old links go to estimates. */}
       <Route path="/sales-mode" element={<Navigate to="/work" replace />} />
@@ -300,16 +302,6 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Navigate to="/work/estimates" replace />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/estimates/:id"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout fullWidth={true}>
-              <EstimateDetail />
-            </DashboardLayout>
           </ProtectedRoute>
         }
       />

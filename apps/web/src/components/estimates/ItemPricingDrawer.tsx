@@ -61,6 +61,19 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
     };
   }, [item]);
 
+  // Esc closes it (before the estimate drawer underneath).
+  useEffect(() => {
+    if (!item) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [item, onClose]);
+
   if (!shownItem) return null;
 
   const open = visible && item !== null;
@@ -81,7 +94,7 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
   return createPortal(
     <>
       <div
-        className={`fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity z-[10000] ${
+        className={`fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity z-[10002] ${
           open ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
         onClick={onClose}
@@ -90,7 +103,7 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
         role="dialog"
         aria-label={`Price ${shownItem.description}`}
         aria-hidden={!open}
-        className={`fixed right-0 top-0 h-[100dvh] w-full max-w-md bg-[#121212] border-l border-[#333333] shadow-xl transform transition-transform z-[10001] flex flex-col ${
+        className={`fixed right-0 top-0 h-[100dvh] w-full max-w-md bg-[#121212] border-l border-[#333333] shadow-xl transform transition-transform z-[10003] flex flex-col ${
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
