@@ -1,41 +1,95 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { 
-  CheckCircle, XCircle, Download, Calendar, 
-  DollarSign, User, Mail, Phone, MapPin, FileText 
-} from 'lucide-react';
-import { EstimateService, Estimate } from '../../services/EstimateService';
+import { CheckCircle, XCircle, Mail, Phone, MapPin, FileText } from 'lucide-react';
+import { publicEstimatesAPI } from '../../lib/api';
 import { formatCurrency } from '../../utils/format';
 
+/** What the client sees, from the estimate's link (no login). */
+interface ClientEstimate {
+  estimate_number: string;
+  title?: string;
+  description?: string;
+  status: string;
+  issue_date: string;
+  expiry_date?: string;
+  subtotal: number;
+  tax_rate?: number;
+  tax_amount?: number;
+  total_amount: number;
+  notes?: string;
+  terms?: string;
+  client_signature?: string;
+  signed_at?: string;
+  client?: { name: string };
+  business?: { name?: string; email?: string; phone?: string; address?: string };
+  design?: { url: string; name: string; contentType?: string };
+  items: Array<{ id: string; description: string; quantity: number; unit_price: number; total_price: number }>;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function fromView(view: any): ClientEstimate {
+  return {
+    estimate_number: view.estimateNumber,
+    title: view.title,
+    description: view.description,
+    status: view.status,
+    issue_date: view.issueDate,
+    expiry_date: view.expiryDate,
+    subtotal: view.subtotal,
+    tax_rate: view.taxRate,
+    tax_amount: view.taxAmount,
+    total_amount: view.totalAmount,
+    notes: view.notes,
+    terms: view.terms,
+    client_signature: view.clientSignature,
+    signed_at: view.signedAt,
+    client: view.client,
+    business: view.business,
+    design: view.design,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    items: (view.items ?? []).map((item: any, i: number) => ({
+      id: String(i),
+      description: item.description,
+      quantity: item.quantity,
+      unit_price: item.unitPrice,
+      total_price: item.totalPrice,
+    })),
+  };
+}
+
+const OPEN_STATUSES = ['draft', 'sent', 'opened'];
+
 export const ShareableEstimate: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
-  const [estimate, setEstimate] = useState<Estimate | null>(null);
+  const { token } = useParams<{ token: string }>();
+  const [estimate, setEstimate] = useState<ClientEstimate | null>(null);
   const [loading, setLoading] = useState(true);
   const [signing, setSigning] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
   const [signature, setSignature] = useState<string>('');
+  const [actionError, setActionError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [lastPoint, setLastPoint] = useState<{ x: number; y: number } | null>(null);
 
-  useEffect(() => {
-    if (id) {
-      loadEstimate();
-    }
-  }, [id]);
-
   const loadEstimate = async () => {
-    if (!id) return;
-
+    if (!token) return;
     try {
-      setLoading(true);
-      const data = await EstimateService.getById(id);
-      setEstimate(data);
+      const view = await publicEstimatesAPI.get(token);
+      setEstimate(view ? fromView(view) : null);
     } catch (error) {
       console.error('Error loading estimate:', error);
+      setEstimate(null);
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!token) return;
+    loadEstimate();
+    // Lets the contractor see the estimate was opened.
+    publicEstimatesAPI.markOpened(token).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     e.preventDefault();
@@ -102,32 +156,30 @@ export const ShareableEstimate: React.FC = () => {
   };
 
   const handleAccept = async () => {
-    if (!estimate?.id || !signature) return;
-    
+    if (!token || !signature) return;
     setSigning(true);
+    setActionError(null);
     try {
-      await EstimateService.addSignature(estimate.id, signature);
+      await publicEstimatesAPI.accept(token, signature);
       await loadEstimate();
-      alert('Estimate accepted successfully!');
     } catch (error) {
       console.error('Error accepting estimate:', error);
-      alert('Failed to accept estimate');
+      setActionError(error instanceof Error ? error.message : "The estimate couldn't be accepted. Please try again.");
     } finally {
       setSigning(false);
     }
   };
 
   const handleReject = async () => {
-    if (!estimate?.id) return;
-    
-    if (!confirm('Are you sure you want to reject this estimate?')) return;
-    
+    if (!token) return;
+    if (!confirm('Decline this estimate?')) return;
+    setActionError(null);
     try {
-      await EstimateService.updateStatus(estimate.id, 'rejected');
+      await publicEstimatesAPI.decline(token);
       await loadEstimate();
-      alert('Estimate rejected');
     } catch (error) {
-      console.error('Error rejecting estimate:', error);
+      console.error('Error declining estimate:', error);
+      setActionError(error instanceof Error ? error.message : "The estimate couldn't be declined. Please try again.");
     }
   };
 
@@ -152,7 +204,9 @@ export const ShareableEstimate: React.FC = () => {
   }
 
   const isExpired = estimate.expiry_date && new Date(estimate.expiry_date) < new Date();
-  const canSign = estimate.status === 'sent' && !isExpired;
+  const canSign = OPEN_STATUSES.includes(estimate.status) && !isExpired;
+  const statusLabel =
+    estimate.status === 'rejected' ? 'Declined' : OPEN_STATUSES.includes(estimate.status) ? 'Awaiting your approval' : estimate.status.charAt(0).toUpperCase() + estimate.status.slice(1);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -177,7 +231,7 @@ export const ShareableEstimate: React.FC = () => {
                   ? 'bg-orange-100 text-orange-800'
                   : 'bg-blue-100 text-blue-800'
               }`}>
-                {estimate.status.charAt(0).toUpperCase() + estimate.status.slice(1)}
+                {statusLabel}
               </div>
               {isExpired && (
                 <p className="text-sm text-red-600 mt-1">Expired</p>
@@ -185,38 +239,36 @@ export const ShareableEstimate: React.FC = () => {
             </div>
           </div>
 
-          {/* Client and Company Info */}
+          {/* From (the business) and For (the client) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">Bill To:</h3>
-              {estimate.client ? (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <User className="w-4 h-4 text-gray-400" />
-                    <span className="text-gray-900">{estimate.client.name}</span>
+              <h3 className="text-lg font-semibold text-gray-900 mb-3">From:</h3>
+              <div className="space-y-2">
+                <div className="text-gray-900 font-medium">{estimate.business?.name || 'Your contractor'}</div>
+                {estimate.business?.email && (
+                  <a href={`mailto:${estimate.business.email}`} className="flex items-center gap-2 text-gray-600">
+                    <Mail className="w-4 h-4 text-gray-400" />
+                    <span>{estimate.business.email}</span>
+                  </a>
+                )}
+                {estimate.business?.phone && (
+                  <a href={`tel:${estimate.business.phone}`} className="flex items-center gap-2 text-gray-600">
+                    <Phone className="w-4 h-4 text-gray-400" />
+                    <span>{estimate.business.phone}</span>
+                  </a>
+                )}
+                {estimate.business?.address && (
+                  <div className="flex items-start gap-2 text-gray-600">
+                    <MapPin className="w-4 h-4 text-gray-400 mt-0.5" />
+                    <span>{estimate.business.address}</span>
                   </div>
-                  {estimate.client.email && (
-                    <div className="flex items-center gap-2">
-                      <Mail className="w-4 h-4 text-gray-400" />
-                      <span className="text-gray-600">{estimate.client.email}</span>
-                    </div>
-                  )}
-                  {estimate.client.phone && (
-                    <div className="flex items-center gap-2">
-                      <Phone className="w-4 h-4 text-gray-400" />
-                      <span className="text-gray-600">{estimate.client.phone}</span>
-                    </div>
-                  )}
-                  {estimate.client.address && (
-                    <div className="flex items-start gap-2">
-                      <MapPin className="w-4 h-4 text-gray-400 mt-0.5" />
-                      <span className="text-gray-600">{estimate.client.address}</span>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <p className="text-gray-500">No client information</p>
-              )}
+                )}
+                {estimate.client && (
+                  <p className="pt-2 text-gray-600">
+                    Prepared for <span className="text-gray-900 font-medium">{estimate.client.name}</span>
+                  </p>
+                )}
+              </div>
             </div>
 
             <div>
@@ -246,60 +298,6 @@ export const ShareableEstimate: React.FC = () => {
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-3">Project Description</h3>
             <p className="text-gray-700 whitespace-pre-wrap">{estimate.description}</p>
-          </div>
-        )}
-
-        {/* Category Summary */}
-        {estimate.items && estimate.items.length > 0 && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden mb-6">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">Cost Breakdown by Category</h3>
-            </div>
-            
-            <div className="p-6">
-              {(() => {
-                // Group items by cost code
-                const categoryTotals = estimate.items.reduce((acc, item) => {
-                  const category = item.cost_code_name || 'Uncategorized';
-                  if (!acc[category]) {
-                    acc[category] = 0;
-                  }
-                  acc[category] += item.total_price;
-                  return acc;
-                }, {} as Record<string, number>);
-
-                // Sort categories by total amount (highest first)
-                const sortedCategories = Object.entries(categoryTotals)
-                  .sort(([, a], [, b]) => b - a);
-
-                return (
-                  <div className="space-y-3">
-                    {sortedCategories.map(([category, total]) => (
-                      <div key={category} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
-                        <span className="text-sm font-medium text-gray-700">{category}</span>
-                        <span className="text-sm font-semibold text-gray-900">{formatCurrency(total)}</span>
-                      </div>
-                    ))}
-                    <div className="flex justify-between items-center pt-3 mt-3 border-t-2 border-gray-200">
-                      <span className="text-base font-bold text-gray-900">Subtotal</span>
-                      <span className="text-base font-bold text-gray-900">{formatCurrency(estimate.subtotal)}</span>
-                    </div>
-                    {estimate.tax_amount && estimate.tax_amount > 0 && (
-                      <>
-                        <div className="flex justify-between items-center py-2">
-                          <span className="text-sm text-gray-600">Tax ({estimate.tax_rate}%)</span>
-                          <span className="text-sm text-gray-600">{formatCurrency(estimate.tax_amount)}</span>
-                        </div>
-                        <div className="flex justify-between items-center pt-2 border-t border-gray-200">
-                          <span className="text-base font-bold text-gray-900">Total</span>
-                          <span className="text-base font-bold text-blue-600">{formatCurrency(estimate.total_amount)}</span>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                );
-              })()}
-            </div>
           </div>
         )}
 
@@ -354,7 +352,7 @@ export const ShareableEstimate: React.FC = () => {
                     {formatCurrency(estimate.subtotal)}
                   </td>
                 </tr>
-                {estimate.tax_rate && estimate.tax_rate > 0 && (
+                {(estimate.tax_rate ?? 0) > 0 && (
                   <tr>
                     <td colSpan={3} className="px-6 py-3 text-right text-sm font-medium text-gray-900">
                       Tax ({estimate.tax_rate}%):
@@ -376,6 +374,21 @@ export const ShareableEstimate: React.FC = () => {
             </table>
           </div>
         </div>
+
+        {/* Agreed design */}
+        {estimate.design && (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-3">Design</h3>
+            {estimate.design.contentType === 'application/pdf' || estimate.design.name.toLowerCase().endsWith('.pdf') ? (
+              <a href={estimate.design.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-blue-600 underline">
+                <FileText className="w-5 h-5" />
+                {estimate.design.name}
+              </a>
+            ) : (
+              <img src={estimate.design.url} alt={estimate.design.name} className="w-full max-h-[480px] object-contain" />
+            )}
+          </div>
+        )}
 
         {/* Terms and Notes */}
         {(estimate.notes || estimate.terms) && (
@@ -416,7 +429,7 @@ export const ShareableEstimate: React.FC = () => {
           </div>
         ) : canSign ? (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Accept or Reject Estimate</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Accept or Decline</h3>
             
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -449,6 +462,7 @@ export const ShareableEstimate: React.FC = () => {
               </div>
             </div>
 
+            {actionError && <p className="text-sm text-red-600 mb-3">{actionError}</p>}
             <div className="flex gap-4">
               <button
                 onClick={handleAccept}
@@ -464,7 +478,7 @@ export const ShareableEstimate: React.FC = () => {
                 className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
               >
                 <XCircle className="w-5 h-5" />
-                Reject Estimate
+                Decline
               </button>
             </div>
           </div>
@@ -472,7 +486,7 @@ export const ShareableEstimate: React.FC = () => {
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 text-center">
             <p className="text-gray-600">
               {estimate.status === 'rejected' 
-                ? 'This estimate has been rejected.'
+                ? 'You declined this estimate. Contact the contractor if you have questions.'
                 : isExpired
                 ? 'This estimate has expired.'
                 : 'This estimate is no longer available for acceptance.'

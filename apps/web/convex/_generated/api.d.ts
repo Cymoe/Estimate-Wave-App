@@ -25,6 +25,7 @@ import type * as industries from "../industries.js";
 import type * as leadCity from "../leadCity.js";
 import type * as leads from "../leads.js";
 import type * as lib_access from "../lib/access.js";
+import type * as lib_contract from "../lib/contract.js";
 import type * as lib_documents from "../lib/documents.js";
 import type * as lib_leadCity from "../lib/leadCity.js";
 import type * as lib_organizations from "../lib/organizations.js";
@@ -33,6 +34,7 @@ import type * as lineItems from "../lineItems.js";
 import type * as organizations from "../organizations.js";
 import type * as pricingModes from "../pricingModes.js";
 import type * as projects from "../projects.js";
+import type * as publicEstimates from "../publicEstimates.js";
 import type * as seed from "../seed.js";
 import type * as users from "../users.js";
 
@@ -57,6 +59,7 @@ declare const fullApi: ApiFromModules<{
   leadCity: typeof leadCity;
   leads: typeof leads;
   "lib/access": typeof lib_access;
+  "lib/contract": typeof lib_contract;
   "lib/documents": typeof lib_documents;
   "lib/leadCity": typeof lib_leadCity;
   "lib/organizations": typeof lib_organizations;
@@ -65,6 +68,7 @@ declare const fullApi: ApiFromModules<{
   organizations: typeof organizations;
   pricingModes: typeof pricingModes;
   projects: typeof projects;
+  publicEstimates: typeof publicEstimates;
   seed: typeof seed;
   users: typeof users;
 }>;

@@ -25,6 +25,20 @@ const actionBase = 'h-9 flex items-center gap-2 px-4 border rounded-sm transitio
 const primaryAction = `${actionBase} bg-[#336699] border-[#336699] text-white hover:bg-[#2a5580]`;
 const secondaryAction = `${actionBase} bg-transparent border-[#333333] text-gray-200 hover:bg-[#22272d] hover:text-white`;
 
+/** Copies text, falling back to a hidden textarea where the clipboard API isn't allowed. */
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    document.body.appendChild(textArea);
+    textArea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textArea);
+  }
+}
+
 /** Pop-ups centred on the whole screen and above the estimate drawer, not boxed inside it. */
 const OnTop: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   createPortal(<div className="relative z-[10010]">{children}</div>, document.body);
@@ -79,6 +93,19 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   const [activeTab, setActiveTab] = useState<'items' | 'overview' | 'contract'>('items');
   // The contract tab's inline document preview that's open.
   const [expandedDoc, setExpandedDoc] = useState<'affidavit' | 'change-order' | null>(null);
+
+  // The client link, loaded when it's first needed (Share or Send).
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+
+  const openShareModal = async () => {
+    setShowShareModal(true);
+    if (shareUrl || !estimate?.id) return;
+    try {
+      setShareUrl(await EstimateService.shareUrl(estimate.id));
+    } catch (error) {
+      console.error('Error creating share link:', error);
+    }
+  };
 
   // Choosing the estimate's client from the Overview.
   const [choosingClient, setChoosingClient] = useState(false);
@@ -177,32 +204,48 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
 
   const handleStatusUpdate = async (status: Estimate['status']) => {
     if (!estimate?.id) return;
-
     try {
-      // If changing to 'sent', actually send the email
-      if (status === 'sent' && estimate.client?.email) {
-        const confirmed = confirm(`Send this estimate to ${estimate.client.email}?`);
-        if (!confirmed) return;
-
-        const result = await EstimateService.sendEstimate(estimate.id, estimate.client.email);
-        
-        if (!result.success) {
-          alert(`Failed to send estimate: ${result.error}`);
-          return;
-        }
-        
-        alert('Estimate sent successfully!');
-      } else {
-        // Just update status without sending email
-        await EstimateService.updateStatus(estimate.id, status);
-      }
-      
-      // Reload estimate data
-      const result = await EstimateService.getById(estimate.id);
-      setEstimate(result);
+      await EstimateService.updateStatus(estimate.id, status);
+      await loadEstimate(true);
     } catch (error) {
       console.error('Error updating status:', error);
       alert('Failed to update estimate status');
+    }
+  };
+
+  /**
+   * Sends the client the estimate's link: the iPad share sheet (Messages,
+   * Mail, AirDrop…) where there is one, otherwise the link is copied.
+   * A draft becomes Sent.
+   */
+  const handleSend = async () => {
+    if (!estimate?.id) return;
+    try {
+      const url = await EstimateService.shareUrl(estimate.id);
+      setShareUrl(url);
+      let shared = false;
+      if (typeof navigator.share === 'function') {
+        try {
+          const name = estimate.client?.name?.split(' ')[0];
+          await navigator.share({
+            title: `Estimate ${estimate.estimate_number ?? ''}`.trim(),
+            text: `${name ? `Hi ${name}, here` : 'Here'}'s your estimate. You can review and accept it here:`,
+            url,
+          });
+          shared = true;
+        } catch (err) {
+          if ((err as Error)?.name === 'AbortError') return; // closed the share sheet
+        }
+      }
+      if (!shared) {
+        await copyText(url);
+        alert('Link copied. Paste it into a text or email to your client.');
+      }
+      if (estimate.status === 'draft') await EstimateService.updateStatus(estimate.id, 'sent');
+      await loadEstimate(true);
+    } catch (error) {
+      console.error('Error sending estimate:', error);
+      alert("The estimate link couldn't be created. Please try again.");
     }
   };
 
@@ -267,24 +310,9 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   };
 
   const handleCopyShareLink = async () => {
-    if (!estimate?.id) return;
-    
-    const shareUrl = `${window.location.origin}/share/estimate/${estimate.id}`;
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      // You could add a toast notification here
-      alert('Share link copied to clipboard!');
-    } catch (err) {
-      console.error('Failed to copy link:', err);
-      // Fallback for older browsers
-      const textArea = document.createElement('textarea');
-      textArea.value = shareUrl;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      alert('Share link copied to clipboard!');
-    }
+    if (!shareUrl) return;
+    await copyText(shareUrl);
+    alert('Link copied. Paste it into a text or email to your client.');
   };
 
   const handleEditSave = async (data: any) => {
@@ -645,7 +673,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
           {/* Actions: quiet secondary buttons, then the one primary action on the right */}
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setShowShareModal(true)}
+              onClick={openShareModal}
               className={secondaryAction}
             >
               <Share2 className="w-4 h-4" />
@@ -656,7 +684,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
             {/* Resend - for already sent estimates */}
             {estimate.status === 'sent' && estimate.client?.email && (
               <button
-                onClick={() => handleStatusUpdate('sent')}
+                onClick={handleSend}
                 className={secondaryAction}
               >
                 <Send className="w-4 h-4" />
@@ -667,7 +695,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
             {/* Send - for draft status */}
             {estimate.status === 'draft' && (
               <button
-                onClick={() => handleStatusUpdate('sent')}
+                onClick={handleSend}
                 className={primaryAction}
               >
                 <Send className="w-4 h-4" />
@@ -1186,13 +1214,13 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
           <div className="relative bg-[#1E1E1E] rounded-lg border border-[#333333] p-6 max-w-md w-full">
             <h3 className="text-lg font-semibold text-white mb-4">Share Estimate</h3>
             <p className="text-gray-400 mb-4">
-              Generate a shareable link for this estimate. Clients can view and accept/reject the estimate without needing to log in.
+              Anyone with this link can view the estimate and accept or decline it, without logging in.
             </p>
             
             <div className="bg-[#121212] border border-[#333333] rounded-lg p-3 mb-4">
               <div className="text-xs text-gray-400 mb-1">Shareable Link</div>
               <div className="text-sm text-white break-all">
-                {`${window.location.origin}/share/estimate/${estimate.id}`}
+                {shareUrl ?? 'Creating link…'}
               </div>
             </div>
 
@@ -1204,6 +1232,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                 Cancel
               </button>
               <button
+                disabled={!shareUrl}
                 onClick={() => {
                   handleCopyShareLink();
                   setShowShareModal(false);
@@ -1214,8 +1243,9 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                 Copy Link
               </button>
               <button
+                disabled={!shareUrl}
                 onClick={() => {
-                  window.open(`/share/estimate/${estimate.id}`, '_blank');
+                  if (shareUrl) window.open(shareUrl, '_blank');
                   setShowShareModal(false);
                 }}
                 className="px-4 py-2 bg-[#F9D71C] hover:bg-[#F9D71C]/90 text-black rounded-lg transition-colors flex items-center gap-2"
@@ -1234,7 +1264,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
         <div className="flex items-center justify-around gap-2">
           {estimate.status === 'draft' && (
             <button 
-              onClick={() => handleStatusUpdate('sent')}
+              onClick={handleSend}
               className="flex-1 bg-[#336699] text-white px-3 py-3 rounded-lg text-sm font-medium"
             >
               Send
@@ -1249,7 +1279,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
           </button>
           
           <button 
-            onClick={() => setShowShareModal(true)}
+            onClick={openShareModal}
             className="flex-1 bg-[#2a2a2a] text-white px-3 py-3 rounded-lg text-sm font-medium"
           >
             Share

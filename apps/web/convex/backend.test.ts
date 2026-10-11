@@ -756,3 +756,65 @@ describe("expenses", () => {
     expect(left.map((e) => e.description)).toEqual(["Truck fuel"]);
   });
 });
+
+describe("client link", () => {
+  async function sharedEstimate() {
+    const t = setup();
+    const { as, organizationId } = await signUp(t, "a@example.com");
+    const client = await as.mutation(api.clients.create, { organizationId, data: { name: "Dan Shah" } });
+    const estimate = await as.mutation(api.estimates.create, {
+      organizationId,
+      data: {
+        clientId: client!._id,
+        items: [{ description: "Vanity", quantity: 1, unitPrice: 900, redLinePrice: 600, capPrice: 900 }],
+      },
+    });
+    const token = await as.mutation(api.estimates.shareLink, { id: estimate!._id });
+    return { t, as, id: estimate!._id, token };
+  }
+
+  test("each estimate gets one secret link, and the token can't be set directly", async () => {
+    const { as, id, token } = await sharedEstimate();
+    expect(token).toMatch(/^[0-9a-f]{32}$/);
+    expect(await as.mutation(api.estimates.shareLink, { id })).toBe(token);
+    const updated = await as.mutation(api.estimates.update, { id, data: { shareToken: "guess" } });
+    expect(updated!.shareToken).toBe(token);
+  });
+
+  test("anyone with the link sees a client-safe view without logging in", async () => {
+    const { t, token } = await sharedEstimate();
+    expect(await t.query(api.publicEstimates.get, { token: "nope" })).toBeNull();
+    const view = await t.query(api.publicEstimates.get, { token });
+    expect(view).toMatchObject({ totalAmount: 900, client: { name: "Dan Shah" }, business: { name: "a@example.com Co" } });
+    expect(view!.items).toEqual([{ description: "Vanity", quantity: 1, unitPrice: 900, totalPrice: 900 }]);
+    expect(JSON.stringify(view)).not.toMatch(/redLine|capPrice|organizationId|shareToken|contract/);
+  });
+
+  test("opening a sent estimate marks it opened, once", async () => {
+    const { t, as, id, token } = await sharedEstimate();
+    await as.mutation(api.estimates.update, { id, data: { status: "sent" } });
+    await t.mutation(api.publicEstimates.markOpened, { token });
+    const opened = await as.query(api.estimates.get, { id });
+    expect(opened).toMatchObject({ status: "opened" });
+    expect(opened!.firstOpenedAt).toEqual(expect.any(String));
+  });
+
+  test("the client accepts with a signature, which locks the contract; it can't be answered twice", async () => {
+    const { t, as, id, token } = await sharedEstimate();
+    await expect(t.mutation(api.publicEstimates.accept, { token, signature: " " })).rejects.toThrow(/sign/);
+    await t.mutation(api.publicEstimates.accept, { token, signature: "data:image/png;base64,abc" });
+    const accepted = await as.query(api.estimates.get, { id });
+    expect(accepted).toMatchObject({ status: "accepted", clientSignature: "data:image/png;base64,abc" });
+    expect(accepted!.contractSnapshot!.totalAmount).toBe(900);
+    await expect(t.mutation(api.publicEstimates.decline, { token })).rejects.toThrow(/no longer/);
+    await expect(t.mutation(api.publicEstimates.accept, { token, signature: "x" })).rejects.toThrow(/no longer/);
+  });
+
+  test("the client can decline", async () => {
+    const { t, as, id, token } = await sharedEstimate();
+    await t.mutation(api.publicEstimates.decline, { token });
+    expect(await as.query(api.estimates.get, { id })).toMatchObject({ status: "rejected" });
+    await expect(t.mutation(api.publicEstimates.decline, { token: "nope" })).rejects.toThrow(/isn't valid/);
+  });
+});
+

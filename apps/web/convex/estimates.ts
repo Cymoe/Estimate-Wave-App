@@ -3,13 +3,23 @@ import { mutation, query } from "./_generated/server";
 import { fail, getOwned, logActivity, nowIso, pick, requireMember } from "./lib/access";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
+import { lockContract } from "./lib/contract";
 import { assertLinksInOrg, documentNumber, normalizeItems, withTotals } from "./lib/documents";
 import { estimateFields, estimateStatus } from "./schema";
 
 // Fields the UI may set directly; signature fields only change via `sign`,
 // and the contract is locked by the server when the estimate is accepted.
 // The design changes only through setDesign/removeDesign.
-const serverOnly = new Set(["clientSignature", "signedAt", "contractLockedAt", "contractSnapshot", "design"]);
+// The share link and when it was first opened are set by the server too.
+const serverOnly = new Set([
+  "clientSignature",
+  "signedAt",
+  "contractLockedAt",
+  "contractSnapshot",
+  "design",
+  "shareToken",
+  "firstOpenedAt",
+]);
 
 const MAX_DESIGN_BYTES = 10 * 1024 * 1024;
 
@@ -28,26 +38,6 @@ async function deleteDesignFile(ctx: MutationCtx, estimate: Doc<"estimates">, st
   if ((await ctx.db.system.get(storageId)) !== null) await ctx.storage.delete(storageId);
 }
 const writableFields = Object.fromEntries(Object.entries(estimateFields).filter(([key]) => !serverOnly.has(key)));
-
-/** Freezes the contract as it stands, for an estimate being accepted. */
-async function lockContract(ctx: MutationCtx, estimate: Doc<"estimates">, now: string) {
-  const client = estimate.clientId ? await ctx.db.get(estimate.clientId) : null;
-  const address = client ? [client.address, client.city, client.state, client.zip].filter(Boolean).join(", ") : "";
-  return {
-    contractLockedAt: now,
-    contractSnapshot: {
-      client: client
-        ? { name: client.name, email: client.email, phone: client.phone, address: address || undefined }
-        : undefined,
-      items: estimate.items,
-      subtotal: estimate.subtotal,
-      taxAmount: estimate.taxAmount,
-      totalAmount: estimate.totalAmount,
-      terms: estimate.contractTerms,
-      design: estimate.design,
-    },
-  };
-}
 
 export const list = query({
   args: {
@@ -211,5 +201,17 @@ export const removeDesign = mutation({
     if (doc.design) await deleteDesignFile(ctx, doc, doc.design.storageId);
     await ctx.db.patch(id, { design: undefined, updatedAt: nowIso() });
     return await ctx.db.get(id);
+  },
+});
+
+/** The secret for the estimate's client link, created the first time it's asked for. */
+export const shareLink = mutation({
+  args: { id: v.id("estimates") },
+  handler: async (ctx, { id }) => {
+    const { doc } = await getOwned(ctx, "estimates", id);
+    if (doc.shareToken) return doc.shareToken;
+    const shareToken = crypto.randomUUID().replace(/-/g, "");
+    await ctx.db.patch(id, { shareToken, updatedAt: nowIso() });
+    return shareToken;
   },
 });

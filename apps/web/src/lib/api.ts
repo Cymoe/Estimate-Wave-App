@@ -173,6 +173,30 @@ export const estimatesAPI = {
   async removeDesign(id: string) {
     return run('mutation', api.estimates.removeDesign, { id });
   },
+
+  /** The secret token in the estimate's client link. */
+  async shareLink(id: string): Promise<string> {
+    return run('mutation', api.estimates.shareLink, { id });
+  },
+};
+
+/** The client's side of an estimate, through its link. No login needed. */
+export const publicEstimatesAPI = {
+  async get(token: string) {
+    return run('query', api.publicEstimates.get, { token });
+  },
+
+  async markOpened(token: string) {
+    return run('mutation', api.publicEstimates.markOpened, { token });
+  },
+
+  async accept(token: string, signature: string) {
+    return run('mutation', api.publicEstimates.accept, { token, signature });
+  },
+
+  async decline(token: string) {
+    return run('mutation', api.publicEstimates.decline, { token });
+  },
 };
 
 // Projects API

@@ -314,15 +314,9 @@ export class EstimateService {
    * Emailing estimates went through a Supabase function that no longer
    * exists, so this reports that instead of pretending to send.
    */
-  static async sendEstimate(
-    estimateId: string,
-    recipientEmail: string,
-    options?: { message?: string; ccEmails?: string[] },
-  ): Promise<{ success: boolean; error?: string }> {
-    console.warn('Email sending is not available', { estimateId, recipientEmail, cc: options?.ccEmails });
-    return {
-      success: false,
-      error: "Emailing estimates isn't set up yet. Share the estimate link with your client instead.",
-    };
+  /** The estimate's client link, where the client views, accepts or declines it. */
+  static async shareUrl(id: string): Promise<string> {
+    const token = await estimatesAPI.shareLink(id);
+    return `${window.location.origin}/share/estimate/${token}`;
   }
 }

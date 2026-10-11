@@ -325,7 +325,7 @@ function AppRoutes() {
       />
       {/* Public shareable estimate route - no auth required */}
       <Route
-        path="/share/estimate/:id"
+        path="/share/estimate/:token"
         element={<ShareableEstimate />}
       />
       {/* Packages route removed as part of simplification */}

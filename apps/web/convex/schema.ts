@@ -26,6 +26,8 @@ export const memberRole = v.union(
 export const estimateStatus = v.union(
   v.literal("draft"),
   v.literal("sent"),
+  // The client opened the estimate's link.
+  v.literal("opened"),
   v.literal("accepted"),
   v.literal("rejected"),
   v.literal("expired"),
@@ -183,6 +185,9 @@ export const estimateFields = {
   contractLockedAt: v.optional(v.string()),
   contractSnapshot: v.optional(contractSnapshot),
   design: v.optional(estimateDesign),
+  // The secret in the estimate's client link (/share/estimate/:token).
+  shareToken: v.optional(v.string()),
+  firstOpenedAt: v.optional(v.string()),
 };
 
 export const invoiceFields = {
@@ -368,7 +373,8 @@ export default defineSchema({
     ...timestamps,
   })
     .index("by_organization_and_issue_date", ["organizationId", "issueDate"])
-    .index("by_client", ["clientId"]),
+    .index("by_client", ["clientId"])
+    .index("by_share_token", ["shareToken"]),
 
   // Invoicing was removed from the app (no payments are taken here). The table
   // stays defined so any rows saved earlier don't block a deploy; nothing reads

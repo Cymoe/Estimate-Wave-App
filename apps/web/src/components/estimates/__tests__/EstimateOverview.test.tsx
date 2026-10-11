@@ -21,6 +21,12 @@ jest.mock('../../../services/EstimateService', () => ({
       return stored;
     },
     removeDesign: async () => stored,
+    shareUrl: async () => 'https://app.example/share/estimate/tok123',
+    updateStatus: async (id: string, status: string) => {
+      update(id, { status });
+      stored = { ...stored, status };
+      return stored;
+    },
   },
 }));
 jest.mock('../../../lib/api', () => ({
@@ -114,5 +120,18 @@ describe('estimate overview', () => {
     await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
     expect(uploadDesign).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain('Choose an image (PNG, JPG) or a PDF.');
+  });
+
+  it('Send shares the client link and marks a draft sent', async () => {
+    stored = { ...base, client: { name: 'Dan Shah', email: 'dan@example.com' } };
+    const share = jest.fn(async () => {});
+    Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+    await openOverview();
+    const send = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Send')!;
+    await act(async () => send.click());
+    await act(async () => {});
+    expect(share).toHaveBeenCalledWith(expect.objectContaining({ url: 'https://app.example/share/estimate/tok123' }));
+    expect(update).toHaveBeenCalledWith('e1', { status: 'sent' });
+    delete (navigator as { share?: unknown }).share;
   });
 });
