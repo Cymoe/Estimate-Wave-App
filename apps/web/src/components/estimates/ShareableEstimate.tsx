@@ -314,7 +314,6 @@ export const ShareableEstimate: React.FC = () => {
           {/* From (the business) and For (the client) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">From:</h3>
               <div className="space-y-2">
                 <div className="text-gray-900 font-medium">{estimate.business?.name || 'Your contractor'}</div>
                 {estimate.business?.email && (
@@ -344,7 +343,6 @@ export const ShareableEstimate: React.FC = () => {
             </div>
 
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">Estimate Details:</h3>
               <div className="space-y-2">
                 <div className="flex justify-between">
                   <span className="text-gray-600">Issue Date:</span>
