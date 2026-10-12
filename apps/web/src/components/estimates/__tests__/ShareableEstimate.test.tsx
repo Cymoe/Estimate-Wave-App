@@ -111,9 +111,12 @@ describe('client estimate page', () => {
       canvas.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       canvas.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
     });
-    await act(async () => button('Accept & Sign')!.click());
+    expect(button('Accept & sign')).toBeUndefined();
+    await act(async () => (document.body.querySelector('input[type=checkbox]') as HTMLInputElement).click());
+    await act(async () => button('Accept & sign')!.click());
     expect(accept).toHaveBeenCalledWith('tok123', 'data:image/png;base64,sig');
     expect(document.body.textContent).toContain('Accepted & Signed');
+    expect(document.body.querySelector('[aria-controls="estimate-signature"]')).toBeNull();
   });
 
   it('can be declined', async () => {

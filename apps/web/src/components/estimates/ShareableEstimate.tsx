@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { CheckCircle, XCircle, Mail, Phone, MapPin, FileText, ChevronDown } from 'lucide-react';
+import { CheckCircle, Mail, Phone, MapPin, FileText, ChevronDown } from 'lucide-react';
 import { publicEstimatesAPI } from '../../lib/api';
 import { formatCurrency } from '../../utils/format';
 import { categoryTotals, type ContractData } from '../../services/contract';
@@ -110,6 +110,8 @@ export const ShareableEstimate: React.FC = () => {
   const [signing, setSigning] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
   const [signature, setSignature] = useState<string>('');
+  const [consent, setConsent] = useState(false);
+  const signatureSectionRef = useRef<HTMLDivElement>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -207,7 +209,7 @@ export const ShareableEstimate: React.FC = () => {
   };
 
   const handleAccept = async () => {
-    if (!token || !signature) return;
+    if (!token || !signature || !consent || signing) return;
     setSigning(true);
     setActionError(null);
     try {
@@ -261,7 +263,7 @@ export const ShareableEstimate: React.FC = () => {
 
   return (
     <div className="min-h-screen flex-shrink-0 bg-gray-50">
-      <div className="max-w-4xl mx-auto py-8 px-4">
+      <div className="max-w-4xl mx-auto py-8 px-4" style={canSign ? { paddingBottom: 'calc(9rem + env(safe-area-inset-bottom, 0px))' } : undefined}>
         {/* Header */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 mb-6">
           <div className="flex justify-between items-start mb-6">
@@ -511,8 +513,8 @@ export const ShareableEstimate: React.FC = () => {
             </p>
           </div>
         ) : canSign ? (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Accept &amp; Sign</h3>
+          <div ref={signatureSectionRef} id="estimate-signature" className="scroll-mt-6 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 tabIndex={-1} className="text-lg font-semibold text-gray-900 mb-4">Accept &amp; Sign</h3>
             
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -546,24 +548,13 @@ export const ShareableEstimate: React.FC = () => {
             </div>
 
             {actionError && <p className="text-sm text-red-600 mb-3">{actionError}</p>}
-            <div className="flex gap-4">
-              <button
-                onClick={handleAccept}
-                disabled={!signature || signing}
-                className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-              >
-                <CheckCircle className="w-5 h-5" />
-                {signing ? 'Signing...' : 'Accept & Sign'}
-              </button>
-              
-              <button
-                onClick={handleReject}
-                className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-              >
-                <XCircle className="w-5 h-5" />
-                Decline
-              </button>
-            </div>
+            <label className="flex items-start gap-3 text-sm text-gray-700">
+              <input type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)} disabled={signing} className="mt-1 h-4 w-4 shrink-0" />
+              <span>I have reviewed this estimate and agree to the terms above.</span>
+            </label>
+            <button onClick={handleReject} disabled={signing} className="mt-4 text-sm text-red-600 hover:text-red-700 disabled:opacity-50">
+              Decline
+            </button>
           </div>
         ) : (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 text-center">
@@ -578,6 +569,27 @@ export const ShareableEstimate: React.FC = () => {
           </div>
         )}
       </div>
+      {canSign && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 bg-white px-4 pt-3 shadow-lg print:hidden" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}>
+          <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
+            <p className="text-sm text-gray-700" aria-live="polite">
+              {signature && consent ? 'Ready to accept' : 'Review the terms and add your signature'}
+            </p>
+            <button
+              onClick={signature && consent ? handleAccept : () => {
+                signatureSectionRef.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+                signatureSectionRef.current?.querySelector('h3')?.focus({ preventScroll: true });
+              }}
+              disabled={signing}
+              aria-controls="estimate-signature"
+              className="shrink-0 flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <CheckCircle className="w-5 h-5" />
+              {signing ? 'Processing...' : signature && consent ? 'Accept & sign' : 'Review & sign'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
