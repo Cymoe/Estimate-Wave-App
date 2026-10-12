@@ -120,6 +120,36 @@ export const ShareableEstimate: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [lastPoint, setLastPoint] = useState<{ x: number; y: number } | null>(null);
 
+  // Native reload restoration can run after the router's reset, while the
+  // estimate is still loading. Own restoration for this public document.
+  useLayoutEffect(() => {
+    const previousRestoration = window.history.scrollRestoration;
+    window.history.scrollRestoration = 'manual';
+    const resetScroll = () => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      const root = document.getElementById('root');
+      if (root) root.scrollTop = 0;
+    };
+    resetScroll();
+    window.addEventListener('pageshow', resetScroll);
+    return () => {
+      window.removeEventListener('pageshow', resetScroll);
+      window.history.scrollRestoration = previousRestoration;
+    };
+  }, [token]);
+
+  useLayoutEffect(() => {
+    if (loading) return;
+    // Reset after the document replaces its loading placeholder, before paint.
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    const root = document.getElementById('root');
+    if (root) root.scrollTop = 0;
+  }, [loading, token]);
+
   useLayoutEffect(() => {
     const bar = signingBarRef.current;
     if (!bar) return;

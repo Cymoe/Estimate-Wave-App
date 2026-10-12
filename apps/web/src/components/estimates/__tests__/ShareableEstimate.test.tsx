@@ -1,10 +1,11 @@
-import { createRoot } from 'react-dom/client';
+import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let view: Record<string, unknown> | null = null;
+const mountedRoots: Root[] = [];
 const markOpened = jest.fn(async () => {});
 const accept = jest.fn(async (_token: string, signature: string) => {
   view = { ...view, status: 'accepted', clientSignature: signature, signedAt: '2026-10-11T12:00:00Z' };
@@ -39,8 +40,10 @@ const sent = {
 async function open() {
   const container = document.createElement('div');
   document.body.appendChild(container);
+  const root = createRoot(container);
+  mountedRoots.push(root);
   await act(async () =>
-    createRoot(container).render(
+    root.render(
       <MemoryRouter initialEntries={['/share/estimate/tok123']}>
         <Routes>
           <Route path="/share/estimate/:token" element={<ShareableEstimate />} />
@@ -53,9 +56,32 @@ async function open() {
 const button = (text: string) => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes(text));
 
 describe('client estimate page', () => {
+  beforeEach(() => {
+    window.history.scrollRestoration = 'auto';
+    jest.spyOn(window, 'scrollTo').mockImplementation(() => {});
+  });
   afterEach(() => {
+    act(() => { mountedRoots.splice(0).forEach(root => root.unmount()); });
     document.body.innerHTML = '';
     jest.clearAllMocks();
+    jest.restoreAllMocks();
+  });
+
+  it('starts at the top after data loads and resets restored page positions', async () => {
+    view = { ...sent };
+    const appRoot = document.createElement('div');
+    appRoot.id = 'root';
+    appRoot.scrollTop = 300;
+    document.body.appendChild(appRoot);
+    await open();
+    expect(window.history.scrollRestoration).toBe('manual');
+    expect(appRoot.scrollTop).toBe(0);
+    expect(window.scrollTo).toHaveBeenLastCalledWith({ top: 0, left: 0, behavior: 'instant' });
+    appRoot.scrollTop = 400;
+    window.dispatchEvent(new Event('pageshow'));
+    expect(appRoot.scrollTop).toBe(0);
+    act(() => { mountedRoots.splice(0).forEach(root => root.unmount()); });
+    expect(window.history.scrollRestoration).toBe('auto');
   });
 
   it('shows the estimate from its link and marks it opened', async () => {
