@@ -107,8 +107,11 @@ describe('client estimate page', () => {
     await open();
     const canvas = document.body.querySelector('canvas') as HTMLCanvasElement;
     canvas.toDataURL = () => 'data:image/png;base64,sig';
+    await act(async () => button('Draw signature')!.click());
     await act(async () => {
       canvas.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    });
+    await act(async () => {
       canvas.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
     });
     expect(button('Accept & sign')).toBeUndefined();
@@ -117,6 +120,21 @@ describe('client estimate page', () => {
     expect(accept).toHaveBeenCalledWith('tok123', 'data:image/png;base64,sig');
     expect(document.body.textContent).toContain('Accepted & Signed');
     expect(document.body.querySelector('[aria-controls="estimate-signature"]')).toBeNull();
+  });
+
+  it('allows swiping over the signature box until drawing is explicitly enabled', async () => {
+    view = { ...sent };
+    await open();
+    const canvas = document.body.querySelector('canvas') as HTMLCanvasElement;
+    expect(canvas.classList.contains('touch-pan-y')).toBe(true);
+    const swipeStart = new Event('touchstart', { bubbles: true, cancelable: true });
+    await act(async () => { canvas.dispatchEvent(swipeStart); });
+    expect(swipeStart.defaultPrevented).toBe(false);
+    await act(async () => button('Draw signature')!.click());
+    expect(canvas.classList.contains('touch-none')).toBe(true);
+    await act(async () => button('Done drawing')!.click());
+    expect(canvas.classList.contains('touch-pan-y')).toBe(true);
+    expect(accept).not.toHaveBeenCalled();
   });
 
   it('can be declined', async () => {

@@ -111,6 +111,7 @@ export const ShareableEstimate: React.FC = () => {
   const [isDrawing, setIsDrawing] = useState(false);
   const [signature, setSignature] = useState<string>('');
   const [consent, setConsent] = useState(false);
+  const [drawingEnabled, setDrawingEnabled] = useState(false);
   const signatureSectionRef = useRef<HTMLDivElement>(null);
   const signingBarRef = useRef<HTMLDivElement>(null);
   const [signingBarHeight, setSigningBarHeight] = useState(144);
@@ -161,6 +162,7 @@ export const ShareableEstimate: React.FC = () => {
   }, [token]);
 
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    if (!drawingEnabled) return;
     e.preventDefault();
     setIsDrawing(true);
     
@@ -177,8 +179,8 @@ export const ShareableEstimate: React.FC = () => {
   };
 
   const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
     if (!isDrawing || !lastPoint) return;
+    e.preventDefault();
     
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
@@ -205,6 +207,7 @@ export const ShareableEstimate: React.FC = () => {
   };
 
   const stopDrawing = () => {
+    if (!isDrawing) return;
     setIsDrawing(false);
     setLastPoint(null);
     
@@ -541,7 +544,7 @@ export const ShareableEstimate: React.FC = () => {
                   ref={canvasRef}
                   width={600}
                   height={150}
-                  className="w-full h-32 rounded-lg cursor-crosshair touch-none"
+                  className={`w-full h-32 rounded-lg ${drawingEnabled ? 'cursor-crosshair touch-none' : 'touch-pan-y'}`}
                   style={{ border: '1px solid #e5e7eb' }}
                   onMouseDown={startDrawing}
                   onMouseMove={draw}
@@ -561,6 +564,21 @@ export const ShareableEstimate: React.FC = () => {
                   Clear
                 </button>
               </div>
+            </div>
+
+            <div className="mb-4">
+              <button
+                type="button"
+                aria-pressed={drawingEnabled}
+                onClick={() => setDrawingEnabled(enabled => !enabled)}
+                disabled={signing}
+                className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-900 hover:bg-gray-50 disabled:opacity-50"
+              >
+                {drawingEnabled ? 'Done drawing' : 'Draw signature'}
+              </button>
+              <p className="mt-2 text-xs text-gray-600" aria-live="polite">
+                {drawingEnabled ? 'Draw in the box above, then tap Done drawing to scroll.' : 'You can scroll over the signature box. Tap Draw signature when ready to sign.'}
+              </p>
             </div>
 
             {actionError && <p className="text-sm text-red-600 mb-3">{actionError}</p>}
