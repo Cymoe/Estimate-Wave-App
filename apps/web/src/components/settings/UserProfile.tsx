@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { useAuth } from "../../contexts/AuthContext";
-import { supabase } from "../../lib/supabase";
+import { organizationsAPI } from "../../lib/api";
+import { OrganizationContext } from "../layouts/DashboardLayout";
 import { 
   Search, Plus, Settings, Camera, Award, Briefcase, 
   Target, TrendingUp, Star, Shield, Zap, Users, User,
@@ -14,6 +15,7 @@ import {
 
 export function UserProfile() {
   const { user } = useAuth();
+  const { selectedOrg, setSelectedOrg } = useContext(OrganizationContext);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeSection, setActiveSection] = useState<'profile' | 'skills' | 'achievements' | 'privacy'>('profile');
   const [editingAvatar, setEditingAvatar] = useState(false);
@@ -44,77 +46,47 @@ export function UserProfile() {
   ];
 
   const [formData, setFormData] = useState({
-    company: "Kameron Construction Group",
-    title: "CEO & Master Builder",
-    phone: "(555) 123-4567",
-    address: "Austin, TX 78701",
-    bio: "Passionate construction professional with over 15 years of experience transforming visions into reality. Specialized in luxury residential and commercial projects throughout Texas. Known for innovative design solutions, sustainable building practices, and delivering projects on time and within budget. Leading a team of 25+ skilled professionals dedicated to excellence in every build.",
-    tagline: "Master Builder | 15+ Years | Luxury Homes & Commercial",
-    experience_years: 15,
-    specialties: ["Luxury Residential", "Commercial Buildings", "Green Construction"] as string[],
-    certifications: [
-      "LEED AP (Leadership in Energy and Environmental Design)",
-      "Licensed General Contractor - Texas",
-      "OSHA 30-Hour Construction Safety",
-      "PMP (Project Management Professional)"
-    ] as string[],
-    skills: ["Project Management", "Construction", "Design & Planning", "Commercial", "Residential", "Safety Management"] as string[],
-    achievements: [
-      { icon: "🏆", title: "150+ Projects Completed", description: "Successfully delivered over 150 residential and commercial projects" },
-      { icon: "⭐", title: "5-Star Client Rating", description: "Maintained perfect 5-star rating across 200+ reviews" },
-      { icon: "🎯", title: "98% On-Time Delivery", description: "Industry-leading on-time project completion rate" },
-      { icon: "💰", title: "$50M+ Revenue Generated", description: "Generated over $50 million in project revenue" },
-      { icon: "🚀", title: "3x Business Growth", description: "Grew team from 8 to 25+ members in 3 years" },
-      { icon: "🏅", title: "Austin Builder of the Year 2023", description: "Received prestigious industry recognition" }
-    ] as { icon: string; title: string; description: string }[],
+    company: "",
+    title: "",
+    phone: "",
+    address: "",
+    bio: "",
+    tagline: "",
+    experience_years: 0,
+    specialties: [] as string[],
+    certifications: [] as string[],
+    skills: [] as string[],
+    achievements: [] as { icon: string; title: string; description: string }[],
     social_links: {
-      linkedin: "https://linkedin.com/in/myleskameron",
-      website: "https://kameronconstructiongroup.com",
-      portfolio: "https://myleskameron.com/portfolio"
+      linkedin: "",
+      website: "",
+      portfolio: ""
     }
   });
 
+  // Company name, phone and address are the organization's, the ones printed on estimates.
   useEffect(() => {
-    if (user) {
-      fetchUserProfile();
-    }
-  }, [user]);
-
-  const fetchUserProfile = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', user?.id)
-        .single();
-
-      if (error) throw error;
-
-      if (data) {
-        setFormData({
-          company: data.company || "",
-          title: data.title || "",
-          phone: data.phone || "",
-          address: data.address || "",
-          bio: data.bio || "",
-          tagline: data.tagline || "",
-          experience_years: data.experience_years || 0,
-          specialties: data.specialties || [],
-          certifications: data.certifications || [],
-          skills: data.skills || [],
-          achievements: data.achievements || [],
-          social_links: data.social_links || {
-            linkedin: "",
-            website: "",
-            portfolio: ""
-          }
-        });
-      }
-    } catch (error) {
-      console.error('Error fetching user profile:', error);
-      toast.error('Failed to load profile data');
-    }
-  };
+    if (!user || !selectedOrg?.id) return;
+    let cancelled = false;
+    organizationsAPI
+      .getById(selectedOrg.id)
+      .then((org: { name?: string; phone?: string; address?: string } | null) => {
+        if (cancelled) return;
+        setFormData((current) => ({
+          ...current,
+          company: org?.name ?? "",
+          phone: org?.phone ?? "",
+          address: org?.address ?? "",
+        }));
+      })
+      .catch((error: unknown) => {
+        console.error('Error fetching business details:', error);
+        toast.error('Failed to load profile data');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, selectedOrg?.id]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -125,28 +97,19 @@ export function UserProfile() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      // For now, we'll save the basic fields that exist in the database
-      // The new fields (tagline, skills, etc.) would need new database columns
-      const basicData = {
-        company: formData.company,
-        title: formData.title,
-        phone: formData.phone,
-        address: formData.address,
-        bio: formData.bio
-      };
-
-      const { error } = await supabase
-        .from('users')
-        .update(basicData)
-        .eq('id', user?.id);
-
-      if (error) throw error;
-      
-      // TODO: Save additional profile data (skills, achievements, etc.) to a separate table
-      // This would require database schema updates
-      
-      toast.success("Profile updated successfully!");
-      // Note: Some features like skills and achievements are not yet connected to the database
+      if (!selectedOrg?.id) throw new Error('No organization selected');
+      if (!formData.company.trim()) {
+        toast.error("Company name is required.");
+        return;
+      }
+      // Only the business details have a home on the backend; tagline, bio, skills etc. aren't stored yet.
+      const org = await organizationsAPI.update(selectedOrg.id, {
+        name: formData.company.trim(),
+        phone: formData.phone.trim(),
+        address: formData.address.trim(),
+      });
+      if (org?.name) setSelectedOrg({ ...selectedOrg, name: org.name });
+      toast.success("Company name, phone and address saved. They appear on your estimates.");
     } catch (error) {
       console.error("Profile update failed:", error);
       toast.error("Failed to update profile. Please try again.");
