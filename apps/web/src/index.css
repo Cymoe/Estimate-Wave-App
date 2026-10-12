@@ -26,6 +26,9 @@ html {
 }
 
 body {
+  /* Keep the document as the scroll surface, rather than a viewport-sized body. */
+  height: auto;
+  min-height: 100vh;
   overflow-y: auto;
   overscroll-behavior-y: none;
   -webkit-overflow-scrolling: touch;
@@ -52,6 +55,7 @@ body.marketing-page {
 #root {
   display: flex;
   flex-direction: column;
+  height: auto;
   min-height: 100vh;
 }
 

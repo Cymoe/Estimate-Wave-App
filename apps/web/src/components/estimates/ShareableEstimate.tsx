@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { CheckCircle, Mail, Phone, MapPin, FileText, ChevronDown } from 'lucide-react';
 import { publicEstimatesAPI } from '../../lib/api';
@@ -112,10 +112,26 @@ export const ShareableEstimate: React.FC = () => {
   const [signature, setSignature] = useState<string>('');
   const [consent, setConsent] = useState(false);
   const signatureSectionRef = useRef<HTMLDivElement>(null);
+  const signingBarRef = useRef<HTMLDivElement>(null);
+  const [signingBarHeight, setSigningBarHeight] = useState(144);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [lastPoint, setLastPoint] = useState<{ x: number; y: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const bar = signingBarRef.current;
+    if (!bar) return;
+    const measure = () => setSigningBarHeight(Math.ceil(bar.getBoundingClientRect().height));
+    measure();
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    observer?.observe(bar);
+    window.addEventListener('resize', measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [loading, estimate?.status]);
 
   const loadEstimate = async () => {
     if (!token) return;
@@ -263,7 +279,7 @@ export const ShareableEstimate: React.FC = () => {
 
   return (
     <div className="min-h-screen flex-shrink-0 bg-gray-50">
-      <div className="max-w-4xl mx-auto py-8 px-4" style={canSign ? { paddingBottom: 'calc(9rem + env(safe-area-inset-bottom, 0px))' } : undefined}>
+      <div className="max-w-4xl mx-auto py-8 px-4" style={canSign ? { paddingBottom: `calc(${signingBarHeight}px + 2rem)` } : undefined}>
         {/* Header */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 mb-6">
           <div className="flex justify-between items-start mb-6">
@@ -570,7 +586,7 @@ export const ShareableEstimate: React.FC = () => {
         )}
       </div>
       {canSign && (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 bg-white px-4 pt-3 shadow-lg print:hidden" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}>
+        <div ref={signingBarRef} className="fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 bg-white px-4 pt-3 shadow-lg print:hidden" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}>
           <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
             <p className="text-sm text-gray-700" aria-live="polite">
               {signature && consent ? 'Ready to accept' : 'Review the terms and add your signature'}
