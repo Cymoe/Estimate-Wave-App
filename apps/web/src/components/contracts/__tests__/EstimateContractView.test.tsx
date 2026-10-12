@@ -12,18 +12,16 @@ const update = jest.fn(async (_id: string, changes: Record<string, unknown>) => 
 jest.mock('../../../services/EstimateService', () => ({
   EstimateService: { getById: async () => stored, update: (id: string, changes: Record<string, unknown>) => update(id, changes) },
 }));
+const getOrganization = jest.fn(async (id: string) => ({ _id: id, name: 'Shah Builders', address: '9 Oak Ave', phone: '555-0100' }));
 jest.mock('../../../lib/api', () => ({
-  organizationsAPI: { getById: async () => ({ name: 'Shah Builders', address: '9 Oak Ave', phone: '555-0100' }) },
+  organizationsAPI: { getById: (id: string) => getOrganization(id) },
 }));
-jest.mock('../../layouts/DashboardLayout', () => {
-  const { createContext } = jest.requireActual('react');
-  return { OrganizationContext: createContext({ selectedOrg: { id: 'org1' } }) };
-});
 
 import { EstimateContractView } from '../EstimateContractView';
 
 const base = {
   id: 'e1',
+  organization_id: 'org1',
   estimate_number: 'EST-2026-000001',
   status: 'draft',
   issue_date: '2026-10-08',
@@ -58,6 +56,7 @@ describe('contract page', () => {
   it('shows the estimate and your business, and saves edited terms on the estimate', async () => {
     stored = { ...base };
     await render();
+    expect(getOrganization).toHaveBeenCalledWith('org1');
     expect(document.body.textContent).toContain('Shah Builders');
     expect(document.body.textContent).toContain('Dan Shah');
     expect(document.body.textContent).toContain('follows the estimate');

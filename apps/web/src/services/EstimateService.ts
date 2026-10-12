@@ -198,16 +198,20 @@ async function byId(load: Promise<Doc[]>): Promise<Map<string, Doc>> {
 // list shows at once while the latest copy loads behind it.
 const cache = new Map<string, Estimate>();
 
-/** Keeps an estimate; a copy without client/project details keeps the ones already known. */
+/**
+ * Keeps an estimate; a copy without client/project details (as mutations
+ * return) gets the ones already known, and that fuller copy is returned.
+ */
 function remember(estimate: Estimate): Estimate {
   if (!estimate?.id) return estimate;
   const known = cache.get(estimate.id);
-  cache.set(estimate.id, {
+  const kept = {
     ...estimate,
     client: estimate.client ?? (estimate.client_id && estimate.client_id === known?.client_id ? known.client : undefined),
     project: estimate.project ?? (estimate.project_id && estimate.project_id === known?.project_id ? known.project : undefined),
-  });
-  return estimate;
+  };
+  cache.set(estimate.id, kept);
+  return kept;
 }
 
 /** Estimates, stored in Convex (totals and tax are computed by the server). */

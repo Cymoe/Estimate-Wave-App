@@ -2,10 +2,11 @@ import React, { useContext, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Building2, Package, Users, Bell, Shield } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
+import { BusinessDetailsForm } from '../components/settings/BusinessDetailsForm';
 
 export default function OrganizationSettings() {
   const navigate = useNavigate();
-  const { selectedOrg } = useContext(OrganizationContext);
+  const { selectedOrg, setSelectedOrg } = useContext(OrganizationContext);
   const [activeTab, setActiveTab] = useState('general');
 
   const tabs = [
@@ -73,8 +74,11 @@ export default function OrganizationSettings() {
           <div className="max-w-4xl">
             {activeTab === 'general' && (
               <div className="bg-[#1A1A1A] rounded-lg p-6">
-                <h2 className="text-lg font-semibold text-white mb-4">General Settings</h2>
-                <p className="text-gray-400">Organization general settings coming soon...</p>
+                <h2 className="text-lg font-semibold text-white mb-4">Business Details</h2>
+                <BusinessDetailsForm
+                  organizationId={selectedOrg.id}
+                  onSaved={(org) => org.name && setSelectedOrg({ ...selectedOrg, name: org.name })}
+                />
               </div>
             )}
 
