@@ -189,7 +189,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
 
             <button
               onClick={() => {
-                navigate('/company-settings');
+                navigate('/settings/organization');
                 onClose();
               }}
               className="w-full text-left p-3 hover:bg-[#333333] rounded-[4px] transition-colors text-gray-300"
