@@ -76,6 +76,22 @@ Email/password sign-in works without this.
 npx convex run seed:makeSuperAdmin '{"email":"you@example.com"}'
 ```
 
+## Contract trades
+
+Open an estimate's **Contract** page, choose **Edit terms**, select **Contract trade**,
+then **Save**. The suggested trade comes from the estimate's categories; mixed or
+unrecognised trades use **General / multiple trades**. The scope stages change by
+trade while the agreement keeps its shared outline. Both the contractor and client
+use the same template. Signing freezes the template version along with the estimate;
+previously signed agreements retain their original wording.
+
+Deploy the Convex schema and functions together with this feature. A Vercel frontend
+deployment alone cannot save the new `contractTerms.contractTemplate` field. For a
+preview branch outside the backend workflow's push triggers, run **Deploy Convex
+backend** manually for that branch, using the deployment key for the backend that
+the preview uses. Until that backend is updated, the client page keeps the previous
+wording so a client cannot sign a new template that the older backend cannot freeze.
+
 ## Deploying
 
 **GitHub Actions:** `.github/workflows/convex-deploy.yml` deploys the Convex

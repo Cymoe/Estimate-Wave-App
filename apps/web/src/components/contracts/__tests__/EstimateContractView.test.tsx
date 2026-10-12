@@ -74,6 +74,27 @@ describe('contract page', () => {
     expect(document.body.textContent).toContain(new Date('2026-11-02T00:00:00').toLocaleDateString());
   });
 
+  it('suggests the painting contract and saves a selected trade without unrelated scope', async () => {
+    stored = { ...base, items: [{ ...base.items[0], category: 'Interior Painting' }] };
+    await render();
+    expect(document.body.textContent).toContain('Contract trade: Painting');
+    expect(document.body.textContent).toContain('primers, coatings and finishes');
+    expect(document.body.textContent).not.toContain('Sprinkler');
+    expect(document.body.textContent).not.toContain('turf materials');
+    await act(async () => button('Edit terms')!.click());
+    const select = document.body.querySelector('select') as HTMLSelectElement;
+    expect(select.value).toBe('painting-v1');
+    await act(async () => { select.value = 'roofing-v1'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(document.body.textContent).toContain('roofing, underlayment, flashing');
+    expect(document.body.textContent).not.toContain('primers, coatings and finishes');
+    await act(async () => button('Save')!.click());
+    expect(update).toHaveBeenCalledWith('e1', { contract_terms: expect.objectContaining({ contractTemplate: 'roofing-v1' }) });
+    expect(document.body.textContent).toContain('Contract trade: Roofing');
+    for (const heading of ['PARTIES', 'CONSTRUCTION PROPERTY', 'SCOPE OF WORK', 'Payment Terms', 'Notice of Cancellation', 'TEXAS PROPERTY CODE']) {
+      expect(document.body.textContent).toContain(heading);
+    }
+  });
+
   it('once accepted, shows it as signed and the terms can no longer be edited', async () => {
     stored = {
       ...base,
@@ -91,6 +112,8 @@ describe('contract page', () => {
     const signature = document.body.querySelector('img[alt="Client signature"]') as HTMLImageElement;
     expect(signature.src).toBe('data:image/png;base64,sig');
     expect(document.body.textContent).not.toContain('Awaiting client signature');
+    expect(document.body.textContent).toContain('Sprinkler');
+    expect(document.body.textContent).toContain('Vendor 16 year warranty for turf');
   });
 
   it('before the client signs, says the signature comes from the estimate link', async () => {

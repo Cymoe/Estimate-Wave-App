@@ -5,6 +5,7 @@ import { publicEstimatesAPI } from '../../lib/api';
 import { formatCurrency } from '../../utils/format';
 import { categoryTotals, type ContractData } from '../../services/contract';
 import { AgreementTerms } from '../contracts/AgreementTerms';
+import { LEGACY_CONTRACT_TEMPLATE } from '../../../convex/lib/contractTemplates';
 
 /** What the client sees, from the estimate's link (no login). */
 interface ClientEstimate {
@@ -26,6 +27,7 @@ interface ClientEstimate {
   business?: { name?: string; email?: string; phone?: string; address?: string };
   design?: { url: string; name: string; contentType?: string };
   agreement?: {
+    contractTemplate?: string;
     propertyAddress?: string;
     workDescription?: string;
     startDate?: string;
@@ -75,6 +77,9 @@ function fromView(view: any): ClientEstimate {
 function agreementFor(estimate: ClientEstimate): ContractData {
   const terms = estimate.agreement;
   return {
+    // Keep the prior wording if this frontend reaches an older backend during
+    // rollout. That backend cannot yet freeze the new trade selection on sign.
+    contractTemplate: terms?.contractTemplate ?? LEGACY_CONTRACT_TEMPLATE,
     propertyAddress: terms?.propertyAddress ?? '',
     clientName: estimate.client?.name ?? '',
     clientAddress: '',

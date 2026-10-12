@@ -71,6 +71,7 @@ export const EstimateContractView: React.FC = () => {
   const startEditing = () => {
     if (!contract) return;
     setDraftTerms({
+      contractTemplate: contract.contractTemplate,
       startDate: contract.startDate,
       completionDate: contract.completionDate,
       paymentTerms: contract.paymentTerms,

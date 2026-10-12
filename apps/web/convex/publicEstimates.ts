@@ -5,6 +5,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { fail, logActivity, nowIso } from "./lib/access";
 import { withCategories } from "./lib/categories";
 import { lockContract } from "./lib/contract";
+import { resolveContractTemplate } from "./lib/contractTemplates";
 import {
   DEFAULT_PAYMENT_TERMS,
   DEFAULT_WARRANTY,
@@ -59,6 +60,7 @@ export const get = query({
     // Once signed, the client sees what they signed, not later edits.
     const signed = estimate.contractSnapshot;
     const terms = (signed ? signed.terms : estimate.contractTerms) ?? {};
+    const items = await withCategories(ctx, signed ? signed.items : estimate.items);
     const design = signed ? signed.design : estimate.design;
     const clientAddress = signed
       ? signed.client?.address
@@ -74,9 +76,7 @@ export const get = query({
       status: estimate.status,
       issueDate: estimate.issueDate,
       expiryDate: estimate.expiryDate,
-      items: (
-        await withCategories(ctx, signed ? signed.items : estimate.items)
-      ).map((item) => ({
+      items: items.map((item) => ({
         description: item.description,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
@@ -97,6 +97,7 @@ export const get = query({
           }
         : undefined,
       agreement: {
+        contractTemplate: resolveContractTemplate(terms.contractTemplate, items, Boolean(signed)),
         propertyAddress: terms.propertyAddress || clientAddress,
         workDescription: terms.workDescription || estimate.description,
         startDate: terms.startDate,

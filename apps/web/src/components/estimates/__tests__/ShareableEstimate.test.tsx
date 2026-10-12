@@ -128,6 +128,25 @@ describe('client estimate page', () => {
     expect(document.body.querySelectorAll('canvas')).toHaveLength(1);
   });
 
+  it('uses the contractor-selected painting wording in the client agreement', async () => {
+    view = { ...sent, agreement: { contractTemplate: 'painting-v1', paymentTerms: 'Net 15', warrantyPeriod: '1 year' } };
+    await open();
+    const agreement = document.body.querySelector('[data-testid="agreement"]')!;
+    expect(agreement.textContent).toContain('Contract trade: Painting');
+    expect(agreement.textContent).toContain('primers, coatings and finishes');
+    expect(agreement.textContent).not.toContain('Sprinkler');
+    expect(agreement.textContent).not.toContain('turf materials');
+    expect(agreement.querySelector('select')).toBeNull();
+  });
+
+  it('keeps the prior wording when an older backend cannot freeze a trade selection', async () => {
+    view = { ...sent, items: [{ ...sent.items[0], category: 'Interior Painting' }] };
+    await open();
+    const agreement = document.body.querySelector('[data-testid="agreement"]')!;
+    expect(agreement.textContent).toContain('Sprinkler');
+    expect(agreement.textContent).not.toContain('Contract trade: Painting');
+  });
+
   it('accepts with the drawn signature, then shows it accepted', async () => {
     view = { ...sent };
     await open();

@@ -857,7 +857,7 @@ describe("client link", () => {
     const view = await t.query(api.publicEstimates.get, { token });
     expect(view).toMatchObject({ totalAmount: 900, client: { name: "Dan Shah" }, business: { name: "a@example.com Co" } });
     expect(view!.items).toEqual([{ description: "Vanity", quantity: 1, unitPrice: 900, totalPrice: 900 }]);
-    expect(JSON.stringify(view)).not.toMatch(/redLine|capPrice|organizationId|shareToken|contract/);
+    expect(JSON.stringify(view)).not.toMatch(/redLine|capPrice|organizationId|shareToken|contractSnapshot|contractTerms|contractLockedAt/);
   });
 
   test("opening a sent estimate marks it opened, once", async () => {
@@ -894,6 +894,41 @@ describe("client link", () => {
     view = await t.query(api.publicEstimates.get, { token });
     expect(view!.agreement).toMatchObject({ startDate: "2026-11-02", paymentTerms: "Net 15", propertyAddress: "12 Elm St" });
     expect(view!.lockedAt).toBeUndefined();
+  });
+
+  test("the selected contract trade is shared with the client and frozen when signed", async () => {
+    const { t, as, id, token } = await sharedEstimate();
+    await as.mutation(api.estimates.update, { id, data: { contractTerms: { contractTemplate: "painting-v1" } } });
+    expect((await t.query(api.publicEstimates.get, { token }))!.agreement.contractTemplate).toBe("painting-v1");
+    await t.mutation(api.publicEstimates.accept, { token, signature: "data:image/png;base64,abc" });
+    await as.mutation(api.estimates.update, { id, data: { items: [{ description: "Outdoor work", category: "Landscaping", quantity: 1, unitPrice: 900 }] } });
+    expect((await t.query(api.publicEstimates.get, { token }))!.agreement.contractTemplate).toBe("painting-v1");
+    await expect(as.mutation(api.estimates.update, { id, data: { contractTerms: { contractTemplate: "landscaping-v1" } } })).rejects.toThrow(/accepted/);
+  });
+
+  test("previously signed contracts retain their original wording", async () => {
+    const { t, id, token } = await sharedEstimate();
+    await t.mutation(api.publicEstimates.accept, { token, signature: "data:image/png;base64,abc" });
+    await t.run(async ctx => {
+      const estimate = await ctx.db.get(id);
+      // A signing snapshot created before contract trades were introduced.
+      await ctx.db.patch(id, { contractSnapshot: { ...estimate!.contractSnapshot!, terms: undefined } });
+    });
+    expect((await t.query(api.publicEstimates.get, { token }))!.agreement.contractTemplate).toBe("legacy-v0");
+  });
+
+  test("unknown contract trades cannot be saved", async () => {
+    const { as, id } = await sharedEstimate();
+    await expect(as.mutation(api.estimates.update, { id, data: { contractTerms: { contractTemplate: "unknown" } } })).rejects.toThrow(/supported contract trade/);
+  });
+
+  test("signing freezes the suggested trade even without an explicit selection", async () => {
+    const { t, as, id, token } = await sharedEstimate();
+    await as.mutation(api.estimates.update, { id, data: { items: [{ description: "Paint walls", category: "Interior Painting", quantity: 1, unitPrice: 900 }] } });
+    expect((await t.query(api.publicEstimates.get, { token }))!.agreement.contractTemplate).toBe("painting-v1");
+    await t.mutation(api.publicEstimates.accept, { token, signature: "data:image/png;base64,abc" });
+    const estimate = await as.query(api.estimates.get, { id });
+    expect(estimate!.contractSnapshot!.terms!.contractTemplate).toBe("painting-v1");
   });
 
   test("after signing, the link shows what was signed, not later edits", async () => {

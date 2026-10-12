@@ -140,6 +140,7 @@ const documentFields = {
 // The parts of the contract the user writes. Everything else on the
 // contract (client, items, totals) comes from the estimate.
 export const contractTerms = v.object({
+  contractTemplate: v.optional(v.string()),
   startDate: v.optional(v.string()),
   completionDate: v.optional(v.string()),
   paymentTerms: v.optional(v.string()),

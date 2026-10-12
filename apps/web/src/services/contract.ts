@@ -1,7 +1,9 @@
 import type { Estimate } from './EstimateService';
+import { resolveContractTemplate } from '../../convex/lib/contractTemplates';
 
 /** What a contract shows. Built from the estimate; nothing to generate or save. */
 export interface ContractData {
+  contractTemplate?: string;
   propertyAddress: string;
   clientName: string;
   clientAddress: string;
@@ -31,6 +33,7 @@ export interface ContractData {
 
 /** The parts of the contract the user writes, saved on the estimate. */
 export interface ContractTerms {
+  contractTemplate?: string;
   startDate?: string;
   completionDate?: string;
   paymentTerms?: string;
@@ -87,6 +90,7 @@ export function contractFor(estimate: Estimate, business?: Business | null): Con
       }));
   const clientAddress = client?.address ?? '';
   return {
+    contractTemplate: resolveContractTemplate(terms.contractTemplate, lineItems, Boolean(snapshot)),
     propertyAddress: terms.propertyAddress || clientAddress,
     clientName: client?.name ?? '',
     clientAddress,

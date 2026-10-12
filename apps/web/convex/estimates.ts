@@ -12,6 +12,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { withCategories } from "./lib/categories";
 import { lockContract } from "./lib/contract";
+import { isContractTemplate } from "./lib/contractTemplates";
 import {
   assertLinksInOrg,
   documentNumber,
@@ -97,6 +98,9 @@ export const create = mutation({
   handler: async (ctx, { organizationId, data }) => {
     const { user } = await requireMember(ctx, organizationId);
     const fields = pick(data, writableFields);
+    if (fields.contractTerms?.contractTemplate !== undefined && !isContractTemplate(fields.contractTerms.contractTemplate)) {
+      fail("INVALID", "Choose a supported contract trade.");
+    }
     await assertLinksInOrg(ctx, organizationId, fields);
     const now = nowIso();
     const doc = withTotals({
@@ -135,6 +139,9 @@ export const update = mutation({
   handler: async (ctx, { id, data }) => {
     const { doc, user } = await getOwned(ctx, "estimates", id);
     const patch = pick(data, writableFields, { forPatch: true });
+    if (patch.contractTerms?.contractTemplate !== undefined && !isContractTemplate(patch.contractTerms.contractTemplate)) {
+      fail("INVALID", "Choose a supported contract trade.");
+    }
     if ("contractTerms" in patch && doc.contractLockedAt) {
       fail(
         "INVALID",

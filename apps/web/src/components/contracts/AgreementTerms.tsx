@@ -1,6 +1,7 @@
 import React from 'react';
 import { categoryTotals, type ContractData, type ContractTerms } from '../../services/contract';
 import { formatCurrency } from '../../utils/format';
+import { CONTRACT_TEMPLATES, LEGACY_CONTRACT_TEMPLATE, resolveContractTemplate } from '../../../convex/lib/contractTemplates';
 
 interface AgreementTermsProps {
   contract: ContractData;
@@ -20,8 +21,30 @@ export const AgreementTerms: React.FC<AgreementTermsProps> = ({ contract: contra
   const isEditing = Boolean(onFieldChange);
   const handleFieldChange = (field: keyof ContractTerms, value: string) => onFieldChange?.(field, value);
   const categories = categoryTotals(contractData.lineItems);
+  const templateId = resolveContractTemplate(contractData.contractTemplate, contractData.lineItems, Boolean(contractData.lockedAt));
+  const tradeTemplate = CONTRACT_TEMPLATES.find(template => template.id === templateId);
+  const legacy = templateId === LEGACY_CONTRACT_TEMPLATE;
   return (
     <>
+          {!legacy && (
+            <div className="mb-6 print:mb-4">
+              {isEditing ? (
+                <label className="block text-sm font-medium">
+                  Contract trade
+                  <select
+                    value={templateId}
+                    onChange={event => handleFieldChange('contractTemplate', event.target.value)}
+                    className="mt-2 block w-full p-2 border border-gray-300 rounded bg-white text-gray-900"
+                  >
+                    {CONTRACT_TEMPLATES.map(template => <option key={template.id} value={template.id}>{template.label}</option>)}
+                  </select>
+                  <span className="mt-2 block text-xs font-normal text-gray-600">Choose the trade for this agreement. For a job covering several trades, use General / multiple trades.</span>
+                </label>
+              ) : (
+                <p className="text-sm text-gray-600">Contract trade: {tradeTemplate?.label}</p>
+              )}
+            </div>
+          )}
           {/* Parties Section */}
           <div className="mb-6">
             <h2 className="text-lg font-semibold mb-3">PARTIES</h2>
@@ -97,6 +120,7 @@ export const AgreementTerms: React.FC<AgreementTermsProps> = ({ contract: contra
             )}
 
             {/* Stages */}
+            {legacy ? (
             <div className="space-y-4 text-sm">
               <p><em>*Some of the following stages progress steps might not be applicable to your project.</em></p>
               
@@ -131,6 +155,17 @@ export const AgreementTerms: React.FC<AgreementTermsProps> = ({ contract: contra
                 <p><em>All required material and tooling for stage 3 will be purchased by {contractData.contractorName}.</em></p>
               </div>
             </div>
+            ) : (
+              <div className="space-y-4 text-sm" data-testid="trade-stages">
+                <p><em>These stages apply only to work included in the estimate and approved scope.</em></p>
+                {tradeTemplate?.stages.map((stage, index) => (
+                  <div key={stage.title}>
+                    <h3 className="font-semibold">{index + 1}. {stage.title}</h3>
+                    {stage.steps.map(step => <p key={step.label}><strong>{step.label}:</strong> {step.text}</p>)}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Timeline */}
@@ -230,8 +265,17 @@ export const AgreementTerms: React.FC<AgreementTermsProps> = ({ contract: contra
             </div>
 
             <div>
+              {legacy ? (
+                <>
               <p><strong>*{contractData.contractorName} offers 2 year workmanship warranty attached at the end of this contract and signed at project completion.</strong></p>
               <p><strong>*Vendor 16 year warranty for turf materials shared separately from this contract.</strong></p>
+                </>
+              ) : (
+                <>
+                  <p><strong>Workmanship warranty: {contractData.warrantyPeriod || 'As agreed in writing'}.</strong></p>
+                  <p>Material and product warranties apply only to the products included in the estimate, subject to their manufacturers' terms.</p>
+                </>
+              )}
             </div>
 
             <div>
