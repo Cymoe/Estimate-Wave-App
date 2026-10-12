@@ -128,6 +128,12 @@ export const ShareableEstimate: React.FC = () => {
     }
   };
 
+  // The client's page is light; without this the app's dark page shows past it (and on iPad overscroll).
+  useEffect(() => {
+    document.body.classList.add('marketing-page');
+    return () => document.body.classList.remove('marketing-page');
+  }, []);
+
   useEffect(() => {
     if (!token) return;
     loadEstimate();
@@ -230,7 +236,7 @@ export const ShareableEstimate: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className="min-h-screen flex-shrink-0 bg-white flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600"></div>
       </div>
     );
@@ -238,7 +244,7 @@ export const ShareableEstimate: React.FC = () => {
 
   if (!estimate) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className="min-h-screen flex-shrink-0 bg-white flex items-center justify-center">
         <div className="text-center">
           <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">Estimate not found</h3>
@@ -254,7 +260,7 @@ export const ShareableEstimate: React.FC = () => {
     estimate.status === 'rejected' ? 'Declined' : OPEN_STATUSES.includes(estimate.status) ? 'Awaiting your approval' : estimate.status.charAt(0).toUpperCase() + estimate.status.slice(1);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen flex-shrink-0 bg-gray-50">
       <div className="max-w-4xl mx-auto py-8 px-4">
         {/* Header */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 mb-6">
