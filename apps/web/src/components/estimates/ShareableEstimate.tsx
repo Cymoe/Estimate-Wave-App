@@ -12,6 +12,9 @@ export const ShareableEstimate: React.FC = () => {
   const [estimate, setEstimate] = useState<Estimate | null>(null);
   const [loading, setLoading] = useState(true);
   const [signing, setSigning] = useState(false);
+  const [consent, setConsent] = useState(false);
+  const signatureSectionRef = useRef<HTMLDivElement>(null);
+  const signatureHasInk = useRef(false);
   const [isDrawing, setIsDrawing] = useState(false);
   const [signature, setSignature] = useState<string>('');
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -48,8 +51,8 @@ export const ShareableEstimate: React.FC = () => {
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
     
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
+    const x = (clientX - rect.left) * canvas.width / rect.width;
+    const y = (clientY - rect.top) * canvas.height / rect.height;
     setLastPoint({ x, y });
   };
 
@@ -65,8 +68,8 @@ export const ShareableEstimate: React.FC = () => {
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
     
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
+    const x = (clientX - rect.left) * canvas.width / rect.width;
+    const y = (clientY - rect.top) * canvas.height / rect.height;
     
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 2;
@@ -77,6 +80,7 @@ export const ShareableEstimate: React.FC = () => {
     ctx.moveTo(lastPoint.x, lastPoint.y);
     ctx.lineTo(x, y);
     ctx.stroke();
+    signatureHasInk.current = true;
     
     setLastPoint({ x, y });
   };
@@ -87,7 +91,7 @@ export const ShareableEstimate: React.FC = () => {
     
     // Convert canvas to data URL for signature
     const canvas = canvasRef.current;
-    if (canvas) {
+    if (canvas && signatureHasInk.current) {
       setSignature(canvas.toDataURL());
     }
   };
@@ -98,11 +102,12 @@ export const ShareableEstimate: React.FC = () => {
     if (canvas && ctx) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       setSignature('');
+      signatureHasInk.current = false;
     }
   };
 
   const handleAccept = async () => {
-    if (!estimate?.id || !signature) return;
+    if (!estimate?.id || !signature || !consent || signing) return;
     
     setSigning(true);
     try {
@@ -156,7 +161,7 @@ export const ShareableEstimate: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-4xl mx-auto py-8 px-4">
+      <div className="max-w-4xl mx-auto py-8 px-4" style={canSign ? { paddingBottom: 'calc(9rem + env(safe-area-inset-bottom, 0px))' } : undefined}>
         {/* Header */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 mb-6">
           <div className="flex justify-between items-start mb-6">
@@ -415,8 +420,8 @@ export const ShareableEstimate: React.FC = () => {
             </p>
           </div>
         ) : canSign ? (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Accept or Reject Estimate</h3>
+          <div ref={signatureSectionRef} id="estimate-signature" className="scroll-mt-6 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 tabIndex={-1} className="text-lg font-semibold text-gray-900 mb-4">Accept &amp; Sign</h3>
             
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -449,24 +454,13 @@ export const ShareableEstimate: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex gap-4">
-              <button
-                onClick={handleAccept}
-                disabled={!signature || signing}
-                className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-              >
-                <CheckCircle className="w-5 h-5" />
-                {signing ? 'Processing...' : 'Accept Estimate'}
-              </button>
-              
-              <button
-                onClick={handleReject}
-                className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-              >
-                <XCircle className="w-5 h-5" />
-                Reject Estimate
-              </button>
-            </div>
+            <label className="flex items-start gap-3 text-sm text-gray-700">
+              <input type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)} disabled={signing} className="mt-1 h-4 w-4 shrink-0" />
+              <span>I have reviewed this estimate and agree to the terms above.</span>
+            </label>
+            <button onClick={handleReject} disabled={signing} className="mt-4 text-sm text-red-600 hover:text-red-700 disabled:opacity-50">
+              Reject Estimate
+            </button>
           </div>
         ) : (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 text-center">
@@ -481,6 +475,27 @@ export const ShareableEstimate: React.FC = () => {
           </div>
         )}
       </div>
+      {canSign && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 bg-white px-4 pt-3 shadow-lg print:hidden" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}>
+          <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
+            <p className="text-sm text-gray-700" aria-live="polite">
+              {signature && consent ? 'Ready to accept' : 'Review the terms and add your signature'}
+            </p>
+            <button
+              onClick={signature && consent ? handleAccept : () => {
+                signatureSectionRef.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+                signatureSectionRef.current?.querySelector('h3')?.focus({ preventScroll: true });
+              }}
+              disabled={signing}
+              aria-controls="estimate-signature"
+              className="shrink-0 flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <CheckCircle className="w-5 h-5" />
+              {signing ? 'Processing...' : signature && consent ? 'Accept & sign' : 'Review & sign'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
