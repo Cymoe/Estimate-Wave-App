@@ -2,7 +2,10 @@ import Google from "@auth/core/providers/google";
 import { Password } from "@convex-dev/auth/providers/Password";
 import { convexAuth } from "@convex-dev/auth/server";
 import type { MutationCtx } from "./_generated/server";
-import { createOrganizationWithOwner } from "./lib/organizations";
+import {
+  acceptInvites,
+  createOrganizationWithOwner,
+} from "./lib/organizations";
 
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   providers: [
@@ -24,6 +27,8 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
       const ctx = genericCtx as unknown as MutationCtx;
       const user = await ctx.db.get(userId);
       const email = user?.email;
+      // A company set up for them in the Lead Market: join it instead of starting a new one.
+      if (email && (await acceptInvites(ctx, userId, email))) return;
       const displayName = user?.name ?? email?.split("@")[0] ?? "My";
       await createOrganizationWithOwner(ctx, userId, {
         name: `${displayName}'s Company`,

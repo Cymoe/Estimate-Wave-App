@@ -24,6 +24,7 @@ import { DashboardLayout } from './components/layouts/DashboardLayout';
 import MarkdownViewer from './components/docs/MarkdownViewer';
 import Templates from './pages/Templates';
 import LeadsPage from './pages/LeadsPage';
+import LeadMarketPage from './pages/LeadMarketPage';
 import IndustrySettings from './pages/IndustrySettings';
 import OrganizationSettings from './pages/OrganizationSettings';
 import { Expenses } from './pages/Expenses';
@@ -217,6 +218,16 @@ function AppRoutes() {
           <ProtectedRoute>
             <DashboardLayout fullWidth={true}>
               <LeadsPage />
+            </DashboardLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/lead-market"
+        element={
+          <ProtectedRoute>
+            <DashboardLayout fullWidth={true}>
+              <LeadMarketPage />
             </DashboardLayout>
           </ProtectedRoute>
         }

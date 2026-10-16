@@ -24,6 +24,13 @@ export function isSuperAdmin(user: Doc<"users">): boolean {
   return user.role === "super_admin";
 }
 
+/** Throws unless the signed-in user runs the platform (the Lead Market). */
+export async function requireSuperAdmin(ctx: Ctx): Promise<Doc<"users">> {
+  const user = await requireUser(ctx);
+  if (!isSuperAdmin(user)) fail("FORBIDDEN", "Only FieldQuote admins can do this");
+  return user;
+}
+
 /**
  * Throws unless the signed-in user belongs to the organization with at least
  * `minRole`. Super admins pass every check.

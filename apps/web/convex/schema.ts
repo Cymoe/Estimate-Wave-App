@@ -270,6 +270,20 @@ export const leadFields = {
   lostReason: v.optional(v.string()),
 };
 
+export const marketplaceLeadStatus = v.union(
+  v.literal("available"),
+  v.literal("assigned"),
+  v.literal("credited"),
+);
+
+export const walletTransactionType = v.union(
+  v.literal("top_up"),
+  v.literal("bonus"),
+  v.literal("lead_charge"),
+  v.literal("credit"),
+  v.literal("adjustment"),
+);
+
 export const expenseStatus = v.union(
   v.literal("pending"),
   v.literal("approved"),
@@ -338,8 +352,65 @@ export default defineSchema({
     .index("email", ["email"])
     .index("phone", ["phone"]),
 
-  organizations: defineTable({ ...organizationFields, ...timestamps })
-    .index("by_slug", ["slug"]),
+  organizations: defineTable({
+    ...organizationFields,
+    // Lead Market. Set by the server only: not in organizationFields, so
+    // organizations.update can't touch them.
+    walletBalanceCents: v.optional(v.number()),
+    // Trade slugs the company buys leads for.
+    leadTrades: v.optional(v.array(v.string())),
+    ...timestamps,
+  }).index("by_slug", ["slug"]),
+
+  // Lead Market inbox: leads the platform owns until they're sold to one company.
+  marketplaceLeads: defineTable({
+    name: v.string(),
+    phone: v.optional(v.string()),
+    email: v.optional(v.string()),
+    address: v.optional(v.string()),
+    city: v.optional(v.string()),
+    jobType: v.optional(v.string()),
+    source: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    status: marketplaceLeadStatus,
+    priceCents: v.optional(v.number()),
+    assignedOrganizationId: v.optional(v.id("organizations")),
+    assignedAt: v.optional(v.string()),
+    orgLeadId: v.optional(v.id("leads")),
+    createdBy: v.id("users"),
+    ...timestamps,
+  })
+    .index("by_status", ["status"])
+    .index("by_organization", ["assignedOrganizationId"]),
+
+  // Every change to a company's balance, never edited. walletBalanceCents
+  // on the organization is the running total, updated in the same mutation.
+  walletTransactions: defineTable({
+    organizationId: v.id("organizations"),
+    type: walletTransactionType,
+    amountCents: v.number(),
+    balanceAfterCents: v.number(),
+    marketplaceLeadId: v.optional(v.id("marketplaceLeads")),
+    method: v.optional(v.string()),
+    note: v.optional(v.string()),
+    createdBy: v.id("users"),
+    createdAt: v.string(),
+  }).index("by_organization", ["organizationId"]),
+
+  // What a lead costs, by trade (jobType "default" covers the rest).
+  leadPrices: defineTable({
+    jobType: v.string(),
+    priceCents: v.number(),
+    updatedAt: v.string(),
+  }).index("by_job_type", ["jobType"]),
+
+  // A company set up for someone who hasn't signed up yet; they join it on signup.
+  companyInvites: defineTable({
+    organizationId: v.id("organizations"),
+    email: v.string(),
+    createdAt: v.string(),
+    acceptedAt: v.optional(v.string()),
+  }).index("by_email", ["email"]),
 
   // Which users belong to which organizations (one user can be in several).
   memberships: defineTable({
@@ -422,6 +493,19 @@ export default defineSchema({
     isSample: v.optional(v.boolean()),
     // When the city was last worked out automatically, so it isn't looked up again.
     cityCheckedAt: v.optional(v.string()),
+    // Bought from the Lead Market (server-set, not in leadFields).
+    marketplaceLeadId: v.optional(v.id("marketplaceLeads")),
+    pricePaidCents: v.optional(v.number()),
+    assignedAt: v.optional(v.string()),
+    creditRequest: v.optional(
+      v.object({
+        reason: v.string(),
+        note: v.optional(v.string()),
+        requestedAt: v.string(),
+        status: v.union(v.literal("pending"), v.literal("approved"), v.literal("denied")),
+        reviewedAt: v.optional(v.string()),
+      }),
+    ),
     organizationId: v.id("organizations"),
     userId: v.id("users"),
     ...timestamps,

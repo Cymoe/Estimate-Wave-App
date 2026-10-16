@@ -3,6 +3,7 @@
 html.light .active\:bg-\[\#1A1A1A\]:active { background-color: #FFFFFF; }
 html.light .active\:bg-\[\#1E1E1E\]:active { background-color: #F7F8FA; }
 html.light .active\:bg-\[\#22272d\]:active { background-color: #F1F2F4; }
+html.light .active\:bg-\[\#222\]:active { background-color: #F7F8FA; }
 html.light .active\:bg-\[\#2a2a2a\]:active { background-color: #F1F2F4; }
 html.light .active\:bg-\[\#333333\]:active { background-color: #E8EAED; }
 html.light .active\:bg-\[\#3A3A3A\]:active { background-color: #E8EAED; }
@@ -214,11 +215,13 @@ html.light .text-\[\#6b7280\] { color: #7F8694; }
 html.light .text-\[\#7fb0e0\] { color: #245C94; }
 html.light .text-\[\#999\] { color: #666666; }
 html.light .text-\[\#9E9E9E\] { color: #616161; }
+html.light .text-\[\#9cc3ea\] { color: #205C97; }
 html.light .text-\[\#9cc4ea\] { color: #205D97; }
 html.light .text-\[\#A0AEC0\] { color: #49596E; }
 html.light .text-\[\#EC4899\] { color: #A6115B; }
 html.light .text-\[\#FFFFFF\] { color: #111827; }
 html.light .text-\[\#fbbf24\] { color: #AE8009; }
+html.light .text-amber-200 { color: #92400e; }
 html.light .text-amber-300 { color: #92400e; }
 html.light .text-amber-400 { color: #92400e; }
 html.light .text-blue-200 { color: #1d4ed8; }
@@ -266,6 +269,7 @@ html.light .text-yellow-400\/80 { color: rgba(133, 77, 14, 0.8); }
   html.light .\[\@media\(hover\:hover\)\]\:hover\:bg-\[\#1A1A1A\]:hover { background-color: #FFFFFF; }
   html.light .\[\@media\(hover\:hover\)\]\:hover\:bg-\[\#1E1E1E\]:hover { background-color: #F7F8FA; }
   html.light .\[\@media\(hover\:hover\)\]\:hover\:bg-\[\#22272d\]:hover { background-color: #F1F2F4; }
+  html.light .\[\@media\(hover\:hover\)\]\:hover\:bg-\[\#222\]:hover { background-color: #F7F8FA; }
   html.light .\[\@media\(hover\:hover\)\]\:hover\:bg-\[\#2a2a2a\]:hover { background-color: #F1F2F4; }
 }
 

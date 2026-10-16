@@ -19,6 +19,11 @@ export interface Lead {
   isSample?: boolean;
   createdAt?: string;
   estimate: { id: string; estimateNumber: string; status: string; totalAmount: number } | null;
+  /** Bought from the FieldQuote Lead Market. */
+  marketplaceLeadId?: string;
+  pricePaidCents?: number;
+  assignedAt?: string;
+  creditRequest?: { reason: string; note?: string; requestedAt: string; status: 'pending' | 'approved' | 'denied' };
 }
 
 export interface Trade {

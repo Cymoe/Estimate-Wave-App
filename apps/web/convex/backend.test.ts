@@ -917,3 +917,110 @@ describe("client link", () => {
   });
 });
 
+
+describe("lead market", () => {
+  async function market() {
+    const t = setup();
+    const admin = await signUp(t, "admin@fieldquote.example", { role: "super_admin" });
+    const roofer = await signUp(t, "roofer@example.com");
+    const painter = await signUp(t, "painter@example.com");
+    await admin.as.mutation(api.marketplace.setLeadPrice, { jobType: "roofing", price: 85 });
+    await admin.as.mutation(api.marketplace.setLeadPrice, { jobType: "default", price: 40 });
+    const lead = await admin.as.mutation(api.marketplace.createLead, {
+      data: { name: "  Jane Cole ", phone: "555-0101", jobType: "roofing", address: "1 Oak St" },
+    });
+    return { t, admin, roofer, painter, leadId: lead!._id };
+  }
+
+  test("only platform admins can run the market", async () => {
+    const { roofer, leadId } = await market();
+    await expect(roofer.as.query(api.marketplace.listInbox, {})).rejects.toThrow(/admins/);
+    await expect(roofer.as.mutation(api.marketplace.assign, { leadId, organizationId: roofer.organizationId })).rejects.toThrow(/admins/);
+    await expect(
+      roofer.as.mutation(api.marketplace.recordTopUp, { organizationId: roofer.organizationId, amount: 1000 }),
+    ).rejects.toThrow(/admins/);
+  });
+
+  test("a top-up and its bonus are recorded, and companies can't set their own balance", async () => {
+    const { admin, roofer } = await market();
+    await admin.as.mutation(api.marketplace.recordTopUp, {
+      organizationId: roofer.organizationId,
+      amount: 500,
+      bonus: 25,
+      method: "Zelle",
+    });
+    await roofer.as.mutation(api.organizations.update, { id: roofer.organizationId, data: { walletBalanceCents: 999999 } });
+    const wallet = await roofer.as.query(api.marketplace.wallet, { organizationId: roofer.organizationId });
+    expect(wallet.balanceCents).toBe(52500);
+    expect(wallet.transactions.map((t) => [t.type, t.amountCents, t.balanceAfterCents])).toEqual([
+      ["bonus", 2500, 52500],
+      ["top_up", 50000, 50000],
+    ]);
+  });
+
+  test("selling a lead charges its trade price once, and it goes to one company only", async () => {
+    const { admin, roofer, painter, leadId } = await market();
+    await expect(
+      admin.as.mutation(api.marketplace.assign, { leadId, organizationId: roofer.organizationId }),
+    ).rejects.toThrow(/Balance too low/);
+    await admin.as.mutation(api.marketplace.recordTopUp, { organizationId: roofer.organizationId, amount: 100 });
+    await admin.as.mutation(api.marketplace.recordTopUp, { organizationId: painter.organizationId, amount: 100 });
+    await admin.as.mutation(api.marketplace.assign, { leadId, organizationId: roofer.organizationId });
+    await expect(
+      admin.as.mutation(api.marketplace.assign, { leadId, organizationId: painter.organizationId }),
+    ).rejects.toThrow(/already sent/);
+
+    const leads = await roofer.as.query(api.leads.list, { organizationId: roofer.organizationId });
+    expect(leads).toHaveLength(1);
+    expect(leads[0]).toMatchObject({ name: "Jane Cole", source: "FieldQuote Lead", status: "new", pricePaidCents: 8500 });
+    expect((await roofer.as.query(api.marketplace.wallet, { organizationId: roofer.organizationId })).balanceCents).toBe(1500);
+    expect(await painter.as.query(api.leads.list, { organizationId: painter.organizationId })).toHaveLength(0);
+    // The other company can't see the buyer's wallet.
+    await expect(painter.as.query(api.marketplace.wallet, { organizationId: roofer.organizationId })).rejects.toThrow(/access/);
+
+    const overview = await admin.as.query(api.marketplace.companiesOverview, {});
+    expect(overview.find((c) => c.id === roofer.organizationId)).toMatchObject({ balanceCents: 1500, leads30d: 1, spent30dCents: 8500 });
+  });
+
+  test("a bad lead can be credited back once, within three days", async () => {
+    const { t, admin, roofer, leadId } = await market();
+    await admin.as.mutation(api.marketplace.recordTopUp, { organizationId: roofer.organizationId, amount: 100 });
+    const { orgLeadId } = await admin.as.mutation(api.marketplace.assign, { leadId, organizationId: roofer.organizationId });
+    await expect(roofer.as.mutation(api.marketplace.requestCredit, { leadId: orgLeadId, reason: "made_up" })).rejects.toThrow(/reason/);
+    await roofer.as.mutation(api.marketplace.requestCredit, { leadId: orgLeadId, reason: "wrong_number" });
+    await expect(roofer.as.mutation(api.marketplace.requestCredit, { leadId: orgLeadId, reason: "duplicate" })).rejects.toThrow(/already/);
+    // Companies can't approve their own credits or edit what they paid.
+    await expect(roofer.as.mutation(api.marketplace.reviewCredit, { orgLeadId, approve: true })).rejects.toThrow(/admins/);
+    await roofer.as.mutation(api.leads.update, { id: orgLeadId, data: { pricePaidCents: 1 } });
+
+    expect(await admin.as.query(api.marketplace.pendingCredits, {})).toHaveLength(1);
+    await admin.as.mutation(api.marketplace.reviewCredit, { orgLeadId, approve: true });
+    await expect(admin.as.mutation(api.marketplace.reviewCredit, { orgLeadId, approve: true })).rejects.toThrow(/no open credit/);
+    const wallet = await roofer.as.query(api.marketplace.wallet, { organizationId: roofer.organizationId });
+    expect(wallet.balanceCents).toBe(10000);
+    expect(wallet.transactions[0]).toMatchObject({ type: "credit", amountCents: 8500 });
+
+    // A lead older than three days can't be credited.
+    const old = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Old lead" } });
+    const { orgLeadId: oldLead } = await admin.as.mutation(api.marketplace.assign, { leadId: old!._id, organizationId: roofer.organizationId });
+    await t.run(async (ctx) => ctx.db.patch(oldLead, { assignedAt: new Date(Date.now() - 4 * 24 * 3600 * 1000).toISOString() }));
+    await expect(roofer.as.mutation(api.marketplace.requestCredit, { leadId: oldLead, reason: "duplicate" })).rejects.toThrow(/3 days/);
+  });
+
+  test("a company set up for a new contractor becomes theirs when they sign up", async () => {
+    const { t, admin } = await market();
+    const company = await admin.as.mutation(api.marketplace.createCompany, {
+      data: { name: "Peak Roofing", ownerEmail: "Owner@Peak.example", leadTrades: ["roofing"] },
+    });
+    const userId = await t.run(async (ctx) => {
+      const id = await ctx.db.insert("users", { email: "owner@peak.example" });
+      const { acceptInvites } = await import("./lib/organizations");
+      await acceptInvites(ctx, id, "owner@peak.example");
+      return id;
+    });
+    const owner = t.withIdentity({ subject: `${userId}|session-x` });
+    const orgs = await owner.query(api.organizations.list, {});
+    expect(orgs.map((o) => o._id)).toEqual([company!._id]);
+    expect(await owner.query(api.organizations.myRole, { id: company!._id })).toBe("owner");
+  });
+});

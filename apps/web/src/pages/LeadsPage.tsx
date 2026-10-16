@@ -10,6 +10,7 @@ import { formatCurrency } from '../utils/format';
 import { LeadsCalendar } from '../components/leads/LeadsCalendar';
 import { AppointmentField } from '../components/leads/AppointmentField';
 import { LeadDrawer } from '../components/leads/LeadDrawer';
+import { WalletBar } from '../components/market/WalletBar';
 import { STATUSES, type Lead, type LeadStatus, type Trade } from '../components/leads/leadTypes';
 import { appointmentDay, formatAppointmentShort, toLocalInput } from '../utils/appointments';
 
@@ -292,6 +293,7 @@ const LeadsPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white">
       <div className="p-6">
+        <WalletBar organizationId={organizationId} refreshKey={leads.length} />
         {hasSamples && (
           <div className="mb-4 px-4 py-3 border border-[#336699]/50 bg-[#336699]/10 text-sm flex items-center justify-between gap-3">
             <span className="text-gray-300">You're looking at sample leads. Add your own any time.</span>

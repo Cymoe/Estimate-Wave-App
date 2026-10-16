@@ -19,6 +19,7 @@ import {
 import { leadsAPI } from '../../lib/api';
 import { appointmentDay, toLocalInput } from '../../utils/appointments';
 import { AppointmentField } from './AppointmentField';
+import { LeadCredit } from '../market/LeadCredit';
 import { KNOWN_CITIES, SOURCES, STATUSES, type Lead, type LeadStatus, type Trade } from './leadTypes';
 
 /** The text fields, held as strings while editing. */
@@ -315,6 +316,8 @@ export const LeadDrawer: React.FC<{
               ))}
             </select>
           </label>
+
+          {lead && <LeadCredit lead={lead} onRequested={(creditRequest) => onChanged(lead, { creditRequest })} />}
 
           {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
 

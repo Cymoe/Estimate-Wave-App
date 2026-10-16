@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText, FolderOpen, User, UserPlus } from 'lucide-react';
+import { Building2, FileText, FolderOpen, Inbox, User, UserPlus } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface QuickCreateOption {
   id: string;
@@ -21,6 +22,7 @@ interface Props {
  */
 export const QuickCreateMenu: React.FC<Props> = ({ isOpen, onClose }) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [selectedIndex, setSelectedIndex] = useState(-1);
 
   const options: QuickCreateOption[] = [
@@ -28,6 +30,13 @@ export const QuickCreateMenu: React.FC<Props> = ({ isOpen, onClose }) => {
     { id: 'estimate', name: 'Estimate', icon: FileText, action: () => navigate('/work?new=1') },
     { id: 'project', name: 'Project', icon: FolderOpen, action: () => navigate('/projects?new=1') },
     { id: 'client', name: 'Client', icon: User, action: () => navigate('/clients/new') },
+    // Platform admins also stock the Lead Market from here.
+    ...(user?.role === 'super_admin'
+      ? [
+          { id: 'market-lead', name: 'Market lead', icon: Inbox, action: () => navigate('/lead-market?new=lead') },
+          { id: 'company', name: 'Company', icon: Building2, action: () => navigate('/lead-market?new=company') },
+        ]
+      : []),
   ];
 
   const choose = (option: QuickCreateOption) => {

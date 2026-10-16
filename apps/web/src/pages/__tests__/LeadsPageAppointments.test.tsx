@@ -17,6 +17,7 @@ const update = jest.fn(async (id: string, data: Record<string, unknown>) => {
 jest.mock('../../lib/api', () => ({
   leadsAPI: { list: jest.fn(async () => rows.map((row) => ({ ...row }))), watch: () => () => {}, fillMissingCities: async () => ({}), update: (...args: [string, Record<string, unknown>]) => update(...args) },
   industriesAPI: { list: jest.fn(async () => []) },
+  walletAPI: { get: jest.fn(async () => null) },
 }));
 jest.mock('../../services/EstimateService', () => ({ EstimateService: {} }));
 jest.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }));

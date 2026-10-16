@@ -418,4 +418,30 @@ export const leadsAPI = {
   },
 };
 
+/** The Lead Market (platform admins), plus each company's wallet. */
+export const marketplaceAPI = {
+  inbox: () => run('query', api.marketplace.listInbox, {}),
+  createLead: (data: any) => run('mutation', api.marketplace.createLead, { data }),
+  importLeads: (leads: any[]) => run('mutation', api.marketplace.importLeads, { leads }),
+  updateLead: (id: string, data: any) => run('mutation', api.marketplace.updateLead, { id, data }),
+  removeLead: (id: string) => run('mutation', api.marketplace.removeLead, { id }),
+  assign: (leadId: string, organizationId: string) => run('mutation', api.marketplace.assign, { leadId, organizationId }),
+  companies: () => run('query', api.marketplace.companiesOverview, {}),
+  createCompany: (data: any) => run('mutation', api.marketplace.createCompany, { data }),
+  setCompanyTrades: (organizationId: string, leadTrades: string[]) =>
+    run('mutation', api.marketplace.setCompanyTrades, { organizationId, leadTrades }),
+  recordTopUp: (organizationId: string, payment: { amount: number; bonus?: number; method?: string; note?: string }) =>
+    run('mutation', api.marketplace.recordTopUp, defined({ organizationId, ...payment })),
+  prices: () => run('query', api.marketplace.listLeadPrices, {}),
+  setPrice: (jobType: string, price: number | null) => run('mutation', api.marketplace.setLeadPrice, { jobType, price }),
+  pendingCredits: () => run('query', api.marketplace.pendingCredits, {}),
+  reviewCredit: (orgLeadId: string, approve: boolean) => run('mutation', api.marketplace.reviewCredit, { orgLeadId, approve }),
+};
+
+export const walletAPI = {
+  get: (organizationId: string) => run('query', api.marketplace.wallet, { organizationId }),
+  requestCredit: (leadId: string, reason: string, note?: string) =>
+    run('mutation', api.marketplace.requestCredit, defined({ leadId, reason, note })),
+};
+
 export { APIError };
