@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
+import { FEATURES } from '../../config/features';
 
 interface SidebarProps {
   isSidebarCollapsed: boolean;
@@ -157,6 +158,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Grid navigation */}
           <div className={`${isSidebarCollapsed ? 'grid grid-cols-1' : 'grid grid-cols-2'} gap-0`}>
             {/* Profit Tracker (formerly Dashboard) */}
+            {FEATURES.profitTracker && (
             <NavLink
               to="/profit-tracker"
               className={({ isActive }) =>
@@ -181,6 +183,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </>
               )}
             </NavLink>
+            )}
 
             {/* Price Book */}
             <NavLink
@@ -285,6 +288,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </NavLink>
 
             {/* Projects */}
+            {FEATURES.projects && (
             <NavLink
               to="/projects"
               className={({ isActive }) =>
@@ -309,12 +313,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </>
               )}
             </NavLink>
+            )}
 
           </div>
 
 
           {/* Recent Projects Section */}
-          {!isSidebarCollapsed && (
+          {FEATURES.projects && !isSidebarCollapsed && (
             <div>
               {/* Projects without padding */}
               <div className="mb-2">
@@ -402,7 +407,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
         
         <div className="mt-auto flex-shrink-0">
-          {/* Live Revenue - visible in both expanded and collapsed states */}
+          {/* Live Revenue (part of the Profit Tracker, switched off for now) */}
+          {FEATURES.profitTracker && (
           <div className="p-2">
             {!isSidebarCollapsed ? (
               <div className="bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md p-2.5 rounded-[2px] border border-[#336699]/50 shadow-[0_0_10px_rgba(51,102,153,0.15)]">
@@ -486,6 +492,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             )}
           </div>
+          )}
 
           {/* User Profile Section */}
           <div className="relative border-t border-gray-700">

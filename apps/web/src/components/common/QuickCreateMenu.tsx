@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Building2, FileText, FolderOpen, Inbox, User, UserPlus } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { FEATURES } from '../../config/features';
 
 interface QuickCreateOption {
   id: string;
@@ -28,7 +29,9 @@ export const QuickCreateMenu: React.FC<Props> = ({ isOpen, onClose }) => {
   const options: QuickCreateOption[] = [
     { id: 'lead', name: 'Lead', icon: UserPlus, action: () => navigate('/leads?new=1') },
     { id: 'estimate', name: 'Estimate', icon: FileText, action: () => navigate('/work?new=1') },
-    { id: 'project', name: 'Project', icon: FolderOpen, action: () => navigate('/projects?new=1') },
+    ...(FEATURES.projects
+      ? [{ id: 'project', name: 'Project', icon: FolderOpen, action: () => navigate('/projects?new=1') }]
+      : []),
     { id: 'client', name: 'Client', icon: User, action: () => navigate('/clients/new') },
     // Platform admins also stock the Lead Market from here.
     ...(user?.role === 'super_admin'

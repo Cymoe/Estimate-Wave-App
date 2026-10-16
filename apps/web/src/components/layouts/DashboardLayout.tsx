@@ -46,6 +46,7 @@ import { IndustryBanner } from '../common/IndustryBanner';
 import { IndustryManagementDrawer } from '../common/IndustryManagementDrawer';
 import { ProjectPreviewPanel } from '../projects/ProjectPreviewPanel';
 import { useProjectShortcuts, type ProjectShortcut } from '../projects/useProjectShortcuts';
+import { FEATURES } from '../../config/features';
 import { projectStatusInfo } from '../projects/projectStatus';
 
 interface DashboardLayoutProps {
@@ -144,6 +145,8 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
   const [isProjectsSidebarOpen, setIsProjectsSidebarOpen] = useState(false);
   const [isProjectsSidebarClosing, setIsProjectsSidebarClosing] = useState(false);
   const [isProjectsSidebarLocked, setIsProjectsSidebarLocked] = useState(() => {
+    // Projects are switched off for now: never reopen a panel locked open earlier.
+    if (!FEATURES.projects) return false;
     try {
       const saved = localStorage.getItem('projectsSidebarLocked');
       return saved ? JSON.parse(saved) : false;
@@ -344,10 +347,11 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
 
   // The org's real projects, for the sidebar shortcuts and the projects pane.
   const { projects: shortcutProjects, refresh: refreshShortcuts } = useProjectShortcuts(
-    selectedOrg?.id && selectedOrg.name !== 'Loading...' ? selectedOrg.id : undefined,
+    FEATURES.projects && selectedOrg?.id && selectedOrg.name !== 'Loading...' ? selectedOrg.id : undefined,
   );
   // Pick up projects and expenses added or changed elsewhere.
   useEffect(() => {
+    if (!FEATURES.projects) return;
     if (location.pathname.startsWith('/projects') || isProjectsSidebarOpen || isProjectsSidebarLocked) refreshShortcuts();
   }, [location.pathname, isProjectsSidebarOpen, isProjectsSidebarLocked, refreshShortcuts]);
 

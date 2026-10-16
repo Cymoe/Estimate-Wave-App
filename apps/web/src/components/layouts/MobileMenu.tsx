@@ -2,6 +2,7 @@ import React from 'react';
 import { X, ChevronRight, User, Building, CreditCard, HelpCircle, LogOut } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { FEATURES } from '../../config/features';
 
 interface MobileMenuProps {
   isOpen: boolean;
@@ -82,6 +83,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
 
         {/* Navigation Links */}
         <nav className="p-4 space-y-2">
+          {FEATURES.profitTracker && (
           <NavLink
             to="/profit-tracker"
             onClick={onClose}
@@ -96,6 +98,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
             <span className="text-lg">💰</span>
             <span>Profit Tracker</span>
           </NavLink>
+          )}
 
 
           <NavLink

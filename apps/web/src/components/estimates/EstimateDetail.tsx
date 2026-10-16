@@ -1,3 +1,4 @@
+import { FEATURES } from '../../config/features';
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -665,7 +666,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                 )}
               </div>
             </div>
-            {estimate.project && (
+            {FEATURES.projects && estimate.project && (
               <button
                 type="button"
                 onClick={() => navigate(`/projects/${estimate.project!.id}`)}

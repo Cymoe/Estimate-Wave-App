@@ -23,6 +23,7 @@ import LineItemTestPage from './pages/LineItemTestPage';
 import { DashboardLayout } from './components/layouts/DashboardLayout';
 import MarkdownViewer from './components/docs/MarkdownViewer';
 import Templates from './pages/Templates';
+import { FEATURES, HOME_PATH } from './config/features';
 import LeadsPage from './pages/LeadsPage';
 import LeadMarketPage from './pages/LeadMarketPage';
 import FundAccountPage from './pages/FundAccountPage';
@@ -125,7 +126,7 @@ function AppRoutes() {
   // If we have a user and session, redirect to dashboard from root
   const renderLanding = () => {
     if (user && session && !isLoading) {
-      return <Navigate to="/profit-tracker" replace />;
+      return <Navigate to={HOME_PATH} replace />;
     }
     return <LandingPage />;
   };
@@ -169,7 +170,7 @@ function AppRoutes() {
         path="/dashboard"
         element={
           <ProtectedRoute>
-            <Navigate to="/profit-tracker" replace />
+            <Navigate to={HOME_PATH} replace />
           </ProtectedRoute>
         }
       />
@@ -177,9 +178,13 @@ function AppRoutes() {
         path="/profit-tracker"
         element={
           <ProtectedRoute>
-            <DashboardLayout>
-              <Dashboard />
-            </DashboardLayout>
+            {FEATURES.profitTracker ? (
+              <DashboardLayout>
+                <Dashboard />
+              </DashboardLayout>
+            ) : (
+              <Navigate to={HOME_PATH} replace />
+            )}
           </ProtectedRoute>
         }
       />
@@ -283,9 +288,13 @@ function AppRoutes() {
         path="/projects"
         element={
           <ProtectedRoute>
-            <DashboardLayout fullWidth={true}>
-              <ProjectsPage />
-            </DashboardLayout>
+            {FEATURES.projects ? (
+              <DashboardLayout fullWidth={true}>
+                <ProjectsPage />
+              </DashboardLayout>
+            ) : (
+              <Navigate to={HOME_PATH} replace />
+            )}
           </ProtectedRoute>
         }
       />
@@ -381,9 +390,13 @@ function AppRoutes() {
         path="/projects/:id"
         element={
           <ProtectedRoute>
-            <DashboardLayout>
-              <ProjectDetails />
-            </DashboardLayout>
+            {FEATURES.projects ? (
+              <DashboardLayout>
+                <ProjectDetails />
+              </DashboardLayout>
+            ) : (
+              <Navigate to={HOME_PATH} replace />
+            )}
           </ProtectedRoute>
         }
       />
