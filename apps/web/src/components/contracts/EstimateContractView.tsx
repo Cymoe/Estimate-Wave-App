@@ -1,12 +1,10 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, FileText, Edit, Save, Download } from 'lucide-react';
 import { EstimateService, Estimate } from '../../services/EstimateService';
 import { Business, ContractData, ContractTerms, contractFor, missingBusinessDetails } from '../../services/contract';
 import { organizationsAPI } from '../../lib/api';
 import { AgreementTerms, ContractSignatures } from './AgreementTerms';
-import { OrganizationContext } from '../layouts/DashboardLayout';
-
 export const EstimateContractView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -17,7 +15,6 @@ export const EstimateContractView: React.FC = () => {
     if (location.key !== 'default') navigate(-1);
     else navigate(`/estimates/${id}`, { replace: true, state: { closeTo: '/work' } });
   };
-  const { selectedOrg } = useContext(OrganizationContext);
   const [estimate, setEstimate] = useState<Estimate | null>(null);
   const [business, setBusiness] = useState<Business | null>(null);
   const [businessLoaded, setBusinessLoaded] = useState(false);
@@ -47,11 +44,13 @@ export const EstimateContractView: React.FC = () => {
   }, [id]);
 
   // The business details fill in when they arrive; the contract doesn't wait for them.
+  // This page is outside DashboardLayout, so the organization comes from the estimate.
+  const organizationId = estimate?.organization_id;
   useEffect(() => {
-    if (!selectedOrg?.id) return;
+    if (!organizationId) return;
     let cancelled = false;
     organizationsAPI
-      .getById(selectedOrg.id)
+      .getById(organizationId)
       .then((org: Business | null) => {
         if (cancelled) return;
         setBusiness(org);
@@ -61,7 +60,7 @@ export const EstimateContractView: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [selectedOrg?.id]);
+  }, [organizationId]);
 
   const contract: ContractData | null = estimate ? contractFor(estimate, business) : null;
   // While editing, show the terms being typed.
