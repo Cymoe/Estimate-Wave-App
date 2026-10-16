@@ -8,20 +8,28 @@ const assign = jest.fn(async () => ({ orgLeadId: 'ol1', priceCents: 8500 }));
 const requestCredit = jest.fn(async () => undefined);
 let wallet: Record<string, unknown> | null = null;
 let role = 'super_admin';
+let emptyMarket = false;
+let demoCompanies = false;
+const addDemoData = jest.fn(async () => { demoCompanies = true; });
+const removeDemoData = jest.fn(async () => { demoCompanies = false; });
 
 jest.mock('../../../lib/api', () => ({
   marketplaceAPI: {
     inbox: async () => ({
-      available: [{ id: 'm1', name: 'Jane Cole', jobType: 'roofing', city: 'Midland', status: 'available', price: 8500, createdAt: '2026-10-16' }],
+      available: emptyMarket ? [] : [{ id: 'm1', name: 'Jane Cole', jobType: 'roofing', city: 'Midland', status: 'available', price: 8500, createdAt: '2026-10-16' }],
       sold: [],
     }),
-    companies: async () => [
+    companies: async () => demoCompanies
+      ? [{ id: 'd1', name: 'Permian Roofing & Exteriors', leadTrades: ['roofing'], balanceCents: 101500, leads30d: 1, spent30dCents: 8500, leadsTotal: 1, wonCents: 1850000, wonCount: 1, pendingCredits: 0, isSample: true }]
+      : [
       { id: 'o1', name: 'Broke Roofing', leadTrades: ['roofing'], balanceCents: 1000, leads30d: 0, spent30dCents: 0, leadsTotal: 0, wonCents: 0, wonCount: 0, pendingCredits: 0 },
       { id: 'o2', name: 'Peak Roofing', leadTrades: ['roofing'], balanceCents: 50000, leads30d: 2, spent30dCents: 17000, leadsTotal: 2, wonCents: 1200000, wonCount: 1, pendingCredits: 0 },
       { id: 'o3', name: 'Ace Painting', leadTrades: ['painting'], balanceCents: 90000, leads30d: 0, spent30dCents: 0, leadsTotal: 0, wonCents: 0, wonCount: 0, pendingCredits: 0 },
     ],
     pendingCredits: async () => [],
     assign: (...args: unknown[]) => assign(...(args as [])),
+    addDemoData: () => addDemoData(),
+    removeDemoData: () => removeDemoData(),
   },
   walletAPI: {
     get: async () => wallet,
@@ -54,6 +62,8 @@ afterEach(() => {
   jest.clearAllMocks();
   role = 'super_admin';
   wallet = null;
+  emptyMarket = false;
+  demoCompanies = false;
 });
 
 describe('Lead Market', () => {
@@ -75,6 +85,20 @@ describe('Lead Market', () => {
     await flush();
     expect(assign).toHaveBeenCalledWith('m1', 'o2');
     expect(document.body.textContent).toContain('Jane Cole sent to Peak Roofing');
+  });
+
+  it('fills an empty market with demo companies, and removes them in one tap', async () => {
+    emptyMarket = true;
+    await render(<LeadMarketPage />);
+    await act(async () => byText('Add demo companies and leads')!.click());
+    await flush();
+    expect(addDemoData).toHaveBeenCalled();
+    expect(document.body.textContent).toContain("You're looking at demo companies and leads.");
+    expect(byText('Add demo companies and leads')).toBeUndefined();
+    await act(async () => byText('Remove demo data')!.click());
+    await flush();
+    expect(removeDemoData).toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain("You're looking at demo companies");
   });
 
   it('suggests a bonus for bigger payments', () => {

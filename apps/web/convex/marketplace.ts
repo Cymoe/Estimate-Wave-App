@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type MutationCtx } from "./_generated/server";
 import {
   fail,
   logActivity,
@@ -11,6 +11,7 @@ import {
   requireUser,
 } from "./lib/access";
 import { createOrganization } from "./lib/organizations";
+import { deleteOrganization } from "./lib/cleanup";
 import { leadPriceCents, postTransaction } from "./lib/wallet";
 import { findCity } from "./leadCity";
 
@@ -187,6 +188,18 @@ export const assign = mutation({
   },
   handler: async (ctx, { leadId, organizationId }) => {
     const user = await requireSuperAdmin(ctx);
+    return await sellLead(ctx, user._id, leadId, organizationId);
+  },
+});
+
+async function sellLead(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  leadId: Id<"marketplaceLeads">,
+  organizationId: Id<"organizations">,
+) {
+  const user = { _id: userId };
+  {
     const lead = await ctx.db.get(leadId);
     if (lead === null) fail("NOT_FOUND", "Lead not found");
     if (lead.status !== "available")
@@ -241,8 +254,8 @@ export const assign = mutation({
     const delivered = (await ctx.db.get(orgLeadId))!;
     if (!delivered.city) await findCity(ctx, delivered);
     return { orgLeadId, priceCents };
-  },
-});
+  }
+}
 
 // ---- Money ----
 
@@ -398,6 +411,7 @@ export const companiesOverview = query({
           ).length,
           invitePending:
             invite !== null && !invite.acceptedAt ? invite.email : undefined,
+          isSample: org.isSample === true,
         };
       }),
     );
@@ -628,5 +642,286 @@ export const pendingCredits = query({
       }),
     );
     return rows.filter((r) => r !== null);
+  },
+});
+
+// ---- Demo data ----
+
+const DEMO_COMPANIES: Array<{
+  name: string;
+  phone: string;
+  email: string;
+  city: string;
+  leadTrades: string[];
+  payment: number;
+  bonus?: number;
+  method: string;
+}> = [
+  {
+    name: "Permian Roofing & Exteriors",
+    phone: "(432) 555-0142",
+    email: "office@permianroofing.example",
+    city: "Midland",
+    leadTrades: ["roofing"],
+    payment: 1000,
+    bonus: 100,
+    method: "Zelle",
+  },
+  {
+    name: "Basin Paint Co.",
+    phone: "(432) 555-0178",
+    email: "jobs@basinpaint.example",
+    city: "Odessa",
+    leadTrades: ["painting"],
+    payment: 500,
+    bonus: 25,
+    method: "Check",
+  },
+  {
+    name: "West Texas Plumbing Pros",
+    phone: "(432) 555-0119",
+    email: "dispatch@wtxplumbing.example",
+    city: "Midland",
+    leadTrades: ["plumbing"],
+    payment: 250,
+    method: "Card",
+  },
+  {
+    name: "Desert Air HVAC",
+    phone: "(432) 555-0163",
+    email: "service@desertairhvac.example",
+    city: "Odessa",
+    leadTrades: ["hvac"],
+    payment: 500,
+    bonus: 25,
+    method: "Zelle",
+  },
+  {
+    name: "Lone Star Concrete",
+    phone: "(432) 555-0187",
+    email: "bids@lonestarconcrete.example",
+    city: "Big Spring",
+    leadTrades: ["concrete"],
+    payment: 0,
+    method: "Zelle",
+  },
+  {
+    name: "Midland Handyman Services",
+    phone: "(432) 555-0131",
+    email: "hello@midlandhandyman.example",
+    city: "Midland",
+    leadTrades: ["handyman"],
+    payment: 150,
+    method: "Cash",
+  },
+];
+
+const DEMO_PRICES: Record<string, number> = {
+  default: 45,
+  roofing: 85,
+  hvac: 65,
+  concrete: 60,
+  plumbing: 45,
+  painting: 35,
+  handyman: 25,
+};
+
+// [name, phone, address, city, trade, what they need]
+const DEMO_LEADS: Array<[string, string, string, string, string, string]> = [
+  [
+    "Jane Cole",
+    "(432) 555-2210",
+    "4107 Shell Ave",
+    "Midland",
+    "roofing",
+    "Hail damage from last week's storm. Insurance adjuster already came out; wants a full replacement quote.",
+  ],
+  [
+    "Marcus Reyes",
+    "(432) 555-2264",
+    "2915 E 18th St",
+    "Odessa",
+    "painting",
+    "Exterior repaint, 2-story brick and siding, about 2,400 sq ft. Wants it done before Thanksgiving.",
+  ],
+  [
+    "Dana Whitfield",
+    "(432) 555-2231",
+    "1802 Princeton Ave",
+    "Midland",
+    "plumbing",
+    "50-gallon gas water heater leaking from the bottom. Needs replacement this week.",
+  ],
+  [
+    "Luis Ortega",
+    "(432) 555-2290",
+    "3610 N Dixie Blvd",
+    "Odessa",
+    "hvac",
+    "Upstairs AC blowing warm. Unit is 14 years old; open to replacing it.",
+  ],
+  [
+    "Brenda Haskins",
+    "(432) 555-2207",
+    "906 W Ohio Ave",
+    "Midland",
+    "concrete",
+    "Cracked driveway, about 20x40 ft. Wants tear-out and a new pour, possibly stamped.",
+  ],
+  [
+    "Kevin Tran",
+    "(432) 555-2248",
+    "5201 Cimmaron Ave",
+    "Midland",
+    "handyman",
+    "Fence gate repair, two interior doors rehung, and a ceiling fan installed.",
+  ],
+  [
+    "Rachel Monroe",
+    "(432) 555-2275",
+    "1213 Andrews Hwy",
+    "Midland",
+    "roofing",
+    "Small leak over the garage after rain. Wants an inspection and repair estimate.",
+  ],
+  [
+    "Tony Delgado",
+    "(432) 555-2216",
+    "2401 Kermit Hwy",
+    "Odessa",
+    "painting",
+    "Interior repaint, whole house, about 1,800 sq ft. Moving in next month.",
+  ],
+  [
+    "Sharon Pike",
+    "(432) 555-2253",
+    "4408 Neely Ave",
+    "Midland",
+    "plumbing",
+    "Slow drains in two bathrooms and a running toilet.",
+  ],
+  [
+    "Gary Lindsey",
+    "(432) 555-2299",
+    "711 E Pecan St",
+    "Big Spring",
+    "hvac",
+    "Wants a quote for a new 3-ton heat pump before winter.",
+  ],
+];
+
+// Already sold: [lead index, company index, the company's progress, job value if won]
+const DEMO_SALES: Array<[number, number, Doc<"leads">["status"], number?]> = [
+  [0, 0, "won", 18500],
+  [1, 1, "quoted"],
+  [3, 3, "won", 7200],
+  [5, 5, "contacted"],
+];
+
+/** Fills an empty Lead Market with realistic demo companies and leads, all removable. */
+export const addDemoData = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireSuperAdmin(ctx);
+    if (
+      (await ctx.db
+        .query("organizations")
+        .filter((q) => q.eq(q.field("isSample"), true))
+        .first()) !== null
+    ) {
+      fail("INVALID", "Demo companies are already here");
+    }
+    const now = nowIso();
+    // Typical prices by trade, only if none have been set yet.
+    if ((await ctx.db.query("leadPrices").first()) === null) {
+      for (const [jobType, dollars] of Object.entries(DEMO_PRICES)) {
+        await ctx.db.insert("leadPrices", {
+          jobType,
+          priceCents: dollars * 100,
+          updatedAt: now,
+        });
+      }
+    }
+    const companyIds: Id<"organizations">[] = [];
+    for (const company of DEMO_COMPANIES) {
+      const id = await createOrganization(ctx, {
+        name: company.name,
+        phone: company.phone,
+        email: company.email,
+        city: company.city,
+        state: "TX",
+        leadTrades: company.leadTrades,
+        walletBalanceCents: 0,
+        isSample: true,
+      });
+      if (company.payment > 0) {
+        await postTransaction(ctx, id, {
+          type: "top_up",
+          amountCents: company.payment * 100,
+          createdBy: user._id,
+          method: company.method,
+        });
+      }
+      if (company.bonus) {
+        await postTransaction(ctx, id, {
+          type: "bonus",
+          amountCents: company.bonus * 100,
+          createdBy: user._id,
+          note: "Bonus",
+        });
+      }
+      companyIds.push(id);
+    }
+    const leadIds: Id<"marketplaceLeads">[] = [];
+    for (const [name, phone, address, city, jobType, notes] of DEMO_LEADS) {
+      leadIds.push(
+        await ctx.db.insert("marketplaceLeads", {
+          name,
+          phone,
+          address,
+          city,
+          jobType,
+          notes,
+          source: "Demo",
+          status: "available",
+          isSample: true,
+          createdBy: user._id,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      );
+    }
+    for (const [leadIndex, companyIndex, status, value] of DEMO_SALES) {
+      const { orgLeadId } = await sellLead(
+        ctx,
+        user._id,
+        leadIds[leadIndex],
+        companyIds[companyIndex],
+      );
+      await ctx.db.patch(orgLeadId, {
+        status,
+        ...(value ? { estimatedValue: value } : {}),
+      });
+    }
+    return { companies: companyIds.length, leads: leadIds.length };
+  },
+});
+
+/** Removes every demo company and demo lead, with their balances and history. */
+export const removeDemoData = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireSuperAdmin(ctx);
+    const companies = await ctx.db
+      .query("organizations")
+      .filter((q) => q.eq(q.field("isSample"), true))
+      .collect();
+    const leads = await ctx.db
+      .query("marketplaceLeads")
+      .filter((q) => q.eq(q.field("isSample"), true))
+      .collect();
+    for (const lead of leads) await ctx.db.delete(lead._id);
+    for (const company of companies) await deleteOrganization(ctx, company._id);
+    return { companies: companies.length, leads: leads.length };
   },
 });

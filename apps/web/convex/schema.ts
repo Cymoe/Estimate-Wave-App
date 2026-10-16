@@ -359,6 +359,8 @@ export default defineSchema({
     walletBalanceCents: v.optional(v.number()),
     // Trade slugs the company buys leads for.
     leadTrades: v.optional(v.array(v.string())),
+    // Demo company added from the Lead Market; removable in one click.
+    isSample: v.optional(v.boolean()),
     ...timestamps,
   }).index("by_slug", ["slug"]),
 
@@ -377,6 +379,7 @@ export default defineSchema({
     assignedOrganizationId: v.optional(v.id("organizations")),
     assignedAt: v.optional(v.string()),
     orgLeadId: v.optional(v.id("leads")),
+    isSample: v.optional(v.boolean()),
     createdBy: v.id("users"),
     ...timestamps,
   })

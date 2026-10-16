@@ -83,3 +83,9 @@ jobs:
 
       - name: Smoke test the live deployment
         run: node scripts/convex-smoke-test.mjs
+
+      - name: Remove smoke-test data
+        # The smoke test signs up a throwaway @fieldquote.test account (with a
+        # company); delete it so test companies don't pile up.
+        if: always()
+        run: npx convex run seed:removeSmokeTests

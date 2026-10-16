@@ -4,6 +4,7 @@ import type { Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, type MutationCtx } from "./_generated/server";
 import { STARTER_COST_CODES, STARTER_INDUSTRIES, STARTER_ITEMS } from "./catalog/starterCatalog";
 import { nowIso } from "./lib/access";
+import { deleteOrganization, deleteUser } from "./lib/cleanup";
 
 /**
  * Starter catalog shared by every organization: the pricing-mode presets and
@@ -215,5 +216,43 @@ export const makeSuperAdmin = internalMutation({
     if (user === null) throw new Error(`No user with email ${email}`);
     await ctx.db.patch(user._id, { role: "super_admin" });
     return user._id;
+  },
+});
+
+/**
+ * Removes the throwaway accounts the deploy smoke test signs up
+ * (`@fieldquote.test` emails) with the companies only they belong to. A
+ * company another person has joined is kept. Run after every deploy.
+ *
+ *   npx convex run seed:removeSmokeTests
+ */
+export const removeSmokeTests = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const users = (await ctx.db.query("users").take(10000)).filter((u) => u.email?.endsWith("@fieldquote.test"));
+    let companies = 0;
+    let records = 0;
+    for (const user of users) {
+      const memberships = await ctx.db
+        .query("memberships")
+        .withIndex("by_user", (q) => q.eq("userId", user._id))
+        .collect();
+      for (const membership of memberships) {
+        const members = await ctx.db
+          .query("memberships")
+          .withIndex("by_organization", (q) => q.eq("organizationId", membership.organizationId))
+          .collect();
+        if (members.every((m) => m.userId === user._id)) {
+          if ((await ctx.db.get(membership.organizationId)) !== null) {
+            records += await deleteOrganization(ctx, membership.organizationId);
+            companies++;
+          }
+        } else {
+          await ctx.db.delete(membership._id);
+        }
+      }
+      await deleteUser(ctx, user._id);
+    }
+    return { users: users.length, companies, records };
   },
 });

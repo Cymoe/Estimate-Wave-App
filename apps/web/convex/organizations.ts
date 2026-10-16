@@ -11,7 +11,8 @@ export const list = query({
   handler: async (ctx) => {
     const user = await requireUser(ctx);
     if (isSuperAdmin(user)) {
-      return await ctx.db.query("organizations").order("desc").take(500);
+      // Deactivated companies (e.g. ones removed by their owner) stay hidden.
+      return (await ctx.db.query("organizations").order("desc").take(500)).filter((org) => org.isActive);
     }
     const ids = await organizationIdsFor(ctx, user._id);
     const orgs = await Promise.all(ids.map((id) => ctx.db.get(id)));

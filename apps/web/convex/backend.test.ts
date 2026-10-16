@@ -1024,3 +1024,60 @@ describe("lead market", () => {
     expect(await owner.query(api.organizations.myRole, { id: company!._id })).toBe("owner");
   });
 });
+
+describe("smoke tests and demo data", () => {
+  test("super admins don't see deactivated companies", async () => {
+    const t = setup();
+    const admin = await signUp(t, "admin@fieldquote.example", { role: "super_admin" });
+    const gone = await signUp(t, "gone@example.com");
+    await gone.as.mutation(api.organizations.remove, { id: gone.organizationId });
+    const ids = (await admin.as.query(api.organizations.list, {})).map((o) => o._id);
+    expect(ids).toContain(admin.organizationId);
+    expect(ids).not.toContain(gone.organizationId);
+  });
+
+  test("smoke-test accounts and their companies are removed; real ones are kept", async () => {
+    const t = setup();
+    const real = await signUp(t, "real@example.com");
+    const smoke = await signUp(t, "smoke-test+1@fieldquote.test");
+    const shared = await signUp(t, "smoke-test+2@fieldquote.test");
+    await smoke.as.mutation(api.clients.create, { organizationId: smoke.organizationId, data: { name: "Smoke Test Customer" } });
+    // A real person joined the second smoke company, so it stays.
+    await t.run(async (ctx) =>
+      ctx.db.insert("memberships", { organizationId: shared.organizationId, userId: real.userId, role: "member", createdAt: "x" }),
+    );
+    const result = await t.mutation(internal.seed.removeSmokeTests, {});
+    expect(result).toMatchObject({ users: 2, companies: 1 });
+    await t.run(async (ctx) => {
+      expect(await ctx.db.get(smoke.organizationId)).toBeNull();
+      expect(await ctx.db.get(smoke.userId)).toBeNull();
+      expect(await ctx.db.get(shared.organizationId)).not.toBeNull();
+      expect(await ctx.db.get(real.userId)).not.toBeNull();
+      expect(await ctx.db.query("clients").collect()).toHaveLength(0);
+    });
+  });
+
+  test("demo companies and leads can be added once and removed in one go", async () => {
+    const t = setup();
+    const admin = await signUp(t, "admin@fieldquote.example", { role: "super_admin" });
+    const contractor = await signUp(t, "roofer@example.com");
+    await expect(contractor.as.mutation(api.marketplace.addDemoData, {})).rejects.toThrow(/admins/);
+    expect(await admin.as.mutation(api.marketplace.addDemoData, {})).toEqual({ companies: 6, leads: 10 });
+    await expect(admin.as.mutation(api.marketplace.addDemoData, {})).rejects.toThrow(/already/);
+
+    const companies = await admin.as.query(api.marketplace.companiesOverview, {});
+    const roofing = companies.find((c) => c.name === "Permian Roofing & Exteriors")!;
+    expect(roofing).toMatchObject({ isSample: true, balanceCents: 110000 - 8500, leadsTotal: 1, wonCents: 1850000 });
+    const inbox = await admin.as.query(api.marketplace.listInbox, {});
+    expect(inbox.available).toHaveLength(6);
+    expect(inbox.sold).toHaveLength(4);
+
+    expect(await admin.as.mutation(api.marketplace.removeDemoData, {})).toEqual({ companies: 6, leads: 10 });
+    const left = await admin.as.query(api.marketplace.companiesOverview, {});
+    expect(left.map((c) => c.name).sort()).toEqual([`admin@fieldquote.example Co`, `roofer@example.com Co`]);
+    expect((await admin.as.query(api.marketplace.listInbox, {})).available).toHaveLength(0);
+    await t.run(async (ctx) => {
+      expect(await ctx.db.query("walletTransactions").collect()).toHaveLength(0);
+    });
+  });
+});

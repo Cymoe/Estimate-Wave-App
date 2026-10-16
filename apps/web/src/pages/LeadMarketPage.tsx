@@ -44,6 +44,7 @@ interface Company {
   wonCount: number;
   pendingCredits: number;
   invitePending?: string;
+  isSample?: boolean;
 }
 
 interface CreditRequest {
@@ -597,12 +598,29 @@ const LeadMarketPage: React.FC = () => {
   };
 
   const isAdmin = user?.role === 'super_admin';
+  const [demoBusy, setDemoBusy] = useState(false);
   const reload = useCallback(async () => {
     const [i, c, p] = await Promise.all([marketplaceAPI.inbox(), marketplaceAPI.companies(), marketplaceAPI.pendingCredits()]);
     setInbox(i);
     setCompanies(c);
     setCredits(p);
   }, []);
+
+  const hasDemo = companies.some((c) => c.isSample);
+  const runDemo = async (action: () => Promise<unknown>, message: string) => {
+    setDemoBusy(true);
+    try {
+      await action();
+      await reload();
+      setNotice(message);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Something went wrong');
+    } finally {
+      setDemoBusy(false);
+    }
+  };
+  const addDemo = () => runDemo(() => marketplaceAPI.addDemoData(), 'Demo companies and leads added');
+  const removeDemo = () => runDemo(() => marketplaceAPI.removeDemoData(), 'Demo data removed');
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -665,6 +683,15 @@ const LeadMarketPage: React.FC = () => {
         </div>
       </div>
 
+      {hasDemo && (
+        <div className="mb-4 px-4 py-3 rounded border border-[#336699]/50 bg-[#336699]/10 text-sm flex items-center justify-between gap-3">
+          <span className="text-gray-300">You're looking at demo companies and leads.</span>
+          <button type="button" disabled={demoBusy} onClick={removeDemo} className="text-[#7fb0e0] hover:text-white whitespace-nowrap disabled:opacity-50">
+            Remove demo data
+          </button>
+        </div>
+      )}
+
       {credits.length > 0 && tab !== 'prices' && (
         <button
           type="button"
@@ -686,6 +713,11 @@ const LeadMarketPage: React.FC = () => {
             <div className="border border-dashed border-[#333] rounded p-8 text-center">
               <Inbox className="w-8 h-8 mx-auto text-gray-500 mb-2" />
               <p className="text-sm text-gray-400">No leads waiting. Add one with the yellow + button.</p>
+              {!hasDemo && (
+                <button type="button" disabled={demoBusy} onClick={addDemo} className={`${secondary} mt-4`}>
+                  {demoBusy ? 'Adding…' : 'Add demo companies and leads'}
+                </button>
+              )}
             </div>
           ) : (
             <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Leads waiting">

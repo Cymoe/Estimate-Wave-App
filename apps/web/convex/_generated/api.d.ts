@@ -26,6 +26,7 @@ import type * as leadCity from "../leadCity.js";
 import type * as leads from "../leads.js";
 import type * as lib_access from "../lib/access.js";
 import type * as lib_categories from "../lib/categories.js";
+import type * as lib_cleanup from "../lib/cleanup.js";
 import type * as lib_contract from "../lib/contract.js";
 import type * as lib_contractDefaults from "../lib/contractDefaults.js";
 import type * as lib_documents from "../lib/documents.js";
@@ -64,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   leads: typeof leads;
   "lib/access": typeof lib_access;
   "lib/categories": typeof lib_categories;
+  "lib/cleanup": typeof lib_cleanup;
   "lib/contract": typeof lib_contract;
   "lib/contractDefaults": typeof lib_contractDefaults;
   "lib/documents": typeof lib_documents;

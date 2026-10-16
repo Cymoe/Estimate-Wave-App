@@ -436,6 +436,8 @@ export const marketplaceAPI = {
   setPrice: (jobType: string, price: number | null) => run('mutation', api.marketplace.setLeadPrice, { jobType, price }),
   pendingCredits: () => run('query', api.marketplace.pendingCredits, {}),
   reviewCredit: (orgLeadId: string, approve: boolean) => run('mutation', api.marketplace.reviewCredit, { orgLeadId, approve }),
+  addDemoData: () => run('mutation', api.marketplace.addDemoData, {}),
+  removeDemoData: () => run('mutation', api.marketplace.removeDemoData, {}),
 };
 
 export const walletAPI = {
