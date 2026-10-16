@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
-import { Building2, Check, Inbox, MapPin, Phone, Send, Tag, Trash2, X } from 'lucide-react';
-import { industriesAPI, leadsAPI, marketplaceAPI, walletAPI } from '../lib/api';
+import { Building2, Check, Inbox, Link2, MapPin, Phone, Send, Tag, Trash2, X } from 'lucide-react';
+import { fundingAPI, industriesAPI, leadsAPI, marketplaceAPI, walletAPI } from '../lib/api';
+import { copyText } from '../components/estimates/estimateActions';
 import { useAuth } from '../contexts/AuthContext';
 import { STATUSES } from '../components/leads/leadTypes';
 import { CREDIT_REASON_LABELS, WalletHistory, money, suggestedBonus } from '../components/market/wallet';
@@ -56,6 +57,18 @@ interface CreditRequest {
   reason: string;
   note?: string;
   requestedAt: string;
+}
+
+interface PendingPayment {
+  id: string;
+  organizationId: string;
+  companyName: string;
+  amountCents: number;
+  bonusCents: number;
+  method?: 'card' | 'apple_pay';
+  payerName?: string;
+  payerEmail?: string;
+  submittedAt?: string;
 }
 
 type Tab = 'inbox' | 'companies' | 'prices';
@@ -321,12 +334,14 @@ function CompanyPanel({
   company,
   trades,
   credits,
+  payments,
   onClose,
   onChanged,
 }: {
   company: Company;
   trades: Trade[];
   credits: CreditRequest[];
+  payments: PendingPayment[];
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -396,6 +411,35 @@ function CompanyPanel({
   };
 
   const mine = credits.filter((c) => c.organizationId === company.id);
+  const myPayments = payments.filter((p) => p.organizationId === company.id);
+  const [linkNote, setLinkNote] = useState<string | null>(null);
+
+  /** Shares the company's funding page (or copies it where there's no share sheet). */
+  const sendFundingLink = async () => {
+    const url = fundingAPI.url(await fundingAPI.createLink(company.id));
+    if (typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ title: 'Load your FieldQuote lead balance', text: `Here's the link to load ${company.name}'s lead balance:`, url });
+        return;
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return;
+      }
+    }
+    await copyText(url);
+    setLinkNote('Funding link copied');
+    setTimeout(() => setLinkNote(null), 2500);
+  };
+
+  const settlePayment = async (id: string, confirm: boolean) => {
+    setBusy(true);
+    try {
+      await (confirm ? fundingAPI.confirm(id) : fundingAPI.cancel(id));
+      await load();
+      onChanged();
+    } finally {
+      setBusy(false);
+    }
+  };
   const bought = leads.filter((l) => l.marketplaceLeadId);
 
   return createPortal(
@@ -428,6 +472,42 @@ function CompanyPanel({
               {company.leadsTotal} leads bought · {money(company.wonCents)} won from them
             </p>
           </section>
+
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={sendFundingLink} className={secondary}>
+              <Link2 className="w-4 h-4" />
+              Send funding link
+            </button>
+            {linkNote && <span className="text-xs text-emerald-300">{linkNote}</span>}
+          </div>
+
+          {myPayments.length > 0 && (
+            <section>
+              <h3 className="text-sm font-medium text-white mb-2">Payments to confirm</h3>
+              <ul className="space-y-2">
+                {myPayments.map((p) => (
+                  <li key={p.id} className="border border-[#336699]/50 bg-[#336699]/10 rounded p-3">
+                    <p className="text-sm text-white">
+                      {money(p.amountCents)} by {p.method === 'apple_pay' ? 'Apple Pay' : 'card'}
+                      {p.bonusCents > 0 ? ` · +${money(p.bonusCents)} bonus` : ''}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      {[p.payerName, p.payerEmail].filter(Boolean).join(' · ') || 'No payer details'}
+                      {p.submittedAt ? ` · ${new Date(p.submittedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : ''}
+                    </p>
+                    <div className="flex gap-2 mt-2">
+                      <button type="button" disabled={busy} onClick={() => settlePayment(p.id, true)} className={primary}>
+                        Confirm {money(p.amountCents + p.bonusCents)}
+                      </button>
+                      <button type="button" disabled={busy} onClick={() => settlePayment(p.id, false)} className={secondary}>
+                        Cancel
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           <form onSubmit={recordPayment} className="border border-[#2A2A2A] rounded p-4">
             <h3 className="text-sm font-medium text-white mb-3">Record a payment</h3>
@@ -586,6 +666,7 @@ const LeadMarketPage: React.FC = () => {
   const [inbox, setInbox] = useState<{ available: MarketLead[]; sold: MarketLead[] }>({ available: [], sold: [] });
   const [companies, setCompanies] = useState<Company[]>([]);
   const [credits, setCredits] = useState<CreditRequest[]>([]);
+  const [payments, setPayments] = useState<PendingPayment[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState<MarketLead | null>(null);
   const [openCompanyId, setOpenCompanyId] = useState<string | null>(null);
@@ -600,10 +681,16 @@ const LeadMarketPage: React.FC = () => {
   const isAdmin = user?.role === 'super_admin';
   const [demoBusy, setDemoBusy] = useState(false);
   const reload = useCallback(async () => {
-    const [i, c, p] = await Promise.all([marketplaceAPI.inbox(), marketplaceAPI.companies(), marketplaceAPI.pendingCredits()]);
+    const [i, c, p, f] = await Promise.all([
+      marketplaceAPI.inbox(),
+      marketplaceAPI.companies(),
+      marketplaceAPI.pendingCredits(),
+      fundingAPI.pending(),
+    ]);
     setInbox(i);
     setCompanies(c);
     setCredits(p);
+    setPayments(f);
   }, []);
 
   const hasDemo = companies.some((c) => c.isSample);
@@ -690,6 +777,20 @@ const LeadMarketPage: React.FC = () => {
             Remove demo data
           </button>
         </div>
+      )}
+
+      {payments.length > 0 && tab !== 'prices' && (
+        <button
+          type="button"
+          onClick={() => {
+            setTab('companies');
+            setOpenCompanyId(payments[0].organizationId);
+          }}
+          className="w-full mb-4 text-left px-4 py-3 rounded border border-[#336699]/60 bg-[#336699]/15 text-sm text-[#cfe2f5]"
+        >
+          {payments.length} payment{payments.length === 1 ? '' : 's'} waiting to be confirmed ·{' '}
+          {money(payments.reduce((sum, p) => sum + p.amountCents, 0))}
+        </button>
       )}
 
       {credits.length > 0 && tab !== 'prices' && (
@@ -856,6 +957,7 @@ const LeadMarketPage: React.FC = () => {
           company={openCompany}
           trades={trades}
           credits={credits}
+          payments={payments}
           onClose={() => setOpenCompanyId(null)}
           onChanged={() => reload()}
         />

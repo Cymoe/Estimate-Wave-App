@@ -1081,3 +1081,71 @@ describe("smoke tests and demo data", () => {
     });
   });
 });
+
+describe("funding links and the lead feed", () => {
+  async function company() {
+    const t = setup();
+    const admin = await signUp(t, "admin@fieldquote.example", { role: "super_admin" });
+    const roofer = await signUp(t, "roofer@example.com");
+    const rival = await signUp(t, "rival@example.com");
+    const token = await roofer.as.mutation(api.funding.createLink, { organizationId: roofer.organizationId });
+    return { t, admin, roofer, rival, token };
+  }
+  const balance = async (who: { as: any; organizationId: any }) =>
+    (await who.as.query(api.marketplace.wallet, { organizationId: who.organizationId })).balanceCents;
+
+  test("paying through the link records the payment but loads nothing until it's confirmed", async () => {
+    const { t, admin, roofer, rival, token } = await company();
+    expect(await roofer.as.mutation(api.funding.createLink, { organizationId: roofer.organizationId })).toBe(token);
+    await expect(rival.as.mutation(api.funding.createLink, { organizationId: roofer.organizationId })).rejects.toThrow(/access/);
+
+    const page = await t.query(api.funding.get, { token });
+    expect(page).toMatchObject({ companyName: "roofer@example.com Co", status: "open", minimumCents: 500000 });
+    expect(page!.tiers.map((tier) => tier.bonusCents)).toEqual([0, 37500, 100000]);
+
+    await expect(t.mutation(api.funding.submit, { token, amountCents: 499999, method: "card" })).rejects.toThrow(/minimum/);
+    await t.mutation(api.funding.submit, { token, amountCents: 1_000_000, method: "apple_pay", payerName: "Pat Roofer" });
+    await expect(t.mutation(api.funding.submit, { token, amountCents: 1_000_000, method: "card" })).rejects.toThrow(/already been used/);
+    expect(await balance(roofer)).toBe(0);
+    expect((await roofer.as.query(api.marketplace.wallet, { organizationId: roofer.organizationId })).pendingFunding).toEqual({
+      amountCents: 1_000_000,
+      bonusCents: 100000,
+    });
+
+    const [pending] = await admin.as.query(api.funding.pending, {});
+    await expect(roofer.as.mutation(api.funding.confirm, { id: pending.id })).rejects.toThrow(/admins/);
+    await admin.as.mutation(api.funding.confirm, { id: pending.id });
+    await expect(admin.as.mutation(api.funding.confirm, { id: pending.id })).rejects.toThrow(/isn't waiting/);
+    expect(await balance(roofer)).toBe(1_100_000);
+    expect((await t.query(api.funding.get, { token }))!.status).toBe("confirmed");
+  });
+
+  test("the feed hides contact details until a company buys the lead, and only one company can", async () => {
+    const { t, admin, roofer, rival } = await company();
+    await admin.as.mutation(api.marketplace.setLeadPrice, { jobType: "roofing", price: 85 });
+    const lead = await admin.as.mutation(api.marketplace.createLead, {
+      data: { name: "Jane Cole", phone: "555-0101", email: "jane@example.com", address: "1 Oak St", city: "Midland", jobType: "roofing", notes: "Hail damage" },
+    });
+    const feed = await roofer.as.query(api.marketplace.feed, { organizationId: roofer.organizationId });
+    expect(feed).toHaveLength(1);
+    expect(feed[0]).toMatchObject({ jobType: "roofing", city: "Midland", summary: "Hail damage", priceCents: 8500 });
+    expect(JSON.stringify(feed)).not.toMatch(/Jane|555-0101|jane@|Oak St/);
+
+    await expect(roofer.as.mutation(api.marketplace.buy, { leadId: lead!._id, organizationId: roofer.organizationId })).rejects.toThrow(
+      /Balance too low/,
+    );
+    await expect(rival.as.mutation(api.marketplace.buy, { leadId: lead!._id, organizationId: roofer.organizationId })).rejects.toThrow(/access/);
+    for (const who of [roofer, rival]) {
+      await admin.as.mutation(api.marketplace.recordTopUp, { organizationId: who.organizationId, amount: 5000 });
+    }
+    await roofer.as.mutation(api.marketplace.buy, { leadId: lead!._id, organizationId: roofer.organizationId });
+    await expect(rival.as.mutation(api.marketplace.buy, { leadId: lead!._id, organizationId: rival.organizationId })).rejects.toThrow(
+      /just bought/,
+    );
+    const mine = await roofer.as.query(api.leads.list, { organizationId: roofer.organizationId });
+    expect(mine[0]).toMatchObject({ name: "Jane Cole", phone: "555-0101", pricePaidCents: 8500 });
+    expect(await balance(roofer)).toBe(500000 - 8500);
+    expect(await rival.as.query(api.marketplace.feed, { organizationId: rival.organizationId })).toHaveLength(0);
+    void t;
+  });
+});

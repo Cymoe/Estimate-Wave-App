@@ -76,6 +76,12 @@ export async function deleteOrganization(
   );
   await drop(
     await ctx.db
+      .query("fundingRequests")
+      .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
+      .collect(),
+  );
+  await drop(
+    await ctx.db
       .query("companyInvites")
       .filter((q) => q.eq(q.field("organizationId"), organizationId))
       .collect(),

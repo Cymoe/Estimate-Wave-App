@@ -407,6 +407,27 @@ export default defineSchema({
     updatedAt: v.string(),
   }).index("by_job_type", ["jobType"]),
 
+  // A link a company pays through to load its lead balance. Paying only
+  // records the request; the balance loads when a platform admin confirms it.
+  // No card details are ever stored.
+  fundingRequests: defineTable({
+    organizationId: v.id("organizations"),
+    token: v.string(),
+    status: v.union(v.literal("open"), v.literal("submitted"), v.literal("confirmed"), v.literal("cancelled")),
+    amountCents: v.optional(v.number()),
+    bonusCents: v.optional(v.number()),
+    method: v.optional(v.union(v.literal("card"), v.literal("apple_pay"))),
+    payerName: v.optional(v.string()),
+    payerEmail: v.optional(v.string()),
+    createdBy: v.id("users"),
+    createdAt: v.string(),
+    submittedAt: v.optional(v.string()),
+    confirmedAt: v.optional(v.string()),
+  })
+    .index("by_token", ["token"])
+    .index("by_organization", ["organizationId"])
+    .index("by_status", ["status"]),
+
   // A company set up for someone who hasn't signed up yet; they join it on signup.
   companyInvites: defineTable({
     organizationId: v.id("organizations"),

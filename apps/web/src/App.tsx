@@ -25,6 +25,7 @@ import MarkdownViewer from './components/docs/MarkdownViewer';
 import Templates from './pages/Templates';
 import LeadsPage from './pages/LeadsPage';
 import LeadMarketPage from './pages/LeadMarketPage';
+import FundAccountPage from './pages/FundAccountPage';
 import IndustrySettings from './pages/IndustrySettings';
 import OrganizationSettings from './pages/OrganizationSettings';
 import { Expenses } from './pages/Expenses';
@@ -339,6 +340,8 @@ function AppRoutes() {
         path="/share/estimate/:token"
         element={<ShareableEstimate />}
       />
+      {/* Public page a company pays through to load its lead balance - no auth required */}
+      <Route path="/fund/:token" element={<FundAccountPage />} />
       {/* Packages route removed as part of simplification */}
       <Route
         path="/bills"

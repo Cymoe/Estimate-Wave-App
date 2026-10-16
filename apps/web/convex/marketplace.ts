@@ -14,6 +14,7 @@ import { createOrganization } from "./lib/organizations";
 import { deleteOrganization } from "./lib/cleanup";
 import { leadPriceCents, postTransaction } from "./lib/wallet";
 import { findCity } from "./leadCity";
+import { pendingFundingFor } from "./funding";
 
 // The Lead Market: leads the platform collects and sells, one company per
 // lead, paid for from a prepaid dollar balance. Everything here except
@@ -557,6 +558,13 @@ export const wallet = query({
         .reduce((sum, l) => sum + (l.priceCents ?? 0), 0),
       leadsBought: bought.length,
       ...roi,
+      pendingFunding: await pendingFundingFor(ctx, organizationId),
+      availableLeads: (
+        await ctx.db
+          .query("marketplaceLeads")
+          .withIndex("by_status", (q) => q.eq("status", "available"))
+          .take(500)
+      ).length,
       transactions: transactions.map((t) => ({
         id: t._id,
         type: t.type,
@@ -567,6 +575,61 @@ export const wallet = query({
         createdAt: t.createdAt,
       })),
     };
+  },
+});
+
+/**
+ * Leads a company can buy: the trade, town and what the job is, with the
+ * homeowner's contact details held back until they buy it. Their own trades
+ * come first.
+ */
+export const feed = query({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    const { organization } = await requireMember(ctx, organizationId);
+    const trades = organization.leadTrades ?? [];
+    const available = await ctx.db
+      .query("marketplaceLeads")
+      .withIndex("by_status", (q) => q.eq("status", "available"))
+      .order("desc")
+      .take(200);
+    const leads = await Promise.all(
+      available.map(async (lead) => ({
+        id: lead._id,
+        jobType: lead.jobType,
+        tradeName: lead.jobType
+          ? (
+              await ctx.db
+                .query("industries")
+                .withIndex("by_slug", (q) => q.eq("slug", lead.jobType!))
+                .first()
+            )?.name
+          : undefined,
+        city: lead.city,
+        summary: lead.notes,
+        priceCents: await leadPriceCents(ctx, lead.jobType),
+        postedAt: lead.createdAt,
+        matchesTrades: Boolean(lead.jobType && trades.includes(lead.jobType)),
+      })),
+    );
+    return leads.sort(
+      (a, b) => Number(b.matchesTrades) - Number(a.matchesTrades),
+    );
+  },
+});
+
+/** A company buys a lead from the feed: paid from its balance, and it's theirs alone. */
+export const buy = mutation({
+  args: {
+    leadId: v.id("marketplaceLeads"),
+    organizationId: v.id("organizations"),
+  },
+  handler: async (ctx, { leadId, organizationId }) => {
+    const { user } = await requireMember(ctx, organizationId, "admin");
+    const lead = await ctx.db.get(leadId);
+    if (lead === null || lead.status !== "available")
+      fail("INVALID", "Someone just bought this lead");
+    return await sellLead(ctx, user._id, leadId, organizationId);
   },
 });
 

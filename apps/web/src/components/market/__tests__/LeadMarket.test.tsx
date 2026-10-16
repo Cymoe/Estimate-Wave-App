@@ -9,6 +9,10 @@ const requestCredit = jest.fn(async () => undefined);
 let wallet: Record<string, unknown> | null = null;
 let role = 'super_admin';
 let emptyMarket = false;
+let pendingPayments: unknown[] = [];
+const confirmFunding = jest.fn(async () => { pendingPayments = []; });
+let feedLeads: unknown[] = [];
+const buyLead = jest.fn(async () => ({ orgLeadId: 'ol9' }));
 let demoCompanies = false;
 const addDemoData = jest.fn(async () => { demoCompanies = true; });
 const removeDemoData = jest.fn(async () => { demoCompanies = false; });
@@ -31,8 +35,17 @@ jest.mock('../../../lib/api', () => ({
     addDemoData: () => addDemoData(),
     removeDemoData: () => removeDemoData(),
   },
+  fundingAPI: {
+    pending: async () => pendingPayments,
+    confirm: (id: string) => confirmFunding(id),
+    cancel: async () => undefined,
+    createLink: async () => 'tok',
+    url: (token: string) => `https://app.example/fund/${token}`,
+  },
   walletAPI: {
     get: async () => wallet,
+    feed: async () => feedLeads,
+    buy: (...args: unknown[]) => buyLead(...(args as [])),
     requestCredit: (...args: unknown[]) => requestCredit(...(args as [])),
   },
   industriesAPI: { list: async () => [{ id: 'roofing', name: 'Roofing' }, { id: 'painting', name: 'Painting' }] },
@@ -64,6 +77,8 @@ afterEach(() => {
   wallet = null;
   emptyMarket = false;
   demoCompanies = false;
+  pendingPayments = [];
+  feedLeads = [];
 });
 
 describe('Lead Market', () => {
@@ -154,5 +169,44 @@ describe("a company's lead balance", () => {
     document.body.innerHTML = '';
     await render(<LeadCredit lead={{ ...lead, assignedAt: '2026-01-01T00:00:00Z' }} onRequested={onRequested} />);
     expect(byText('Request credit')).toBeUndefined();
+  });
+});
+
+describe('loading the balance and buying leads', () => {
+  it('shows payments waiting to be confirmed, and confirms one from the company panel', async () => {
+    pendingPayments = [
+      { id: 'f1', organizationId: 'o2', companyName: 'Peak Roofing', amountCents: 1_000_000, bonusCents: 100_000, method: 'apple_pay', payerName: 'Pat' },
+    ];
+    await render(<LeadMarketPage />);
+    await act(async () => byText('1 payment waiting to be confirmed')!.click());
+    await flush();
+    expect(document.body.textContent).toContain('$10,000.00 by Apple Pay · +$1,000.00 bonus');
+    await act(async () => byText('Confirm $11,000.00')!.click());
+    await flush();
+    expect(confirmFunding).toHaveBeenCalledWith('f1');
+  });
+
+  it("tells the company their payment is being confirmed, and lets them buy a lead from the feed", async () => {
+    wallet = {
+      balanceCents: 500000, typicalLeadCents: 8500, spentCents: 0, leadsBought: 0, wonCents: 0, wonCount: 0,
+      pendingFunding: { amountCents: 750000, bonusCents: 37500 }, availableLeads: 1,
+      transactions: [{ id: 't1', type: 'top_up', amountCents: 500000, balanceAfterCents: 500000, createdAt: '2026-10-10' }],
+    };
+    feedLeads = [{ id: 'm1', jobType: 'roofing', city: 'Midland', summary: 'Hail damage', priceCents: 8500, postedAt: new Date().toISOString(), matchesTrades: true }];
+    const onBought = jest.fn();
+    await render(<WalletBar organizationId="o2" onBought={onBought} />);
+    expect(document.body.textContent).toContain('Your $7,500.00 payment (+$375.00 bonus) is being confirmed');
+    await act(async () => byText('1 new lead · Browse')!.click());
+    await flush();
+    const feed = document.body.querySelector('[role="dialog"][aria-label="New leads"]')!;
+    expect(feed.textContent).toContain('Hail damage');
+    expect(feed.textContent).toContain('Name, phone and address unlock when you buy.');
+    await act(async () => byText('Buy lead · $85.00')!.click());
+    expect(feed.textContent).toContain('Buy this Roofing lead for $85.00?');
+    await act(async () => buttons().find((b) => b.textContent === 'Buy')!.click());
+    await flush();
+    expect(buyLead).toHaveBeenCalledWith('m1', 'o2');
+    expect(onBought).toHaveBeenCalled();
+    expect(feed.textContent).toContain('Lead unlocked');
   });
 });

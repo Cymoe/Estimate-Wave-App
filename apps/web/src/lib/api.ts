@@ -442,8 +442,22 @@ export const marketplaceAPI = {
 
 export const walletAPI = {
   get: (organizationId: string) => run('query', api.marketplace.wallet, { organizationId }),
+  feed: (organizationId: string) => run('query', api.marketplace.feed, { organizationId }),
+  buy: (leadId: string, organizationId: string) => run('mutation', api.marketplace.buy, { leadId, organizationId }),
   requestCredit: (leadId: string, reason: string, note?: string) =>
     run('mutation', api.marketplace.requestCredit, defined({ leadId, reason, note })),
+};
+
+/** Funding links: the page a company pays through to load its lead balance. */
+export const fundingAPI = {
+  createLink: (organizationId: string) => run('mutation', api.funding.createLink, { organizationId }),
+  url: (token: string) => `${window.location.origin}/fund/${token}`,
+  get: (token: string) => run('query', api.funding.get, { token }),
+  submit: (token: string, payment: { amountCents: number; method: 'card' | 'apple_pay'; payerName?: string; payerEmail?: string }) =>
+    run('mutation', api.funding.submit, defined({ token, ...payment })),
+  pending: () => run('query', api.funding.pending, {}),
+  confirm: (id: string) => run('mutation', api.funding.confirm, { id }),
+  cancel: (id: string) => run('mutation', api.funding.cancel, { id }),
 };
 
 export { APIError };

@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { TrendingUp, Wallet, X } from 'lucide-react';
-import { walletAPI } from '../../lib/api';
+import { Clock, Inbox, TrendingUp, Wallet, X } from 'lucide-react';
+import { fundingAPI, walletAPI } from '../../lib/api';
+import { LeadFeed } from './LeadFeed';
 import { WalletHistory, money } from './wallet';
 
 export interface WalletSummary {
@@ -11,7 +12,15 @@ export interface WalletSummary {
   leadsBought: number;
   wonCents: number;
   wonCount: number;
+  pendingFunding?: { amountCents: number; bonusCents: number } | null;
+  availableLeads?: number;
   transactions: Array<{ id: string; type: string; amountCents: number; balanceAfterCents: number; method?: string; note?: string; createdAt: string }>;
+}
+
+/** Opens the company's funding page, where they load their balance. */
+export async function openFundingPage(organizationId: string) {
+  const token = await fundingAPI.createLink(organizationId);
+  window.location.assign(fundingAPI.url(token));
 }
 
 /** How many leads the balance covers, at the company's typical lead price. */
@@ -23,9 +32,15 @@ export const leadsCovered = (wallet: WalletSummary) =>
  * and a nudge when the balance is about to run out. Hidden for companies
  * that don't buy leads from FieldQuote.
  */
-export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown }> = ({ organizationId, refreshKey }) => {
+export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown; onBought?: () => void }> = ({
+  organizationId,
+  refreshKey,
+  onBought,
+}) => {
   const [wallet, setWallet] = useState<WalletSummary | null>(null);
   const [open, setOpen] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     if (!organizationId) return;
@@ -37,11 +52,14 @@ export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown
     return () => {
       cancelled = true;
     };
-  }, [organizationId, refreshKey]);
+  }, [organizationId, refreshKey, reload]);
 
-  if (!wallet || (wallet.transactions.length === 0 && wallet.leadsBought === 0)) return null;
+  if (!wallet || !organizationId) return null;
+  const inMarket = wallet.transactions.length > 0 || wallet.leadsBought > 0 || Boolean(wallet.pendingFunding);
+  if (!inMarket) return null;
   const covered = leadsCovered(wallet);
-  const low = covered < 2;
+  const low = covered < 2 && !wallet.pendingFunding;
+  const addFunds = () => openFundingPage(organizationId).catch(() => {});
 
   return (
     <>
@@ -56,6 +74,16 @@ export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown
           <span className="text-white font-medium">{money(wallet.balanceCents)}</span>
           <span className="text-gray-400">· about {covered} lead{covered === 1 ? '' : 's'}</span>
         </button>
+        {(wallet.availableLeads ?? 0) > 0 && (
+          <button
+            type="button"
+            onClick={() => setBrowsing(true)}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded bg-[#336699] text-white text-sm font-medium [@media(hover:hover)]:hover:bg-[#2A5580] active:bg-[#2A5580]"
+          >
+            <Inbox className="w-4 h-4" />
+            {wallet.availableLeads} new lead{wallet.availableLeads === 1 ? '' : 's'} · Browse
+          </button>
+        )}
         {wallet.wonCents > 0 && (
           <span className="inline-flex items-center gap-1.5 text-sm text-gray-400">
             <TrendingUp className="w-4 h-4 text-emerald-300" />
@@ -63,19 +91,41 @@ export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown
           </span>
         )}
       </div>
+      {wallet.pendingFunding && (
+        <div role="status" className="mb-4 px-4 py-3 rounded border border-[#336699]/50 bg-[#336699]/10 text-sm text-[#cfe2f5] flex items-center gap-2">
+          <Clock className="w-4 h-4 flex-shrink-0" />
+          Your {money(wallet.pendingFunding.amountCents)} payment
+          {wallet.pendingFunding.bonusCents > 0 ? ` (+${money(wallet.pendingFunding.bonusCents)} bonus)` : ''} is being confirmed. It'll show in your balance shortly.
+        </div>
+      )}
       {low && (
         <div role="alert" className="mb-4 px-4 py-3 rounded border border-amber-500/40 bg-amber-500/10 text-sm text-amber-200">
           {wallet.balanceCents <= 0
             ? "Your lead balance is empty, so new leads can't be sent to you. Add funds to keep them coming."
             : `Your balance covers about ${covered} more lead${covered === 1 ? '' : 's'}. Add funds so you don't miss any.`}
+          <button type="button" onClick={addFunds} className="ml-2 underline underline-offset-2 text-amber-100">
+            Add funds
+          </button>
         </div>
       )}
-      {open && <WalletDrawer wallet={wallet} onClose={() => setOpen(false)} />}
+      {open && <WalletDrawer wallet={wallet} onClose={() => setOpen(false)} onAddFunds={addFunds} />}
+      {browsing && (
+        <LeadFeed
+          organizationId={organizationId}
+          balanceCents={wallet.balanceCents}
+          onClose={() => {
+            setBrowsing(false);
+            setReload((n) => n + 1);
+          }}
+          onBought={() => onBought?.()}
+          onAddFunds={addFunds}
+        />
+      )}
     </>
   );
 };
 
-function WalletDrawer({ wallet, onClose }: { wallet: WalletSummary; onClose: () => void }) {
+function WalletDrawer({ wallet, onClose, onAddFunds }: { wallet: WalletSummary; onClose: () => void; onAddFunds: () => void }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
@@ -112,8 +162,10 @@ function WalletDrawer({ wallet, onClose }: { wallet: WalletSummary; onClose: () 
             </div>
           </section>
           <section className="border border-[#2A2A2A] rounded p-4 text-sm text-gray-300">
-            <p className="text-white font-medium mb-1">Add funds</p>
-            <p>Contact FieldQuote to add to your balance. Larger loads get a bonus: +5% from $500, +10% from $1,000.</p>
+            <button type="button" onClick={onAddFunds} className="w-full mb-3 px-4 py-2.5 rounded bg-[#336699] text-white font-medium">
+              Add funds
+            </button>
+            <p>Load from $5,000 by card or Apple Pay. Larger loads get a bonus: +5% at $7,500, +10% at $10,000.</p>
             <p className="mt-2 text-gray-400">A bad lead? Open it within 3 days and tap “Request credit”.</p>
           </section>
           <section>
