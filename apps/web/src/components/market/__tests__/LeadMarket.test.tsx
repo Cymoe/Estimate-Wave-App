@@ -10,12 +10,13 @@ let wallet: Record<string, unknown> | null = null;
 let role = 'super_admin';
 let emptyMarket = false;
 let pendingPayments: unknown[] = [];
-const confirmFunding = jest.fn(async () => { pendingPayments = []; });
+const confirmFunding = jest.fn(async (_id: string) => { pendingPayments = []; });
 let feedLeads: unknown[] = [];
 const buyLead = jest.fn(async () => ({ orgLeadId: 'ol9' }));
 let demoCompanies = false;
 const addDemoData = jest.fn(async () => { demoCompanies = true; });
 const removeDemoData = jest.fn(async () => { demoCompanies = false; });
+const removeCompany = jest.fn(async (_id: string) => undefined);
 
 jest.mock('../../../lib/api', () => ({
   marketplaceAPI: {
@@ -28,12 +29,13 @@ jest.mock('../../../lib/api', () => ({
       : [
       { id: 'o1', name: 'Broke Roofing', leadTrades: ['roofing'], balanceCents: 1000, leads30d: 0, spent30dCents: 0, leadsTotal: 0, wonCents: 0, wonCount: 0, pendingCredits: 0 },
       { id: 'o2', name: 'Peak Roofing', leadTrades: ['roofing'], balanceCents: 50000, leads30d: 2, spent30dCents: 17000, leadsTotal: 2, wonCents: 1200000, wonCount: 1, pendingCredits: 0 },
-      { id: 'o3', name: 'Ace Painting', leadTrades: ['painting'], balanceCents: 90000, leads30d: 0, spent30dCents: 0, leadsTotal: 0, wonCents: 0, wonCount: 0, pendingCredits: 0 },
+      { id: 'o3', name: 'Ace Painting', leadTrades: [], balanceCents: 0, isEmpty: true, leads30d: 0, spent30dCents: 0, leadsTotal: 0, wonCents: 0, wonCount: 0, pendingCredits: 0 },
     ],
     pendingCredits: async () => [],
     assign: (...args: unknown[]) => assign(...(args as [])),
     addDemoData: () => addDemoData(),
     removeDemoData: () => removeDemoData(),
+    removeCompany: (id: string) => removeCompany(id),
   },
   fundingAPI: {
     pending: async () => pendingPayments,
@@ -184,6 +186,23 @@ describe('loading the balance and buying leads', () => {
     await act(async () => byText('Confirm $11,000.00')!.click());
     await flush();
     expect(confirmFunding).toHaveBeenCalledWith('f1');
+  });
+
+  it('removes an empty company, and only offers it for empty ones', async () => {
+    await render(<LeadMarketPage />);
+    await act(async () => byText('Companies')!.click());
+    await flush();
+    const row = (name: string) => Array.from(document.body.querySelectorAll('tr')).find((r) => r.textContent?.includes(name))!;
+    await act(async () => row('Peak Roofing').click());
+    await flush();
+    expect(byText('Remove this empty company')).toBeUndefined();
+    await act(async () => (document.body.querySelector('button[aria-label="Close"]') as HTMLButtonElement).click());
+    await act(async () => row('Ace Painting').click());
+    await flush();
+    await act(async () => byText('Remove this empty company')!.click());
+    await act(async () => byText('Remove company')!.click());
+    await flush();
+    expect(removeCompany).toHaveBeenCalledWith('o3');
   });
 
   it("tells the company their payment is being confirmed, and lets them buy a lead from the feed", async () => {

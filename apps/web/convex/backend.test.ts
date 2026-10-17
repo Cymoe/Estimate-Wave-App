@@ -1023,6 +1023,33 @@ describe("lead market", () => {
     expect(orgs.map((o) => o._id)).toEqual([company!._id]);
     expect(await owner.query(api.organizations.myRole, { id: company!._id })).toBe("owner");
   });
+
+  test("a company name can't be used twice, and only empty companies can be removed", async () => {
+    const { t, admin, roofer } = await market();
+    const first = await admin.as.mutation(api.marketplace.createCompany, { data: { name: "Picante Painting" } });
+    await expect(
+      admin.as.mutation(api.marketplace.createCompany, { data: { name: "  picante   PAINTING " } }),
+    ).rejects.toThrow(/already exists/);
+
+    // A company with leads or money stays.
+    await admin.as.mutation(api.marketplace.recordTopUp, { organizationId: roofer.organizationId, amount: 1000 });
+    await expect(admin.as.mutation(api.marketplace.removeCompany, { organizationId: roofer.organizationId })).rejects.toThrow(
+      /Only empty companies/,
+    );
+    await expect(roofer.as.mutation(api.marketplace.removeCompany, { organizationId: first!._id })).rejects.toThrow(/admins/);
+
+    const overview = await admin.as.query(api.marketplace.companiesOverview, {});
+    expect(overview.find((c) => c.id === first!._id)?.isEmpty).toBe(true);
+    expect(overview.find((c) => c.id === roofer.organizationId)?.isEmpty).toBe(false);
+
+    await admin.as.mutation(api.marketplace.removeCompany, { organizationId: first!._id });
+    const ids = (await admin.as.query(api.organizations.list, {})).map((o) => o._id);
+    expect(ids).not.toContain(first!._id);
+    expect(ids).toContain(roofer.organizationId);
+    // The name is free again once the empty copy is gone.
+    await admin.as.mutation(api.marketplace.createCompany, { data: { name: "Picante Painting" } });
+    expect(await t.run(async (ctx) => (await ctx.db.get(first!._id))?.isActive)).toBe(false);
+  });
 });
 
 describe("smoke tests and demo data", () => {

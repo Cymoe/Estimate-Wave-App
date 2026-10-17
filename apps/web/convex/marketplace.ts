@@ -1,6 +1,11 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { mutation, query, type MutationCtx } from "./_generated/server";
+import {
+  mutation,
+  query,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server";
 import {
   fail,
   logActivity,
@@ -413,6 +418,7 @@ export const companiesOverview = query({
           invitePending:
             invite !== null && !invite.acceptedAt ? invite.email : undefined,
           isSample: org.isSample === true,
+          isEmpty: await isEmptyCompany(ctx, org),
         };
       }),
     );
@@ -459,6 +465,11 @@ export const createCompany = mutation({
         : "";
     if (ownerEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(ownerEmail))
       fail("INVALID", "Enter a valid owner email");
+    const key = companyNameKey(name);
+    const taken = (
+      await ctx.db.query("organizations").order("desc").take(500)
+    ).find((org) => org.isActive && companyNameKey(org.name) === key);
+    if (taken) fail("INVALID", `A company named ${taken.name} already exists`);
     const text = (value: unknown) =>
       typeof value === "string" && value.trim() ? value.trim() : undefined;
     const organizationId = await createOrganization(ctx, {
@@ -501,6 +512,76 @@ export const createCompany = mutation({
       details: { name },
     });
     return await ctx.db.get(organizationId);
+  },
+});
+
+/** Company names compared ignoring case and spacing. */
+const companyNameKey = (name: string) =>
+  name.toLowerCase().replace(/\s+/g, " ").trim();
+
+/** True when a company has nothing in it: no leads, clients, estimates or money. */
+async function isEmptyCompany(
+  ctx: QueryCtx,
+  org: Doc<"organizations">,
+): Promise<boolean> {
+  if ((org.walletBalanceCents ?? 0) !== 0) return false;
+  const byOrg = (q: any) => q.eq("organizationId", org._id);
+  const found = await Promise.all([
+    ctx.db
+      .query("marketplaceLeads")
+      .withIndex("by_organization", (q) =>
+        q.eq("assignedOrganizationId", org._id),
+      )
+      .first(),
+    ctx.db
+      .query("walletTransactions")
+      .withIndex("by_organization", byOrg)
+      .first(),
+    ctx.db.query("fundingRequests").withIndex("by_organization", byOrg).first(),
+    ctx.db.query("leads").withIndex("by_organization", byOrg).first(),
+    ctx.db.query("clients").withIndex("by_organization", byOrg).first(),
+    ctx.db
+      .query("estimates")
+      .withIndex("by_organization_and_issue_date", byOrg)
+      .first(),
+  ]);
+  return found.every((doc) => doc === null);
+}
+
+/**
+ * Hides a company made by mistake (e.g. a duplicate). Only empty companies
+ * can be removed; the record is kept, just switched off.
+ */
+export const removeCompany = mutation({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    const user = await requireSuperAdmin(ctx);
+    const org = await ctx.db.get(organizationId);
+    if (!org || !org.isActive) fail("NOT_FOUND", "Company not found");
+    if (!(await isEmptyCompany(ctx, org)))
+      fail(
+        "INVALID",
+        "Only empty companies can be removed. This one has leads, clients, estimates or money.",
+      );
+    await ctx.db.patch(organizationId, {
+      isActive: false,
+      updatedAt: nowIso(),
+    });
+    const invites = await ctx.db
+      .query("companyInvites")
+      .filter((q) => q.eq(q.field("organizationId"), organizationId))
+      .collect();
+    for (const invite of invites)
+      if (!invite.acceptedAt) await ctx.db.delete(invite._id);
+    await logActivity(ctx, {
+      organizationId,
+      userId: user._id,
+      action: "deleted",
+      resourceType: "organization",
+      resourceId: organizationId,
+      details: { name: org.name },
+    });
+    return null;
   },
 });
 

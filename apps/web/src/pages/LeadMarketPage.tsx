@@ -46,6 +46,8 @@ interface Company {
   pendingCredits: number;
   invitePending?: string;
   isSample?: boolean;
+  /** Nothing in it yet (no leads, clients, estimates or money), so it can be removed. */
+  isEmpty?: boolean;
 }
 
 interface CreditRequest {
@@ -442,6 +444,23 @@ function CompanyPanel({
   };
   const bought = leads.filter((l) => l.marketplaceLeadId);
 
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  const removeCompany = async () => {
+    setBusy(true);
+    setRemoveError(null);
+    try {
+      await marketplaceAPI.removeCompany(company.id);
+      onChanged();
+      onClose();
+    } catch (err) {
+      setRemoveError(err instanceof Error ? err.message : "The company couldn't be removed");
+      setConfirmRemove(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return createPortal(
     <>
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[10000]" onClick={onClose} />
@@ -596,6 +615,35 @@ function CompanyPanel({
             <h3 className="text-sm font-medium text-white mb-2">History</h3>
             <WalletHistory transactions={wallet?.transactions ?? []} />
           </section>
+
+          {company.isEmpty && (
+            <section className="border-t border-[#2A2A2A] pt-5">
+              {confirmRemove ? (
+                <div className="border border-red-500/40 bg-red-500/10 rounded p-3">
+                  <p className="text-sm text-white">Remove {company.name}?</p>
+                  <p className="text-xs text-gray-400 mt-1">It has no leads, clients, estimates or money, so nothing is lost.</p>
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={removeCompany}
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded bg-red-600 text-white text-sm font-medium disabled:opacity-50"
+                    >
+                      Remove company
+                    </button>
+                    <button type="button" disabled={busy} onClick={() => setConfirmRemove(false)} className={secondary}>
+                      Keep
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setConfirmRemove(true)} className="text-sm text-red-400 underline underline-offset-2">
+                  Remove this empty company
+                </button>
+              )}
+              {removeError && <p className="text-sm text-red-400 mt-2">{removeError}</p>}
+            </section>
+          )}
         </div>
       </aside>
     </>,
