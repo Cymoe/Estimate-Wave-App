@@ -140,9 +140,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     setOrgDropdownOpen(false);
                   }}
                 >
-                  <div className={`text-white w-7 h-7 flex items-center justify-center text-sm font-bold ${selectedOrg.id === org.id ? 'bg-[#336699]' : 'bg-[#333333]'}`}>
-                    {org.name.charAt(0)}
-                  </div>
                   <div className="flex flex-col overflow-hidden flex-1">
                     <span className="text-white text-sm font-medium truncate">{org.name}</span>
                     <span className="text-gray-400 text-xs truncate">{org.industry}</span>
