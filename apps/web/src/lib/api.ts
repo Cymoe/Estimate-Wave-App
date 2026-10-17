@@ -429,6 +429,8 @@ export const marketplaceAPI = {
   companies: () => run('query', api.marketplace.companiesOverview, {}),
   createCompany: (data: any) => run('mutation', api.marketplace.createCompany, { data }),
   removeCompany: (organizationId: string) => run('mutation', api.marketplace.removeCompany, { organizationId }),
+  setCompanyOwner: (organizationId: string, email: string) =>
+    run('mutation', api.marketplace.setCompanyOwner, { organizationId, email }),
   setCompanyTrades: (organizationId: string, leadTrades: string[]) =>
     run('mutation', api.marketplace.setCompanyTrades, { organizationId, leadTrades }),
   recordTopUp: (organizationId: string, payment: { amount: number; bonus?: number; method?: string; note?: string }) =>

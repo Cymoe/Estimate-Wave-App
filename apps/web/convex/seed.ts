@@ -5,6 +5,8 @@ import { internalAction, internalMutation, type MutationCtx } from "./_generated
 import { STARTER_COST_CODES, STARTER_INDUSTRIES, STARTER_ITEMS } from "./catalog/starterCatalog";
 import { nowIso } from "./lib/access";
 import { deleteOrganization, deleteUser } from "./lib/cleanup";
+import { createOrganization } from "./lib/organizations";
+import { companyNameKey, deleteDemoData } from "./marketplace";
 
 /**
  * Starter catalog shared by every organization: the pricing-mode presets and
@@ -254,5 +256,47 @@ export const removeSmokeTests = internalMutation({
       await deleteUser(ctx, user._id);
     }
     return { users: users.length, companies, records };
+  },
+});
+
+/** The contractors buying leads today, with the trades they get leads for. */
+export const REAL_COMPANIES: Array<{ name: string; leadTrades: string[] }> = [
+  { name: "Mio Homes", leadTrades: ["general-construction"] },
+  { name: "Soco Outdoor", leadTrades: ["landscaping"] },
+  { name: "Buried Stone", leadTrades: ["landscaping"] },
+  { name: "Picante Painting", leadTrades: ["painting"] },
+  { name: "A&E Landscaping", leadTrades: ["landscaping"] },
+];
+
+/**
+ * Replaces the Lead Market demo data with the real companies. A company that
+ * already exists (even one switched off) is left alone, apart from getting
+ * its trades if it has none, so this is safe to run more than once.
+ *
+ *   npx convex run seed:realCompanies
+ */
+export const realCompanies = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const demo = await deleteDemoData(ctx);
+    const existing = await ctx.db.query("organizations").take(1000);
+    const created: string[] = [];
+    const updated: string[] = [];
+    for (const company of REAL_COMPANIES) {
+      const key = companyNameKey(company.name);
+      const matches = existing.filter((org) => companyNameKey(org.name) === key);
+      const active = matches.find((org) => org.isActive);
+      if (active) {
+        if (!active.leadTrades?.length) {
+          await ctx.db.patch(active._id, { leadTrades: company.leadTrades, updatedAt: nowIso() });
+          updated.push(company.name);
+        }
+        continue;
+      }
+      if (matches.length > 0) continue;
+      await createOrganization(ctx, { name: company.name, leadTrades: company.leadTrades, walletBalanceCents: 0 });
+      created.push(company.name);
+    }
+    return { demoRemoved: demo, created, updated };
   },
 });

@@ -17,6 +17,7 @@ let demoCompanies = false;
 const addDemoData = jest.fn(async () => { demoCompanies = true; });
 const removeDemoData = jest.fn(async () => { demoCompanies = false; });
 const removeCompany = jest.fn(async (_id: string) => undefined);
+const setCompanyOwner = jest.fn(async (_id: string, _email: string) => 'invited');
 
 jest.mock('../../../lib/api', () => ({
   marketplaceAPI: {
@@ -28,7 +29,7 @@ jest.mock('../../../lib/api', () => ({
       ? [{ id: 'd1', name: 'Permian Roofing & Exteriors', leadTrades: ['roofing'], balanceCents: 101500, leads30d: 1, spent30dCents: 8500, leadsTotal: 1, wonCents: 1850000, wonCount: 1, pendingCredits: 0, isSample: true }]
       : [
       { id: 'o1', name: 'Broke Roofing', leadTrades: ['roofing'], balanceCents: 1000, leads30d: 0, spent30dCents: 0, leadsTotal: 0, wonCents: 0, wonCount: 0, pendingCredits: 0 },
-      { id: 'o2', name: 'Peak Roofing', leadTrades: ['roofing'], balanceCents: 50000, leads30d: 2, spent30dCents: 17000, leadsTotal: 2, wonCents: 1200000, wonCount: 1, pendingCredits: 0 },
+      { id: 'o2', name: 'Peak Roofing', owners: ['pat@peak.example'], leadTrades: ['roofing'], balanceCents: 50000, leads30d: 2, spent30dCents: 17000, leadsTotal: 2, wonCents: 1200000, wonCount: 1, pendingCredits: 0 },
       { id: 'o3', name: 'Ace Painting', leadTrades: [], balanceCents: 0, isEmpty: true, leads30d: 0, spent30dCents: 0, leadsTotal: 0, wonCents: 0, wonCount: 0, pendingCredits: 0 },
     ],
     pendingCredits: async () => [],
@@ -36,6 +37,7 @@ jest.mock('../../../lib/api', () => ({
     addDemoData: () => addDemoData(),
     removeDemoData: () => removeDemoData(),
     removeCompany: (id: string) => removeCompany(id),
+    setCompanyOwner: (id: string, email: string) => setCompanyOwner(id, email),
   },
   fundingAPI: {
     pending: async () => pendingPayments,
@@ -188,7 +190,7 @@ describe('loading the balance and buying leads', () => {
     expect(confirmFunding).toHaveBeenCalledWith('f1');
   });
 
-  it('removes an empty company, and only offers it for empty ones', async () => {
+  it('sets an owner, and removes an empty company (only offered for empty ones)', async () => {
     await render(<LeadMarketPage />);
     await act(async () => byText('Companies')!.click());
     await flush();
@@ -196,9 +198,20 @@ describe('loading the balance and buying leads', () => {
     await act(async () => row('Peak Roofing').click());
     await flush();
     expect(byText('Remove this empty company')).toBeUndefined();
+    expect(document.body.querySelector('[data-testid="company-owners"]')?.textContent).toBe('pat@peak.example');
     await act(async () => (document.body.querySelector('button[aria-label="Close"]') as HTMLButtonElement).click());
     await act(async () => row('Ace Painting').click());
     await flush();
+    const email = document.body.querySelector('input[aria-label="Owner\'s email"]') as HTMLInputElement;
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => {
+      setValue.call(email, 'ann@ace.example');
+      email.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => byText('Save')!.click());
+    await flush();
+    expect(setCompanyOwner).toHaveBeenCalledWith('o3', 'ann@ace.example');
+    expect(document.body.textContent).toContain("They'll join this company when they sign up");
     await act(async () => byText('Remove this empty company')!.click());
     await act(async () => byText('Remove company')!.click());
     await flush();

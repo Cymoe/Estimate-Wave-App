@@ -395,7 +395,12 @@ export const companiesOverview = query({
         const roi = await returnOn(ctx, orgLeads);
         const invite = await ctx.db
           .query("companyInvites")
-          .filter((q) => q.eq(q.field("organizationId"), org._id))
+          .filter((q) =>
+            q.and(
+              q.eq(q.field("organizationId"), org._id),
+              q.eq(q.field("acceptedAt"), undefined),
+            ),
+          )
           .first();
         return {
           id: org._id,
@@ -415,8 +420,8 @@ export const companiesOverview = query({
           pendingCredits: orgLeads.filter(
             (l) => l?.creditRequest?.status === "pending",
           ).length,
-          invitePending:
-            invite !== null && !invite.acceptedAt ? invite.email : undefined,
+          invitePending: invite?.email,
+          owners: await ownerEmails(ctx, org._id),
           isSample: org.isSample === true,
           isEmpty: await isEmptyCompany(ctx, org),
         };
@@ -424,6 +429,20 @@ export const companiesOverview = query({
     );
   },
 });
+
+/** Emails of the people who own a company. */
+async function ownerEmails(ctx: QueryCtx, organizationId: Id<"organizations">) {
+  const memberships = await ctx.db
+    .query("memberships")
+    .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
+    .collect();
+  const owners = await Promise.all(
+    memberships
+      .filter((m) => m.role === "owner")
+      .map((m) => ctx.db.get(m.userId)),
+  );
+  return owners.flatMap((u) => (u?.email ? [u.email] : []));
+}
 
 /** What a company's bought leads turned into: won leads and accepted estimates, in cents. */
 async function returnOn(
@@ -483,26 +502,7 @@ export const createCompany = mutation({
         : [],
       walletBalanceCents: 0,
     });
-    if (ownerEmail) {
-      const existingUser = await ctx.db
-        .query("users")
-        .withIndex("email", (q) => q.eq("email", ownerEmail))
-        .unique();
-      if (existingUser) {
-        await ctx.db.insert("memberships", {
-          organizationId,
-          userId: existingUser._id,
-          role: "owner",
-          createdAt: nowIso(),
-        });
-      } else {
-        await ctx.db.insert("companyInvites", {
-          organizationId,
-          email: ownerEmail,
-          createdAt: nowIso(),
-        });
-      }
-    }
+    if (ownerEmail) await addOwner(ctx, organizationId, ownerEmail);
     await logActivity(ctx, {
       organizationId,
       userId: user._id,
@@ -515,8 +515,66 @@ export const createCompany = mutation({
   },
 });
 
+/**
+ * Makes the person with `email` an owner of the company: right away if they
+ * have an account, otherwise when they sign up (replacing any earlier invite).
+ */
+async function addOwner(
+  ctx: MutationCtx,
+  organizationId: Id<"organizations">,
+  email: string,
+) {
+  const existingUser = await ctx.db
+    .query("users")
+    .withIndex("email", (q) => q.eq("email", email))
+    .unique();
+  const invites = await ctx.db
+    .query("companyInvites")
+    .filter((q) => q.eq(q.field("organizationId"), organizationId))
+    .collect();
+  for (const invite of invites)
+    if (!invite.acceptedAt) await ctx.db.delete(invite._id);
+  if (existingUser) {
+    const membership = await ctx.db
+      .query("memberships")
+      .withIndex("by_organization_and_user", (q) =>
+        q.eq("organizationId", organizationId).eq("userId", existingUser._id),
+      )
+      .unique();
+    if (membership) await ctx.db.patch(membership._id, { role: "owner" });
+    else
+      await ctx.db.insert("memberships", {
+        organizationId,
+        userId: existingUser._id,
+        role: "owner",
+        createdAt: nowIso(),
+      });
+    return "added" as const;
+  }
+  await ctx.db.insert("companyInvites", {
+    organizationId,
+    email,
+    createdAt: nowIso(),
+  });
+  return "invited" as const;
+}
+
+/** Sets who owns a company set up in the Lead Market (see `addOwner`). */
+export const setCompanyOwner = mutation({
+  args: { organizationId: v.id("organizations"), email: v.string() },
+  handler: async (ctx, { organizationId, email }) => {
+    await requireSuperAdmin(ctx);
+    const org = await ctx.db.get(organizationId);
+    if (!org || !org.isActive) fail("NOT_FOUND", "Company not found");
+    const ownerEmail = email.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(ownerEmail))
+      fail("INVALID", "Enter a valid owner email");
+    return await addOwner(ctx, organizationId, ownerEmail);
+  },
+});
+
 /** Company names compared ignoring case and spacing. */
-const companyNameKey = (name: string) =>
+export const companyNameKey = (name: string) =>
   name.toLowerCase().replace(/\s+/g, " ").trim();
 
 /** True when a company has nothing in it: no leads, clients, estimates or money. */
@@ -1056,16 +1114,21 @@ export const removeDemoData = mutation({
   args: {},
   handler: async (ctx) => {
     await requireSuperAdmin(ctx);
-    const companies = await ctx.db
-      .query("organizations")
-      .filter((q) => q.eq(q.field("isSample"), true))
-      .collect();
-    const leads = await ctx.db
-      .query("marketplaceLeads")
-      .filter((q) => q.eq(q.field("isSample"), true))
-      .collect();
-    for (const lead of leads) await ctx.db.delete(lead._id);
-    for (const company of companies) await deleteOrganization(ctx, company._id);
-    return { companies: companies.length, leads: leads.length };
+    return await deleteDemoData(ctx);
   },
 });
+
+export async function deleteDemoData(ctx: MutationCtx) {
+  const companies = await ctx.db
+    .query("organizations")
+    .filter((q) => q.eq(q.field("isSample"), true))
+    .collect();
+  const leads = await ctx.db
+    .query("marketplaceLeads")
+    .filter((q) => q.eq(q.field("isSample"), true))
+    .collect();
+  // Sample leads first, so the companies' sold leads are already gone.
+  for (const lead of leads) await ctx.db.delete(lead._id);
+  for (const company of companies) await deleteOrganization(ctx, company._id);
+  return { companies: companies.length, leads: leads.length };
+}

@@ -45,6 +45,8 @@ interface Company {
   wonCount: number;
   pendingCredits: number;
   invitePending?: string;
+  /** Emails of the people who own it, once they have an account. */
+  owners?: string[];
   isSample?: boolean;
   /** Nothing in it yet (no leads, clients, estimates or money), so it can be removed. */
   isEmpty?: boolean;
@@ -444,6 +446,23 @@ function CompanyPanel({
   };
   const bought = leads.filter((l) => l.marketplaceLeadId);
 
+  const [ownerEmail, setOwnerEmail] = useState(company.invitePending ?? '');
+  const [ownerNote, setOwnerNote] = useState<string | null>(null);
+  const saveOwner = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setOwnerNote(null);
+    try {
+      const result = await marketplaceAPI.setCompanyOwner(company.id, ownerEmail);
+      setOwnerNote(result === 'added' ? 'Added as owner' : "Saved. They'll join this company when they sign up.");
+      onChanged();
+    } catch (err) {
+      setOwnerNote(err instanceof Error ? err.message : "The owner couldn't be saved");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
   const removeCompany = async () => {
@@ -580,6 +599,33 @@ function CompanyPanel({
               </ul>
             </section>
           )}
+
+          <section>
+            <h3 className="text-sm font-medium text-white mb-2">Owner</h3>
+            {company.owners && company.owners.length > 0 ? (
+              <p className="text-sm text-gray-300" data-testid="company-owners">
+                {company.owners.join(', ')}
+              </p>
+            ) : (
+              <form onSubmit={saveOwner} className="flex gap-2">
+                <input
+                  type="email"
+                  aria-label="Owner's email"
+                  value={ownerEmail}
+                  onChange={(e) => setOwnerEmail(e.target.value)}
+                  placeholder="owner@company.com"
+                  className={`${input} flex-1`}
+                />
+                <button type="submit" disabled={busy || !ownerEmail.trim()} className={secondary}>
+                  Save
+                </button>
+              </form>
+            )}
+            {ownerNote && <p className="text-xs text-gray-400 mt-1">{ownerNote}</p>}
+            {!company.owners?.length && !ownerNote && (
+              <p className="text-xs text-gray-500 mt-1">When they sign up with this email, they join this company instead of getting a new one.</p>
+            )}
+          </section>
 
           <section>
             <h3 className="text-sm font-medium text-white mb-2">Buys leads for</h3>

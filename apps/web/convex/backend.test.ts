@@ -1107,6 +1107,69 @@ describe("smoke tests and demo data", () => {
       expect(await ctx.db.query("walletTransactions").collect()).toHaveLength(0);
     });
   });
+
+  test("the real companies replace the demo data, without duplicating ones that exist", async () => {
+    const t = setup();
+    const admin = await signUp(t, "admin@fieldquote.example", { role: "super_admin" });
+    await admin.as.mutation(api.marketplace.addDemoData, {});
+    // Picante Painting is already here, with its own leads and no trades yet.
+    const picante = await signUp(t, "owner@picante.example");
+    await picante.as.mutation(api.organizations.update, { id: picante.organizationId, data: { name: "Picante Painting" } });
+    await picante.as.mutation(api.leads.create, { organizationId: picante.organizationId, data: { name: "Their lead" } });
+
+    const first = await t.mutation(internal.seed.realCompanies, {});
+    expect(first).toMatchObject({
+      demoRemoved: { companies: 6, leads: 10 },
+      created: ["Mio Homes", "Soco Outdoor", "Buried Stone", "A&E Landscaping"],
+      updated: ["Picante Painting"],
+    });
+    expect(await t.mutation(internal.seed.realCompanies, {})).toMatchObject({ created: [], updated: [] });
+
+    const companies = await admin.as.query(api.marketplace.companiesOverview, {});
+    const names = companies.map((c) => c.name);
+    expect(names.filter((n) => n === "Picante Painting")).toHaveLength(1);
+    expect(names.some((n) => n.includes("Permian"))).toBe(false);
+    expect(companies.find((c) => c.name === "Picante Painting")).toMatchObject({
+      id: picante.organizationId,
+      leadTrades: ["painting"],
+      owners: ["owner@picante.example"],
+    });
+    expect(companies.find((c) => c.name === "Mio Homes")?.leadTrades).toEqual(["general-construction"]);
+
+    // A removed company isn't brought back.
+    const mio = companies.find((c) => c.name === "Mio Homes")!;
+    await admin.as.mutation(api.marketplace.removeCompany, { organizationId: mio.id });
+    expect((await t.mutation(internal.seed.realCompanies, {})).created).toEqual([]);
+  });
+
+  test("an owner can be set on a company: invited, or added if they have an account", async () => {
+    const t = setup();
+    const admin = await signUp(t, "admin@fieldquote.example", { role: "super_admin" });
+    const company = await admin.as.mutation(api.marketplace.createCompany, { data: { name: "Soco Outdoor" } });
+    await expect(admin.as.mutation(api.marketplace.setCompanyOwner, { organizationId: company!._id, email: "nope" })).rejects.toThrow(
+      /valid owner email/,
+    );
+    expect(await admin.as.mutation(api.marketplace.setCompanyOwner, { organizationId: company!._id, email: "Old@Soco.example" })).toBe(
+      "invited",
+    );
+    expect(await admin.as.mutation(api.marketplace.setCompanyOwner, { organizationId: company!._id, email: "owner@soco.example" })).toBe(
+      "invited",
+    );
+    let row = (await admin.as.query(api.marketplace.companiesOverview, {})).find((c) => c.id === company!._id)!;
+    expect(row.invitePending).toBe("owner@soco.example");
+
+    const existing = await signUp(t, "boss@soco.example");
+    await expect(existing.as.mutation(api.marketplace.setCompanyOwner, { organizationId: company!._id, email: "boss@soco.example" })).rejects.toThrow(
+      /admins/,
+    );
+    expect(await admin.as.mutation(api.marketplace.setCompanyOwner, { organizationId: company!._id, email: "boss@soco.example" })).toBe(
+      "added",
+    );
+    row = (await admin.as.query(api.marketplace.companiesOverview, {})).find((c) => c.id === company!._id)!;
+    expect(row.owners).toEqual(["boss@soco.example"]);
+    expect(row.invitePending).toBeUndefined();
+    expect(await existing.as.query(api.organizations.myRole, { id: company!._id })).toBe("owner");
+  });
 });
 
 describe("funding links and the lead feed", () => {
