@@ -1202,6 +1202,28 @@ describe("smoke tests and demo data", () => {
     expect(result.picante).toEqual([{ active: true, clients: 1, estimates: 0, fundingLinks: 0, walletEntries: 0 }]);
   });
 
+  test("the small test Picante Painting becomes the Myles Webb workspace", async () => {
+    const t = setup();
+    const real = await signUp(t, "owner@picante.example");
+    const test = await signUp(t, "test@picante.example");
+    for (const c of [real, test])
+      await c.as.mutation(api.organizations.update, { id: c.organizationId, data: { name: "Picante Painting" } });
+    const client = await real.as.mutation(api.clients.create, { organizationId: real.organizationId, data: { name: "Ann" } });
+    await real.as.mutation(api.estimates.create, {
+      organizationId: real.organizationId,
+      data: { clientId: client!._id, items: [] },
+    });
+
+    expect(await t.mutation(internal.seed.renameTestPicante, {})).toMatchObject({ renamed: true });
+    const [kept, renamed] = await t.run(async (ctx) =>
+      Promise.all([ctx.db.get(real.organizationId), ctx.db.get(test.organizationId)]),
+    );
+    expect(kept?.name).toBe("Picante Painting");
+    expect(renamed).toMatchObject({ name: "Myles Webb", industryId: "general-construction", isActive: true });
+    // Only one Picante left, so running it again does nothing.
+    expect(await t.mutation(internal.seed.renameTestPicante, {})).toEqual({ renamed: false, picantes: 1 });
+  });
+
   test("an owner can be set on a company: invited, or added if they have an account", async () => {
     const t = setup();
     const admin = await signUp(t, "admin@fieldquote.example", { role: "super_admin" });

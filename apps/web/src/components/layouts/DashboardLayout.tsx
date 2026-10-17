@@ -49,6 +49,16 @@ import { useProjectShortcuts, type ProjectShortcut } from '../projects/useProjec
 import { FEATURES } from '../../config/features';
 import { projectStatusInfo } from '../projects/projectStatus';
 
+/** "landscaping" -> "Landscaping", "general-construction" -> "General Construction". */
+const titleFromSlug = (slug: string) =>
+  slug.split('-').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+
+/** What a company does, shown under its name: the trades it buys leads for, else its industry. */
+export const orgTradeLabel = (org: { leadTrades?: string[]; industryId?: string }) =>
+  org.leadTrades?.length
+    ? org.leadTrades.map(titleFromSlug).join(', ')
+    : titleFromSlug(org.industryId || 'general-construction');
+
 interface DashboardLayoutProps {
   children: React.ReactNode;
   fullWidth?: boolean;
@@ -200,7 +210,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
         const formattedOrgs = orgsData.map((org: any) => ({
           id: org._id,
           name: org.name,
-          industry: org.industryId || 'General Construction',
+          industry: orgTradeLabel(org),
           industry_id: org.industryId || 'general-construction'
         }));
         

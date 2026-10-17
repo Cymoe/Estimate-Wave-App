@@ -408,3 +408,40 @@ export const moveLeadsToMioHomes = internalMutation({
     return { moved, ...duplicates, picante };
   },
 });
+
+/**
+ * One-off fix: of the two Picante Painting companies, the small one (fewer
+ * estimates) was test data. It becomes Myles Webb, the platform admin's own
+ * general construction workspace, instead of being deleted.
+ *
+ *   npx convex run seed:renameTestPicante
+ */
+export const renameTestPicante = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const picantes = (await ctx.db.query("organizations").take(1000)).filter(
+      (org) => org.isActive && companyNameKey(org.name) === companyNameKey("Picante Painting"),
+    );
+    if (picantes.length !== 2) return { renamed: false, picantes: picantes.length };
+    const sizes = await Promise.all(
+      picantes.map(async (org) => ({
+        org,
+        estimates: (
+          await ctx.db
+            .query("estimates")
+            .withIndex("by_organization_and_issue_date", (q) => q.eq("organizationId", org._id))
+            .take(1000)
+        ).length,
+      })),
+    );
+    sizes.sort((a, b) => a.estimates - b.estimates);
+    const small = sizes[0].org;
+    await ctx.db.patch(small._id, {
+      name: "Myles Webb",
+      industryId: "general-construction",
+      leadTrades: [],
+      updatedAt: nowIso(),
+    });
+    return { renamed: true, estimates: sizes.map((s) => s.estimates) };
+  },
+});
