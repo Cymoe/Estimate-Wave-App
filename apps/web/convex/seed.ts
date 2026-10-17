@@ -6,7 +6,12 @@ import { STARTER_COST_CODES, STARTER_INDUSTRIES, STARTER_ITEMS } from "./catalog
 import { nowIso } from "./lib/access";
 import { deleteOrganization, deleteUser } from "./lib/cleanup";
 import { createOrganization } from "./lib/organizations";
-import { companyNameKey, deleteDemoData } from "./marketplace";
+import {
+  companyNameKey,
+  deleteDemoData,
+  isEmptyCompany,
+  switchOffCompany,
+} from "./marketplace";
 
 /**
  * Starter catalog shared by every organization: the pricing-mode presets and
@@ -298,5 +303,44 @@ export const realCompanies = internalMutation({
       created.push(company.name);
     }
     return { demoRemoved: demo, created, updated };
+  },
+});
+
+/**
+ * Switches off empty copies of a company that exists more than once under the
+ * same name. At least one company per name is always kept (the ones with
+ * data first); a removed copy's trades move to the kept one if it has none.
+ *
+ *   npx convex run seed:removeEmptyDuplicates
+ */
+export const removeEmptyDuplicates = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const active = (await ctx.db.query("organizations").take(1000)).filter((org) => org.isActive);
+    const groups = new Map<string, typeof active>();
+    for (const org of active) {
+      const key = companyNameKey(org.name);
+      groups.set(key, [...(groups.get(key) ?? []), org]);
+    }
+    const removed: string[] = [];
+    for (const orgs of groups.values()) {
+      if (orgs.length < 2) continue;
+      const empty = new Set<string>();
+      for (const org of orgs) if (await isEmptyCompany(ctx, org)) empty.add(org._id);
+      // Keep the companies with data; if every copy is empty, keep the oldest.
+      const keep = orgs.filter((org) => !empty.has(org._id));
+      if (keep.length === 0) keep.push([...orgs].sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0]);
+      const kept = keep[0];
+      for (const org of orgs) {
+        if (keep.includes(org)) continue;
+        if (!kept.leadTrades?.length && org.leadTrades?.length) {
+          await ctx.db.patch(kept._id, { leadTrades: org.leadTrades, updatedAt: nowIso() });
+          kept.leadTrades = org.leadTrades;
+        }
+        await switchOffCompany(ctx, org._id);
+        removed.push(org.name);
+      }
+    }
+    return { removed };
   },
 });

@@ -578,7 +578,7 @@ export const companyNameKey = (name: string) =>
   name.toLowerCase().replace(/\s+/g, " ").trim();
 
 /** True when a company has nothing in it: no leads, clients, estimates or money. */
-async function isEmptyCompany(
+export async function isEmptyCompany(
   ctx: QueryCtx,
   org: Doc<"organizations">,
 ): Promise<boolean> {
@@ -606,6 +606,20 @@ async function isEmptyCompany(
   return found.every((doc) => doc === null);
 }
 
+/** Hides a company and drops its open owner invites, so no signup lands in it. */
+export async function switchOffCompany(
+  ctx: MutationCtx,
+  organizationId: Id<"organizations">,
+) {
+  await ctx.db.patch(organizationId, { isActive: false, updatedAt: nowIso() });
+  const invites = await ctx.db
+    .query("companyInvites")
+    .filter((q) => q.eq(q.field("organizationId"), organizationId))
+    .collect();
+  for (const invite of invites)
+    if (!invite.acceptedAt) await ctx.db.delete(invite._id);
+}
+
 /**
  * Hides a company made by mistake (e.g. a duplicate). Only empty companies
  * can be removed; the record is kept, just switched off.
@@ -621,16 +635,7 @@ export const removeCompany = mutation({
         "INVALID",
         "Only empty companies can be removed. This one has leads, clients, estimates or money.",
       );
-    await ctx.db.patch(organizationId, {
-      isActive: false,
-      updatedAt: nowIso(),
-    });
-    const invites = await ctx.db
-      .query("companyInvites")
-      .filter((q) => q.eq(q.field("organizationId"), organizationId))
-      .collect();
-    for (const invite of invites)
-      if (!invite.acceptedAt) await ctx.db.delete(invite._id);
+    await switchOffCompany(ctx, organizationId);
     await logActivity(ctx, {
       organizationId,
       userId: user._id,

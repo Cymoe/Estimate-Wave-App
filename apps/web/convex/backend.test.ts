@@ -1142,6 +1142,29 @@ describe("smoke tests and demo data", () => {
     expect((await t.mutation(internal.seed.realCompanies, {})).created).toEqual([]);
   });
 
+  test("empty duplicate companies are switched off, keeping the one with data", async () => {
+    const t = setup();
+    const admin = await signUp(t, "admin@fieldquote.example", { role: "super_admin" });
+    const real = await signUp(t, "owner@picante.example");
+    await real.as.mutation(api.organizations.update, { id: real.organizationId, data: { name: "Picante Painting" } });
+    await real.as.mutation(api.leads.create, { organizationId: real.organizationId, data: { name: "Their lead" } });
+    // The empty copy, made later from the Lead Market, has the trades.
+    const copy = await t.run(async (ctx) => {
+      const { createOrganization } = await import("./lib/organizations");
+      return await createOrganization(ctx, { name: "picante painting", leadTrades: ["painting"] });
+    });
+    const solo = await admin.as.mutation(api.marketplace.createCompany, { data: { name: "Mio Homes" } });
+
+    expect(await t.mutation(internal.seed.removeEmptyDuplicates, {})).toEqual({ removed: ["picante painting"] });
+    expect(await t.mutation(internal.seed.removeEmptyDuplicates, {})).toEqual({ removed: [] });
+    const ids = (await admin.as.query(api.organizations.list, {})).map((o) => o._id);
+    expect(ids).toContain(real.organizationId);
+    expect(ids).toContain(solo!._id);
+    expect(ids).not.toContain(copy);
+    const kept = await t.run(async (ctx) => ctx.db.get(real.organizationId));
+    expect(kept?.leadTrades).toEqual(["painting"]);
+  });
+
   test("an owner can be set on a company: invited, or added if they have an account", async () => {
     const t = setup();
     const admin = await signUp(t, "admin@fieldquote.example", { role: "super_admin" });
