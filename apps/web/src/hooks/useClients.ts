@@ -49,7 +49,7 @@ export function useClients(organizationId: string) {
 
   const createClient = async (clientData: Partial<Client>) => {
     try {
-      const newClient = await clientsAPI.create(clientData);
+      const newClient = await clientsAPI.create({ organizationId, ...clientData });
       setClients(prev => [newClient, ...prev]);
       return newClient;
     } catch (err: any) {

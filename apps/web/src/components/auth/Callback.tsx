@@ -1,12 +1,17 @@
 import { useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useAuth } from "../../contexts/AuthContext";
 
+/**
+ * Legacy sign-in landing route. Convex Auth finishes OAuth on its own, so this
+ * just waits for the session and forwards to the dashboard (or home on error).
+ */
 export const Callback = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { user, isLoading } = useAuth();
 
   useEffect(() => {
-    const token = searchParams.get('token');
     const error = searchParams.get('error');
 
     if (error) {
@@ -15,17 +20,9 @@ export const Callback = () => {
       return;
     }
 
-    if (token) {
-      // Store the JWT token
-      localStorage.setItem('auth_token', token);
-      
-      // Redirect to dashboard
-      navigate('/profit-tracker');
-    } else {
-      // No token, redirect to home
-      navigate('/');
-    }
-  }, [searchParams, navigate]);
+    if (isLoading) return;
+    navigate(user ? '/profit-tracker' : '/');
+  }, [searchParams, navigate, user, isLoading]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white flex items-center justify-center">

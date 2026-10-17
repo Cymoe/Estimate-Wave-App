@@ -2,6 +2,7 @@ import React from 'react';
 import { X, ChevronRight, User, Building, CreditCard, HelpCircle, LogOut } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { FEATURES } from '../../config/features';
 
 interface MobileMenuProps {
   isOpen: boolean;
@@ -82,6 +83,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
 
         {/* Navigation Links */}
         <nav className="p-4 space-y-2">
+          {FEATURES.profitTracker && (
           <NavLink
             to="/profit-tracker"
             onClick={onClose}
@@ -96,7 +98,55 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
             <span className="text-lg">💰</span>
             <span>Profit Tracker</span>
           </NavLink>
+          )}
 
+
+          <NavLink
+            to="/leads"
+            onClick={onClose}
+            className={({ isActive }) =>
+              `flex items-center gap-3 p-3 rounded-[4px] transition-colors ${
+                isActive
+                  ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border border-[#336699]/50 text-white'
+                  : 'hover:bg-[#333333] text-gray-300'
+              }`
+            }
+          >
+            <span className="text-lg">◆</span>
+            <span>Leads</span>
+          </NavLink>
+
+          {user?.role === 'super_admin' && (
+            <NavLink
+              to="/lead-market"
+              onClick={onClose}
+              className={({ isActive }) =>
+                `flex items-center gap-3 p-3 rounded-[4px] transition-colors ${
+                  isActive
+                    ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border border-[#336699]/50 text-white'
+                    : 'hover:bg-[#333333] text-gray-300'
+                }`
+              }
+            >
+              <span className="text-lg">$</span>
+              <span>Lead Market</span>
+            </NavLink>
+          )}
+
+          <NavLink
+            to="/marketplace"
+            onClick={onClose}
+            className={({ isActive }) =>
+              `flex items-center gap-3 p-3 rounded-[4px] transition-colors ${
+                isActive
+                  ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border border-[#336699]/50 text-white'
+                  : 'hover:bg-[#333333] text-gray-300'
+              }`
+            }
+          >
+            <span className="text-lg">🛒</span>
+            <span>Marketplace</span>
+          </NavLink>
 
           <NavLink
             to="/work"
@@ -114,21 +164,6 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
           </NavLink>
 
           <NavLink
-            to="/services"
-            onClick={onClose}
-            className={({ isActive }) =>
-              `flex items-center gap-3 p-3 rounded-[4px] transition-colors ${
-                isActive
-                  ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border border-[#336699]/50 text-white'
-                  : 'hover:bg-[#333333] text-gray-300'
-              }`
-            }
-          >
-            <span className="text-lg">◉</span>
-            <span>Services</span>
-          </NavLink>
-
-          <NavLink
             to="/price-book"
             onClick={onClose}
             className={({ isActive }) =>
@@ -141,6 +176,21 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
           >
             <span className="text-lg">📚</span>
             <span>Price Book</span>
+          </NavLink>
+
+          <NavLink
+            to="/services"
+            onClick={onClose}
+            className={({ isActive }) =>
+              `flex items-center gap-3 p-3 rounded-[4px] transition-colors ${
+                isActive
+                  ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border border-[#336699]/50 text-white'
+                  : 'hover:bg-[#333333] text-gray-300'
+              }`
+            }
+          >
+            <span className="text-lg">◉</span>
+            <span>Services</span>
           </NavLink>
         </nav>
 

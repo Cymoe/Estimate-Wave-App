@@ -21,6 +21,7 @@ import {
   Calculator,
   BarChart3
 } from "lucide-react";
+import { APP_NAME } from '@/config/brand';
 
 export const WhoWeServe = () => {
   const navigate = useNavigate();
@@ -106,7 +107,7 @@ export const WhoWeServe = () => {
           </h1>
           
           <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-            BillBreeze isn't just software—it's your business command center. Designed for ambitious 
+            {APP_NAME} isn't just software—it's your business command center. Designed for ambitious 
             professionals who refuse to settle for ordinary.
           </p>
 
@@ -188,7 +189,7 @@ export const WhoWeServe = () => {
               Join the Winning Team
             </h2>
             <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-              Real results from professionals who've elevated their business with BillBreeze
+              Real results from professionals who've elevated their business with {APP_NAME}
             </p>
           </div>
 
@@ -216,7 +217,7 @@ export const WhoWeServe = () => {
           <div className="max-w-6xl mx-auto">
             <div className="text-center mb-16">
               <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-                Why Industry Leaders Choose BillBreeze
+                Why Industry Leaders Choose {APP_NAME}
               </h2>
               <p className="text-xl text-gray-600 max-w-2xl mx-auto">
                 We've built features that matter to professionals who demand excellence

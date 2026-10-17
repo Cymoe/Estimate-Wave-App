@@ -8,6 +8,10 @@ interface Props {
   isProjectsSidebarLocked?: boolean;
   isProjectsSidebarOpen?: boolean;
   isIndustryDrawerOpen?: boolean;
+  /** Hides the button. */
+  hidden?: boolean;
+  /** The menu, drawn above the button. */
+  children?: React.ReactNode;
 }
 
 export const QuickCreateButton: React.FC<Props> = ({ 
@@ -16,7 +20,9 @@ export const QuickCreateButton: React.FC<Props> = ({
   isSidebarCollapsed = false,
   isProjectsSidebarLocked = false,
   isProjectsSidebarOpen = false,
-  isIndustryDrawerOpen = false
+  isIndustryDrawerOpen = false,
+  hidden = false,
+  children
 }) => {
   const [isEstimateCartOpen, setIsEstimateCartOpen] = useState(false);
   const [isIndustryModalOpen, setIsIndustryModalOpen] = useState(false);
@@ -59,27 +65,31 @@ export const QuickCreateButton: React.FC<Props> = ({
   }, []);
 
   // Hide button when estimate cart or industry modal is open
-  if (isEstimateCartOpen || isIndustryModalOpen) {
+  if (hidden || isEstimateCartOpen || isIndustryModalOpen) {
     return null;
   }
 
   // Dynamic positioning based on sidebar states
-  let baseRight = isSidebarCollapsed ? 96 : 240; // 24 * 4 or 60 * 4 (in pixels)
-  let projectsOffset = (isProjectsSidebarLocked || isProjectsSidebarOpen) ? 320 : 0;
-  let industryOffset = isIndustryDrawerOpen ? 400 : 0;
+  const baseRight = isSidebarCollapsed ? 96 : 240; // 24 * 4 or 60 * 4 (in pixels)
+  const projectsOffset = (isProjectsSidebarLocked || isProjectsSidebarOpen) ? 320 : 0;
+  const industryOffset = isIndustryDrawerOpen ? 400 : 0;
   
-  let totalRightPx = baseRight + projectsOffset + industryOffset;
+  const totalRightPx = baseRight + projectsOffset + industryOffset;
 
   return (
-    <button
-      onClick={onClick}
-      className={`fixed bottom-6 hidden md:flex w-14 h-14 bg-yellow-400 hover:bg-yellow-500 
-        text-black rounded-full shadow-[0_4px_20px_rgba(249,215,28,0.4)] hover:shadow-[0_6px_25px_rgba(249,215,28,0.6)]
-        items-center justify-center transition-all duration-200 z-[9998] active:scale-95 group
-        ${isOpen ? 'rotate-45' : 'hover:scale-105'}`}
-      style={{ right: `${totalRightPx}px` }}
-    >
-      <Plus className="w-6 h-6 group-hover:scale-110 transition-transform" />
-    </button>
+    <div className="fixed bottom-6 hidden md:block z-[9998]" style={{ right: `${totalRightPx}px` }}>
+      {children}
+      <button
+        onClick={onClick}
+        aria-label={isOpen ? 'Close' : 'Create new'}
+        aria-expanded={isOpen}
+        className={`flex w-14 h-14 bg-yellow-400 hover:bg-yellow-500 
+          text-black rounded-full shadow-[0_4px_20px_rgba(249,215,28,0.4)] hover:shadow-[0_6px_25px_rgba(249,215,28,0.6)]
+          items-center justify-center transition-all duration-200 active:scale-95 group
+          ${isOpen ? 'rotate-45' : 'hover:scale-105'}`}
+      >
+        <Plus className="w-6 h-6 group-hover:scale-110 transition-transform" />
+      </button>
+    </div>
   );
 }; 

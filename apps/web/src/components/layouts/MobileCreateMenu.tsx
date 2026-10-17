@@ -5,7 +5,6 @@ interface MobileCreateMenuProps {
   isOpen: boolean;
   onClose: () => void;
   onCreateClient: () => void;
-  onCreateInvoice: () => void;
   onCreateLineItem: () => void;
 }
 
@@ -13,7 +12,6 @@ export const MobileCreateMenu: React.FC<MobileCreateMenuProps> = ({
   isOpen,
   onClose,
   onCreateClient,
-  onCreateInvoice,
   onCreateLineItem
 }) => {
   if (!isOpen) return null;
@@ -58,20 +56,6 @@ export const MobileCreateMenu: React.FC<MobileCreateMenuProps> = ({
             <div className="text-left flex-1">
               <div className="font-medium">New client</div>
               <div className="text-sm text-gray-400">Add a new customer</div>
-            </div>
-            <ChevronRight className="ml-auto text-gray-400" size={20} />
-          </button>
-
-          <button 
-            onClick={() => handleAction(onCreateInvoice)}
-            className="flex items-center w-full px-4 py-4 text-white hover:bg-[#232D3F] transition-colors rounded-[4px]"
-          >
-            <span className="text-[#336699] mr-4 w-8 h-8 flex items-center justify-center">
-              <DollarSign size={20} />
-            </span>
-            <div className="text-left flex-1">
-              <div className="font-medium">New invoice</div>
-              <div className="text-sm text-gray-400">Create a new invoice</div>
             </div>
             <ChevronRight className="ml-auto text-gray-400" size={20} />
           </button>
