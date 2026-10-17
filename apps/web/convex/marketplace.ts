@@ -1,11 +1,13 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
+  internalMutation,
   mutation,
   query,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
+import { internal } from "./_generated/api";
 import {
   fail,
   logActivity,
@@ -17,7 +19,20 @@ import {
 } from "./lib/access";
 import { createOrganization } from "./lib/organizations";
 import { deleteOrganization } from "./lib/cleanup";
-import { leadPriceCents, postTransaction } from "./lib/wallet";
+import {
+  auctionFor,
+  leadPriceCents,
+  leadPriceRow,
+  pricingFor,
+  postTransaction,
+  dollars,
+} from "./lib/wallet";
+import {
+  type Pricing,
+  fillTimeMs,
+  priceAt,
+  pricingFor as pricingFrom,
+} from "./lib/auction";
 import { findCity } from "./leadCity";
 import { pendingFundingFor } from "./funding";
 
@@ -94,9 +109,29 @@ export const listInbox = query({
       const orgId = lead.assignedOrganizationId;
       if (orgId && !names.has(orgId))
         names.set(orgId, (await ctx.db.get(orgId))?.name ?? "Unknown company");
+      const auction = await auctionFor(ctx, lead);
+      const now = priceAt(auction, Date.now());
+      const bids =
+        lead.status === "available"
+          ? (
+              await ctx.db
+                .query("leadBids")
+                .withIndex("by_lead", (q) =>
+                  q.eq("marketplaceLeadId", lead._id),
+                )
+                .collect()
+            ).filter((b) => b.status === "open").length
+          : 0;
       return {
         ...lead,
-        price: await leadPriceCents(ctx, lead.jobType),
+        price:
+          lead.status === "available"
+            ? now.priceCents
+            : (lead.priceCents ?? now.priceCents),
+        auction,
+        floorCents: auction.floorCents,
+        floorAt: new Date(now.floorAtMs).toISOString(),
+        openBids: bids,
         companyName: orgId ? names.get(orgId) : undefined,
       };
     };
@@ -118,8 +153,10 @@ export const createLead = mutation({
   handler: async (ctx, { data }) => {
     const user = await requireSuperAdmin(ctx);
     const now = nowIso();
+    const fields = cleanLead(data);
     const id = await ctx.db.insert("marketplaceLeads", {
-      ...cleanLead(data),
+      ...fields,
+      auction: { ...(await pricingFor(ctx, fields.jobType)), listedAt: now },
       status: "available",
       createdBy: user._id,
       createdAt: now,
@@ -142,8 +179,10 @@ export const importLeads = mutation({
         skipped++;
         continue;
       }
+      const fields = cleanLead(row);
       await ctx.db.insert("marketplaceLeads", {
-        ...cleanLead(row),
+        ...fields,
+        auction: { ...(await pricingFor(ctx, fields.jobType)), listedAt: now },
         status: "available",
         createdBy: user._id,
         createdAt: now,
@@ -194,7 +233,11 @@ export const assign = mutation({
   },
   handler: async (ctx, { leadId, organizationId }) => {
     const user = await requireSuperAdmin(ctx);
-    return await sellLead(ctx, user._id, leadId, organizationId);
+    const lead = await ctx.db.get(leadId);
+    if (lead === null) fail("NOT_FOUND", "Lead not found");
+    return await sellLead(ctx, user._id, leadId, organizationId, {
+      priceCents: await leadPriceCents(ctx, lead),
+    });
   },
 });
 
@@ -203,6 +246,7 @@ async function sellLead(
   userId: Id<"users">,
   leadId: Id<"marketplaceLeads">,
   organizationId: Id<"organizations">,
+  sale: { priceCents: number; bidId?: Id<"leadBids"> },
 ) {
   const user = { _id: userId };
   {
@@ -214,7 +258,7 @@ async function sellLead(
     if (organization === null || !organization.isActive)
       fail("NOT_FOUND", "Company not found");
 
-    const priceCents = await leadPriceCents(ctx, lead.jobType);
+    const priceCents = sale.priceCents;
     await postTransaction(ctx, organizationId, {
       type: "lead_charge",
       amountCents: -priceCents,
@@ -257,6 +301,22 @@ async function sellLead(
       resourceId: orgLeadId,
       details: { name: lead.name, priceCents },
     });
+    // Everyone else's buy orders on this lead have lost.
+    const bids = await ctx.db
+      .query("leadBids")
+      .withIndex("by_lead", (q) => q.eq("marketplaceLeadId", leadId))
+      .collect();
+    for (const bid of bids) {
+      if (bid.status !== "open" || bid._id === sale.bidId) continue;
+      await ctx.db.patch(bid._id, {
+        status: "lost",
+        outcome:
+          bid.organizationId === organizationId
+            ? "You bought this lead"
+            : "Another company bought it first",
+        resolvedAt: now,
+      });
+    }
     const delivered = (await ctx.db.get(orgLeadId))!;
     if (!delivered.city) await findCity(ctx, delivered);
     return { orgLeadId, priceCents };
@@ -338,14 +398,29 @@ export const listLeadPrices = query({
   handler: async (ctx) => {
     await requireSuperAdmin(ctx);
     const rows = await ctx.db.query("leadPrices").take(500);
-    return { defaultCents: await leadPriceCents(ctx, undefined), prices: rows };
+    const defaults = await pricingFor(ctx, undefined);
+    return {
+      defaultCents: defaults.startCents,
+      default: defaults,
+      prices: rows.map((row) => ({ ...row, pricing: pricingFrom(row) })),
+    };
   },
 });
 
-/** Sets what a lead costs for a trade (`jobType` "default" for every other trade). */
+/**
+ * Sets what a lead costs for a trade (`jobType` "default" for every other
+ * trade): the start price, and optionally the floor it drops to, the step
+ * and how often it drops. Blank schedule fields use the defaults.
+ */
 export const setLeadPrice = mutation({
-  args: { jobType: v.string(), price: v.union(v.number(), v.null()) },
-  handler: async (ctx, { jobType, price }) => {
+  args: {
+    jobType: v.string(),
+    price: v.union(v.number(), v.null()),
+    floor: v.optional(v.union(v.number(), v.null())),
+    drop: v.optional(v.union(v.number(), v.null())),
+    dropEveryMinutes: v.optional(v.union(v.number(), v.null())),
+  },
+  handler: async (ctx, { jobType, price, floor, drop, dropEveryMinutes }) => {
     await requireSuperAdmin(ctx);
     const existing = await ctx.db
       .query("leadPrices")
@@ -356,14 +431,23 @@ export const setLeadPrice = mutation({
       return;
     }
     const priceCents = toCents(price);
-    if (existing)
-      await ctx.db.patch(existing._id, { priceCents, updatedAt: nowIso() });
-    else
-      await ctx.db.insert("leadPrices", {
-        jobType,
-        priceCents,
-        updatedAt: nowIso(),
-      });
+    const floorCents = floor == null ? undefined : toCents(floor);
+    if (floorCents !== undefined && floorCents > priceCents)
+      fail("INVALID", "The floor can't be above the start price");
+    const dropCents = drop == null ? undefined : toCents(drop);
+    const every =
+      dropEveryMinutes == null ? undefined : Math.round(dropEveryMinutes);
+    if (every !== undefined && every < 1)
+      fail("INVALID", "Drops must be at least a minute apart");
+    const row = {
+      priceCents,
+      floorCents,
+      dropCents,
+      dropEveryMinutes: every,
+      updatedAt: nowIso(),
+    };
+    if (existing) await ctx.db.replace(existing._id, { jobType, ...row });
+    else await ctx.db.insert("leadPrices", { jobType, ...row });
   },
 });
 
@@ -446,7 +530,7 @@ async function ownerEmails(ctx: QueryCtx, organizationId: Id<"organizations">) {
 
 /** What a company's bought leads turned into: won leads and accepted estimates, in cents. */
 async function returnOn(
-  ctx: Parameters<typeof leadPriceCents>[0],
+  ctx: QueryCtx | MutationCtx,
   leads: Array<Doc<"leads"> | null>,
 ) {
   let wonCents = 0;
@@ -686,17 +770,29 @@ export const wallet = query({
       ),
     );
     const roi = await returnOn(ctx, orgLeads);
-    const prices = await ctx.db.query("leadPrices").take(500);
     const trades = organization.leadTrades ?? [];
-    const relevant = prices
-      .filter((p) => trades.includes(p.jobType))
-      .map((p) => p.priceCents);
+    const pricings = await Promise.all(
+      (trades.length ? trades : [undefined]).map((t) => pricingFor(ctx, t)),
+    );
+    const openBids = (
+      await ctx.db
+        .query("leadBids")
+        .withIndex("by_organization_and_status", (q) =>
+          q.eq("organizationId", organizationId).eq("status", "open"),
+        )
+        .collect()
+    ).length;
     return {
       balanceCents: organization.walletBalanceCents ?? 0,
-      // What a typical lead costs this company, for "about N leads".
-      typicalLeadCents: relevant.length
-        ? Math.round(relevant.reduce((a, b) => a + b, 0) / relevant.length)
-        : await leadPriceCents(ctx, undefined),
+      // What a typical lead costs this company, for "about N leads":
+      // halfway between start and floor across its trades.
+      typicalLeadCents: Math.round(
+        pricings.reduce(
+          (sum, p) => sum + (p.startCents + p.floorCents) / 2,
+          0,
+        ) / pricings.length,
+      ),
+      openBids,
       spentCents: bought
         .filter((l) => l.status === "assigned")
         .reduce((sum, l) => sum + (l.priceCents ?? 0), 0),
@@ -724,7 +820,8 @@ export const wallet = query({
 
 /**
  * Leads a company can buy: the trade, town and what the job is, with the
- * homeowner's contact details held back until they buy it. Their own trades
+ * homeowner's contact details held back until they buy it. Each carries
+ * its price schedule so the page can count down itself. Their own trades
  * come first.
  */
 export const feed = query({
@@ -737,24 +834,42 @@ export const feed = query({
       .withIndex("by_status", (q) => q.eq("status", "available"))
       .order("desc")
       .take(200);
+    const myBids = await ctx.db
+      .query("leadBids")
+      .withIndex("by_organization_and_status", (q) =>
+        q.eq("organizationId", organizationId).eq("status", "open"),
+      )
+      .collect();
+    const names = new Map<string, string | undefined>();
+    const tradeName = async (slug: string | undefined) => {
+      if (!slug) return undefined;
+      if (!names.has(slug))
+        names.set(
+          slug,
+          (
+            await ctx.db
+              .query("industries")
+              .withIndex("by_slug", (q) => q.eq("slug", slug))
+              .first()
+          )?.name,
+        );
+      return names.get(slug);
+    };
     const leads = await Promise.all(
-      available.map(async (lead) => ({
-        id: lead._id,
-        jobType: lead.jobType,
-        tradeName: lead.jobType
-          ? (
-              await ctx.db
-                .query("industries")
-                .withIndex("by_slug", (q) => q.eq("slug", lead.jobType!))
-                .first()
-            )?.name
-          : undefined,
-        city: lead.city,
-        summary: lead.notes,
-        priceCents: await leadPriceCents(ctx, lead.jobType),
-        postedAt: lead.createdAt,
-        matchesTrades: Boolean(lead.jobType && trades.includes(lead.jobType)),
-      })),
+      available.map(async (lead) => {
+        const bid = myBids.find((b) => b.marketplaceLeadId === lead._id);
+        return {
+          id: lead._id,
+          jobType: lead.jobType,
+          tradeName: await tradeName(lead.jobType),
+          city: lead.city,
+          summary: lead.notes,
+          receivedAt: lead.createdAt,
+          auction: await auctionFor(ctx, lead),
+          matchesTrades: Boolean(lead.jobType && trades.includes(lead.jobType)),
+          myBid: bid ? { id: bid._id, maxCents: bid.maxCents } : undefined,
+        };
+      }),
     );
     return leads.sort(
       (a, b) => Number(b.matchesTrades) - Number(a.matchesTrades),
@@ -762,7 +877,7 @@ export const feed = query({
   },
 });
 
-/** A company buys a lead from the feed: paid from its balance, and it's theirs alone. */
+/** A company buys a lead at its current price: paid from its balance, and it's theirs alone. */
 export const buy = mutation({
   args: {
     leadId: v.id("marketplaceLeads"),
@@ -773,7 +888,153 @@ export const buy = mutation({
     const lead = await ctx.db.get(leadId);
     if (lead === null || lead.status !== "available")
       fail("INVALID", "Someone just bought this lead");
-    return await sellLead(ctx, user._id, leadId, organizationId);
+    return await sellLead(ctx, user._id, leadId, organizationId, {
+      priceCents: await leadPriceCents(ctx, lead),
+    });
+  },
+});
+
+// ---- Buy orders ----
+
+/**
+ * A company names the price it will pay for a lead. The order fills on its
+ * own when the price drops to that, unless someone buys the lead first.
+ * Funds aren't held back: if the balance can't cover it by then, it's lost.
+ */
+export const placeBid = mutation({
+  args: {
+    leadId: v.id("marketplaceLeads"),
+    organizationId: v.id("organizations"),
+    max: v.number(),
+  },
+  handler: async (ctx, { leadId, organizationId, max }) => {
+    const { user, organization } = await requireMember(
+      ctx,
+      organizationId,
+      "admin",
+    );
+    const lead = await ctx.db.get(leadId);
+    if (lead === null || lead.status !== "available")
+      fail("INVALID", "Someone just bought this lead");
+    const maxCents = toCents(max);
+    const auction = await auctionFor(ctx, lead);
+    const now = priceAt(auction, Date.now());
+    if (maxCents < auction.floorCents)
+      fail(
+        "INVALID",
+        `This lead won't go below ${dollars(auction.floorCents)}`,
+      );
+    if (maxCents >= now.priceCents)
+      fail(
+        "INVALID",
+        `It's already ${dollars(now.priceCents)}: buy it now instead`,
+      );
+    if ((organization.walletBalanceCents ?? 0) < maxCents)
+      fail("INVALID", "Add funds to cover this buy order");
+    const time = nowIso();
+    const existing = (
+      await ctx.db
+        .query("leadBids")
+        .withIndex("by_lead", (q) => q.eq("marketplaceLeadId", leadId))
+        .collect()
+    ).filter((b) => b.organizationId === organizationId && b.status === "open");
+    for (const bid of existing)
+      await ctx.db.patch(bid._id, { status: "cancelled", resolvedAt: time });
+    const bidId = await ctx.db.insert("leadBids", {
+      marketplaceLeadId: leadId,
+      organizationId,
+      maxCents,
+      status: "open",
+      createdBy: user._id,
+      createdAt: time,
+    });
+    const fillsAt = fillTimeMs(auction, maxCents);
+    await ctx.scheduler.runAt(fillsAt, internal.marketplace.fillBid, { bidId });
+    return { bidId, fillsAt: new Date(fillsAt).toISOString() };
+  },
+});
+
+export const cancelBid = mutation({
+  args: { bidId: v.id("leadBids") },
+  handler: async (ctx, { bidId }) => {
+    const bid = await ctx.db.get(bidId);
+    if (bid === null) fail("NOT_FOUND", "Buy order not found");
+    await requireMember(ctx, bid.organizationId, "admin");
+    if (bid.status !== "open")
+      fail("INVALID", "This buy order is already closed");
+    await ctx.db.patch(bidId, { status: "cancelled", resolvedAt: nowIso() });
+  },
+});
+
+/** Runs when the price reaches a buy order: buys the lead at the price it's at, if it can. */
+export const fillBid = internalMutation({
+  args: { bidId: v.id("leadBids") },
+  handler: async (ctx, { bidId }) => {
+    const bid = await ctx.db.get(bidId);
+    if (bid === null || bid.status !== "open") return;
+    const lead = await ctx.db.get(bid.marketplaceLeadId);
+    const lose = async (outcome: string) =>
+      ctx.db.patch(bidId, { status: "lost", outcome, resolvedAt: nowIso() });
+    if (lead === null || lead.status !== "available")
+      return await lose("Another company bought it first");
+    const priceCents = await leadPriceCents(ctx, lead);
+    if (priceCents > bid.maxCents) {
+      // Listed again at a higher price: wait for it to come back down.
+      await ctx.scheduler.runAt(
+        fillTimeMs(await auctionFor(ctx, lead), bid.maxCents),
+        internal.marketplace.fillBid,
+        { bidId },
+      );
+      return;
+    }
+    const organization = await ctx.db.get(bid.organizationId);
+    if (!organization?.isActive) return await lose("Company closed");
+    if ((organization.walletBalanceCents ?? 0) < priceCents)
+      return await lose(
+        `Balance too low: ${dollars(priceCents)} needed, ${dollars(organization.walletBalanceCents ?? 0)} available`,
+      );
+    await sellLead(ctx, bid.createdBy, lead._id, bid.organizationId, {
+      priceCents,
+      bidId,
+    });
+    await ctx.db.patch(bidId, { status: "filled", resolvedAt: nowIso() });
+  },
+});
+
+/** A company's buy orders, newest first: open ones plus the last few that filled or lost. */
+export const bids = query({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    await requireMember(ctx, organizationId);
+    const all = await Promise.all(
+      (["open", "filled", "lost"] as const).map((status) =>
+        ctx.db
+          .query("leadBids")
+          .withIndex("by_organization_and_status", (q) =>
+            q.eq("organizationId", organizationId).eq("status", status),
+          )
+          .order("desc")
+          .take(status === "open" ? 100 : 10),
+      ),
+    );
+    return await Promise.all(
+      all.flat().map(async (bid) => {
+        const lead = await ctx.db.get(bid.marketplaceLeadId);
+        return {
+          id: bid._id,
+          leadId: bid.marketplaceLeadId,
+          city: lead?.city,
+          jobType: lead?.jobType,
+          maxCents: bid.maxCents,
+          status: bid.status,
+          outcome: bid.outcome,
+          pricePaidCents:
+            bid.status === "filled" ? lead?.priceCents : undefined,
+          createdAt: bid.createdAt,
+          resolvedAt: bid.resolvedAt,
+        };
+      }),
+    );
   },
 });
 
@@ -1090,6 +1351,7 @@ export const addDemoData = mutation({
           jobType,
           notes,
           source: "Demo",
+          auction: { ...(await pricingFor(ctx, jobType)), listedAt: now },
           status: "available",
           isSample: true,
           createdBy: user._id,
@@ -1099,11 +1361,13 @@ export const addDemoData = mutation({
       );
     }
     for (const [leadIndex, companyIndex, status, value] of DEMO_SALES) {
+      const demoLead = (await ctx.db.get(leadIds[leadIndex]))!;
       const { orgLeadId } = await sellLead(
         ctx,
         user._id,
         leadIds[leadIndex],
         companyIds[companyIndex],
+        { priceCents: await leadPriceCents(ctx, demoLead) },
       );
       await ctx.db.patch(orgLeadId, {
         status,

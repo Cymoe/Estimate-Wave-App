@@ -7,6 +7,7 @@ import { copyText } from '../components/estimates/estimateActions';
 import { useAuth } from '../contexts/AuthContext';
 import { STATUSES } from '../components/leads/leadTypes';
 import { CREDIT_REASON_LABELS, WalletHistory, money, suggestedBonus } from '../components/market/wallet';
+import { dropsToFloor, pricingFor } from '../services/auction';
 
 interface Trade {
   id: string;
@@ -23,8 +24,12 @@ interface MarketLead {
   jobType?: string;
   notes?: string;
   status: 'available' | 'assigned' | 'credited';
+  /** What it costs right now (it drops on a schedule until bought). */
   price: number;
   priceCents?: number;
+  floorCents?: number;
+  floorAt?: string;
+  openBids?: number;
   assignedAt?: string;
   companyName?: string;
   createdAt: string;
@@ -697,56 +702,107 @@ function CompanyPanel({
   );
 }
 
+/** "45m", "21h 33m" until a lead reaches its floor. */
+function untilFloor(iso: string) {
+  const minutes = Math.max(0, Math.round((Date.parse(iso) - Date.now()) / 60000));
+  return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+type PriceDraft = { price: string; floor: string; drop: string; every: string };
+const emptyDraft: PriceDraft = { price: '', floor: '', drop: '', every: '' };
+const fromRow = (row: { priceCents: number; floorCents?: number; dropCents?: number; dropEveryMinutes?: number }): PriceDraft => ({
+  price: String(row.priceCents / 100),
+  floor: row.floorCents != null ? String(row.floorCents / 100) : '',
+  drop: row.dropCents != null ? String(row.dropCents / 100) : '',
+  every: row.dropEveryMinutes != null ? String(row.dropEveryMinutes) : '',
+});
+
+/**
+ * What a lead costs per trade: it's listed at the start price and drops by
+ * a step on an interval down to the floor. Blank floor, step and interval
+ * use the defaults (floor 20%, reaches the floor in about 23 hourly drops).
+ */
 function PricesTab({ trades }: { trades: Trade[] }) {
-  const [prices, setPrices] = useState<Record<string, string>>({});
+  const [drafts, setDrafts] = useState<Record<string, PriceDraft>>({});
   const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     marketplaceAPI
       .prices()
-      .then((result: { defaultCents: number; prices: Array<{ jobType: string; priceCents: number }> }) => {
-        const next: Record<string, string> = { default: String(result.defaultCents / 100) };
-        for (const row of result.prices) next[row.jobType] = String(row.priceCents / 100);
-        setPrices(next);
+      .then((result: { defaultCents: number; prices: Array<{ jobType: string; priceCents: number; floorCents?: number; dropCents?: number; dropEveryMinutes?: number }> }) => {
+        const next: Record<string, PriceDraft> = { default: { ...emptyDraft, price: String(result.defaultCents / 100) } };
+        for (const row of result.prices) next[row.jobType] = fromRow(row);
+        setDrafts(next);
       })
       .catch(() => {});
   }, []);
   const save = async (jobType: string) => {
     setError(null);
-    const raw = (prices[jobType] ?? '').trim();
+    const d = drafts[jobType] ?? emptyDraft;
+    const num = (raw: string) => (raw.trim() === '' ? null : Number(raw));
     try {
-      await marketplaceAPI.setPrice(jobType, raw === '' ? null : Number(raw));
+      await marketplaceAPI.setPrice(jobType, num(d.price), { floor: num(d.floor), drop: num(d.drop), dropEveryMinutes: num(d.every) });
       setSaved(jobType);
       setTimeout(() => setSaved((s) => (s === jobType ? null : s)), 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : "The price couldn't be saved");
     }
   };
-  const row = (jobType: string, label: string, placeholder?: string) => (
-    <li key={jobType} className="flex items-center justify-between gap-3 px-4 py-2.5">
-      <span className="text-sm text-white">{label}</span>
-      <span className="flex items-center gap-2">
-        {saved === jobType && <Check className="w-4 h-4 text-emerald-400" aria-label="Saved" />}
-        <span className="text-gray-500 text-sm">$</span>
-        <input
-          inputMode="decimal"
-          aria-label={`${label} lead price`}
-          value={prices[jobType] ?? ''}
-          placeholder={placeholder}
-          onChange={(e) => setPrices({ ...prices, [jobType]: e.target.value })}
-          onBlur={() => save(jobType)}
-          className="w-24 bg-[#1A1A1A] border border-[#333] rounded px-2 py-1.5 text-right text-white text-base md:text-sm focus:outline-none focus:border-[#336699]"
-        />
-      </span>
+  const field = (jobType: string, key: keyof PriceDraft, label: string, placeholder: string, width = 'w-20') => (
+    <input
+      inputMode="decimal"
+      aria-label={label}
+      value={drafts[jobType]?.[key] ?? ''}
+      placeholder={placeholder}
+      onChange={(e) => setDrafts({ ...drafts, [jobType]: { ...(drafts[jobType] ?? emptyDraft), [key]: e.target.value } })}
+      onBlur={() => save(jobType)}
+      className={`${width} bg-[#1A1A1A] border border-[#333] rounded px-2 py-1.5 text-right text-white text-base md:text-sm focus:outline-none focus:border-[#336699]`}
+    />
+  );
+  const preview = (jobType: string) => {
+    const d = drafts[jobType];
+    const start = Number(d?.price);
+    if (!d || !(start > 0)) return null;
+    const p = pricingFor({
+      priceCents: Math.round(start * 100),
+      floorCents: d.floor.trim() ? Math.round(Number(d.floor) * 100) : undefined,
+      dropCents: d.drop.trim() ? Math.round(Number(d.drop) * 100) : undefined,
+      dropEveryMinutes: d.every.trim() ? Number(d.every) : undefined,
+    });
+    const minutes = (dropsToFloor(p) * p.dropEveryMs) / 60000;
+    return `${money(p.startCents)} → ${money(p.floorCents)}, −${money(p.dropCents)} every ${Math.round(p.dropEveryMs / 60000)}m · floor in ~${minutes < 60 ? `${Math.round(minutes)}m` : `${Math.round(minutes / 60)}h`}`;
+  };
+  const row = (jobType: string, label: string, placeholder: string) => (
+    <li key={jobType} className="px-4 py-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <span className="text-sm text-white flex items-center gap-2">
+          {label}
+          {saved === jobType && <Check className="w-4 h-4 text-emerald-400" aria-label="Saved" />}
+        </span>
+        <span className="flex items-center gap-2 text-xs text-gray-500 flex-wrap">
+          <span>Start $</span>
+          {field(jobType, 'price', `${label} start price`, placeholder)}
+          <span>Floor $</span>
+          {field(jobType, 'floor', `${label} floor price`, '20%')}
+          <span>Drop $</span>
+          {field(jobType, 'drop', `${label} drop`, 'auto', 'w-16')}
+          <span>every</span>
+          {field(jobType, 'every', `${label} drop interval`, '60', 'w-14')}
+          <span>min</span>
+        </span>
+      </div>
+      {preview(jobType) && <p className="text-xs text-gray-500 mt-1 text-right">{preview(jobType)}</p>}
     </li>
   );
   return (
-    <div className="max-w-xl">
-      <p className="text-sm text-gray-400 mb-3">What a lead costs a company, by trade. Trades left blank use the default.</p>
+    <div className="max-w-3xl">
+      <p className="text-sm text-gray-400 mb-3">
+        A lead is listed at the start price and drops to the floor over the day, where it stays until bought. Trades left blank use the default row.
+      </p>
       {error && <p className="text-sm text-red-400 mb-3">{error}</p>}
       <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded">
-        {row('default', 'Default (every other trade)')}
-        {trades.map((t) => row(t.id, t.name, prices.default))}
+        {row('default', 'Default (every other trade)', '45')}
+        {trades.map((t) => row(t.id, t.name, drafts.default?.price ?? ''))}
       </ul>
     </div>
   );
@@ -946,7 +1002,16 @@ const LeadMarketPage: React.FC = () => {
                     </p>
                     {lead.notes && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{lead.notes}</p>}
                   </div>
-                  <span className="text-sm text-gray-300">{money(lead.price)}</span>
+                  <span className="text-right">
+                    <span className="block text-sm text-gray-300">{money(lead.price)}</span>
+                    {lead.floorCents != null && (
+                      <span className="block text-xs text-gray-500 whitespace-nowrap">
+                        floor {money(lead.floorCents)}
+                        {lead.floorAt && Date.parse(lead.floorAt) > Date.now() ? ` · ${untilFloor(lead.floorAt)} left` : ''}
+                        {lead.openBids ? ` · ${lead.openBids} order${lead.openBids === 1 ? '' : 's'}` : ''}
+                      </span>
+                    )}
+                  </span>
                   <button type="button" onClick={() => setSending(lead)} className={primary}>
                     <Send className="w-4 h-4" />
                     Send to…

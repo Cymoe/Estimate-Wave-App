@@ -14,7 +14,7 @@ import {
   requireSuperAdmin,
 } from "./lib/access";
 import { FUNDING_TIERS, MIN_FUNDING_CENTS, bonusFor } from "./lib/funding";
-import { dollars, leadPriceCents, postTransaction } from "./lib/wallet";
+import { dollars, pricingFor, postTransaction } from "./lib/wallet";
 
 // Funding links: the page a company pays through to load its lead balance.
 // Paying records what they chose; nothing is credited until a platform
@@ -73,7 +73,7 @@ export const get = query({
         ...tier,
         bonusCents: bonusFor(tier.amountCents),
       })),
-      typicalLeadCents: await leadPriceCents(ctx, undefined),
+      typicalLeadCents: (await pricingFor(ctx, undefined)).startCents,
     };
   },
 });

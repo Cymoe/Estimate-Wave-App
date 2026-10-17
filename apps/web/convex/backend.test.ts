@@ -3,6 +3,7 @@ import { api, internal } from "./_generated/api";
 import { STARTER_COST_CODES, STARTER_INDUSTRIES, STARTER_ITEMS } from "./catalog/starterCatalog";
 import { setup, signUp } from "./test.setup";
 import { cityFromSearch, cityFromText } from "./lib/leadCity";
+import { fillTimeMs, priceAt, pricingFor } from "./lib/auction";
 
 describe("auth and tenancy", () => {
   test("signed-out callers are rejected", async () => {
@@ -1300,7 +1301,8 @@ describe("funding links and the lead feed", () => {
     });
     const feed = await roofer.as.query(api.marketplace.feed, { organizationId: roofer.organizationId });
     expect(feed).toHaveLength(1);
-    expect(feed[0]).toMatchObject({ jobType: "roofing", city: "Midland", summary: "Hail damage", priceCents: 8500 });
+    expect(feed[0]).toMatchObject({ jobType: "roofing", city: "Midland", summary: "Hail damage" });
+    expect(feed[0].auction).toMatchObject({ startCents: 8500, floorCents: 1700, dropCents: 300, dropEveryMs: 3_600_000 });
     expect(JSON.stringify(feed)).not.toMatch(/Jane|555-0101|jane@|Oak St/);
 
     await expect(roofer.as.mutation(api.marketplace.buy, { leadId: lead!._id, organizationId: roofer.organizationId })).rejects.toThrow(
@@ -1319,5 +1321,148 @@ describe("funding links and the lead feed", () => {
     expect(await balance(roofer)).toBe(500000 - 8500);
     expect(await rival.as.query(api.marketplace.feed, { organizationId: rival.organizationId })).toHaveLength(0);
     void t;
+  });
+});
+
+describe("dropping prices and buy orders", () => {
+  const HOUR = 3_600_000;
+
+  test("a trade's schedule fills in from the start price", () => {
+    expect(pricingFor({ priceCents: 8500 })).toEqual({ startCents: 8500, floorCents: 1700, dropCents: 300, dropEveryMs: HOUR });
+    expect(pricingFor({ priceCents: 1600 })).toEqual({ startCents: 1600, floorCents: 500, dropCents: 100, dropEveryMs: HOUR });
+    expect(pricingFor({ priceCents: 15000, floorCents: 3500, dropCents: 500, dropEveryMinutes: 30 })).toEqual({
+      startCents: 15000,
+      floorCents: 3500,
+      dropCents: 500,
+      dropEveryMs: 30 * 60_000,
+    });
+    const a = { startCents: 15000, floorCents: 3500, dropCents: 500, dropEveryMs: HOUR, listedAt: "2026-10-17T00:00:00.000Z" };
+    const listed = Date.parse(a.listedAt);
+    expect(priceAt(a, listed + 59 * 60_000)).toMatchObject({ priceCents: 15000, nextPriceCents: 14500, nextDropAtMs: listed + HOUR });
+    expect(priceAt(a, listed + 2.5 * HOUR).priceCents).toBe(14000);
+    expect(priceAt(a, listed + 23 * HOUR)).toMatchObject({ priceCents: 3500, atFloor: true, floorAtMs: listed + 23 * HOUR });
+    expect(priceAt(a, listed + 100 * HOUR).priceCents).toBe(3500);
+    expect(fillTimeMs(a, 14000)).toBe(listed + 2 * HOUR);
+    expect(fillTimeMs(a, 14200)).toBe(listed + 2 * HOUR);
+    expect(fillTimeMs(a, 3500)).toBe(listed + 23 * HOUR);
+    expect(fillTimeMs(a, 100)).toBe(listed + 23 * HOUR);
+  });
+
+  async function market() {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-17T12:00:00.000Z"));
+    const t = setup();
+    const admin = await signUp(t, "admin@fieldquote.example", { role: "super_admin" });
+    const roofer = await signUp(t, "roofer@example.com");
+    const rival = await signUp(t, "rival@example.com");
+    await admin.as.mutation(api.marketplace.setLeadPrice, { jobType: "roofing", price: 85, floor: 20, drop: 5 });
+    for (const who of [roofer, rival])
+      await admin.as.mutation(api.marketplace.recordTopUp, { organizationId: who.organizationId, amount: 100 });
+    const lead = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Jane Cole", jobType: "roofing" } });
+    return { t, admin, roofer, rival, leadId: lead!._id };
+  }
+  const balance = async (who: { as: any; organizationId: any }) =>
+    (await who.as.query(api.marketplace.wallet, { organizationId: who.organizationId })).balanceCents;
+  const sold = async (t: any, leadId: any) => t.run(async (ctx: any) => ctx.db.get(leadId));
+
+  test("the price drops on the schedule, and buy now pays what it is at the time", async () => {
+    try {
+      const { t, admin, roofer, leadId } = await market();
+      const feed = await roofer.as.query(api.marketplace.feed, { organizationId: roofer.organizationId });
+      expect(feed[0].auction).toMatchObject({ startCents: 8500, floorCents: 2000, dropCents: 500, listedAt: "2026-10-17T12:00:00.000Z" });
+      const inbox = await admin.as.query(api.marketplace.listInbox, {});
+      expect(inbox.available[0]).toMatchObject({ price: 8500, floorCents: 2000, openBids: 0, floorAt: "2026-10-18T01:00:00.000Z" });
+
+      vi.setSystemTime(new Date("2026-10-17T14:30:00.000Z"));
+      expect((await admin.as.query(api.marketplace.listInbox, {})).available[0].price).toBe(7500);
+      await roofer.as.mutation(api.marketplace.buy, { leadId, organizationId: roofer.organizationId });
+      expect(await balance(roofer)).toBe(10000 - 7500);
+      expect(await sold(t, leadId)).toMatchObject({ status: "assigned", priceCents: 7500 });
+      // Changing the trade's prices later doesn't move a lead already listed.
+      const other = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Bo", jobType: "roofing" } });
+      await admin.as.mutation(api.marketplace.setLeadPrice, { jobType: "roofing", price: 200 });
+      expect((await roofer.as.query(api.marketplace.feed, { organizationId: roofer.organizationId }))[0]).toMatchObject({
+        id: other!._id,
+        auction: { startCents: 8500 },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a buy order fills on its own when the price reaches it; the highest order wins", async () => {
+    try {
+      const { t, admin, roofer, rival, leadId } = await market();
+      const place = (who: any, max: number) =>
+        who.as.mutation(api.marketplace.placeBid, { leadId, organizationId: who.organizationId, max });
+      await expect(place(roofer, 10)).rejects.toThrow(/won't go below \$20/);
+      await expect(place(roofer, 85)).rejects.toThrow(/already \$85.00: buy it now/);
+      const broke = await signUp(t, "broke@example.com");
+      await expect(place(broke, 60)).rejects.toThrow(/Add funds/);
+      await expect(rival.as.mutation(api.marketplace.placeBid, { leadId, organizationId: roofer.organizationId, max: 60 })).rejects.toThrow(
+        /access/,
+      );
+
+      expect(await place(roofer, 60)).toMatchObject({ fillsAt: "2026-10-17T17:00:00.000Z" });
+      // A second order from the same company replaces the first.
+      const { bidId } = await place(roofer, 55);
+      expect(await place(rival, 70)).toMatchObject({ fillsAt: "2026-10-17T15:00:00.000Z" });
+      expect((await admin.as.query(api.marketplace.listInbox, {})).available[0].openBids).toBe(2);
+      const mine = await roofer.as.query(api.marketplace.feed, { organizationId: roofer.organizationId });
+      expect(mine[0].myBid).toMatchObject({ id: bidId, maxCents: 5500 });
+      expect((await roofer.as.query(api.marketplace.wallet, { organizationId: roofer.organizationId })).openBids).toBe(1);
+
+      // 15:00: the price reaches $70 and the rival's order fills at that price.
+      vi.advanceTimersByTime(3 * HOUR);
+      await t.finishInProgressScheduledFunctions();
+      expect(await sold(t, leadId)).toMatchObject({ status: "assigned", assignedOrganizationId: rival.organizationId, priceCents: 7000 });
+      // 17:00: the roofer's order comes due, but the lead is gone.
+      vi.advanceTimersByTime(2 * HOUR);
+      await t.finishInProgressScheduledFunctions();
+      expect(await balance(rival)).toBe(10000 - 7000);
+      expect(await balance(roofer)).toBe(10000);
+      const rivals = await rival.as.query(api.marketplace.bids, { organizationId: rival.organizationId });
+      expect(rivals[0]).toMatchObject({ status: "filled", maxCents: 7000, pricePaidCents: 7000 });
+      const roofers = await roofer.as.query(api.marketplace.bids, { organizationId: roofer.organizationId });
+      expect(roofers.map((b) => b.status).sort()).toEqual(["lost"]);
+      expect(roofers[0].outcome).toMatch(/Another company/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("buy orders can be cancelled, lose to a buy now, and need the balance when they fill", async () => {
+    try {
+      const { t, admin, roofer, rival, leadId } = await market();
+      const { bidId } = await roofer.as.mutation(api.marketplace.placeBid, { leadId, organizationId: roofer.organizationId, max: 60 });
+      await expect(rival.as.mutation(api.marketplace.cancelBid, { bidId })).rejects.toThrow(/access/);
+      await roofer.as.mutation(api.marketplace.cancelBid, { bidId });
+      await expect(roofer.as.mutation(api.marketplace.cancelBid, { bidId })).rejects.toThrow(/already closed/);
+
+      await roofer.as.mutation(api.marketplace.placeBid, { leadId, organizationId: roofer.organizationId, max: 60 });
+      await rival.as.mutation(api.marketplace.buy, { leadId, organizationId: rival.organizationId });
+      const lost = await roofer.as.query(api.marketplace.bids, { organizationId: roofer.organizationId });
+      expect(lost.find((b) => b.status === "lost")?.outcome).toMatch(/bought it first/);
+
+      // Spending the balance before the order fills loses it.
+      const second = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Bo", jobType: "roofing" } });
+      await roofer.as.mutation(api.marketplace.placeBid, { leadId: second!._id, organizationId: roofer.organizationId, max: 60 });
+      const third = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Cy", jobType: "roofing" } });
+      await roofer.as.mutation(api.marketplace.buy, { leadId: third!._id, organizationId: roofer.organizationId });
+      expect(await balance(roofer)).toBe(10000 - 8500);
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      expect(await sold(t, second!._id)).toMatchObject({ status: "available" });
+      const after = await roofer.as.query(api.marketplace.bids, { organizationId: roofer.organizationId });
+      expect(after.find((b) => b.leadId === second!._id)?.outcome).toMatch(/Balance too low/);
+
+      // The admin sending a lead by hand also closes its orders.
+      await admin.as.mutation(api.marketplace.recordTopUp, { organizationId: rival.organizationId, amount: 100 });
+      await rival.as.mutation(api.marketplace.placeBid, { leadId: second!._id, organizationId: rival.organizationId, max: 25 });
+      await admin.as.mutation(api.marketplace.assign, { leadId: second!._id, organizationId: rival.organizationId });
+      const rivals = await rival.as.query(api.marketplace.bids, { organizationId: rival.organizationId });
+      expect(rivals.find((b) => b.leadId === second!._id)).toMatchObject({ status: "lost", outcome: "You bought this lead" });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

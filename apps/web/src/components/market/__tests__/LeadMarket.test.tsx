@@ -219,27 +219,15 @@ describe('loading the balance and buying leads', () => {
     expect(removeCompany).toHaveBeenCalledWith('o3');
   });
 
-  it("tells the company their payment is being confirmed, and lets them buy a lead from the feed", async () => {
+  it("tells the company their payment is being confirmed, and points them to the Marketplace for new leads", async () => {
     wallet = {
       balanceCents: 500000, typicalLeadCents: 8500, spentCents: 0, leadsBought: 0, wonCents: 0, wonCount: 0,
       pendingFunding: { amountCents: 750000, bonusCents: 37500 }, availableLeads: 1,
       transactions: [{ id: 't1', type: 'top_up', amountCents: 500000, balanceAfterCents: 500000, createdAt: '2026-10-10' }],
     };
-    feedLeads = [{ id: 'm1', jobType: 'roofing', city: 'Midland', summary: 'Hail damage', priceCents: 8500, postedAt: new Date().toISOString(), matchesTrades: true }];
-    const onBought = jest.fn();
-    await render(<WalletBar organizationId="o2" onBought={onBought} />);
+    await render(<WalletBar organizationId="o2" />);
     expect(document.body.textContent).toContain('Your $7,500.00 payment (+$375.00 bonus) is being confirmed');
-    await act(async () => byText('1 new lead · Browse')!.click());
-    await flush();
-    const feed = document.body.querySelector('[role="dialog"][aria-label="New leads"]')!;
-    expect(feed.textContent).toContain('Hail damage');
-    expect(feed.textContent).toContain('Name, phone and address unlock when you buy.');
-    await act(async () => byText('Buy lead · $85.00')!.click());
-    expect(feed.textContent).toContain('Buy this Roofing lead for $85.00?');
-    await act(async () => buttons().find((b) => b.textContent === 'Buy')!.click());
-    await flush();
-    expect(buyLead).toHaveBeenCalledWith('m1', 'o2');
-    expect(onBought).toHaveBeenCalled();
-    expect(feed.textContent).toContain('Lead unlocked');
+    const browse = Array.from(document.body.querySelectorAll('a')).find((a) => a.textContent?.includes('1 new lead · Browse'))!;
+    expect(browse.getAttribute('href')).toBe('/marketplace');
   });
 });

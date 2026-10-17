@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Link } from 'react-router-dom';
 import { Clock, Inbox, TrendingUp, Wallet, X } from 'lucide-react';
 import { fundingAPI, walletAPI } from '../../lib/api';
-import { LeadFeed } from './LeadFeed';
 import { WalletHistory, money } from './wallet';
 
 export interface WalletSummary {
@@ -14,6 +14,7 @@ export interface WalletSummary {
   wonCount: number;
   pendingFunding?: { amountCents: number; bonusCents: number } | null;
   availableLeads?: number;
+  openBids?: number;
   transactions: Array<{ id: string; type: string; amountCents: number; balanceAfterCents: number; method?: string; note?: string; createdAt: string }>;
 }
 
@@ -29,18 +30,13 @@ export const leadsCovered = (wallet: WalletSummary) =>
 
 /**
  * The company's lead balance on the Leads page: a chip that opens the wallet,
- * and a nudge when the balance is about to run out. Hidden for companies
- * that don't buy leads from FieldQuote.
+ * a link to the Marketplace when leads are waiting, and a nudge when the
+ * balance is about to run out. Hidden for companies that don't buy leads
+ * from FieldQuote.
  */
-export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown; onBought?: () => void }> = ({
-  organizationId,
-  refreshKey,
-  onBought,
-}) => {
+export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown }> = ({ organizationId, refreshKey }) => {
   const [wallet, setWallet] = useState<WalletSummary | null>(null);
   const [open, setOpen] = useState(false);
-  const [browsing, setBrowsing] = useState(false);
-  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     if (!organizationId) return;
@@ -52,7 +48,7 @@ export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown
     return () => {
       cancelled = true;
     };
-  }, [organizationId, refreshKey, reload]);
+  }, [organizationId, refreshKey]);
 
   if (!wallet || !organizationId) return null;
   const inMarket = wallet.transactions.length > 0 || wallet.leadsBought > 0 || Boolean(wallet.pendingFunding);
@@ -75,14 +71,13 @@ export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown
           <span className="text-gray-400">· about {covered} lead{covered === 1 ? '' : 's'}</span>
         </button>
         {(wallet.availableLeads ?? 0) > 0 && (
-          <button
-            type="button"
-            onClick={() => setBrowsing(true)}
+          <Link
+            to="/marketplace"
             className="inline-flex items-center gap-2 px-3 py-2 rounded bg-[#336699] text-white text-sm font-medium [@media(hover:hover)]:hover:bg-[#2A5580] active:bg-[#2A5580]"
           >
             <Inbox className="w-4 h-4" />
             {wallet.availableLeads} new lead{wallet.availableLeads === 1 ? '' : 's'} · Browse
-          </button>
+          </Link>
         )}
         {wallet.wonCents > 0 && (
           <span className="inline-flex items-center gap-1.5 text-sm text-gray-400">
@@ -109,18 +104,6 @@ export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown
         </div>
       )}
       {open && <WalletDrawer wallet={wallet} onClose={() => setOpen(false)} onAddFunds={addFunds} />}
-      {browsing && (
-        <LeadFeed
-          organizationId={organizationId}
-          balanceCents={wallet.balanceCents}
-          onClose={() => {
-            setBrowsing(false);
-            setReload((n) => n + 1);
-          }}
-          onBought={() => onBought?.()}
-          onAddFunds={addFunds}
-        />
-      )}
     </>
   );
 };

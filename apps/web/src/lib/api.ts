@@ -436,7 +436,8 @@ export const marketplaceAPI = {
   recordTopUp: (organizationId: string, payment: { amount: number; bonus?: number; method?: string; note?: string }) =>
     run('mutation', api.marketplace.recordTopUp, defined({ organizationId, ...payment })),
   prices: () => run('query', api.marketplace.listLeadPrices, {}),
-  setPrice: (jobType: string, price: number | null) => run('mutation', api.marketplace.setLeadPrice, { jobType, price }),
+  setPrice: (jobType: string, price: number | null, schedule?: { floor?: number | null; drop?: number | null; dropEveryMinutes?: number | null }) =>
+    run('mutation', api.marketplace.setLeadPrice, { jobType, price, ...(schedule ?? {}) }),
   pendingCredits: () => run('query', api.marketplace.pendingCredits, {}),
   reviewCredit: (orgLeadId: string, approve: boolean) => run('mutation', api.marketplace.reviewCredit, { orgLeadId, approve }),
   addDemoData: () => run('mutation', api.marketplace.addDemoData, {}),
@@ -447,6 +448,11 @@ export const walletAPI = {
   get: (organizationId: string) => run('query', api.marketplace.wallet, { organizationId }),
   feed: (organizationId: string) => run('query', api.marketplace.feed, { organizationId }),
   buy: (leadId: string, organizationId: string) => run('mutation', api.marketplace.buy, { leadId, organizationId }),
+  /** A standing offer: buys the lead on its own once its price drops to `max` dollars. */
+  placeBid: (leadId: string, organizationId: string, max: number) =>
+    run('mutation', api.marketplace.placeBid, { leadId, organizationId, max }),
+  cancelBid: (bidId: string) => run('mutation', api.marketplace.cancelBid, { bidId }),
+  bids: (organizationId: string) => run('query', api.marketplace.bids, { organizationId }),
   requestCredit: (leadId: string, reason: string, note?: string) =>
     run('mutation', api.marketplace.requestCredit, defined({ leadId, reason, note })),
 };

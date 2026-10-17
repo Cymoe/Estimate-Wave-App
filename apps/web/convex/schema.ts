@@ -380,11 +380,43 @@ export default defineSchema({
     assignedAt: v.optional(v.string()),
     orgLeadId: v.optional(v.id("leads")),
     isSample: v.optional(v.boolean()),
+    // The price schedule it was listed with (see lib/auction.ts). Leads
+    // from before schedules existed have none and use their trade's prices.
+    auction: v.optional(
+      v.object({
+        startCents: v.number(),
+        floorCents: v.number(),
+        dropCents: v.number(),
+        dropEveryMs: v.number(),
+        listedAt: v.string(),
+      }),
+    ),
     createdBy: v.id("users"),
     ...timestamps,
   })
     .index("by_status", ["status"])
     .index("by_organization", ["assignedOrganizationId"]),
+
+  // A company's standing offer on a lead: it buys automatically once the
+  // price drops to `maxCents`, unless someone buys first.
+  leadBids: defineTable({
+    marketplaceLeadId: v.id("marketplaceLeads"),
+    organizationId: v.id("organizations"),
+    maxCents: v.number(),
+    status: v.union(
+      v.literal("open"),
+      v.literal("filled"),
+      v.literal("lost"),
+      v.literal("cancelled"),
+    ),
+    /** Why it was lost, in plain words. */
+    outcome: v.optional(v.string()),
+    createdBy: v.id("users"),
+    createdAt: v.string(),
+    resolvedAt: v.optional(v.string()),
+  })
+    .index("by_lead", ["marketplaceLeadId"])
+    .index("by_organization_and_status", ["organizationId", "status"]),
 
   // Every change to a company's balance, never edited. walletBalanceCents
   // on the organization is the running total, updated in the same mutation.
@@ -401,9 +433,14 @@ export default defineSchema({
   }).index("by_organization", ["organizationId"]),
 
   // What a lead costs, by trade (jobType "default" covers the rest).
+  // What a trade's leads cost: `priceCents` is the start price; the rest
+  // of the drop schedule is optional (see lib/auction.ts for defaults).
   leadPrices: defineTable({
     jobType: v.string(),
     priceCents: v.number(),
+    floorCents: v.optional(v.number()),
+    dropCents: v.optional(v.number()),
+    dropEveryMinutes: v.optional(v.number()),
     updatedAt: v.string(),
   }).index("by_job_type", ["jobType"]),
 

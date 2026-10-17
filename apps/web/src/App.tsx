@@ -26,6 +26,7 @@ import Templates from './pages/Templates';
 import { FEATURES, HOME_PATH } from './config/features';
 import LeadsPage from './pages/LeadsPage';
 import LeadMarketPage from './pages/LeadMarketPage';
+import MarketplacePage from './pages/MarketplacePage';
 import FundAccountPage from './pages/FundAccountPage';
 import IndustrySettings from './pages/IndustrySettings';
 import OrganizationSettings from './pages/OrganizationSettings';
@@ -224,6 +225,16 @@ function AppRoutes() {
           <ProtectedRoute>
             <DashboardLayout fullWidth={true}>
               <LeadsPage />
+            </DashboardLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/marketplace"
+        element={
+          <ProtectedRoute>
+            <DashboardLayout fullWidth={true}>
+              <MarketplacePage />
             </DashboardLayout>
           </ProtectedRoute>
         }
