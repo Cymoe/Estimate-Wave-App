@@ -838,10 +838,16 @@ const LeadMarketPage: React.FC = () => {
     <div className="px-4 md:px-6 py-5 text-white">
       <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
         <div>
-          <h1 className="text-xl font-semibold">Lead Market</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-xl font-semibold">Lead Market</h1>
+            <span className="text-xs px-2 py-0.5 rounded-full border border-[#336699]/60 bg-[#336699]/15 text-[#cfe2f5]">
+              Platform admin · all companies
+            </span>
+          </div>
           <p className="text-sm text-gray-400">
             {inbox.available.length} leads waiting · {money(totals.spent)} sold in 30 days · {money(totals.balance)} in company balances
           </p>
+          <p className="text-xs text-gray-500 mt-0.5">Companies never see this page. They only see their own leads and balance.</p>
         </div>
         <div className="flex rounded border border-[#333] overflow-hidden" role="tablist">
           {(

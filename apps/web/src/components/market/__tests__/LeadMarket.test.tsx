@@ -192,6 +192,7 @@ describe('loading the balance and buying leads', () => {
 
   it('sets an owner, and removes an empty company (only offered for empty ones)', async () => {
     await render(<LeadMarketPage />);
+    expect(document.body.textContent).toContain('Platform admin · all companies');
     await act(async () => byText('Companies')!.click());
     await flush();
     const row = (name: string) => Array.from(document.body.querySelectorAll('tr')).find((r) => r.textContent?.includes(name))!;
