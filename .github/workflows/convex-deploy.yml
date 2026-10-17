@@ -81,11 +81,6 @@ jobs:
       - name: Load shared catalog
         run: npx convex run seed:catalog
 
-      - name: Set up the real Lead Market companies
-        # One-off: swaps the demo data for the real companies. Safe to re-run;
-        # existing (or removed) companies are left alone.
-        run: npx convex run seed:realCompanies
-
       - name: Smoke test the live deployment
         run: node scripts/convex-smoke-test.mjs
 
