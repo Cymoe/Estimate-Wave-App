@@ -266,7 +266,7 @@ export const removeSmokeTests = internalMutation({
 
 /** The contractors buying leads today, with the trades they get leads for. */
 export const REAL_COMPANIES: Array<{ name: string; leadTrades: string[] }> = [
-  { name: "Mio Homes", leadTrades: ["general-construction"] },
+  { name: "Mio Homes", leadTrades: ["landscaping"] },
   { name: "Soco Outdoor", leadTrades: ["landscaping"] },
   { name: "Buried Stone", leadTrades: ["landscaping"] },
   { name: "Picante Painting", leadTrades: ["painting"] },
@@ -315,7 +315,11 @@ export const realCompanies = internalMutation({
  */
 export const removeEmptyDuplicates = internalMutation({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx) => await switchOffEmptyDuplicates(ctx),
+});
+
+async function switchOffEmptyDuplicates(ctx: MutationCtx) {
+  {
     const active = (await ctx.db.query("organizations").take(1000)).filter((org) => org.isActive);
     const groups = new Map<string, typeof active>();
     for (const org of active) {
@@ -342,5 +346,65 @@ export const removeEmptyDuplicates = internalMutation({
       }
     }
     return { removed };
+  }
+}
+
+/**
+ * One-off fix: the real leads were entered under Picante Painting but belong
+ * to Mio Homes, which buys landscaping leads. Moves every non-sample lead
+ * from Picante Painting to Mio Homes (dropping links to Picante's clients
+ * and estimates), sets Mio Homes' trade, then switches off empty duplicates.
+ *
+ *   npx convex run seed:moveLeadsToMioHomes
+ */
+export const moveLeadsToMioHomes = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const active = (await ctx.db.query("organizations").take(1000)).filter((org) => org.isActive);
+    const named = (name: string) => active.filter((org) => companyNameKey(org.name) === companyNameKey(name));
+    const mio = named("Mio Homes")[0];
+    if (!mio) throw new Error("Mio Homes not found");
+    await ctx.db.patch(mio._id, { leadTrades: ["landscaping"], updatedAt: nowIso() });
+    let moved = 0;
+    for (const picante of named("Picante Painting")) {
+      const leads = await ctx.db
+        .query("leads")
+        .withIndex("by_organization", (q) => q.eq("organizationId", picante._id))
+        .collect();
+      for (const lead of leads) {
+        if (lead.isSample) continue;
+        await ctx.db.patch(lead._id, {
+          organizationId: mio._id,
+          clientId: undefined,
+          estimateId: undefined,
+          updatedAt: nowIso(),
+        });
+        if (lead.marketplaceLeadId)
+          await ctx.db.patch(lead.marketplaceLeadId, { assignedOrganizationId: mio._id });
+        moved++;
+      }
+    }
+    const duplicates = await switchOffEmptyDuplicates(ctx);
+    // What's left in each Picante Painting, to see why a copy was kept.
+    const picante = [];
+    for (const org of named("Picante Painting")) {
+      const count = async (table: "clients" | "estimates" | "fundingRequests" | "walletTransactions") =>
+        (
+          await (ctx.db.query(table) as any)
+            .withIndex(table === "estimates" ? "by_organization_and_issue_date" : "by_organization", (q: any) =>
+              q.eq("organizationId", org._id),
+            )
+            .take(1000)
+        ).length;
+      const current = await ctx.db.get(org._id);
+      picante.push({
+        active: current?.isActive ?? false,
+        clients: await count("clients"),
+        estimates: await count("estimates"),
+        fundingLinks: await count("fundingRequests"),
+        walletEntries: await count("walletTransactions"),
+      });
+    }
+    return { moved, ...duplicates, picante };
   },
 });

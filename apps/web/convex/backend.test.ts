@@ -1134,7 +1134,7 @@ describe("smoke tests and demo data", () => {
       leadTrades: ["painting"],
       owners: ["owner@picante.example"],
     });
-    expect(companies.find((c) => c.name === "Mio Homes")?.leadTrades).toEqual(["general-construction"]);
+    expect(companies.find((c) => c.name === "Mio Homes")?.leadTrades).toEqual(["landscaping"]);
 
     // A removed company isn't brought back.
     const mio = companies.find((c) => c.name === "Mio Homes")!;
@@ -1163,6 +1163,43 @@ describe("smoke tests and demo data", () => {
     expect(ids).not.toContain(copy);
     const kept = await t.run(async (ctx) => ctx.db.get(real.organizationId));
     expect(kept?.leadTrades).toEqual(["painting"]);
+  });
+
+  test("the real leads move from Picante Painting to Mio Homes", async () => {
+    const t = setup();
+    const picante = await signUp(t, "owner@picante.example");
+    await picante.as.mutation(api.organizations.update, { id: picante.organizationId, data: { name: "Picante Painting" } });
+    const client = await picante.as.mutation(api.clients.create, { organizationId: picante.organizationId, data: { name: "Ann" } });
+    const lead = await picante.as.mutation(api.leads.create, {
+      organizationId: picante.organizationId,
+      data: { name: "Backyard redo", clientId: client!._id },
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(lead!._id, { clientId: client!._id });
+    });
+    const sample = await t.run(async (ctx) =>
+      ctx.db.insert("leads", {
+        name: "Example",
+        status: "new",
+        isSample: true,
+        organizationId: picante.organizationId,
+        userId: picante.userId,
+        createdAt: "2026-01-01",
+        updatedAt: "2026-01-01",
+      } as any),
+    );
+    await t.mutation(internal.seed.realCompanies, {});
+
+    const result = await t.mutation(internal.seed.moveLeadsToMioHomes, {});
+    expect(result).toMatchObject({ moved: 1 });
+    const mio = await t.run(async (ctx) => (await ctx.db.query("organizations").collect()).find((o) => o.name === "Mio Homes")!);
+    expect(mio.leadTrades).toEqual(["landscaping"]);
+    const moved = await t.run(async (ctx) => ctx.db.get(lead!._id));
+    expect(moved).toMatchObject({ organizationId: mio._id, name: "Backyard redo" });
+    expect(moved?.clientId).toBeUndefined();
+    expect((await t.run(async (ctx) => ctx.db.get(sample)))?.organizationId).toBe(picante.organizationId);
+    // Picante keeps its client and company.
+    expect(result.picante).toEqual([{ active: true, clients: 1, estimates: 0, fundingLinks: 0, walletEntries: 0 }]);
   });
 
   test("an owner can be set on a company: invited, or added if they have an account", async () => {
