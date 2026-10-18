@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
-import { Clock, Gavel, Inbox, TrendingUp, X } from 'lucide-react';
+import { Clock, Gavel, TrendingUp, X } from 'lucide-react';
 import { fundingAPI, walletAPI } from '../../lib/api';
-import { WalletHistory, money, titleFromSlug } from './wallet';
+import { WalletHistory, money } from './wallet';
 
 export interface WalletSummary {
   balanceCents: number;
@@ -82,9 +82,7 @@ export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown
             to="/marketplace"
             className="inline-flex items-center gap-2 px-3 py-2 rounded bg-[#336699] text-white text-sm font-medium [@media(hover:hover)]:hover:bg-[#2A5580] active:bg-[#2A5580]"
           >
-            <Inbox className="w-4 h-4" />
-            {wallet.availableLeads} new {wallet.leadTrades?.length === 1 ? `${titleFromSlug(wallet.leadTrades[0]).toLowerCase()} ` : ''}lead
-            {wallet.availableLeads === 1 ? '' : 's'} for you · Browse
+            {wallet.availableLeads} new lead{wallet.availableLeads === 1 ? '' : 's'} in the Marketplace
           </Link>
         )}
         {wallet.wonCents > 0 && (
