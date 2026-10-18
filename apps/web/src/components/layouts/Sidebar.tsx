@@ -170,7 +170,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <>
                   <div className="relative z-10 flex flex-col items-center">
                     <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      <span className="text-base">◆</span>
+                      <span className="text-base">📈</span>
                     </div>
                     {!isSidebarCollapsed && (
                       <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
@@ -196,7 +196,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {({ isActive }) => (
                 <div className="relative z-10 flex flex-col items-center">
                   <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                    <span className="text-base">◆</span>
+                    <span className="text-base">📞</span>
                   </div>
                   {!isSidebarCollapsed && (
                     <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
@@ -267,7 +267,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <>
                   <div className="relative z-10 flex flex-col items-center">
                     <div className={`mb-1 ${isActive || location.pathname.startsWith('/work') || location.pathname.startsWith('/estimates') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      <span className="text-base">▲</span>
+                      <span className="text-base">📝</span>
                     </div>
                     {!isSidebarCollapsed && (
                       <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/work') || location.pathname.startsWith('/estimates') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
@@ -293,7 +293,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <>
                   <div className="relative z-10 flex flex-col items-center">
                     <div className={`mb-1 ${isActive || location.pathname.startsWith('/price-book') || location.pathname.startsWith('/items') || location.pathname.startsWith('/cost-codes') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      <span className="text-base">□</span>
+                      <span className="text-base">📒</span>
                     </div>
                     {!isSidebarCollapsed && (
                       <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/price-book') || location.pathname.startsWith('/items') || location.pathname.startsWith('/cost-codes') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
@@ -320,7 +320,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <>
                   <div className="relative z-10 flex flex-col items-center">
                     <div className={`mb-1 ${isActive || location.pathname.startsWith('/projects') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      <span className="text-base">◉</span>
+                      <span className="text-base">🏗</span>
                     </div>
                     {!isSidebarCollapsed && (
                       <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/projects') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>

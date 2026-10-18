@@ -96,7 +96,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
               }`
             }
           >
-            <span className="text-lg">💰</span>
+            <span className="text-lg">📈</span>
             <span>Profit Tracker</span>
           </NavLink>
           )}
@@ -113,7 +113,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
               }`
             }
           >
-            <span className="text-lg">◆</span>
+            <span className="text-lg">📞</span>
             <span>Leads</span>
           </NavLink>
 
@@ -158,7 +158,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
               }`
             }
           >
-            <span className="text-lg">💼</span>
+            <span className="text-lg">📝</span>
             <span>Work</span>
           </NavLink>
 
@@ -173,7 +173,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
               }`
             }
           >
-            <span className="text-lg">📚</span>
+            <span className="text-lg">📒</span>
             <span>Price Book</span>
           </NavLink>
 
@@ -188,7 +188,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
               }`
             }
           >
-            <span className="text-lg">◉</span>
+            <span className="text-lg">🏗</span>
             <span>Services</span>
           </NavLink>
         </nav>
