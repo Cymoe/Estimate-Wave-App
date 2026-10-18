@@ -38,7 +38,8 @@ function matchesSearch(lead: Lead, query: string) {
 
 const NO_COUNTY = '__none';
 
-const leadValue = (lead: Lead) => lead.estimate?.totalAmount ?? lead.estimatedValue ?? 0;
+/** Real money only: the estimate's total, never a typed-in guess. */
+const leadValue = (lead: Lead) => lead.estimate?.totalAmount ?? 0;
 
 type ContactKind = 'call' | 'text' | 'note';
 
@@ -339,7 +340,7 @@ const LeadsPage: React.FC = () => {
         projectId: '',
         clientId: quoting.clientId,
         projectName: (quoting.lead.jobType && tradeName.get(quoting.lead.jobType)) || quoting.lead.name,
-        projectBudget: quoting.lead.estimatedValue ?? 0,
+        projectBudget: 0,
       },
     [quoting, tradeName],
   );
@@ -495,7 +496,7 @@ const LeadsPage: React.FC = () => {
                       <span className={`text-sm font-medium ${column.color}`}>{column.label}</span>
                       <span className="text-xs text-gray-500">{cards.length}</span>
                     </div>
-                    <div className="text-xs text-gray-400">{formatCurrency(total)}</div>
+                    {total > 0 && <div className="text-xs text-gray-400">{formatCurrency(total)} estimated</div>}
                   </div>
                   <div className="p-2 space-y-2 min-h-[120px]">
                     {cards.map((lead) => {

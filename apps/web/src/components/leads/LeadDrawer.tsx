@@ -4,7 +4,6 @@ import {
   Building2,
   CalendarDays,
   Clock,
-  DollarSign,
   Globe,
   Mail,
   MapPin,
@@ -31,7 +30,6 @@ interface Draft {
   city: string;
   jobType: string;
   source: string;
-  estimatedValue: string;
   followUpDate: string;
   notes: string;
   lostReason: string;
@@ -46,21 +44,15 @@ const draftOf = (lead: Lead | null): Draft => ({
   city: lead?.city ?? '',
   jobType: lead?.jobType ?? '',
   source: lead?.source ?? '',
-  estimatedValue: lead?.estimatedValue?.toString() ?? '',
   followUpDate: lead?.followUpDate ?? '',
   notes: lead?.notes ?? '',
   lostReason: lead?.lostReason ?? '',
 });
 
-/** A draft value as the server stores it: trimmed, empty as null, value as a number. */
-function stored(field: Field, value: string): string | number | null {
+/** A draft value as the server stores it: trimmed, empty as null. */
+function stored(_field: Field, value: string): string | null {
   const trimmed = value.trim();
-  if (trimmed === '') return null;
-  if (field === 'estimatedValue') {
-    const amount = Number(trimmed.replace(/[$,]/g, ''));
-    return Number.isFinite(amount) ? amount : null;
-  }
-  return trimmed;
+  return trimmed === '' ? null : trimmed;
 }
 
 const formatDay = (day: string) =>
@@ -430,17 +422,6 @@ export const LeadDrawer: React.FC<{
                   <option key={source} value={source}>{source}</option>
                 ))}
               </select>
-            </Row>
-            <Row icon={DollarSign} label="Value">
-              <input
-                inputMode="decimal"
-                value={draft.estimatedValue}
-                onChange={set('estimatedValue')}
-                onBlur={() => commit('estimatedValue')}
-                placeholder="Add estimate"
-                aria-label="Estimated value"
-                className={plainInput}
-              />
             </Row>
             {lead?.status === 'lost' && (
               <Row icon={XCircle} label="Lost because">
