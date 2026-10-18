@@ -230,6 +230,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               )}
             </NavLink>
+            {/* Marketplace */}
+            <NavLink
+              to="/marketplace"
+              className={({ isActive }) =>
+                isActive
+                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
+                  : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
+              }
+              title={isSidebarCollapsed ? "Marketplace - Leads nobody bid on, priced to move" : undefined}
+            >
+              {({ isActive }) => (
+                <div className="relative z-10 flex flex-col items-center">
+                  <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
+                    <span className="text-base">🏷</span>
+                  </div>
+                  {!isSidebarCollapsed && (
+                    <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
+                      Marketplace
+                    </span>
+                  )}
+                </div>
+              )}
+            </NavLink>
             {/* Estimates */}
             <NavLink
               to="/work"
@@ -281,6 +304,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </>
               )}
             </NavLink>
+
+            {/* Activity Log: opens the panel, laid out like the other tiles */}
+            <button
+              type="button"
+              onClick={onActivityClick}
+              className="bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
+              title={isSidebarCollapsed ? "Activity Log - View Recent Actions" : undefined}
+            >
+              <div className="relative z-10 flex flex-col items-center">
+                <div className="mb-1 text-gray-400 group-hover:text-gray-300 transition-colors">
+                  <Activity className="w-4 h-4" />
+                </div>
+                {!isSidebarCollapsed && (
+                  <span className="text-xs font-medium text-gray-400 group-hover:text-gray-300 transition-colors">Activity Log</span>
+                )}
+              </div>
+            </button>
 
             {/* Projects */}
             {FEATURES.projects && (
@@ -384,21 +424,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           )}
 
-          {/* Activity Button */}
-          <div className="px-2 mt-4">
-            <button
-              onClick={onActivityClick}
-              className="w-full flex items-center justify-center h-12 bg-[#1A1A1A] border border-[#2A2A2A] rounded-[4px] hover:bg-[#2A2A2A] transition-all duration-150 group"
-              title={isSidebarCollapsed ? "Activity Log - View Recent Actions" : undefined}
-            >
-              <Activity className={`w-4 h-4 ${isSidebarCollapsed ? '' : 'mr-2'} text-gray-400 group-hover:text-white transition-colors`} />
-              {!isSidebarCollapsed && (
-                <span className="text-xs font-medium text-gray-400 group-hover:text-white transition-colors">
-                  Activity Log
-                </span>
-              )}
-            </button>
-          </div>
         </div>
         
         <div className="mt-auto flex-shrink-0">

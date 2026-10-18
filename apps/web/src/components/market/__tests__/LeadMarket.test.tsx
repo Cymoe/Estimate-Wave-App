@@ -257,7 +257,7 @@ describe('loading the balance and buying leads', () => {
     await render(<WalletBar organizationId="o2" />);
     expect(document.body.textContent).toContain('Your $7,500.00 payment (+$375.00 bonus) is being confirmed');
     const browse = Array.from(document.body.querySelectorAll('a')).find((a) => a.textContent?.includes('1 new lead · Browse'))!;
-    expect(browse.getAttribute('href')).toBe('/bids?tab=marketplace');
+    expect(browse.getAttribute('href')).toBe('/marketplace');
   });
 });
 

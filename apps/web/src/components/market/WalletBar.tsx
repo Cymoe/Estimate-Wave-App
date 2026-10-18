@@ -79,7 +79,7 @@ export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown
       <div className="flex flex-wrap items-center gap-2 mb-4 empty:hidden">
         {(wallet.availableLeads ?? 0) > 0 && (
           <Link
-            to="/bids?tab=marketplace"
+            to="/marketplace"
             className="inline-flex items-center gap-2 px-3 py-2 rounded bg-[#336699] text-white text-sm font-medium [@media(hover:hover)]:hover:bg-[#2A5580] active:bg-[#2A5580]"
           >
             <Inbox className="w-4 h-4" />

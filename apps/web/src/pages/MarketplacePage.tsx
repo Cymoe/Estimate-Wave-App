@@ -55,7 +55,7 @@ const input =
  * someone buys it: buy now at the current price, or place a buy order at
  * the price you'd pay and it fills on its own when the price gets there.
  */
-export const MarketplaceFeed: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
+const MarketplacePage: React.FC = () => {
   const { selectedOrg } = useContext(OrganizationContext);
   const organizationId = selectedOrg?.id;
   const [wallet, setWallet] = useState<WalletSummary | null>(null);
@@ -222,15 +222,15 @@ export const MarketplaceFeed: React.FC<{ embedded?: boolean }> = ({ embedded = f
     price.nextPriceCents != null && price.nextDropAtMs != null ? `${money(price.nextPriceCents)} ~${span(price.nextDropAtMs - now)}` : '—';
 
   return (
-    <div className={embedded ? 'text-white' : 'p-4 md:p-6 text-white'}>
+    <div className="p-4 md:p-6 text-white">
       <div className="mb-2">
-        {!embedded && <h1 className="text-xl font-semibold">Marketplace</h1>}
+        <h1 className="text-xl font-semibold">Marketplace</h1>
         <p className="text-sm text-gray-400">
           {leads ? `${leads.length} lead${leads.length === 1 ? '' : 's'}` : 'Loading…'} · {openOrders.length} buy order{openOrders.length === 1 ? '' : 's'} open
         </p>
       </div>
       <p className="text-xs text-gray-500 mb-4">
-        Prices drop on a schedule until someone buys. Buy now at the current price, or place a buy order at the price you’d pay and it fills on its own.
+        Leads nobody had a bid for. Prices drop on a schedule until someone buys: buy now, or place a buy order at your price and it fills on its own.
         Only one company gets each lead.
       </p>
 
@@ -356,6 +356,5 @@ export const MarketplaceFeed: React.FC<{ embedded?: boolean }> = ({ embedded = f
 };
 
 /** The Marketplace on its own page (companies normally reach it as a tab of Bids). */
-const MarketplacePage: React.FC = () => <MarketplaceFeed />;
 
 export default MarketplacePage;

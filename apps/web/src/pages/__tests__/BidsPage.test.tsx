@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -63,8 +63,9 @@ afterEach(() => {
 describe('Bids', () => {
   it('walks a new company through where, what and how much in a dialog, then saves one standing bid per county', async () => {
     await render();
-    expect(document.body.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('My bids');
-    expect(document.body.textContent).toContain('the highest bid wins it on the spot');
+    expect(document.body.textContent).toContain('go to the highest bid the moment they come in');
+    expect(document.body.querySelector('[role="tablist"]')).toBeNull();
+    expect(document.body.textContent).not.toContain('Recent results');
     expect(dialog()).toBeNull();
     await act(async () => byText('Set your bids')!.click());
     expect(dialog()?.textContent).toContain('Which counties do you work in?');
@@ -120,23 +121,37 @@ describe('Bids', () => {
     expect(dialog()).toBeNull();
   });
 
-  it('lists what the bids won and missed', async () => {
+  it('lists what the bids won and missed under the bids, on the same screen', async () => {
     standing = [{ id: 'sb1', county: 'Midland', jobType: 'landscaping', amountCents: 25000, funded: true, leading: true, contested: false }];
     results = [
       { bidId: 'b1', leadId: 'm1', jobType: 'landscaping', county: 'Midland', city: 'Midland', myBidCents: 25000, won: true, resolvedAt: '2026-10-18T12:00:00Z' },
       { bidId: 'b2', leadId: 'm2', jobType: 'landscaping', county: 'Ector', myBidCents: 25000, won: false, outcome: 'Outbid: a higher bid won it', resolvedAt: '2026-10-17T12:00:00Z' },
     ];
-    await render('/bids?tab=results');
+    await render();
     expect(document.body.textContent).toContain('1 standing bid · 1 lead won');
+    expect(document.body.querySelector('[aria-label="My standing bids"]')).not.toBeNull();
+    expect(document.body.textContent).toContain('Recent results');
     const items = Array.from(document.body.querySelectorAll('[aria-label="Results"] li'));
     expect(items[0].textContent).toContain('Landscaping · Midland County · Midland');
     expect(items[0].textContent).toContain('Won at $250.00 · now in your Leads');
     expect(items[1].textContent).toContain('Outbid: a higher bid won it');
+    expect(Array.from(document.body.querySelectorAll('a')).find((a) => a.textContent === 'Marketplace')?.getAttribute('href')).toBe('/marketplace');
   });
 
-  it('opens the Marketplace tab from the link the wallet bar uses', async () => {
-    await render('/bids?tab=marketplace');
-    expect(document.body.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Marketplace');
-    expect(document.body.textContent).toContain('My trades');
+  it('sends old Marketplace-tab links to the Marketplace page', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () =>
+      createRoot(container).render(
+        <MemoryRouter initialEntries={['/bids?tab=marketplace']}>
+          <Routes>
+            <Route path="/bids" element={<BidsPage />} />
+            <Route path="/marketplace" element={<p>Marketplace page</p>} />
+          </Routes>
+        </MemoryRouter>,
+      ),
+    );
+    await flush();
+    expect(document.body.textContent).toContain('Marketplace page');
   });
 });

@@ -27,6 +27,7 @@ import { FEATURES, HOME_PATH } from './config/features';
 import LeadsPage from './pages/LeadsPage';
 import LeadMarketPage from './pages/LeadMarketPage';
 import BidsPage from './pages/BidsPage';
+import MarketplacePage from './pages/MarketplacePage';
 import FundAccountPage from './pages/FundAccountPage';
 import IndustrySettings from './pages/IndustrySettings';
 import OrganizationSettings from './pages/OrganizationSettings';
@@ -239,7 +240,16 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      <Route path="/marketplace" element={<Navigate to="/bids?tab=marketplace" replace />} />
+      <Route
+        path="/marketplace"
+        element={
+          <ProtectedRoute>
+            <DashboardLayout fullWidth={true}>
+              <MarketplacePage />
+            </DashboardLayout>
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/lead-market"
         element={

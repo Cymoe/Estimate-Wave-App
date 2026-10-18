@@ -1,15 +1,12 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { Check, Gavel, Plus, Trash2 } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { Modal } from '../components/common/Modal';
 import { bidsAPI, industriesAPI, walletAPI } from '../lib/api';
 import { money } from '../components/market/wallet';
 import { openFundingPage, type WalletSummary } from '../components/market/WalletBar';
-import { MarketplaceFeed } from './MarketplacePage';
 import { COUNTY_CHOICES, WEST_TEXAS_COUNTIES } from '../services/counties';
-
-type Tab = 'bids' | 'results' | 'marketplace';
 
 interface Trade {
   id: string;
@@ -48,19 +45,16 @@ const input = 'bg-[#1A1A1A] border border-[#333] rounded px-3 py-2 text-white te
 const titleFromSlug = (slug?: string) => (slug ? slug.replace(/-/g, ' ').replace(/^\w/, (c) => c.toUpperCase()) : 'General');
 
 /**
- * Where a company bids for leads. A standing bid says "landscaping leads in
- * Midland County: I'll pay $250". When such a lead comes in, the highest
- * funded bid wins it on the spot and it lands in that company's Leads. The
- * Marketplace tab is where leads nobody bid on go.
+ * Where a company sets its standing bids: "landscaping leads in Midland
+ * County: I'll pay $250". When such a lead comes in, the highest funded bid
+ * wins it on the spot and it lands in that company's Leads. One quiet
+ * screen: the bids, then what they won or missed. Leads nobody bid on are
+ * in the Marketplace, which is its own page.
  */
 const BidsPage: React.FC = () => {
   const { selectedOrg } = useContext(OrganizationContext);
   const organizationId = selectedOrg?.id;
-  const [params, setParams] = useSearchParams();
-  const [tab, setTab] = useState<Tab>(() => {
-    const t = params.get('tab');
-    return t === 'results' || t === 'marketplace' ? t : 'bids';
-  });
+  const [params] = useSearchParams();
   const [wallet, setWallet] = useState<WalletSummary | null>(null);
   const [results, setResults] = useState<BidResult[] | null>(null);
   const [standing, setStanding] = useState<StandingBid[] | null>(null);
@@ -91,12 +85,9 @@ const BidsPage: React.FC = () => {
     return () => clearInterval(refresh);
   }, [load]);
 
-  const pick = (next: Tab) => {
-    setTab(next);
-    const q = new URLSearchParams(params);
-    q.set('tab', next);
-    setParams(q, { replace: true });
-  };
+  // The Marketplace used to be a tab here; old links still land on it.
+  if (params.get('tab') === 'marketplace') return <Navigate to="/marketplace" replace />;
+
   const balance = wallet?.balanceCents ?? 0;
   const addFunds = () => organizationId && openFundingPage(organizationId).catch(() => {});
   const tradeName = (slug?: string) => trades.find((t) => t.id === slug)?.name ?? titleFromSlug(slug);
@@ -112,30 +103,8 @@ const BidsPage: React.FC = () => {
         </p>
       </div>
       <p className="text-xs text-gray-500 mb-4">
-        Tell us where you work, what you do and what a lead is worth to you. When a matching lead comes in, the highest bid wins it on the spot and it
-        lands in your Leads. You only pay when you win.
+        Where you work, what you do and what a lead is worth to you. Matching leads go to the highest bid the moment they come in and land in your Leads.
       </p>
-
-      <div className="flex rounded border border-[#333] overflow-hidden mb-4 w-fit" role="tablist">
-        {(
-          [
-            ['bids', `My bids${standing?.length ? ` (${standing.length})` : ''}`],
-            ['results', 'Results'],
-            ['marketplace', 'Marketplace'],
-          ] as Array<[Tab, string]>
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={tab === id}
-            onClick={() => pick(id)}
-            className={`px-4 py-2 text-sm ${tab === id ? 'bg-[#336699] text-white' : 'text-gray-300 hover:bg-[#1E1E1E]'}`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
 
       {message && (
         <p role="status" className={`text-sm rounded px-3 py-2 mb-4 border ${message.good ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200' : 'border-red-500/40 bg-red-500/10 text-red-300'}`}>
@@ -143,22 +112,33 @@ const BidsPage: React.FC = () => {
         </p>
       )}
 
-      {tab === 'marketplace' ? (
-        <MarketplaceFeed embedded />
-      ) : standing === null || results === null ? (
+      {standing === null || results === null ? (
         <p className="text-sm text-gray-500">Loading…</p>
-      ) : tab === 'bids' ? (
-        <StandingTab
-          organizationId={organizationId!}
-          standing={standing}
-          tradeName={tradeName}
-          onChanged={load}
-          onNotify={notify}
-          onAdd={() => setAdding(true)}
-          onAddFunds={addFunds}
-        />
       ) : (
-        <ResultsTab results={results} tradeName={tradeName} />
+        <div className="space-y-8">
+          <StandingTab
+            organizationId={organizationId!}
+            standing={standing}
+            tradeName={tradeName}
+            onChanged={load}
+            onNotify={notify}
+            onAdd={() => setAdding(true)}
+            onAddFunds={addFunds}
+          />
+          {standing.length > 0 && (
+            <section>
+              <h2 className="text-sm font-medium text-white mb-2">Recent results</h2>
+              <ResultsTab results={results.slice(0, 10)} tradeName={tradeName} />
+            </section>
+          )}
+          <p className="text-xs text-gray-500">
+            Leads nobody bid on are in the{' '}
+            <Link to="/marketplace" className="text-[#7fb0e0] underline underline-offset-2">
+              Marketplace
+            </Link>
+            .
+          </p>
+        </div>
       )}
 
       {adding && organizationId && (
@@ -317,11 +297,7 @@ function StandingTab({
 
 function ResultsTab({ results, tradeName }: { results: BidResult[]; tradeName: (slug?: string) => string }) {
   if (results.length === 0) {
-    return (
-      <div className="border border-dashed border-[#333] rounded p-8 text-center">
-        <p className="text-sm text-gray-400">No leads have matched your bids yet. When one does, you'll see here whether you won it and what you paid.</p>
-      </div>
-    );
+    return <p className="text-sm text-gray-500">No leads have matched your bids yet. When one does, you'll see here whether you won it and what you paid.</p>;
   }
   return (
     <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Results">
