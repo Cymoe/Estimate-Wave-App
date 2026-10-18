@@ -458,6 +458,19 @@ export const walletAPI = {
     run('mutation', api.marketplace.requestCredit, defined({ leadId, reason, note })),
 };
 
+/** Standing bids by county and service type, and the bidding rounds they put a company in. */
+export const bidsAPI = {
+  listStanding: (organizationId: string) => run('query', api.bids.listStanding, { organizationId }),
+  setStanding: (organizationId: string, county: string, jobType: string, amount: number) =>
+    run('mutation', api.bids.setStanding, { organizationId, county, jobType, amount }),
+  removeStanding: (id: string) => run('mutation', api.bids.removeStanding, { id }),
+  rounds: (organizationId: string) => run('query', api.bids.rounds, { organizationId }),
+  raise: (leadId: string, organizationId: string, amount: number) =>
+    run('mutation', api.bids.raise, { leadId, organizationId, amount }),
+  settings: () => run('query', api.bids.settings, {}),
+  setRoundMinutes: (minutes: number) => run('mutation', api.bids.setRoundMinutes, { minutes }),
+};
+
 /** Funding links: the page a company pays through to load its lead balance. */
 export const fundingAPI = {
   createLink: (organizationId: string) => run('mutation', api.funding.createLink, { organizationId }),

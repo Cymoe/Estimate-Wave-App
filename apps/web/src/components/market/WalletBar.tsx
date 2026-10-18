@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
-import { Clock, Inbox, TrendingUp, Wallet, X } from 'lucide-react';
+import { Clock, Gavel, Inbox, TrendingUp, Wallet, X } from 'lucide-react';
 import { fundingAPI, walletAPI } from '../../lib/api';
 import { WalletHistory, money } from './wallet';
 
@@ -15,6 +15,9 @@ export interface WalletSummary {
   pendingFunding?: { amountCents: number; bonusCents: number } | null;
   availableLeads?: number;
   openBids?: number;
+  openRounds?: number;
+  standingBids?: number;
+  leadTrades?: string[];
   transactions: Array<{ id: string; type: string; amountCents: number; balanceAfterCents: number; method?: string; note?: string; createdAt: string }>;
 }
 
@@ -70,9 +73,18 @@ export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown
           <span className="text-white font-medium">{money(wallet.balanceCents)}</span>
           <span className="text-gray-400">· about {covered} lead{covered === 1 ? '' : 's'}</span>
         </button>
+        {(wallet.openRounds ?? 0) > 0 && (
+          <Link
+            to="/bids"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded bg-emerald-700 text-white text-sm font-medium [@media(hover:hover)]:hover:bg-emerald-600 active:bg-emerald-600"
+          >
+            <Gavel className="w-4 h-4" />
+            {wallet.openRounds} round{wallet.openRounds === 1 ? '' : 's'} open · Bids
+          </Link>
+        )}
         {(wallet.availableLeads ?? 0) > 0 && (
           <Link
-            to="/marketplace"
+            to="/bids?tab=marketplace"
             className="inline-flex items-center gap-2 px-3 py-2 rounded bg-[#336699] text-white text-sm font-medium [@media(hover:hover)]:hover:bg-[#2A5580] active:bg-[#2A5580]"
           >
             <Inbox className="w-4 h-4" />
@@ -91,6 +103,15 @@ export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown
           <Clock className="w-4 h-4 flex-shrink-0" />
           Your {money(wallet.pendingFunding.amountCents)} payment
           {wallet.pendingFunding.bonusCents > 0 ? ` (+${money(wallet.pendingFunding.bonusCents)} bonus)` : ''} is being confirmed. It'll show in your balance shortly.
+        </div>
+      )}
+      {wallet.standingBids === 0 && wallet.balanceCents > 0 && (
+        <div role="status" className="mb-4 px-4 py-3 rounded border border-emerald-500/40 bg-emerald-500/10 text-sm text-emerald-100 flex items-center gap-2 flex-wrap">
+          <Gavel className="w-4 h-4 flex-shrink-0" />
+          Set your bids to start winning leads: pick your counties, services and price.
+          <Link to="/bids" className="underline underline-offset-2 text-white">
+            Set bids
+          </Link>
         </div>
       )}
       {low && (

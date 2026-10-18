@@ -22,20 +22,20 @@ import { deleteOrganization } from "./lib/cleanup";
 import {
   auctionFor,
   leadPriceCents,
-  leadPriceRow,
   pricingFor,
   postTransaction,
   dollars,
 } from "./lib/wallet";
 import {
-  type Pricing,
   MIN_START_CENTS,
   fillTimeMs,
   priceAt,
   pricingFor as pricingFrom,
 } from "./lib/auction";
-import { findCity } from "./leadCity";
 import { pendingFundingFor } from "./funding";
+import { sellLead } from "./lib/sales";
+import { listLead, roundBids } from "./lib/rounds";
+import { normalizeCounty, TEXAS_COUNTIES } from "./lib/counties";
 
 // The Lead Market: leads the platform collects and sells, one company per
 // lead, paid for from a prepaid dollar balance. Everything here except
@@ -58,6 +58,7 @@ const marketplaceLeadFields = {
   email: true,
   address: true,
   city: true,
+  county: true,
   jobType: true,
   source: true,
   notes: true,
@@ -74,6 +75,12 @@ function cleanLead(data: unknown) {
     else delete (fields as Record<string, string>)[key];
   }
   if (!fields.name) fail("INVALID", "Lead name is required");
+  if (fields.county) {
+    const county = normalizeCounty(fields.county);
+    if (!county || !TEXAS_COUNTIES.includes(county))
+      fail("INVALID", `${fields.county} isn't a Texas county`);
+    fields.county = county;
+  }
   return fields as Partial<Doc<"marketplaceLeads">> & { name: string };
 }
 
@@ -95,6 +102,11 @@ export const listInbox = query({
       .withIndex("by_status", (q) => q.eq("status", "available"))
       .order("desc")
       .take(500);
+    const bidding = await ctx.db
+      .query("marketplaceLeads")
+      .withIndex("by_status", (q) => q.eq("status", "bidding"))
+      .order("desc")
+      .take(200);
     const sold = await ctx.db
       .query("marketplaceLeads")
       .withIndex("by_status", (q) => q.eq("status", "assigned"))
@@ -136,7 +148,22 @@ export const listInbox = query({
         companyName: orgId ? names.get(orgId) : undefined,
       };
     };
+    const withBids = async (lead: Doc<"marketplaceLeads">) => {
+      const bids = await roundBids(ctx, lead._id);
+      return {
+        ...(await withCompany(lead)),
+        price: bids[0]?.maxCents ?? 0,
+        bids: await Promise.all(
+          bids.map(async (b) => ({
+            companyName:
+              (await ctx.db.get(b.organizationId))?.name ?? "Unknown company",
+            amountCents: b.maxCents,
+          })),
+        ),
+      };
+    };
     return {
+      bidding: await Promise.all(bidding.map(withBids)),
       available: await Promise.all(available.map(withCompany)),
       sold: await Promise.all(
         [...sold, ...credited]
@@ -153,16 +180,7 @@ export const createLead = mutation({
   args: { data: v.any() },
   handler: async (ctx, { data }) => {
     const user = await requireSuperAdmin(ctx);
-    const now = nowIso();
-    const fields = cleanLead(data);
-    const id = await ctx.db.insert("marketplaceLeads", {
-      ...fields,
-      auction: { ...(await pricingFor(ctx, fields.jobType)), listedAt: now },
-      status: "available",
-      createdBy: user._id,
-      createdAt: now,
-      updatedAt: now,
-    });
+    const id = await listLead(ctx, cleanLead(data), user._id);
     return await ctx.db.get(id);
   },
 });
@@ -172,7 +190,6 @@ export const importLeads = mutation({
   args: { leads: v.array(v.any()) },
   handler: async (ctx, { leads }) => {
     const user = await requireSuperAdmin(ctx);
-    const now = nowIso();
     let inserted = 0;
     let skipped = 0;
     for (const row of leads.slice(0, 1000)) {
@@ -180,15 +197,7 @@ export const importLeads = mutation({
         skipped++;
         continue;
       }
-      const fields = cleanLead(row);
-      await ctx.db.insert("marketplaceLeads", {
-        ...fields,
-        auction: { ...(await pricingFor(ctx, fields.jobType)), listedAt: now },
-        status: "available",
-        createdBy: user._id,
-        createdAt: now,
-        updatedAt: now,
-      });
+      await listLead(ctx, cleanLead(row), user._id);
       inserted++;
     }
     return { inserted, skipped };
@@ -217,6 +226,8 @@ export const removeLead = mutation({
     await requireSuperAdmin(ctx);
     const lead = await ctx.db.get(id);
     if (lead === null) fail("NOT_FOUND", "Lead not found");
+    if (lead.status === "bidding")
+      fail("INVALID", "This lead is in a bidding round; wait for it to close");
     if (lead.status !== "available")
       fail("INVALID", "A lead that was sent to a company can't be deleted");
     await ctx.db.delete(id);
@@ -241,88 +252,6 @@ export const assign = mutation({
     });
   },
 });
-
-async function sellLead(
-  ctx: MutationCtx,
-  userId: Id<"users">,
-  leadId: Id<"marketplaceLeads">,
-  organizationId: Id<"organizations">,
-  sale: { priceCents: number; bidId?: Id<"leadBids"> },
-) {
-  const user = { _id: userId };
-  {
-    const lead = await ctx.db.get(leadId);
-    if (lead === null) fail("NOT_FOUND", "Lead not found");
-    if (lead.status !== "available")
-      fail("INVALID", "This lead was already sent to a company");
-    const organization = await ctx.db.get(organizationId);
-    if (organization === null || !organization.isActive)
-      fail("NOT_FOUND", "Company not found");
-
-    const priceCents = sale.priceCents;
-    await postTransaction(ctx, organizationId, {
-      type: "lead_charge",
-      amountCents: -priceCents,
-      createdBy: user._id,
-      marketplaceLeadId: leadId,
-      note: lead.name,
-    });
-    const now = nowIso();
-    const orgLeadId = await ctx.db.insert("leads", {
-      name: lead.name,
-      phone: lead.phone,
-      email: lead.email,
-      address: lead.address,
-      city: lead.city,
-      jobType: lead.jobType,
-      notes: lead.notes,
-      source: "FieldQuote Lead",
-      status: "new",
-      marketplaceLeadId: leadId,
-      pricePaidCents: priceCents,
-      assignedAt: now,
-      organizationId,
-      userId: user._id,
-      createdAt: now,
-      updatedAt: now,
-    });
-    await ctx.db.patch(leadId, {
-      status: "assigned",
-      priceCents,
-      assignedOrganizationId: organizationId,
-      assignedAt: now,
-      orgLeadId,
-      updatedAt: now,
-    });
-    await logActivity(ctx, {
-      organizationId,
-      userId: user._id,
-      action: "lead_delivered",
-      resourceType: "lead",
-      resourceId: orgLeadId,
-      details: { name: lead.name, priceCents },
-    });
-    // Everyone else's buy orders on this lead have lost.
-    const bids = await ctx.db
-      .query("leadBids")
-      .withIndex("by_lead", (q) => q.eq("marketplaceLeadId", leadId))
-      .collect();
-    for (const bid of bids) {
-      if (bid.status !== "open" || bid._id === sale.bidId) continue;
-      await ctx.db.patch(bid._id, {
-        status: "lost",
-        outcome:
-          bid.organizationId === organizationId
-            ? "You bought this lead"
-            : "Another company bought it first",
-        resolvedAt: now,
-      });
-    }
-    const delivered = (await ctx.db.get(orgLeadId))!;
-    if (!delivered.city) await findCity(ctx, delivered);
-    return { orgLeadId, priceCents };
-  }
-}
 
 // ---- Money ----
 
@@ -511,6 +440,18 @@ export const companiesOverview = query({
           owners: await ownerEmails(ctx, org._id),
           isSample: org.isSample === true,
           isEmpty: await isEmptyCompany(ctx, org),
+          standingBids: (
+            await ctx.db
+              .query("standingBids")
+              .withIndex("by_organization", (q) =>
+                q.eq("organizationId", org._id),
+              )
+              .collect()
+          ).map((b) => ({
+            county: b.county,
+            jobType: b.jobType,
+            amountCents: b.amountCents,
+          })),
         };
       }),
     );
@@ -784,9 +725,10 @@ export const wallet = query({
           q.eq("organizationId", organizationId).eq("status", "open"),
         )
         .collect()
-    ).length;
+    ).filter((b) => b.kind !== "round").length;
     return {
       balanceCents: organization.walletBalanceCents ?? 0,
+      leadTrades: trades,
       // What a typical lead costs this company, for "about N leads":
       // halfway between start and floor across its trades.
       typicalLeadCents: Math.round(
@@ -796,6 +738,22 @@ export const wallet = query({
         ) / pricings.length,
       ),
       openBids,
+      openRounds: (
+        await ctx.db
+          .query("leadBids")
+          .withIndex("by_organization_and_status", (q) =>
+            q.eq("organizationId", organizationId).eq("status", "open"),
+          )
+          .collect()
+      ).filter((b) => b.kind === "round").length,
+      standingBids: (
+        await ctx.db
+          .query("standingBids")
+          .withIndex("by_organization", (q) =>
+            q.eq("organizationId", organizationId),
+          )
+          .collect()
+      ).length,
       spentCents: bought
         .filter((l) => l.status === "assigned")
         .reduce((sum, l) => sum + (l.priceCents ?? 0), 0),
@@ -837,12 +795,14 @@ export const feed = query({
       .withIndex("by_status", (q) => q.eq("status", "available"))
       .order("desc")
       .take(200);
-    const myBids = await ctx.db
-      .query("leadBids")
-      .withIndex("by_organization_and_status", (q) =>
-        q.eq("organizationId", organizationId).eq("status", "open"),
-      )
-      .collect();
+    const myBids = (
+      await ctx.db
+        .query("leadBids")
+        .withIndex("by_organization_and_status", (q) =>
+          q.eq("organizationId", organizationId).eq("status", "open"),
+        )
+        .collect()
+    ).filter((b) => b.kind !== "round");
     const names = new Map<string, string | undefined>();
     const tradeName = async (slug: string | undefined) => {
       if (!slug) return undefined;
@@ -1021,22 +981,25 @@ export const bids = query({
       ),
     );
     return await Promise.all(
-      all.flat().map(async (bid) => {
-        const lead = await ctx.db.get(bid.marketplaceLeadId);
-        return {
-          id: bid._id,
-          leadId: bid.marketplaceLeadId,
-          city: lead?.city,
-          jobType: lead?.jobType,
-          maxCents: bid.maxCents,
-          status: bid.status,
-          outcome: bid.outcome,
-          pricePaidCents:
-            bid.status === "filled" ? lead?.priceCents : undefined,
-          createdAt: bid.createdAt,
-          resolvedAt: bid.resolvedAt,
-        };
-      }),
+      all
+        .flat()
+        .filter((bid) => bid.kind !== "round")
+        .map(async (bid) => {
+          const lead = await ctx.db.get(bid.marketplaceLeadId);
+          return {
+            id: bid._id,
+            leadId: bid.marketplaceLeadId,
+            city: lead?.city,
+            jobType: lead?.jobType,
+            maxCents: bid.maxCents,
+            status: bid.status,
+            outcome: bid.outcome,
+            pricePaidCents:
+              bid.status === "filled" ? lead?.priceCents : undefined,
+            createdAt: bid.createdAt,
+            resolvedAt: bid.resolvedAt,
+          };
+        }),
     );
   },
 });
@@ -1346,21 +1309,12 @@ export const addDemoData = mutation({
     const leadIds: Id<"marketplaceLeads">[] = [];
     for (const [name, phone, address, city, jobType, notes] of DEMO_LEADS) {
       leadIds.push(
-        await ctx.db.insert("marketplaceLeads", {
-          name,
-          phone,
-          address,
-          city,
-          jobType,
-          notes,
-          source: "Demo",
-          auction: { ...(await pricingFor(ctx, jobType)), listedAt: now },
-          status: "available",
-          isSample: true,
-          createdBy: user._id,
-          createdAt: now,
-          updatedAt: now,
-        }),
+        await listLead(
+          ctx,
+          { name, phone, address, city, jobType, notes },
+          user._id,
+          { listedAt: now, source: "Demo", isSample: true },
+        ),
       );
     }
     for (const [leadIndex, companyIndex, status, value] of DEMO_SALES) {
@@ -1561,26 +1515,17 @@ export const addSampleLeads = mutation({
       [name, phone, address, city, jobType, notes],
     ] of SAMPLE_LEADS.entries()) {
       // Oldest first: the first lead came in 6 hours ago, the last just now.
-      const listed = new Date(
+      const listedAt = new Date(
         nowMs -
           ((SAMPLE_LEADS.length - 1 - i) * 6 * 60 * 60 * 1000) /
             (SAMPLE_LEADS.length - 1),
       ).toISOString();
-      await ctx.db.insert("marketplaceLeads", {
-        name,
-        phone,
-        address,
-        city,
-        jobType,
-        notes,
-        source: "Demo",
-        auction: { ...(await pricingFor(ctx, jobType)), listedAt: listed },
-        status: "available",
-        isSample: true,
-        createdBy: user._id,
-        createdAt: listed,
-        updatedAt: listed,
-      });
+      await listLead(
+        ctx,
+        { name, phone, address, city, jobType, notes },
+        user._id,
+        { listedAt, source: "Demo", isSample: true },
+      );
       added++;
     }
     return { added };

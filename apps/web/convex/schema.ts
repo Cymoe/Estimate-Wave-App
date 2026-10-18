@@ -272,6 +272,7 @@ export const leadFields = {
 
 export const marketplaceLeadStatus = v.union(
   v.literal("available"),
+  v.literal("bidding"),
   v.literal("assigned"),
   v.literal("credited"),
 );
@@ -371,10 +372,13 @@ export default defineSchema({
     email: v.optional(v.string()),
     address: v.optional(v.string()),
     city: v.optional(v.string()),
+    county: v.optional(v.string()),
     jobType: v.optional(v.string()),
     source: v.optional(v.string()),
     notes: v.optional(v.string()),
     status: marketplaceLeadStatus,
+    // While companies with a standing bid for its county and trade bid on it.
+    round: v.optional(v.object({ opensAt: v.string(), closesAt: v.string() })),
     priceCents: v.optional(v.number()),
     assignedOrganizationId: v.optional(v.id("organizations")),
     assignedAt: v.optional(v.string()),
@@ -402,7 +406,10 @@ export default defineSchema({
   leadBids: defineTable({
     marketplaceLeadId: v.id("marketplaceLeads"),
     organizationId: v.id("organizations"),
+    /** A buy order in the Marketplace (absent or "order"), or a bid in a round. */
+    kind: v.optional(v.union(v.literal("order"), v.literal("round"))),
     maxCents: v.number(),
+    raisedAt: v.optional(v.string()),
     status: v.union(
       v.literal("open"),
       v.literal("filled"),
@@ -417,6 +424,26 @@ export default defineSchema({
   })
     .index("by_lead", ["marketplaceLeadId"])
     .index("by_organization_and_status", ["organizationId", "status"]),
+
+  // "Landscaping leads in Midland County: I'll pay $250." Entered for the
+  // company automatically whenever such a lead opens a bidding round.
+  standingBids: defineTable({
+    organizationId: v.id("organizations"),
+    county: v.string(),
+    jobType: v.string(),
+    amountCents: v.number(),
+    createdBy: v.id("users"),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_organization", ["organizationId"])
+    .index("by_county_and_type", ["county", "jobType"]),
+
+  // One row of platform-wide market settings.
+  marketSettings: defineTable({
+    roundMinutes: v.number(),
+    updatedAt: v.string(),
+  }),
 
   // Every change to a company's balance, never edited. walletBalanceCents
   // on the organization is the running total, updated in the same mutation.

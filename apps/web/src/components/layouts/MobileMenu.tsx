@@ -117,7 +117,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
           </NavLink>
 
           <NavLink
-            to="/marketplace"
+            to="/bids"
             onClick={onClose}
             className={({ isActive }) =>
               `flex items-center gap-3 p-3 rounded-[4px] transition-colors ${
@@ -127,8 +127,8 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
               }`
             }
           >
-            <span className="text-lg">🛒</span>
-            <span>Marketplace</span>
+            <span className="text-lg">🔨</span>
+            <span>Bids</span>
           </NavLink>
 
           <NavLink

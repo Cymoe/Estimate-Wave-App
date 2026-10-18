@@ -55,7 +55,7 @@ const input =
  * someone buys it: buy now at the current price, or place a buy order at
  * the price you'd pay and it fills on its own when the price gets there.
  */
-const MarketplacePage: React.FC = () => {
+export const MarketplaceFeed: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const { selectedOrg } = useContext(OrganizationContext);
   const organizationId = selectedOrg?.id;
   const [wallet, setWallet] = useState<WalletSummary | null>(null);
@@ -221,10 +221,10 @@ const MarketplacePage: React.FC = () => {
     price.nextPriceCents != null && price.nextDropAtMs != null ? `${money(price.nextPriceCents)} ~${span(price.nextDropAtMs - now)}` : '—';
 
   return (
-    <div className="p-4 md:p-6 text-white">
+    <div className={embedded ? 'text-white' : 'p-4 md:p-6 text-white'}>
       <div className="flex flex-wrap items-end justify-between gap-3 mb-2">
         <div>
-          <h1 className="text-xl font-semibold">Marketplace</h1>
+          {!embedded && <h1 className="text-xl font-semibold">Marketplace</h1>}
           <p className="text-sm text-gray-400">
             {leads ? `${leads.length} lead${leads.length === 1 ? '' : 's'}` : 'Loading…'} · {openOrders.length} buy order{openOrders.length === 1 ? '' : 's'} open
           </p>
@@ -364,5 +364,8 @@ const MarketplacePage: React.FC = () => {
     </div>
   );
 };
+
+/** The Marketplace on its own page (companies normally reach it as a tab of Bids). */
+const MarketplacePage: React.FC = () => <MarketplaceFeed />;
 
 export default MarketplacePage;

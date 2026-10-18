@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
-import { Building2, Check, Inbox, Link2, MapPin, Phone, Send, Tag, Trash2, X } from 'lucide-react';
-import { fundingAPI, industriesAPI, leadsAPI, marketplaceAPI, walletAPI } from '../lib/api';
+import { Building2, Check, Gavel, Inbox, Link2, MapPin, Phone, Send, Tag, Trash2, X } from 'lucide-react';
+import { bidsAPI, fundingAPI, industriesAPI, leadsAPI, marketplaceAPI, walletAPI } from '../lib/api';
 import { copyText } from '../components/estimates/estimateActions';
 import { useAuth } from '../contexts/AuthContext';
 import { STATUSES } from '../components/leads/leadTypes';
 import { CREDIT_REASON_LABELS, WalletHistory, money, suggestedBonus } from '../components/market/wallet';
 import { dropsToFloor, pricingFor } from '../services/auction';
+import { TEXAS_COUNTIES, countyForTown } from '../services/counties';
 
 interface Trade {
   id: string;
@@ -21,15 +22,19 @@ interface MarketLead {
   email?: string;
   address?: string;
   city?: string;
+  county?: string;
   jobType?: string;
   notes?: string;
-  status: 'available' | 'assigned' | 'credited';
+  status: 'available' | 'bidding' | 'assigned' | 'credited';
   /** What it costs right now (it drops on a schedule until bought). */
   price: number;
   priceCents?: number;
   floorCents?: number;
   floorAt?: string;
   openBids?: number;
+  /** While a bidding round is open. */
+  round?: { opensAt: string; closesAt: string };
+  bids?: Array<{ companyName: string; amountCents: number }>;
   assignedAt?: string;
   companyName?: string;
   createdAt: string;
@@ -55,6 +60,7 @@ interface Company {
   isSample?: boolean;
   /** Nothing in it yet (no leads, clients, estimates or money), so it can be removed. */
   isEmpty?: boolean;
+  standingBids?: Array<{ county: string; jobType: string; amountCents: number }>;
 }
 
 interface CreditRequest {
@@ -150,11 +156,17 @@ function TradePicker({ trades, value, onChange }: { trades: Trade[]; value: stri
 }
 
 function NewLeadDialog({ trades, onClose, onSaved }: { trades: Trade[]; onClose: () => void; onSaved: () => void }) {
-  const [draft, setDraft] = useState({ name: '', phone: '', email: '', address: '', city: '', jobType: '', notes: '' });
+  const [draft, setDraft] = useState({ name: '', phone: '', email: '', address: '', city: '', county: '', jobType: '', notes: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const set = (key: keyof typeof draft) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setDraft({ ...draft, [key]: e.target.value });
+  // The county decides whose bidding round the lead opens; fill it in from a town we know.
+  const setCity = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const city = e.target.value;
+    const known = countyForTown(city);
+    setDraft({ ...draft, city, county: known ?? (countyForTown(draft.city) === draft.county ? '' : draft.county) });
+  };
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -188,9 +200,18 @@ function NewLeadDialog({ trades, onClose, onSaved }: { trades: Trade[]; onClose:
             <input type="tel" value={draft.phone} onChange={set('phone')} className={input} />
           </Field>
           <Field label="City">
-            <input value={draft.city} onChange={set('city')} className={input} />
+            <input value={draft.city} onChange={setCity} className={input} />
           </Field>
         </div>
+        <Field label="County">
+          <input value={draft.county} onChange={set('county')} list="texas-counties" placeholder="Fills in from the city when we know it" className={input} />
+          <datalist id="texas-counties">
+            {TEXAS_COUNTIES.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+          <span className="block text-xs text-gray-500 mt-1">Companies bid by county. A lead with no matching bid goes to the Marketplace.</span>
+        </Field>
         <Field label="Email">
           <input type="email" value={draft.email} onChange={set('email')} className={input} />
         </Field>
@@ -638,6 +659,24 @@ function CompanyPanel({
           </section>
 
           <section>
+            <h3 className="text-sm font-medium text-white mb-2">Standing bids</h3>
+            {!company.standingBids?.length ? (
+              <p className="text-sm text-gray-500">None yet. They set these under Bids; until then their leads come from the Marketplace.</p>
+            ) : (
+              <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Standing bids">
+                {company.standingBids.map((bid) => (
+                  <li key={`${bid.county}-${bid.jobType}`} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                    <span className="text-gray-300">
+                      {bid.county} County · {trades.find((t) => t.id === bid.jobType)?.name ?? bid.jobType}
+                    </span>
+                    <span className="text-white">{money(bid.amountCents)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section>
             <h3 className="text-sm font-medium text-white mb-2">Their leads ({leads.length})</h3>
             {leads.length === 0 ? (
               <p className="text-sm text-gray-500">No leads yet.</p>
@@ -726,6 +765,23 @@ function PricesTab({ trades }: { trades: Trade[] }) {
   const [drafts, setDrafts] = useState<Record<string, PriceDraft>>({});
   const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [roundMinutes, setRoundMinutes] = useState('');
+  useEffect(() => {
+    bidsAPI
+      .settings()
+      .then((r: { roundMinutes: number }) => setRoundMinutes(String(r.roundMinutes)))
+      .catch(() => {});
+  }, []);
+  const saveRound = async () => {
+    setError(null);
+    try {
+      await bidsAPI.setRoundMinutes(Number(roundMinutes));
+      setSaved('round');
+      setTimeout(() => setSaved((s) => (s === 'round' ? null : s)), 1500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "The round length couldn't be saved");
+    }
+  };
   useEffect(() => {
     marketplaceAPI
       .prices()
@@ -804,6 +860,27 @@ function PricesTab({ trades }: { trades: Trade[] }) {
         {row('default', 'Default (every other trade)', '200')}
         {trades.map((t) => row(t.id, t.name, drafts.default?.price ?? ''))}
       </ul>
+
+      <h2 className="text-sm font-medium text-white mt-6 mb-1">Bidding rounds</h2>
+      <p className="text-sm text-gray-400 mb-3">
+        When a lead comes in for a county and trade that companies have standing bids on, a round opens and every one of them is entered at their bid.
+        The highest bid when it closes wins. Leads with no bid go to the Marketplace instead.
+      </p>
+      <div className="flex items-center gap-2 text-sm text-white border border-[#2A2A2A] rounded px-4 py-3">
+        <span className="flex-1 flex items-center gap-2">
+          Round length
+          {saved === 'round' && <Check className="w-4 h-4 text-emerald-400" aria-label="Saved" />}
+        </span>
+        <input
+          inputMode="numeric"
+          aria-label="Round length in minutes"
+          value={roundMinutes}
+          onChange={(e) => setRoundMinutes(e.target.value)}
+          onBlur={saveRound}
+          className="w-16 bg-[#1A1A1A] border border-[#333] rounded px-2 py-1.5 text-right text-white text-base md:text-sm focus:outline-none focus:border-[#336699]"
+        />
+        <span className="text-xs text-gray-500">minutes</span>
+      </div>
     </div>
   );
 }
@@ -813,7 +890,7 @@ const LeadMarketPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState<Tab>(() => (searchParams.get('new') === 'company' ? 'companies' : 'inbox'));
   const [trades, setTrades] = useState<Trade[]>([]);
-  const [inbox, setInbox] = useState<{ available: MarketLead[]; sold: MarketLead[] }>({ available: [], sold: [] });
+  const [inbox, setInbox] = useState<{ bidding: MarketLead[]; available: MarketLead[]; sold: MarketLead[] }>({ bidding: [], available: [], sold: [] });
   const [companies, setCompanies] = useState<Company[]>([]);
   const [credits, setCredits] = useState<CreditRequest[]>([]);
   const [payments, setPayments] = useState<PendingPayment[]>([]);
@@ -837,7 +914,7 @@ const LeadMarketPage: React.FC = () => {
       marketplaceAPI.pendingCredits(),
       fundingAPI.pending(),
     ]);
-    setInbox(i);
+    setInbox({ bidding: [], ...i });
     setCompanies(c);
     setCredits(p);
     setPayments(f);
@@ -913,6 +990,7 @@ const LeadMarketPage: React.FC = () => {
             </span>
           </div>
           <p className="text-sm text-gray-400">
+            {inbox.bidding.length > 0 ? `${inbox.bidding.length} in bidding · ` : ''}
             {inbox.available.length} listed · {money(totals.spent)} sold in 30 days · {money(totals.balance)} in company balances
           </p>
           <p className="text-xs text-gray-500 mt-0.5">Leads you list here sell on their own in the Marketplace. Sending one by hand is the exception.</p>
@@ -920,7 +998,7 @@ const LeadMarketPage: React.FC = () => {
         <div className="flex rounded border border-[#333] overflow-hidden" role="tablist">
           {(
             [
-              ['inbox', `Inbox (${inbox.available.length})`],
+              ['inbox', `Inbox (${inbox.bidding.length + inbox.available.length})`],
               ['companies', `Companies (${companies.length})`],
               ['prices', 'Prices'],
             ] as Array<[Tab, string]>
@@ -978,10 +1056,64 @@ const LeadMarketPage: React.FC = () => {
         <p className="text-sm text-gray-500">Loading…</p>
       ) : tab === 'inbox' ? (
         <div className="space-y-6">
+          {inbox.bidding.length > 0 && (
+            <section>
+              <h2 className="text-sm font-medium text-gray-300 mb-2 flex items-center gap-2">
+                <Gavel className="w-4 h-4" />
+                Bidding ({inbox.bidding.length})
+              </h2>
+              <ul className="divide-y divide-[#2A2A2A] border border-emerald-500/30 rounded" aria-label="Bidding">
+                {inbox.bidding.map((lead) => {
+                  const closesIn = lead.round ? untilFloor(lead.round.closesAt) : '';
+                  return (
+                    <li key={lead.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                      <div className="flex-1 min-w-[12rem]">
+                        <p className="text-sm font-medium text-white">{lead.name}</p>
+                        <p className="text-xs text-gray-400">
+                          {tradeName(lead.jobType)}
+                          {lead.county ? ` · ${lead.county} County` : ''}
+                          {lead.city ? ` · ${lead.city}` : ''}
+                          {` · ${lead.bids?.length ?? 0} bid${lead.bids?.length === 1 ? '' : 's'}`}
+                          {lead.price ? ` · highest ${money(lead.price)}` : ''}
+                          {lead.round ? ` · closes in ${closesIn}` : ''}
+                        </p>
+                        {lead.bids && lead.bids.length > 0 && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            {lead.bids.map((b) => `${b.companyName} ${money(b.amountCents)}`).join(' · ')}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSending(lead)}
+                        title="Send to a company now; this ends the round"
+                        aria-label={`Send ${lead.name} to a company`}
+                        className="p-2 text-gray-400 hover:text-white"
+                      >
+                        <Send className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Delete ${lead.name}`}
+                        disabled
+                        title="Wait for the round to close"
+                        className="p-2 text-gray-600 cursor-not-allowed"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
+          {inbox.bidding.length > 0 && inbox.available.length > 0 && <h2 className="text-sm font-medium text-gray-300 -mb-4">Listed</h2>}
           {inbox.available.length === 0 ? (
             <div className="border border-dashed border-[#333] rounded p-8 text-center">
               <Inbox className="w-8 h-8 mx-auto text-gray-500 mb-2" />
-              <p className="text-sm text-gray-400">Nothing listed. Add a lead with the yellow + button.</p>
+              <p className="text-sm text-gray-400">
+                {inbox.bidding.length > 0 ? 'Nothing in the Marketplace right now.' : 'Nothing listed. Add a lead with the yellow + button.'}
+              </p>
               <div className="flex justify-center gap-2 mt-4 flex-wrap">
                 {sampleButton}
                 {!hasDemo && (
@@ -1002,10 +1134,10 @@ const LeadMarketPage: React.FC = () => {
                         <Tag className="w-3 h-3" />
                         {tradeName(lead.jobType)}
                       </span>
-                      {lead.city && (
+                      {(lead.city || lead.county) && (
                         <span className="inline-flex items-center gap-1">
                           <MapPin className="w-3 h-3" />
-                          {lead.city}
+                          {[lead.city, lead.county ? `${lead.county} County` : ''].filter(Boolean).join(', ')}
                         </span>
                       )}
                       {lead.phone && (
