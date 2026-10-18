@@ -149,12 +149,10 @@ describe('Leads board', () => {
     const corner = Array.from(card.querySelectorAll('span')).find((el) => /· Midland$/.test(el.textContent ?? ''))!;
     act(() => click(corner));
     expect(document.body.querySelector('form input[aria-label="Name"]')).toBeTruthy();
-    act(() => click(document.body.querySelector('form button[aria-label="Close"]')!));
-    act(() => jest.advanceTimersByTime?.(200));
-    await flush();
-    // The status line too.
-    act(() => click(card.querySelector('[data-testid="lead-status-line"]')!));
-    expect(document.body.querySelector('form input[aria-label="Name"]')).toBeTruthy();
+    // Create estimate lives in the drawer now, not on the card.
+    expect(card.textContent).not.toContain('Create estimate');
+    expect(card.textContent).not.toContain('Tap the name');
+    expect(Array.from(document.body.querySelectorAll('form button')).some((b) => b.textContent?.includes('Create estimate'))).toBe(true);
   });
 
   it('tags a won lead, next to the company\'s own leads', async () => {

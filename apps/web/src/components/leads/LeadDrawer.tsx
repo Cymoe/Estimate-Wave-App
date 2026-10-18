@@ -5,6 +5,7 @@ import {
   CalendarDays,
   Clock,
   DollarSign,
+  FileText,
   Globe,
   Mail,
   MapPin,
@@ -125,7 +126,9 @@ export const LeadDrawer: React.FC<{
   onChanged: (lead: Lead, patch: Partial<Lead>) => void;
   /** Changes the stage the way the board does (asks why when a lead is lost). */
   onStatus: (lead: Lead, status: LeadStatus) => void;
-}> = ({ organizationId, lead, trades, onClose: closeNow, onCreated, onDelete, onChanged, onStatus }) => {
+  /** Opens the lead's estimate, or starts one. */
+  onEstimate?: (lead: Lead) => void;
+}> = ({ organizationId, lead, trades, onClose: closeNow, onCreated, onDelete, onChanged, onStatus, onEstimate }) => {
   // Slides in and out like the estimate drawer.
   const [shown, setShown] = useState(false);
   useEffect(() => {
@@ -491,13 +494,22 @@ export const LeadDrawer: React.FC<{
         <div className="px-7 py-3.5 border-t border-[#222222] flex items-center justify-between text-sm">
           {lead ? (
             <>
-              {onDelete ? (
-                <button type="button" onClick={onDelete} className="inline-flex items-center gap-1.5 text-red-400 hover:text-red-300">
-                  <Trash2 className="w-4 h-4" /> Delete lead
-                </button>
-              ) : (
-                <span />
-              )}
+              <span className="flex items-center gap-4">
+                {onEstimate && (
+                  <button
+                    type="button"
+                    onClick={() => onEstimate(lead)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#336699] hover:bg-[#2a5580] text-white"
+                  >
+                    <FileText className="w-4 h-4" /> {lead.estimate ? `Open ${lead.estimate.estimateNumber}` : 'Create estimate'}
+                  </button>
+                )}
+                {onDelete && (
+                  <button type="button" onClick={onDelete} className="inline-flex items-center gap-1.5 text-red-400 hover:text-red-300">
+                    <Trash2 className="w-4 h-4" /> Delete lead
+                  </button>
+                )}
+              </span>
               <span className="text-gray-500" aria-live="polite">
                 {state === 'saving' ? 'Saving…' : state === 'saved' ? '✓ Saved' : ''}
               </span>

@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { CalendarClock, CalendarDays, ChevronsDownUp, ChevronsUpDown, FileText, Kanban, Mail, MapPin, MessageSquare, Phone, Plus, Search, UserPlus } from 'lucide-react';
+import { CalendarClock, CalendarDays, ChevronsDownUp, ChevronsUpDown, Kanban, Mail, MapPin, MessageSquare, Phone, Plus, Search, UserPlus } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
 import { industriesAPI, leadsAPI } from '../lib/api';
@@ -573,32 +573,6 @@ const LeadsPage: React.FC = () => {
                             <div className="text-xs text-gray-500 mt-1">{lead.lostReason}</div>
                           )}
                           <LeadCardDetails lead={lead} onChange={saveLead} onContact={logContact} />
-                          <div className="flex items-center justify-between gap-2 mt-2">
-                            {lead.estimate ? (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  navigate(`/estimates/${lead.estimate!.id}`);
-                                }}
-                                className="inline-flex items-center gap-1 text-xs text-gray-300 hover:text-white"
-                              >
-                                <FileText className="w-3.5 h-3.5" /> {lead.estimate.estimateNumber}
-                              </button>
-                            ) : OPEN.includes(lead.status) ? (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  startEstimate(lead);
-                                }}
-                                className="inline-flex items-center gap-1 text-xs text-gray-300 hover:text-white"
-                              >
-                                <FileText className="w-3.5 h-3.5" /> Create estimate
-                              </button>
-                            ) : (
-                              <span />
-                            )}
-                            <span className="text-[10px] text-gray-600">Tap the name for more</span>
-                          </div>
                           </>
                           )}
                         </div>
@@ -630,6 +604,10 @@ const LeadsPage: React.FC = () => {
           onDelete={editing === 'new' ? undefined : () => remove(editing)}
           onChanged={(lead, patch) => setLeads((rows) => rows.map((row) => (row.id === lead.id ? { ...row, ...patch } : row)))}
           onStatus={changeStatus}
+          onEstimate={(lead) => {
+            if (lead.estimate) navigate(`/estimates/${lead.estimate.id}`);
+            else startEstimate(lead);
+          }}
         />
       )}
 
