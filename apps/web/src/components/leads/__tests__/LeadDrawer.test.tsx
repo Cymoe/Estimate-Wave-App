@@ -87,11 +87,9 @@ describe('LeadDrawer', () => {
     expect(update).not.toHaveBeenCalled();
     expect(field('Name').value).toBe('Rocky Vansau');
 
-    // There is no typed-in value: money on a lead only ever comes from its estimate.
-    expect(document.body.querySelector('input[aria-label="Estimated value"]')).toBeNull();
-    act(() => type(field('Phone'), '(432) 555-0199'));
+    act(() => type(field('Estimated value'), '$4,200'));
     await act(async () => root.unmount());
-    expect(update).toHaveBeenCalledWith('l1', { phone: '(432) 555-0199' });
+    expect(update).toHaveBeenCalledWith('l1', { estimatedValue: 4200 });
     root = createRoot(document.createElement('div')); // for afterEach
   });
 
