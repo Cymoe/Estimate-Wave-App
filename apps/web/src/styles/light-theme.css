@@ -276,6 +276,7 @@ html.light .text-yellow-400\/80 { color: rgba(133, 77, 14, 0.8); }
   html.light .\[\@media\(hover\:hover\)\]\:hover\:bg-\[\#22272d\]:hover { background-color: #F1F2F4; }
   html.light .\[\@media\(hover\:hover\)\]\:hover\:bg-\[\#222\]:hover { background-color: #F7F8FA; }
   html.light .\[\@media\(hover\:hover\)\]\:hover\:bg-\[\#2a2a2a\]:hover { background-color: #F1F2F4; }
+  html.light .\[\@media\(hover\:hover\)\]\:hover\:border-\[\#555555\]:hover { border-color: #C3C8CF; }
   html.light .\[\@media\(hover\:hover\)\]\:hover\:text-white:hover { color: #111827; }
 }
 

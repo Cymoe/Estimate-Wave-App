@@ -372,6 +372,10 @@ export const leadsAPI = {
     return run('query', api.leads.list, { organizationId });
   },
 
+  /** A call or text (counted), or a note typed on the card (stamped with the day). */
+  logContact: (id: string, kind: 'call' | 'text' | 'note', note?: string) =>
+    run('mutation', api.leads.logContact, defined({ id, kind, note })),
+
   /** Calls onUpdate with the org's leads now and after every change. Returns a stop function. */
   watch(organizationId: string, onUpdate: (leads: any[]) => void): () => void {
     const watch = convex.watchQuery(api.leads.list, { organizationId: organizationId as Id<'organizations'> });

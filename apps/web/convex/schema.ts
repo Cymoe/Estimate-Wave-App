@@ -626,6 +626,10 @@ export default defineSchema({
     isSample: v.optional(v.boolean()),
     // When the city was last worked out automatically, so it isn't looked up again.
     cityCheckedAt: v.optional(v.string()),
+    // When the company last called, texted or noted the lead, and how many
+    // calls and texts so far (server-set by leads.logContact).
+    lastContactAt: v.optional(v.string()),
+    contacts: v.optional(v.number()),
     // County, as the Lead Market knew it when it sold the lead (server-set).
     // Leads without one get it from their town when listed.
     county: v.optional(v.string()),

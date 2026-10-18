@@ -9,6 +9,9 @@ export interface Lead {
   city?: string;
   /** The county the job is in, from the town when the lead has no county of its own. */
   county?: string;
+  /** Last call, text or card note, and how many calls and texts so far. */
+  lastContactAt?: string;
+  contacts?: number;
   jobType?: string;
   source?: string;
   estimatedValue?: number;

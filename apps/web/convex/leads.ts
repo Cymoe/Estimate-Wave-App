@@ -1,7 +1,14 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, query } from "./_generated/server";
-import { fail, getOwned, logActivity, nowIso, pick, requireMember } from "./lib/access";
+import {
+  fail,
+  getOwned,
+  logActivity,
+  nowIso,
+  pick,
+  requireMember,
+} from "./lib/access";
 import { assertLinksInOrg } from "./lib/documents";
 import { leadFields } from "./schema";
 import { findCity } from "./leadCity";
@@ -10,7 +17,10 @@ import { countyForTown } from "./lib/counties";
 const OPEN = new Set(["new", "no_answer", "contacted", "scheduled", "quoted"]);
 
 function checkName(fields: Record<string, unknown>) {
-  if ("name" in fields && (typeof fields.name !== "string" || fields.name.trim() === "")) {
+  if (
+    "name" in fields &&
+    (typeof fields.name !== "string" || fields.name.trim() === "")
+  ) {
     fail("INVALID", "Lead name is required");
   }
 }
@@ -19,7 +29,9 @@ function checkName(fields: Record<string, unknown>) {
 function byPriority(a: Doc<"leads">, b: Doc<"leads">) {
   const open = Number(OPEN.has(b.status)) - Number(OPEN.has(a.status));
   if (open !== 0) return open;
-  const followUp = (a.followUpDate ?? "9999").localeCompare(b.followUpDate ?? "9999");
+  const followUp = (a.followUpDate ?? "9999").localeCompare(
+    b.followUpDate ?? "9999",
+  );
   if (followUp !== 0) return followUp;
   return b.createdAt.localeCompare(a.createdAt);
 }
@@ -30,11 +42,15 @@ export const list = query({
     await requireMember(ctx, organizationId);
     const leads = await ctx.db
       .query("leads")
-      .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
+      .withIndex("by_organization", (q) =>
+        q.eq("organizationId", organizationId),
+      )
       .take(2000);
     return await Promise.all(
       leads.sort(byPriority).map(async (lead) => {
-        const estimate = lead.estimateId ? await ctx.db.get(lead.estimateId) : null;
+        const estimate = lead.estimateId
+          ? await ctx.db.get(lead.estimateId)
+          : null;
         return {
           ...lead,
           // Bids go by county, so the board does too: the Lead Market's county
@@ -90,22 +106,62 @@ export const update = mutation({
   args: { id: v.id("leads"), data: v.any() },
   handler: async (ctx, { id, data }) => {
     const { doc } = await getOwned(ctx, "leads", id);
-    const fields = pick(data, { ...leadFields, estimateId: true }, { forPatch: true });
+    const fields = pick(
+      data,
+      { ...leadFields, estimateId: true },
+      { forPatch: true },
+    );
     checkName(fields);
     if (typeof fields.name === "string") fields.name = fields.name.trim();
     if (fields.estimateId !== undefined) {
-      await assertLinksInOrg(ctx, doc.organizationId, { estimateId: fields.estimateId });
-      fields.estimateId = ctx.db.normalizeId("estimates", fields.estimateId) as Id<"estimates">;
+      await assertLinksInOrg(ctx, doc.organizationId, {
+        estimateId: fields.estimateId,
+      });
+      fields.estimateId = ctx.db.normalizeId(
+        "estimates",
+        fields.estimateId,
+      ) as Id<"estimates">;
     }
     // A reason only makes sense while the lead is lost.
     if ((fields.status ?? doc.status) !== "lost") fields.lostReason = undefined;
     // A new address gets its city worked out again, unless a city was picked in the same edit.
-    const addressChanged = "address" in fields && (fields.address ?? "") !== (doc.address ?? "");
-    const cityPicked = "city" in fields && (fields.city ?? "") !== (doc.city ?? "");
+    const addressChanged =
+      "address" in fields && (fields.address ?? "") !== (doc.address ?? "");
+    const cityPicked =
+      "city" in fields && (fields.city ?? "") !== (doc.city ?? "");
     if (addressChanged && !cityPicked) fields.city = undefined;
     await ctx.db.patch(id, { ...fields, updatedAt: nowIso() });
     const lead = (await ctx.db.get(id))!;
     if (addressChanged && !cityPicked) await findCity(ctx, lead);
+    return await ctx.db.get(id);
+  },
+});
+
+/**
+ * Records a touch on a lead: a call or text (counted), or a note typed on
+ * the card, which is stamped with the day and added to the notes.
+ */
+export const logContact = mutation({
+  args: {
+    id: v.id("leads"),
+    kind: v.union(v.literal("call"), v.literal("text"), v.literal("note")),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { id, kind, note }) => {
+    const { doc } = await getOwned(ctx, "leads", id);
+    const now = nowIso();
+    const patch: Partial<Doc<"leads">> = { lastContactAt: now, updatedAt: now };
+    if (kind !== "note") patch.contacts = (doc.contacts ?? 0) + 1;
+    const text = note?.trim();
+    if (kind === "note") {
+      if (!text) fail("INVALID", "Type a note first");
+      const day = new Date(now).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+      });
+      patch.notes = `${doc.notes ? `${doc.notes.trimEnd()}\n` : ""}${day}: ${text}`;
+    }
+    await ctx.db.patch(id, patch);
     return await ctx.db.get(id);
   },
 });
@@ -132,7 +188,8 @@ export const ensureClient = mutation({
   args: { id: v.id("leads") },
   handler: async (ctx, { id }) => {
     const { doc, user } = await getOwned(ctx, "leads", id);
-    if (doc.clientId !== undefined && (await ctx.db.get(doc.clientId)) !== null) return doc.clientId;
+    if (doc.clientId !== undefined && (await ctx.db.get(doc.clientId)) !== null)
+      return doc.clientId;
     const now = nowIso();
     const clientId = await ctx.db.insert("clients", {
       name: doc.name,
@@ -158,16 +215,99 @@ export const ensureClient = mutation({
 });
 
 // [name, phone, trade, source, value, status, follow-up in days, notes, lost reason]
-type Sample = [string, string, string, string, number, Doc<"leads">["status"], number | null, string, string?];
+type Sample = [
+  string,
+  string,
+  string,
+  string,
+  number,
+  Doc<"leads">["status"],
+  number | null,
+  string,
+  string?,
+];
 const SAMPLES: Sample[] = [
-  ["Maria Lopez", "(555) 201-3344", "roofing", "Referral", 14500, "new", 1, "Leaking around the chimney after the last storm. Wants a full replacement quote."],
-  ["Dan & Priya Shah", "(555) 410-9921", "hvac", "Google", 9800, "new", -2, "AC unit is 18 years old, short-cycling. Asked about heat pumps."],
-  ["Oak Street Dental", "(555) 330-7712", "painting", "Website", 6200, "contacted", 3, "Repaint lobby and two exam rooms, after hours only."],
-  ["Tom Becker", "(555) 677-0145", "concrete", "Yard sign", 4800, "contacted", -1, "Cracked driveway, about 600 sq ft. Considering stamped finish."],
-  ["Hannah Kim", "(555) 902-5530", "window-door", "Facebook", 11200, "quoted", 5, "Eight windows, double-hung, wants energy-efficient glass."],
-  ["Riverside Apartments", "(555) 118-4400", "plumbing", "Repeat customer", 22000, "quoted", 7, "Repipe two units. Property manager: Lisa."],
-  ["Carlos Mendes", "(555) 765-2290", "handyman", "Referral", 1800, "won", null, "Deck repair and two interior doors. Booked for next week."],
-  ["Jenna Walsh", "(555) 483-6617", "electrical", "Google", 3500, "lost", null, "Panel upgrade to 200A.", "Went with a cheaper quote"],
+  [
+    "Maria Lopez",
+    "(555) 201-3344",
+    "roofing",
+    "Referral",
+    14500,
+    "new",
+    1,
+    "Leaking around the chimney after the last storm. Wants a full replacement quote.",
+  ],
+  [
+    "Dan & Priya Shah",
+    "(555) 410-9921",
+    "hvac",
+    "Google",
+    9800,
+    "new",
+    -2,
+    "AC unit is 18 years old, short-cycling. Asked about heat pumps.",
+  ],
+  [
+    "Oak Street Dental",
+    "(555) 330-7712",
+    "painting",
+    "Website",
+    6200,
+    "contacted",
+    3,
+    "Repaint lobby and two exam rooms, after hours only.",
+  ],
+  [
+    "Tom Becker",
+    "(555) 677-0145",
+    "concrete",
+    "Yard sign",
+    4800,
+    "contacted",
+    -1,
+    "Cracked driveway, about 600 sq ft. Considering stamped finish.",
+  ],
+  [
+    "Hannah Kim",
+    "(555) 902-5530",
+    "window-door",
+    "Facebook",
+    11200,
+    "quoted",
+    5,
+    "Eight windows, double-hung, wants energy-efficient glass.",
+  ],
+  [
+    "Riverside Apartments",
+    "(555) 118-4400",
+    "plumbing",
+    "Repeat customer",
+    22000,
+    "quoted",
+    7,
+    "Repipe two units. Property manager: Lisa.",
+  ],
+  [
+    "Carlos Mendes",
+    "(555) 765-2290",
+    "handyman",
+    "Referral",
+    1800,
+    "won",
+    null,
+    "Deck repair and two interior doors. Booked for next week.",
+  ],
+  [
+    "Jenna Walsh",
+    "(555) 483-6617",
+    "electrical",
+    "Google",
+    3500,
+    "lost",
+    null,
+    "Panel upgrade to 200A.",
+    "Went with a cheaper quote",
+  ],
 ];
 
 /** Adds example leads to an organization that has none yet. */
@@ -177,13 +317,35 @@ export const addSamples = mutation({
     const { user } = await requireMember(ctx, organizationId);
     const existing = await ctx.db
       .query("leads")
-      .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
+      .withIndex("by_organization", (q) =>
+        q.eq("organizationId", organizationId),
+      )
       .first();
-    if (existing !== null) fail("INVALID", "Sample leads can only be added while the Leads list is empty");
+    if (existing !== null)
+      fail(
+        "INVALID",
+        "Sample leads can only be added while the Leads list is empty",
+      );
     const now = new Date();
-    for (const [index, [name, phone, jobType, source, estimatedValue, status, days, notes, lostReason]] of SAMPLES.entries()) {
-      const followUp = days === null ? undefined : new Date(now.getTime() + days * 86_400_000);
-      const createdAt = new Date(now.getTime() - (SAMPLES.length - index) * 3_600_000).toISOString();
+    for (const [
+      index,
+      [
+        name,
+        phone,
+        jobType,
+        source,
+        estimatedValue,
+        status,
+        days,
+        notes,
+        lostReason,
+      ],
+    ] of SAMPLES.entries()) {
+      const followUp =
+        days === null ? undefined : new Date(now.getTime() + days * 86_400_000);
+      const createdAt = new Date(
+        now.getTime() - (SAMPLES.length - index) * 3_600_000,
+      ).toISOString();
       await ctx.db.insert("leads", {
         name,
         phone,
@@ -192,7 +354,9 @@ export const addSamples = mutation({
         estimatedValue,
         status,
         notes,
-        ...(followUp ? { followUpDate: followUp.toISOString().split("T")[0] } : {}),
+        ...(followUp
+          ? { followUpDate: followUp.toISOString().split("T")[0] }
+          : {}),
         ...(lostReason ? { lostReason } : {}),
         isSample: true,
         organizationId,
@@ -212,7 +376,9 @@ export const removeSamples = mutation({
     await requireMember(ctx, organizationId);
     const leads = await ctx.db
       .query("leads")
-      .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
+      .withIndex("by_organization", (q) =>
+        q.eq("organizationId", organizationId),
+      )
       .take(2000);
     const samples = leads.filter((lead) => lead.isSample);
     for (const lead of samples) await ctx.db.delete(lead._id);
@@ -223,7 +389,10 @@ export const removeSamples = mutation({
 /** Same person: same name, plus the same phone or email when either has one. */
 function leadKey(lead: { name: string; phone?: string; email?: string }) {
   const digits = (lead.phone ?? "").replace(/\D/g, "");
-  return [lead.name.trim().toLowerCase(), digits || (lead.email ?? "").trim().toLowerCase()].join("|");
+  return [
+    lead.name.trim().toLowerCase(),
+    digits || (lead.email ?? "").trim().toLowerCase(),
+  ].join("|");
 }
 
 /**
@@ -234,7 +403,11 @@ function leadKey(lead: { name: string; phone?: string; email?: string }) {
  *   npx convex run leads:importLeads '{"email":"you@example.com","leads":[...]}'
  */
 export const importLeads = internalMutation({
-  args: { email: v.string(), leads: v.array(v.any()), updateExisting: v.optional(v.boolean()) },
+  args: {
+    email: v.string(),
+    leads: v.array(v.any()),
+    updateExisting: v.optional(v.boolean()),
+  },
   handler: async (ctx, { email, leads, updateExisting }) => {
     const user = await ctx.db
       .query("users")
@@ -245,12 +418,15 @@ export const importLeads = internalMutation({
       .query("memberships")
       .withIndex("by_user", (q) => q.eq("userId", user._id))
       .first();
-    if (membership === null) throw new Error(`${email} isn't in an organization`);
+    if (membership === null)
+      throw new Error(`${email} isn't in an organization`);
     const { organizationId } = membership;
 
     const existing = await ctx.db
       .query("leads")
-      .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
+      .withIndex("by_organization", (q) =>
+        q.eq("organizationId", organizationId),
+      )
       .collect();
     const seen = new Map(existing.map((lead) => [leadKey(lead), lead._id]));
     let inserted = 0;
@@ -261,21 +437,39 @@ export const importLeads = internalMutation({
       if (fields.name === undefined) fail("INVALID", "Lead name is required");
       checkName(fields);
       if (fields.status !== "lost") delete fields.lostReason;
-      const lead = { status: "new", ...fields, name: (fields.name as string).trim() } as Doc<"leads">;
+      const lead = {
+        status: "new",
+        ...fields,
+        name: (fields.name as string).trim(),
+      } as Doc<"leads">;
       const key = leadKey(lead);
       const match = seen.get(key);
       if (match !== undefined) {
         if (updateExisting) {
           // Fields the row leaves out are cleared, so a re-import replaces what the last one wrote.
-          await ctx.db.patch(match, { notes: undefined, ...lead, updatedAt: nowIso() });
+          await ctx.db.patch(match, {
+            notes: undefined,
+            ...lead,
+            updatedAt: nowIso(),
+          });
           updated++;
         } else {
           skipped++;
         }
         continue;
       }
-      const createdAt = typeof row.createdAt === "string" ? row.createdAt : nowIso();
-      seen.set(key, await ctx.db.insert("leads", { ...lead, organizationId, userId: user._id, createdAt, updatedAt: createdAt }));
+      const createdAt =
+        typeof row.createdAt === "string" ? row.createdAt : nowIso();
+      seen.set(
+        key,
+        await ctx.db.insert("leads", {
+          ...lead,
+          organizationId,
+          userId: user._id,
+          createdAt,
+          updatedAt: createdAt,
+        }),
+      );
       inserted++;
     }
     return { inserted, updated, skipped };

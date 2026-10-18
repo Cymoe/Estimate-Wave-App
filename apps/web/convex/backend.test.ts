@@ -1853,3 +1853,27 @@ describe("older leads and the monthly plan", () => {
     }
   });
 });
+
+describe("working a lead from the card", () => {
+  test("calls and texts are counted, and a note is stamped with the day and kept with the notes", async () => {
+    const t = setup();
+    const owner = await signUp(t, "owner@example.com");
+    const lead = await owner.as.mutation(api.leads.create, {
+      organizationId: owner.organizationId,
+      data: { name: "Cari Doguet", phone: "(432) 260-0076", notes: "What do you need? Irrigation" },
+    });
+    expect(lead!.contacts).toBeUndefined();
+    expect(lead!.lastContactAt).toBeUndefined();
+    const called = await owner.as.mutation(api.leads.logContact, { id: lead!._id, kind: "call" });
+    expect(called).toMatchObject({ contacts: 1, lastContactAt: expect.any(String) });
+    const texted = await owner.as.mutation(api.leads.logContact, { id: lead!._id, kind: "text" });
+    expect(texted!.contacts).toBe(2);
+    const noted = await owner.as.mutation(api.leads.logContact, { id: lead!._id, kind: "note", note: "left VM" });
+    expect(noted!.contacts).toBe(2);
+    expect(noted!.notes).toMatch(/^What do you need\? Irrigation\n[A-Z][a-z]{2} \d{1,2}: left VM$/);
+    await expect(owner.as.mutation(api.leads.logContact, { id: lead!._id, kind: "note", note: "  " })).rejects.toThrow(/Type a note/);
+    // Someone outside the company can't touch it.
+    const stranger = await signUp(t, "stranger@example.com");
+    await expect(stranger.as.mutation(api.leads.logContact, { id: lead!._id, kind: "call" })).rejects.toThrow();
+  });
+});

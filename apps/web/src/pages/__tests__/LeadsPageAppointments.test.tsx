@@ -10,12 +10,25 @@ const start = new Date();
 start.setHours(10, 0, 0, 0);
 let rows = [{ id: 'l1', name: 'Rocky Vansau', status: 'scheduled', appointmentAt: start.toISOString(), createdAt: '2026-10-01T00:00:00Z' }];
 
+const logContact = jest.fn(async (id: string, kind: string, note?: string) => {
+  const row = rows.find((r) => r.id === id)! as Record<string, unknown>;
+  const updated = { ...row, lastContactAt: new Date().toISOString(), contacts: kind === 'note' ? (row.contacts as number) ?? 0 : ((row.contacts as number) ?? 0) + 1 };
+  if (note) updated.notes = `${row.notes ? `${row.notes}\n` : ''}Oct 18: ${note}`;
+  rows = rows.map((r) => (r.id === id ? updated : r)) as typeof rows;
+  return updated;
+});
 const update = jest.fn(async (id: string, data: Record<string, unknown>) => {
   rows = rows.map((row) => (row.id === id ? { ...row, ...data, appointmentAt: (data.appointmentAt as string | null) ?? undefined } : row)) as typeof rows;
 });
 
 jest.mock('../../lib/api', () => ({
-  leadsAPI: { list: jest.fn(async () => rows.map((row) => ({ ...row }))), watch: () => () => {}, fillMissingCities: async () => ({}), update: (...args: [string, Record<string, unknown>]) => update(...args) },
+  leadsAPI: {
+    list: jest.fn(async () => rows.map((row) => ({ ...row }))),
+    watch: () => () => {},
+    fillMissingCities: async () => ({}),
+    update: (...args: [string, Record<string, unknown>]) => update(...args),
+    logContact: (...args: [string, string, string?]) => logContact(...args),
+  },
   industriesAPI: { list: jest.fn(async () => []) },
   walletAPI: { get: jest.fn(async () => null) },
 }));
@@ -164,6 +177,45 @@ describe('Leads board', () => {
     expect(names.join(' ')).toContain('Omar Haddad');
     expect(names.join(' ')).not.toContain('Rocky Vansau');
     expect(names.join(' ')).not.toContain('Dana Ruiz');
+    rows = [own];
+  });
+
+  it('shows the intake answers, a Call button and what to do next; a call and a note are logged from the card', async () => {
+    const own = rows[0];
+    rows = [
+      {
+        id: 'l2', name: 'Cari Doguet', status: 'new', createdAt: '2026-10-02T00:00:00Z', phone: '(432) 260-0076', city: 'Midland', jobType: 'landscaping',
+        notes: 'Sub: Get your render done\nWhat are you looking to get done to your home? Irrigation\nWhen do you want to get started with the project? As soon as possible',
+      },
+    ] as typeof rows;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
+    await flush();
+    const card = () => container.querySelector('[draggable]')!;
+    expect(card().textContent).toContain('Get your render done · Irrigation · As soon as possible');
+    expect(card().textContent).not.toContain('What are you looking');
+    expect(card().querySelector('[data-testid="lead-status-line"]')?.textContent).toBe('Not contacted yet');
+    expect(card().querySelector('select[aria-label="Status"]')).toBeNull();
+
+    // Tapping Call logs a call; the status line says so.
+    const call = Array.from(card().querySelectorAll('a')).find((a) => a.getAttribute('href') === 'tel:4322600076')!;
+    act(() => click(call));
+    await flush();
+    expect(logContact).toHaveBeenCalledWith('l2', 'call', undefined);
+    expect(card().querySelector('[data-testid="lead-status-line"]')?.textContent).toBe('Last touched just now · 1 call');
+
+    // Open the card: the answers are listed, and a note typed there is stamped and kept.
+    act(() => click(card().querySelector('button[aria-label="Expand lead"]')!));
+    expect(card().querySelector('[aria-label="Intake answers"]')?.textContent).toContain('Irrigation');
+    const noteBox = card().querySelector('input[aria-label="Add a note"]') as HTMLInputElement;
+    act(() => pick(noteBox, 'left VM'));
+    await act(async () => {
+      noteBox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    await flush();
+    expect(logContact).toHaveBeenCalledWith('l2', 'note', 'left VM');
+    expect(card().querySelector('[aria-label="Intake answers"]')?.textContent).toContain('left VM');
     rows = [own];
   });
 });
