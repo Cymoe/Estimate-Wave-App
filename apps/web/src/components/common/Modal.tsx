@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 interface ModalProps {
@@ -61,7 +62,8 @@ export const Modal: React.FC<ModalProps> = ({
     'full': 'max-w-[90vw]'
   };
 
-  return (
+  // Rendered at the top level so the backdrop covers the whole screen, navigation included.
+  return createPortal(
     <div className="fixed inset-0 z-[11000] flex items-center justify-center p-4">
       {/* Backdrop with blur and darker opacity */}
       <div
@@ -95,6 +97,7 @@ export const Modal: React.FC<ModalProps> = ({
           {children}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }; 

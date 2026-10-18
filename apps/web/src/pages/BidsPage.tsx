@@ -402,6 +402,10 @@ function AddBidDialog({
   return (
     <Modal isOpen title={firstTime ? 'Set your bids' : 'Add a bid'} onClose={onClose} size="lg">
       <div className="p-5">
+        <p className="flex items-center justify-between text-sm mb-3 px-3 py-2 rounded border border-[#2A2A2A] bg-[#121212]" data-testid="dialog-balance">
+          <span className="text-gray-400">Lead balance</span>
+          <span className="text-white font-medium">{money(balance)}</span>
+        </p>
         <ol className="flex gap-2 mb-4 text-xs" aria-label="Steps">
           {steps.map((label, i) => (
             <li
