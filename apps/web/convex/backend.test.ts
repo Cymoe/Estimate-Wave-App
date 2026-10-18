@@ -1092,6 +1092,12 @@ describe("smoke tests and demo data", () => {
     const contractor = await signUp(t, "roofer@example.com");
     await expect(contractor.as.mutation(api.marketplace.addDemoData, {})).rejects.toThrow(/admins/);
     expect(await admin.as.mutation(api.marketplace.addDemoData, {})).toEqual({ companies: 6, leads: 10 });
+    // Half the demo companies are on the plan, half let it lapse, so both looks show.
+    const planStatuses = (await admin.as.query(api.marketplace.companiesOverview, {}))
+      .filter((c) => c.isSample)
+      .map((c) => `${c.plan?.status}:${c.plan?.active}`)
+      .sort();
+    expect(planStatuses).toEqual(["active:true", "active:true", "active:true", "cancelled:false", "cancelled:false", "cancelled:false"]);
     await expect(admin.as.mutation(api.marketplace.addDemoData, {})).rejects.toThrow(/already/);
 
     const companies = await admin.as.query(api.marketplace.companiesOverview, {});
@@ -1737,7 +1743,7 @@ describe("older leads and the monthly plan", () => {
       expect((await wallet(roofer)).availableLeads).toBe(0);
       expect((await wallet(roofer)).olderLeads).toBe(1);
       const orders = await rival.as.query(api.marketplace.bids, { organizationId: rival.organizationId });
-      expect(orders[0]).toMatchObject({ status: "lost", outcome: "Lead moved to Older leads" });
+      expect(orders[0]).toMatchObject({ status: "lost", outcome: "Lead moved to the Vault" });
       const inbox = await admin.as.query(api.marketplace.listInbox, {});
       expect(inbox.older.map((l) => l.name)).toEqual(["Jane Cole"]);
       expect(inbox.available).toHaveLength(0);

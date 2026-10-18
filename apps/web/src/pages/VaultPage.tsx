@@ -1,0 +1,189 @@
+import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { MapPin, Sparkles } from 'lucide-react';
+import { OrganizationContext } from '../components/layouts/DashboardLayout';
+import { walletAPI } from '../lib/api';
+import { money } from '../components/market/wallet';
+import { notifyWalletChanged } from '../components/market/WalletBar';
+import { PlanPanel, type PlanSummary } from '../components/market/plan';
+
+/** A lead in the Vault: a week or more old, no price countdown. */
+export interface VaultLead {
+  id: string;
+  jobType?: string;
+  tradeName?: string;
+  city?: string;
+  county?: string;
+  summary?: string;
+  receivedAt: string;
+  ageDays: number;
+  matchesTrades: boolean;
+}
+
+export interface VaultPool {
+  locked: boolean;
+  count: number;
+  plan: PlanSummary | null;
+  leads: VaultLead[];
+}
+
+const titleFromSlug = (slug?: string) =>
+  slug ? slug.replace(/-/g, ' ').replace(/^\w/, (c) => c.toUpperCase()) : 'General';
+
+const primary =
+  'inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded bg-emerald-600 text-white text-sm font-medium disabled:opacity-50 whitespace-nowrap';
+
+/**
+ * The Vault: Marketplace leads nobody bought in their first week, open to
+ * companies on the monthly plan. Claiming is exclusive and first come, with
+ * a monthly allowance included and a flat price per claim after that.
+ * Without the plan the page shows what's waiting and how to get in.
+ */
+const VaultPage: React.FC = () => {
+  const { selectedOrg } = useContext(OrganizationContext);
+  const organizationId = selectedOrg?.id || undefined;
+  const [pool, setPool] = useState<VaultPool | null>(null);
+  const [mineOnly, setMineOnly] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ text: string; good: boolean } | null>(null);
+
+  const load = useCallback(async () => {
+    if (!organizationId) return;
+    setPool(await walletAPI.olderLeads(organizationId));
+  }, [organizationId]);
+  useEffect(() => {
+    load().catch(() => setPool({ locked: true, count: 0, plan: null, leads: [] }));
+    const refresh = setInterval(() => load().catch(() => {}), 90_000);
+    return () => clearInterval(refresh);
+  }, [load]);
+
+  const claim = async (lead: VaultLead) => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await walletAPI.claim(lead.id, organizationId!);
+      setMessage({ text: 'Lead claimed: it’s in your Leads with the homeowner’s details.', good: true });
+    } catch (err) {
+      setMessage({ text: err instanceof Error ? err.message : 'That didn’t work', good: false });
+    } finally {
+      setBusy(false);
+      await load().catch(() => {});
+      notifyWalletChanged();
+    }
+  };
+
+  const shown = useMemo(() => {
+    const all = pool?.leads ?? [];
+    return mineOnly && all.some((l) => l.matchesTrades) ? all.filter((l) => l.matchesTrades) : all;
+  }, [pool, mineOnly]);
+  const tradeOf = (lead: VaultLead) => lead.tradeName ?? titleFromSlug(lead.jobType);
+  const plan = pool?.plan ?? null;
+  const price = plan?.nextClaimCents ?? 0;
+  const claimButton = (lead: VaultLead) => (
+    <button type="button" onClick={() => claim(lead)} disabled={busy} className={primary}>
+      {price > 0 ? `Claim · ${money(price)}` : 'Claim · included'}
+    </button>
+  );
+
+  return (
+    <div className="p-4 md:p-6 text-white">
+      <div className="mb-2">
+        <h1 className="text-xl font-semibold">🔐 The Vault</h1>
+        <p className="text-sm text-gray-400">
+          {pool === null ? 'Loading…' : `${pool.count} lead${pool.count === 1 ? '' : 's'} in your trades`}
+          {plan ? ` · ${plan.claimsLeft} of ${plan.claimsIncluded} claims left this month` : ''}
+          {plan && plan.claimsLeft === 0 ? ` · ${money(plan.extraClaimCents)} each after that` : ''}
+        </p>
+      </div>
+      <p className="text-xs text-gray-500 mb-4">
+        Leads nobody bought in their first week. Still exclusive: the first company to claim one gets it, and the homeowner has heard from nobody else.
+      </p>
+
+      {message && (
+        <p role="status" className={`text-sm rounded px-3 py-2 mb-4 border ${message.good ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200' : 'border-red-500/40 bg-red-500/10 text-red-300'}`}>
+          {message.text}
+        </p>
+      )}
+
+      {pool === null ? (
+        <p className="text-sm text-gray-500">Loading…</p>
+      ) : pool.locked ? (
+        <div className="max-w-2xl">
+          <h2 className="text-lg font-semibold text-white mb-1">Unlock the Vault</h2>
+          <p className="text-sm text-gray-400 mb-4">
+            {pool.count > 0
+              ? `${pool.count} lead${pool.count === 1 ? '' : 's'} in your trades ${pool.count === 1 ? 'is' : 'are'} waiting in the Vault. It's part of the plan.`
+              : 'Leads land here a week after listing. The Vault is part of the plan.'}
+          </p>
+          <PlanPanel organizationId={organizationId} plan={plan} onChanged={() => load().catch(() => {})} />
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center gap-2 mb-3">
+            <button
+              type="button"
+              onClick={() => setMineOnly((m) => !m)}
+              aria-pressed={mineOnly}
+              className={`px-3 py-1.5 rounded-full text-xs border ${mineOnly ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333] text-gray-400'}`}
+            >
+              My trades
+            </button>
+          </div>
+          {shown.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-12 border border-[#2A2A2A] rounded">Nothing in the Vault right now. Leads land here a week after listing.</p>
+          ) : (
+            <>
+              <table className="hidden md:table w-full text-sm border border-[#2A2A2A] rounded" data-testid="vault-table">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-[#2A2A2A]">
+                    <th className="px-4 py-2 font-medium">Trade</th>
+                    <th className="px-4 py-2 font-medium">Where</th>
+                    <th className="px-4 py-2 font-medium">Job</th>
+                    <th className="px-4 py-2 font-medium">Age</th>
+                    <th className="px-4 py-2 font-medium" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#2A2A2A]">
+                  {shown.map((lead) => (
+                    <tr key={lead.id}>
+                      <td className="px-4 py-3 text-white whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1.5">
+                          {lead.matchesTrades && <Sparkles className="w-3.5 h-3.5 text-amber-300" aria-label="Your trade" />}
+                          {tradeOf(lead)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-300 whitespace-nowrap">
+                        {lead.city || 'Area not given'}
+                        {lead.county ? ` · ${lead.county} County` : ''}
+                      </td>
+                      <td className="px-4 py-3 text-gray-300">{lead.summary || '—'}</td>
+                      <td className="px-4 py-3 text-gray-400 whitespace-nowrap">{lead.ageDays} days</td>
+                      <td className="px-4 py-3 text-right">{claimButton(lead)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <ul className="md:hidden space-y-3">
+                {shown.map((lead) => (
+                  <li key={lead.id} className="rounded border border-[#2A2A2A] bg-[#161616] p-4">
+                    <p className="text-sm font-medium text-white flex items-center gap-1.5">
+                      {lead.matchesTrades && <Sparkles className="w-3.5 h-3.5 text-amber-300" aria-label="Your trade" />}
+                      {tradeOf(lead)}
+                    </p>
+                    <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+                      <MapPin className="w-3 h-3" />
+                      {lead.city || 'Area not given'} · {lead.ageDays} days old
+                    </p>
+                    {lead.summary && <p className="text-sm text-gray-300 mt-2">{lead.summary}</p>}
+                    <div className="mt-3">{claimButton(lead)}</div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
+export default VaultPage;

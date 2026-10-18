@@ -26,7 +26,8 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
   const [orgDropdownOpen, setOrgDropdownOpen] = React.useState(false);
-  const { plan } = usePlan(selectedOrg.id || undefined);
+  const { plan, active: planActive } = usePlan(selectedOrg.id || undefined);
+  const dim = planActive ? '' : ' opacity-40 grayscale';
 
   if (!isOpen) return null;
 
@@ -150,6 +151,21 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
           </NavLink>
 
           <NavLink
+            to="/vault"
+            onClick={onClose}
+            className={({ isActive }) =>
+              `flex items-center gap-3 p-3 rounded-[4px] transition-colors ${
+                isActive
+                  ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border border-[#336699]/50 text-white'
+                  : 'hover:bg-[#333333] text-gray-300'
+              }${dim}`
+            }
+          >
+            <span className="text-lg">🔐</span>
+            <span>The Vault</span>
+          </NavLink>
+
+          <NavLink
             to="/work"
             onClick={onClose}
             className={({ isActive }) =>
@@ -157,7 +173,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
                 isActive
                   ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border border-[#336699]/50 text-white'
                   : 'hover:bg-[#333333] text-gray-300'
-              }`
+              }${dim}`
             }
           >
             <span className="text-lg">📝</span>
@@ -172,7 +188,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
                 isActive
                   ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border border-[#336699]/50 text-white'
                   : 'hover:bg-[#333333] text-gray-300'
-              }`
+              }${dim}`
             }
           >
             <span className="text-lg">📒</span>
@@ -187,7 +203,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
                 isActive
                   ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border border-[#336699]/50 text-white'
                   : 'hover:bg-[#333333] text-gray-300'
-              }`
+              }${dim}`
             }
           >
             <span className="text-lg">🏗</span>

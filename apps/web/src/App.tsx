@@ -29,6 +29,7 @@ import LeadMarketPage from './pages/LeadMarketPage';
 import BidsPage from './pages/BidsPage';
 import MarketplacePage from './pages/MarketplacePage';
 import PlanPage from './pages/PlanPage';
+import VaultPage from './pages/VaultPage';
 import { PlanGate } from './components/market/plan';
 import FundAccountPage from './pages/FundAccountPage';
 import IndustrySettings from './pages/IndustrySettings';
@@ -238,6 +239,16 @@ function AppRoutes() {
           <ProtectedRoute>
             <DashboardLayout fullWidth={true}>
               <BidsPage />
+            </DashboardLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/vault"
+        element={
+          <ProtectedRoute>
+            <DashboardLayout fullWidth={true}>
+              <VaultPage />
             </DashboardLayout>
           </ProtectedRoute>
         }

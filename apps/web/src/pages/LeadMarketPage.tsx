@@ -1207,10 +1207,10 @@ const LeadMarketPage: React.FC = () => {
           {(inbox.older?.length ?? 0) > 0 && (
             <section>
               <h2 className="text-sm font-medium text-gray-300 mb-2">
-                Older leads · {inbox.older!.length}
+                The Vault · {inbox.older!.length}
                 <span className="text-xs text-gray-500 font-normal"> · a week old, claimable on the plan; archived at a month</span>
               </h2>
-              <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Older leads">
+              <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="The Vault">
                 {inbox.older!.map((lead) => (
                   <li key={lead.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
                     <span className="min-w-0">

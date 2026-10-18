@@ -78,11 +78,18 @@ export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown
 
   return (
     <>
-      {(wallet.availableLeads ?? 0) > 0 && (
-        <p className="mb-4 text-sm text-gray-400">
-          <Link to="/marketplace" className="text-[#9cc3ea] underline underline-offset-2 [@media(hover:hover)]:hover:text-white">
-            {wallet.availableLeads} new lead{wallet.availableLeads === 1 ? '' : 's'} in the Marketplace
-          </Link>
+      {((wallet.availableLeads ?? 0) > 0 || (wallet.plan?.active && (wallet.olderLeads ?? 0) > 0)) && (
+        <p className="mb-4 text-sm text-gray-400 flex flex-wrap gap-x-4">
+          {(wallet.availableLeads ?? 0) > 0 && (
+            <Link to="/marketplace" className="text-[#9cc3ea] underline underline-offset-2 [@media(hover:hover)]:hover:text-white">
+              {wallet.availableLeads} new lead{wallet.availableLeads === 1 ? '' : 's'} in the Marketplace
+            </Link>
+          )}
+          {wallet.plan?.active && (wallet.olderLeads ?? 0) > 0 && (
+            <Link to="/vault" className="text-[#9cc3ea] underline underline-offset-2 [@media(hover:hover)]:hover:text-white">
+              {wallet.olderLeads} lead{wallet.olderLeads === 1 ? '' : 's'} in the Vault
+            </Link>
+          )}
         </p>
       )}
       {wallet.pendingFunding && (

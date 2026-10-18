@@ -10,7 +10,8 @@ export { planLabel, type PlanSummary };
 
 /**
  * The company's plan. With `ensure`, a company that has none gets its trial
- * started (used by the pages the plan covers). Super admins always pass.
+ * started (used by the pages the plan covers). It follows the company, not
+ * the viewer: an admin looking at a company off the plan sees it locked too.
  */
 export function usePlan(organizationId?: string, { ensure = false }: { ensure?: boolean } = {}) {
   const { user } = useAuth();
@@ -32,7 +33,7 @@ export function usePlan(organizationId?: string, { ensure = false }: { ensure?: 
     return () => window.removeEventListener(WALLET_CHANGED, load);
   }, [load]);
   const superAdmin = user?.role === 'super_admin';
-  return { plan: plan ?? null, loading: plan === undefined && Boolean(organizationId), active: superAdmin || Boolean(plan?.active), superAdmin };
+  return { plan: plan ?? null, loading: plan === undefined && Boolean(organizationId), active: Boolean(plan?.active), superAdmin };
 }
 
 const primary = 'inline-flex items-center justify-center px-4 py-2.5 rounded bg-[#336699] text-white text-sm font-medium disabled:opacity-50';
@@ -84,7 +85,7 @@ export const PlanPanel: React.FC<{ organizationId?: string; plan: PlanSummary | 
             : 'Your plan has ended';
   const standing =
     plan?.status === 'active'
-      ? `Next ${money(monthly)} comes off your lead balance on ${shortDate(plan.nextChargeAt)}. ${plan.claimsLeft} of ${included} older-lead claims left this month.`
+      ? `Next ${money(monthly)} comes off your lead balance on ${shortDate(plan.nextChargeAt)}. ${plan.claimsLeft} of ${included} Vault claims left this month.`
       : plan?.status === 'past_due'
         ? `Your lead balance couldn't cover ${money(monthly)}. Add funds and the plan picks back up on its own.`
         : plan?.status === 'cancelled' && plan.active
@@ -100,7 +101,7 @@ export const PlanPanel: React.FC<{ organizationId?: string; plan: PlanSummary | 
         <li className="rounded border border-[#2A2A2A] px-3 py-2">📒 Price Book</li>
         <li className="rounded border border-[#2A2A2A] px-3 py-2">🏗 Projects</li>
         <li className="rounded border border-[#2A2A2A] px-3 py-2">
-          🗂 Older leads · {included} claims a month, then {money(extra)} each
+          🔐 The Vault · {included} claims a month, then {money(extra)} each
         </li>
       </ul>
       <p className="mt-4 text-white">
@@ -126,8 +127,8 @@ export const PlanPanel: React.FC<{ organizationId?: string; plan: PlanSummary | 
             Add funds
           </button>
         )}
-        <Link to="/marketplace?tab=older" className="inline-flex items-center px-2 py-2.5 text-[#9cc3ea] underline underline-offset-2">
-          See older leads
+        <Link to="/vault" className="inline-flex items-center px-2 py-2.5 text-[#9cc3ea] underline underline-offset-2">
+          See the Vault
         </Link>
       </div>
     </section>

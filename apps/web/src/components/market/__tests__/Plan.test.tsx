@@ -75,10 +75,11 @@ describe('the monthly plan', () => {
     expect(Array.from(container.querySelectorAll('button')).some((b) => b.textContent?.trim() === 'Add funds')).toBe(true);
   });
 
-  it('never gates a super admin', async () => {
+  it('gates a super admin too when the company they are looking at is off the plan', async () => {
     role = 'super_admin';
-    plan = null;
+    plan = { ...active, status: 'cancelled', active: false };
     const container = await render(<PlanGate><p>Estimates list</p></PlanGate>);
-    expect(container.textContent).toContain('Estimates list');
+    expect(container.textContent).not.toContain('Estimates list');
+    expect(container.textContent).toContain('Your plan has ended');
   });
 });

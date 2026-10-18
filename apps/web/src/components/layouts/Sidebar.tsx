@@ -74,12 +74,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { user, signOut } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { plan, active: planActive } = usePlan(selectedOrg.id || undefined);
-  // A small lock on the tiles the plan covers, when it isn't on.
-  const lock = !planActive && (
-    <span className="absolute top-1 right-1 text-[10px] leading-none text-gray-500" aria-label="On the plan">
-      🔒
-    </span>
-  );
+  // Tiles the plan covers go grey when it isn't on; they still open, to the plan panel.
+  const dim = planActive ? '' : ' opacity-40 grayscale';
   const profileDropdownRef = useRef<HTMLDivElement>(null);
   const profileButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -261,13 +257,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               )}
             </NavLink>
+            {/* The Vault: leads nobody bought in a week, for companies on the plan */}
+            <NavLink
+              to="/vault"
+              className={({ isActive }) =>
+                isActive
+                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]${dim}`
+                  : `bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95${dim}`
+              }
+              title={isSidebarCollapsed ? 'The Vault - Members-only leads' : planActive ? undefined : 'On the plan'}
+            >
+              {({ isActive }) => (
+                <div className="relative z-10 flex flex-col items-center">
+                  <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
+                    <span className="text-base">🔐</span>
+                  </div>
+                  {!isSidebarCollapsed && (
+                    <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
+                      The Vault
+                    </span>
+                  )}
+                </div>
+              )}
+            </NavLink>
             {/* Estimates */}
             <NavLink
               to="/work"
               className={({ isActive }) =>
                 isActive || location.pathname.startsWith('/work') || location.pathname.startsWith('/estimates')
-                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
-                  : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
+                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]${dim}`
+                  : `bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95${dim}`
               }
               title={isSidebarCollapsed ? "Estimates - Create and Manage Estimates" : undefined}
             >
@@ -277,7 +296,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <div className={`mb-1 ${isActive || location.pathname.startsWith('/work') || location.pathname.startsWith('/estimates') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
                       <span className="text-base">📝</span>
                     </div>
-                    {lock}
                     {!isSidebarCollapsed && (
                       <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/work') || location.pathname.startsWith('/estimates') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
                         Estimates
@@ -293,8 +311,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               to="/price-book"
               className={({ isActive }) =>
                 isActive || location.pathname.startsWith('/price-book') || location.pathname.startsWith('/items') || location.pathname.startsWith('/cost-codes')
-                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
-                  : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
+                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]${dim}`
+                  : `bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95${dim}`
               }
               title={isSidebarCollapsed ? "Price Book - Cost Codes, Items, Services & Packages" : undefined}
             >
@@ -304,7 +322,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <div className={`mb-1 ${isActive || location.pathname.startsWith('/price-book') || location.pathname.startsWith('/items') || location.pathname.startsWith('/cost-codes') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
                       <span className="text-base">📒</span>
                     </div>
-                    {lock}
                     {!isSidebarCollapsed && (
                       <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/price-book') || location.pathname.startsWith('/items') || location.pathname.startsWith('/cost-codes') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
                         Price Book
@@ -321,8 +338,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               to="/projects"
               className={({ isActive }) =>
                 isActive || location.pathname.startsWith('/projects')
-                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
-                  : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
+                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 col-span-2 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]${dim}`
+                  : `bg-[#1A1A1A] border border-[#2A2A2A] col-span-2 flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95${dim}`
               }
               title={isSidebarCollapsed ? "Projects - Manage Your Projects" : undefined}
             >
@@ -332,7 +349,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <div className={`mb-1 ${isActive || location.pathname.startsWith('/projects') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
                       <span className="text-base">🏗</span>
                     </div>
-                    {lock}
                     {!isSidebarCollapsed && (
                       <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/projects') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
                         Projects

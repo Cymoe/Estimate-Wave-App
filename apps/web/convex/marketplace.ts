@@ -298,7 +298,7 @@ export const ageLeads = internalMutation({
       .take(500);
     for (const lead of available) {
       if (listedMs(lead) > nowMs - OLDER_AFTER_DAYS * DAY_MS) continue;
-      await loseOpenOrders(ctx, lead._id, "Lead moved to Older leads");
+      await loseOpenOrders(ctx, lead._id, "Lead moved to the Vault");
       await ctx.db.patch(lead._id, { status: "older", updatedAt: now });
       moved++;
     }
@@ -1079,7 +1079,7 @@ export const claim = mutation({
     );
     const plan = organization.plan;
     if (!plan || !planIsActive(plan, Date.now()))
-      fail("FORBIDDEN", "Older leads are part of the monthly plan");
+      fail("FORBIDDEN", "The Vault is part of the monthly plan");
     const lead = await ctx.db.get(leadId);
     if (lead === null || lead.status !== "older")
       fail("INVALID", "Someone just claimed this lead");
@@ -1675,7 +1675,7 @@ export const addDemoData = mutation({
       }
     }
     const companyIds: Id<"organizations">[] = [];
-    for (const company of DEMO_COMPANIES) {
+    for (const [i, company] of DEMO_COMPANIES.entries()) {
       const id = await createOrganization(ctx, {
         name: company.name,
         phone: company.phone,
@@ -1686,9 +1686,17 @@ export const addDemoData = mutation({
         walletBalanceCents: 0,
         isSample: true,
       });
-      // Demo companies are on the plan for free, so every view has rows.
+      // Every other demo company is on the plan for free; the rest let its
+      // plan lapse, so the locked and open states both show.
       await ctx.db.patch(id, {
-        plan: { ...trialPlan(nowIso()), status: "active", monthlyCents: 0 },
+        plan:
+          i % 2 === 0
+            ? { ...trialPlan(nowIso()), status: "active", monthlyCents: 0 }
+            : {
+                ...trialPlan(nowIso()),
+                status: "cancelled",
+                nextChargeAt: new Date(Date.now() - DAY_MS).toISOString(),
+              },
       });
       if (company.payment > 0) {
         await postTransaction(ctx, id, {
