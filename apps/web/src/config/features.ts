@@ -6,7 +6,7 @@ export const FEATURES = {
   /** The Profit Tracker dashboard and the revenue box in the sidebar. */
   profitTracker: false,
   /** Projects: the sidebar tile, recent projects, the projects panel and pages. */
-  projects: false,
+  projects: true,
 };
 
 /** Where people land after signing in. */

@@ -9,13 +9,13 @@ jest.mock('../../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id
 import { QuickCreateMenu } from '../QuickCreateMenu';
 import { FEATURES, HOME_PATH } from '../../../config/features';
 
-describe('areas switched off for now', () => {
-  it('Profit Tracker and Projects are off, and people land on Leads', () => {
-    expect(FEATURES).toEqual({ profitTracker: false, projects: false });
+describe('areas switched on and off', () => {
+  it('Profit Tracker is off, Projects is back, and people land on Leads', () => {
+    expect(FEATURES).toEqual({ profitTracker: false, projects: true });
     expect(HOME_PATH).toBe('/leads');
   });
 
-  it('the + button no longer offers a Project', async () => {
+  it('the + button offers a Lead, an Estimate and a Project', async () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
     await act(async () =>
@@ -28,6 +28,6 @@ describe('areas switched off for now', () => {
     const labels = Array.from(container.querySelectorAll('li')).map((li) => li.textContent);
     expect(labels.join(' ')).toContain('Lead');
     expect(labels.join(' ')).toContain('Estimate');
-    expect(labels.join(' ')).not.toContain('Project');
+    expect(labels.join(' ')).toContain('Project');
   });
 });
