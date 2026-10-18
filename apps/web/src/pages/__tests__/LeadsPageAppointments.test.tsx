@@ -118,15 +118,20 @@ describe('Leads board', () => {
     document.body.innerHTML = '';
   });
 
-  it('opens the lead when its name is tapped, and only the arrow expands the card', async () => {
+  it('opens the lead when its name is tapped; the toolbar button opens every card and there is no per-card arrow', async () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
     await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
     await flush();
 
-    act(() => click(container.querySelector('button[aria-label="Expand lead"]')!));
+    expect(container.querySelector('button[aria-label="Expand lead"]')).toBeNull();
+    const toggle = () => Array.from(container.querySelectorAll('button')).find((b) => /Expand leads|Collapse leads/.test(b.textContent ?? ''))!;
+    expect(container.querySelector('input[aria-label="Add a note"]')).toBeNull();
+    act(() => click(toggle()));
+    expect(toggle().textContent).toContain('Collapse leads');
+    expect(container.querySelector('input[aria-label="Add a note"]')).toBeTruthy();
     expect(document.body.querySelector('form')).toBeNull();
-    expect(container.querySelector('button[aria-label="Collapse lead"]')).toBeTruthy();
+    act(() => click(toggle()));
 
     const name = Array.from(container.querySelectorAll('span')).find((el) => el.textContent === 'Rocky Vansau')!;
     act(() => click(name));
@@ -205,8 +210,8 @@ describe('Leads board', () => {
     expect(logContact).toHaveBeenCalledWith('l2', 'call', undefined);
     expect(card().querySelector('[data-testid="lead-status-line"]')?.textContent).toBe('Last touched just now · 1 call');
 
-    // Open the card: the answers are listed, and a note typed there is stamped and kept.
-    act(() => click(card().querySelector('button[aria-label="Expand lead"]')!));
+    // Open the cards: the answers are listed, and a note typed there is stamped and kept.
+    act(() => click(Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Expand leads'))!));
     expect(card().querySelector('[aria-label="Intake answers"]')?.textContent).toContain('Irrigation');
     const noteBox = card().querySelector('input[aria-label="Add a note"]') as HTMLInputElement;
     act(() => pick(noteBox, 'left VM'));

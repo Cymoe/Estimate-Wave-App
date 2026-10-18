@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { CalendarClock, CalendarDays, ChevronDown, ChevronsDownUp, ChevronsUpDown, FileText, Kanban, Mail, MapPin, MessageSquare, Phone, Plus, Search, UserPlus } from 'lucide-react';
+import { CalendarClock, CalendarDays, ChevronsDownUp, ChevronsUpDown, FileText, Kanban, Mail, MapPin, MessageSquare, Phone, Plus, Search, UserPlus } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
 import { industriesAPI, leadsAPI } from '../lib/api';
@@ -283,7 +283,7 @@ const LeadsPage: React.FC = () => {
   const hasSamples = leads.some((lead) => lead.isSample);
 
   const [query, setQuery] = useState('');
-  // Compact cards show just the name and phone; the arrow opens one in place.
+  // Compact cards show the name, the gist, a Call button and the status line; the toolbar button opens them all.
   const [compact, setCompact] = useState(() => {
     try {
       return localStorage.getItem(COMPACT_KEY) !== 'false';
@@ -291,17 +291,8 @@ const LeadsPage: React.FC = () => {
       return true;
     }
   });
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  const toggleExpanded = (id: string) =>
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
   const chooseCompact = (next: boolean) => {
     setCompact(next);
-    setExpanded(new Set());
     try {
       localStorage.setItem(COMPACT_KEY, String(next));
     } catch {
@@ -519,7 +510,7 @@ const LeadsPage: React.FC = () => {
                             e.dataTransfer.effectAllowed = 'move';
                           }}
                           onClick={() => setEditing(lead)}
-                          className={`bg-[#121212] border border-[#333333] hover:border-[#555555] cursor-grab active:cursor-grabbing ${compact && !expanded.has(lead.id) ? 'px-3 py-2' : 'p-3'}`}
+                          className={`bg-[#121212] border border-[#333333] hover:border-[#555555] cursor-grab active:cursor-grabbing ${compact ? 'px-3 py-2' : 'p-3'}`}
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
@@ -539,24 +530,9 @@ const LeadsPage: React.FC = () => {
                               {lead.isSample && (
                                 <span className="text-[10px] uppercase tracking-wide text-gray-500 border border-[#333333] px-1">Sample</span>
                               )}
-                              {compact && (
-                                // Only the arrow opens the card in place; tapping anywhere else opens the lead.
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleExpanded(lead.id);
-                                  }}
-                                  aria-label={expanded.has(lead.id) ? 'Collapse lead' : 'Expand lead'}
-                                  aria-expanded={expanded.has(lead.id)}
-                                  className="-m-2 p-2 text-gray-500 hover:text-white"
-                                >
-                                  <ChevronDown className={`w-4 h-4 transition-transform ${expanded.has(lead.id) ? 'rotate-180' : ''}`} />
-                                </button>
-                              )}
                             </div>
                           </div>
-                          {compact && !expanded.has(lead.id) && (
+                          {compact && (
                             <div className="flex items-center justify-between gap-2 mt-1.5" onClick={(e) => e.stopPropagation()}>
                               {lead.phone ? (
                                 <a href={`tel:${tel(lead.phone)}`} onClick={() => logContact(lead, 'call')} className={callButton}>
@@ -574,7 +550,7 @@ const LeadsPage: React.FC = () => {
                             <LeadStatusLine lead={lead} now={now} />
                             {leadValue(lead) > 0 && <span className="text-xs text-white">{formatCurrency(leadValue(lead))}</span>}
                           </div>
-                          {(!compact || expanded.has(lead.id)) && (
+                          {!compact && (
                           <>
                           {lead.jobType && <div className="text-xs text-gray-400 mt-1">{tradeName.get(lead.jobType) ?? lead.jobType}{lead.city ? ` · ${lead.city}` : ''}</div>}
                           {showFollowUp && (
