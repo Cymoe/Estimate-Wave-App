@@ -138,6 +138,25 @@ describe('Leads board', () => {
     expect((document.body.querySelector('form input[aria-label="Name"]') as HTMLInputElement).value).toBe('Rocky Vansau');
   });
 
+  it('opens the lead from anywhere on a collapsed card except the Call link', async () => {
+    rows = [{ ...rows[0], appointmentAt: undefined, phone: '(432) 555-0100', jobType: 'landscaping', city: 'Midland' }] as typeof rows;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
+    await flush();
+    const card = container.querySelector('[draggable]')!;
+    // The trade and town text sits beside the Call link, bottom right of the card.
+    const corner = Array.from(card.querySelectorAll('span')).find((el) => /· Midland$/.test(el.textContent ?? ''))!;
+    act(() => click(corner));
+    expect(document.body.querySelector('form input[aria-label="Name"]')).toBeTruthy();
+    act(() => click(document.body.querySelector('form button[aria-label="Close"]')!));
+    act(() => jest.advanceTimersByTime?.(200));
+    await flush();
+    // The status line too.
+    act(() => click(card.querySelector('[data-testid="lead-status-line"]')!));
+    expect(document.body.querySelector('form input[aria-label="Name"]')).toBeTruthy();
+  });
+
   it('tags a won lead, next to the company\'s own leads', async () => {
     const own = rows[0];
     rows = [

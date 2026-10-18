@@ -532,10 +532,18 @@ const LeadsPage: React.FC = () => {
                               )}
                             </div>
                           </div>
+                          {/* Only the Call link keeps the tap; anywhere else on the card opens the lead. */}
                           {compact && (
-                            <div className="flex items-center justify-between gap-2 mt-1.5" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-between gap-2 mt-1.5">
                               {lead.phone ? (
-                                <a href={`tel:${tel(lead.phone)}`} onClick={() => logContact(lead, 'call')} className={callButton}>
+                                <a
+                                  href={`tel:${tel(lead.phone)}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    logContact(lead, 'call');
+                                  }}
+                                  className={callButton}
+                                >
                                   <Phone className="w-3.5 h-3.5" /> {lead.phone}
                                 </a>
                               ) : (
