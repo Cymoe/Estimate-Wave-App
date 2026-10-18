@@ -20,10 +20,22 @@ export interface WalletSummary {
   transactions: Array<{ id: string; type: string; amountCents: number; balanceAfterCents: number; method?: string; note?: string; createdAt: string }>;
 }
 
-/** Opens the company's funding page, where they load their balance. */
+/**
+ * Opens the company's funding page in a new tab, so they don't lose their
+ * place. The tab is opened right away (browsers only allow that during the
+ * tap) and pointed at the page once its link exists.
+ */
 export async function openFundingPage(organizationId: string) {
-  const token = await fundingAPI.createLink(organizationId);
-  window.location.assign(fundingAPI.url(token));
+  const tab = window.open('', '_blank');
+  if (tab) tab.opener = null;
+  try {
+    const url = fundingAPI.url(await fundingAPI.createLink(organizationId));
+    if (tab) tab.location.href = url;
+    else window.location.assign(url);
+  } catch (err) {
+    tab?.close();
+    throw err;
+  }
 }
 
 /** Fired on `window` when a page moved money, so the balance in the navigation refreshes. */
