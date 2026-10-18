@@ -416,18 +416,6 @@ function AddBidDialog({
         {step === 1 && (
           <div>
             <p className="text-sm text-white mb-2">Which counties do you work in?</p>
-            {counties.length > 0 && (
-              <ul className="flex flex-wrap gap-1.5 mb-2" aria-label="Chosen counties">
-                {counties.map((county) => (
-                  <li key={county} className="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-full bg-[#336699]/20 border border-[#336699]/50 text-sm text-white">
-                    {county} County
-                    <button type="button" onClick={() => remove(county)} aria-label={`Remove ${county}`} className="p-0.5 text-gray-400 hover:text-white">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
             <input
               autoFocus
               value={search}
@@ -442,7 +430,8 @@ function AddBidDialog({
               aria-label="Search counties"
               className={`${input} w-full`}
             />
-            <ul className="mt-1 max-h-56 overflow-y-auto divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded empty:hidden" aria-label="Counties">
+            {/* Fixed height, so the dialog doesn't jump as matches come and go. */}
+            <ul className="mt-1 h-56 overflow-y-auto divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Counties">
               {matches.map((m) => (
                 <li key={m.county}>
                   <button type="button" onClick={() => add(m.county)} className="w-full flex items-center justify-between px-3 py-2 text-left text-sm text-gray-200 hover:bg-[#1E1E1E]">
@@ -451,8 +440,23 @@ function AddBidDialog({
                   </button>
                 </li>
               ))}
+              {matches.length === 0 && (
+                <li className="px-3 py-2 text-sm text-gray-500">
+                  {search.trim() === '' ? 'Type to find a county. Any Texas county works.' : `Nothing matches "${search.trim()}". Try the county name or a town in it.`}
+                </li>
+              )}
             </ul>
-            <p className="text-xs text-gray-500 mt-2">Add as many counties as you work in. Any Texas county works; type to find it.</p>
+            <ul className="flex flex-wrap gap-1.5 mt-3 min-h-[2.25rem] empty:hidden" aria-label="Chosen counties">
+              {counties.map((county) => (
+                <li key={county} className="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-full bg-[#336699]/20 border border-[#336699]/50 text-sm text-white">
+                  {county} County
+                  <button type="button" onClick={() => remove(county)} aria-label={`Remove ${county}`} className="p-0.5 text-gray-400 hover:text-white">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-gray-500 mt-2 min-h-[1rem]">{counties.length === 0 ? 'Add as many counties as you work in.' : `${counties.length} chosen.`}</p>
             <div className="flex justify-end mt-4">
               <button type="button" disabled={counties.length === 0} onClick={() => setStep(2)} className={primary}>
                 Next
