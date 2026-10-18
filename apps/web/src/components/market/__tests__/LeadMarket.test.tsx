@@ -151,7 +151,7 @@ describe("a company's lead balance", () => {
     expect(container.textContent).toBe('');
   });
 
-  it('shows what leads turned into and warns when the balance is low; the navigation tile shows the balance and opens the panel', async () => {
+  it('warns when the balance is low and never shows a won-from-leads figure; the navigation tile shows the balance and opens the panel', async () => {
     wallet = {
       balanceCents: 6000,
       typicalLeadCents: 4500,
@@ -164,7 +164,7 @@ describe("a company's lead balance", () => {
     const container = await render(<WalletBar organizationId="o2" />);
     // The balance itself lives in the navigation, not here.
     expect(container.textContent).not.toContain('$60.00');
-    expect(container.textContent).toContain('$170.00 spent on leads → $12,000.00 won from them');
+    expect(container.textContent).not.toContain('$12,000.00');
     expect(container.querySelector('[role="alert"]')?.textContent).toContain('covers about 1 more lead');
 
     document.body.innerHTML = '';

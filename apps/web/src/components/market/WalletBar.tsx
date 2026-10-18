@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
-import { Clock, Gavel, TrendingUp, X } from 'lucide-react';
+import { Clock, Gavel, X } from 'lucide-react';
 import { fundingAPI, walletAPI } from '../../lib/api';
 import { WalletHistory, money } from './wallet';
 
@@ -76,22 +76,13 @@ export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-2 mb-4 empty:hidden">
-        {(wallet.availableLeads ?? 0) > 0 && (
-          <Link
-            to="/marketplace"
-            className="inline-flex items-center gap-2 px-3 py-2 rounded bg-[#336699] text-white text-sm font-medium [@media(hover:hover)]:hover:bg-[#2A5580] active:bg-[#2A5580]"
-          >
+      {(wallet.availableLeads ?? 0) > 0 && (
+        <p className="mb-4 text-sm text-gray-400">
+          <Link to="/marketplace" className="text-[#9cc3ea] underline underline-offset-2 [@media(hover:hover)]:hover:text-white">
             {wallet.availableLeads} new lead{wallet.availableLeads === 1 ? '' : 's'} in the Marketplace
           </Link>
-        )}
-        {wallet.wonCents > 0 && (
-          <span className="inline-flex items-center gap-1.5 text-sm text-gray-400">
-            <TrendingUp className="w-4 h-4 text-emerald-300" />
-            {money(wallet.spentCents)} spent on leads → {money(wallet.wonCents)} won from them
-          </span>
-        )}
-      </div>
+        </p>
+      )}
       {wallet.pendingFunding && (
         <div role="status" className="mb-4 px-4 py-3 rounded border border-[#336699]/50 bg-[#336699]/10 text-sm text-[#cfe2f5] flex items-center gap-2">
           <Clock className="w-4 h-4 flex-shrink-0" />
@@ -169,17 +160,10 @@ export function WalletDrawer({ wallet, onClose: closeNow, onAddFunds }: { wallet
               About {covered} lead{covered === 1 ? '' : 's'} at {money(wallet.typicalLeadCents)} each. Your balance never expires.
             </p>
           </section>
-          <section className="grid grid-cols-2 gap-3">
-            <div className="border border-[#2A2A2A] rounded p-3">
-              <p className="text-xs text-gray-500">Spent on leads</p>
-              <p className="text-lg text-white">{money(wallet.spentCents)}</p>
-              <p className="text-xs text-gray-500">{wallet.leadsBought} leads</p>
-            </div>
-            <div className="border border-emerald-500/30 bg-emerald-500/5 rounded p-3">
-              <p className="text-xs text-gray-500">Won from them</p>
-              <p className="text-lg text-emerald-300">{money(wallet.wonCents)}</p>
-              <p className="text-xs text-gray-500">{wallet.wonCount} job{wallet.wonCount === 1 ? '' : 's'}</p>
-            </div>
+          <section className="border border-[#2A2A2A] rounded p-3">
+            <p className="text-xs text-gray-500">Spent on leads</p>
+            <p className="text-lg text-white">{money(wallet.spentCents)}</p>
+            <p className="text-xs text-gray-500">{wallet.leadsBought} leads</p>
           </section>
           <section className="border border-[#2A2A2A] rounded p-4 text-sm text-gray-300">
             <button type="button" onClick={onAddFunds} className="w-full mb-3 px-4 py-2.5 rounded bg-[#336699] text-white font-medium">
