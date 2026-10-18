@@ -601,6 +601,11 @@ export default defineSchema({
     marketplaceLeadId: v.optional(v.id("marketplaceLeads")),
     pricePaidCents: v.optional(v.number()),
     assignedAt: v.optional(v.string()),
+    // How it reached this company: a standing bid won it, a buy order
+    // filled, they bought it in the Marketplace, or an admin sent it.
+    wonVia: v.optional(
+      v.union(v.literal("bid"), v.literal("order"), v.literal("buy"), v.literal("sent")),
+    ),
     creditRequest: v.optional(
       v.object({
         reason: v.string(),

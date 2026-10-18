@@ -119,4 +119,27 @@ describe('Leads board', () => {
     act(() => click(name));
     expect((document.body.querySelector('form input[aria-label="Name"]') as HTMLInputElement).value).toBe('Rocky Vansau');
   });
+
+  it('says how a FieldQuote lead arrived, next to the company\'s own leads', async () => {
+    const own = rows[0];
+    rows = [
+      { ...own, appointmentAt: undefined },
+      { id: 'l2', name: 'Omar Haddad', status: 'new', createdAt: '2026-10-02T00:00:00Z', marketplaceLeadId: 'm1', pricePaidCents: 25000, wonVia: 'bid' },
+      { id: 'l3', name: 'Dana Ruiz', status: 'new', createdAt: '2026-10-03T00:00:00Z', marketplaceLeadId: 'm2', pricePaidCents: 7500, wonVia: 'buy' },
+    ] as typeof rows;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
+    await flush();
+
+    const card = (who: string) => Array.from(container.querySelectorAll('[draggable]')).find((el) => el.textContent?.includes(who))!;
+    expect(card('Omar Haddad').textContent).toContain('Won by bid · $250.00');
+    expect(card('Dana Ruiz').textContent).toContain('Marketplace · $75.00');
+    expect(card('Rocky Vansau').textContent).not.toContain('·');
+
+    // The same line heads the lead's detail.
+    act(() => click(Array.from(container.querySelectorAll('span')).find((el) => el.textContent === 'Omar Haddad')!));
+    expect(document.body.querySelector('[data-testid="lead-credit"]')?.textContent).toContain('Won by bid · $250.00');
+    rows = [own];
+  });
 });

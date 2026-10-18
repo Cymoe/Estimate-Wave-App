@@ -11,6 +11,7 @@ import { LeadsCalendar } from '../components/leads/LeadsCalendar';
 import { AppointmentField } from '../components/leads/AppointmentField';
 import { LeadDrawer } from '../components/leads/LeadDrawer';
 import { WalletBar } from '../components/market/WalletBar';
+import { leadOrigin } from '../components/market/wallet';
 import { STATUSES, type Lead, type LeadStatus, type Trade } from '../components/leads/leadTypes';
 import { appointmentDay, formatAppointmentShort, toLocalInput } from '../utils/appointments';
 
@@ -454,6 +455,18 @@ const LeadsPage: React.FC = () => {
                               )}
                             </div>
                             <div className="flex items-center gap-1 flex-shrink-0">
+                              {leadOrigin(lead) && (
+                                <span
+                                  className={`text-[10px] uppercase tracking-wide px-1 border ${
+                                    lead.wonVia === 'bid'
+                                      ? 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
+                                      : 'text-[#9cc3ea] border-[#336699]/50 bg-[#336699]/10'
+                                  }`}
+                                  title="This lead came from FieldQuote"
+                                >
+                                  {leadOrigin(lead)}
+                                </span>
+                              )}
                               {lead.isSample && (
                                 <span className="text-[10px] uppercase tracking-wide text-gray-500 border border-[#333333] px-1">Sample</span>
                               )}

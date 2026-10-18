@@ -122,6 +122,7 @@ export async function awardLead(
       await sellLead(ctx, bid.createdBy, leadId, bid.organizationId, {
         priceCents: bid.amountCents,
         bidId,
+        via: "bid",
       });
       await ctx.db.patch(bidId, { status: "filled", resolvedAt: now });
     }
@@ -176,6 +177,7 @@ export async function closeLegacyRound(
     await sellLead(ctx, bid.createdBy, leadId, bid.organizationId, {
       priceCents: bid.maxCents,
       bidId: bid._id,
+      via: "bid",
     });
     await ctx.db.patch(bid._id, { status: "filled", resolvedAt: now });
     return;

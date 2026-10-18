@@ -23,6 +23,8 @@ export interface Lead {
   marketplaceLeadId?: string;
   pricePaidCents?: number;
   assignedAt?: string;
+  /** How it got here: a standing bid won it, a buy order filled, bought in the Marketplace, or sent by FieldQuote. */
+  wonVia?: 'bid' | 'order' | 'buy' | 'sent';
   creditRequest?: { reason: string; note?: string; requestedAt: string; status: 'pending' | 'approved' | 'denied' };
 }
 

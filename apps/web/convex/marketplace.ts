@@ -233,6 +233,7 @@ export const assign = mutation({
     if (lead === null) fail("NOT_FOUND", "Lead not found");
     return await sellLead(ctx, user._id, leadId, organizationId, {
       priceCents: await leadPriceCents(ctx, lead),
+      via: "sent",
     });
   },
 });
@@ -827,6 +828,7 @@ export const buy = mutation({
       fail("INVALID", "Someone just bought this lead");
     return await sellLead(ctx, user._id, leadId, organizationId, {
       priceCents: await leadPriceCents(ctx, lead),
+      via: "buy",
     });
   },
 });
@@ -933,6 +935,7 @@ export const fillBid = internalMutation({
     await sellLead(ctx, bid.createdBy, lead._id, bid.organizationId, {
       priceCents,
       bidId,
+      via: "order",
     });
     await ctx.db.patch(bidId, { status: "filled", resolvedAt: nowIso() });
   },
@@ -1298,7 +1301,7 @@ export const addDemoData = mutation({
         user._id,
         leadIds[leadIndex],
         companyIds[companyIndex],
-        { priceCents: await leadPriceCents(ctx, demoLead) },
+        { priceCents: await leadPriceCents(ctx, demoLead), via: "buy" },
       );
       await ctx.db.patch(orgLeadId, {
         status,

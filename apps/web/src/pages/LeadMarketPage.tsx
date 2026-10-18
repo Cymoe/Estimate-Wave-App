@@ -6,7 +6,7 @@ import { fundingAPI, industriesAPI, leadsAPI, marketplaceAPI, walletAPI } from '
 import { copyText } from '../components/estimates/estimateActions';
 import { useAuth } from '../contexts/AuthContext';
 import { STATUSES } from '../components/leads/leadTypes';
-import { CREDIT_REASON_LABELS, WalletHistory, money, suggestedBonus } from '../components/market/wallet';
+import { CREDIT_REASON_LABELS, WalletHistory, leadOrigin, money, suggestedBonus } from '../components/market/wallet';
 import { dropsToFloor, pricingFor } from '../services/auction';
 import { TEXAS_COUNTIES, countyForTown } from '../services/counties';
 
@@ -690,7 +690,7 @@ function CompanyPanel({
                       <span className="min-w-0">
                         <span className="block text-sm text-white truncate">{lead.name}</span>
                         <span className="block text-xs text-gray-500">
-                          {lead.marketplaceLeadId ? `FieldQuote lead · ${money(lead.pricePaidCents ?? 0)}` : lead.source || 'Their own lead'}
+                          {leadOrigin(lead) ?? lead.source ?? 'Their own lead'}
                         </span>
                       </span>
                       <span className={`text-xs whitespace-nowrap ${status?.color ?? 'text-gray-400'}`}>{status?.label ?? lead.status}</span>

@@ -6,17 +6,20 @@ import { fail, logActivity, nowIso } from "./access";
 import { postTransaction } from "./wallet";
 import { findCity } from "../leadCity";
 
+export type SaleVia = "bid" | "order" | "buy" | "sent";
+
 /**
  * Sells the lead to one company at `sale.priceCents`, all in one
  * transaction. A lead can only be sold once. `sale.bidId` is the bid or
- * order this sale fills, which is left for the caller to mark.
+ * order this sale fills, which is left for the caller to mark. `sale.via`
+ * records how the company got it, shown on their Leads board.
  */
 export async function sellLead(
   ctx: MutationCtx,
   userId: Id<"users">,
   leadId: Id<"marketplaceLeads">,
   organizationId: Id<"organizations">,
-  sale: { priceCents: number; bidId?: Id<"leadBids"> },
+  sale: { priceCents: number; bidId?: Id<"leadBids">; via: SaleVia },
 ) {
   const user = { _id: userId };
   {
@@ -50,6 +53,7 @@ export async function sellLead(
       marketplaceLeadId: leadId,
       pricePaidCents: priceCents,
       assignedAt: now,
+      wonVia: sale.via,
       organizationId,
       userId: user._id,
       createdAt: now,

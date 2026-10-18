@@ -974,7 +974,7 @@ describe("lead market", () => {
 
     const leads = await roofer.as.query(api.leads.list, { organizationId: roofer.organizationId });
     expect(leads).toHaveLength(1);
-    expect(leads[0]).toMatchObject({ name: "Jane Cole", source: "FieldQuote Lead", status: "new", pricePaidCents: 28500 });
+    expect(leads[0]).toMatchObject({ name: "Jane Cole", source: "FieldQuote Lead", status: "new", pricePaidCents: 28500, wonVia: "sent" });
     expect((await roofer.as.query(api.marketplace.wallet, { organizationId: roofer.organizationId })).balanceCents).toBe(1500);
     expect(await painter.as.query(api.leads.list, { organizationId: painter.organizationId })).toHaveLength(0);
     // The other company can't see the buyer's wallet.
@@ -1398,7 +1398,7 @@ describe("funding links and the lead feed", () => {
       /just bought/,
     );
     const mine = await roofer.as.query(api.leads.list, { organizationId: roofer.organizationId });
-    expect(mine[0]).toMatchObject({ name: "Jane Cole", phone: "555-0101", pricePaidCents: 28500 });
+    expect(mine[0]).toMatchObject({ name: "Jane Cole", phone: "555-0101", pricePaidCents: 28500, wonVia: "buy" });
     expect(await balance(roofer)).toBe(500000 - 28500);
     expect(await rival.as.query(api.marketplace.feed, { organizationId: rival.organizationId })).toHaveLength(0);
     void t;
@@ -1506,6 +1506,9 @@ describe("dropping prices and buy orders", () => {
       expect(await balance(roofer)).toBe(30000);
       const rivals = await rival.as.query(api.marketplace.bids, { organizationId: rival.organizationId });
       expect(rivals[0]).toMatchObject({ status: "filled", maxCents: 27000, pricePaidCents: 27000 });
+      // Their Leads board says the buy order brought it in.
+      const theirs = await rival.as.query(api.leads.list, { organizationId: rival.organizationId });
+      expect(theirs[0]).toMatchObject({ pricePaidCents: 27000, wonVia: "order" });
       const roofers = await roofer.as.query(api.marketplace.bids, { organizationId: roofer.organizationId });
       expect(roofers.map((b) => b.status).sort()).toEqual(["lost"]);
       expect(roofers[0].outcome).toMatch(/Another company/);
@@ -1607,7 +1610,7 @@ describe("standing bids and instant awards", () => {
     expect(lead).toMatchObject({ county: "Midland", status: "assigned", priceCents: 25000, assignedOrganizationId: mio.organizationId });
     expect(await balance(mio)).toBe(100000 - 25000);
     const theirs = await mio.as.query(api.leads.list, { organizationId: mio.organizationId });
-    expect(theirs[0]).toMatchObject({ name: "Patricia Nguyen", pricePaidCents: 25000, source: "FieldQuote Lead" });
+    expect(theirs[0]).toMatchObject({ name: "Patricia Nguyen", pricePaidCents: 25000, source: "FieldQuote Lead", wonVia: "bid" });
     const won = await results(mio);
     expect(won[0]).toMatchObject({ leadId: lead!._id, county: "Midland", won: true, myBidCents: 25000 });
     expect(JSON.stringify(won)).not.toMatch(/Patricia|Nguyen/);

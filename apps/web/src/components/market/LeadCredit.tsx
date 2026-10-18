@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { walletAPI } from '../../lib/api';
 import type { Lead } from '../leads/leadTypes';
-import { CREDIT_REASON_LABELS, money } from './wallet';
+import { CREDIT_REASON_LABELS, leadOrigin } from './wallet';
 
 const CREDIT_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
 
@@ -41,7 +41,7 @@ export const LeadCredit: React.FC<{ lead: Lead; onRequested: (creditRequest: Non
   return (
     <div className="mt-4 rounded border border-[#336699]/40 bg-[#336699]/10 px-3 py-2 text-sm" data-testid="lead-credit">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-[#9cc3ea]">FieldQuote lead · {money(lead.pricePaidCents ?? 0)}</span>
+        <span className="text-[#9cc3ea]">{leadOrigin(lead)}</span>
         {request ? (
           <span className={request.status === 'approved' ? 'text-emerald-300' : request.status === 'denied' ? 'text-gray-400' : 'text-amber-200'}>
             {request.status === 'approved' ? 'Credited' : request.status === 'denied' ? 'Credit declined' : 'Credit requested'}
