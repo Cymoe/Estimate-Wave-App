@@ -465,9 +465,11 @@ const LeadsPage: React.FC = () => {
                   key={key}
                   onClick={() => chooseView(key)}
                   aria-pressed={view === key}
-                  className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm ${view === key ? 'bg-[#336699] text-white' : 'text-gray-400 hover:text-white'}`}
+                  aria-label={label}
+                  title={label}
+                  className={`inline-flex items-center justify-center px-3 py-2 ${view === key ? 'bg-[#336699] text-white' : 'text-gray-400 hover:text-white'}`}
                 >
-                  <Icon className="w-4 h-4" /> {label}
+                  <Icon className="w-4 h-4" />
                 </button>
               ))}
             </div>
