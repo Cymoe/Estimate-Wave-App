@@ -192,7 +192,7 @@ describe("a company's lead balance", () => {
       assignedAt: new Date().toISOString(),
     };
     await render(<LeadCredit lead={lead} onRequested={onRequested} />);
-    expect(document.body.textContent).toContain('FieldQuote lead · $85.00');
+    expect(document.body.textContent).toContain('Won · $85.00');
     await act(async () => byText('Request credit')!.click());
     await act(async () => byText('Send request')!.click());
     await flush();
@@ -203,13 +203,6 @@ describe("a company's lead balance", () => {
     await render(<LeadCredit lead={{ ...lead, assignedAt: '2026-01-01T00:00:00Z' }} onRequested={onRequested} />);
     expect(byText('Request credit')).toBeUndefined();
 
-    // A lead a standing bid won, or a buy order filled, says so.
-    document.body.innerHTML = '';
-    await render(<LeadCredit lead={{ ...lead, wonVia: 'bid' }} onRequested={onRequested} />);
-    expect(document.body.textContent).toContain('Won by bid · $85.00');
-    document.body.innerHTML = '';
-    await render(<LeadCredit lead={{ ...lead, wonVia: 'order' }} onRequested={onRequested} />);
-    expect(document.body.textContent).toContain('Buy order · $85.00');
   });
 });
 

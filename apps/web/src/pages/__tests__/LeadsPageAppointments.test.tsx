@@ -120,7 +120,7 @@ describe('Leads board', () => {
     expect((document.body.querySelector('form input[aria-label="Name"]') as HTMLInputElement).value).toBe('Rocky Vansau');
   });
 
-  it('says how a FieldQuote lead arrived, next to the company\'s own leads', async () => {
+  it('tags a won lead, next to the company\'s own leads', async () => {
     const own = rows[0];
     rows = [
       { ...own, appointmentAt: undefined },
@@ -133,13 +133,13 @@ describe('Leads board', () => {
     await flush();
 
     const card = (who: string) => Array.from(container.querySelectorAll('[draggable]')).find((el) => el.textContent?.includes(who))!;
-    expect(card('Omar Haddad').textContent).toContain('Won by bid · $250.00');
-    expect(card('Dana Ruiz').textContent).toContain('Marketplace · $75.00');
-    expect(card('Rocky Vansau').textContent).not.toContain('·');
+    expect(card('Omar Haddad').textContent).toContain('Won');
+    expect(card('Dana Ruiz').textContent).toContain('Won');
+    expect(card('Rocky Vansau').textContent).not.toContain('Won');
 
-    // The same line heads the lead's detail.
+    // The lead's detail shows what it cost.
     act(() => click(Array.from(container.querySelectorAll('span')).find((el) => el.textContent === 'Omar Haddad')!));
-    expect(document.body.querySelector('[data-testid="lead-credit"]')?.textContent).toContain('Won by bid · $250.00');
+    expect(document.body.querySelector('[data-testid="lead-credit"]')?.textContent).toContain('Won · $250.00');
     rows = [own];
   });
 });

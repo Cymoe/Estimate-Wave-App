@@ -53,22 +53,10 @@ export function WalletHistory({ transactions }: { transactions: any[] }) {
 }
 
 
-/** How a FieldQuote lead reached the company, for the Leads board and lead detail. */
-export const LEAD_ORIGIN_LABELS: Record<NonNullable<LeadOrigin['wonVia']>, string> = {
-  bid: 'Won by bid',
-  order: 'Buy order',
-  buy: 'Marketplace',
-  sent: 'Sent by FieldQuote',
-};
+/** A lead that came in through FieldQuote rather than one the company added itself. */
+export const isWonLead = (lead: { marketplaceLeadId?: string }) => Boolean(lead.marketplaceLeadId);
 
-export type LeadOrigin = { marketplaceLeadId?: string; wonVia?: 'bid' | 'order' | 'buy' | 'sent'; pricePaidCents?: number };
-
-/**
- * "Won by bid · $250" for a lead a standing bid won, "Marketplace · $75" for
- * one bought by hand, and so on. Nothing for the company's own leads.
- */
-export function leadOrigin(lead: LeadOrigin): string | null {
-  if (!lead.marketplaceLeadId) return null;
-  const how = lead.wonVia ? LEAD_ORIGIN_LABELS[lead.wonVia] : 'FieldQuote lead';
-  return `${how} · ${money(lead.pricePaidCents ?? 0)}`;
+/** "Won · $250.00" for a lead that came in through FieldQuote; nothing for the company's own leads. */
+export function leadOrigin(lead: { marketplaceLeadId?: string; pricePaidCents?: number }): string | null {
+  return isWonLead(lead) ? `Won · ${money(lead.pricePaidCents ?? 0)}` : null;
 }
