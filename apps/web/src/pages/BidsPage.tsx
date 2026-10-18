@@ -474,23 +474,32 @@ function AddBidDialog({
         {step === 2 && (
           <div>
             <p className="text-sm text-white mb-2">What kind of work?</p>
-            <div className="flex flex-wrap gap-1.5 max-h-56 overflow-y-auto" role="group" aria-label="Service types">
-              {ordered.map((t) => {
-                const on = services.includes(t.id);
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => toggleService(t.id)}
-                    className={`px-3 py-1.5 rounded-full text-sm border ${on ? 'bg-[#336699]/20 border-[#336699] text-white' : 'border-[#333] text-gray-300 hover:bg-[#1E1E1E]'}`}
-                  >
+            <select
+              value=""
+              onChange={(e) => e.target.value && toggleService(e.target.value)}
+              aria-label="Add a service"
+              className={`${input} w-full`}
+            >
+              <option value="">{services.length === 0 ? 'Choose a service…' : 'Add another service…'}</option>
+              {ordered
+                .filter((t) => !services.includes(t.id))
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
                     {t.name}
+                  </option>
+                ))}
+            </select>
+            <ul className="flex flex-wrap gap-1.5 mt-3 min-h-[2.25rem] empty:hidden" aria-label="Chosen services">
+              {services.map((id) => (
+                <li key={id} className="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-full bg-[#336699]/20 border border-[#336699]/50 text-sm text-white">
+                  {trades.find((t) => t.id === id)?.name ?? id}
+                  <button type="button" onClick={() => toggleService(id)} aria-label={`Remove ${trades.find((t) => t.id === id)?.name ?? id}`} className="p-0.5 text-gray-400 hover:text-white">
+                    <X className="w-3.5 h-3.5" />
                   </button>
-                );
-              })}
-            </div>
-            <p className="text-xs text-gray-500 mt-2">Pick every kind of work you want leads for. One price covers all of them.</p>
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-gray-500 mt-2">Add every kind of work you want leads for. One price covers all of them.</p>
             <div className="flex justify-between mt-4">
               <button type="button" onClick={() => setStep(1)} className={secondary}>
                 Back

@@ -81,11 +81,16 @@ describe('Bids', () => {
     expect(dialog()!.querySelector('[aria-label="Chosen counties"]')?.textContent).toBe('Midland CountyEctor County');
     expect(input('Search counties').value).toBe('');
     await act(async () => byText('Next')!.click());
-    // Their own trade starts on and comes first; several can be on at once.
-    const chips = () => Array.from(dialog()!.querySelectorAll('[aria-label="Service types"] button')) as HTMLButtonElement[];
-    expect(chips().map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([['Landscaping', 'true'], ['Roofing', 'false']]);
-    await act(async () => chips()[1].click());
-    expect(chips().map((b) => b.getAttribute('aria-pressed'))).toEqual(['true', 'true']);
+    // Their own trade is already chosen; more are added from the dropdown.
+    const chosen = () => Array.from(dialog()!.querySelectorAll('[aria-label="Chosen services"] li')).map((li) => li.textContent);
+    expect(chosen()).toEqual(['Landscaping']);
+    const picker = dialog()!.querySelector('select[aria-label="Add a service"]') as HTMLSelectElement;
+    expect(Array.from(picker.options).map((o) => o.textContent)).toEqual(['Add another service…', 'Roofing']);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(picker, 'roofing');
+      picker.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(chosen()).toEqual(['Landscaping', 'Roofing']);
     await act(async () => byText('Next')!.click());
     expect(input('Bid amount').value).toBe('200');
     expect(dialog()!.textContent).toContain('covers about 5 leads');
