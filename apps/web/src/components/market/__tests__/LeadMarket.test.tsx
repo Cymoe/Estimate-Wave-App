@@ -30,7 +30,7 @@ jest.mock('../../../lib/api', () => ({
       sold: soldLeads,
     }),
     companies: async () => demoCompanies
-      ? [{ id: 'd1', name: 'Permian Roofing & Exteriors', leadTrades: ['roofing'], balanceCents: 101500, leads30d: 1, spent30dCents: 8500, leadsTotal: 1, wonCents: 1850000, wonCount: 1, pendingCredits: 0, isSample: true }]
+      ? [{ id: 'd1', name: 'Permian Roofing & Exteriors', leadTrades: ['roofing'], balanceCents: 101500, leads30d: 1, spent30dCents: 8500, leadsTotal: 1, wonCents: 1850000, wonCount: 1, pendingCredits: 0, isSample: true, sampleBids: demoBids ? 3 : 0 }]
       : [
       { id: 'o1', name: 'Broke Roofing', leadTrades: ['roofing'], balanceCents: 1000, leads30d: 0, spent30dCents: 0, leadsTotal: 0, wonCents: 0, wonCount: 0, pendingCredits: 0, sampleBids: demoBids ? 3 : 0 },
       { id: 'o2', name: 'Peak Roofing', owners: ['pat@peak.example'], leadTrades: ['roofing'], balanceCents: 50000, leads30d: 2, spent30dCents: 17000, leadsTotal: 2, wonCents: 1200000, wonCount: 1, pendingCredits: 0 },
@@ -259,6 +259,16 @@ describe('loading the balance and buying leads', () => {
 });
 
 describe('standing bids in Admin', () => {
+  it('offers to seed demo bids on the Companies tab even while demo companies are around', async () => {
+    demoCompanies = true;
+    await render(<LeadMarketPage />);
+    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((b) => b.textContent?.startsWith('Companies'))!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(document.body.textContent).toContain('No bids yet. Seed every company');
+    await act(async () => byText('Add demo bids')!.click());
+    await flush();
+    expect(addDemoBids).toHaveBeenCalled();
+  });
+
   it('seeds demo bids for every company from the inbox, then offers to remove them', async () => {
     await render(<LeadMarketPage />);
     await act(async () => byText('Add demo bids')!.click());

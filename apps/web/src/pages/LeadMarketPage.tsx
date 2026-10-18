@@ -885,7 +885,8 @@ const LeadMarketPage: React.FC = () => {
   }, []);
 
   const hasDemoCompanies = companies.some((c) => c.isSample);
-  const hasDemo = hasDemoCompanies || companies.some((c) => (c.sampleBids ?? 0) > 0);
+  const hasDemoBids = companies.some((c) => (c.sampleBids ?? 0) > 0);
+  const hasDemo = hasDemoCompanies || hasDemoBids;
   const runDemo = async (action: () => Promise<unknown>, message: string) => {
     setDemoBusy(true);
     try {
@@ -906,6 +907,17 @@ const LeadMarketPage: React.FC = () => {
       const r = await marketplaceAPI.addDemoBids();
       return `Demo bids added: ${r.standingBids} bids across ${r.companies} companies, ${r.leads} leads, ${r.sold} awarded`;
     }, 'Demo bids added');
+  const demoBidsButton = !hasDemoBids && (
+    <button
+      type="button"
+      disabled={demoBusy}
+      onClick={addDemoBids}
+      title="Gives every company demo funds and standing bids, then lists leads that get awarded on the spot. “Remove demo data” takes it all back."
+      className={secondary}
+    >
+      {demoBusy ? 'Adding…' : 'Add demo bids'}
+    </button>
+  );
   const sampleButton = (
     <>
       <button
@@ -917,17 +929,7 @@ const LeadMarketPage: React.FC = () => {
       >
         {demoBusy ? 'Adding…' : 'Add 20 sample leads'}
       </button>
-      {!hasDemo && (
-        <button
-          type="button"
-          disabled={demoBusy}
-          onClick={addDemoBids}
-          title="Gives every company demo funds and standing bids, then lists leads that get awarded on the spot. “Remove demo data” takes it all back."
-          className={secondary}
-        >
-          {demoBusy ? 'Adding…' : 'Add demo bids'}
-        </button>
-      )}
+      {demoBidsButton}
     </>
   );
 
@@ -1144,6 +1146,13 @@ const LeadMarketPage: React.FC = () => {
             <p className="text-sm text-gray-400">No companies yet. Add one with the yellow + button.</p>
           </div>
         ) : (
+          <div className="space-y-3">
+          {demoBidsButton && (
+            <div className="flex items-center justify-between gap-3 px-4 py-3 rounded border border-[#2A2A2A] text-sm text-gray-400">
+              <span>No bids yet. Seed every company with demo funds, standing bids and awarded leads to see the Bids pages filled in.</span>
+              {demoBidsButton}
+            </div>
+          )}
           <div className="border border-[#2A2A2A] rounded overflow-x-auto">
             <table className="w-full text-sm" aria-label="Companies">
               <thead className="text-xs text-gray-500 uppercase tracking-wide">
@@ -1179,6 +1188,7 @@ const LeadMarketPage: React.FC = () => {
                 ))}
               </tbody>
             </table>
+          </div>
           </div>
         )
       ) : (
