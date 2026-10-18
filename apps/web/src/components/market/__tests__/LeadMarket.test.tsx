@@ -12,8 +12,7 @@ let emptyMarket = false;
 let pendingPayments: unknown[] = [];
 const confirmFunding = jest.fn(async (_id: string) => { pendingPayments = []; });
 let feedLeads: unknown[] = [];
-let biddingLeads: unknown[] = [];
-const setRoundMinutes = jest.fn(async (_m: number) => undefined);
+let soldLeads: unknown[] = [];
 const buyLead = jest.fn(async () => ({ orgLeadId: 'ol9' }));
 let demoCompanies = false;
 const addDemoData = jest.fn(async () => { demoCompanies = true; });
@@ -25,9 +24,8 @@ const setCompanyOwner = jest.fn(async (_id: string, _email: string) => 'invited'
 jest.mock('../../../lib/api', () => ({
   marketplaceAPI: {
     inbox: async () => ({
-      bidding: biddingLeads,
       available: emptyMarket ? [] : [{ id: 'm1', name: 'Jane Cole', jobType: 'roofing', city: 'Midland', status: 'available', price: 8500, createdAt: '2026-10-16' }],
-      sold: [],
+      sold: soldLeads,
     }),
     companies: async () => demoCompanies
       ? [{ id: 'd1', name: 'Permian Roofing & Exteriors', leadTrades: ['roofing'], balanceCents: 101500, leads30d: 1, spent30dCents: 8500, leadsTotal: 1, wonCents: 1850000, wonCount: 1, pendingCredits: 0, isSample: true }]
@@ -57,10 +55,6 @@ jest.mock('../../../lib/api', () => ({
     feed: async () => feedLeads,
     buy: (...args: unknown[]) => buyLead(...(args as [])),
     requestCredit: (...args: unknown[]) => requestCredit(...(args as [])),
-  },
-  bidsAPI: {
-    settings: async () => ({ roundMinutes: 60, defaultRoundMinutes: 60 }),
-    setRoundMinutes: (m: number) => setRoundMinutes(m),
   },
   industriesAPI: { list: async () => [{ id: 'roofing', name: 'Roofing' }, { id: 'painting', name: 'Painting' }] },
   leadsAPI: { list: async () => [] },
@@ -98,7 +92,7 @@ afterEach(() => {
   demoCompanies = false;
   pendingPayments = [];
   feedLeads = [];
-  biddingLeads = [];
+  soldLeads = [];
 });
 
 describe('Lead Market', () => {
@@ -252,21 +246,11 @@ describe('loading the balance and buying leads', () => {
   });
 });
 
-describe('bidding rounds in the Admin inbox', () => {
-  it('lists leads in a round above the Marketplace ones, with who bid what, and keeps Delete off until it closes', async () => {
-    biddingLeads = [{
-      id: 'm2', name: 'Ray Ortiz', jobType: 'painting', city: 'Midland', county: 'Midland', status: 'bidding', price: 26000,
-      round: { opensAt: new Date().toISOString(), closesAt: new Date(Date.now() + 40 * 60000).toISOString() },
-      bids: [{ companyName: 'Peak Roofing', amountCents: 26000 }, { companyName: 'Broke Roofing', amountCents: 25000 }],
-      createdAt: '2026-10-18',
-    }];
+describe('standing bids in Admin', () => {
+  it('shows which sold leads went to a standing bid', async () => {
+    soldLeads = [{ id: 'm2', name: 'Ray Ortiz', jobType: 'painting', city: 'Odessa', county: 'Ector', status: 'assigned', price: 26000, priceCents: 26000, wonBy: 'bid', companyName: 'Peak Roofing', assignedAt: '2026-10-18T12:00:00Z', createdAt: '2026-10-18' }];
     await render(<LeadMarketPage />);
-    const bidding = document.body.querySelector('[aria-label="Bidding"]')!;
-    expect(bidding.textContent).toContain('Ray Ortiz');
-    expect(bidding.textContent).toContain('Painting · Midland County · Midland · 2 bids · highest $260.00 · closes in 40m');
-    expect(bidding.textContent).toContain('Peak Roofing $260.00 · Broke Roofing $250.00');
-    expect((bidding.querySelector('button[aria-label="Delete Ray Ortiz"]') as HTMLButtonElement).disabled).toBe(true);
-    expect(document.body.textContent).toContain('1 in bidding · 1 listed');
+    expect(document.body.textContent).toContain('Painting · to Peak Roofing · won by bid');
   });
 
   it('fills the county in from a town we know when adding a lead', async () => {
@@ -277,17 +261,5 @@ describe('bidding rounds in the Admin inbox', () => {
     const county = inputs.find((i) => i.closest('label')?.textContent?.startsWith('County'))!;
     await act(async () => type(city, 'Odessa'));
     expect(county.value).toBe('Ector');
-  });
-
-  it('lets the owner set how long a round lasts', async () => {
-    await render(<LeadMarketPage />);
-    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((b) => b.textContent === 'Prices')!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-    await flush();
-    const minutes = document.body.querySelector('input[aria-label="Round length in minutes"]') as HTMLInputElement;
-    expect(minutes.value).toBe('60');
-    await act(async () => type(minutes, '30'));
-    await act(async () => minutes.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
-    await flush();
-    expect(setRoundMinutes).toHaveBeenCalledWith(30);
   });
 });

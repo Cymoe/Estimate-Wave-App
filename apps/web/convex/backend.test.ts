@@ -1486,9 +1486,7 @@ describe("dropping prices and buy orders", () => {
   });
 });
 
-describe("standing bids and bidding rounds", () => {
-  const HOUR = 3_600_000;
-
+describe("standing bids and instant awards", () => {
   test("Texas counties and the towns we know", () => {
     expect(TEXAS_COUNTIES).toHaveLength(254);
     expect(new Set(TEXAS_COUNTIES).size).toBe(254);
@@ -1500,8 +1498,6 @@ describe("standing bids and bidding rounds", () => {
   });
 
   async function market() {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-10-18T12:00:00.000Z"));
     const t = setup();
     const admin = await signUp(t, "admin@fieldquote.example", { role: "super_admin" });
     const mio = await signUp(t, "mio@example.com");
@@ -1514,160 +1510,118 @@ describe("standing bids and bidding rounds", () => {
     (await who.as.query(api.marketplace.wallet, { organizationId: who.organizationId })).balanceCents;
   const standing = (who: { as: any; organizationId: any }, county: string, jobType: string, amount: number) =>
     who.as.mutation(api.bids.setStanding, { organizationId: who.organizationId, county, jobType, amount });
+  const results = (who: { as: any; organizationId: any }) => who.as.query(api.bids.results, { organizationId: who.organizationId });
 
   test("a standing bid needs a real county, a trade, $200 or more and the balance to cover it", async () => {
-    try {
-      const { t, admin, mio, soco, broke } = await market();
-      await expect(standing(mio, "Narnia", "landscaping", 250)).rejects.toThrow(/isn't a Texas county/);
-      await expect(standing(mio, "Midland", "", 250)).rejects.toThrow(/service type/);
-      await expect(standing(mio, "Midland", "landscaping", 150)).rejects.toThrow(/start at \$200/);
-      await expect(standing(broke, "Midland", "landscaping", 250)).rejects.toThrow(/Add funds/);
-      await expect(soco.as.mutation(api.bids.setStanding, { organizationId: mio.organizationId, county: "Midland", jobType: "landscaping", amount: 250 })).rejects.toThrow(/access/);
+    const { admin, mio, soco, broke } = await market();
+    await expect(standing(mio, "Narnia", "landscaping", 250)).rejects.toThrow(/isn't a Texas county/);
+    await expect(standing(mio, "Midland", "", 250)).rejects.toThrow(/service type/);
+    await expect(standing(mio, "Midland", "landscaping", 150)).rejects.toThrow(/start at \$200/);
+    await expect(standing(broke, "Midland", "landscaping", 250)).rejects.toThrow(/Add funds/);
+    await expect(soco.as.mutation(api.bids.setStanding, { organizationId: mio.organizationId, county: "Midland", jobType: "landscaping", amount: 250 })).rejects.toThrow(/access/);
 
-      await standing(mio, "midland county", "landscaping", 250);
-      await standing(mio, "Midland", "landscaping", 275); // replaces, doesn't duplicate
-      await standing(mio, "Ector", "landscaping", 225);
-      const mine = await mio.as.query(api.bids.listStanding, { organizationId: mio.organizationId });
-      expect(mine.map((b) => [b.county, b.jobType, b.amountCents])).toEqual([
-        ["Ector", "landscaping", 22500],
-        ["Midland", "landscaping", 27500],
-      ]);
-      await expect(soco.as.mutation(api.bids.removeStanding, { id: mine[0].id })).rejects.toThrow(/access/);
-      await mio.as.mutation(api.bids.removeStanding, { id: mine[0].id });
-      expect(await mio.as.query(api.bids.listStanding, { organizationId: mio.organizationId })).toHaveLength(1);
-      const overview = await admin.as.query(api.marketplace.companiesOverview, {});
-      expect(overview.find((c) => c.id === mio.organizationId)?.standingBids).toEqual([{ county: "Midland", jobType: "landscaping", amountCents: 27500 }]);
-      void t;
-    } finally {
-      vi.useRealTimers();
-    }
+    await standing(mio, "midland county", "landscaping", 250);
+    await standing(mio, "Midland", "landscaping", 275); // replaces, doesn't duplicate
+    await standing(mio, "Ector", "landscaping", 225);
+    const mine = await mio.as.query(api.bids.listStanding, { organizationId: mio.organizationId });
+    expect(mine.map((b) => [b.county, b.jobType, b.amountCents, b.funded, b.leading, b.contested])).toEqual([
+      ["Ector", "landscaping", 22500, true, true, false],
+      ["Midland", "landscaping", 27500, true, true, false],
+    ]);
+    await expect(soco.as.mutation(api.bids.removeStanding, { id: mine[0].id })).rejects.toThrow(/access/);
+    await mio.as.mutation(api.bids.removeStanding, { id: mine[0].id });
+    expect(await mio.as.query(api.bids.listStanding, { organizationId: mio.organizationId })).toHaveLength(1);
+    const overview = await admin.as.query(api.marketplace.companiesOverview, {});
+    expect(overview.find((c) => c.id === mio.organizationId)?.standingBids).toEqual([{ county: "Midland", jobType: "landscaping", amountCents: 27500 }]);
   });
 
-  test("a lead with standing bids opens a round; one without goes to the Marketplace", async () => {
-    try {
-      const { t, admin, mio, soco } = await market();
-      await standing(mio, "Midland", "landscaping", 250);
-      // The town gives the county when the lead has none.
-      const lead = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Patricia Nguyen", city: "Midland", jobType: "landscaping", notes: "Sod" } });
-      expect(lead).toMatchObject({ county: "Midland", status: "bidding", round: { opensAt: "2026-10-18T12:00:00.000Z", closesAt: "2026-10-18T13:00:00.000Z" } });
-      const roofing = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Rachel Dunn", city: "Midland", jobType: "roofing" } });
-      expect(roofing!.status).toBe("available");
-      const elsewhere = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Gloria Tran", county: "Martin", jobType: "landscaping" } });
-      expect(elsewhere!.status).toBe("available");
+  test("a lead with a standing bid is the company's the moment it's listed; one without goes to the Marketplace", async () => {
+    const { admin, mio, soco } = await market();
+    await standing(mio, "Midland", "landscaping", 250);
+    // The town gives the county when the lead has none.
+    const lead = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Patricia Nguyen", city: "Midland", jobType: "landscaping", notes: "Sod" } });
+    expect(lead).toMatchObject({ county: "Midland", status: "assigned", priceCents: 25000, assignedOrganizationId: mio.organizationId });
+    expect(await balance(mio)).toBe(100000 - 25000);
+    const theirs = await mio.as.query(api.leads.list, { organizationId: mio.organizationId });
+    expect(theirs[0]).toMatchObject({ name: "Patricia Nguyen", pricePaidCents: 25000, source: "FieldQuote Lead" });
+    const won = await results(mio);
+    expect(won[0]).toMatchObject({ leadId: lead!._id, county: "Midland", won: true, myBidCents: 25000 });
+    expect(JSON.stringify(won)).not.toMatch(/Patricia|Nguyen/);
+    expect(await results(soco)).toHaveLength(0);
 
-      // Bidding leads are out of the Marketplace and in the admin's Bidding list.
-      const feed = await mio.as.query(api.marketplace.feed, { organizationId: mio.organizationId });
-      expect(feed.map((l) => l.id).sort()).toEqual([roofing!._id, elsewhere!._id].sort());
-      const inbox = await admin.as.query(api.marketplace.listInbox, {});
-      expect(inbox.bidding).toHaveLength(1);
-      expect(inbox.bidding[0]).toMatchObject({ _id: lead!._id, price: 25000, bids: [{ amountCents: 25000 }] });
-      expect(inbox.available).toHaveLength(2);
-      await expect(admin.as.mutation(api.marketplace.removeLead, { id: lead!._id })).rejects.toThrow(/bidding round/);
+    const roofing = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Rachel Dunn", city: "Midland", jobType: "roofing" } });
+    expect(roofing!.status).toBe("available");
+    const elsewhere = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Gloria Tran", county: "Martin", jobType: "landscaping" } });
+    expect(elsewhere!.status).toBe("available");
+    const feed = await mio.as.query(api.marketplace.feed, { organizationId: mio.organizationId });
+    expect(feed.map((l) => l.id).sort()).toEqual([roofing!._id, elsewhere!._id].sort());
 
-      // Mio Homes is in the round automatically and is the highest; Soco isn't in it.
-      const rounds = await mio.as.query(api.bids.rounds, { organizationId: mio.organizationId });
-      expect(rounds.open).toHaveLength(1);
-      expect(rounds.open[0]).toMatchObject({ leadId: lead!._id, county: "Midland", myBidCents: 25000, highest: true, bidders: 1, closesAt: "2026-10-18T13:00:00.000Z" });
-      expect(JSON.stringify(rounds)).not.toMatch(/Patricia|Nguyen/);
-      expect((await soco.as.query(api.bids.rounds, { organizationId: soco.organizationId })).open).toHaveLength(0);
-      expect((await mio.as.query(api.marketplace.wallet, { organizationId: mio.organizationId })).openRounds).toBe(1);
-
-      // The round closes: Mio Homes wins at its bid and the lead is theirs.
-      vi.advanceTimersByTime(HOUR);
-      await t.finishInProgressScheduledFunctions();
-      expect(await balance(mio)).toBe(100000 - 25000);
-      const theirs = await mio.as.query(api.leads.list, { organizationId: mio.organizationId });
-      expect(theirs[0]).toMatchObject({ name: "Patricia Nguyen", pricePaidCents: 25000, source: "FieldQuote Lead" });
-      const after = await mio.as.query(api.bids.rounds, { organizationId: mio.organizationId });
-      expect(after.open).toHaveLength(0);
-      expect(after.results[0]).toMatchObject({ leadId: lead!._id, won: true, myBidCents: 25000 });
-    } finally {
-      vi.useRealTimers();
-    }
+    // The admin sees it sold by bid; the buy-order views ignore award rows.
+    const inbox = await admin.as.query(api.marketplace.listInbox, {});
+    expect(inbox.available).toHaveLength(2);
+    expect(inbox.sold[0]).toMatchObject({ _id: lead!._id, wonBy: "bid", companyName: expect.any(String) });
+    expect(await mio.as.query(api.marketplace.bids, { organizationId: mio.organizationId })).toHaveLength(0);
+    expect((await mio.as.query(api.marketplace.wallet, { organizationId: mio.organizationId })).standingBids).toBe(1);
   });
 
-  test("the highest bid that can pay wins; raises must beat your own bid; losers see why", async () => {
-    try {
-      const { t, admin, mio, soco, broke } = await market();
-      await standing(mio, "Ector", "painting", 250);
-      await standing(soco, "Ector", "painting", 250);
-      // Broke had money when it bid, then spent it.
-      await admin.as.mutation(api.marketplace.recordTopUp, { organizationId: broke.organizationId, amount: 400 });
-      await standing(broke, "Ector", "painting", 400);
-      await admin.as.mutation(api.marketplace.recordTopUp, { organizationId: broke.organizationId, amount: 1 });
-      const other = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Spend", city: "Midland", jobType: "roofing" } });
-      await broke.as.mutation(api.marketplace.buy, { leadId: other!._id, organizationId: broke.organizationId });
-      expect(await balance(broke)).toBe(40100 - 20000);
+  test("the highest bid that can pay wins, ties go to the earlier bid, and losers see why", async () => {
+    const { admin, mio, soco, broke } = await market();
+    await standing(mio, "Ector", "painting", 250);
+    await standing(soco, "Ector", "painting", 250);
+    // Broke had money when it bid, then spent it.
+    await admin.as.mutation(api.marketplace.recordTopUp, { organizationId: broke.organizationId, amount: 400 });
+    await standing(broke, "Ector", "painting", 400);
+    await admin.as.mutation(api.marketplace.recordTopUp, { organizationId: broke.organizationId, amount: 1 });
+    const other = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Spend", city: "Midland", jobType: "roofing" } });
+    await broke.as.mutation(api.marketplace.buy, { leadId: other!._id, organizationId: broke.organizationId });
+    expect(await balance(broke)).toBe(40100 - 20000);
 
-      const lead = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Carlos Benavides", city: "Odessa", jobType: "painting" } });
-      expect(lead!.status).toBe("bidding");
-      // Same amount: Mio bid first, so Mio leads the tie. Broke's $400 is highest on paper.
-      let mine = await mio.as.query(api.bids.rounds, { organizationId: mio.organizationId });
-      expect(mine.open[0]).toMatchObject({ highest: false, bidders: 3 });
+    // Broke's $400 is highest on paper but unfunded, so it doesn't count; Mio and Soco tie at $250 and Mio bid first.
+    const mine = await mio.as.query(api.bids.listStanding, { organizationId: mio.organizationId });
+    expect(mine[0]).toMatchObject({ funded: true, leading: true, contested: true });
+    const theirs = await soco.as.query(api.bids.listStanding, { organizationId: soco.organizationId });
+    expect(theirs[0]).toMatchObject({ funded: true, leading: false, contested: true });
+    expect((await broke.as.query(api.bids.listStanding, { organizationId: broke.organizationId }))[0]).toMatchObject({ funded: false, leading: false });
 
-      const raise = (who: any, amount: number) => who.as.mutation(api.bids.raise, { leadId: lead!._id, organizationId: who.organizationId, amount });
-      await expect(raise(soco, 255)).rejects.toThrow(/at least \$260/);
-      await expect(raise(soco, 5000)).rejects.toThrow(/Add funds/);
-      await expect(admin.as.mutation(api.bids.raise, { leadId: lead!._id, organizationId: admin.organizationId, amount: 300 })).rejects.toThrow(/not in this round/);
-      await raise(soco, 300);
-      mine = await mio.as.query(api.bids.rounds, { organizationId: mio.organizationId });
-      expect(mine.open[0].highest).toBe(false);
-      await raise(mio, 300); // ties Soco at $300, but Soco raised to it first... ties go by who entered the round first: Mio
-      expect((await mio.as.query(api.bids.rounds, { organizationId: mio.organizationId })).open[0].highest).toBe(false);
+    const lead = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Carlos Benavides", city: "Odessa", jobType: "painting" } });
+    expect(lead).toMatchObject({ status: "assigned", priceCents: 25000, assignedOrganizationId: mio.organizationId });
+    expect(await balance(mio)).toBe(75000);
+    expect(await balance(soco)).toBe(100000);
+    expect((await results(soco))[0]).toMatchObject({ won: false, outcome: "Outbid: a higher bid won it" });
+    expect((await results(broke))[0].outcome).toMatch(/Balance too low: \$400\.00 needed, \$201\.00 available/);
 
-      vi.advanceTimersByTime(HOUR);
-      await t.finishInProgressScheduledFunctions();
-      // Broke can't pay $400, so it's skipped; Soco's $300 is next... but Mio entered first at $300.
-      const sold = await t.run(async (ctx) => ctx.db.get(lead!._id));
-      expect(sold).toMatchObject({ status: "assigned", priceCents: 30000 });
-      const winner = sold!.assignedOrganizationId;
-      expect([mio.organizationId, soco.organizationId]).toContain(winner);
-      const loser = winner === mio.organizationId ? soco : mio;
-      const lost = await loser.as.query(api.bids.rounds, { organizationId: loser.organizationId });
-      expect(lost.results[0]).toMatchObject({ won: false, outcome: "Sold to another company" });
-      const brokeResults = await broke.as.query(api.bids.rounds, { organizationId: broke.organizationId });
-      expect(brokeResults.results[0].outcome).toMatch(/Balance too low/);
-    } finally {
-      vi.useRealTimers();
-    }
+    // Soco raises its standing bid and now leads; the next lead is Soco's.
+    await standing(soco, "Ector", "painting", 300);
+    expect((await soco.as.query(api.bids.listStanding, { organizationId: soco.organizationId }))[0].leading).toBe(true);
+    expect((await mio.as.query(api.bids.listStanding, { organizationId: mio.organizationId }))[0].leading).toBe(false);
+    const next = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Dana Ruiz", city: "Odessa", jobType: "painting" } });
+    expect(next).toMatchObject({ status: "assigned", priceCents: 30000, assignedOrganizationId: soco.organizationId });
   });
 
-  test("a round nobody can pay for sends the lead to the Marketplace; the admin can sell early; the round length is a setting", async () => {
-    try {
-      const { t, admin, mio, soco } = await market();
-      await expect(admin.as.mutation(api.bids.setRoundMinutes, { minutes: 2 })).rejects.toThrow(/between 5 minutes/);
-      await expect(mio.as.mutation(api.bids.setRoundMinutes, { minutes: 30 })).rejects.toThrow(/admins/);
-      await admin.as.mutation(api.bids.setRoundMinutes, { minutes: 30 });
-      expect(await mio.as.query(api.bids.settings, {})).toMatchObject({ roundMinutes: 30 });
+  test("a lead nobody can pay for goes to the Marketplace, and a legacy round still closes", async () => {
+    const { t, admin, mio, soco } = await market();
+    await standing(mio, "Howard", "landscaping", 900);
+    // Spend down so the bid can't be paid when the lead arrives.
+    const filler = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Filler", city: "Midland", jobType: "roofing" } });
+    await mio.as.mutation(api.marketplace.buy, { leadId: filler!._id, organizationId: mio.organizationId });
+    const lead = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Renee Oliver", city: "Big Spring", jobType: "landscaping" } });
+    expect(lead).toMatchObject({ county: "Howard", status: "available" });
+    expect((await soco.as.query(api.marketplace.feed, { organizationId: soco.organizationId })).map((l) => l.id)).toContain(lead!._id);
+    expect((await results(mio))[0]).toMatchObject({ won: false, outcome: expect.stringMatching(/Balance too low/) });
 
-      await standing(mio, "Howard", "landscaping", 900);
-      // Spend down so the bid can't be paid when the round closes.
-      const filler = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Filler", city: "Midland", jobType: "roofing" } });
-      await mio.as.mutation(api.marketplace.buy, { leadId: filler!._id, organizationId: mio.organizationId });
-      const lead = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Renee Oliver", city: "Big Spring", jobType: "landscaping" } });
-      expect(lead).toMatchObject({ county: "Howard", status: "bidding", round: { closesAt: "2026-10-18T12:30:00.000Z" } });
-      vi.advanceTimersByTime(30 * 60_000);
-      await t.finishInProgressScheduledFunctions();
-      const relisted = await t.run(async (ctx) => ctx.db.get(lead!._id));
-      expect(relisted).toMatchObject({ status: "available", auction: { listedAt: "2026-10-18T12:30:00.000Z" } });
-      expect(relisted!.round).toBeUndefined();
-      expect((await soco.as.query(api.marketplace.feed, { organizationId: soco.organizationId })).map((l) => l.id)).toContain(lead!._id);
-
-      // The admin can send a bidding lead by hand; the round's bids close.
-      await standing(soco, "Howard", "landscaping", 300);
-      const second = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Hector", county: "Howard", jobType: "landscaping" } });
-      expect(second!.status).toBe("bidding");
-      await admin.as.mutation(api.marketplace.assign, { leadId: second!._id, organizationId: mio.organizationId });
-      expect(await t.run(async (ctx) => (await ctx.db.get(second!._id))!.status)).toBe("assigned");
-      const socoRounds = await soco.as.query(api.bids.rounds, { organizationId: soco.organizationId });
-      expect(socoRounds.open).toHaveLength(0);
-      expect(socoRounds.results[0]).toMatchObject({ won: false, outcome: "Sold to another company" });
-      // The scheduled close finds nothing to do.
-      vi.advanceTimersByTime(30 * 60_000);
-      await t.finishInProgressScheduledFunctions();
-      expect(await t.run(async (ctx) => (await ctx.db.get(second!._id))!.status)).toBe("assigned");
-    } finally {
-      vi.useRealTimers();
-    }
+    // A round scheduled before awards became instant: the highest payable bid wins when it fires.
+    const legacy = await t.run(async (ctx) => {
+      const lead = (await ctx.db.query("marketplaceLeads").filter((q) => q.eq(q.field("name"), "Renee Oliver")).first())!;
+      await ctx.db.patch(lead._id, { status: "bidding", round: { opensAt: "2026-10-18T12:00:00.000Z", closesAt: "2026-10-18T13:00:00.000Z" } });
+      const user = (await ctx.db.query("users").first())!;
+      for (const [organizationId, maxCents] of [[mio.organizationId, 90000], [soco.organizationId, 30000]] as const)
+        await ctx.db.insert("leadBids", { marketplaceLeadId: lead._id, organizationId, kind: "round", maxCents, status: "open", createdBy: user._id, createdAt: "2026-10-18T12:00:00.000Z" });
+      return lead._id;
+    });
+    await t.mutation(internal.bids.closeRound, { leadId: legacy });
+    const sold = await t.run(async (ctx) => ctx.db.get(legacy));
+    expect(sold).toMatchObject({ status: "assigned", priceCents: 30000, assignedOrganizationId: soco.organizationId });
+    expect((await results(mio))[0]).toMatchObject({ won: false, outcome: expect.stringMatching(/Balance too low/) });
+    expect((await results(soco))[0]).toMatchObject({ won: true, myBidCents: 30000 });
   });
 });

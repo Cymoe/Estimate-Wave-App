@@ -377,7 +377,7 @@ export default defineSchema({
     source: v.optional(v.string()),
     notes: v.optional(v.string()),
     status: marketplaceLeadStatus,
-    // While companies with a standing bid for its county and trade bid on it.
+    // Legacy: set while a lead sat in a timed bidding round.
     round: v.optional(v.object({ opensAt: v.string(), closesAt: v.string() })),
     priceCents: v.optional(v.number()),
     assignedOrganizationId: v.optional(v.id("organizations")),
@@ -406,8 +406,14 @@ export default defineSchema({
   leadBids: defineTable({
     marketplaceLeadId: v.id("marketplaceLeads"),
     organizationId: v.id("organizations"),
-    /** A buy order in the Marketplace (absent or "order"), or a bid in a round. */
-    kind: v.optional(v.union(v.literal("order"), v.literal("round"))),
+    /**
+     * A buy order in the Marketplace (absent or "order"), a standing bid
+     * matched to a lead the moment it was listed ("award"), or, legacy, a
+     * bid in a timed round ("round").
+     */
+    kind: v.optional(
+      v.union(v.literal("order"), v.literal("award"), v.literal("round")),
+    ),
     maxCents: v.number(),
     raisedAt: v.optional(v.string()),
     status: v.union(
@@ -439,7 +445,8 @@ export default defineSchema({
     .index("by_organization", ["organizationId"])
     .index("by_county_and_type", ["county", "jobType"]),
 
-  // One row of platform-wide market settings.
+  // Legacy: the round length from when leads sat in timed bidding rounds.
+  // Kept so an existing row still deploys; nothing reads it.
   marketSettings: defineTable({
     roundMinutes: v.number(),
     updatedAt: v.string(),
@@ -477,7 +484,12 @@ export default defineSchema({
   fundingRequests: defineTable({
     organizationId: v.id("organizations"),
     token: v.string(),
-    status: v.union(v.literal("open"), v.literal("submitted"), v.literal("confirmed"), v.literal("cancelled")),
+    status: v.union(
+      v.literal("open"),
+      v.literal("submitted"),
+      v.literal("confirmed"),
+      v.literal("cancelled"),
+    ),
     amountCents: v.optional(v.number()),
     bonusCents: v.optional(v.number()),
     method: v.optional(v.union(v.literal("card"), v.literal("apple_pay"))),
@@ -590,7 +602,11 @@ export default defineSchema({
         reason: v.string(),
         note: v.optional(v.string()),
         requestedAt: v.string(),
-        status: v.union(v.literal("pending"), v.literal("approved"), v.literal("denied")),
+        status: v.union(
+          v.literal("pending"),
+          v.literal("approved"),
+          v.literal("denied"),
+        ),
         reviewedAt: v.optional(v.string()),
       }),
     ),
@@ -652,5 +668,8 @@ export default defineSchema({
     createdAt: v.string(),
   })
     .index("by_organization", ["organizationId"])
-    .index("by_organization_and_resource_type", ["organizationId", "resourceType"]),
+    .index("by_organization_and_resource_type", [
+      "organizationId",
+      "resourceType",
+    ]),
 });

@@ -1,28 +1,14 @@
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, mutation, query } from "./_generated/server";
-import {
-  fail,
-  nowIso,
-  requireMember,
-  requireSuperAdmin,
-  requireUser,
-} from "./lib/access";
+import { fail, nowIso, requireMember } from "./lib/access";
 import { MIN_START_CENTS } from "./lib/auction";
+import { closeLegacyRound, standingBidsFor } from "./lib/awards";
 import { normalizeCounty, TEXAS_COUNTIES } from "./lib/counties";
-import {
-  closeRound as finishRound,
-  DEFAULT_ROUND_MINUTES,
-  roundBids,
-  roundMinutes,
-} from "./lib/rounds";
 import { dollars } from "./lib/wallet";
 
-// A company's standing bids and the rounds they put it in. See lib/rounds.ts
-// for how a round opens and closes.
-
-/** A raise must beat the company's own bid by at least this. */
-export const MIN_RAISE_CENTS = 1000;
+// A company's standing bids and what they won. See lib/awards.ts for how a
+// new lead is awarded.
 
 function toCents(amount: number): number {
   const cents = Math.round(amount * 100);
@@ -33,6 +19,12 @@ function toCents(amount: number): number {
 
 // ---- Standing bids ----
 
+/**
+ * The company's standing bids, each with where it stands: `funded` when its
+ * balance covers it, `leading` when no other funded bid beats it (an equal
+ * bid placed earlier does), `contested` when another company has a funded
+ * bid there. Other companies' amounts are never shown.
+ */
 export const listStanding = query({
   args: { organizationId: v.id("organizations") },
   handler: async (ctx, { organizationId }) => {
@@ -43,19 +35,31 @@ export const listStanding = query({
         q.eq("organizationId", organizationId),
       )
       .collect();
-    return rows
-      .sort(
-        (a, b) =>
-          a.county.localeCompare(b.county) ||
-          a.jobType.localeCompare(b.jobType),
-      )
-      .map((row) => ({
+    const out = [];
+    for (const row of rows.sort(
+      (a, b) =>
+        a.county.localeCompare(b.county) || a.jobType.localeCompare(b.jobType),
+    )) {
+      // Only bids a balance can cover count: an unfunded bid can't win a lead.
+      const funded: Doc<"standingBids">[] = [];
+      for (const bid of await standingBidsFor(ctx, row.county, row.jobType)) {
+        const balance =
+          (await ctx.db.get(bid.organizationId))?.walletBalanceCents ?? 0;
+        if (balance >= bid.amountCents) funded.push(bid);
+      }
+      const mineFunded = funded.some((b) => b._id === row._id);
+      out.push({
         id: row._id,
         county: row.county,
         jobType: row.jobType,
         amountCents: row.amountCents,
         updatedAt: row.updatedAt,
-      }));
+        funded: mineFunded,
+        contested: funded.some((b) => b.organizationId !== organizationId),
+        leading: mineFunded && funded[0]._id === row._id,
+      });
+    }
+    return out;
   },
 });
 
@@ -118,49 +122,13 @@ export const removeStanding = mutation({
   },
 });
 
-// ---- Rounds ----
+// ---- Results ----
 
-/** Whether this bid is the one winning right now (highest, earliest on a tie). */
-const leads = (mine: Doc<"leadBids">, all: Doc<"leadBids">[]) =>
-  all.length > 0 && all[0]._id === mine._id;
-
-/**
- * The rounds a company is in, with where it stands (amounts of other bids
- * are never shown), plus its last few results.
- */
-export const rounds = query({
+/** The last leads the company's bids were matched to: won at its bid, or lost and why. */
+export const results = query({
   args: { organizationId: v.id("organizations") },
   handler: async (ctx, { organizationId }) => {
     await requireMember(ctx, organizationId);
-    const mine = (
-      await ctx.db
-        .query("leadBids")
-        .withIndex("by_organization_and_status", (q) =>
-          q.eq("organizationId", organizationId).eq("status", "open"),
-        )
-        .collect()
-    ).filter((b) => b.kind === "round");
-    const open = [];
-    for (const bid of mine) {
-      const lead = await ctx.db.get(bid.marketplaceLeadId);
-      if (!lead || lead.status !== "bidding" || !lead.round) continue;
-      const all = await roundBids(ctx, lead._id);
-      open.push({
-        bidId: bid._id,
-        leadId: lead._id,
-        jobType: lead.jobType,
-        county: lead.county,
-        city: lead.city,
-        summary: lead.notes,
-        opensAt: lead.round.opensAt,
-        closesAt: lead.round.closesAt,
-        myBidCents: bid.maxCents,
-        highest: leads(bid, all),
-        bidders: all.length,
-      });
-    }
-    open.sort((a, b) => a.closesAt.localeCompare(b.closesAt));
-
     const settled: Doc<"leadBids">[] = [];
     for (const status of ["filled", "lost"] as const) {
       const rows = await ctx.db
@@ -169,15 +137,17 @@ export const rounds = query({
           q.eq("organizationId", organizationId).eq("status", status),
         )
         .order("desc")
-        .take(20);
-      settled.push(...rows.filter((b) => b.kind === "round"));
+        .take(40);
+      settled.push(
+        ...rows.filter((b) => b.kind === "award" || b.kind === "round"),
+      );
     }
-    const results = [];
+    const out = [];
     for (const bid of settled
       .sort((a, b) => (b.resolvedAt ?? "").localeCompare(a.resolvedAt ?? ""))
-      .slice(0, 10)) {
+      .slice(0, 20)) {
       const lead = await ctx.db.get(bid.marketplaceLeadId);
-      results.push({
+      out.push({
         bidId: bid._id,
         leadId: bid.marketplaceLeadId,
         jobType: lead?.jobType,
@@ -189,75 +159,14 @@ export const rounds = query({
         resolvedAt: bid.resolvedAt,
       });
     }
-    return { open, results, roundMinutes: await roundMinutes(ctx) };
+    return out;
   },
 });
 
-/** Raises the company's bid in an open round. */
-export const raise = mutation({
-  args: {
-    leadId: v.id("marketplaceLeads"),
-    organizationId: v.id("organizations"),
-    amount: v.number(),
-  },
-  handler: async (ctx, { leadId, organizationId, amount }) => {
-    const { organization } = await requireMember(ctx, organizationId, "admin");
-    const lead = await ctx.db.get(leadId);
-    if (!lead || lead.status !== "bidding")
-      fail("INVALID", "This round has closed");
-    const mine = (await roundBids(ctx, leadId)).find(
-      (b) => b.organizationId === organizationId,
-    );
-    if (!mine) fail("INVALID", "You're not in this round");
-    const amountCents = toCents(amount);
-    if (amountCents < mine.maxCents + MIN_RAISE_CENTS)
-      fail(
-        "INVALID",
-        `Raise to at least ${dollars(mine.maxCents + MIN_RAISE_CENTS)}`,
-      );
-    if ((organization.walletBalanceCents ?? 0) < amountCents)
-      fail("INVALID", "Add funds to cover this bid");
-    await ctx.db.patch(mine._id, { maxCents: amountCents, raisedAt: nowIso() });
-    return { bidId: mine._id, amountCents };
-  },
-});
-
-/** Runs when a round's time is up. */
+/** Legacy: closes a bidding round scheduled before leads were awarded on the spot. */
 export const closeRound = internalMutation({
   args: { leadId: v.id("marketplaceLeads") },
   handler: async (ctx, { leadId }) => {
-    await finishRound(ctx, leadId);
-  },
-});
-
-// ---- Settings ----
-
-export const settings = query({
-  args: {},
-  handler: async (ctx) => {
-    await requireUser(ctx);
-    return {
-      roundMinutes: await roundMinutes(ctx),
-      defaultRoundMinutes: DEFAULT_ROUND_MINUTES,
-    };
-  },
-});
-
-export const setRoundMinutes = mutation({
-  args: { minutes: v.number() },
-  handler: async (ctx, { minutes }) => {
-    await requireSuperAdmin(ctx);
-    const value = Math.round(minutes);
-    if (!(value >= 5 && value <= 24 * 60))
-      fail("INVALID", "Rounds last between 5 minutes and a day");
-    const now = nowIso();
-    const row = await ctx.db.query("marketSettings").first();
-    if (row)
-      await ctx.db.patch(row._id, { roundMinutes: value, updatedAt: now });
-    else
-      await ctx.db.insert("marketSettings", {
-        roundMinutes: value,
-        updatedAt: now,
-      });
+    await closeLegacyRound(ctx, leadId);
   },
 });

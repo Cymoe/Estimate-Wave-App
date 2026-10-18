@@ -34,7 +34,7 @@ import {
 } from "./lib/auction";
 import { pendingFundingFor } from "./funding";
 import { sellLead } from "./lib/sales";
-import { listLead, roundBids } from "./lib/rounds";
+import { listLead } from "./lib/awards";
 import { normalizeCounty, TEXAS_COUNTIES } from "./lib/counties";
 
 // The Lead Market: leads the platform collects and sells, one company per
@@ -102,11 +102,6 @@ export const listInbox = query({
       .withIndex("by_status", (q) => q.eq("status", "available"))
       .order("desc")
       .take(500);
-    const bidding = await ctx.db
-      .query("marketplaceLeads")
-      .withIndex("by_status", (q) => q.eq("status", "bidding"))
-      .order("desc")
-      .take(200);
     const sold = await ctx.db
       .query("marketplaceLeads")
       .withIndex("by_status", (q) => q.eq("status", "assigned"))
@@ -124,17 +119,15 @@ export const listInbox = query({
         names.set(orgId, (await ctx.db.get(orgId))?.name ?? "Unknown company");
       const auction = await auctionFor(ctx, lead);
       const now = priceAt(auction, Date.now());
-      const bids =
+      const leadBids = await ctx.db
+        .query("leadBids")
+        .withIndex("by_lead", (q) => q.eq("marketplaceLeadId", lead._id))
+        .collect();
+      const openOrders =
         lead.status === "available"
-          ? (
-              await ctx.db
-                .query("leadBids")
-                .withIndex("by_lead", (q) =>
-                  q.eq("marketplaceLeadId", lead._id),
-                )
-                .collect()
-            ).filter((b) => b.status === "open").length
+          ? leadBids.filter((b) => b.status === "open").length
           : 0;
+      const wonBy = leadBids.find((b) => b.status === "filled");
       return {
         ...lead,
         price:
@@ -144,26 +137,17 @@ export const listInbox = query({
         auction,
         floorCents: auction.floorCents,
         floorAt: new Date(now.floorAtMs).toISOString(),
-        openBids: bids,
+        openBids: openOrders,
+        // How a sold lead went: to a standing bid, a buy order, or by hand/Buy now.
+        wonBy: wonBy
+          ? wonBy.kind === "order"
+            ? ("order" as const)
+            : ("bid" as const)
+          : undefined,
         companyName: orgId ? names.get(orgId) : undefined,
       };
     };
-    const withBids = async (lead: Doc<"marketplaceLeads">) => {
-      const bids = await roundBids(ctx, lead._id);
-      return {
-        ...(await withCompany(lead)),
-        price: bids[0]?.maxCents ?? 0,
-        bids: await Promise.all(
-          bids.map(async (b) => ({
-            companyName:
-              (await ctx.db.get(b.organizationId))?.name ?? "Unknown company",
-            amountCents: b.maxCents,
-          })),
-        ),
-      };
-    };
     return {
-      bidding: await Promise.all(bidding.map(withBids)),
       available: await Promise.all(available.map(withCompany)),
       sold: await Promise.all(
         [...sold, ...credited]
@@ -725,7 +709,7 @@ export const wallet = query({
           q.eq("organizationId", organizationId).eq("status", "open"),
         )
         .collect()
-    ).filter((b) => b.kind !== "round").length;
+    ).filter((b) => (b.kind ?? "order") === "order").length;
     return {
       balanceCents: organization.walletBalanceCents ?? 0,
       leadTrades: trades,
@@ -738,14 +722,6 @@ export const wallet = query({
         ) / pricings.length,
       ),
       openBids,
-      openRounds: (
-        await ctx.db
-          .query("leadBids")
-          .withIndex("by_organization_and_status", (q) =>
-            q.eq("organizationId", organizationId).eq("status", "open"),
-          )
-          .collect()
-      ).filter((b) => b.kind === "round").length,
       standingBids: (
         await ctx.db
           .query("standingBids")
@@ -802,7 +778,7 @@ export const feed = query({
           q.eq("organizationId", organizationId).eq("status", "open"),
         )
         .collect()
-    ).filter((b) => b.kind !== "round");
+    ).filter((b) => (b.kind ?? "order") === "order");
     const names = new Map<string, string | undefined>();
     const tradeName = async (slug: string | undefined) => {
       if (!slug) return undefined;
@@ -983,7 +959,7 @@ export const bids = query({
     return await Promise.all(
       all
         .flat()
-        .filter((bid) => bid.kind !== "round")
+        .filter((bid) => (bid.kind ?? "order") === "order")
         .map(async (bid) => {
           const lead = await ctx.db.get(bid.marketplaceLeadId);
           return {
