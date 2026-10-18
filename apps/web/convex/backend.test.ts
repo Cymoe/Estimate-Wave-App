@@ -1623,6 +1623,16 @@ describe("standing bids and instant awards", () => {
     const feed = await mio.as.query(api.marketplace.feed, { organizationId: mio.organizationId });
     expect(feed.map((l) => l.id).sort()).toEqual([roofing!._id, elsewhere!._id].sort());
 
+    // The Leads page's "new leads" count only counts leads in a company's trades:
+    // mio's landscaping bid covers Gloria, not the roofing lead; soco has no trades
+    // or bids, so nothing; give soco roofing and the roofing lead counts.
+    const available = async (who: { as: any; organizationId: any }) =>
+      (await who.as.query(api.marketplace.wallet, { organizationId: who.organizationId })).availableLeads;
+    expect(await available(mio)).toBe(1);
+    expect(await available(soco)).toBe(0);
+    await admin.as.mutation(api.marketplace.setCompanyTrades, { organizationId: soco.organizationId, leadTrades: ["roofing"] });
+    expect(await available(soco)).toBe(1);
+
     // The admin sees it sold by bid; the buy-order views ignore award rows.
     const inbox = await admin.as.query(api.marketplace.listInbox, {});
     expect(inbox.available).toHaveLength(2);

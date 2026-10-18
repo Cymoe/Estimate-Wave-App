@@ -4,6 +4,10 @@ import { formatCurrency } from '../../utils/format';
 
 export const money = (cents: number) => formatCurrency(cents / 100);
 
+/** "landscaping" -> "Landscaping", "general-construction" -> "General Construction". */
+export const titleFromSlug = (slug: string) =>
+  slug.split('-').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+
 export const CREDIT_REASON_LABELS: Record<string, string> = {
   wrong_number: 'Wrong number',
   out_of_area: 'Out of our area',

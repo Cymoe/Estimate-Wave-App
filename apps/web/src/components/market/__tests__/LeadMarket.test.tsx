@@ -164,7 +164,7 @@ describe("a company's lead balance", () => {
     const container = await render(<WalletBar organizationId="o2" />);
     // The balance itself lives in the navigation, not here.
     expect(container.textContent).not.toContain('$60.00');
-    expect(container.textContent).toContain('$170.00 in leads → $12,000.00 won');
+    expect(container.textContent).toContain('$170.00 spent on leads → $12,000.00 won from them');
     expect(container.querySelector('[role="alert"]')?.textContent).toContain('covers about 1 more lead');
 
     document.body.innerHTML = '';
@@ -257,7 +257,7 @@ describe('loading the balance and buying leads', () => {
     };
     await render(<WalletBar organizationId="o2" />);
     expect(document.body.textContent).toContain('Your $7,500.00 payment (+$375.00 bonus) is being confirmed');
-    const browse = Array.from(document.body.querySelectorAll('a')).find((a) => a.textContent?.includes('1 new lead · Browse'))!;
+    const browse = Array.from(document.body.querySelectorAll('a')).find((a) => a.textContent?.includes('1 new lead for you · Browse'))!;
     expect(browse.getAttribute('href')).toBe('/marketplace');
   });
 });

@@ -709,6 +709,14 @@ export const wallet = query({
         )
         .collect()
     ).filter((b) => (b.kind ?? "order") === "order").length;
+    const standingBids = await ctx.db
+      .query("standingBids")
+      .withIndex("by_organization", (q) =>
+        q.eq("organizationId", organizationId),
+      )
+      .collect();
+    // The trades the company does, plus any it has a standing bid for.
+    const wanted = new Set([...trades, ...standingBids.map((b) => b.jobType)]);
     return {
       balanceCents: organization.walletBalanceCents ?? 0,
       leadTrades: trades,
@@ -721,26 +729,22 @@ export const wallet = query({
         ) / pricings.length,
       ),
       openBids,
-      standingBids: (
-        await ctx.db
-          .query("standingBids")
-          .withIndex("by_organization", (q) =>
-            q.eq("organizationId", organizationId),
-          )
-          .collect()
-      ).length,
+      standingBids: standingBids.length,
       spentCents: bought
         .filter((l) => l.status === "assigned")
         .reduce((sum, l) => sum + (l.priceCents ?? 0), 0),
       leadsBought: bought.length,
       ...roi,
       pendingFunding: await pendingFundingFor(ctx, organizationId),
-      availableLeads: (
-        await ctx.db
-          .query("marketplaceLeads")
-          .withIndex("by_status", (q) => q.eq("status", "available"))
-          .take(500)
-      ).length,
+      // Marketplace leads in this company's trades: the ones it would buy.
+      availableLeads: wanted.size
+        ? (
+            await ctx.db
+              .query("marketplaceLeads")
+              .withIndex("by_status", (q) => q.eq("status", "available"))
+              .take(500)
+          ).filter((l) => l.jobType && wanted.has(l.jobType)).length
+        : 0,
       transactions: transactions.map((t) => ({
         id: t._id,
         type: t.type,
