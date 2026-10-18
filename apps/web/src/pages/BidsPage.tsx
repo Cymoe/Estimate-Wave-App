@@ -351,7 +351,8 @@ function AddBidDialog({
   const [step, setStep] = useState(1);
   const [search, setSearch] = useState('');
   const [counties, setCounties] = useState<string[]>([]);
-  const [jobType, setJobType] = useState(preferredTrades[0] ?? '');
+  const [services, setServices] = useState<string[]>(() => preferredTrades.filter((t) => trades.some((x) => x.id === t)));
+  const toggleService = (id: string) => setServices((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
   const [amount, setAmount] = useState(String(MIN_BID));
   const [busy, setBusy] = useState(false);
 
@@ -379,14 +380,16 @@ function AddBidDialog({
   const amountOk = Number.isFinite(dollars) && dollars >= MIN_BID;
   const affordable = amountOk && dollars * 100 <= balance;
   const covers = amountOk ? Math.floor(balance / (dollars * 100)) : 0;
-  const ready = counties.length > 0 && jobType && affordable;
+  const ready = counties.length > 0 && services.length > 0 && affordable;
+  const rows = counties.length * services.length;
 
   const save = async () => {
     setBusy(true);
     try {
-      for (const county of counties) await bidsAPI.setStanding(organizationId, county, jobType, dollars);
+      for (const county of counties) for (const service of services) await bidsAPI.setStanding(organizationId, county, service, dollars);
       const where = counties.length === 1 ? `${counties[0]} County` : `${counties.length} counties`;
-      const what = trades.find((t) => t.id === jobType)?.name ?? jobType;
+      const names = services.map((id) => trades.find((t) => t.id === id)?.name ?? id);
+      const what = names.length <= 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
       onNotify(`You're set: new ${what} leads in ${where} go to you the moment they come in, at ${money(dollars * 100)}, while your bid is the highest.`);
       await onSaved();
       onClose();
@@ -472,20 +475,28 @@ function AddBidDialog({
         {step === 2 && (
           <div>
             <p className="text-sm text-white mb-2">What kind of work?</p>
-            <select value={jobType} onChange={(e) => setJobType(e.target.value)} aria-label="Service type" className={`${input} w-full`}>
-              <option value="">Choose a service</option>
-              {ordered.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-gray-500 mt-2">One service per bid. Add another bid for other kinds of work.</p>
+            <div className="flex flex-wrap gap-1.5 max-h-56 overflow-y-auto" role="group" aria-label="Service types">
+              {ordered.map((t) => {
+                const on = services.includes(t.id);
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => toggleService(t.id)}
+                    className={`px-3 py-1.5 rounded-full text-sm border ${on ? 'bg-[#336699]/20 border-[#336699] text-white' : 'border-[#333] text-gray-300 hover:bg-[#1E1E1E]'}`}
+                  >
+                    {t.name}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-xs text-gray-500 mt-2">Pick every kind of work you want leads for. One price covers all of them.</p>
             <div className="flex justify-between mt-4">
               <button type="button" onClick={() => setStep(1)} className={secondary}>
                 Back
               </button>
-              <button type="button" disabled={!jobType} onClick={() => setStep(3)} className={primary}>
+              <button type="button" disabled={services.length === 0} onClick={() => setStep(3)} className={primary}>
                 Next
               </button>
             </div>
@@ -517,7 +528,7 @@ function AddBidDialog({
                 Back
               </button>
               <button type="button" disabled={busy || !ready} onClick={save} className={primary}>
-                {busy ? 'Saving…' : firstTime ? 'Start bidding' : `Add bid${counties.length > 1 ? ` for ${counties.length} counties` : ''}`}
+                {busy ? 'Saving…' : firstTime ? 'Start bidding' : rows > 1 ? `Add ${rows} bids` : 'Add bid'}
               </button>
             </div>
           </div>

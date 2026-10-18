@@ -81,10 +81,11 @@ describe('Bids', () => {
     expect(dialog()!.querySelector('[aria-label="Chosen counties"]')?.textContent).toBe('Midland CountyEctor County');
     expect(input('Search counties').value).toBe('');
     await act(async () => byText('Next')!.click());
-    // Their own trade is preselected.
-    const service = dialog()!.querySelector('select[aria-label="Service type"]') as HTMLSelectElement;
-    expect(service.value).toBe('landscaping');
-    expect(Array.from(service.options).map((o) => o.textContent)).toEqual(['Choose a service', 'Landscaping', 'Roofing']);
+    // Their own trade starts on and comes first; several can be on at once.
+    const chips = () => Array.from(dialog()!.querySelectorAll('[aria-label="Service types"] button')) as HTMLButtonElement[];
+    expect(chips().map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([['Landscaping', 'true'], ['Roofing', 'false']]);
+    await act(async () => chips()[1].click());
+    expect(chips().map((b) => b.getAttribute('aria-pressed'))).toEqual(['true', 'true']);
     await act(async () => byText('Next')!.click());
     expect(input('Bid amount').value).toBe('200');
     expect(dialog()!.textContent).toContain('covers about 5 leads');
@@ -94,9 +95,14 @@ describe('Bids', () => {
     await act(async () => type(input('Bid amount'), '250'));
     await act(async () => byText('Start bidding')!.click());
     await flush();
-    expect(setStanding.mock.calls).toEqual([['o2', 'Midland', 'landscaping', 250], ['o2', 'Ector', 'landscaping', 250]]);
+    expect(setStanding.mock.calls).toEqual([
+      ['o2', 'Midland', 'landscaping', 250],
+      ['o2', 'Midland', 'roofing', 250],
+      ['o2', 'Ector', 'landscaping', 250],
+      ['o2', 'Ector', 'roofing', 250],
+    ]);
     expect(dialog()).toBeNull();
-    expect(document.body.textContent).toContain("You're set: new Landscaping leads in 2 counties go to you the moment they come in, at $250.00, while your bid is the highest.");
+    expect(document.body.textContent).toContain("You're set: new Landscaping and Roofing leads in 2 counties go to you the moment they come in, at $250.00, while your bid is the highest.");
   });
 
   it('shows where each standing bid stands, lets the company edit or remove it, and opens the dialog to add more', async () => {
