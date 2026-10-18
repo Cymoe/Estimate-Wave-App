@@ -1616,7 +1616,11 @@ describe("standing bids and instant awards", () => {
     expect(lead).toMatchObject({ county: "Midland", status: "assigned", priceCents: 25000, assignedOrganizationId: mio.organizationId });
     expect(await balance(mio)).toBe(100000 - 25000);
     const theirs = await mio.as.query(api.leads.list, { organizationId: mio.organizationId });
-    expect(theirs[0]).toMatchObject({ name: "Patricia Nguyen", pricePaidCents: 25000, source: "FieldQuote Lead", wonVia: "bid" });
+    expect(theirs[0]).toMatchObject({ name: "Patricia Nguyen", pricePaidCents: 25000, source: "FieldQuote Lead", wonVia: "bid", county: "Midland" });
+    // A lead they add themselves gets its county from the town, so the board can filter by county too.
+    await mio.as.mutation(api.leads.create, { organizationId: mio.organizationId, data: { name: "Walk-in", city: "Odessa" } });
+    const board = await mio.as.query(api.leads.list, { organizationId: mio.organizationId });
+    expect(board.find((l) => l.name === "Walk-in")).toMatchObject({ county: "Ector" });
     const won = await results(mio);
     expect(won[0]).toMatchObject({ leadId: lead!._id, county: "Midland", won: true, myBidCents: 25000 });
     expect(JSON.stringify(won)).not.toMatch(/Patricia|Nguyen/);

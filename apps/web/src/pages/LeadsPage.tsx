@@ -32,10 +32,10 @@ function matchesSearch(lead: Lead, query: string) {
   if (!q) return true;
   const digits = q.replace(/\D/g, '');
   if (digits.length >= 3 && (lead.phone ?? '').replace(/\D/g, '').includes(digits)) return true;
-  return [lead.name, lead.email, lead.address, lead.city, lead.notes].some((field) => field?.toLowerCase().includes(q));
+  return [lead.name, lead.email, lead.address, lead.city, lead.county, lead.notes].some((field) => field?.toLowerCase().includes(q));
 }
 
-const NO_CITY = '__none';
+const NO_COUNTY = '__none';
 
 const leadValue = (lead: Lead) => lead.estimate?.totalAmount ?? lead.estimatedValue ?? 0;
 
@@ -227,8 +227,8 @@ const LeadsPage: React.FC = () => {
     }
   };
   const [leadFilter, setLeadFilter] = useState<LeadFilter>('all');
-  // '' is every city; NO_CITY is leads whose city isn't known.
-  const [cityFilter, setCityFilter] = useState('');
+  // '' is every county; NO_COUNTY is leads whose county isn't known.
+  const [countyFilter, setCountyFilter] = useState('');
   const [view, setView] = useState<'board' | 'calendar'>(() => {
     try {
       return localStorage.getItem(VIEW_KEY) === 'calendar' ? 'calendar' : 'board';
@@ -274,17 +274,17 @@ const LeadsPage: React.FC = () => {
   // Today's date where you are; the UTC date is already tomorrow on US evenings.
   const todayIso = appointmentDay(toLocalInput(new Date().toISOString()));
   const monthAgo = new Date(Date.now() - 30 * 86_400_000).toISOString();
-  // Cities in the toolbar, busiest first.
-  const cities = useMemo(() => {
+  // Counties in the toolbar, busiest first. Bids are placed by county, so the board filters by it too.
+  const counties = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const lead of leads) if (lead.city) counts.set(lead.city, (counts.get(lead.city) ?? 0) + 1);
+    for (const lead of leads) if (lead.county) counts.set(lead.county, (counts.get(lead.county) ?? 0) + 1);
     return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   }, [leads]);
-  const noCity = leads.filter((lead) => !lead.city).length;
+  const noCounty = leads.filter((lead) => !lead.county).length;
 
   const visible = leads.filter((lead) => {
     if (!matchesSearch(lead, query)) return false;
-    if (cityFilter === NO_CITY ? lead.city : cityFilter && lead.city !== cityFilter) return false;
+    if (countyFilter === NO_COUNTY ? lead.county : countyFilter && lead.county !== countyFilter) return false;
     if (leadFilter === 'appointment') return !!lead.appointmentAt;
     if (leadFilter === 'overdue') return !!lead.followUpDate && lead.followUpDate < todayIso && OPEN.includes(lead.status);
     if (leadFilter === 'recent') return (lead.createdAt ?? '') >= monthAgo;
@@ -346,18 +346,18 @@ const LeadsPage: React.FC = () => {
               ))}
             </select>
             <select
-              value={cityFilter}
-              onChange={(e) => setCityFilter(e.target.value)}
-              aria-label="Filter by city"
+              value={countyFilter}
+              onChange={(e) => setCountyFilter(e.target.value)}
+              aria-label="Filter by county"
               className="px-3 py-2 bg-[#121212] border border-[#333333] text-sm text-white focus:outline-none focus:border-[#336699]"
             >
-              <option value="">All cities</option>
-              {cities.map(([city, count]) => (
-                <option key={city} value={city}>{city} ({count})</option>
+              <option value="">All counties</option>
+              {counties.map(([county, count]) => (
+                <option key={county} value={county}>{county} County ({count})</option>
               ))}
-              {noCity > 0 && <option value={NO_CITY}>No city ({noCity})</option>}
+              {noCounty > 0 && <option value={NO_COUNTY}>No county ({noCounty})</option>}
             </select>
-            {(query || leadFilter !== 'all' || cityFilter) && (
+            {(query || leadFilter !== 'all' || countyFilter) && (
               <span className="text-xs text-gray-400">{visible.length} of {leads.length}</span>
             )}
             {view === 'board' && (

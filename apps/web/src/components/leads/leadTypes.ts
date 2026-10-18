@@ -7,6 +7,8 @@ export interface Lead {
   email?: string;
   address?: string;
   city?: string;
+  /** The county the job is in, from the town when the lead has no county of its own. */
+  county?: string;
   jobType?: string;
   source?: string;
   estimatedValue?: number;

@@ -626,6 +626,9 @@ export default defineSchema({
     isSample: v.optional(v.boolean()),
     // When the city was last worked out automatically, so it isn't looked up again.
     cityCheckedAt: v.optional(v.string()),
+    // County, as the Lead Market knew it when it sold the lead (server-set).
+    // Leads without one get it from their town when listed.
+    county: v.optional(v.string()),
     // Bought from the Lead Market (server-set, not in leadFields).
     marketplaceLeadId: v.optional(v.id("marketplaceLeads")),
     pricePaidCents: v.optional(v.number()),

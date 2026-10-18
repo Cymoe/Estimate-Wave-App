@@ -5,6 +5,7 @@ import { fail, getOwned, logActivity, nowIso, pick, requireMember } from "./lib/
 import { assertLinksInOrg } from "./lib/documents";
 import { leadFields } from "./schema";
 import { findCity } from "./leadCity";
+import { countyForTown } from "./lib/counties";
 
 const OPEN = new Set(["new", "no_answer", "contacted", "scheduled", "quoted"]);
 
@@ -36,6 +37,9 @@ export const list = query({
         const estimate = lead.estimateId ? await ctx.db.get(lead.estimateId) : null;
         return {
           ...lead,
+          // Bids go by county, so the board does too: the Lead Market's county
+          // for a bought lead, else the one the town is in.
+          county: lead.county ?? countyForTown(lead.city),
           estimate: estimate
             ? {
                 id: estimate._id,

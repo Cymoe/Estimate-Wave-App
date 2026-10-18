@@ -52,6 +52,7 @@ export async function sellLead(
       email: lead.email,
       address: lead.address,
       city: lead.city,
+      county: lead.county,
       jobType: lead.jobType,
       notes: lead.notes,
       source: "FieldQuote Lead",

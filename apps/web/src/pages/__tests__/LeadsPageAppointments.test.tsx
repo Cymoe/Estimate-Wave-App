@@ -142,4 +142,28 @@ describe('Leads board', () => {
     expect(document.body.querySelector('[data-testid="lead-credit"]')?.textContent).toContain('Won · $250.00');
     rows = [own];
   });
+
+  it('filters by county, the way bids are placed', async () => {
+    const own = rows[0];
+    rows = [
+      { ...own, appointmentAt: undefined, county: 'Midland', city: 'Midland' },
+      { id: 'l2', name: 'Omar Haddad', status: 'new', createdAt: '2026-10-02T00:00:00Z', county: 'Ector', city: 'Odessa' },
+      { id: 'l3', name: 'Dana Ruiz', status: 'new', createdAt: '2026-10-03T00:00:00Z' },
+    ] as typeof rows;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
+    await flush();
+    const select = container.querySelector('select[aria-label="Filter by county"]') as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['All counties', 'Ector County (1)', 'Midland County (1)', 'No county (1)']);
+    act(() => {
+      select.value = 'Ector';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const names = Array.from(container.querySelectorAll('[draggable]')).map((el) => el.textContent);
+    expect(names.join(' ')).toContain('Omar Haddad');
+    expect(names.join(' ')).not.toContain('Rocky Vansau');
+    expect(names.join(' ')).not.toContain('Dana Ruiz');
+    rows = [own];
+  });
 });
