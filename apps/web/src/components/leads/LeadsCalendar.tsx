@@ -16,14 +16,27 @@ export interface CalendarLead {
   id: string;
   name: string;
   appointmentAt?: string;
+  /** A day to get back to them, YYYY-MM-DD. */
+  followUpDate?: string;
+  status?: string;
 }
+
+/** Stages where a follow-up still means something. */
+const OPEN = new Set(['new', 'no_answer', 'contacted', 'scheduled', 'quoted']);
+
+/** The local calendar day of an ISO time, YYYY-MM-DD. */
+const dayOf = (iso: string) => format(new Date(iso), 'yyyy-MM-dd');
 
 interface Props<T extends CalendarLead> {
   leads: T[];
   onOpen: (lead: T) => void;
 }
 
-/** Appointments by day, a month at a time. Tapping one opens the lead. */
+/**
+ * Appointments and follow-ups by day, a month at a time. A follow-up is an
+ * all-day item on an open lead; one that just mirrors the lead's appointment
+ * day is left out so nothing shows twice. Tapping an item opens the lead.
+ */
 export function LeadsCalendar<T extends CalendarLead>({ leads, onOpen }: Props<T>) {
   const [anchor, setAnchor] = useState(() => new Date());
   // A day showing all of its appointments instead of the first few.
@@ -38,7 +51,20 @@ export function LeadsCalendar<T extends CalendarLead>({ leads, onOpen }: Props<T
         .sort((a, b) => a.at.getTime() - b.at.getTime()),
     [leads],
   );
+  const followUps = useMemo(
+    () =>
+      leads
+        .filter(
+          (lead) =>
+            lead.followUpDate &&
+            (!lead.status || OPEN.has(lead.status)) &&
+            !(lead.appointmentAt && dayOf(lead.appointmentAt) === lead.followUpDate),
+        )
+        .map((lead) => ({ lead, at: new Date(`${lead.followUpDate}T00:00:00`) })),
+    [leads],
+  );
   const onDay = (day: Date) => appointments.filter((a) => isSameDay(a.at, day));
+  const followUpsOn = (day: Date) => followUps.filter((f) => isSameDay(f.at, day));
 
   const days: Date[] = [];
   for (let d = startOfWeek(startOfMonth(anchor)); d <= endOfWeek(endOfMonth(anchor)); d = addDays(d, 1)) days.push(d);
@@ -55,6 +81,21 @@ export function LeadsCalendar<T extends CalendarLead>({ leads, onOpen }: Props<T
       <span className="text-white">{lead.name}</span>
     </button>
   );
+  const followUpItem = ({ lead, at }: { lead: T; at: Date }) => {
+    const overdue = at < today && !isSameDay(at, today);
+    return (
+      <button
+        key={`f-${lead.id}`}
+        onClick={() => onOpen(lead)}
+        title="Follow up"
+        className={`block w-full truncate text-left border px-1.5 py-0.5 text-[11px] ${
+          overdue ? 'border-red-500/40 bg-red-500/10 text-red-300' : 'border-amber-500/30 bg-amber-500/10 text-amber-200'
+        }`}
+      >
+        <span className="opacity-70">Follow up</span> <span>{lead.name}</span>
+      </button>
+    );
+  };
 
   return (
     <div>
@@ -86,6 +127,7 @@ export function LeadsCalendar<T extends CalendarLead>({ leads, onOpen }: Props<T
                 {format(day, 'd')}
               </div>
               <div className="space-y-1">
+                {followUpsOn(day).map(followUpItem)}
                 {(openDay === day.toDateString() ? list : list.slice(0, 3)).map(item)}
                 {list.length > 3 && openDay !== day.toDateString() && (
                   <button onClick={() => setOpenDay(day.toDateString())} className="text-[11px] text-gray-400 hover:text-white">
@@ -97,8 +139,8 @@ export function LeadsCalendar<T extends CalendarLead>({ leads, onOpen }: Props<T
           );
         })}
       </div>
-      {appointments.length === 0 && (
-        <p className="text-sm text-gray-500 mt-4">No appointments yet. Set one from a lead's card with “Set appointment”.</p>
+      {appointments.length === 0 && followUps.length === 0 && (
+        <p className="text-sm text-gray-500 mt-4">Nothing booked yet. Set an appointment or a follow-up date from a lead.</p>
       )}
     </div>
   );

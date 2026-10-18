@@ -47,4 +47,22 @@ describe('LeadsCalendar', () => {
     act(() => more.dispatchEvent(new MouseEvent('click', { bubbles: true })));
     expect(container.textContent).toContain('Lead 4');
   });
+
+  it('plots follow-ups as all-day items on open leads, skipping ones that just mirror the appointment day', () => {
+    const local = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const rows = [
+      // Appointment today, follow-up on the same day: appointment only.
+      { id: 'a', name: 'Rocky Vansau', status: 'scheduled', appointmentAt: at.toISOString(), followUpDate: local(at) },
+      // Follow-up today, no appointment: shown.
+      { id: 'c', name: 'Dana Ruiz', status: 'contacted', followUpDate: local(at) },
+      // A lead already won: its follow-up is noise.
+      { id: 'd', name: 'Closed Deal', status: 'won', followUpDate: local(at) },
+    ];
+    const container = render(<LeadsCalendar leads={rows} onOpen={() => {}} />);
+    const labels = [...container.querySelectorAll('button')].map((b) => b.textContent ?? '');
+    expect(labels.filter((l) => l.includes('Rocky Vansau'))).toHaveLength(1);
+    expect(labels.find((l) => l.includes('Rocky Vansau'))).toContain('2:00 PM');
+    expect(labels.find((l) => l.includes('Dana Ruiz'))).toContain('Follow up');
+    expect(labels.some((l) => l.includes('Closed Deal'))).toBe(false);
+  });
 });
