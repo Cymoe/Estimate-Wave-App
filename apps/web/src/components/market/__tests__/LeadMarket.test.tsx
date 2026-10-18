@@ -16,6 +16,7 @@ const buyLead = jest.fn(async () => ({ orgLeadId: 'ol9' }));
 let demoCompanies = false;
 const addDemoData = jest.fn(async () => { demoCompanies = true; });
 const removeDemoData = jest.fn(async () => { demoCompanies = false; });
+const addSampleLeads = jest.fn(async () => ({ added: 20 }));
 const removeCompany = jest.fn(async (_id: string) => undefined);
 const setCompanyOwner = jest.fn(async (_id: string, _email: string) => 'invited');
 
@@ -36,6 +37,7 @@ jest.mock('../../../lib/api', () => ({
     assign: (...args: unknown[]) => assign(...(args as [])),
     addDemoData: () => addDemoData(),
     removeDemoData: () => removeDemoData(),
+    addSampleLeads: () => addSampleLeads(),
     removeCompany: (id: string) => removeCompany(id),
     setCompanyOwner: (id: string, email: string) => setCompanyOwner(id, email),
   },
@@ -118,6 +120,10 @@ describe('Lead Market', () => {
     await flush();
     expect(removeDemoData).toHaveBeenCalled();
     expect(document.body.textContent).not.toContain("You're looking at demo companies");
+    await act(async () => byText('Add 20 sample leads')!.click());
+    await flush();
+    expect(addSampleLeads).toHaveBeenCalled();
+    expect(document.body.textContent).toContain('20 sample leads added');
   });
 
   it('suggests a bonus for bigger payments', () => {

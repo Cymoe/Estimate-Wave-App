@@ -441,6 +441,7 @@ export const marketplaceAPI = {
   pendingCredits: () => run('query', api.marketplace.pendingCredits, {}),
   reviewCredit: (orgLeadId: string, approve: boolean) => run('mutation', api.marketplace.reviewCredit, { orgLeadId, approve }),
   addDemoData: () => run('mutation', api.marketplace.addDemoData, {}),
+  addSampleLeads: () => run('mutation', api.marketplace.addSampleLeads, {}),
   removeDemoData: () => run('mutation', api.marketplace.removeDemoData, {}),
 };
 

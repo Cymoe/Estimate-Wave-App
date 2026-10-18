@@ -1378,6 +1378,212 @@ export const addDemoData = mutation({
   },
 });
 
+// [name, phone, address, city, trade, what they need]
+const SAMPLE_LEADS: Array<[string, string, string, string, string, string]> = [
+  [
+    "Patricia Nguyen",
+    "(432) 555-0311",
+    "2204 Humble Ave",
+    "Midland",
+    "landscaping",
+    "Backyard sod and sprinkler system, about a quarter acre. Wants it done before a graduation party.",
+  ],
+  [
+    "Derek Holloway",
+    "(432) 555-0342",
+    "6110 Whitman Dr",
+    "Midland",
+    "landscaping",
+    "Front yard redo: rock beds, three trees, drip lines. Has a budget in mind.",
+  ],
+  [
+    "Alma Castillo",
+    "(432) 555-0378",
+    "1409 Alamo St",
+    "Odessa",
+    "landscaping",
+    "Weekly mowing and edging for a corner lot, plus fall cleanup.",
+  ],
+  [
+    "Tyler Brandt",
+    "(432) 555-0395",
+    "3307 Teakwood Ln",
+    "Odessa",
+    "landscaping",
+    "Paver patio about 12x16 with a fire pit. Has a photo of what they like.",
+  ],
+  [
+    "Renee Oliver",
+    "(432) 555-0417",
+    "508 E 11th St",
+    "Big Spring",
+    "landscaping",
+    "Sprinkler system isn't covering the side yard; wants it fixed or redone.",
+  ],
+  [
+    "Hector Mendoza",
+    "(432) 555-0426",
+    "1215 NW 8th St",
+    "Andrews",
+    "landscaping",
+    "Artificial turf for a dog run, roughly 20x30.",
+  ],
+  [
+    "Kristen Powell",
+    "(432) 555-0453",
+    "4001 Caldera Blvd",
+    "Midland",
+    "landscaping",
+    "New build, bare dirt. Full yard: sod, beds, irrigation.",
+  ],
+  [
+    "Samuel Okafor",
+    "(432) 555-0489",
+    "1902 E 50th St",
+    "Odessa",
+    "landscaping",
+    "Retaining wall along the driveway is leaning; wants a quote to rebuild.",
+  ],
+  [
+    "Gloria Tran",
+    "(432) 555-0502",
+    "307 S Main St",
+    "Stanton",
+    "landscaping",
+    "Xeriscape the front yard to cut the water bill.",
+  ],
+  [
+    "Brent Kaminski",
+    "(432) 555-0537",
+    "8800 Cholla Dr",
+    "Greenwood",
+    "landscaping",
+    "Two acres: tree trimming and brush clearing before a fence goes in.",
+  ],
+  [
+    "Monica Ruiz",
+    "(432) 555-0561",
+    "2611 W Michigan Ave",
+    "Midland",
+    "landscaping",
+    "Flower beds along the front walk, mulch and a few shrubs.",
+  ],
+  [
+    "Jared Whitfield",
+    "(432) 555-0598",
+    "900 S Betty Ave",
+    "Monahans",
+    "landscaping",
+    "Lawn is mostly dead; wants it leveled and re-sodded.",
+  ],
+  [
+    "Lena Hoffmann",
+    "(432) 555-0614",
+    "3415 Haynes Ave",
+    "Midland",
+    "painting",
+    "Exterior repaint, two-storey, stucco. Peeling on the south side.",
+  ],
+  [
+    "Carlos Benavides",
+    "(432) 555-0647",
+    "2208 Redbud Ave",
+    "Odessa",
+    "painting",
+    "Interior: living room, hallway and three bedrooms. Walls and trim.",
+  ],
+  [
+    "Whitney Marsh",
+    "(432) 555-0672",
+    "1700 Goliad St",
+    "Big Spring",
+    "painting",
+    "Kitchen cabinets painted white. 28 doors and drawers.",
+  ],
+  [
+    "Ahmed Farouk",
+    "(432) 555-0699",
+    "5505 Thomason Dr",
+    "Midland",
+    "painting",
+    "Rental turnover: whole house, one color, before the 1st.",
+  ],
+  [
+    "Dana Kessler",
+    "(432) 555-0721",
+    "4412 Storey Ave",
+    "Midland",
+    "general-construction",
+    "Covered patio addition, about 14x20, with a ceiling fan.",
+  ],
+  [
+    "Victor Salinas",
+    "(432) 555-0748",
+    "1313 E 21st St",
+    "Odessa",
+    "general-construction",
+    "Convert the garage into a bedroom with a closet.",
+  ],
+  [
+    "Rachel Dunn",
+    "(432) 555-0776",
+    "2900 N Sam Houston Ave",
+    "Odessa",
+    "roofing",
+    "Missing shingles after the wind; a leak over the back bedroom.",
+  ],
+  [
+    "Luis Herrera",
+    "(432) 555-0794",
+    "610 NE 2nd St",
+    "Andrews",
+    "concrete",
+    "Driveway extension and a 10x10 slab for a shed.",
+  ],
+];
+
+/**
+ * Adds a batch of sample leads to the market, spread over the last few
+ * hours so their prices differ. For trying the Marketplace; "Remove demo
+ * data" clears them.
+ */
+export const addSampleLeads = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireSuperAdmin(ctx);
+    const nowMs = Date.now();
+    let added = 0;
+    for (const [
+      i,
+      [name, phone, address, city, jobType, notes],
+    ] of SAMPLE_LEADS.entries()) {
+      // Oldest first: the first lead came in 6 hours ago, the last just now.
+      const listed = new Date(
+        nowMs -
+          ((SAMPLE_LEADS.length - 1 - i) * 6 * 60 * 60 * 1000) /
+            (SAMPLE_LEADS.length - 1),
+      ).toISOString();
+      await ctx.db.insert("marketplaceLeads", {
+        name,
+        phone,
+        address,
+        city,
+        jobType,
+        notes,
+        source: "Demo",
+        auction: { ...(await pricingFor(ctx, jobType)), listedAt: listed },
+        status: "available",
+        isSample: true,
+        createdBy: user._id,
+        createdAt: listed,
+        updatedAt: listed,
+      });
+      added++;
+    }
+    return { added };
+  },
+});
+
 /** Removes every demo company and demo lead, with their balances and history. */
 export const removeDemoData = mutation({
   args: {},

@@ -1109,6 +1109,22 @@ describe("smoke tests and demo data", () => {
     });
   });
 
+  test("sample leads fill the market at different points on their schedules", async () => {
+    const t = setup();
+    const admin = await signUp(t, "admin@fieldquote.example", { role: "super_admin" });
+    const company = await signUp(t, "mio@example.com");
+    await admin.as.mutation(api.marketplace.setCompanyTrades, { organizationId: company.organizationId, leadTrades: ["landscaping"] });
+    await expect(company.as.mutation(api.marketplace.addSampleLeads, {})).rejects.toThrow(/admins/);
+    expect(await admin.as.mutation(api.marketplace.addSampleLeads, {})).toEqual({ added: 20 });
+    const feed = await company.as.query(api.marketplace.feed, { organizationId: company.organizationId });
+    expect(feed).toHaveLength(20);
+    expect(feed.filter((l) => l.matchesTrades)).toHaveLength(12);
+    const prices = new Set(feed.map((l) => priceAt(l.auction, Date.now()).priceCents));
+    expect(prices.size).toBeGreaterThan(1);
+    expect(JSON.stringify(feed)).not.toMatch(/555-03|Humble Ave/);
+    expect(await admin.as.mutation(api.marketplace.removeDemoData, {})).toEqual({ companies: 0, leads: 20 });
+  });
+
   test("the real companies replace the demo data, without duplicating ones that exist", async () => {
     const t = setup();
     const admin = await signUp(t, "admin@fieldquote.example", { role: "super_admin" });

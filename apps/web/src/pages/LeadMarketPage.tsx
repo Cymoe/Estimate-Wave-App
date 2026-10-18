@@ -858,6 +858,18 @@ const LeadMarketPage: React.FC = () => {
   };
   const addDemo = () => runDemo(() => marketplaceAPI.addDemoData(), 'Demo companies and leads added');
   const removeDemo = () => runDemo(() => marketplaceAPI.removeDemoData(), 'Demo data removed');
+  const addSamples = () => runDemo(() => marketplaceAPI.addSampleLeads(), '20 sample leads added to the market');
+  const sampleButton = (
+    <button
+      type="button"
+      disabled={demoBusy}
+      onClick={addSamples}
+      title="Sample leads for trying the Marketplace. “Remove demo data” clears them, sold ones included."
+      className={secondary}
+    >
+      {demoBusy ? 'Adding…' : 'Add 20 sample leads'}
+    </button>
+  );
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -970,11 +982,14 @@ const LeadMarketPage: React.FC = () => {
             <div className="border border-dashed border-[#333] rounded p-8 text-center">
               <Inbox className="w-8 h-8 mx-auto text-gray-500 mb-2" />
               <p className="text-sm text-gray-400">No leads waiting. Add one with the yellow + button.</p>
-              {!hasDemo && (
-                <button type="button" disabled={demoBusy} onClick={addDemo} className={`${secondary} mt-4`}>
-                  {demoBusy ? 'Adding…' : 'Add demo companies and leads'}
-                </button>
-              )}
+              <div className="flex justify-center gap-2 mt-4 flex-wrap">
+                {sampleButton}
+                {!hasDemo && (
+                  <button type="button" disabled={demoBusy} onClick={addDemo} className={secondary}>
+                    {demoBusy ? 'Adding…' : 'Add demo companies and leads'}
+                  </button>
+                )}
+              </div>
             </div>
           ) : (
             <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Leads waiting">
@@ -1032,6 +1047,7 @@ const LeadMarketPage: React.FC = () => {
               ))}
             </ul>
           )}
+          {inbox.available.length > 0 && <div className="flex justify-end">{sampleButton}</div>}
 
           {inbox.sold.length > 0 && (
             <section>
