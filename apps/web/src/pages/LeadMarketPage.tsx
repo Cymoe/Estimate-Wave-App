@@ -60,6 +60,8 @@ interface Company {
   /** Nothing in it yet (no leads, clients, estimates or money), so it can be removed. */
   isEmpty?: boolean;
   standingBids?: Array<{ county: string; jobType: string; amountCents: number }>;
+  /** How many of those were added by "Add demo bids". */
+  sampleBids?: number;
 }
 
 interface CreditRequest {
@@ -882,13 +884,14 @@ const LeadMarketPage: React.FC = () => {
     setPayments(f);
   }, []);
 
-  const hasDemo = companies.some((c) => c.isSample);
+  const hasDemoCompanies = companies.some((c) => c.isSample);
+  const hasDemo = hasDemoCompanies || companies.some((c) => (c.sampleBids ?? 0) > 0);
   const runDemo = async (action: () => Promise<unknown>, message: string) => {
     setDemoBusy(true);
     try {
-      await action();
+      const result = await action();
       await reload();
-      setNotice(message);
+      setNotice(typeof result === 'string' ? result : message);
     } catch (err) {
       setNotice(err instanceof Error ? err.message : 'Something went wrong');
     } finally {
@@ -898,16 +901,34 @@ const LeadMarketPage: React.FC = () => {
   const addDemo = () => runDemo(() => marketplaceAPI.addDemoData(), 'Demo companies and leads added');
   const removeDemo = () => runDemo(() => marketplaceAPI.removeDemoData(), 'Demo data removed');
   const addSamples = () => runDemo(() => marketplaceAPI.addSampleLeads(), '20 sample leads added to the market');
+  const addDemoBids = () =>
+    runDemo(async () => {
+      const r = await marketplaceAPI.addDemoBids();
+      return `Demo bids added: ${r.standingBids} bids across ${r.companies} companies, ${r.leads} leads, ${r.sold} awarded`;
+    }, 'Demo bids added');
   const sampleButton = (
-    <button
-      type="button"
-      disabled={demoBusy}
-      onClick={addSamples}
-      title="Sample leads for trying the Marketplace. “Remove demo data” clears them, sold ones included."
-      className={secondary}
-    >
-      {demoBusy ? 'Adding…' : 'Add 20 sample leads'}
-    </button>
+    <>
+      <button
+        type="button"
+        disabled={demoBusy}
+        onClick={addSamples}
+        title="Sample leads for trying the Marketplace. “Remove demo data” clears them, sold ones included."
+        className={secondary}
+      >
+        {demoBusy ? 'Adding…' : 'Add 20 sample leads'}
+      </button>
+      {!hasDemo && (
+        <button
+          type="button"
+          disabled={demoBusy}
+          onClick={addDemoBids}
+          title="Gives every company demo funds and standing bids, then lists leads that get awarded on the spot. “Remove demo data” takes it all back."
+          className={secondary}
+        >
+          {demoBusy ? 'Adding…' : 'Add demo bids'}
+        </button>
+      )}
+    </>
   );
 
   useEffect(() => {
@@ -979,7 +1000,7 @@ const LeadMarketPage: React.FC = () => {
 
       {hasDemo && (
         <div className="mb-4 px-4 py-3 rounded border border-[#336699]/50 bg-[#336699]/10 text-sm flex items-center justify-between gap-3">
-          <span className="text-gray-300">You're looking at demo companies and leads.</span>
+          <span className="text-gray-300">{hasDemoCompanies ? "You're looking at demo companies and leads." : "You're looking at demo bids, funds and leads."}</span>
           <button type="button" disabled={demoBusy} onClick={removeDemo} className="text-[#7fb0e0] hover:text-white whitespace-nowrap disabled:opacity-50">
             Remove demo data
           </button>
@@ -1091,7 +1112,7 @@ const LeadMarketPage: React.FC = () => {
               ))}
             </ul>
           )}
-          {inbox.available.length > 0 && <div className="flex justify-end">{sampleButton}</div>}
+          {inbox.available.length > 0 && <div className="flex justify-end gap-2">{sampleButton}</div>}
 
           {inbox.sold.length > 0 && (
             <section>

@@ -402,6 +402,10 @@ export const companiesOverview = query({
             ),
           )
           .first();
+        const standing = await ctx.db
+          .query("standingBids")
+          .withIndex("by_organization", (q) => q.eq("organizationId", org._id))
+          .collect();
         return {
           id: org._id,
           name: org.name,
@@ -424,18 +428,12 @@ export const companiesOverview = query({
           owners: await ownerEmails(ctx, org._id),
           isSample: org.isSample === true,
           isEmpty: await isEmptyCompany(ctx, org),
-          standingBids: (
-            await ctx.db
-              .query("standingBids")
-              .withIndex("by_organization", (q) =>
-                q.eq("organizationId", org._id),
-              )
-              .collect()
-          ).map((b) => ({
+          standingBids: standing.map((b) => ({
             county: b.county,
             jobType: b.jobType,
             amountCents: b.amountCents,
           })),
+          sampleBids: standing.filter((b) => b.isSample).length,
         };
       }),
     );
@@ -1526,8 +1524,307 @@ export async function deleteDemoData(ctx: MutationCtx) {
     .query("marketplaceLeads")
     .filter((q) => q.eq(q.field("isSample"), true))
     .collect();
-  // Sample leads first, so the companies' sold leads are already gone.
+  const sampleLeadIds = new Set<string>(leads.map((l) => l._id));
+  // The leads companies won from sample leads, and the bids on them.
+  for (const lead of leads) {
+    if (lead.orgLeadId && (await ctx.db.get(lead.orgLeadId)))
+      await ctx.db.delete(lead.orgLeadId);
+    for (const bid of await ctx.db
+      .query("leadBids")
+      .withIndex("by_lead", (q) => q.eq("marketplaceLeadId", lead._id))
+      .collect())
+      await ctx.db.delete(bid._id);
+  }
+  // Demo standing bids.
+  const standingBids = await ctx.db
+    .query("standingBids")
+    .filter((q) => q.eq(q.field("isSample"), true))
+    .collect();
+  for (const bid of standingBids) await ctx.db.delete(bid._id);
+  // Demo funds and what sample leads cost a real company come back out, so
+  // the balance returns to what it was.
+  const real = (await ctx.db.query("organizations").take(1000)).filter(
+    (org) => !org.isSample,
+  );
+  for (const org of real) {
+    const rows = (
+      await ctx.db
+        .query("walletTransactions")
+        .withIndex("by_organization", (q) => q.eq("organizationId", org._id))
+        .collect()
+    ).filter(
+      (t) =>
+        t.isSample ||
+        (t.marketplaceLeadId && sampleLeadIds.has(t.marketplaceLeadId)),
+    );
+    if (rows.length === 0) continue;
+    const net = rows.reduce((sum, t) => sum + t.amountCents, 0);
+    for (const row of rows) await ctx.db.delete(row._id);
+    await ctx.db.patch(org._id, {
+      walletBalanceCents: Math.max(0, (org.walletBalanceCents ?? 0) - net),
+      updatedAt: nowIso(),
+    });
+  }
+  // Sample leads, then the sample companies with everything of theirs.
   for (const lead of leads) await ctx.db.delete(lead._id);
   for (const company of companies) await deleteOrganization(ctx, company._id);
-  return { companies: companies.length, leads: leads.length };
+  return {
+    companies: companies.length,
+    leads: leads.length,
+    standingBids: standingBids.length,
+  };
 }
+
+// ---- Demo bids ----
+
+/** Standing bids by trade, per company (cycled by its place in name order): [county, dollars][]. */
+const DEMO_BID_PATTERNS: Record<string, Array<Array<[string, number]>>> = {
+  landscaping: [
+    [
+      ["Midland", 275],
+      ["Ector", 225],
+      ["Howard", 210],
+      ["Andrews", 215],
+    ],
+    // Deliberately more than this company's demo funds in Andrews.
+    [
+      ["Midland", 250],
+      ["Ector", 260],
+      ["Andrews", 900],
+    ],
+    [
+      ["Midland", 300],
+      ["Ector", 240],
+      ["Martin", 230],
+    ],
+    [
+      ["Midland", 265],
+      ["Ector", 255],
+      ["Howard", 235],
+    ],
+  ],
+  painting: [
+    [
+      ["Midland", 240],
+      ["Ector", 220],
+      ["Howard", 200],
+    ],
+  ],
+  default: [
+    [
+      ["Midland", 250],
+      ["Ector", 225],
+    ],
+  ],
+};
+const DEMO_FUNDS_CENTS = 150000;
+/** The second landscaper's funds, so its Andrews bid shows as unfunded. */
+const DEMO_SHORT_FUNDS_CENTS = 60000;
+
+// [name, phone, address, city, trade, what they need], oldest first.
+const DEMO_BID_LEADS: Array<[string, string, string, string, string, string]> =
+  [
+    [
+      "Hector Salinas",
+      "(432) 555-0141",
+      "1808 W Illinois Ave",
+      "Midland",
+      "landscaping",
+      "Front yard sod and a drip system, 1,800 sq ft.",
+    ],
+    [
+      "Marcy Odom",
+      "(432) 555-0167",
+      "3310 Maple Ave",
+      "Odessa",
+      "painting",
+      "Interior repaint, 3 bedrooms and hallway, walls only.",
+    ],
+    [
+      "Dale Whitfield",
+      "(432) 555-0192",
+      "702 E 11th Pl",
+      "Big Spring",
+      "landscaping",
+      "Remove two dead trees and regrade the side yard.",
+    ],
+    [
+      "Priya Raman",
+      "(432) 555-0204",
+      "5109 Greentree Blvd",
+      "Midland",
+      "general-construction",
+      "Enclose a back patio into a sunroom, about 220 sq ft.",
+    ],
+    [
+      "Bill Tran",
+      "(432) 555-0218",
+      "2411 N Grandview Ave",
+      "Odessa",
+      "landscaping",
+      "Backyard: flagstone patio and a raised bed along the fence.",
+    ],
+    [
+      "Leticia Barrera",
+      "(432) 555-0233",
+      "901 N St Peter St",
+      "Stanton",
+      "landscaping",
+      "Weekly mowing and bed cleanup for a rental, start this month.",
+    ],
+    [
+      "Gordon Pike",
+      "(432) 555-0251",
+      "4400 Andrews Hwy",
+      "Midland",
+      "painting",
+      "Exterior stucco repaint, single story, light color.",
+    ],
+    [
+      "Shannon Kerr",
+      "(432) 555-0266",
+      "1210 NW 8th St",
+      "Andrews",
+      "landscaping",
+      "Full front and back xeriscape with rock and native plants.",
+    ],
+    [
+      "Rosa Delgado",
+      "(432) 555-0279",
+      "3800 E 52nd St",
+      "Odessa",
+      "painting",
+      "Cabinet refinish, kitchen, white.",
+    ],
+    [
+      "Trent Mabry",
+      "(432) 555-0288",
+      "2706 Shell Ave",
+      "Midland",
+      "general-construction",
+      "Garage conversion to a home office with a half bath.",
+    ],
+    [
+      "Jolene Hart",
+      "(432) 555-0297",
+      "6201 Driftwood Dr",
+      "Midland",
+      "landscaping",
+      "Sprinkler rebuild, 8 zones, plus new sod in back.",
+    ],
+    // Nobody bids on these; they go to the Marketplace.
+    [
+      "Omar Haddad",
+      "(432) 555-0305",
+      "1500 W Wadley Ave",
+      "Midland",
+      "roofing",
+      "Hail damage, shingle roof, insurance claim in hand.",
+    ],
+    [
+      "Kaylee Burns",
+      "(806) 555-0312",
+      "4812 19th St",
+      "Lubbock",
+      "landscaping",
+      "New build front yard, sod and three trees.",
+    ],
+    [
+      "Victor Nunez",
+      "(432) 555-0326",
+      "2200 E 8th St",
+      "Odessa",
+      "hvac",
+      "AC not cooling upstairs, two-story, unit from 2011.",
+    ],
+  ];
+
+/**
+ * Gives every real company demo funds and a few standing bids, then lists
+ * leads that get awarded on the spot, so Bids, Results, Leads, balances and
+ * the Admin views all have something to show. Landscapers overlap in Midland
+ * and Ector so some are highest and some outbid; one bid is more than its
+ * company's funds. "Remove demo data" takes all of it back out.
+ */
+export const addDemoBids = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireSuperAdmin(ctx);
+    if (
+      (await ctx.db
+        .query("standingBids")
+        .filter((q) => q.eq(q.field("isSample"), true))
+        .first()) !== null
+    )
+      fail("INVALID", "Demo bids are already here");
+    const companies = (await ctx.db.query("organizations").take(1000))
+      .filter((org) => org.isActive && !org.isSample)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const seen: Record<string, number> = {};
+    const base = Date.now() - 4 * 24 * 60 * 60 * 1000;
+    let standingBids = 0;
+    for (const org of companies) {
+      const trades = org.leadTrades?.length
+        ? org.leadTrades
+        : ["general-construction"];
+      // Which landscaper (etc.) this is decides its pattern and its funds.
+      const slots = trades.map((trade) => {
+        const n = seen[trade] ?? 0;
+        seen[trade] = n + 1;
+        return { trade, n };
+      });
+      const short = slots.some((s) => s.trade === "landscaping" && s.n === 1);
+      await postTransaction(ctx, org._id, {
+        type: "top_up",
+        amountCents: short ? DEMO_SHORT_FUNDS_CENTS : DEMO_FUNDS_CENTS,
+        createdBy: user._id,
+        method: "Demo",
+        note: "Demo funds",
+        isSample: true,
+      });
+      for (const { trade, n } of slots) {
+        const patterns = DEMO_BID_PATTERNS[trade] ?? DEMO_BID_PATTERNS.default;
+        for (const [county, amount] of patterns[n % patterns.length]) {
+          const createdAt = new Date(
+            base + standingBids * 60_000,
+          ).toISOString();
+          await ctx.db.insert("standingBids", {
+            organizationId: org._id,
+            county,
+            jobType: trade,
+            amountCents: amount * 100,
+            createdBy: user._id,
+            createdAt,
+            updatedAt: createdAt,
+            isSample: true,
+          });
+          standingBids++;
+        }
+      }
+    }
+    // Leads over the last three days, oldest first; each is awarded as it lands.
+    let sold = 0;
+    const span = 3 * 24 * 60 * 60 * 1000;
+    for (const [
+      i,
+      [name, phone, address, city, jobType, notes],
+    ] of DEMO_BID_LEADS.entries()) {
+      const listedAt = new Date(
+        Date.now() - span + (span * (i + 1)) / (DEMO_BID_LEADS.length + 1),
+      ).toISOString();
+      const id = await listLead(
+        ctx,
+        { name, phone, address, city, jobType, notes },
+        user._id,
+        { listedAt, source: "Demo", isSample: true },
+      );
+      if ((await ctx.db.get(id))!.status === "assigned") sold++;
+    }
+    return {
+      companies: companies.length,
+      standingBids,
+      leads: DEMO_BID_LEADS.length,
+      sold,
+    };
+  },
+});

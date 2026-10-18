@@ -441,6 +441,8 @@ export default defineSchema({
     createdBy: v.id("users"),
     createdAt: v.string(),
     updatedAt: v.string(),
+    /** Added by "Add demo bids"; "Remove demo data" takes it out. */
+    isSample: v.optional(v.boolean()),
   })
     .index("by_organization", ["organizationId"])
     .index("by_county_and_type", ["county", "jobType"]),
@@ -462,6 +464,8 @@ export default defineSchema({
     marketplaceLeadId: v.optional(v.id("marketplaceLeads")),
     method: v.optional(v.string()),
     note: v.optional(v.string()),
+    /** Demo funds; reversed when demo data is removed. */
+    isSample: v.optional(v.boolean()),
     createdBy: v.id("users"),
     createdAt: v.string(),
   }).index("by_organization", ["organizationId"]),

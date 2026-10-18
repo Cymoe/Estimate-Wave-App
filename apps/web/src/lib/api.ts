@@ -442,6 +442,7 @@ export const marketplaceAPI = {
   reviewCredit: (orgLeadId: string, approve: boolean) => run('mutation', api.marketplace.reviewCredit, { orgLeadId, approve }),
   addDemoData: () => run('mutation', api.marketplace.addDemoData, {}),
   addSampleLeads: () => run('mutation', api.marketplace.addSampleLeads, {}),
+  addDemoBids: () => run('mutation', api.marketplace.addDemoBids, {}),
   removeDemoData: () => run('mutation', api.marketplace.removeDemoData, {}),
 };
 

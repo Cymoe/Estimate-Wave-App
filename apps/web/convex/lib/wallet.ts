@@ -71,6 +71,7 @@ export async function postTransaction(
     marketplaceLeadId?: Id<"marketplaceLeads">;
     method?: string;
     note?: string;
+    isSample?: boolean;
   },
 ): Promise<number> {
   if (!Number.isInteger(entry.amountCents) || entry.amountCents === 0)
