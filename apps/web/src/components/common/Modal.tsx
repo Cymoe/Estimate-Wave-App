@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
@@ -19,6 +19,22 @@ export const Modal: React.FC<ModalProps> = ({
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  // Fades in on the frame after it mounts, like the drawers.
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (!isOpen) {
+      setShown(false);
+      return;
+    }
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setShown(true));
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, [isOpen]);
 
   // Handle escape key press
   useEffect(() => {
@@ -33,9 +49,11 @@ export const Modal: React.FC<ModalProps> = ({
       // Store the currently focused element
       previousFocusRef.current = document.activeElement as HTMLElement;
       
-      // Focus the modal when it opens
+      // Focus the modal when it opens, unless something inside it already has focus
+      // (grabbing it back would drop the on-screen keyboard and make the dialog jump).
       setTimeout(() => {
-        modalRef.current?.focus();
+        const inside = modalRef.current?.contains(document.activeElement);
+        if (!inside) modalRef.current?.focus();
       }, 100);
     }
 
@@ -64,17 +82,17 @@ export const Modal: React.FC<ModalProps> = ({
 
   // Rendered at the top level so the backdrop covers the whole screen, navigation included.
   return createPortal(
-    <div className="fixed inset-0 z-[11000] flex items-center justify-center p-4">
-      {/* Backdrop with blur and darker opacity */}
+    <div className="fixed inset-0 z-[11000] flex items-start justify-center p-4 pt-[8vh]">
+      {/* Backdrop with blur and darker opacity. The dialog sits near the top so an on-screen keyboard never re-centres it. */}
       <div
-        className="fixed inset-0 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+        className={`fixed inset-0 bg-black/70 backdrop-blur-sm transition-opacity duration-200 ${shown ? 'opacity-100' : 'opacity-0'}`}
         onClick={onClose}
       />
       
       {/* Modal */}
       <div 
         ref={modalRef}
-        className={`relative w-full ${sizeClasses[size]} bg-[#1E1E1E] rounded-[4px] shadow-2xl border border-[#333333] max-h-[90vh] overflow-hidden animate-in slide-in-from-bottom duration-300`}
+        className={`relative w-full ${sizeClasses[size]} bg-[#1E1E1E] rounded-[4px] shadow-2xl border border-[#333333] max-h-[84vh] overflow-hidden transition-opacity duration-200 ${shown ? 'opacity-100' : 'opacity-0'}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
@@ -93,7 +111,7 @@ export const Modal: React.FC<ModalProps> = ({
         </div>
         
         {/* Content */}
-        <div className="overflow-y-auto max-h-[calc(90vh-80px)]">
+        <div className="overflow-y-auto max-h-[calc(84vh-80px)]">
           {children}
         </div>
       </div>

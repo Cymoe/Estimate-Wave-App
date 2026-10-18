@@ -424,7 +424,6 @@ function AddBidDialog({
           <div>
             <p className="text-sm text-white mb-2">Which counties do you work in?</p>
             <input
-              autoFocus
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => {
