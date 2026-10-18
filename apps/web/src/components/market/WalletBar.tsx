@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { Clock, Gavel, Inbox, TrendingUp, X } from 'lucide-react';
@@ -112,20 +112,42 @@ export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown
 };
 
 /** The Lead balance panel that slides in from the right: balance, what leads turned into, Add funds and history. */
-export function WalletDrawer({ wallet, onClose, onAddFunds }: { wallet: WalletSummary; onClose: () => void; onAddFunds: () => void }) {
+export function WalletDrawer({ wallet, onClose: closeNow, onAddFunds }: { wallet: WalletSummary; onClose: () => void; onAddFunds: () => void }) {
+  // Slides in and out like the estimate and lead drawers.
+  const [shown, setShown] = useState(false);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setShown(true));
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, []);
+  const close = useCallback(() => {
+    setShown(false);
+    window.setTimeout(closeNow, 150);
+  }, [closeNow]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close();
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [close]);
   const covered = leadsCovered(wallet);
   return createPortal(
     <>
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[10000]" onClick={onClose} />
-      <aside role="dialog" aria-label="Lead balance" className="fixed right-0 top-0 h-[100dvh] w-full md:w-[420px] bg-[#121212] border-l border-[#2A2A2A] z-[10001] flex flex-col">
+      <div className={`fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity z-[10000] ${shown ? 'opacity-100' : 'opacity-0'}`} onClick={close} />
+      <aside
+        role="dialog"
+        aria-label="Lead balance"
+        className={`fixed right-0 top-0 h-[100dvh] w-full md:w-[520px] bg-[#121212] border-l border-[#2A2A2A] shadow-xl z-[10001] flex flex-col transform transition-transform ${
+          shown ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#2A2A2A]">
           <h2 className="text-base font-semibold text-white">Lead balance</h2>
-          <button type="button" onClick={onClose} aria-label="Close" className="p-1 text-gray-400 hover:text-white">
+          <button type="button" onClick={close} aria-label="Close" className="p-1 text-gray-400 hover:text-white">
             <X className="w-5 h-5" />
           </button>
         </div>

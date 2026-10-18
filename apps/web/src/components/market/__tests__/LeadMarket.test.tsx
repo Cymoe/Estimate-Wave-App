@@ -174,6 +174,9 @@ describe("a company's lead balance", () => {
     await act(async () => (tile.querySelector('button[aria-label="Lead balance"]') as HTMLButtonElement).click());
     expect(document.body.querySelector('[aria-label="Lead balance"][role="dialog"]')?.textContent).toContain('Funds added · Zelle');
     await act(async () => (document.body.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click());
+    // It slides out first, then unmounts.
+    expect(document.body.querySelector('[role="dialog"]')?.className).toContain('translate-x-full');
+    await act(async () => new Promise((r) => setTimeout(r, 200)));
     expect(document.body.querySelector('[role="dialog"]')).toBeNull();
   });
 
