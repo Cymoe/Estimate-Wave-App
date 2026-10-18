@@ -1,6 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Check, Gavel, Plus, Trash2, Wallet } from 'lucide-react';
+import { Check, Gavel, Plus, Trash2 } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { Modal } from '../components/common/Modal';
 import { bidsAPI, industriesAPI, walletAPI } from '../lib/api';
@@ -105,22 +105,11 @@ const BidsPage: React.FC = () => {
 
   return (
     <div className="p-4 md:p-6 text-white">
-      <div className="flex flex-wrap items-end justify-between gap-3 mb-2">
-        <div>
-          <h1 className="text-xl font-semibold">Bids</h1>
-          <p className="text-sm text-gray-400">
-            {standing ? `${standing.length} standing bid${standing.length === 1 ? '' : 's'}` : 'Loading…'} · {won} lead{won === 1 ? '' : 's'} won
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-2 px-3 py-2 rounded border border-[#333] bg-[#121212] text-sm" data-testid="bids-balance">
-            <Wallet className="w-4 h-4 text-emerald-300" />
-            {money(balance)}
-          </span>
-          <button type="button" onClick={addFunds} className="px-3 py-2 rounded bg-[#336699] text-white text-sm font-medium">
-            Add funds
-          </button>
-        </div>
+      <div className="mb-2">
+        <h1 className="text-xl font-semibold">Bids</h1>
+        <p className="text-sm text-gray-400">
+          {standing ? `${standing.length} standing bid${standing.length === 1 ? '' : 's'}` : 'Loading…'} · {won} lead{won === 1 ? '' : 's'} won
+        </p>
       </div>
       <p className="text-xs text-gray-500 mb-4">
         Tell us where you work, what you do and what a lead is worth to you. When a matching lead comes in, the highest bid wins it on the spot and it

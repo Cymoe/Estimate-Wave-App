@@ -15,6 +15,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { FEATURES } from '../../config/features';
+import { WalletTile } from '../market/WalletTile';
 
 interface SidebarProps {
   isSidebarCollapsed: boolean;
@@ -487,6 +488,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
           )}
+
+          {/* Lead balance: always in view, opens the panel on the right */}
+          <WalletTile organizationId={selectedOrg.id || undefined} collapsed={isSidebarCollapsed} />
 
           {/* User Profile Section */}
           <div className="relative border-t border-gray-700">

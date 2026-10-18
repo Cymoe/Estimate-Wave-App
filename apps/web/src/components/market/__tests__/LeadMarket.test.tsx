@@ -66,6 +66,7 @@ jest.mock('../../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id
 
 import LeadMarketPage from '../../../pages/LeadMarketPage';
 import { WalletBar } from '../WalletBar';
+import { WalletTile } from '../WalletTile';
 import { LeadCredit } from '../LeadCredit';
 import { suggestedBonus } from '../wallet';
 
@@ -150,7 +151,7 @@ describe("a company's lead balance", () => {
     expect(container.textContent).toBe('');
   });
 
-  it('shows the balance in dollars, what leads turned into, and warns when it is running low', async () => {
+  it('shows what leads turned into and warns when the balance is low; the navigation tile shows the balance and opens the panel', async () => {
     wallet = {
       balanceCents: 6000,
       typicalLeadCents: 4500,
@@ -161,12 +162,19 @@ describe("a company's lead balance", () => {
       transactions: [{ id: 't1', type: 'top_up', amountCents: 23000, balanceAfterCents: 23000, method: 'Zelle', createdAt: '2026-10-10' }],
     };
     const container = await render(<WalletBar organizationId="o2" />);
-    expect(container.textContent).toContain('$60.00');
-    expect(container.textContent).toContain('about 1 lead');
+    // The balance itself lives in the navigation, not here.
+    expect(container.textContent).not.toContain('$60.00');
     expect(container.textContent).toContain('$170.00 in leads → $12,000.00 won');
     expect(container.querySelector('[role="alert"]')?.textContent).toContain('covers about 1 more lead');
-    await act(async () => byText('$60.00')!.click());
+
+    document.body.innerHTML = '';
+    const tile = await render(<WalletTile organizationId="o2" />);
+    expect(tile.textContent).toContain('$60.00');
+    expect(tile.textContent).toContain('about 1 lead');
+    await act(async () => (tile.querySelector('button[aria-label="Lead balance"]') as HTMLButtonElement).click());
     expect(document.body.querySelector('[aria-label="Lead balance"][role="dialog"]')?.textContent).toContain('Funds added · Zelle');
+    await act(async () => (document.body.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click());
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
   });
 
   it('lets a company ask for a credit on a bought lead within 3 days', async () => {

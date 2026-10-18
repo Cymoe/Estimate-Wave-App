@@ -1,9 +1,9 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { MapPin, Sparkles, Wallet } from 'lucide-react';
+import { MapPin, Sparkles } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { walletAPI } from '../lib/api';
 import { money } from '../components/market/wallet';
-import { openFundingPage, type WalletSummary } from '../components/market/WalletBar';
+import { notifyWalletChanged, openFundingPage, type WalletSummary } from '../components/market/WalletBar';
 import { fillTimeMs, priceAt, type Auction } from '../services/auction';
 
 export interface FeedLead {
@@ -104,6 +104,7 @@ export const MarketplaceFeed: React.FC<{ embedded?: boolean }> = ({ embedded = f
       setConfirming(null);
       setOrdering(null);
       await load().catch(() => {});
+      notifyWalletChanged();
     }
   };
   const buyNow = (lead: FeedLead) =>
@@ -222,22 +223,11 @@ export const MarketplaceFeed: React.FC<{ embedded?: boolean }> = ({ embedded = f
 
   return (
     <div className={embedded ? 'text-white' : 'p-4 md:p-6 text-white'}>
-      <div className="flex flex-wrap items-end justify-between gap-3 mb-2">
-        <div>
-          {!embedded && <h1 className="text-xl font-semibold">Marketplace</h1>}
-          <p className="text-sm text-gray-400">
-            {leads ? `${leads.length} lead${leads.length === 1 ? '' : 's'}` : 'Loading…'} · {openOrders.length} buy order{openOrders.length === 1 ? '' : 's'} open
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-2 px-3 py-2 rounded border border-[#333] bg-[#121212] text-sm" data-testid="marketplace-balance">
-            <Wallet className="w-4 h-4 text-emerald-300" />
-            {money(balance)}
-          </span>
-          <button type="button" onClick={addFunds} className="px-3 py-2 rounded bg-[#336699] text-white text-sm font-medium">
-            Add funds
-          </button>
-        </div>
+      <div className="mb-2">
+        {!embedded && <h1 className="text-xl font-semibold">Marketplace</h1>}
+        <p className="text-sm text-gray-400">
+          {leads ? `${leads.length} lead${leads.length === 1 ? '' : 's'}` : 'Loading…'} · {openOrders.length} buy order{openOrders.length === 1 ? '' : 's'} open
+        </p>
       </div>
       <p className="text-xs text-gray-500 mb-4">
         Prices drop on a schedule until someone buys. Buy now at the current price, or place a buy order at the price you’d pay and it fills on its own.

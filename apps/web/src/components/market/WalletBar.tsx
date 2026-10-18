@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
-import { Clock, Gavel, Inbox, TrendingUp, Wallet, X } from 'lucide-react';
+import { Clock, Gavel, Inbox, TrendingUp, X } from 'lucide-react';
 import { fundingAPI, walletAPI } from '../../lib/api';
 import { WalletHistory, money } from './wallet';
 
@@ -26,19 +26,22 @@ export async function openFundingPage(organizationId: string) {
   window.location.assign(fundingAPI.url(token));
 }
 
+/** Fired on `window` when a page moved money, so the balance in the navigation refreshes. */
+export const WALLET_CHANGED = 'fieldquote:wallet-changed';
+export const notifyWalletChanged = () => window.dispatchEvent(new Event(WALLET_CHANGED));
+
 /** How many leads the balance covers, at the company's typical lead price. */
 export const leadsCovered = (wallet: WalletSummary) =>
   wallet.typicalLeadCents > 0 ? Math.floor(wallet.balanceCents / wallet.typicalLeadCents) : 0;
 
 /**
- * The company's lead balance on the Leads page: a chip that opens the wallet,
- * a link to the Marketplace when leads are waiting, and a nudge when the
- * balance is about to run out. Hidden for companies that don't buy leads
- * from FieldQuote.
+ * Lead notices on the Leads page: a link to the Marketplace when leads are
+ * waiting, what bought leads turned into, and a nudge when the balance is
+ * about to run out. The balance itself lives in the navigation (WalletTile).
+ * Hidden for companies that don't buy leads from FieldQuote.
  */
 export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown }> = ({ organizationId, refreshKey }) => {
   const [wallet, setWallet] = useState<WalletSummary | null>(null);
-  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     if (!organizationId) return;
@@ -61,17 +64,7 @@ export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-2 mb-4">
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded border border-[#333] bg-[#121212] text-sm [@media(hover:hover)]:hover:bg-[#1E1E1E] active:bg-[#1E1E1E]"
-          aria-label="Lead balance"
-        >
-          <Wallet className="w-4 h-4 text-emerald-300" />
-          <span className="text-white font-medium">{money(wallet.balanceCents)}</span>
-          <span className="text-gray-400">· about {covered} lead{covered === 1 ? '' : 's'}</span>
-        </button>
+      <div className="flex flex-wrap items-center gap-2 mb-4 empty:hidden">
         {(wallet.availableLeads ?? 0) > 0 && (
           <Link
             to="/bids?tab=marketplace"
@@ -114,12 +107,12 @@ export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown
           </button>
         </div>
       )}
-      {open && <WalletDrawer wallet={wallet} onClose={() => setOpen(false)} onAddFunds={addFunds} />}
     </>
   );
 };
 
-function WalletDrawer({ wallet, onClose, onAddFunds }: { wallet: WalletSummary; onClose: () => void; onAddFunds: () => void }) {
+/** The Lead balance panel that slides in from the right: balance, what leads turned into, Add funds and history. */
+export function WalletDrawer({ wallet, onClose, onAddFunds }: { wallet: WalletSummary; onClose: () => void; onAddFunds: () => void }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);

@@ -3,6 +3,7 @@ import { X, ChevronRight, User, Building, CreditCard, HelpCircle, LogOut } from 
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { FEATURES } from '../../config/features';
+import { WalletTile } from '../market/WalletTile';
 
 interface MobileMenuProps {
   isOpen: boolean;
@@ -195,6 +196,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
 
           {/* User Actions */}
           <div className="space-y-1">
+            <WalletTile organizationId={selectedOrg.id || undefined} variant="menu" onOpen={onClose} />
             {user?.role === 'super_admin' && (
               <button
                 onClick={() => {
