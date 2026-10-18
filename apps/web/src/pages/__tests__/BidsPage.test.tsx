@@ -69,13 +69,17 @@ describe('Bids', () => {
     expect(dialog()).toBeNull();
     await act(async () => byText('Set your bids')!.click());
     expect(dialog()?.textContent).toContain('Which counties do you work in?');
-    const counties = dialog()!.querySelector('[aria-label="Counties"]')!;
-    // West Texas first.
-    expect(counties.textContent?.startsWith('MidlandEctorHoward')).toBe(true);
     expect(byText('Next')!.disabled).toBe(true);
-    const tick = (name: string) => act(async () => (Array.from(counties.querySelectorAll('label')).find((l) => l.textContent === name)!.querySelector('input') as HTMLInputElement).click());
-    await tick('Midland');
-    await tick('Ector');
+    // Type a county, or a town and get its county.
+    const matches = () => Array.from(dialog()!.querySelectorAll('[aria-label="Counties"] button'));
+    await act(async () => type(input('Search counties'), 'Mid'));
+    expect(matches().map((b) => b.textContent)).toEqual(['Midland County']);
+    await act(async () => (matches()[0] as HTMLButtonElement).click());
+    await act(async () => type(input('Search counties'), 'Odessa'));
+    expect(matches()[0].textContent).toBe('Ector CountyOdessa is in Ector County');
+    await act(async () => (matches()[0] as HTMLButtonElement).click());
+    expect(dialog()!.querySelector('[aria-label="Chosen counties"]')?.textContent).toBe('Midland CountyEctor County');
+    expect(input('Search counties').value).toBe('');
     await act(async () => byText('Next')!.click());
     // Their own trade is preselected.
     const service = dialog()!.querySelector('select[aria-label="Service type"]') as HTMLSelectElement;

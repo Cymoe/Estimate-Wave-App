@@ -1,12 +1,12 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
-import { Check, Gavel, Plus, Trash2 } from 'lucide-react';
+import { Check, Gavel, Plus, Trash2, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { Modal } from '../components/common/Modal';
 import { bidsAPI, industriesAPI, walletAPI } from '../lib/api';
 import { money } from '../components/market/wallet';
 import { openFundingPage, type WalletSummary } from '../components/market/WalletBar';
-import { COUNTY_CHOICES, WEST_TEXAS_COUNTIES } from '../services/counties';
+import { TEXAS_COUNTIES, countyForTown } from '../services/counties';
 
 interface Trade {
   id: string;
@@ -96,11 +96,19 @@ const BidsPage: React.FC = () => {
 
   return (
     <div className="p-4 md:p-6 text-white">
-      <div className="mb-2">
-        <h1 className="text-xl font-semibold">Bids</h1>
-        <p className="text-sm text-gray-400">
-          {standing ? `${standing.length} standing bid${standing.length === 1 ? '' : 's'}` : 'Loading…'} · {won} lead{won === 1 ? '' : 's'} won
-        </p>
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div>
+          <h1 className="text-xl font-semibold">Bids</h1>
+          <p className="text-sm text-gray-400">
+            {standing ? `${standing.length} standing bid${standing.length === 1 ? '' : 's'}` : 'Loading…'} · {won} lead{won === 1 ? '' : 's'} won
+          </p>
+        </div>
+        {standing && (
+          <button type="button" onClick={() => setAdding(true)} className={primary}>
+            <Plus className="w-4 h-4" />
+            {standing.length === 0 ? 'Set your bids' : 'Add bid'}
+          </button>
+        )}
       </div>
       <p className="text-xs text-gray-500 mb-4">
         Where you work, what you do and what a lead is worth to you. Matching leads go to the highest bid the moment they come in and land in your Leads.
@@ -148,6 +156,7 @@ const BidsPage: React.FC = () => {
           preferredTrades={wallet?.leadTrades ?? []}
           balance={balance}
           firstTime={standing?.length === 0}
+          suggested={[...new Set((standing ?? []).map((b) => b.county))]}
           onClose={() => setAdding(false)}
           onSaved={load}
           onNotify={notify}
@@ -285,12 +294,6 @@ function StandingTab({
           ))}
         </tbody>
       </table>
-      <div className="flex justify-end">
-        <button type="button" onClick={onAdd} className={secondary}>
-          <Plus className="w-4 h-4" />
-          Add bid
-        </button>
-      </div>
     </div>
   );
 }
@@ -327,6 +330,7 @@ function AddBidDialog({
   preferredTrades,
   balance,
   firstTime,
+  suggested,
   onClose,
   onSaved,
   onNotify,
@@ -337,6 +341,8 @@ function AddBidDialog({
   preferredTrades: string[];
   balance: number;
   firstTime: boolean;
+  /** Counties the company already bids in, offered first. */
+  suggested: string[];
   onClose: () => void;
   onSaved: () => Promise<void>;
   onNotify: (text: string, good?: boolean) => void;
@@ -353,12 +359,21 @@ function AddBidDialog({
     const preferred = trades.filter((t) => preferredTrades.includes(t.id));
     return [...preferred, ...trades.filter((t) => !preferredTrades.includes(t.id))];
   }, [trades, preferredTrades]);
-  const shown = useMemo(() => {
+  // Type a county or a town: "Mid" finds Midland, "Odessa" finds Ector.
+  const matches = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (q) return COUNTY_CHOICES.filter((c) => c.toLowerCase().includes(q));
-    return [...new Set([...counties, ...WEST_TEXAS_COUNTIES])];
-  }, [search, counties]);
-  const toggle = (county: string) => setCounties((c) => (c.includes(county) ? c.filter((x) => x !== county) : [...c, county]));
+    if (!q) return suggested.filter((c) => !counties.includes(c)).map((county) => ({ county, via: undefined as string | undefined }));
+    const town = countyForTown(search);
+    const starts = TEXAS_COUNTIES.filter((c) => c.toLowerCase().startsWith(q));
+    const within = TEXAS_COUNTIES.filter((c) => !c.toLowerCase().startsWith(q) && c.toLowerCase().includes(q));
+    const out = [...(town ? [{ county: town, via: search.trim() }] : []), ...[...starts, ...within].map((county) => ({ county, via: undefined as string | undefined }))];
+    return out.filter((m, i) => !counties.includes(m.county) && out.findIndex((o) => o.county === m.county) === i).slice(0, 8);
+  }, [search, counties, suggested]);
+  const add = (county: string) => {
+    setCounties((c) => (c.includes(county) ? c : [...c, county]));
+    setSearch('');
+  };
+  const remove = (county: string) => setCounties((c) => c.filter((x) => x !== county));
 
   const dollars = Number(amount);
   const amountOk = Number.isFinite(dollars) && dollars >= MIN_BID;
@@ -401,24 +416,43 @@ function AddBidDialog({
         {step === 1 && (
           <div>
             <p className="text-sm text-white mb-2">Which counties do you work in?</p>
+            {counties.length > 0 && (
+              <ul className="flex flex-wrap gap-1.5 mb-2" aria-label="Chosen counties">
+                {counties.map((county) => (
+                  <li key={county} className="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-full bg-[#336699]/20 border border-[#336699]/50 text-sm text-white">
+                    {county} County
+                    <button type="button" onClick={() => remove(county)} aria-label={`Remove ${county}`} className="p-0.5 text-gray-400 hover:text-white">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
             <input
+              autoFocus
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search Texas counties"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && matches[0]) {
+                  e.preventDefault();
+                  add(matches[0].county);
+                }
+              }}
+              placeholder="Type a county or town, like Midland or Odessa"
               aria-label="Search counties"
-              className={`${input} w-full mb-2`}
+              className={`${input} w-full`}
             />
-            <ul className="grid grid-cols-2 sm:grid-cols-3 gap-1 max-h-60 overflow-y-auto" aria-label="Counties">
-              {shown.map((county) => (
-                <li key={county}>
-                  <label className={`flex items-center gap-2 px-2 py-1.5 rounded text-sm cursor-pointer ${counties.includes(county) ? 'bg-[#336699]/20 text-white' : 'text-gray-300 hover:bg-[#1E1E1E]'}`}>
-                    <input type="checkbox" checked={counties.includes(county)} onChange={() => toggle(county)} className="accent-[#336699]" />
-                    {county}
-                  </label>
+            <ul className="mt-1 max-h-56 overflow-y-auto divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded empty:hidden" aria-label="Counties">
+              {matches.map((m) => (
+                <li key={m.county}>
+                  <button type="button" onClick={() => add(m.county)} className="w-full flex items-center justify-between px-3 py-2 text-left text-sm text-gray-200 hover:bg-[#1E1E1E]">
+                    <span>{m.county} County</span>
+                    {m.via ? <span className="text-xs text-gray-500">{m.via} is in {m.county} County</span> : search.trim() === '' ? <span className="text-xs text-gray-500">you bid here</span> : null}
+                  </button>
                 </li>
               ))}
             </ul>
-            <p className="text-xs text-gray-400 mt-2 min-h-[1rem]">{counties.length > 0 ? counties.map((c) => `${c} County`).join(', ') : 'Pick one or more.'}</p>
+            <p className="text-xs text-gray-500 mt-2">Add as many counties as you work in. Any Texas county works; type to find it.</p>
             <div className="flex justify-end mt-4">
               <button type="button" disabled={counties.length === 0} onClick={() => setStep(2)} className={primary}>
                 Next
