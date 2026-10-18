@@ -302,7 +302,7 @@ function SendToDialog({
   return (
     <Dialog title={`Send ${lead.name}`} onClose={onClose}>
       <p className="text-sm text-gray-400 mb-4">
-        {tradeName(lead.jobType)} lead · <span className="text-white font-medium">{money(lead.price)}</span> comes off the company's balance.
+        {tradeName(lead.jobType)} lead · <span className="text-white font-medium">{money(lead.price)}</span> (its current price) comes off the company's balance, and any buy orders on it are closed.
         Only one company gets it.
       </p>
       {error && <p className="text-sm text-red-400 mb-3">{error}</p>}
@@ -907,15 +907,15 @@ const LeadMarketPage: React.FC = () => {
       <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-xl font-semibold">Lead Market</h1>
+            <h1 className="text-xl font-semibold">Admin</h1>
             <span className="text-xs px-2 py-0.5 rounded-full border border-[#336699]/60 bg-[#336699]/15 text-[#cfe2f5]">
-              Platform admin · all companies
+              Platform owner · only you see this
             </span>
           </div>
           <p className="text-sm text-gray-400">
-            {inbox.available.length} leads waiting · {money(totals.spent)} sold in 30 days · {money(totals.balance)} in company balances
+            {inbox.available.length} listed · {money(totals.spent)} sold in 30 days · {money(totals.balance)} in company balances
           </p>
-          <p className="text-xs text-gray-500 mt-0.5">Companies never see this page. They only see their own leads and balance.</p>
+          <p className="text-xs text-gray-500 mt-0.5">Leads you list here sell on their own in the Marketplace. Sending one by hand is the exception.</p>
         </div>
         <div className="flex rounded border border-[#333] overflow-hidden" role="tablist">
           {(
@@ -981,7 +981,7 @@ const LeadMarketPage: React.FC = () => {
           {inbox.available.length === 0 ? (
             <div className="border border-dashed border-[#333] rounded p-8 text-center">
               <Inbox className="w-8 h-8 mx-auto text-gray-500 mb-2" />
-              <p className="text-sm text-gray-400">No leads waiting. Add one with the yellow + button.</p>
+              <p className="text-sm text-gray-400">Nothing listed. Add a lead with the yellow + button.</p>
               <div className="flex justify-center gap-2 mt-4 flex-wrap">
                 {sampleButton}
                 {!hasDemo && (
@@ -992,7 +992,7 @@ const LeadMarketPage: React.FC = () => {
               </div>
             </div>
           ) : (
-            <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Leads waiting">
+            <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Listed">
               {inbox.available.map((lead) => (
                 <li key={lead.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
                   <div className="flex-1 min-w-[12rem]">
@@ -1027,9 +1027,14 @@ const LeadMarketPage: React.FC = () => {
                       </span>
                     )}
                   </span>
-                  <button type="button" onClick={() => setSending(lead)} className={primary}>
+                  <button
+                    type="button"
+                    onClick={() => setSending(lead)}
+                    title="Send to a company by hand (the exception: the Marketplace sells leads on its own)"
+                    aria-label={`Send ${lead.name} to a company`}
+                    className="p-2 text-gray-400 hover:text-white"
+                  >
                     <Send className="w-4 h-4" />
-                    Send to…
                   </button>
                   <button
                     type="button"

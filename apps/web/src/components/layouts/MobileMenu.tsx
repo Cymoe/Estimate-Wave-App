@@ -116,23 +116,6 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
             <span>Leads</span>
           </NavLink>
 
-          {user?.role === 'super_admin' && (
-            <NavLink
-              to="/lead-market"
-              onClick={onClose}
-              className={({ isActive }) =>
-                `flex items-center gap-3 p-3 rounded-[4px] transition-colors ${
-                  isActive
-                    ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border border-[#336699]/50 text-white'
-                    : 'hover:bg-[#333333] text-gray-300'
-                }`
-              }
-            >
-              <span className="text-lg">$</span>
-              <span>Lead Market</span>
-            </NavLink>
-          )}
-
           <NavLink
             to="/marketplace"
             onClick={onClose}
@@ -212,6 +195,18 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
 
           {/* User Actions */}
           <div className="space-y-1">
+            {user?.role === 'super_admin' && (
+              <button
+                onClick={() => {
+                  navigate('/lead-market');
+                  onClose();
+                }}
+                className="w-full text-left p-3 hover:bg-[#333333] rounded-[4px] transition-colors text-gray-300"
+              >
+                <span>Admin</span>
+                <span className="block text-xs text-gray-500">Leads, prices, companies</span>
+              </button>
+            )}
             <button
               onClick={() => {
                 navigate('/profile');

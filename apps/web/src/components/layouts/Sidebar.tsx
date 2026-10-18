@@ -206,58 +206,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
             </NavLink>
 
-            {/* Lead Market (platform admins) */}
-            {user?.role === 'super_admin' && (
-              <NavLink
-                to="/lead-market"
-                className={({ isActive }) =>
-                  isActive
-                    ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
-                    : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
-                }
-                title={isSidebarCollapsed ? "Lead Market - Sell leads to companies" : undefined}
-              >
-                {({ isActive }) => (
-                  <div className="relative z-10 flex flex-col items-center">
-                    <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      <span className="text-base">$</span>
-                    </div>
-                    {!isSidebarCollapsed && (
-                      <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                        Lead Market
-                      </span>
-                    )}
+            {/* Marketplace */}
+            <NavLink
+              to="/marketplace"
+              className={({ isActive }) =>
+                isActive
+                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
+                  : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
+              }
+              title={isSidebarCollapsed ? "Marketplace - Buy leads for your trades" : undefined}
+            >
+              {({ isActive }) => (
+                <div className="relative z-10 flex flex-col items-center">
+                  <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
+                    <span className="text-base">🛒</span>
                   </div>
-                )}
-              </NavLink>
-            )}
-
-            {/* Marketplace (companies; admins get it below) */}
-            {user?.role !== 'super_admin' && (
-              <NavLink
-                to="/marketplace"
-                className={({ isActive }) =>
-                  isActive
-                    ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
-                    : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
-                }
-                title={isSidebarCollapsed ? "Marketplace - Buy leads for your trades" : undefined}
-              >
-                {({ isActive }) => (
-                  <div className="relative z-10 flex flex-col items-center">
-                    <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      <span className="text-base">🛒</span>
-                    </div>
-                    {!isSidebarCollapsed && (
-                      <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                        Marketplace
-                      </span>
-                    )}
-                  </div>
-                )}
-              </NavLink>
-            )}
-
+                  {!isSidebarCollapsed && (
+                    <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
+                      Marketplace
+                    </span>
+                  )}
+                </div>
+              )}
+            </NavLink>
             {/* Estimates */}
             <NavLink
               to="/work"
@@ -309,32 +280,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </>
               )}
             </NavLink>
-
-            {/* Marketplace, as a company sees it (admins) */}
-            {user?.role === 'super_admin' && (
-              <NavLink
-                to="/marketplace"
-                className={({ isActive }) =>
-                  isActive
-                    ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
-                    : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
-                }
-                title={isSidebarCollapsed ? "Marketplace - Buy leads for your trades" : undefined}
-              >
-                {({ isActive }) => (
-                  <div className="relative z-10 flex flex-col items-center">
-                    <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      <span className="text-base">🛒</span>
-                    </div>
-                    {!isSidebarCollapsed && (
-                      <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                        Marketplace
-                      </span>
-                    )}
-                  </div>
-                )}
-              </NavLink>
-            )}
 
             {/* Projects */}
             {FEATURES.projects && (
@@ -555,6 +500,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   right: isSidebarCollapsed ? '16px' : '16px'
                 }}
               >
+                {user?.role === 'super_admin' && (
+                  <button
+                    onClick={() => {
+                      navigate('/lead-market');
+                      setIsProfileMenuOpen(false);
+                    }}
+                    className="w-full text-left px-4 py-3 text-sm text-white hover:bg-[#3A3A3A] transition-colors duration-200 border-b border-[#404040]"
+                  >
+                    <span className="font-['Roboto']">Admin</span>
+                    <span className="block text-xs text-gray-400">Leads, prices, companies</span>
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     navigate('/profile');

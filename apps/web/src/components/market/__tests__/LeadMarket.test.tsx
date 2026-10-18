@@ -97,7 +97,7 @@ describe('Lead Market', () => {
   it('sends a lead to one company, listing ones that buy the trade first and greying out ones that can’t afford it', async () => {
     await render(<LeadMarketPage />);
     expect(document.body.textContent).toContain('Jane Cole');
-    await act(async () => byText('Send to')!.click());
+    await act(async () => (document.body.querySelector('button[aria-label^="Send "]') as HTMLButtonElement).click());
     const dialog = document.body.querySelector('[role="dialog"]')!;
     const options = Array.from(dialog.querySelectorAll('li button')) as HTMLButtonElement[];
     expect(options.map((b) => b.textContent?.split('Buys')[0].split('Other')[0])).toEqual(['Peak Roofing', 'Broke Roofing', 'Ace Painting']);
@@ -198,7 +198,7 @@ describe('loading the balance and buying leads', () => {
 
   it('sets an owner, and removes an empty company (only offered for empty ones)', async () => {
     await render(<LeadMarketPage />);
-    expect(document.body.textContent).toContain('Platform admin · all companies');
+    expect(document.body.textContent).toContain('Platform owner · only you see this');
     await act(async () => byText('Companies')!.click());
     await flush();
     const row = (name: string) => Array.from(document.body.querySelectorAll('tr')).find((r) => r.textContent?.includes(name))!;
