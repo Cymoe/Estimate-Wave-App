@@ -29,6 +29,7 @@ import {
 } from "./lib/wallet";
 import {
   type Pricing,
+  MIN_START_CENTS,
   fillTimeMs,
   priceAt,
   pricingFor as pricingFrom,
@@ -431,6 +432,8 @@ export const setLeadPrice = mutation({
       return;
     }
     const priceCents = toCents(price);
+    if (priceCents < MIN_START_CENTS)
+      fail("INVALID", `Leads start at ${dollars(MIN_START_CENTS)} or more`);
     const floorCents = floor == null ? undefined : toCents(floor);
     if (floorCents !== undefined && floorCents > priceCents)
       fail("INVALID", "The floor can't be above the start price");
@@ -1179,19 +1182,19 @@ const DEMO_COMPANIES: Array<{
     email: "hello@midlandhandyman.example",
     city: "Midland",
     leadTrades: ["handyman"],
-    payment: 150,
+    payment: 500,
     method: "Cash",
   },
 ];
 
 const DEMO_PRICES: Record<string, number> = {
-  default: 45,
-  roofing: 85,
-  hvac: 65,
-  concrete: 60,
-  plumbing: 45,
-  painting: 35,
-  handyman: 25,
+  default: 200,
+  roofing: 285,
+  hvac: 265,
+  concrete: 260,
+  plumbing: 245,
+  painting: 235,
+  handyman: 225,
 };
 
 // [name, phone, address, city, trade, what they need]

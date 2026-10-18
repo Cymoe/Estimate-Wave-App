@@ -797,11 +797,11 @@ function PricesTab({ trades }: { trades: Trade[] }) {
   return (
     <div className="max-w-3xl">
       <p className="text-sm text-gray-400 mb-3">
-        A lead is listed at the start price and drops to the floor over the day, where it stays until bought. Trades left blank use the default row.
+        A lead is listed at the start price ($200 or more) and drops to the floor over the day, where it stays until bought. Trades left blank use the default row.
       </p>
       {error && <p className="text-sm text-red-400 mb-3">{error}</p>}
       <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded">
-        {row('default', 'Default (every other trade)', '45')}
+        {row('default', 'Default (every other trade)', '200')}
         {trades.map((t) => row(t.id, t.name, drafts.default?.price ?? ''))}
       </ul>
     </div>

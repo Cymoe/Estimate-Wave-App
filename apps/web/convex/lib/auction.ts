@@ -8,6 +8,8 @@ export const MINUTE_MS = 60 * 1000;
 export const DEFAULT_DROPS = 23;
 export const DEFAULT_DROP_EVERY_MS = 60 * MINUTE_MS;
 export const MIN_FLOOR_CENTS = 500;
+/** No lead lists for less than this. */
+export const MIN_START_CENTS = 20000;
 
 /** The schedule a lead was listed with. All amounts are whole cents. */
 export type Auction = {
@@ -23,8 +25,9 @@ export type Pricing = Omit<Auction, "listedAt">;
 
 /**
  * Fills in a trade's pricing from what the admin set. Only the start price
- * is required: the floor defaults to 20% of it (at least $5), and the step
- * is whatever gets from start to floor in `DEFAULT_DROPS` hourly drops.
+ * is required (never below `MIN_START_CENTS`): the floor defaults to 20% of
+ * it (at least $5), and the step is whatever gets from start to floor in
+ * `DEFAULT_DROPS` hourly drops.
  */
 export function pricingFor(input: {
   priceCents: number;
@@ -32,7 +35,7 @@ export function pricingFor(input: {
   dropCents?: number;
   dropEveryMinutes?: number;
 }): Pricing {
-  const startCents = Math.max(0, Math.round(input.priceCents));
+  const startCents = Math.max(MIN_START_CENTS, Math.round(input.priceCents));
   const floorCents = Math.min(
     startCents,
     Math.max(

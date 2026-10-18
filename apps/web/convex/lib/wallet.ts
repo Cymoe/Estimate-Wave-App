@@ -10,7 +10,7 @@ import {
 
 type TransactionType = Doc<"walletTransactions">["type"];
 
-export const DEFAULT_LEAD_PRICE_CENTS = 4500;
+export const DEFAULT_LEAD_PRICE_CENTS = 20000;
 
 export const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
