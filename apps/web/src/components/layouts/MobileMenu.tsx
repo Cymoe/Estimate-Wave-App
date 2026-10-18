@@ -4,6 +4,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { FEATURES } from '../../config/features';
 import { WalletTile } from '../market/WalletTile';
+import { planLabel, usePlan } from '../market/plan';
 
 interface MobileMenuProps {
   isOpen: boolean;
@@ -25,6 +26,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
   const [orgDropdownOpen, setOrgDropdownOpen] = React.useState(false);
+  const { plan } = usePlan(selectedOrg.id || undefined);
 
   if (!isOpen) return null;
 
@@ -204,7 +206,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
                 <div className="text-white font-medium">
                   {user?.user_metadata?.full_name || 'User'}
                 </div>
-                <div className="text-gray-400 text-sm">Admin • Pro Plan</div>
+                <div className="text-gray-400 text-sm">{planLabel(plan)}</div>
               </div>
             </div>
           </div>

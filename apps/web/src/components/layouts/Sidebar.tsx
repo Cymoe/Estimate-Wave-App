@@ -16,6 +16,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { FEATURES } from '../../config/features';
 import { WalletTile } from '../market/WalletTile';
+import { planLabel, usePlan } from '../market/plan';
 
 interface SidebarProps {
   isSidebarCollapsed: boolean;
@@ -72,6 +73,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const location = useLocation();
   const { user, signOut } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const { plan, active: planActive } = usePlan(selectedOrg.id || undefined);
+  // A small lock on the tiles the plan covers, when it isn't on.
+  const lock = !planActive && (
+    <span className="absolute top-1 right-1 text-[10px] leading-none text-gray-500" aria-label="On the plan">
+      🔒
+    </span>
+  );
   const profileDropdownRef = useRef<HTMLDivElement>(null);
   const profileButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -269,6 +277,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <div className={`mb-1 ${isActive || location.pathname.startsWith('/work') || location.pathname.startsWith('/estimates') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
                       <span className="text-base">📝</span>
                     </div>
+                    {lock}
                     {!isSidebarCollapsed && (
                       <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/work') || location.pathname.startsWith('/estimates') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
                         Estimates
@@ -295,6 +304,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <div className={`mb-1 ${isActive || location.pathname.startsWith('/price-book') || location.pathname.startsWith('/items') || location.pathname.startsWith('/cost-codes') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
                       <span className="text-base">📒</span>
                     </div>
+                    {lock}
                     {!isSidebarCollapsed && (
                       <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/price-book') || location.pathname.startsWith('/items') || location.pathname.startsWith('/cost-codes') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
                         Price Book
@@ -322,6 +332,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <div className={`mb-1 ${isActive || location.pathname.startsWith('/projects') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
                       <span className="text-base">🏗</span>
                     </div>
+                    {lock}
                     {!isSidebarCollapsed && (
                       <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/projects') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
                         Projects
@@ -571,7 +582,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 
                 <button
                   onClick={() => {
-                    navigate('/billing');
+                    navigate('/plan');
                     setIsProfileMenuOpen(false);
                   }}
                   className="w-full text-left px-4 py-3 text-sm text-white hover:bg-[#3A3A3A] transition-colors duration-200"
@@ -636,7 +647,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       {user?.user_metadata?.full_name || 'User'}
                     </p>
                     <p className="text-xs text-gray-400 truncate">
-                      Admin • Pro Plan
+                      {planLabel(plan)}
                     </p>
                   </div>
                 </div>

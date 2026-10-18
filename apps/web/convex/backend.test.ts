@@ -1176,7 +1176,7 @@ describe("smoke tests and demo data", () => {
     expect(await mio.as.query(api.leads.list, { organizationId: mio.organizationId })).toHaveLength(1 + mioResults.filter((r) => r.won).length);
 
     // Everything comes back out, and balances are what they were.
-    expect(await admin.as.mutation(api.marketplace.removeDemoData, {})).toEqual({ companies: 0, leads: 14, standingBids: 12 });
+    expect(await admin.as.mutation(api.marketplace.removeDemoData, {})).toEqual({ companies: 0, leads: 16, standingBids: 12 });
     expect(await mio.as.query(api.bids.listStanding, { organizationId: mio.organizationId })).toHaveLength(0);
     expect(await mio.as.query(api.bids.results, { organizationId: mio.organizationId })).toHaveLength(0);
     expect(await balanceOf(mio)).toBe(30000);
@@ -1700,5 +1700,146 @@ describe("standing bids and instant awards", () => {
     expect(sold).toMatchObject({ status: "assigned", priceCents: 30000, assignedOrganizationId: soco.organizationId });
     expect((await results(mio))[0]).toMatchObject({ won: false, outcome: expect.stringMatching(/Balance too low/) });
     expect((await results(soco))[0]).toMatchObject({ won: true, myBidCents: 30000 });
+  });
+});
+
+describe("older leads and the monthly plan", () => {
+  const DAY = 24 * 3_600_000;
+  async function market() {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-01T12:00:00.000Z"));
+    const t = setup();
+    const admin = await signUp(t, "admin@fieldquote.example", { role: "super_admin" });
+    const roofer = await signUp(t, "roofer@example.com");
+    const rival = await signUp(t, "rival@example.com");
+    await admin.as.mutation(api.marketplace.setCompanyTrades, { organizationId: roofer.organizationId, leadTrades: ["roofing"] });
+    await admin.as.mutation(api.marketplace.setCompanyTrades, { organizationId: rival.organizationId, leadTrades: ["roofing"] });
+    for (const who of [roofer, rival])
+      await admin.as.mutation(api.marketplace.recordTopUp, { organizationId: who.organizationId, amount: 300 });
+    const lead = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Jane Cole", city: "Midland", jobType: "roofing", notes: "Hail damage" } });
+    return { t, admin, roofer, rival, leadId: lead!._id };
+  }
+  const wallet = (who: { as: any; organizationId: any }) => who.as.query(api.marketplace.wallet, { organizationId: who.organizationId });
+  const older = (who: { as: any; organizationId: any }) => who.as.query(api.marketplace.olderLeads, { organizationId: who.organizationId });
+  const status = async (t: any, leadId: any) => (await t.run(async (ctx: any) => ctx.db.get(leadId))).status;
+
+  test("a lead nobody buys moves to Older leads after a week and is archived after a month", async () => {
+    try {
+      const { t, admin, roofer, rival, leadId } = await market();
+      await rival.as.mutation(api.marketplace.placeBid, { leadId, organizationId: rival.organizationId, max: 100 });
+      vi.setSystemTime(new Date("2026-10-07T12:00:00.000Z"));
+      expect(await t.mutation(internal.marketplace.ageLeads, {})).toEqual({ moved: 0, archived: 0 });
+      vi.setSystemTime(new Date("2026-10-08T13:00:00.000Z"));
+      expect(await t.mutation(internal.marketplace.ageLeads, {})).toEqual({ moved: 1, archived: 0 });
+      expect(await status(t, leadId)).toBe("older");
+      // Gone from the Marketplace, and the rival's order on it has lost.
+      expect(await roofer.as.query(api.marketplace.feed, { organizationId: roofer.organizationId })).toHaveLength(0);
+      expect((await wallet(roofer)).availableLeads).toBe(0);
+      expect((await wallet(roofer)).olderLeads).toBe(1);
+      const orders = await rival.as.query(api.marketplace.bids, { organizationId: rival.organizationId });
+      expect(orders[0]).toMatchObject({ status: "lost", outcome: "Lead moved to Older leads" });
+      const inbox = await admin.as.query(api.marketplace.listInbox, {});
+      expect(inbox.older.map((l) => l.name)).toEqual(["Jane Cole"]);
+      expect(inbox.available).toHaveLength(0);
+
+      vi.setSystemTime(new Date("2026-11-01T13:00:00.000Z"));
+      expect(await t.mutation(internal.marketplace.ageLeads, {})).toEqual({ moved: 0, archived: 1 });
+      expect(await status(t, leadId)).toBe("archived");
+      expect((await admin.as.query(api.marketplace.listInbox, {})).archivedCount).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("the pool is locked without the plan; the trial opens it; claims are exclusive, included, then $15", async () => {
+    try {
+      const { t, admin, roofer, rival, leadId } = await market();
+      vi.setSystemTime(new Date("2026-10-09T12:00:00.000Z"));
+      await t.mutation(internal.marketplace.ageLeads, {});
+      // No plan yet: just the count.
+      expect(await older(roofer)).toMatchObject({ locked: true, count: 1, plan: null, leads: [] });
+      await expect(roofer.as.mutation(api.marketplace.claim, { leadId, organizationId: roofer.organizationId })).rejects.toThrow(/monthly plan/);
+
+      // Opening a plan area starts the 30-day trial.
+      expect(await roofer.as.mutation(api.marketplace.ensurePlan, { organizationId: roofer.organizationId })).toMatchObject({
+        status: "trial", active: true, claimsLeft: 10, nextClaimCents: 0, nextChargeAt: "2026-11-08T12:00:00.000Z",
+      });
+      const pool = await older(roofer);
+      expect(pool.locked).toBe(false);
+      expect(pool.leads[0]).toMatchObject({ id: leadId, city: "Midland", summary: "Hail damage", ageDays: 8, matchesTrades: true });
+      expect(JSON.stringify(pool)).not.toMatch(/Jane|Cole/);
+
+      // Claiming is free while the allowance lasts, and the lead is theirs alone.
+      expect(await roofer.as.mutation(api.marketplace.claim, { leadId, organizationId: roofer.organizationId })).toMatchObject({ priceCents: 0, claimsLeft: 9 });
+      expect((await wallet(roofer)).balanceCents).toBe(30000);
+      const mine = await roofer.as.query(api.leads.list, { organizationId: roofer.organizationId });
+      expect(mine[0]).toMatchObject({ name: "Jane Cole", pricePaidCents: 0, wonVia: "claim" });
+      await rival.as.mutation(api.marketplace.ensurePlan, { organizationId: rival.organizationId });
+      await expect(rival.as.mutation(api.marketplace.claim, { leadId, organizationId: rival.organizationId })).rejects.toThrow(/just claimed/);
+
+      // Past the allowance each claim costs the extra price.
+      await admin.as.mutation(api.marketplace.setPlan, { organizationId: roofer.organizationId, claimsIncluded: 1 });
+      const another = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Omar Haddad", city: "Odessa", jobType: "roofing" } });
+      vi.setSystemTime(new Date("2026-10-17T12:00:00.000Z"));
+      await t.mutation(internal.marketplace.ageLeads, {});
+      expect((await older(roofer)).plan).toMatchObject({ claimsLeft: 0, nextClaimCents: 1500 });
+      expect(await roofer.as.mutation(api.marketplace.claim, { leadId: another!._id, organizationId: roofer.organizationId })).toMatchObject({ priceCents: 1500 });
+      expect((await wallet(roofer)).balanceCents).toBe(30000 - 1500);
+
+      // When the trial runs out the pool locks again.
+      vi.setSystemTime(new Date("2026-11-09T12:00:00.000Z"));
+      expect(await older(roofer)).toMatchObject({ locked: true, plan: { status: "trial", active: false } });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("starting the plan charges the month from the balance, and the fee recurs until the balance runs dry", async () => {
+    try {
+      const { t, admin, roofer, rival } = await market();
+      // $300 covers a $120 fee twice; a company that can't cover it can't start.
+      await admin.as.mutation(api.marketplace.setPlan, { organizationId: roofer.organizationId, monthlyCents: 12000 });
+      expect(await roofer.as.mutation(api.marketplace.startPlan, { organizationId: roofer.organizationId })).toMatchObject({
+        status: "active", active: true, monthlyCents: 12000, nextChargeAt: "2026-11-01T12:00:00.000Z",
+      });
+      expect((await wallet(roofer)).balanceCents).toBe(30000 - 12000);
+      expect((await wallet(roofer)).transactions[0]).toMatchObject({ type: "plan", amountCents: -12000, note: "Monthly plan" });
+      await admin.as.mutation(api.marketplace.setPlan, { organizationId: rival.organizationId, monthlyCents: 40000 });
+      await expect(rival.as.mutation(api.marketplace.startPlan, { organizationId: rival.organizationId })).rejects.toThrow(/Balance too low/);
+
+      // Not due yet, then due: the daily charge posts and resets the allowance.
+      await admin.as.mutation(api.marketplace.setPlan, { organizationId: roofer.organizationId, claimsIncluded: 10 });
+      vi.setSystemTime(new Date("2026-10-31T12:00:00.000Z"));
+      expect(await t.mutation(internal.marketplace.chargePlans, {})).toEqual({ charged: 0, pastDue: 0 });
+      vi.setSystemTime(new Date("2026-11-01T12:30:00.000Z"));
+      expect(await t.mutation(internal.marketplace.chargePlans, {})).toEqual({ charged: 1, pastDue: 0 });
+      expect((await wallet(roofer)).balanceCents).toBe(30000 - 2 * 12000);
+      expect((await wallet(roofer)).plan).toMatchObject({ status: "active", nextChargeAt: "2026-12-01T12:30:00.000Z" });
+
+      // The third month can't be covered: past due, locked, and it retries daily.
+      vi.setSystemTime(new Date("2026-12-01T13:00:00.000Z"));
+      expect(await t.mutation(internal.marketplace.chargePlans, {})).toEqual({ charged: 0, pastDue: 1 });
+      expect((await wallet(roofer)).balanceCents).toBe(30000 - 2 * 12000);
+      expect((await older(roofer)).locked).toBe(true);
+      await admin.as.mutation(api.marketplace.recordTopUp, { organizationId: roofer.organizationId, amount: 100 });
+      expect(await t.mutation(internal.marketplace.chargePlans, {})).toEqual({ charged: 1, pastDue: 0 });
+      expect((await wallet(roofer)).plan).toMatchObject({ status: "active" });
+
+      // Cancelling keeps the plan to the end of the paid month.
+      expect(await roofer.as.mutation(api.marketplace.cancelPlan, { organizationId: roofer.organizationId })).toMatchObject({ status: "cancelled", active: true });
+      vi.setSystemTime(new Date("2027-01-02T12:00:00.000Z"));
+      expect(await t.mutation(internal.marketplace.chargePlans, {})).toEqual({ charged: 0, pastDue: 0 });
+      expect((await wallet(roofer)).plan).toMatchObject({ status: "cancelled", active: false });
+
+      // The admin can comp a company: active at $0, no charge ever.
+      expect(await admin.as.mutation(api.marketplace.setPlan, { organizationId: rival.organizationId, status: "active", monthlyCents: 0 })).toMatchObject({ status: "active", active: true });
+      const companies = await admin.as.query(api.marketplace.companiesOverview, {});
+      expect(companies.find((c) => c.id === rival.organizationId)?.plan).toMatchObject({ status: "active", monthlyCents: 0 });
+      vi.setSystemTime(new Date("2027-02-03T12:00:00.000Z"));
+      expect(await t.mutation(internal.marketplace.chargePlans, {})).toEqual({ charged: 1, pastDue: 0 });
+      expect((await wallet(rival)).balanceCents).toBe(30000);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

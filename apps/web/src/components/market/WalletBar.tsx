@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { Clock, Gavel, X } from 'lucide-react';
 import { fundingAPI, walletAPI } from '../../lib/api';
-import { WalletHistory, money } from './wallet';
+import { WalletHistory, money, planLabel, type PlanSummary } from './wallet';
 
 export interface WalletSummary {
   balanceCents: number;
@@ -17,6 +17,8 @@ export interface WalletSummary {
   openBids?: number;
   standingBids?: number;
   leadTrades?: string[];
+  plan?: PlanSummary | null;
+  olderLeads?: number;
   transactions: Array<{ id: string; type: string; amountCents: number; balanceAfterCents: number; method?: string; note?: string; createdAt: string }>;
 }
 
@@ -160,10 +162,19 @@ export function WalletDrawer({ wallet, onClose: closeNow, onAddFunds }: { wallet
               About {covered} lead{covered === 1 ? '' : 's'} at {money(wallet.typicalLeadCents)} each. Your balance never expires.
             </p>
           </section>
-          <section className="border border-[#2A2A2A] rounded p-3">
-            <p className="text-xs text-gray-500">Spent on leads</p>
-            <p className="text-lg text-white">{money(wallet.spentCents)}</p>
-            <p className="text-xs text-gray-500">{wallet.leadsBought} leads</p>
+          <section className="grid grid-cols-2 gap-3">
+            <div className="border border-[#2A2A2A] rounded p-3">
+              <p className="text-xs text-gray-500">Spent on leads</p>
+              <p className="text-lg text-white">{money(wallet.spentCents)}</p>
+              <p className="text-xs text-gray-500">{wallet.leadsBought} leads</p>
+            </div>
+            <Link to="/plan" onClick={close} className="border border-[#2A2A2A] rounded p-3 hover:bg-[#1A1A1A]">
+              <p className="text-xs text-gray-500">Monthly plan</p>
+              <p className="text-lg text-white">{planLabel(wallet.plan)}</p>
+              <p className="text-xs text-gray-500">
+                {wallet.plan?.status === 'active' ? `${money(wallet.plan.monthlyCents)} on ${new Date(wallet.plan.nextChargeAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : 'Tap for details'}
+              </p>
+            </Link>
           </section>
           <section className="border border-[#2A2A2A] rounded p-4 text-sm text-gray-300">
             <button type="button" onClick={onAddFunds} className="w-full mb-3 px-4 py-2.5 rounded bg-[#336699] text-white font-medium">

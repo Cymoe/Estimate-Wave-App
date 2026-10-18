@@ -6,7 +6,7 @@ import { fail, logActivity, nowIso } from "./access";
 import { postTransaction } from "./wallet";
 import { findCity } from "../leadCity";
 
-export type SaleVia = "bid" | "order" | "buy" | "sent";
+export type SaleVia = "bid" | "order" | "buy" | "sent" | "claim";
 
 /**
  * Sells the lead to one company at `sale.priceCents`, all in one
@@ -25,20 +25,26 @@ export async function sellLead(
   {
     const lead = await ctx.db.get(leadId);
     if (lead === null) fail("NOT_FOUND", "Lead not found");
-    if (lead.status !== "available" && lead.status !== "bidding")
+    if (
+      lead.status !== "available" &&
+      lead.status !== "bidding" &&
+      lead.status !== "older"
+    )
       fail("INVALID", "This lead was already sent to a company");
     const organization = await ctx.db.get(organizationId);
     if (organization === null || !organization.isActive)
       fail("NOT_FOUND", "Company not found");
 
     const priceCents = sale.priceCents;
-    await postTransaction(ctx, organizationId, {
-      type: "lead_charge",
-      amountCents: -priceCents,
-      createdBy: user._id,
-      marketplaceLeadId: leadId,
-      note: lead.name,
-    });
+    // A claim included in the plan costs nothing, so there's nothing to post.
+    if (priceCents > 0)
+      await postTransaction(ctx, organizationId, {
+        type: "lead_charge",
+        amountCents: -priceCents,
+        createdBy: user._id,
+        marketplaceLeadId: leadId,
+        note: lead.name,
+      });
     const now = nowIso();
     const orgLeadId = await ctx.db.insert("leads", {
       name: lead.name,

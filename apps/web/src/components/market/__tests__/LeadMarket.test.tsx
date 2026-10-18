@@ -22,6 +22,7 @@ let demoBids = false;
 const addDemoBids = jest.fn(async () => { demoBids = true; return { companies: 3, standingBids: 8, leads: 14, sold: 11 }; });
 const removeCompany = jest.fn(async (_id: string) => undefined);
 const setCompanyOwner = jest.fn(async (_id: string, _email: string) => 'invited');
+const setPlan = jest.fn(async () => undefined);
 
 jest.mock('../../../lib/api', () => ({
   marketplaceAPI: {
@@ -33,7 +34,8 @@ jest.mock('../../../lib/api', () => ({
       ? [{ id: 'd1', name: 'Permian Roofing & Exteriors', leadTrades: ['roofing'], balanceCents: 101500, leads30d: 1, spent30dCents: 8500, leadsTotal: 1, wonCents: 1850000, wonCount: 1, pendingCredits: 0, isSample: true, sampleBids: demoBids ? 3 : 0 }]
       : [
       { id: 'o1', name: 'Broke Roofing', leadTrades: ['roofing'], balanceCents: 1000, leads30d: 0, spent30dCents: 0, leadsTotal: 0, wonCents: 0, wonCount: 0, pendingCredits: 0, sampleBids: demoBids ? 3 : 0 },
-      { id: 'o2', name: 'Peak Roofing', owners: ['pat@peak.example'], leadTrades: ['roofing'], balanceCents: 50000, leads30d: 2, spent30dCents: 17000, leadsTotal: 2, wonCents: 1200000, wonCount: 1, pendingCredits: 0 },
+      { id: 'o2', name: 'Peak Roofing', owners: ['pat@peak.example'], leadTrades: ['roofing'], balanceCents: 50000, leads30d: 2, spent30dCents: 17000, leadsTotal: 2, wonCents: 1200000, wonCount: 1, pendingCredits: 0,
+        plan: { status: 'active', active: true, monthlyCents: 9900, claimsIncluded: 10, extraClaimCents: 1500, claimsLeft: 8, nextClaimCents: 0, periodStart: '2026-10-01T00:00:00Z', nextChargeAt: '2026-11-01T00:00:00Z' } },
       { id: 'o3', name: 'Ace Painting', leadTrades: [], balanceCents: 0, isEmpty: true, leads30d: 0, spent30dCents: 0, leadsTotal: 0, wonCents: 0, wonCount: 0, pendingCredits: 0 },
     ],
     pendingCredits: async () => [],
@@ -45,6 +47,8 @@ jest.mock('../../../lib/api', () => ({
     addDemoBids: () => addDemoBids(),
     removeCompany: (id: string) => removeCompany(id),
     setCompanyOwner: (id: string, email: string) => setCompanyOwner(id, email),
+    setPlan: (id: string, changes: unknown) => setPlan(id, changes),
+    archiveLead: async () => undefined,
   },
   fundingAPI: {
     pending: async () => pendingPayments,
@@ -226,10 +230,18 @@ describe('loading the balance and buying leads', () => {
     await act(async () => byText('Companies')!.click());
     await flush();
     const row = (name: string) => Array.from(document.body.querySelectorAll('tr')).find((r) => r.textContent?.includes(name))!;
+    expect(row('Peak Roofing').textContent).toContain('Pro plan');
+    expect(row('Ace Painting').textContent).toContain('Free');
     await act(async () => row('Peak Roofing').click());
     await flush();
     expect(byText('Remove this empty company')).toBeUndefined();
     expect(document.body.querySelector('[data-testid="company-owners"]')?.textContent).toBe('pat@peak.example');
+    // The plan section: status, claims left, and a one-tap comp.
+    const planSection = document.body.querySelector('[data-testid="plan-section"]')!;
+    expect(planSection.textContent).toContain('8 of 10 claims left');
+    await act(async () => (planSection.querySelector('button') as HTMLButtonElement).click());
+    await flush();
+    expect(setPlan).toHaveBeenCalledWith('o2', { status: 'active', monthlyCents: 0 });
     await act(async () => (document.body.querySelector('button[aria-label="Close"]') as HTMLButtonElement).click());
     await act(async () => row('Ace Painting').click());
     await flush();

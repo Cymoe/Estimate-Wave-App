@@ -273,9 +273,34 @@ export const leadFields = {
 export const marketplaceLeadStatus = v.union(
   v.literal("available"),
   v.literal("bidding"),
+  // Nobody bought it in a week: in the Older leads pool, for companies on
+  // the monthly plan to claim.
+  v.literal("older"),
+  // A month old; out of every list.
+  v.literal("archived"),
   v.literal("assigned"),
   v.literal("credited"),
 );
+
+export const planStatus = v.union(
+  v.literal("trial"),
+  v.literal("active"),
+  v.literal("past_due"),
+  v.literal("cancelled"),
+);
+
+/** A company's monthly plan, paid from its lead balance. */
+export const planFields = v.object({
+  status: planStatus,
+  monthlyCents: v.number(),
+  claimsIncluded: v.number(),
+  extraClaimCents: v.number(),
+  // The current paid (or trial) period.
+  periodStart: v.string(),
+  // When the next fee is due; on a trial, when it ends.
+  nextChargeAt: v.string(),
+  claimsThisPeriod: v.number(),
+});
 
 export const walletTransactionType = v.union(
   v.literal("top_up"),
@@ -283,6 +308,8 @@ export const walletTransactionType = v.union(
   v.literal("lead_charge"),
   v.literal("credit"),
   v.literal("adjustment"),
+  // The monthly plan fee.
+  v.literal("plan"),
 );
 
 export const expenseStatus = v.union(
@@ -360,6 +387,8 @@ export default defineSchema({
     walletBalanceCents: v.optional(v.number()),
     // Trade slugs the company buys leads for.
     leadTrades: v.optional(v.array(v.string())),
+    // The monthly plan (Estimates, Price Book, Projects, Older leads).
+    plan: v.optional(planFields),
     // Demo company added from the Lead Market; removable in one click.
     isSample: v.optional(v.boolean()),
     ...timestamps,
@@ -604,7 +633,13 @@ export default defineSchema({
     // How it reached this company: a standing bid won it, a buy order
     // filled, they bought it in the Marketplace, or an admin sent it.
     wonVia: v.optional(
-      v.union(v.literal("bid"), v.literal("order"), v.literal("buy"), v.literal("sent")),
+      v.union(
+        v.literal("bid"),
+        v.literal("order"),
+        v.literal("buy"),
+        v.literal("sent"),
+        v.literal("claim"),
+      ),
     ),
     creditRequest: v.optional(
       v.object({

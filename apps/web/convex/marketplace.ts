@@ -35,7 +35,17 @@ import {
 import { pendingFundingFor } from "./funding";
 import { sellLead } from "./lib/sales";
 import { listLead } from "./lib/awards";
-import { normalizeCounty, TEXAS_COUNTIES } from "./lib/counties";
+import {
+  ARCHIVE_AFTER_DAYS,
+  OLDER_AFTER_DAYS,
+  type Plan,
+  claimPrice,
+  claimsLeft,
+  nextMonth,
+  planIsActive,
+  trialPlan,
+} from "./lib/plan";
+import { countyForTown, normalizeCounty, TEXAS_COUNTIES } from "./lib/counties";
 
 // The Lead Market: leads the platform collects and sells, one company per
 // lead, paid for from a prepaid dollar balance. Everything here except
@@ -112,6 +122,17 @@ export const listInbox = query({
       .withIndex("by_status", (q) => q.eq("status", "credited"))
       .order("desc")
       .take(50);
+    const older = await ctx.db
+      .query("marketplaceLeads")
+      .withIndex("by_status", (q) => q.eq("status", "older"))
+      .order("desc")
+      .take(200);
+    const archivedCount = (
+      await ctx.db
+        .query("marketplaceLeads")
+        .withIndex("by_status", (q) => q.eq("status", "archived"))
+        .take(1000)
+    ).length;
     const names = new Map<string, string>();
     const withCompany = async (lead: Doc<"marketplaceLeads">) => {
       const orgId = lead.assignedOrganizationId;
@@ -149,6 +170,8 @@ export const listInbox = query({
     };
     return {
       available: await Promise.all(available.map(withCompany)),
+      older: await Promise.all(older.map(withCompany)),
+      archivedCount,
       sold: await Promise.all(
         [...sold, ...credited]
           .sort((a, b) =>
@@ -194,7 +217,7 @@ export const updateLead = mutation({
     await requireSuperAdmin(ctx);
     const lead = await ctx.db.get(id);
     if (lead === null) fail("NOT_FOUND", "Lead not found");
-    if (lead.status !== "available")
+    if (lead.status !== "available" && lead.status !== "older")
       fail("INVALID", "This lead was already sent to a company");
     await ctx.db.patch(id, {
       ...cleanLead({ ...lead, ...data }),
@@ -212,9 +235,83 @@ export const removeLead = mutation({
     if (lead === null) fail("NOT_FOUND", "Lead not found");
     if (lead.status === "bidding")
       fail("INVALID", "This lead is in a bidding round; wait for it to close");
-    if (lead.status !== "available")
+    if (
+      lead.status !== "available" &&
+      lead.status !== "older" &&
+      lead.status !== "archived"
+    )
       fail("INVALID", "A lead that was sent to a company can't be deleted");
     await ctx.db.delete(id);
+  },
+});
+
+/** Takes a lead out of every list without selling it. */
+export const archiveLead = mutation({
+  args: { id: v.id("marketplaceLeads") },
+  handler: async (ctx, { id }) => {
+    await requireSuperAdmin(ctx);
+    const lead = await ctx.db.get(id);
+    if (lead === null) fail("NOT_FOUND", "Lead not found");
+    if (lead.status !== "available" && lead.status !== "older")
+      fail("INVALID", "Only a listed or older lead can be archived");
+    await loseOpenOrders(ctx, id, "Lead archived");
+    await ctx.db.patch(id, { status: "archived", updatedAt: nowIso() });
+  },
+});
+
+/** Marks every open buy order on a lead lost, with the reason. */
+async function loseOpenOrders(
+  ctx: MutationCtx,
+  leadId: Id<"marketplaceLeads">,
+  outcome: string,
+) {
+  const bids = await ctx.db
+    .query("leadBids")
+    .withIndex("by_lead", (q) => q.eq("marketplaceLeadId", leadId))
+    .collect();
+  for (const bid of bids)
+    if (bid.status === "open")
+      await ctx.db.patch(bid._id, {
+        status: "lost",
+        outcome,
+        resolvedAt: nowIso(),
+      });
+}
+
+/**
+ * Hourly: Marketplace leads nobody bought in a week move to Older leads,
+ * where companies on the plan can claim them; a month after listing
+ * they're archived.
+ */
+export const ageLeads = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const nowMs = Date.now();
+    const now = nowIso();
+    const listedMs = (lead: Doc<"marketplaceLeads">) =>
+      Date.parse(lead.auction?.listedAt ?? lead.createdAt);
+    let moved = 0;
+    let archived = 0;
+    const available = await ctx.db
+      .query("marketplaceLeads")
+      .withIndex("by_status", (q) => q.eq("status", "available"))
+      .take(500);
+    for (const lead of available) {
+      if (listedMs(lead) > nowMs - OLDER_AFTER_DAYS * DAY_MS) continue;
+      await loseOpenOrders(ctx, lead._id, "Lead moved to Older leads");
+      await ctx.db.patch(lead._id, { status: "older", updatedAt: now });
+      moved++;
+    }
+    const older = await ctx.db
+      .query("marketplaceLeads")
+      .withIndex("by_status", (q) => q.eq("status", "older"))
+      .take(500);
+    for (const lead of older) {
+      if (listedMs(lead) > nowMs - ARCHIVE_AFTER_DAYS * DAY_MS) continue;
+      await ctx.db.patch(lead._id, { status: "archived", updatedAt: now });
+      archived++;
+    }
+    return { moved, archived };
   },
 });
 
@@ -414,6 +511,7 @@ export const companiesOverview = query({
           phone: org.phone,
           city: org.city,
           leadTrades: org.leadTrades ?? [],
+          plan: org.plan ? planSummary(org.plan, Date.now()) : null,
           balanceCents: org.walletBalanceCents ?? 0,
           leads30d: recent.length,
           spent30dCents: recent
@@ -671,7 +769,329 @@ export const setCompanyTrades = mutation({
   },
 });
 
+/**
+ * An admin sets or changes a company's plan: its status (making it active
+ * starts a fresh period with no charge, so "comp" is active at $0), the
+ * monthly price, the claims included and the price of an extra claim.
+ */
+export const setPlan = mutation({
+  args: {
+    organizationId: v.id("organizations"),
+    status: v.optional(
+      v.union(
+        v.literal("trial"),
+        v.literal("active"),
+        v.literal("past_due"),
+        v.literal("cancelled"),
+      ),
+    ),
+    monthlyCents: v.optional(v.number()),
+    claimsIncluded: v.optional(v.number()),
+    extraClaimCents: v.optional(v.number()),
+  },
+  handler: async (ctx, { organizationId, status, ...changes }) => {
+    await requireSuperAdmin(ctx);
+    const org = await ctx.db.get(organizationId);
+    if (org === null) fail("NOT_FOUND", "Company not found");
+    const now = nowIso();
+    let plan: Plan = { ...(org.plan ?? trialPlan(now)) };
+    for (const [key, value] of Object.entries(changes))
+      if (value !== undefined) {
+        if (!Number.isInteger(value) || value < 0)
+          fail("INVALID", "Enter a whole number of cents, zero or more");
+        plan = { ...plan, [key]: value };
+      }
+    if (status && status !== plan.status) {
+      plan.status = status;
+      if (status === "active" || status === "trial") {
+        plan.periodStart = now;
+        plan.nextChargeAt =
+          status === "active" ? nextMonth(now) : trialPlan(now).nextChargeAt;
+        plan.claimsThisPeriod = 0;
+      }
+    }
+    await ctx.db.patch(organizationId, { plan, updatedAt: now });
+    return planSummary(plan, Date.now());
+  },
+});
+
 // ---- The company's side ----
+
+/** The plan as pages show it. */
+function planSummary(plan: Plan, nowMs: number) {
+  return {
+    status: plan.status,
+    active: planIsActive(plan, nowMs),
+    monthlyCents: plan.monthlyCents,
+    claimsIncluded: plan.claimsIncluded,
+    extraClaimCents: plan.extraClaimCents,
+    claimsLeft: claimsLeft(plan),
+    nextClaimCents: claimPrice(plan),
+    periodStart: plan.periodStart,
+    nextChargeAt: plan.nextChargeAt,
+  };
+}
+
+/** The company's owner, else any member: who a server-posted charge is recorded under. */
+async function billingUserFor(
+  ctx: QueryCtx | MutationCtx,
+  organizationId: Id<"organizations">,
+) {
+  const members = await ctx.db
+    .query("memberships")
+    .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
+    .collect();
+  return (members.find((m) => m.role === "owner") ?? members[0])?.userId;
+}
+
+/**
+ * Charges one month of the plan from the balance and opens a fresh period.
+ * Returns false (and marks the plan past due) when the balance can't cover it.
+ */
+async function chargePlan(
+  ctx: MutationCtx,
+  org: Doc<"organizations">,
+  plan: Plan,
+  createdBy: Id<"users"> | undefined,
+) {
+  const now = nowIso();
+  if (plan.monthlyCents > 0) {
+    if (!createdBy || (org.walletBalanceCents ?? 0) < plan.monthlyCents) {
+      await ctx.db.patch(org._id, {
+        plan: { ...plan, status: "past_due" },
+        updatedAt: now,
+      });
+      return false;
+    }
+    await postTransaction(ctx, org._id, {
+      type: "plan",
+      amountCents: -plan.monthlyCents,
+      createdBy,
+      note: "Monthly plan",
+      isSample: org.isSample || undefined,
+    });
+  }
+  await ctx.db.patch(org._id, {
+    plan: {
+      ...plan,
+      status: "active",
+      periodStart: now,
+      nextChargeAt: nextMonth(now),
+      claimsThisPeriod: 0,
+    },
+    updatedAt: now,
+  });
+  return true;
+}
+
+/** Daily: every active (or past due) plan whose fee is due gets charged. */
+export const chargePlans = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const nowMs = Date.now();
+    const orgs = (
+      await ctx.db.query("organizations").order("desc").take(500)
+    ).filter((o) => o.isActive && o.plan);
+    let charged = 0;
+    let pastDue = 0;
+    for (const org of orgs) {
+      const plan = org.plan!;
+      if (plan.status !== "active" && plan.status !== "past_due") continue;
+      if (Date.parse(plan.nextChargeAt) > nowMs) continue;
+      if (await chargePlan(ctx, org, plan, await billingUserFor(ctx, org._id)))
+        charged++;
+      else pastDue++;
+    }
+    return { charged, pastDue };
+  },
+});
+
+/**
+ * Gives a company its 30-day trial the first time it opens something the
+ * plan covers. Returns the plan either way.
+ */
+export const ensurePlan = mutation({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    const { organization } = await requireMember(ctx, organizationId);
+    let plan = organization.plan;
+    if (!plan) {
+      const now = nowIso();
+      plan = trialPlan(now);
+      await ctx.db.patch(organizationId, { plan, updatedAt: now });
+    }
+    return planSummary(plan, Date.now());
+  },
+});
+
+/**
+ * A company starts (or restarts) the plan: this month's fee comes off the
+ * balance now, and a fresh period with the full claim allowance opens.
+ */
+export const startPlan = mutation({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    const { user, organization } = await requireMember(
+      ctx,
+      organizationId,
+      "admin",
+    );
+    const plan = organization.plan ?? trialPlan(nowIso());
+    if (plan.status === "active") return planSummary(plan, Date.now());
+    if (plan.monthlyCents > 0)
+      // Fails with "Balance too low" when the balance can't cover it.
+      await postTransaction(ctx, organizationId, {
+        type: "plan",
+        amountCents: -plan.monthlyCents,
+        createdBy: user._id,
+        note: "Monthly plan",
+      });
+    const now = nowIso();
+    const started: Plan = {
+      ...plan,
+      status: "active",
+      periodStart: now,
+      nextChargeAt: nextMonth(now),
+      claimsThisPeriod: 0,
+    };
+    await ctx.db.patch(organizationId, { plan: started, updatedAt: now });
+    await logActivity(ctx, {
+      organizationId,
+      userId: user._id,
+      action: "plan_started",
+      resourceType: "organization",
+      resourceId: organizationId,
+      details: { monthlyCents: plan.monthlyCents },
+    });
+    return planSummary(started, Date.now());
+  },
+});
+
+/** Stops the plan at the end of the paid period. */
+export const cancelPlan = mutation({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    const { user, organization } = await requireMember(
+      ctx,
+      organizationId,
+      "admin",
+    );
+    const plan = organization.plan;
+    if (!plan) fail("INVALID", "There's no plan to cancel");
+    const now = nowIso();
+    const cancelled: Plan = { ...plan, status: "cancelled" };
+    await ctx.db.patch(organizationId, { plan: cancelled, updatedAt: now });
+    await logActivity(ctx, {
+      organizationId,
+      userId: user._id,
+      action: "plan_cancelled",
+      resourceType: "organization",
+      resourceId: organizationId,
+    });
+    return planSummary(cancelled, Date.now());
+  },
+});
+
+/** Looks up trade names by slug, once each. */
+function tradeNamer(ctx: QueryCtx | MutationCtx) {
+  const names = new Map<string, string | undefined>();
+  return async (slug: string | undefined) => {
+    if (!slug) return undefined;
+    if (!names.has(slug))
+      names.set(
+        slug,
+        (
+          await ctx.db
+            .query("industries")
+            .withIndex("by_slug", (q) => q.eq("slug", slug))
+            .first()
+        )?.name,
+      );
+    return names.get(slug);
+  };
+}
+
+/**
+ * The Older leads pool: Marketplace leads nobody bought in a week. Only a
+ * company on the plan sees the rows; everyone else gets the count in their
+ * trades, so the page can say what they're missing.
+ */
+export const olderLeads = query({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    const { organization } = await requireMember(ctx, organizationId);
+    const nowMs = Date.now();
+    const trades = organization.leadTrades ?? [];
+    const older = await ctx.db
+      .query("marketplaceLeads")
+      .withIndex("by_status", (q) => q.eq("status", "older"))
+      .order("desc")
+      .take(200);
+    const matches = (lead: Doc<"marketplaceLeads">) =>
+      Boolean(lead.jobType && trades.includes(lead.jobType));
+    const plan = organization.plan
+      ? planSummary(organization.plan, nowMs)
+      : null;
+    const count = trades.length ? older.filter(matches).length : older.length;
+    if (!plan?.active) return { locked: true as const, count, plan, leads: [] };
+    const tradeName = tradeNamer(ctx);
+    const leads = await Promise.all(
+      older.map(async (lead) => ({
+        id: lead._id,
+        jobType: lead.jobType,
+        tradeName: await tradeName(lead.jobType),
+        city: lead.city,
+        county: lead.county,
+        summary: lead.notes,
+        receivedAt: lead.auction?.listedAt ?? lead.createdAt,
+        ageDays: Math.floor(
+          (nowMs - Date.parse(lead.auction?.listedAt ?? lead.createdAt)) /
+            DAY_MS,
+        ),
+        matchesTrades: matches(lead),
+      })),
+    );
+    return {
+      locked: false as const,
+      count,
+      plan,
+      leads: leads.sort(
+        (a, b) => Number(b.matchesTrades) - Number(a.matchesTrades),
+      ),
+    };
+  },
+});
+
+/**
+ * A company on the plan claims an older lead: it's theirs alone, included
+ * while the month's allowance lasts, then at the extra-claim price.
+ */
+export const claim = mutation({
+  args: {
+    leadId: v.id("marketplaceLeads"),
+    organizationId: v.id("organizations"),
+  },
+  handler: async (ctx, { leadId, organizationId }) => {
+    const { user, organization } = await requireMember(
+      ctx,
+      organizationId,
+      "admin",
+    );
+    const plan = organization.plan;
+    if (!plan || !planIsActive(plan, Date.now()))
+      fail("FORBIDDEN", "Older leads are part of the monthly plan");
+    const lead = await ctx.db.get(leadId);
+    if (lead === null || lead.status !== "older")
+      fail("INVALID", "Someone just claimed this lead");
+    const sale = await sellLead(ctx, user._id, leadId, organizationId, {
+      priceCents: claimPrice(plan),
+      via: "claim",
+    });
+    const used: Plan = { ...plan, claimsThisPeriod: plan.claimsThisPeriod + 1 };
+    await ctx.db.patch(organizationId, { plan: used, updatedAt: nowIso() });
+    return { ...sale, claimsLeft: claimsLeft(used) };
+  },
+});
 
 /** A company's balance, history and what its leads earned it. */
 export const wallet = query({
@@ -736,6 +1156,17 @@ export const wallet = query({
       leadsBought: bought.length,
       ...roi,
       pendingFunding: await pendingFundingFor(ctx, organizationId),
+      plan: organization.plan
+        ? planSummary(organization.plan, Date.now())
+        : null,
+      // Older leads it could claim on the plan (all of them when it has no trades yet).
+      olderLeads: (
+        await ctx.db
+          .query("marketplaceLeads")
+          .withIndex("by_status", (q) => q.eq("status", "older"))
+          .take(500)
+      ).filter((l) => !wanted.size || (l.jobType && wanted.has(l.jobType)))
+        .length,
       // Marketplace leads in this company's trades: the ones it would buy.
       availableLeads: wanted.size
         ? (
@@ -782,21 +1213,7 @@ export const feed = query({
         )
         .collect()
     ).filter((b) => (b.kind ?? "order") === "order");
-    const names = new Map<string, string | undefined>();
-    const tradeName = async (slug: string | undefined) => {
-      if (!slug) return undefined;
-      if (!names.has(slug))
-        names.set(
-          slug,
-          (
-            await ctx.db
-              .query("industries")
-              .withIndex("by_slug", (q) => q.eq("slug", slug))
-              .first()
-          )?.name,
-        );
-      return names.get(slug);
-    };
+    const tradeName = tradeNamer(ctx);
     const leads = await Promise.all(
       available.map(async (lead) => {
         const bid = myBids.find((b) => b.marketplaceLeadId === lead._id);
@@ -1269,6 +1686,10 @@ export const addDemoData = mutation({
         walletBalanceCents: 0,
         isSample: true,
       });
+      // Demo companies are on the plan for free, so every view has rows.
+      await ctx.db.patch(id, {
+        plan: { ...trialPlan(nowIso()), status: "active", monthlyCents: 0 },
+      });
       if (company.payment > 0) {
         await postTransaction(ctx, id, {
           type: "top_up",
@@ -1629,6 +2050,29 @@ const DEMO_FUNDS_CENTS = 150000;
 const DEMO_SHORT_FUNDS_CENTS = 60000;
 
 // [name, phone, address, city, trade, what they need], oldest first.
+// [name, phone, address, city, trade, what they need]: listed 9 and 12 days
+// ago with no bidder, so they sit in Older leads.
+const DEMO_OLDER_LEADS: Array<
+  [string, string, string, string, string, string]
+> = [
+  [
+    "Marisol Peña",
+    "(432) 555-0188",
+    "2206 Whitmire Blvd",
+    "Midland",
+    "painting",
+    "Repaint the exterior trim and front door, two-story.",
+  ],
+  [
+    "Troy Whitaker",
+    "(432) 555-0192",
+    "4512 Tanglewood Ln",
+    "Odessa",
+    "hvac",
+    "Replace a 3-ton unit before summer; current one is 18 years old.",
+  ],
+];
+
 const DEMO_BID_LEADS: Array<[string, string, string, string, string, string]> =
   [
     [
@@ -1826,6 +2270,32 @@ export const addDemoBids = mutation({
         { listedAt, source: "Demo", isSample: true },
       );
       if ((await ctx.db.get(id))!.status === "assigned") sold++;
+    }
+    // A couple of leads from longer ago that nobody bought: Older leads.
+    for (const [
+      i,
+      [name, phone, address, city, jobType, notes],
+    ] of DEMO_OLDER_LEADS.entries()) {
+      const listedAt = new Date(
+        Date.now() - (9 + 3 * i) * DAY_MS,
+      ).toISOString();
+      const id = await ctx.db.insert("marketplaceLeads", {
+        name,
+        phone,
+        address,
+        city,
+        county: countyForTown(city),
+        jobType,
+        notes,
+        source: "Demo",
+        status: "older",
+        auction: { ...(await pricingFor(ctx, jobType)), listedAt },
+        isSample: true,
+        createdBy: user._id,
+        createdAt: listedAt,
+        updatedAt: nowIso(),
+      });
+      void id;
     }
     return {
       companies: companies.length,

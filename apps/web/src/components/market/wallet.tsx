@@ -29,6 +29,7 @@ const TRANSACTION_LABELS: Record<string, string> = {
   lead_charge: 'Lead',
   credit: 'Lead credited',
   adjustment: 'Adjustment',
+  plan: 'Monthly plan',
 };
 
 export function WalletHistory({ transactions }: { transactions: any[] }) {
@@ -64,3 +65,37 @@ export const isWonLead = (lead: { marketplaceLeadId?: string }) => Boolean(lead.
 export function leadOrigin(lead: { marketplaceLeadId?: string; pricePaidCents?: number }): string | null {
   return isWonLead(lead) ? `Won · ${money(lead.pricePaidCents ?? 0)}` : null;
 }
+
+/** A company's monthly plan as the backend reports it. */
+export interface PlanSummary {
+  status: 'trial' | 'active' | 'past_due' | 'cancelled';
+  /** Whether the plan's features are open right now. */
+  active: boolean;
+  monthlyCents: number;
+  claimsIncluded: number;
+  extraClaimCents: number;
+  claimsLeft: number;
+  nextClaimCents: number;
+  periodStart: string;
+  nextChargeAt: string;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+export const shortDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+/** "Trial · 12 days left", "Pro plan", "Plan paused", "Plan ends Nov 8", "Free". */
+export function planLabel(plan: PlanSummary | null | undefined, now = Date.now()): string {
+  if (!plan) return 'Free';
+  const days = Math.max(0, Math.ceil((Date.parse(plan.nextChargeAt) - now) / DAY_MS));
+  switch (plan.status) {
+    case 'trial':
+      return plan.active ? `Trial · ${days} day${days === 1 ? '' : 's'} left` : 'Trial ended';
+    case 'active':
+      return 'Pro plan';
+    case 'past_due':
+      return 'Plan paused';
+    case 'cancelled':
+      return plan.active ? `Plan ends ${shortDate(plan.nextChargeAt)}` : 'Plan ended';
+  }
+}
+

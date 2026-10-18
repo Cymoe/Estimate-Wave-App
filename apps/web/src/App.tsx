@@ -28,6 +28,8 @@ import LeadsPage from './pages/LeadsPage';
 import LeadMarketPage from './pages/LeadMarketPage';
 import BidsPage from './pages/BidsPage';
 import MarketplacePage from './pages/MarketplacePage';
+import PlanPage from './pages/PlanPage';
+import { PlanGate } from './components/market/plan';
 import FundAccountPage from './pages/FundAccountPage';
 import IndustrySettings from './pages/IndustrySettings';
 import OrganizationSettings from './pages/OrganizationSettings';
@@ -241,6 +243,16 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/plan"
+        element={
+          <ProtectedRoute>
+            <DashboardLayout fullWidth={true}>
+              <PlanPage />
+            </DashboardLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/marketplace"
         element={
           <ProtectedRoute>
@@ -277,7 +289,7 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <DashboardLayout fullWidth={true}>
-              <Work />
+              <PlanGate><Work /></PlanGate>
             </DashboardLayout>
           </ProtectedRoute>
         }
@@ -312,7 +324,7 @@ function AppRoutes() {
           <ProtectedRoute>
             {FEATURES.projects ? (
               <DashboardLayout fullWidth={true}>
-                <ProjectsPage />
+                <PlanGate><ProjectsPage /></PlanGate>
               </DashboardLayout>
             ) : (
               <Navigate to={HOME_PATH} replace />
@@ -353,7 +365,7 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <DashboardLayout>
-              <EditEstimatePage />
+              <PlanGate><EditEstimatePage /></PlanGate>
             </DashboardLayout>
           </ProtectedRoute>
         }
@@ -414,7 +426,7 @@ function AppRoutes() {
           <ProtectedRoute>
             {FEATURES.projects ? (
               <DashboardLayout>
-                <ProjectDetails />
+                <PlanGate><ProjectDetails /></PlanGate>
               </DashboardLayout>
             ) : (
               <Navigate to={HOME_PATH} replace />
@@ -442,7 +454,7 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <DashboardLayout fullWidth={true}>
-              <PriceBookPage />
+              <PlanGate><PriceBookPage /></PlanGate>
             </DashboardLayout>
           </ProtectedRoute>
         }
@@ -452,7 +464,7 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <DashboardLayout fullWidth={true}>
-              <PriceBookPage />
+              <PlanGate><PriceBookPage /></PlanGate>
             </DashboardLayout>
           </ProtectedRoute>
         }
@@ -462,7 +474,7 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <DashboardLayout fullWidth={true}>
-              <PriceBookPage />
+              <PlanGate><PriceBookPage /></PlanGate>
             </DashboardLayout>
           </ProtectedRoute>
         }

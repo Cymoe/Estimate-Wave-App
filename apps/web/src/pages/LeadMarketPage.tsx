@@ -6,7 +6,7 @@ import { fundingAPI, industriesAPI, leadsAPI, marketplaceAPI, walletAPI } from '
 import { copyText } from '../components/estimates/estimateActions';
 import { useAuth } from '../contexts/AuthContext';
 import { STATUSES } from '../components/leads/leadTypes';
-import { CREDIT_REASON_LABELS, WalletHistory, leadOrigin, money, suggestedBonus } from '../components/market/wallet';
+import { CREDIT_REASON_LABELS, WalletHistory, leadOrigin, money, planLabel, suggestedBonus, type PlanSummary } from '../components/market/wallet';
 import { dropsToFloor, pricingFor } from '../services/auction';
 import { TEXAS_COUNTIES, countyForTown } from '../services/counties';
 
@@ -25,7 +25,7 @@ interface MarketLead {
   county?: string;
   jobType?: string;
   notes?: string;
-  status: 'available' | 'assigned' | 'credited';
+  status: 'available' | 'older' | 'archived' | 'assigned' | 'credited';
   /** What it costs right now (it drops on a schedule until bought). */
   price: number;
   priceCents?: number;
@@ -46,6 +46,7 @@ interface Company {
   phone?: string;
   city?: string;
   leadTrades: string[];
+  plan?: PlanSummary | null;
   balanceCents: number;
   leads30d: number;
   spent30dCents: number;
@@ -361,6 +362,88 @@ function SendToDialog({
 }
 
 /** One company: its balance, payments, credit requests, leads and history. */
+/** The company's monthly plan: status, price and claims, and a one-tap comp. */
+function PlanSection({ company, onChanged }: { company: Company; onChanged: () => void }) {
+  const plan = company.plan ?? null;
+  const [monthly, setMonthly] = useState(String((plan?.monthlyCents ?? 9900) / 100));
+  const [claims, setClaims] = useState(String(plan?.claimsIncluded ?? 10));
+  const [extra, setExtra] = useState(String((plan?.extraClaimCents ?? 1500) / 100));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setMonthly(String((plan?.monthlyCents ?? 9900) / 100));
+    setClaims(String(plan?.claimsIncluded ?? 10));
+    setExtra(String((plan?.extraClaimCents ?? 1500) / 100));
+  }, [plan?.monthlyCents, plan?.claimsIncluded, plan?.extraClaimCents]);
+  const save = async (changes: Parameters<typeof marketplaceAPI.setPlan>[1]) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await marketplaceAPI.setPlan(company.id, changes);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "The plan couldn't be saved");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const cents = (value: string) => Math.round(Number(value) * 100);
+  const savePrices = () => save({ monthlyCents: cents(monthly), claimsIncluded: Math.round(Number(claims)), extraClaimCents: cents(extra) });
+  return (
+    <section data-testid="plan-section">
+      <h3 className="text-sm font-medium text-white mb-2">Plan</h3>
+      <div className="flex flex-wrap items-center gap-2 mb-2">
+        <span className={`text-sm ${plan?.active ? 'text-emerald-300' : 'text-gray-400'}`}>{planLabel(plan)}</span>
+        {plan && (
+          <span className="text-xs text-gray-500">
+            · {plan.claimsLeft} of {plan.claimsIncluded} claims left · next {new Date(plan.nextChargeAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+          </span>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 mb-2">
+        <select
+          aria-label="Plan status"
+          value={plan?.status ?? ''}
+          disabled={busy}
+          onChange={(e) => e.target.value && save({ status: e.target.value as PlanSummary['status'] })}
+          className="bg-[#1A1A1A] border border-[#333] rounded px-2 py-1.5 text-sm text-white"
+        >
+          <option value="" disabled>
+            No plan yet
+          </option>
+          <option value="trial">Trial</option>
+          <option value="active">Active</option>
+          <option value="past_due">Paused (past due)</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+        {!(plan?.status === 'active' && plan.monthlyCents === 0) && (
+          <button type="button" disabled={busy} onClick={() => save({ status: 'active', monthlyCents: 0 })} className={secondary}>
+            Comp this company
+          </button>
+        )}
+      </div>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="text-xs text-gray-500">
+          $/month
+          <input aria-label="Monthly price" value={monthly} onChange={(e) => setMonthly(e.target.value)} inputMode="decimal" className="block w-20 bg-[#1A1A1A] border border-[#333] rounded px-2 py-1.5 text-sm text-white" />
+        </label>
+        <label className="text-xs text-gray-500">
+          Claims included
+          <input aria-label="Claims included" value={claims} onChange={(e) => setClaims(e.target.value)} inputMode="numeric" className="block w-20 bg-[#1A1A1A] border border-[#333] rounded px-2 py-1.5 text-sm text-white" />
+        </label>
+        <label className="text-xs text-gray-500">
+          $/extra claim
+          <input aria-label="Extra claim price" value={extra} onChange={(e) => setExtra(e.target.value)} inputMode="decimal" className="block w-20 bg-[#1A1A1A] border border-[#333] rounded px-2 py-1.5 text-sm text-white" />
+        </label>
+        <button type="button" disabled={busy} onClick={savePrices} className={secondary}>
+          Save prices
+        </button>
+      </div>
+      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+    </section>
+  );
+}
+
 function CompanyPanel({
   company,
   trades,
@@ -659,6 +742,8 @@ function CompanyPanel({
             <TradePicker trades={trades} value={leadTrades} onChange={saveTrades} />
           </section>
 
+          <PlanSection company={company} onChanged={onChanged} />
+
           <section>
             <h3 className="text-sm font-medium text-white mb-2">Standing bids</h3>
             {!company.standingBids?.length ? (
@@ -854,7 +939,10 @@ const LeadMarketPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState<Tab>(() => (searchParams.get('new') === 'company' ? 'companies' : 'inbox'));
   const [trades, setTrades] = useState<Trade[]>([]);
-  const [inbox, setInbox] = useState<{ available: MarketLead[]; sold: MarketLead[] }>({ available: [], sold: [] });
+  const [inbox, setInbox] = useState<{ available: MarketLead[]; older?: MarketLead[]; archivedCount?: number; sold: MarketLead[] }>({
+    available: [],
+    sold: [],
+  });
   const [companies, setCompanies] = useState<Company[]>([]);
   const [credits, setCredits] = useState<CreditRequest[]>([]);
   const [payments, setPayments] = useState<PendingPayment[]>([]);
@@ -1116,6 +1204,42 @@ const LeadMarketPage: React.FC = () => {
           )}
           {inbox.available.length > 0 && <div className="flex justify-end gap-2">{sampleButton}</div>}
 
+          {(inbox.older?.length ?? 0) > 0 && (
+            <section>
+              <h2 className="text-sm font-medium text-gray-300 mb-2">
+                Older leads · {inbox.older!.length}
+                <span className="text-xs text-gray-500 font-normal"> · a week old, claimable on the plan; archived at a month</span>
+              </h2>
+              <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Older leads">
+                {inbox.older!.map((lead) => (
+                  <li key={lead.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                    <span className="min-w-0">
+                      <span className="block text-sm text-white truncate">{lead.name}</span>
+                      <span className="block text-xs text-gray-500">
+                        {tradeName(lead.jobType)}
+                        {lead.county ? ` · ${lead.county} County` : lead.city ? ` · ${lead.city}` : ''} · listed{' '}
+                        {new Date(lead.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      className={secondary}
+                      onClick={async () => {
+                        await marketplaceAPI.archiveLead(lead.id);
+                        reload();
+                      }}
+                    >
+                      Archive
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {(inbox.archivedCount ?? 0) > 0 && (
+            <p className="text-xs text-gray-500">{inbox.archivedCount} archived lead{inbox.archivedCount === 1 ? '' : 's'}.</p>
+          )}
+
           {inbox.sold.length > 0 && (
             <section>
               <h2 className="text-sm font-medium text-gray-300 mb-2">Sent</h2>
@@ -1161,6 +1285,7 @@ const LeadMarketPage: React.FC = () => {
                   <th className="text-right font-medium px-4 py-2">Balance</th>
                   <th className="text-right font-medium px-4 py-2 hidden sm:table-cell">Leads (30d)</th>
                   <th className="text-right font-medium px-4 py-2 hidden sm:table-cell">Spent (30d)</th>
+                  <th className="text-left font-medium px-4 py-2">Plan</th>
                   <th className="text-right font-medium px-4 py-2">Won</th>
                 </tr>
               </thead>
@@ -1183,6 +1308,7 @@ const LeadMarketPage: React.FC = () => {
                     </td>
                     <td className="px-4 py-3 text-right text-gray-300 hidden sm:table-cell">{company.leads30d}</td>
                     <td className="px-4 py-3 text-right text-gray-300 hidden sm:table-cell">{money(company.spent30dCents)}</td>
+                    <td className={`px-4 py-3 whitespace-nowrap ${company.plan?.active ? 'text-white' : 'text-gray-500'}`}>{planLabel(company.plan)}</td>
                     <td className="px-4 py-3 text-right text-gray-300">{money(company.wonCents)}</td>
                   </tr>
                 ))}

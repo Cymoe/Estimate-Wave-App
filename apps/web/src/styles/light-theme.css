@@ -195,6 +195,7 @@ html.light .hover\:text-\[\#999\]:hover { color: #666666; }
 html.light .hover\:text-\[\#FFFFFF\]:hover { color: #111827; }
 html.light .hover\:text-blue-300:hover { color: #1d4ed8; }
 html.light .hover\:text-blue-400:hover { color: #1d4ed8; }
+html.light .hover\:text-gray-200:hover { color: #1F2937; }
 html.light .hover\:text-gray-300:hover { color: #374151; }
 html.light .hover\:text-gray-400:hover { color: #4B5563; }
 html.light .hover\:text-gray-500:hover { color: #6B7280; }

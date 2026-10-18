@@ -433,6 +433,11 @@ export const marketplaceAPI = {
     run('mutation', api.marketplace.setCompanyOwner, { organizationId, email }),
   setCompanyTrades: (organizationId: string, leadTrades: string[]) =>
     run('mutation', api.marketplace.setCompanyTrades, { organizationId, leadTrades }),
+  setPlan: (
+    organizationId: string,
+    changes: { status?: 'trial' | 'active' | 'past_due' | 'cancelled'; monthlyCents?: number; claimsIncluded?: number; extraClaimCents?: number },
+  ) => run('mutation', api.marketplace.setPlan, defined({ organizationId, ...changes })),
+  archiveLead: (id: string) => run('mutation', api.marketplace.archiveLead, { id }),
   recordTopUp: (organizationId: string, payment: { amount: number; bonus?: number; method?: string; note?: string }) =>
     run('mutation', api.marketplace.recordTopUp, defined({ organizationId, ...payment })),
   prices: () => run('query', api.marketplace.listLeadPrices, {}),
@@ -457,6 +462,13 @@ export const walletAPI = {
   bids: (organizationId: string) => run('query', api.marketplace.bids, { organizationId }),
   requestCredit: (leadId: string, reason: string, note?: string) =>
     run('mutation', api.marketplace.requestCredit, defined({ leadId, reason, note })),
+  /** Older leads: Marketplace leads nobody bought in a week, for companies on the plan. */
+  olderLeads: (organizationId: string) => run('query', api.marketplace.olderLeads, { organizationId }),
+  claim: (leadId: string, organizationId: string) => run('mutation', api.marketplace.claim, { leadId, organizationId }),
+  /** The monthly plan, paid from the lead balance. */
+  ensurePlan: (organizationId: string) => run('mutation', api.marketplace.ensurePlan, { organizationId }),
+  startPlan: (organizationId: string) => run('mutation', api.marketplace.startPlan, { organizationId }),
+  cancelPlan: (organizationId: string) => run('mutation', api.marketplace.cancelPlan, { organizationId }),
 };
 
 /** Standing bids by county and service type, and the leads they won or missed. */
