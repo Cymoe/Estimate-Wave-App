@@ -138,8 +138,9 @@ export const update = mutation({
 });
 
 /**
- * Records a touch on a lead: a call or text (counted), or a note typed on
- * the card, which is stamped with the day and added to the notes.
+ * Records a touch on a lead: a call or a text (each counted on its own), or
+ * a note typed on the card, which is stamped with the day and added to the
+ * notes.
  */
 export const logContact = mutation({
   args: {
@@ -151,7 +152,8 @@ export const logContact = mutation({
     const { doc } = await getOwned(ctx, "leads", id);
     const now = nowIso();
     const patch: Partial<Doc<"leads">> = { lastContactAt: now, updatedAt: now };
-    if (kind !== "note") patch.contacts = (doc.contacts ?? 0) + 1;
+    if (kind === "call") patch.contacts = (doc.contacts ?? 0) + 1;
+    if (kind === "text") patch.texts = (doc.texts ?? 0) + 1;
     const text = note?.trim();
     if (kind === "note") {
       if (!text) fail("INVALID", "Type a note first");

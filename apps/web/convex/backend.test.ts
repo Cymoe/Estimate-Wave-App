@@ -1867,9 +1867,9 @@ describe("working a lead from the card", () => {
     const called = await owner.as.mutation(api.leads.logContact, { id: lead!._id, kind: "call" });
     expect(called).toMatchObject({ contacts: 1, lastContactAt: expect.any(String) });
     const texted = await owner.as.mutation(api.leads.logContact, { id: lead!._id, kind: "text" });
-    expect(texted!.contacts).toBe(2);
+    expect(texted).toMatchObject({ contacts: 1, texts: 1 });
     const noted = await owner.as.mutation(api.leads.logContact, { id: lead!._id, kind: "note", note: "left VM" });
-    expect(noted!.contacts).toBe(2);
+    expect(noted).toMatchObject({ contacts: 1, texts: 1 });
     expect(noted!.notes).toMatch(/^What do you need\? Irrigation\n[A-Z][a-z]{2} \d{1,2}: left VM$/);
     await expect(owner.as.mutation(api.leads.logContact, { id: lead!._id, kind: "note", note: "  " })).rejects.toThrow(/Type a note/);
     // Someone outside the company can't touch it.

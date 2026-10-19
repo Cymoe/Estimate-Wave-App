@@ -12,6 +12,7 @@ export interface Lead {
   /** Last call, text or card note, and how many calls and texts so far. */
   lastContactAt?: string;
   contacts?: number;
+  texts?: number;
   jobType?: string;
   source?: string;
   estimatedValue?: number;

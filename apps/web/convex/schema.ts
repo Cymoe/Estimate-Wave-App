@@ -630,6 +630,7 @@ export default defineSchema({
     // calls and texts so far (server-set by leads.logContact).
     lastContactAt: v.optional(v.string()),
     contacts: v.optional(v.number()),
+    texts: v.optional(v.number()),
     // County, as the Lead Market knew it when it sold the lead (server-set).
     // Leads without one get it from their town when listed.
     county: v.optional(v.string()),

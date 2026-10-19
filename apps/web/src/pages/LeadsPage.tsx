@@ -64,17 +64,23 @@ const LeadStatusLine: React.FC<{ lead: Lead; now: number }> = ({ lead, now }) =>
   }
   if (lead.lastContactAt) {
     const calls = lead.contacts ?? 0;
+    const texts = lead.texts ?? 0;
     return (
       <span className="text-xs text-gray-400" data-testid="lead-status-line">
         Last touched {ago(lead.lastContactAt, now)}
         {calls > 0 ? ` · ${calls} call${calls === 1 ? '' : 's'}` : ''}
+        {texts > 0 ? ` · ${texts} text${texts === 1 ? '' : 's'}` : ''}
       </span>
     );
   }
   if (!OPEN.includes(lead.status)) return null;
+  // Nobody has called yet: how long it's been sitting is the number that matters.
+  const since = lead.assignedAt ?? lead.createdAt;
+  const waitingMs = since ? now - Date.parse(since) : 0;
+  const tone = waitingMs > 24 * 60 * 60_000 ? 'text-red-400' : waitingMs > 60 * 60_000 ? 'text-amber-300' : 'text-gray-500';
   return (
-    <span className="text-xs text-gray-500" data-testid="lead-status-line">
-      Not contacted yet
+    <span className={`text-xs ${tone}`} data-testid="lead-status-line">
+      {since ? `Came in ${ago(since, now)} · not contacted` : 'Not contacted yet'}
     </span>
   );
 };
@@ -608,6 +614,7 @@ const LeadsPage: React.FC = () => {
             if (lead.estimate) navigate(`/estimates/${lead.estimate.id}`);
             else startEstimate(lead);
           }}
+          onContact={(lead, kind) => logContact(lead, kind)}
         />
       )}
 

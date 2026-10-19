@@ -9,6 +9,7 @@ import {
   Globe,
   Mail,
   MapPin,
+  MessageSquare,
   Navigation,
   Phone,
   PhoneCall,
@@ -128,7 +129,9 @@ export const LeadDrawer: React.FC<{
   onStatus: (lead: Lead, status: LeadStatus) => void;
   /** Opens the lead's estimate, or starts one. */
   onEstimate?: (lead: Lead) => void;
-}> = ({ organizationId, lead, trades, onClose: closeNow, onCreated, onDelete, onChanged, onStatus, onEstimate }) => {
+  /** A call or text placed from the drawer, so the board's "last touched" follows. */
+  onContact?: (lead: Lead, kind: 'call' | 'text') => void;
+}> = ({ organizationId, lead, trades, onClose: closeNow, onCreated, onDelete, onChanged, onStatus, onEstimate, onContact }) => {
   // Slides in and out like the estimate drawer.
   const [shown, setShown] = useState(false);
   useEffect(() => {
@@ -336,9 +339,14 @@ export const LeadDrawer: React.FC<{
                 className={plainInput}
               />
               {phoneHref && (
-                <a href={phoneHref} className="p-1 text-gray-500 hover:text-white" aria-label="Call">
-                  <PhoneCall className="w-4 h-4" />
-                </a>
+                <>
+                  <a href={phoneHref} onClick={() => lead && onContact?.(lead, 'call')} className="p-1 text-gray-500 hover:text-white" aria-label="Call">
+                    <PhoneCall className="w-4 h-4" />
+                  </a>
+                  <a href={phoneHref.replace(/^tel:/, 'sms:')} onClick={() => lead && onContact?.(lead, 'text')} className="p-1 text-gray-500 hover:text-white" aria-label="Text">
+                    <MessageSquare className="w-4 h-4" />
+                  </a>
+                </>
               )}
             </Row>
             <Row icon={Mail} label="Email">

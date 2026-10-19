@@ -12,7 +12,12 @@ let rows = [{ id: 'l1', name: 'Rocky Vansau', status: 'scheduled', appointmentAt
 
 const logContact = jest.fn(async (id: string, kind: string, note?: string) => {
   const row = rows.find((r) => r.id === id)! as Record<string, unknown>;
-  const updated = { ...row, lastContactAt: new Date().toISOString(), contacts: kind === 'note' ? (row.contacts as number) ?? 0 : ((row.contacts as number) ?? 0) + 1 };
+  const updated = {
+    ...row,
+    lastContactAt: new Date().toISOString(),
+    contacts: ((row.contacts as number) ?? 0) + (kind === 'call' ? 1 : 0),
+    texts: ((row.texts as number) ?? 0) + (kind === 'text' ? 1 : 0),
+  };
   if (note) updated.notes = `${row.notes ? `${row.notes}\n` : ''}Oct 18: ${note}`;
   rows = rows.map((r) => (r.id === id ? updated : r)) as typeof rows;
   return updated;
@@ -217,7 +222,7 @@ describe('Leads board', () => {
     const card = () => container.querySelector('[draggable]')!;
     expect(card().textContent).toContain('Get your render done · Irrigation · As soon as possible');
     expect(card().textContent).not.toContain('What are you looking');
-    expect(card().querySelector('[data-testid="lead-status-line"]')?.textContent).toBe('Not contacted yet');
+    expect(card().querySelector('[data-testid="lead-status-line"]')?.textContent).toMatch(/^Came in \d+d ago · not contacted$/);
     expect(card().querySelector('select[aria-label="Status"]')).toBeNull();
 
     // Tapping Call logs a call; the status line says so.
@@ -226,9 +231,15 @@ describe('Leads board', () => {
     await flush();
     expect(logContact).toHaveBeenCalledWith('l2', 'call', undefined);
     expect(card().querySelector('[data-testid="lead-status-line"]')?.textContent).toBe('Last touched just now · 1 call');
-
-    // Open the cards: the answers are listed, and a note typed there is stamped and kept.
+    // A text is counted on its own, not as a call.
     act(() => click(Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Expand leads'))!));
+    const text = Array.from(card().querySelectorAll('a')).find((a) => a.getAttribute('href') === 'sms:4322600076')!;
+    act(() => click(text));
+    await flush();
+    expect(logContact).toHaveBeenCalledWith('l2', 'text', undefined);
+    expect(card().querySelector('[data-testid="lead-status-line"]')?.textContent).toBe('Last touched just now · 1 call · 1 text');
+
+    // The open card lists the answers, and a note typed there is stamped and kept.
     expect(card().querySelector('[aria-label="Intake answers"]')?.textContent).toContain('Irrigation');
     const noteBox = card().querySelector('input[aria-label="Add a note"]') as HTMLInputElement;
     act(() => pick(noteBox, 'left VM'));
