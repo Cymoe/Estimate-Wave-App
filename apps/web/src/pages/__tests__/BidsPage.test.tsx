@@ -74,7 +74,10 @@ describe('Bids', () => {
     await act(async () => byText('Set your bids')!.click());
     // Everything on one screen: where and the bids, no steps.
     expect(dialog()?.textContent).toContain('Which county?');
-    expect(dialog()?.textContent).toContain('Your bids');
+    // Nothing but the search until a county is picked: no suggestions, no bid rows.
+    expect(dialog()!.querySelectorAll('[aria-label="Counties"] button')).toHaveLength(0);
+    expect(dialog()?.textContent).not.toContain('you bid here');
+    expect(dialog()?.textContent).not.toContain('Your bids');
     expect(dialog()!.querySelector('[aria-label="Steps"]')).toBeNull();
     expect(byText('Next')).toBeUndefined();
     expect(byText('Start bidding')!.disabled).toBe(true);
@@ -83,6 +86,7 @@ describe('Bids', () => {
     await act(async () => type(input('Search counties'), 'Mid'));
     expect(matches().map((b) => b.textContent)).toEqual(['Midland County']);
     await act(async () => (matches()[0] as HTMLButtonElement).click());
+    expect(dialog()?.textContent).toContain('Your bids');
     expect(input('Search counties')).toBeNull();
     expect(dialog()!.querySelector('[aria-label="Counties"]')).toBeNull();
     expect(dialog()!.querySelector('[aria-label="Where"]')?.textContent).toContain('Midland County');

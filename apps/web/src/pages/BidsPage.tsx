@@ -183,7 +183,6 @@ const BidsPage: React.FC = () => {
           balance={balance}
           standing={standing ?? []}
           firstTime={standing?.length === 0}
-          suggested={[...new Set((standing ?? []).map((b) => b.county))]}
           onClose={() => setAdding(false)}
           onSaved={load}
           onNotify={notify}
@@ -392,7 +391,6 @@ function AddBidDialog({
   balance,
   standing,
   firstTime,
-  suggested,
   onClose,
   onSaved,
   onNotify,
@@ -405,8 +403,6 @@ function AddBidDialog({
   /** Bids already placed, so rows prefill and show where they stand. */
   standing: StandingBid[];
   firstTime: boolean;
-  /** Counties the company already bids in, offered first. */
-  suggested: string[];
   onClose: () => void;
   onSaved: () => Promise<void>;
   onNotify: (text: string, good?: boolean) => void;
@@ -442,13 +438,13 @@ function AddBidDialog({
   // Type a county or a town: "Mid" finds Midland, "Odessa" finds Ector.
   const matches = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return suggested.map((c) => ({ county: c, via: undefined as string | undefined }));
+    if (!q) return [];
     const town = countyForTown(search);
     const starts = TEXAS_COUNTIES.filter((c) => c.toLowerCase().startsWith(q));
     const within = TEXAS_COUNTIES.filter((c) => !c.toLowerCase().startsWith(q) && c.toLowerCase().includes(q));
     const out = [...(town ? [{ county: town, via: search.trim() }] : []), ...[...starts, ...within].map((county) => ({ county, via: undefined as string | undefined }))];
     return out.filter((m, i) => out.findIndex((o) => o.county === m.county) === i).slice(0, 8);
-  }, [search, suggested]);
+  }, [search]);
   const pick = (name: string) => {
     setCounty(name);
     // Bids already placed there fill their rows, so this screen edits as well as adds.
@@ -537,7 +533,7 @@ function AddBidDialog({
                   <li key={m.county}>
                     <button type="button" onClick={() => pick(m.county)} className="w-full flex items-center justify-between px-3 py-2 text-left text-sm text-gray-200 hover:bg-[#1E1E1E]">
                       <span>{m.county} County</span>
-                      {m.via ? <span className="text-xs text-gray-500">{m.via} is in {m.county} County</span> : search.trim() === '' ? <span className="text-xs text-gray-500">you bid here</span> : null}
+                      {m.via && <span className="text-xs text-gray-500">{m.via} is in {m.county} County</span>}
                     </button>
                   </li>
                 ))}
@@ -551,7 +547,8 @@ function AddBidDialog({
           )}
         </section>
 
-        {/* Your bids: one row per trade, each with its own price. */}
+        {/* Your bids: one row per trade, each with its own price. Shown once a county is picked. */}
+        {county && (
         <section aria-label="Your bids">
           <div className="flex items-baseline justify-between gap-4 mb-1">
             <p className="text-sm font-medium text-white">Your bids</p>
@@ -594,10 +591,13 @@ function AddBidDialog({
             </button>
           )}
         </section>
+        )}
 
         <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
           <p className="text-xs text-gray-500">
-            {!amountsOk
+            {!county
+              ? ''
+              : !amountsOk
               ? `Bids start at ${money(MIN_BID * 100)}.`
               : !affordable
                 ? `Your top bid is more than your balance (${money(balance)}).`
