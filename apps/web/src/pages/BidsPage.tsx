@@ -37,6 +37,10 @@ interface BidResult {
 }
 
 export const MIN_BID = 200;
+/** Bids move in $50 steps, never below the minimum. */
+export const STEP = 50;
+const stepUp = (d: number) => Math.max(MIN_BID, Math.floor(d / STEP) * STEP + STEP);
+const stepDown = (d: number) => Math.max(MIN_BID, Math.ceil(d / STEP) * STEP - STEP);
 
 const primary = 'inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-emerald-600 text-white text-sm font-medium disabled:opacity-50 whitespace-nowrap';
 const secondary = 'inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded border border-[#333] text-gray-200 text-sm disabled:opacity-50 whitespace-nowrap';
@@ -155,6 +159,7 @@ const BidsPage: React.FC = () => {
           trades={trades}
           preferredTrades={wallet?.leadTrades ?? []}
           balance={balance}
+          standing={standing ?? []}
           firstTime={standing?.length === 0}
           suggested={[...new Set((standing ?? []).map((b) => b.county))]}
           onClose={() => setAdding(false)}
@@ -193,14 +198,15 @@ function StandingTab({
   onAdd: () => void;
   onAddFunds: () => void;
 }) {
-  const [editing, setEditing] = useState<{ id: string; value: string } | null>(null);
+  // Amounts being changed, by bid id, until saved.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const act = async (work: () => Promise<unknown>, done: string) => {
     setBusy(true);
     try {
       await work();
       onNotify(done);
-      setEditing(null);
+      setDrafts({});
       await onChanged();
     } catch (err) {
       onNotify(err instanceof Error ? err.message : "That didn't work", false);
@@ -244,32 +250,26 @@ function StandingTab({
               <td className="px-4 py-3 text-white">{bid.county} County</td>
               <td className="px-4 py-3 text-gray-300">{tradeName(bid.jobType)}</td>
               <td className="px-4 py-3 text-right">
-                {editing?.id === bid.id ? (
-                  <form
-                    className="inline-flex items-center gap-2"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      act(() => bidsAPI.setStanding(organizationId, bid.county, bid.jobType, Number(editing.value)), 'Bid updated.');
-                    }}
-                  >
-                    <span className="text-gray-500">$</span>
-                    <input
-                      autoFocus
-                      inputMode="decimal"
-                      aria-label={`Bid for ${tradeName(bid.jobType)} in ${bid.county}`}
-                      value={editing.value}
-                      onChange={(e) => setEditing({ id: bid.id, value: e.target.value })}
-                      className={`${input} w-24 text-right`}
-                    />
-                    <button type="submit" disabled={busy} className={primary} aria-label="Save bid">
-                      <Check className="w-4 h-4" />
-                    </button>
-                  </form>
-                ) : (
-                  <button type="button" onClick={() => setEditing({ id: bid.id, value: String(bid.amountCents / 100) })} className="text-white underline underline-offset-2 decoration-[#444]">
-                    {money(bid.amountCents)}
-                  </button>
-                )}
+                {(() => {
+                  const draft = drafts[bid.id] ?? String(bid.amountCents / 100);
+                  const changed = Number(draft) !== bid.amountCents / 100;
+                  return (
+                    <form
+                      className="inline-flex items-center gap-2"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (changed) act(() => bidsAPI.setStanding(organizationId, bid.county, bid.jobType, Number(draft)), 'Bid updated.');
+                      }}
+                    >
+                      <BidStepper label={`Bid for ${tradeName(bid.jobType)} in ${bid.county}`} value={draft} onChange={(v) => setDrafts((d) => ({ ...d, [bid.id]: v }))} />
+                      {changed && (
+                        <button type="submit" disabled={busy || !(Number(draft) >= MIN_BID)} className={primary} aria-label="Save bid">
+                          <Check className="w-4 h-4" />
+                        </button>
+                      )}
+                    </form>
+                  );
+                })()}
               </td>
               <td className="px-4 py-3">
                 <Chip bid={bid} />
@@ -324,11 +324,39 @@ function ResultsTab({ results, tradeName }: { results: BidResult[]; tradeName: (
 }
 
 /** Three steps in a dialog: where (counties), what (service), how much (per lead). */
+/** [−] $250 [+]: typed or stepped in $50s, never below the minimum. */
+function BidStepper({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  const dollars = Number(value);
+  const ok = Number.isFinite(dollars) && value.trim() !== '';
+  const control = 'px-3 text-lg leading-none text-gray-300 hover:text-white disabled:opacity-30 disabled:hover:text-gray-300';
+  return (
+    <div className="inline-flex items-stretch rounded border border-[#333] bg-[#1A1A1A]">
+      <button type="button" aria-label={`Lower ${label}`} disabled={!ok || dollars <= MIN_BID} onClick={() => onChange(String(stepDown(dollars)))} className={control}>
+        −
+      </button>
+      <label className="flex items-center border-x border-[#333] text-sm text-gray-400">
+        <span className="pl-2">$</span>
+        <input
+          inputMode="decimal"
+          aria-label={label}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-16 bg-transparent px-1 py-2 text-right text-white text-base md:text-sm focus:outline-none"
+        />
+      </label>
+      <button type="button" aria-label={`Raise ${label}`} disabled={!ok} onClick={() => onChange(String(stepUp(dollars)))} className={control}>
+        +
+      </button>
+    </div>
+  );
+}
+
 function AddBidDialog({
   organizationId,
   trades,
   preferredTrades,
   balance,
+  standing,
   firstTime,
   suggested,
   onClose,
@@ -340,6 +368,8 @@ function AddBidDialog({
   trades: Trade[];
   preferredTrades: string[];
   balance: number;
+  /** Bids already placed, so rows prefill and show where they stand. */
+  standing: StandingBid[];
   firstTime: boolean;
   /** Counties the company already bids in, offered first. */
   suggested: string[];
@@ -350,10 +380,17 @@ function AddBidDialog({
 }) {
   const [search, setSearch] = useState('');
   const [counties, setCounties] = useState<string[]>([]);
-  const [services, setServices] = useState<string[]>(() => preferredTrades.filter((t) => trades.some((x) => x.id === t)));
+  // One amount per trade; a trade with no entry isn't being bid on.
+  const [bids, setBids] = useState<Record<string, string>>(() =>
+    Object.fromEntries(preferredTrades.filter((t) => trades.some((x) => x.id === t)).map((t) => [t, String(MIN_BID)])),
+  );
+  // Rows the company has set by hand; a bid already placed never overwrites those.
+  const [touched, setTouched] = useState<Set<string>>(() => new Set());
+  const setBid = (id: string, value: string) => {
+    setTouched((t) => new Set(t).add(id));
+    setBids((b) => ({ ...b, [id]: value }));
+  };
   const [showAll, setShowAll] = useState(false);
-  const toggleService = (id: string) => setServices((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
-  const [amount, setAmount] = useState(String(MIN_BID));
   const [busy, setBusy] = useState(false);
 
   // The company's own trades first, then everything else.
@@ -361,10 +398,12 @@ function AddBidDialog({
     const preferred = trades.filter((t) => preferredTrades.includes(t.id));
     return [...preferred, ...trades.filter((t) => !preferredTrades.includes(t.id))];
   }, [trades, preferredTrades]);
-  // A long catalogue is folded to the company's trades plus anything chosen, until "More trades".
+  // A long catalogue is folded to the company's trades plus anything live, until "More trades".
   const FOLD_AT = 8;
   const folded = ordered.length > FOLD_AT && !showAll;
-  const shownTrades = folded ? ordered.filter((t) => preferredTrades.includes(t.id) || services.includes(t.id)) : ordered;
+  const shownTrades = folded ? ordered.filter((t) => preferredTrades.includes(t.id) || bids[t.id] !== undefined) : ordered;
+  const live = ordered.filter((t) => bids[t.id] !== undefined);
+
   // Type a county or a town: "Mid" finds Midland, "Odessa" finds Ector.
   const matches = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -377,25 +416,49 @@ function AddBidDialog({
   }, [search, counties, suggested]);
   const add = (county: string) => {
     setCounties((c) => (c.includes(county) ? c : [...c, county]));
+    // Bids already placed there fill their rows, so this screen edits as well as adds.
+    setBids((b) => {
+      const next = { ...b };
+      for (const sb of standing) if (sb.county === county && !touched.has(sb.jobType)) next[sb.jobType] = String(sb.amountCents / 100);
+      return next;
+    });
     setSearch('');
   };
   const remove = (county: string) => setCounties((c) => c.filter((x) => x !== county));
+  const turnOn = (id: string) => setBid(id, String(MIN_BID));
+  const turnOff = (id: string) => {
+    setTouched((t) => new Set(t).add(id));
+    setBids((b) => {
+      const next = { ...b };
+      delete next[id];
+      return next;
+    });
+  };
+  /** Where the company's existing bids for this trade stand in the chosen counties. */
+  const standingFor = (id: string): 'top' | 'outbid' | null => {
+    const mine = standing.filter((sb) => sb.jobType === id && counties.includes(sb.county));
+    if (mine.length === 0) return null;
+    return mine.every((sb) => sb.leading) ? 'top' : 'outbid';
+  };
 
-  const dollars = Number(amount);
-  const amountOk = Number.isFinite(dollars) && dollars >= MIN_BID;
-  const affordable = amountOk && dollars * 100 <= balance;
-  const covers = amountOk ? Math.floor(balance / (dollars * 100)) : 0;
-  const ready = counties.length > 0 && services.length > 0 && affordable;
-  const rows = counties.length * services.length;
+  const amounts = live.map((t) => Number(bids[t.id]));
+  const amountsOk = amounts.every((a) => Number.isFinite(a) && a >= MIN_BID);
+  const top = amounts.length ? Math.max(...amounts) : 0;
+  const affordable = amountsOk && top * 100 <= balance;
+  const covers = amountsOk && top > 0 ? Math.floor(balance / (top * 100)) : 0;
+  const ready = counties.length > 0 && live.length > 0 && affordable;
+  const rows = counties.length * live.length;
 
   const save = async () => {
     setBusy(true);
     try {
-      for (const county of counties) for (const service of services) await bidsAPI.setStanding(organizationId, county, service, dollars);
+      for (const county of counties) for (const t of live) await bidsAPI.setStanding(organizationId, county, t.id, Number(bids[t.id]));
       const where = counties.length === 1 ? `${counties[0]} County` : `${counties.length} counties`;
-      const names = services.map((id) => trades.find((t) => t.id === id)?.name ?? id);
+      const names = live.map((t) => t.name);
       const what = names.length <= 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
-      onNotify(`You're set: new ${what} leads in ${where} go to you the moment they come in, at ${money(dollars * 100)}, while your bid is the highest.`);
+      const same = amounts.every((a) => a === amounts[0]);
+      const price = same ? ` at ${money(amounts[0] * 100)},` : ' at the price you set for each,';
+      onNotify(`You're set: new ${what} leads in ${where} go to you the moment they come in,${price} while your bid is the highest.`);
       await onSaved();
       onClose();
     } catch (err) {
@@ -406,18 +469,12 @@ function AddBidDialog({
     }
   };
 
-  const heading = 'text-sm font-medium text-white mb-2';
   return (
-    <Modal isOpen title={firstTime ? 'Set your bids' : 'Add a bid'} onClose={onClose} size="lg">
-      <div className="p-5 space-y-6">
-        <p className="flex items-center justify-between text-sm px-3 py-2 rounded border border-[#2A2A2A] bg-[#121212]" data-testid="dialog-balance">
-          <span className="text-gray-400">Lead balance</span>
-          <span className="text-white font-medium">{money(balance)}</span>
-        </p>
-
+    <Modal isOpen title={firstTime ? 'Set your bids' : 'Add a bid'} onClose={onClose} size="xl">
+      <div className="p-6 space-y-7">
         {/* Where: one search box, a list of matches, chips for what's chosen. */}
         <section aria-label="Where">
-          <p className={heading}>Which counties do you work in?</p>
+          <p className="text-sm font-medium text-white mb-2">Which counties do you work in?</p>
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -432,7 +489,7 @@ function AddBidDialog({
             className={`${input} w-full`}
           />
           {/* Fixed height, so the dialog doesn't jump as matches come and go. */}
-          <ul className="mt-1 h-40 overflow-y-auto divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Counties">
+          <ul className="mt-1 h-36 overflow-y-auto divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Counties">
             {matches.map((m) => (
               <li key={m.county}>
                 <button type="button" onClick={() => add(m.county)} className="w-full flex items-center justify-between px-3 py-2 text-left text-sm text-gray-200 hover:bg-[#1E1E1E]">
@@ -460,64 +517,72 @@ function AddBidDialog({
           <p className="text-xs text-gray-500 mt-2 min-h-[1rem]">{counties.length === 0 ? 'Add as many counties as you work in.' : `${counties.length} chosen.`}</p>
         </section>
 
-        {/* What: the company's trades, already lit; tap to change. */}
-        <section aria-label="What">
-          <p className={heading}>What kind of work?</p>
-          <div role="group" aria-label="Services" className="flex flex-wrap gap-1.5">
+        {/* Your bids: one row per trade, each with its own price. */}
+        <section aria-label="Your bids">
+          <div className="flex items-baseline justify-between gap-4 mb-1">
+            <p className="text-sm font-medium text-white">Your bids</p>
+            <p className="text-xs text-gray-500">
+              {counties.length > 1 ? `The same bids apply in each of the ${counties.length} counties.` : `Per lead · ${money(STEP * 100)} steps · from ${money(MIN_BID * 100)}`}
+            </p>
+          </div>
+          <ul className="divide-y divide-[#2A2A2A] border-y border-[#2A2A2A]" aria-label="Bids by trade">
             {shownTrades.map((t) => {
-              const on = services.includes(t.id);
+              const on = bids[t.id] !== undefined;
+              const where = standingFor(t.id);
               return (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => toggleService(t.id)}
-                  aria-pressed={on}
-                  className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${
-                    on ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333] text-gray-400 hover:border-[#555] hover:text-gray-200'
-                  }`}
-                >
-                  {t.name}
-                </button>
+                <li key={t.id} className="flex items-center justify-between gap-4 py-3.5">
+                  <div className="min-w-0">
+                    <p className="text-sm text-white">{t.name}</p>
+                    <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-2">
+                      <span>Min {money(MIN_BID * 100)}</span>
+                      {where === 'top' && <span className="px-1.5 py-px rounded bg-emerald-600/30 text-emerald-200 text-[10px] font-semibold tracking-wide">TOP</span>}
+                      {where === 'outbid' && <span className="text-amber-200">Outbid · raise to win</span>}
+                    </p>
+                  </div>
+                  {on ? (
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <BidStepper label={`${t.name} bid`} value={bids[t.id]} onChange={(v) => setBid(t.id, v)} />
+                      <button type="button" onClick={() => turnOff(t.id)} aria-label={`Stop bidding on ${t.name}`} className="p-2 text-gray-500 hover:text-white">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => turnOn(t.id)} className={`${secondary} flex-shrink-0`}>
+                      Bid {money(MIN_BID * 100)}
+                    </button>
+                  )}
+                </li>
               );
             })}
-            {folded && (
-              <button type="button" onClick={() => setShowAll(true)} className="px-3 py-1.5 rounded-full text-sm border border-dashed border-[#333] text-gray-400 hover:text-gray-200">
-                More trades…
-              </button>
-            )}
-          </div>
-          <p className="text-xs text-gray-500 mt-2">Add every kind of work you want leads for. One price covers all of them.</p>
-        </section>
-
-        {/* How much. */}
-        <section aria-label="How much">
-          <p className={heading}>What's a lead worth to you?</p>
-          <label className="flex items-center gap-2 text-sm text-gray-300">
-            $
-            <input inputMode="decimal" aria-label="Bid amount" value={amount} onChange={(e) => setAmount(e.target.value)} className={`${input} w-28 text-right`} />
-            per lead
-          </label>
-          <p className="text-xs text-gray-500 mt-1">
-            {!amountOk
-              ? `Bids start at ${money(MIN_BID * 100)}.`
-              : !affordable
-                ? `That's more than your balance (${money(balance)}).`
-                : `Your balance covers about ${covers} lead${covers === 1 ? '' : 's'} at this price. You only pay when you win.`}
-          </p>
-          {amountOk && !affordable && (
-            <button type="button" onClick={onAddFunds} className={`${secondary} mt-2`}>
-              Add funds
+          </ul>
+          {folded && (
+            <button type="button" onClick={() => setShowAll(true)} className="mt-2 text-sm text-[#7fb0e0] underline underline-offset-2">
+              More trades…
             </button>
           )}
         </section>
 
-        <div className="flex justify-between">
-          <button type="button" onClick={onClose} className={secondary}>
-            Cancel
-          </button>
-          <button type="button" disabled={busy || !ready} onClick={save} className={primary}>
-            {busy ? 'Saving…' : firstTime ? 'Start bidding' : rows > 1 ? `Add ${rows} bids` : 'Add bid'}
-          </button>
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+          <p className="text-xs text-gray-500">
+            {!amountsOk
+              ? `Bids start at ${money(MIN_BID * 100)}.`
+              : !affordable
+                ? `Your top bid is more than your balance (${money(balance)}).`
+                : `Balance ${money(balance)} covers about ${covers} lead${covers === 1 ? '' : 's'} at your top bid. You only pay when you win.`}
+            {amountsOk && !affordable && (
+              <button type="button" onClick={onAddFunds} className="ml-2 text-[#7fb0e0] underline underline-offset-2">
+                Add funds
+              </button>
+            )}
+          </p>
+          <div className="flex items-center gap-2 ml-auto">
+            <button type="button" onClick={onClose} className={secondary}>
+              Cancel
+            </button>
+            <button type="button" disabled={busy || !ready} onClick={save} className={primary}>
+              {busy ? 'Saving…' : firstTime ? 'Start bidding' : rows > 1 ? `Save ${rows} bids` : 'Save bid'}
+            </button>
+          </div>
         </div>
       </div>
     </Modal>
