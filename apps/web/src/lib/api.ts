@@ -481,6 +481,8 @@ export const bidsAPI = {
   setStanding: (organizationId: string, county: string, jobType: string, amount: number) =>
     run('mutation', api.bids.setStanding, { organizationId, county, jobType, amount }),
   removeStanding: (id: string) => run('mutation', api.bids.removeStanding, { id }),
+  pauseStanding: (id: string, paused: boolean) => run('mutation', api.bids.pauseStanding, { id, paused }),
+  pauseAllStanding: (organizationId: string, paused: boolean) => run('mutation', api.bids.pauseAllStanding, { organizationId, paused }),
   results: (organizationId: string) => run('query', api.bids.results, { organizationId }),
 };
 

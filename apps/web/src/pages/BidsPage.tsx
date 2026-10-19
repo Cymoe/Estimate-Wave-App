@@ -1,6 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
-import { Check, Gavel, Plus, Trash2, X } from 'lucide-react';
+import { Check, Gavel, Pause, Play, Plus, Trash2, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { Modal } from '../components/common/Modal';
 import { bidsAPI, industriesAPI, walletAPI } from '../lib/api';
@@ -23,6 +23,8 @@ interface StandingBid {
   leading: boolean;
   /** Another company has a funded bid here. */
   contested: boolean;
+  /** Kept but out of the running. */
+  paused: boolean;
 }
 interface BidResult {
   bidId: string;
@@ -97,6 +99,17 @@ const BidsPage: React.FC = () => {
   const tradeName = (slug?: string) => trades.find((t) => t.id === slug)?.name ?? titleFromSlug(slug);
   const notify = (text: string, good = true) => setMessage({ text, good });
   const won = results?.filter((r) => r.won).length ?? 0;
+  const allPaused = !!standing && standing.length > 0 && standing.every((b) => b.paused);
+  const pauseAll = async (paused: boolean) => {
+    if (!organizationId) return;
+    try {
+      await bidsAPI.pauseAllStanding(organizationId, paused);
+      notify(paused ? 'All bids paused. No leads will be sent to you until you resume.' : 'Bids resumed.');
+      await load();
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "That didn't work", false);
+    }
+  };
 
   return (
     <div className="p-4 md:p-6 text-white">
@@ -105,13 +118,22 @@ const BidsPage: React.FC = () => {
           <h1 className="text-xl font-semibold">Bids</h1>
           <p className="text-sm text-gray-400">
             {standing ? `${standing.length} standing bid${standing.length === 1 ? '' : 's'}` : 'Loading…'} · {won} lead{won === 1 ? '' : 's'} won
+            {allPaused && <span className="text-amber-200"> · All bids paused</span>}
           </p>
         </div>
         {standing && (
-          <button type="button" onClick={() => setAdding(true)} className={primary}>
-            <Plus className="w-4 h-4" />
-            {standing.length === 0 ? 'Set your bids' : 'Add bid'}
-          </button>
+          <div className="flex items-center gap-2">
+            {standing.length > 0 && (
+              <button type="button" onClick={() => pauseAll(!allPaused)} className={secondary}>
+                {allPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+                {allPaused ? 'Resume all' : 'Pause all'}
+              </button>
+            )}
+            <button type="button" onClick={() => setAdding(true)} className={primary}>
+              <Plus className="w-4 h-4" />
+              {standing.length === 0 ? 'Set your bids' : 'Add bid'}
+            </button>
+          </div>
         )}
       </div>
       <p className="text-xs text-gray-500 mb-4">
@@ -173,7 +195,9 @@ const BidsPage: React.FC = () => {
 };
 
 function Chip({ bid }: { bid: StandingBid }) {
-  const [tone, text] = !bid.funded
+  const [tone, text] = bid.paused
+    ? ['bg-[#333] text-gray-300', 'Paused']
+    : !bid.funded
     ? ['bg-red-600/25 text-red-200', 'Add funds to cover this bid']
     : bid.leading
       ? ['bg-emerald-600/30 text-emerald-200', 'Highest here']
@@ -273,13 +297,23 @@ function StandingTab({
               </td>
               <td className="px-4 py-3">
                 <Chip bid={bid} />
-                {!bid.funded && (
+                {!bid.funded && !bid.paused && (
                   <button type="button" onClick={onAddFunds} className="block text-xs text-[#7fb0e0] underline underline-offset-2 mt-1">
                     Add funds
                   </button>
                 )}
               </td>
-              <td className="px-4 py-3 text-right">
+              <td className="px-4 py-3 text-right whitespace-nowrap">
+                <button
+                  type="button"
+                  aria-label={`${bid.paused ? 'Resume' : 'Pause'} bid for ${tradeName(bid.jobType)} in ${bid.county}`}
+                  title={bid.paused ? 'Resume' : 'Pause'}
+                  disabled={busy}
+                  onClick={() => act(() => bidsAPI.pauseStanding(bid.id, !bid.paused), bid.paused ? 'Bid resumed.' : 'Bid paused.')}
+                  className="p-2 text-gray-500 hover:text-white"
+                >
+                  {bid.paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+                </button>
                 <button
                   type="button"
                   aria-label={`Remove bid for ${tradeName(bid.jobType)} in ${bid.county}`}
@@ -435,9 +469,9 @@ function AddBidDialog({
     });
   };
   /** Where the company's existing bid for this trade stands in the chosen county. */
-  const standingFor = (id: string): 'top' | 'outbid' | null => {
+  const standingFor = (id: string): 'top' | 'outbid' | 'paused' | null => {
     const mine = standing.find((sb) => sb.jobType === id && sb.county === county);
-    return mine ? (mine.leading ? 'top' : 'outbid') : null;
+    return mine ? (mine.paused ? 'paused' : mine.leading ? 'top' : 'outbid') : null;
   };
 
   const amounts = live.map((t) => Number(bids[t.id]));
@@ -535,6 +569,7 @@ function AddBidDialog({
                       <span>Min {money(MIN_BID * 100)}</span>
                       {where === 'top' && <span className="px-1.5 py-px rounded bg-emerald-600/30 text-emerald-200 text-[10px] font-semibold tracking-wide">TOP</span>}
                       {where === 'outbid' && <span className="text-amber-200">Outbid · raise to win</span>}
+                      {where === 'paused' && <span className="text-gray-400">Paused</span>}
                     </p>
                   </div>
                   {on ? (

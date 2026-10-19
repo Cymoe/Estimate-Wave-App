@@ -47,13 +47,16 @@ export const listStanding = query({
           (await ctx.db.get(bid.organizationId))?.walletBalanceCents ?? 0;
         if (balance >= bid.amountCents) funded.push(bid);
       }
-      const mineFunded = funded.some((b) => b._id === row._id);
+      // A paused bid is out of the running, so it is never funded or leading.
+      const paused = row.paused === true;
+      const mineFunded = !paused && funded.some((b) => b._id === row._id);
       out.push({
         id: row._id,
         county: row.county,
         jobType: row.jobType,
         amountCents: row.amountCents,
         updatedAt: row.updatedAt,
+        paused,
         funded: mineFunded,
         contested: funded.some((b) => b.organizationId !== organizationId),
         leading: mineFunded && funded[0]._id === row._id,
@@ -119,6 +122,36 @@ export const removeStanding = mutation({
     if (row === null) fail("NOT_FOUND", "Bid not found");
     await requireMember(ctx, row.organizationId, "admin");
     await ctx.db.delete(id);
+  },
+});
+
+/** Takes one bid out of the running, or puts it back, keeping its amount. */
+export const pauseStanding = mutation({
+  args: { id: v.id("standingBids"), paused: v.boolean() },
+  handler: async (ctx, { id, paused }) => {
+    const row = await ctx.db.get(id);
+    if (row === null) fail("NOT_FOUND", "Bid not found");
+    await requireMember(ctx, row.organizationId, "admin");
+    await ctx.db.patch(id, { paused, updatedAt: nowIso() });
+  },
+});
+
+/** Pauses or resumes every one of the company's bids at once: "I'm booked out until the 3rd". */
+export const pauseAllStanding = mutation({
+  args: { organizationId: v.id("organizations"), paused: v.boolean() },
+  handler: async (ctx, { organizationId, paused }) => {
+    await requireMember(ctx, organizationId, "admin");
+    const rows = await ctx.db
+      .query("standingBids")
+      .withIndex("by_organization", (q) =>
+        q.eq("organizationId", organizationId),
+      )
+      .collect();
+    const now = nowIso();
+    for (const row of rows)
+      if ((row.paused === true) !== paused)
+        await ctx.db.patch(row._id, { paused, updatedAt: now });
+    return rows.length;
   },
 });
 

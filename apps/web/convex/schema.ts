@@ -472,6 +472,8 @@ export default defineSchema({
     updatedAt: v.string(),
     /** Added by "Add demo bids"; "Remove demo data" takes it out. */
     isSample: v.optional(v.boolean()),
+    /** Kept but out of the running: a paused bid never wins or is charged. */
+    paused: v.optional(v.boolean()),
   })
     .index("by_organization", ["organizationId"])
     .index("by_county_and_type", ["county", "jobType"]),

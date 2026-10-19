@@ -3210,6 +3210,64 @@ describe("standing bids and instant awards", () => {
     });
   });
 
+  test("a paused bid keeps its amount but never wins; pause all and resume all cover every bid", async () => {
+    const { admin, mio, soco } = await market();
+    const id = await standing(mio, "Midland", "landscaping", 250);
+    await standing(mio, "Ector", "landscaping", 250);
+    await standing(soco, "Midland", "landscaping", 200);
+    await mio.as.mutation(api.bids.pauseStanding, { id, paused: true });
+    const mine = await mio.as.query(api.bids.listStanding, {
+      organizationId: mio.organizationId,
+    });
+    expect(mine.find((b) => b.id === id)).toMatchObject({
+      amountCents: 25000,
+      paused: true,
+      funded: false,
+      leading: false,
+    });
+    expect(mine.find((b) => b.county === "Ector")).toMatchObject({
+      paused: false,
+      leading: true,
+    });
+    // With Mio paused, Soco's lower bid is the one that wins Midland.
+    const lead = await admin.as.mutation(api.marketplace.createLead, {
+      data: { name: "Paused Test", city: "Midland", jobType: "landscaping" },
+    });
+    expect(lead).toMatchObject({
+      status: "assigned",
+      priceCents: 20000,
+      assignedOrganizationId: soco.organizationId,
+    });
+    expect(await balance(mio)).toBe(100000);
+    // Pause all, then resume all.
+    expect(
+      await mio.as.mutation(api.bids.pauseAllStanding, {
+        organizationId: mio.organizationId,
+        paused: true,
+      }),
+    ).toBe(2);
+    expect(
+      (
+        await mio.as.query(api.bids.listStanding, {
+          organizationId: mio.organizationId,
+        })
+      ).every((b) => b.paused),
+    ).toBe(true);
+    await mio.as.mutation(api.bids.pauseAllStanding, {
+      organizationId: mio.organizationId,
+      paused: false,
+    });
+    const back = await mio.as.query(api.bids.listStanding, {
+      organizationId: mio.organizationId,
+    });
+    expect(back.every((b) => !b.paused)).toBe(true);
+    expect(back.find((b) => b.id === id)?.leading).toBe(true);
+    // Someone outside the company can't pause it.
+    await expect(
+      soco.as.mutation(api.bids.pauseStanding, { id, paused: true }),
+    ).rejects.toThrow();
+  });
+
   test("a lead nobody can pay for goes to the Marketplace, and a legacy round still closes", async () => {
     const { t, admin, mio, soco } = await market();
     await standing(mio, "Howard", "landscaping", 900);
