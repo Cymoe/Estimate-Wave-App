@@ -540,14 +540,20 @@ const LeadsPage: React.FC = () => {
                               ) : (
                                 <span className="text-xs text-gray-500">No phone</span>
                               )}
-                              <span className="text-xs text-gray-500 truncate text-right">
-                                {[lead.jobType && (tradeName.get(lead.jobType) ?? lead.jobType), lead.city].filter(Boolean).join(' · ')}
-                              </span>
                             </div>
                           )}
                           <div className="mt-1.5 flex items-center justify-between gap-2">
                             <LeadStatusLine lead={lead} now={now} />
-                            {leadValue(lead) > 0 && <span className="text-xs text-white">{formatCurrency(leadValue(lead))}</span>}
+                            {/* Trade and value together on the right, so there is no gap between them. */}
+                            <span className="text-xs text-right truncate flex-shrink-0">
+                              {compact && lead.jobType && (
+                                <span className="text-gray-500">
+                                  {tradeName.get(lead.jobType) ?? lead.jobType}
+                                  {leadValue(lead) > 0 ? ' · ' : ''}
+                                </span>
+                              )}
+                              {leadValue(lead) > 0 && <span className="text-white">{formatCurrency(leadValue(lead))}</span>}
+                            </span>
                           </div>
                           {!compact && (
                           <>

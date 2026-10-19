@@ -153,8 +153,8 @@ describe('Leads board', () => {
     await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
     await flush();
     const card = container.querySelector('[data-lead-card]')!;
-    // The trade and town text sits beside the Call link, bottom right of the card.
-    const corner = Array.from(card.querySelectorAll('span')).find((el) => /· Midland$/.test(el.textContent ?? ''))!;
+    // The trade sits beside the value, bottom right of the card.
+    const corner = Array.from(card.querySelectorAll('span')).find((el) => /^landscaping/i.test(el.textContent ?? ''))!;
     act(() => click(corner));
     expect(document.body.querySelector('form input[aria-label="Name"]')).toBeTruthy();
     // Create estimate lives in the drawer now, not on the card.
