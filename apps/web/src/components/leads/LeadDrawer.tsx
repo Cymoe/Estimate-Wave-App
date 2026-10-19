@@ -504,15 +504,18 @@ export const LeadDrawer: React.FC<{
                     <FileText className="w-4 h-4" /> {lead.estimate ? `Open ${lead.estimate.estimateNumber}` : 'Create estimate'}
                   </button>
                 )}
-                {onDelete && (
-                  <button type="button" onClick={onDelete} className="inline-flex items-center gap-1.5 text-red-400 hover:text-red-300">
-                    <Trash2 className="w-4 h-4" /> Delete lead
-                  </button>
-                )}
+                <span className="text-gray-500" aria-live="polite">
+                  {state === 'saving' ? 'Saving…' : state === 'saved' ? '✓ Saved' : ''}
+                </span>
               </span>
-              <span className="text-gray-500" aria-live="polite">
-                {state === 'saving' ? 'Saving…' : state === 'saved' ? '✓ Saved' : ''}
-              </span>
+              {/* Delete sits on its own at the far right, well away from Create estimate. */}
+              {onDelete ? (
+                <button type="button" onClick={onDelete} className="inline-flex items-center gap-1.5 text-red-400 hover:text-red-300">
+                  <Trash2 className="w-4 h-4" /> Delete lead
+                </button>
+              ) : (
+                <span />
+              )}
             </>
           ) : (
             <>
