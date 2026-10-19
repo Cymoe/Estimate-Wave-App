@@ -121,7 +121,10 @@ describe('Leads calendar', () => {
 });
 
 describe('Leads board', () => {
-  beforeEach(() => localStorage.setItem('leadsView', 'board'));
+  beforeEach(() => {
+    localStorage.setItem('leadsView', 'board');
+    localStorage.removeItem('leadsCompact');
+  });
   afterEach(() => {
     document.body.innerHTML = '';
   });
@@ -229,6 +232,43 @@ describe('Leads board', () => {
     const names = Array.from(container.querySelectorAll('[data-lead-card]')).map((el) => el.textContent ?? '');
     expect(names.some((n) => n.includes('Missed Appt'))).toBe(true);
     expect(names.some((n) => n.includes('Still Coming'))).toBe(false);
+    rows = [own];
+  });
+
+  it('shows the notes once per card, and moving a lead to Lost needs no pop-up', async () => {
+    const own = rows[0];
+    rows = [
+      { id: 'l7', name: 'Dan Shah', status: 'new', createdAt: '2026-10-02T00:00:00Z', phone: '(555) 410-9921', jobType: 'hvac', city: 'Odessa', notes: 'AC unit is 18 years old, short-cycling. Asked about heat pumps.' },
+    ] as typeof rows;
+    const prompt = jest.spyOn(window, 'prompt').mockImplementation(() => 'should not be asked');
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
+    await flush();
+    const card = () => container.querySelector('[data-lead-card]')!;
+    const count = (text: string) => (card().textContent ?? '').split(text).length - 1;
+    // Collapsed: the one-line summary, no city beside the trade.
+    expect(count('AC unit is 18 years old')).toBe(1);
+    expect(card().textContent).not.toContain('Odessa');
+    // Expanded: the full notes once, and the city joins the trade over the value.
+    act(() => click(Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Expand leads'))!));
+    expect(count('AC unit is 18 years old')).toBe(1);
+    expect(card().textContent).toContain('heat pumps');
+    expect(card().textContent).toContain('hvac · Odessa');
+
+    // Lost from the drawer: no browser prompt, just the stage.
+    act(() => click(Array.from(card().querySelectorAll('span')).find((el) => el.textContent === 'Dan Shah')!));
+    const stage = document.body.querySelector('form select[aria-label="Stage"]') as HTMLSelectElement;
+    update.mockClear();
+    await act(async () => {
+      stage.value = 'lost';
+      stage.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await flush();
+    expect(prompt).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith('l7', { status: 'lost' });
+    expect(document.body.querySelector('form input[aria-label="Lost reason"]')).toBeTruthy();
+    prompt.mockRestore();
     rows = [own];
   });
 

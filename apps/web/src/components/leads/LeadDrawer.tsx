@@ -448,6 +448,7 @@ export const LeadDrawer: React.FC<{
                   onBlur={() => commit('lostReason')}
                   placeholder="Add a reason"
                   aria-label="Lost reason"
+                  autoFocus
                   className={plainInput}
                 />
               </Row>

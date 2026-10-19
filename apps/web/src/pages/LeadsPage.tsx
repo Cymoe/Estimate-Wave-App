@@ -236,15 +236,11 @@ const LeadsPage: React.FC = () => {
 
   const tradeName = useMemo(() => new Map(trades.map((trade) => [trade.id, trade.name])), [trades]);
 
+  // Moving to Lost needs no pop-up: the drawer's "Lost because" field appears for the reason.
   const changeStatus = async (lead: Lead, status: LeadStatus) => {
-    let lostReason: string | null = null;
-    if (status === 'lost') {
-      lostReason = window.prompt('Why was this lead lost? (optional)', lead.lostReason ?? '');
-      if (lostReason === null) return;
-    }
     setLeads((rows) => rows.map((row) => (row.id === lead.id ? { ...row, status } : row)));
     try {
-      await leadsAPI.update(lead.id, { status, ...(status === 'lost' ? { lostReason: lostReason || null } : {}) });
+      await leadsAPI.update(lead.id, { status });
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Could not change the status');
     }
@@ -506,7 +502,7 @@ const LeadsPage: React.FC = () => {
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <span className="text-sm font-medium leading-tight">{lead.name}</span>
-                              {leadSummary(lead.notes) && (
+                              {compact && leadSummary(lead.notes) && (
                                 <p className="text-xs text-gray-400 mt-0.5 truncate" title={leadSummary(lead.notes)}>
                                   {leadSummary(lead.notes)}
                                 </p>
@@ -524,40 +520,38 @@ const LeadsPage: React.FC = () => {
                             </div>
                           </div>
                           {/* Only the Call link keeps the tap; anywhere else on the card opens the lead. */}
-                          {compact ? (
-                            <div className="flex items-end justify-between gap-2 mt-1.5">
-                              <div className="min-w-0 space-y-1.5">
-                                {lead.phone ? (
-                                  <a
-                                    href={`tel:${tel(lead.phone)}`}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      logContact(lead, 'call');
-                                    }}
-                                    className={callButton}
-                                  >
-                                    <Phone className="w-3.5 h-3.5" /> {lead.phone}
-                                  </a>
-                                ) : (
-                                  <span className="text-xs text-gray-500">No phone</span>
-                                )}
-                                <div><LeadStatusLine lead={lead} now={now} /></div>
-                              </div>
-                              {/* The trade sits right on top of the value, both flush right, no gap between them. */}
-                              <div className="text-xs text-right flex-shrink-0 leading-tight">
-                                {lead.jobType && <div className="text-gray-500 truncate">{tradeName.get(lead.jobType) ?? lead.jobType}</div>}
-                                {leadValue(lead) > 0 && <div className="text-white">{formatCurrency(leadValue(lead))}</div>}
-                              </div>
+                          <div className="flex items-end justify-between gap-2 mt-1.5">
+                            <div className="min-w-0 space-y-1.5">
+                              {/* Collapsed cards carry their own Call button; expanded ones get Call and Text below. */}
+                              {compact && (lead.phone ? (
+                                <a
+                                  href={`tel:${tel(lead.phone)}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    logContact(lead, 'call');
+                                  }}
+                                  className={callButton}
+                                >
+                                  <Phone className="w-3.5 h-3.5" /> {lead.phone}
+                                </a>
+                              ) : (
+                                <span className="text-xs text-gray-500">No phone</span>
+                              ))}
+                              <div><LeadStatusLine lead={lead} now={now} /></div>
                             </div>
-                          ) : (
-                            <div className="mt-1.5 flex items-center justify-between gap-2">
-                              <LeadStatusLine lead={lead} now={now} />
-                              {leadValue(lead) > 0 && <span className="text-xs text-white">{formatCurrency(leadValue(lead))}</span>}
+                            {/* The trade sits right on top of the value, both flush right, no gap between them. */}
+                            <div className="text-xs text-right flex-shrink-0 leading-tight">
+                              {lead.jobType && (
+                                <div className="text-gray-500 truncate">
+                                  {tradeName.get(lead.jobType) ?? lead.jobType}
+                                  {!compact && lead.city ? ` · ${lead.city}` : ''}
+                                </div>
+                              )}
+                              {leadValue(lead) > 0 && <div className="text-white">{formatCurrency(leadValue(lead))}</div>}
                             </div>
-                          )}
+                          </div>
                           {!compact && (
                           <>
-                          {lead.jobType && <div className="text-xs text-gray-400 mt-1">{tradeName.get(lead.jobType) ?? lead.jobType}{lead.city ? ` · ${lead.city}` : ''}</div>}
                           {showFollowUp && (
                             <div className="mt-1 text-xs">
                               <span className={overdue ? 'text-red-400' : 'text-gray-400'}>

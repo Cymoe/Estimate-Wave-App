@@ -111,6 +111,15 @@ describe('LeadDrawer', () => {
     expect(document.body.querySelector('[role="group"][aria-label="Stage"]')).toBeNull();
   });
 
+  it('shows the Lost reason field for a lost lead and saves it when left', async () => {
+    open({ lead: { ...lead, status: 'lost' } });
+    const reason = field('Lost reason');
+    expect(reason).toBeTruthy();
+    act(() => type(reason, 'Went with a cheaper quote'));
+    await act(async () => blur(reason));
+    expect(update).toHaveBeenCalledWith('l1', { lostReason: 'Went with a cheaper quote' });
+  });
+
   it('adds a new lead with the button', async () => {
     jest.useFakeTimers();
     try {
