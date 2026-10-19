@@ -250,11 +250,11 @@ describe('Leads board', () => {
     // Collapsed: the one-line summary, no city beside the trade.
     expect(count('AC unit is 18 years old')).toBe(1);
     expect(card().textContent).not.toContain('Odessa');
-    // Expanded: the full notes once, and the city joins the trade over the value.
+    // Expanded: the full notes once; the trade stays alone over the value so the status line never wraps.
     act(() => click(Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Expand leads'))!));
     expect(count('AC unit is 18 years old')).toBe(1);
     expect(card().textContent).toContain('heat pumps');
-    expect(card().textContent).toContain('hvac · Odessa');
+    expect(card().textContent).not.toContain('hvac · Odessa');
 
     // Lost from the drawer: no browser prompt, just the stage.
     act(() => click(Array.from(card().querySelectorAll('span')).find((el) => el.textContent === 'Dan Shah')!));
