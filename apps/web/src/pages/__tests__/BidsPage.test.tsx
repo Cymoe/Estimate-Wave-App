@@ -68,8 +68,13 @@ describe('Bids', () => {
     expect(document.body.textContent).not.toContain('Recent results');
     expect(dialog()).toBeNull();
     await act(async () => byText('Set your bids')!.click());
+    // Everything on one screen: where, what and how much, no steps.
     expect(dialog()?.textContent).toContain('Which counties do you work in?');
-    expect(byText('Next')!.disabled).toBe(true);
+    expect(dialog()?.textContent).toContain('What kind of work?');
+    expect(dialog()?.textContent).toContain("What's a lead worth to you?");
+    expect(dialog()!.querySelector('[aria-label="Steps"]')).toBeNull();
+    expect(byText('Next')).toBeUndefined();
+    expect(byText('Start bidding')!.disabled).toBe(true);
     // Type a county, or a town and get its county.
     const matches = () => Array.from(dialog()!.querySelectorAll('[aria-label="Counties"] button'));
     await act(async () => type(input('Search counties'), 'Mid'));
@@ -80,18 +85,21 @@ describe('Bids', () => {
     await act(async () => (matches()[0] as HTMLButtonElement).click());
     expect(dialog()!.querySelector('[aria-label="Chosen counties"]')?.textContent).toBe('Midland CountyEctor County');
     expect(input('Search counties').value).toBe('');
-    await act(async () => byText('Next')!.click());
-    // Their own trade is already chosen; more are added from the dropdown.
-    const chosen = () => Array.from(dialog()!.querySelectorAll('[aria-label="Chosen services"] li')).map((li) => li.textContent);
-    expect(chosen()).toEqual(['Landscaping']);
-    const picker = dialog()!.querySelector('select[aria-label="Add a service"]') as HTMLSelectElement;
-    expect(Array.from(picker.options).map((o) => o.textContent)).toEqual(['Add another service…', 'Roofing']);
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(picker, 'roofing');
-      picker.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    expect(chosen()).toEqual(['Landscaping', 'Roofing']);
-    await act(async () => byText('Next')!.click());
+    // Their own trade is already lit; the rest are a tap away. No drop-down.
+    const chips = () => Array.from(dialog()!.querySelectorAll('[role="group"][aria-label="Services"] button')) as HTMLButtonElement[];
+    const pressed = () => chips().filter((c) => c.getAttribute('aria-pressed') === 'true').map((c) => c.textContent);
+    expect(chips().map((c) => c.textContent)).toEqual(['Landscaping', 'Roofing']);
+    expect(pressed()).toEqual(['Landscaping']);
+    expect(dialog()!.querySelector('select')).toBeNull();
+    await act(async () => chips().find((c) => c.textContent === 'Roofing')!.click());
+    expect(pressed()).toEqual(['Landscaping', 'Roofing']);
+    // Tapping a lit chip turns it off, and with none lit there is nothing to save.
+    await act(async () => chips().find((c) => c.textContent === 'Landscaping')!.click());
+    await act(async () => chips().find((c) => c.textContent === 'Roofing')!.click());
+    expect(pressed()).toEqual([]);
+    expect(byText('Start bidding')!.disabled).toBe(true);
+    await act(async () => chips().find((c) => c.textContent === 'Landscaping')!.click());
+    await act(async () => chips().find((c) => c.textContent === 'Roofing')!.click());
     expect(input('Bid amount').value).toBe('200');
     expect(dialog()!.textContent).toContain('covers about 5 leads');
     await act(async () => type(input('Bid amount'), '150'));

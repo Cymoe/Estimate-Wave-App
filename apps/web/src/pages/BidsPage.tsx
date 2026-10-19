@@ -348,18 +348,23 @@ function AddBidDialog({
   onNotify: (text: string, good?: boolean) => void;
   onAddFunds: () => void;
 }) {
-  const [step, setStep] = useState(1);
   const [search, setSearch] = useState('');
   const [counties, setCounties] = useState<string[]>([]);
   const [services, setServices] = useState<string[]>(() => preferredTrades.filter((t) => trades.some((x) => x.id === t)));
+  const [showAll, setShowAll] = useState(false);
   const toggleService = (id: string) => setServices((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
   const [amount, setAmount] = useState(String(MIN_BID));
   const [busy, setBusy] = useState(false);
 
+  // The company's own trades first, then everything else.
   const ordered = useMemo(() => {
     const preferred = trades.filter((t) => preferredTrades.includes(t.id));
     return [...preferred, ...trades.filter((t) => !preferredTrades.includes(t.id))];
   }, [trades, preferredTrades]);
+  // A long catalogue is folded to the company's trades plus anything chosen, until "More trades".
+  const FOLD_AT = 8;
+  const folded = ordered.length > FOLD_AT && !showAll;
+  const shownTrades = folded ? ordered.filter((t) => preferredTrades.includes(t.id) || services.includes(t.id)) : ordered;
   // Type a county or a town: "Mid" finds Midland, "Odessa" finds Ector.
   const matches = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -401,146 +406,119 @@ function AddBidDialog({
     }
   };
 
-  const steps = ['Where', 'What', 'How much'];
+  const heading = 'text-sm font-medium text-white mb-2';
   return (
     <Modal isOpen title={firstTime ? 'Set your bids' : 'Add a bid'} onClose={onClose} size="lg">
-      <div className="p-5">
-        <p className="flex items-center justify-between text-sm mb-3 px-3 py-2 rounded border border-[#2A2A2A] bg-[#121212]" data-testid="dialog-balance">
+      <div className="p-5 space-y-6">
+        <p className="flex items-center justify-between text-sm px-3 py-2 rounded border border-[#2A2A2A] bg-[#121212]" data-testid="dialog-balance">
           <span className="text-gray-400">Lead balance</span>
           <span className="text-white font-medium">{money(balance)}</span>
         </p>
-        <ol className="flex gap-2 mb-4 text-xs" aria-label="Steps">
-          {steps.map((label, i) => (
-            <li
-              key={label}
-              className={`px-2 py-1 rounded-full border ${step === i + 1 ? 'border-[#336699] text-white' : step > i + 1 ? 'border-emerald-500/50 text-emerald-200' : 'border-[#333] text-gray-500'}`}
-            >
-              {i + 1} {label}
-            </li>
-          ))}
-        </ol>
 
-        {step === 1 && (
-          <div>
-            <p className="text-sm text-white mb-2">Which counties do you work in?</p>
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && matches[0]) {
-                  e.preventDefault();
-                  add(matches[0].county);
-                }
-              }}
-              placeholder="Type a county or town, like Midland or Odessa"
-              aria-label="Search counties"
-              className={`${input} w-full`}
-            />
-            {/* Fixed height, so the dialog doesn't jump as matches come and go. */}
-            <ul className="mt-1 h-56 overflow-y-auto divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Counties">
-              {matches.map((m) => (
-                <li key={m.county}>
-                  <button type="button" onClick={() => add(m.county)} className="w-full flex items-center justify-between px-3 py-2 text-left text-sm text-gray-200 hover:bg-[#1E1E1E]">
-                    <span>{m.county} County</span>
-                    {m.via ? <span className="text-xs text-gray-500">{m.via} is in {m.county} County</span> : search.trim() === '' ? <span className="text-xs text-gray-500">you bid here</span> : null}
-                  </button>
-                </li>
-              ))}
-              {matches.length === 0 && (
-                <li className="px-3 py-2 text-sm text-gray-500">
-                  {search.trim() === '' ? 'Type to find a county. Any Texas county works.' : `Nothing matches "${search.trim()}". Try the county name or a town in it.`}
-                </li>
-              )}
-            </ul>
-            <ul className="flex flex-wrap gap-1.5 mt-3 min-h-[2.25rem] empty:hidden" aria-label="Chosen counties">
-              {counties.map((county) => (
-                <li key={county} className="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-full bg-[#336699]/20 border border-[#336699]/50 text-sm text-white">
-                  {county} County
-                  <button type="button" onClick={() => remove(county)} aria-label={`Remove ${county}`} className="p-0.5 text-gray-400 hover:text-white">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <p className="text-xs text-gray-500 mt-2 min-h-[1rem]">{counties.length === 0 ? 'Add as many counties as you work in.' : `${counties.length} chosen.`}</p>
-            <div className="flex justify-end mt-4">
-              <button type="button" disabled={counties.length === 0} onClick={() => setStep(2)} className={primary}>
-                Next
-              </button>
-            </div>
-          </div>
-        )}
+        {/* Where: one search box, a list of matches, chips for what's chosen. */}
+        <section aria-label="Where">
+          <p className={heading}>Which counties do you work in?</p>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && matches[0]) {
+                e.preventDefault();
+                add(matches[0].county);
+              }
+            }}
+            placeholder="Type a county or town, like Midland or Odessa"
+            aria-label="Search counties"
+            className={`${input} w-full`}
+          />
+          {/* Fixed height, so the dialog doesn't jump as matches come and go. */}
+          <ul className="mt-1 h-40 overflow-y-auto divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Counties">
+            {matches.map((m) => (
+              <li key={m.county}>
+                <button type="button" onClick={() => add(m.county)} className="w-full flex items-center justify-between px-3 py-2 text-left text-sm text-gray-200 hover:bg-[#1E1E1E]">
+                  <span>{m.county} County</span>
+                  {m.via ? <span className="text-xs text-gray-500">{m.via} is in {m.county} County</span> : search.trim() === '' ? <span className="text-xs text-gray-500">you bid here</span> : null}
+                </button>
+              </li>
+            ))}
+            {matches.length === 0 && (
+              <li className="px-3 py-2 text-sm text-gray-500">
+                {search.trim() === '' ? 'Type to find a county. Any Texas county works.' : `Nothing matches "${search.trim()}". Try the county name or a town in it.`}
+              </li>
+            )}
+          </ul>
+          <ul className="flex flex-wrap gap-1.5 mt-3 min-h-[2.25rem] empty:hidden" aria-label="Chosen counties">
+            {counties.map((county) => (
+              <li key={county} className="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-full bg-[#336699]/20 border border-[#336699]/50 text-sm text-white">
+                {county} County
+                <button type="button" onClick={() => remove(county)} aria-label={`Remove ${county}`} className="p-0.5 text-gray-400 hover:text-white">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-gray-500 mt-2 min-h-[1rem]">{counties.length === 0 ? 'Add as many counties as you work in.' : `${counties.length} chosen.`}</p>
+        </section>
 
-        {step === 2 && (
-          <div>
-            <p className="text-sm text-white mb-2">What kind of work?</p>
-            <select
-              value=""
-              onChange={(e) => e.target.value && toggleService(e.target.value)}
-              aria-label="Add a service"
-              className={`${input} w-full`}
-            >
-              <option value="">{services.length === 0 ? 'Choose a service…' : 'Add another service…'}</option>
-              {ordered
-                .filter((t) => !services.includes(t.id))
-                .map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-            </select>
-            <ul className="flex flex-wrap gap-1.5 mt-3 min-h-[2.25rem] empty:hidden" aria-label="Chosen services">
-              {services.map((id) => (
-                <li key={id} className="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-full bg-[#336699]/20 border border-[#336699]/50 text-sm text-white">
-                  {trades.find((t) => t.id === id)?.name ?? id}
-                  <button type="button" onClick={() => toggleService(id)} aria-label={`Remove ${trades.find((t) => t.id === id)?.name ?? id}`} className="p-0.5 text-gray-400 hover:text-white">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <p className="text-xs text-gray-500 mt-2">Add every kind of work you want leads for. One price covers all of them.</p>
-            <div className="flex justify-between mt-4">
-              <button type="button" onClick={() => setStep(1)} className={secondary}>
-                Back
-              </button>
-              <button type="button" disabled={services.length === 0} onClick={() => setStep(3)} className={primary}>
-                Next
-              </button>
-            </div>
-          </div>
-        )}
-
-        {step === 3 && (
-          <div>
-            <p className="text-sm text-white mb-2">What's a lead worth to you?</p>
-            <label className="flex items-center gap-2 text-sm text-gray-300">
-              $
-              <input inputMode="decimal" aria-label="Bid amount" value={amount} onChange={(e) => setAmount(e.target.value)} className={`${input} w-28 text-right`} />
-              per lead
-            </label>
-            <p className="text-xs text-gray-500 mt-1">
-              {!amountOk
-                ? `Bids start at ${money(MIN_BID * 100)}.`
-                : !affordable
-                  ? `That's more than your balance (${money(balance)}).`
-                  : `Your balance covers about ${covers} lead${covers === 1 ? '' : 's'} at this price. You only pay when you win.`}
-            </p>
-            {amountOk && !affordable && (
-              <button type="button" onClick={onAddFunds} className={`${secondary} mt-2`}>
-                Add funds
+        {/* What: the company's trades, already lit; tap to change. */}
+        <section aria-label="What">
+          <p className={heading}>What kind of work?</p>
+          <div role="group" aria-label="Services" className="flex flex-wrap gap-1.5">
+            {shownTrades.map((t) => {
+              const on = services.includes(t.id);
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => toggleService(t.id)}
+                  aria-pressed={on}
+                  className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${
+                    on ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333] text-gray-400 hover:border-[#555] hover:text-gray-200'
+                  }`}
+                >
+                  {t.name}
+                </button>
+              );
+            })}
+            {folded && (
+              <button type="button" onClick={() => setShowAll(true)} className="px-3 py-1.5 rounded-full text-sm border border-dashed border-[#333] text-gray-400 hover:text-gray-200">
+                More trades…
               </button>
             )}
-            <div className="flex justify-between mt-4">
-              <button type="button" onClick={() => setStep(2)} className={secondary}>
-                Back
-              </button>
-              <button type="button" disabled={busy || !ready} onClick={save} className={primary}>
-                {busy ? 'Saving…' : firstTime ? 'Start bidding' : rows > 1 ? `Add ${rows} bids` : 'Add bid'}
-              </button>
-            </div>
           </div>
-        )}
+          <p className="text-xs text-gray-500 mt-2">Add every kind of work you want leads for. One price covers all of them.</p>
+        </section>
+
+        {/* How much. */}
+        <section aria-label="How much">
+          <p className={heading}>What's a lead worth to you?</p>
+          <label className="flex items-center gap-2 text-sm text-gray-300">
+            $
+            <input inputMode="decimal" aria-label="Bid amount" value={amount} onChange={(e) => setAmount(e.target.value)} className={`${input} w-28 text-right`} />
+            per lead
+          </label>
+          <p className="text-xs text-gray-500 mt-1">
+            {!amountOk
+              ? `Bids start at ${money(MIN_BID * 100)}.`
+              : !affordable
+                ? `That's more than your balance (${money(balance)}).`
+                : `Your balance covers about ${covers} lead${covers === 1 ? '' : 's'} at this price. You only pay when you win.`}
+          </p>
+          {amountOk && !affordable && (
+            <button type="button" onClick={onAddFunds} className={`${secondary} mt-2`}>
+              Add funds
+            </button>
+          )}
+        </section>
+
+        <div className="flex justify-between">
+          <button type="button" onClick={onClose} className={secondary}>
+            Cancel
+          </button>
+          <button type="button" disabled={busy || !ready} onClick={save} className={primary}>
+            {busy ? 'Saving…' : firstTime ? 'Start bidding' : rows > 1 ? `Add ${rows} bids` : 'Add bid'}
+          </button>
+        </div>
       </div>
     </Modal>
   );
