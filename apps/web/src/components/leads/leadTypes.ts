@@ -46,7 +46,8 @@ export const STATUSES: { value: LeadStatus; label: string; color: string; dot: s
   { value: 'contacted', label: 'Contacted', color: 'text-amber-300', dot: 'bg-amber-300' },
   { value: 'scheduled', label: 'Estimate Scheduled', color: 'text-orange-300', dot: 'bg-orange-300' },
   { value: 'quoted', label: 'Estimate Sent', color: 'text-violet-300', dot: 'bg-violet-300' },
-  { value: 'won', label: 'Won', color: 'text-emerald-300', dot: 'bg-emerald-300' },
+  // "Sold" so it never reads like the green Won tag on a lead bought from the Marketplace.
+  { value: 'won', label: 'Sold', color: 'text-emerald-300', dot: 'bg-emerald-300' },
   { value: 'lost', label: 'Lost', color: 'text-gray-500', dot: 'bg-gray-500' },
 ];
 
