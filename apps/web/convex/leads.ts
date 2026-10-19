@@ -25,14 +25,16 @@ function checkName(fields: Record<string, unknown>) {
   }
 }
 
-/** Open leads first, then by follow-up date (soonest first), then newest. */
+/** The next day something is due: the follow-up date, else the appointment's day. */
+const nextDay = (lead: Doc<"leads">) =>
+  lead.followUpDate ?? lead.appointmentAt?.slice(0, 10) ?? "9999";
+
+/** Open leads first, then by next due day (soonest first), then newest. */
 function byPriority(a: Doc<"leads">, b: Doc<"leads">) {
   const open = Number(OPEN.has(b.status)) - Number(OPEN.has(a.status));
   if (open !== 0) return open;
-  const followUp = (a.followUpDate ?? "9999").localeCompare(
-    b.followUpDate ?? "9999",
-  );
-  if (followUp !== 0) return followUp;
+  const due = nextDay(a).localeCompare(nextDay(b));
+  if (due !== 0) return due;
   return b.createdAt.localeCompare(a.createdAt);
 }
 

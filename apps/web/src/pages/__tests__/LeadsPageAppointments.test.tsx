@@ -87,11 +87,14 @@ describe('Leads calendar', () => {
 
     expect(update).toHaveBeenCalled();
     expect(calendarItem()?.textContent).toContain('3:30');
+    // The appointment is its own thing: it never writes a follow-up date.
+    for (const [, data] of update.mock.calls) expect(data).not.toHaveProperty('followUpDate');
 
     // Removing it takes it off the calendar.
     act(() => click(document.body.querySelector('form button[aria-label="Remove appointment"]')!));
     await flush();
     expect(calendarItem()).toBeUndefined();
+    for (const [, data] of update.mock.calls) expect(data).not.toHaveProperty('followUpDate');
   });
 
   it('keeps a time picked right before the drawer is closed', async () => {
@@ -204,6 +207,28 @@ describe('Leads board', () => {
     expect(names.join(' ')).toContain('Omar Haddad');
     expect(names.join(' ')).not.toContain('Rocky Vansau');
     expect(names.join(' ')).not.toContain('Dana Ruiz');
+    rows = [own];
+  });
+
+  it('counts a missed appointment as overdue even with no follow-up date', async () => {
+    const own = rows[0];
+    rows = [
+      { id: 'l5', name: 'Missed Appt', status: 'scheduled', createdAt: '2026-10-02T00:00:00Z', appointmentAt: '2026-10-05T15:00:00Z' },
+      { id: 'l6', name: 'Still Coming', status: 'scheduled', createdAt: '2026-10-02T00:00:00Z', appointmentAt: '2099-10-05T15:00:00Z' },
+    ] as typeof rows;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
+    await flush();
+    const filter = container.querySelector('select[aria-label="Filter leads"]') as HTMLSelectElement;
+    act(() => {
+      filter.value = 'overdue';
+      filter.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await flush();
+    const names = Array.from(container.querySelectorAll('[data-lead-card]')).map((el) => el.textContent ?? '');
+    expect(names.some((n) => n.includes('Missed Appt'))).toBe(true);
+    expect(names.some((n) => n.includes('Still Coming'))).toBe(false);
     rows = [own];
   });
 

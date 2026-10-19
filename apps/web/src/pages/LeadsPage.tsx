@@ -17,6 +17,14 @@ import { appointmentDay, formatAppointmentShort, toLocalInput } from '../utils/a
 import { ago, intakeAnswers, leadSummary } from '../components/leads/leadIntake';
 
 const OPEN: LeadStatus[] = ['new', 'no_answer', 'contacted', 'scheduled', 'quoted'];
+
+/** The next day something is due: the follow-up date, else the appointment's day. */
+const nextDay = (lead: Lead) => lead.followUpDate || (lead.appointmentAt ? appointmentDay(toLocalInput(lead.appointmentAt)) : undefined);
+/** An open lead whose follow-up or appointment day has gone by. */
+const isOverdue = (lead: Lead, todayIso: string) => {
+  const day = nextDay(lead);
+  return !!day && day < todayIso && OPEN.includes(lead.status);
+};
 type LeadFilter = 'all' | 'appointment' | 'overdue' | 'recent';
 const FILTERS: { value: LeadFilter; label: string }[] = [
   { value: 'all', label: 'All leads' },
@@ -104,15 +112,8 @@ const LeadCardDetails: React.FC<{
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
   const answers = intakeAnswers(lead.notes);
 
-  const changeAppointment = (iso: string | null) => {
-    if (iso) {
-      onChange(lead, { appointmentAt: iso, followUpDate: appointmentDay(toLocalInput(iso)) });
-      return;
-    }
-    // Removing it also drops the follow-up date it set.
-    const day = lead.appointmentAt ? appointmentDay(toLocalInput(lead.appointmentAt)) : null;
-    onChange(lead, { appointmentAt: undefined, ...(lead.followUpDate === day ? { followUpDate: undefined } : {}) });
-  };
+  // The follow-up date is the company's own reminder; an appointment never sets or clears it.
+  const changeAppointment = (iso: string | null) => onChange(lead, { appointmentAt: iso ?? undefined });
   const addNote = async () => {
     const text = note.trim();
     if (!text || saving) return;
@@ -372,7 +373,7 @@ const LeadsPage: React.FC = () => {
     if (!matchesSearch(lead, query)) return false;
     if (countyFilter === NO_COUNTY ? lead.county : countyFilter && lead.county !== countyFilter) return false;
     if (leadFilter === 'appointment') return !!lead.appointmentAt;
-    if (leadFilter === 'overdue') return !!lead.followUpDate && lead.followUpDate < todayIso && OPEN.includes(lead.status);
+    if (leadFilter === 'overdue') return isOverdue(lead, todayIso);
     if (leadFilter === 'recent') return (lead.createdAt ?? '') >= monthAgo;
     return true;
   });
@@ -493,7 +494,7 @@ const LeadsPage: React.FC = () => {
                   </div>
                   <div className="p-2 space-y-2 min-h-[120px]">
                     {cards.map((lead) => {
-                      const overdue = !!lead.followUpDate && lead.followUpDate < todayIso && OPEN.includes(lead.status);
+                      const overdue = isOverdue(lead, todayIso);
                       const showFollowUp = !!lead.followUpDate && !lead.appointmentAt && OPEN.includes(lead.status);
                       return (
                         <div

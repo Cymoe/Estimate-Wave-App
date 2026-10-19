@@ -832,6 +832,11 @@ describe("leads", () => {
       organizationId,
       data: { name: "Soon", followUpDate: "2026-10-10" },
     });
+    // No follow-up date: the appointment's day is what it sorts by.
+    await alice.as.mutation(api.leads.create, {
+      organizationId,
+      data: { name: "Booked", appointmentAt: "2026-10-20T15:00:00.000Z" },
+    });
     const lost = await alice.as.mutation(api.leads.create, {
       organizationId,
       data: { name: "Gone" },
@@ -844,7 +849,7 @@ describe("leads", () => {
     const names = (
       await alice.as.query(api.leads.list, { organizationId })
     ).map((lead) => lead.name);
-    expect(names).toEqual(["Soon", "Jones", "Gone"]);
+    expect(names).toEqual(["Soon", "Booked", "Jones", "Gone"]);
 
     await expect(
       alice.as.mutation(api.leads.create, {

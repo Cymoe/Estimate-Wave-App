@@ -19,7 +19,6 @@ import {
   XCircle,
 } from 'lucide-react';
 import { leadsAPI } from '../../lib/api';
-import { appointmentDay, toLocalInput } from '../../utils/appointments';
 import { AppointmentField } from './AppointmentField';
 import { LeadCredit } from '../market/LeadCredit';
 import { KNOWN_CITIES, SOURCES, STATUSES, type Lead, type LeadStatus, type Trade } from './leadTypes';
@@ -220,24 +219,13 @@ export const LeadDrawer: React.FC<{
     commit(field, e.target.value);
   };
 
+  // The follow-up date is the company's own reminder; an appointment never sets or clears it.
   const changeAppointment = (iso: string | null) => {
-    const day = iso ? appointmentDay(toLocalInput(iso)) : undefined;
     if (!lead) {
       setNewAppointment(iso ?? undefined);
-      if (day) setDraft((current) => ({ ...current, followUpDate: day }));
       return;
     }
-    // Setting one makes its day the follow-up date; removing it drops that date again.
-    const oldDay = lead.appointmentAt ? appointmentDay(toLocalInput(lead.appointmentAt)) : undefined;
-    const followUp = day ?? (oldDay && saved.current.followUpDate === oldDay ? '' : undefined);
-    if (followUp !== undefined) {
-      saved.current = { ...saved.current, followUpDate: followUp };
-      setDraft((current) => ({ ...current, followUpDate: followUp }));
-    }
-    void save(
-      { appointmentAt: iso ?? undefined, ...(followUp !== undefined ? { followUpDate: followUp || undefined } : {}) },
-      { appointmentAt: iso, ...(followUp !== undefined ? { followUpDate: followUp || null } : {}) },
-    );
+    void save({ appointmentAt: iso ?? undefined }, { appointmentAt: iso });
   };
 
   const changeStatus = (status: LeadStatus) => {
