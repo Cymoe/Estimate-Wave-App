@@ -120,6 +120,28 @@ describe('LeadDrawer', () => {
     expect(update).toHaveBeenCalledWith('l1', { lostReason: 'Went with a cheaper quote' });
   });
 
+  it('keeps the estimate in the Value row and the delete line at the very end; no footer bar', () => {
+    const onEstimate = jest.fn();
+    const onDelete = jest.fn();
+    open({ onEstimate, onDelete });
+    const buttons = () => Array.from(document.body.querySelectorAll('form button'));
+    // No estimate yet: the typed value plus a way to create one.
+    expect(field('Estimated value')).toBeTruthy();
+    act(() => buttons().find((b) => b.textContent?.includes('Create estimate'))!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(onEstimate).toHaveBeenCalledWith(lead);
+    // Delete is the last thing in the drawer, after the notes.
+    const del = buttons().find((b) => b.textContent?.includes('Delete lead'))!;
+    expect(del.compareDocumentPosition(document.body.querySelector('[aria-label="Edit notes"]')!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(document.body.textContent).not.toContain('Request credit');
+    act(() => root.unmount());
+
+    // With an estimate: its number and total, and Open instead of Create.
+    open({ lead: { ...lead, estimate: { id: 'e1', estimateNumber: 'EST-2', status: 'draft', totalAmount: 9000 } as never }, onEstimate });
+    expect(field('Estimated value')).toBeNull();
+    expect(document.body.textContent).toContain('EST-2 · $9,000.00');
+    expect(buttons().some((b) => b.textContent?.trim() === 'Open')).toBe(true);
+  });
+
   it('adds a new lead with the button', async () => {
     jest.useFakeTimers();
     try {

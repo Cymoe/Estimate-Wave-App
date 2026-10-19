@@ -184,8 +184,7 @@ describe("a company's lead balance", () => {
     expect(document.body.querySelector('[role="dialog"]')).toBeNull();
   });
 
-  it('lets a company ask for a credit on a bought lead within 3 days', async () => {
-    const onRequested = jest.fn();
+  it('shows what a bought lead cost, with no way to ask for a credit from the drawer', async () => {
     const lead = {
       id: 'l1',
       name: 'Jane Cole',
@@ -195,18 +194,15 @@ describe("a company's lead balance", () => {
       pricePaidCents: 8500,
       assignedAt: new Date().toISOString(),
     };
-    await render(<LeadCredit lead={lead} onRequested={onRequested} />);
+    await render(<LeadCredit lead={lead} />);
     expect(document.body.textContent).toContain('Won · $85.00');
-    await act(async () => byText('Request credit')!.click());
-    await act(async () => byText('Send request')!.click());
-    await flush();
-    expect(requestCredit).toHaveBeenCalledWith('l1', 'wrong_number', undefined);
-    expect(onRequested).toHaveBeenCalledWith(expect.objectContaining({ status: 'pending' }));
-
-    document.body.innerHTML = '';
-    await render(<LeadCredit lead={{ ...lead, assignedAt: '2026-01-01T00:00:00Z' }} onRequested={onRequested} />);
     expect(byText('Request credit')).toBeUndefined();
+    expect(requestCredit).not.toHaveBeenCalled();
 
+    // A credit already on file still shows its state.
+    document.body.innerHTML = '';
+    await render(<LeadCredit lead={{ ...lead, creditRequest: { reason: 'wrong_number', requestedAt: '2026-10-01T00:00:00Z', status: 'approved' } }} />);
+    expect(document.body.textContent).toContain('Credited');
   });
 });
 

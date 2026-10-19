@@ -9,6 +9,7 @@ html.light .active\:bg-\[\#333333\]:active { background-color: #E8EAED; }
 html.light .active\:bg-\[\#3A3A3A\]:active { background-color: #E8EAED; }
 html.light .active\:bg-\[\#404040\]:active { background-color: #DDE0E4; }
 html.light .active\:bg-\[\#4A4A4A\]:active { background-color: #DDE0E4; }
+html.light .active\:text-red-400:active { color: #b91c1c; }
 html.light .bg-\[\#000000\] { background-color: #F4F5F7; }
 html.light .bg-\[\#050505\] { background-color: #F4F5F7; }
 html.light .bg-\[\#0A0A0A\] { background-color: #F4F5F7; }

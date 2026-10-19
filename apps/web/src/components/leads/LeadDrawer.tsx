@@ -19,6 +19,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { leadsAPI } from '../../lib/api';
+import { formatCurrency } from '../../utils/format';
 import { AppointmentField } from './AppointmentField';
 import { LeadCredit } from '../market/LeadCredit';
 import { KNOWN_CITIES, SOURCES, STATUSES, type Lead, type LeadStatus, type Trade } from './leadTypes';
@@ -278,7 +279,12 @@ export const LeadDrawer: React.FC<{
         }`}
       >
         <div className="flex items-center justify-between px-7 pt-4 text-sm text-gray-500">
-          <span>{lead ? `Lead${added ? ` · added ${added}` : ''}` : 'New lead'}</span>
+          <span>
+            {lead ? `Lead${added ? ` · added ${added}` : ''}` : 'New lead'}
+            <span className="ml-3 text-gray-600" aria-live="polite">
+              {state === 'saving' ? 'Saving…' : state === 'saved' ? '✓ Saved' : ''}
+            </span>
+          </span>
           <button type="button" onClick={() => slideOut(closeNow)} className="p-1 -mr-1 text-gray-400 hover:text-white" aria-label="Close">
             <X className="w-5 h-5" />
           </button>
@@ -310,7 +316,7 @@ export const LeadDrawer: React.FC<{
             </select>
           </div>
 
-          {lead && <LeadCredit lead={lead} onRequested={(creditRequest) => onChanged(lead, { creditRequest })} />}
+          {lead && <LeadCredit lead={lead} />}
 
           {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
 
@@ -430,15 +436,33 @@ export const LeadDrawer: React.FC<{
               </select>
             </Row>
             <Row icon={DollarSign} label="Value">
-              <input
-                inputMode="decimal"
-                value={draft.estimatedValue}
-                onChange={set('estimatedValue')}
-                onBlur={() => commit('estimatedValue')}
-                placeholder="Add estimate"
-                aria-label="Estimated value"
-                className={plainInput}
-              />
+              <div className="flex items-center gap-3 min-w-0">
+                {lead?.estimate ? (
+                  <span className="text-[15px] text-gray-100 truncate">
+                    {lead.estimate.estimateNumber}
+                    {lead.estimate.totalAmount ? ` · ${formatCurrency(lead.estimate.totalAmount)}` : ''}
+                  </span>
+                ) : (
+                  <input
+                    inputMode="decimal"
+                    value={draft.estimatedValue}
+                    onChange={set('estimatedValue')}
+                    onBlur={() => commit('estimatedValue')}
+                    placeholder="Add a value"
+                    aria-label="Estimated value"
+                    className={plainInput}
+                  />
+                )}
+                {lead && onEstimate && (
+                  <button
+                    type="button"
+                    onClick={() => onEstimate(lead)}
+                    className="flex-shrink-0 inline-flex items-center gap-1 text-sm text-[#9cc3ea] hover:text-white whitespace-nowrap"
+                  >
+                    <FileText className="w-3.5 h-3.5" /> {lead.estimate ? 'Open' : 'Create estimate'}
+                  </button>
+                )}
+              </div>
             </Row>
             {lead?.status === 'lost' && (
               <Row icon={XCircle} label="Lost because">
@@ -485,43 +509,24 @@ export const LeadDrawer: React.FC<{
               </button>
             )}
           </div>
-        </div>
 
-        <div className="px-7 py-3.5 border-t border-[#222222] flex items-center justify-between text-sm">
-          {lead ? (
-            <>
-              <span className="flex items-center gap-4">
-                {onEstimate && (
-                  <button
-                    type="button"
-                    onClick={() => onEstimate(lead)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#336699] hover:bg-[#2a5580] text-white"
-                  >
-                    <FileText className="w-4 h-4" /> {lead.estimate ? `Open ${lead.estimate.estimateNumber}` : 'Create estimate'}
-                  </button>
-                )}
-                <span className="text-gray-500" aria-live="polite">
-                  {state === 'saving' ? 'Saving…' : state === 'saved' ? '✓ Saved' : ''}
-                </span>
-              </span>
-              {/* Delete sits on its own at the far right, well away from Create estimate. */}
-              {onDelete ? (
-                <button type="button" onClick={onDelete} className="inline-flex items-center gap-1.5 text-red-400 hover:text-red-300">
-                  <Trash2 className="w-4 h-4" /> Delete lead
-                </button>
-              ) : (
-                <span />
-              )}
-            </>
-          ) : (
-            <>
-              <span />
-              <button type="submit" disabled={state === 'saving'} className="px-4 py-2 rounded-md bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50">
-                {state === 'saving' ? 'Adding…' : 'Add lead'}
+          {/* Delete is a quiet line at the very end, red only when pressed. */}
+          {lead && onDelete && (
+            <div className="mt-10 pt-4 border-t border-[#222222]">
+              <button type="button" onClick={onDelete} className="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-red-400 active:text-red-400">
+                <Trash2 className="w-3.5 h-3.5" /> Delete lead
               </button>
-            </>
+            </div>
           )}
         </div>
+
+        {!lead && (
+          <div className="px-7 py-3.5 border-t border-[#222222] flex items-center justify-end text-sm">
+            <button type="submit" disabled={state === 'saving'} className="px-4 py-2 rounded-md bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50">
+              {state === 'saving' ? 'Adding…' : 'Add lead'}
+            </button>
+          </div>
+        )}
       </form>
     </>,
     document.body,
