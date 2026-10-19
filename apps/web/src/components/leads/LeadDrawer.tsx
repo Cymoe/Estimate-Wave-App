@@ -307,7 +307,7 @@ export const LeadDrawer: React.FC<{
             className="w-full bg-transparent border-0 p-0 text-[26px] font-semibold tracking-tight text-white placeholder-gray-600 focus:outline-none focus:ring-0"
           />
 
-          {/* The stage: a plain dropdown, so moving a lead never needs dragging. */}
+          {/* The stage: a plain dropdown, the one way to move a lead between columns. */}
           <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-[#2A2A2A] bg-[#161616] pl-3 pr-2 py-1 focus-within:border-[#444444]">
             <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} aria-hidden="true" />
             <select

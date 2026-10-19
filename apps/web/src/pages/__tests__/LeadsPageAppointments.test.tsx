@@ -149,7 +149,7 @@ describe('Leads board', () => {
     document.body.appendChild(container);
     await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
     await flush();
-    const card = container.querySelector('[draggable]')!;
+    const card = container.querySelector('[data-lead-card]')!;
     // The trade and town text sits beside the Call link, bottom right of the card.
     const corner = Array.from(card.querySelectorAll('span')).find((el) => /· Midland$/.test(el.textContent ?? ''))!;
     act(() => click(corner));
@@ -172,7 +172,7 @@ describe('Leads board', () => {
     await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
     await flush();
 
-    const card = (who: string) => Array.from(container.querySelectorAll('[draggable]')).find((el) => el.textContent?.includes(who))!;
+    const card = (who: string) => Array.from(container.querySelectorAll('[data-lead-card]')).find((el) => el.textContent?.includes(who))!;
     expect(card('Omar Haddad').textContent).toContain('Won');
     expect(card('Dana Ruiz').textContent).toContain('Won');
     expect(card('Rocky Vansau').textContent).not.toContain('Won');
@@ -200,7 +200,7 @@ describe('Leads board', () => {
       select.value = 'Ector';
       select.dispatchEvent(new Event('change', { bubbles: true }));
     });
-    const names = Array.from(container.querySelectorAll('[draggable]')).map((el) => el.textContent);
+    const names = Array.from(container.querySelectorAll('[data-lead-card]')).map((el) => el.textContent);
     expect(names.join(' ')).toContain('Omar Haddad');
     expect(names.join(' ')).not.toContain('Rocky Vansau');
     expect(names.join(' ')).not.toContain('Dana Ruiz');
@@ -219,7 +219,7 @@ describe('Leads board', () => {
     document.body.appendChild(container);
     await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
     await flush();
-    const card = () => container.querySelector('[draggable]')!;
+    const card = () => container.querySelector('[data-lead-card]')!;
     expect(card().textContent).toContain('Get your render done · Irrigation · As soon as possible');
     expect(card().textContent).not.toContain('What are you looking');
     expect(card().querySelector('[data-testid="lead-status-line"]')?.textContent).toMatch(/^Came in \d+d ago · not contacted$/);

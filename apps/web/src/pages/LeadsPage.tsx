@@ -175,8 +175,6 @@ const LeadCardDetails: React.FC<{
           }
         }}
         onBlur={addNote}
-        draggable
-        onDragStart={(e) => e.preventDefault()}
         placeholder="Add a note: called, left VM…"
         aria-label="Add a note"
         className="w-full bg-[#0A0A0A] border border-[#333333] px-2 py-1.5 text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-[#336699]"
@@ -203,7 +201,6 @@ const LeadsPage: React.FC = () => {
     setSearchParams({}, { replace: true });
   }, [searchParams, setSearchParams]);
   const [quoting, setQuoting] = useState<{ lead: Lead; clientId: string } | null>(null);
-  const [dragOver, setDragOver] = useState<LeadStatus | null>(null);
 
   const load = async () => {
     if (!organizationId) return;
@@ -481,20 +478,7 @@ const LeadsPage: React.FC = () => {
               return (
                 <div
                   key={column.value}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setDragOver(column.value);
-                  }}
-                  onDragLeave={() => setDragOver((current) => (current === column.value ? null : current))}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    setDragOver(null);
-                    const lead = leads.find((row) => row.id === e.dataTransfer.getData('text/plain'));
-                    if (lead && lead.status !== column.value) changeStatus(lead, column.value);
-                  }}
-                  className={`flex-shrink-0 w-72 flex flex-col border ${
-                    dragOver === column.value ? 'border-[#336699] bg-[#336699]/10' : 'border-[#333333] bg-[#0A0A0A]'
-                  }`}
+                  className="flex-shrink-0 w-72 flex flex-col border border-[#333333] bg-[#0A0A0A]"
                 >
                   <div className="px-3 py-2 border-b border-[#333333]">
                     <div className="flex items-center justify-between">
@@ -510,13 +494,9 @@ const LeadsPage: React.FC = () => {
                       return (
                         <div
                           key={lead.id}
-                          draggable
-                          onDragStart={(e) => {
-                            e.dataTransfer.setData('text/plain', lead.id);
-                            e.dataTransfer.effectAllowed = 'move';
-                          }}
+                          data-lead-card
                           onClick={() => setEditing(lead)}
-                          className={`bg-[#121212] border border-[#333333] hover:border-[#555555] cursor-grab active:cursor-grabbing ${compact ? 'px-3 py-2' : 'p-3'}`}
+                          className={`bg-[#121212] border border-[#333333] hover:border-[#555555] cursor-pointer ${compact ? 'px-3 py-2' : 'p-3'}`}
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
@@ -584,7 +564,7 @@ const LeadsPage: React.FC = () => {
                         </div>
                       );
                     })}
-                    {cards.length === 0 && <p className="text-xs text-gray-600 text-center py-6">Drop a lead here</p>}
+                    {cards.length === 0 && <p className="text-xs text-gray-600 text-center py-6">No leads here</p>}
                   </div>
                 </div>
               );
