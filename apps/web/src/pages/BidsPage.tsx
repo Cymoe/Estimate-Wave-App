@@ -379,7 +379,8 @@ function AddBidDialog({
   onAddFunds: () => void;
 }) {
   const [search, setSearch] = useState('');
-  const [counties, setCounties] = useState<string[]>([]);
+  // One county at a time; bids in another county are a second visit.
+  const [county, setCounty] = useState<string | null>(null);
   // One amount per trade; a trade with no entry isn't being bid on.
   const [bids, setBids] = useState<Record<string, string>>(() =>
     Object.fromEntries(preferredTrades.filter((t) => trades.some((x) => x.id === t)).map((t) => [t, String(MIN_BID)])),
@@ -407,24 +408,23 @@ function AddBidDialog({
   // Type a county or a town: "Mid" finds Midland, "Odessa" finds Ector.
   const matches = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return suggested.filter((c) => !counties.includes(c)).map((county) => ({ county, via: undefined as string | undefined }));
+    if (!q) return suggested.map((c) => ({ county: c, via: undefined as string | undefined }));
     const town = countyForTown(search);
     const starts = TEXAS_COUNTIES.filter((c) => c.toLowerCase().startsWith(q));
     const within = TEXAS_COUNTIES.filter((c) => !c.toLowerCase().startsWith(q) && c.toLowerCase().includes(q));
     const out = [...(town ? [{ county: town, via: search.trim() }] : []), ...[...starts, ...within].map((county) => ({ county, via: undefined as string | undefined }))];
-    return out.filter((m, i) => !counties.includes(m.county) && out.findIndex((o) => o.county === m.county) === i).slice(0, 8);
-  }, [search, counties, suggested]);
-  const add = (county: string) => {
-    setCounties((c) => (c.includes(county) ? c : [...c, county]));
+    return out.filter((m, i) => out.findIndex((o) => o.county === m.county) === i).slice(0, 8);
+  }, [search, suggested]);
+  const pick = (name: string) => {
+    setCounty(name);
     // Bids already placed there fill their rows, so this screen edits as well as adds.
     setBids((b) => {
       const next = { ...b };
-      for (const sb of standing) if (sb.county === county && !touched.has(sb.jobType)) next[sb.jobType] = String(sb.amountCents / 100);
+      for (const sb of standing) if (sb.county === name && !touched.has(sb.jobType)) next[sb.jobType] = String(sb.amountCents / 100);
       return next;
     });
     setSearch('');
   };
-  const remove = (county: string) => setCounties((c) => c.filter((x) => x !== county));
   const turnOn = (id: string) => setBid(id, String(MIN_BID));
   const turnOff = (id: string) => {
     setTouched((t) => new Set(t).add(id));
@@ -434,11 +434,10 @@ function AddBidDialog({
       return next;
     });
   };
-  /** Where the company's existing bids for this trade stand in the chosen counties. */
+  /** Where the company's existing bid for this trade stands in the chosen county. */
   const standingFor = (id: string): 'top' | 'outbid' | null => {
-    const mine = standing.filter((sb) => sb.jobType === id && counties.includes(sb.county));
-    if (mine.length === 0) return null;
-    return mine.every((sb) => sb.leading) ? 'top' : 'outbid';
+    const mine = standing.find((sb) => sb.jobType === id && sb.county === county);
+    return mine ? (mine.leading ? 'top' : 'outbid') : null;
   };
 
   const amounts = live.map((t) => Number(bids[t.id]));
@@ -446,14 +445,14 @@ function AddBidDialog({
   const top = amounts.length ? Math.max(...amounts) : 0;
   const affordable = amountsOk && top * 100 <= balance;
   const covers = amountsOk && top > 0 ? Math.floor(balance / (top * 100)) : 0;
-  const ready = counties.length > 0 && live.length > 0 && affordable;
-  const rows = counties.length * live.length;
+  const ready = county !== null && live.length > 0 && affordable;
+  const rows = live.length;
 
   const save = async () => {
     setBusy(true);
     try {
-      for (const county of counties) for (const t of live) await bidsAPI.setStanding(organizationId, county, t.id, Number(bids[t.id]));
-      const where = counties.length === 1 ? `${counties[0]} County` : `${counties.length} counties`;
+      for (const t of live) await bidsAPI.setStanding(organizationId, county!, t.id, Number(bids[t.id]));
+      const where = `${county} County`;
       const names = live.map((t) => t.name);
       const what = names.length <= 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
       const same = amounts.every((a) => a === amounts[0]);
@@ -472,58 +471,57 @@ function AddBidDialog({
   return (
     <Modal isOpen title={firstTime ? 'Set your bids' : 'Add a bid'} onClose={onClose} size="xl">
       <div className="p-6 space-y-7">
-        {/* Where: one search box, a list of matches, chips for what's chosen. */}
+        {/* Where: a search box until a county is picked, then just its name. */}
         <section aria-label="Where">
-          <p className="text-sm font-medium text-white mb-2">Which counties do you work in?</p>
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && matches[0]) {
-                e.preventDefault();
-                add(matches[0].county);
-              }
-            }}
-            placeholder="Type a county or town, like Midland or Odessa"
-            aria-label="Search counties"
-            className={`${input} w-full`}
-          />
-          {/* Fixed height, so the dialog doesn't jump as matches come and go. */}
-          <ul className="mt-1 h-36 overflow-y-auto divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Counties">
-            {matches.map((m) => (
-              <li key={m.county}>
-                <button type="button" onClick={() => add(m.county)} className="w-full flex items-center justify-between px-3 py-2 text-left text-sm text-gray-200 hover:bg-[#1E1E1E]">
-                  <span>{m.county} County</span>
-                  {m.via ? <span className="text-xs text-gray-500">{m.via} is in {m.county} County</span> : search.trim() === '' ? <span className="text-xs text-gray-500">you bid here</span> : null}
-                </button>
-              </li>
-            ))}
-            {matches.length === 0 && (
-              <li className="px-3 py-2 text-sm text-gray-500">
-                {search.trim() === '' ? 'Type to find a county. Any Texas county works.' : `Nothing matches "${search.trim()}". Try the county name or a town in it.`}
-              </li>
-            )}
-          </ul>
-          <ul className="flex flex-wrap gap-1.5 mt-3 min-h-[2.25rem] empty:hidden" aria-label="Chosen counties">
-            {counties.map((county) => (
-              <li key={county} className="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-full bg-[#336699]/20 border border-[#336699]/50 text-sm text-white">
-                {county} County
-                <button type="button" onClick={() => remove(county)} aria-label={`Remove ${county}`} className="p-0.5 text-gray-400 hover:text-white">
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </li>
-            ))}
-          </ul>
-          <p className="text-xs text-gray-500 mt-2 min-h-[1rem]">{counties.length === 0 ? 'Add as many counties as you work in.' : `${counties.length} chosen.`}</p>
+          <p className="text-sm font-medium text-white mb-2">{county ? 'County' : 'Which county?'}</p>
+          {county ? (
+            <p className="flex items-center justify-between gap-3 px-3 py-2 rounded border border-[#2A2A2A] bg-[#121212] text-sm">
+              <span className="text-white">{county} County</span>
+              <button type="button" onClick={() => setCounty(null)} aria-label="Change county" className="text-xs text-[#7fb0e0] underline underline-offset-2">
+                Change
+              </button>
+            </p>
+          ) : (
+            <>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && matches[0]) {
+                    e.preventDefault();
+                    pick(matches[0].county);
+                  }
+                }}
+                placeholder="Type a county or town, like Midland or Odessa"
+                aria-label="Search counties"
+                autoFocus
+                className={`${input} w-full`}
+              />
+              {/* Fixed height, so the dialog doesn't jump as matches come and go. */}
+              <ul className="mt-1 h-36 overflow-y-auto divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Counties">
+                {matches.map((m) => (
+                  <li key={m.county}>
+                    <button type="button" onClick={() => pick(m.county)} className="w-full flex items-center justify-between px-3 py-2 text-left text-sm text-gray-200 hover:bg-[#1E1E1E]">
+                      <span>{m.county} County</span>
+                      {m.via ? <span className="text-xs text-gray-500">{m.via} is in {m.county} County</span> : search.trim() === '' ? <span className="text-xs text-gray-500">you bid here</span> : null}
+                    </button>
+                  </li>
+                ))}
+                {matches.length === 0 && (
+                  <li className="px-3 py-2 text-sm text-gray-500">
+                    {search.trim() === '' ? 'Type to find a county. Any Texas county works.' : `Nothing matches "${search.trim()}". Try the county name or a town in it.`}
+                  </li>
+                )}
+              </ul>
+            </>
+          )}
         </section>
 
         {/* Your bids: one row per trade, each with its own price. */}
         <section aria-label="Your bids">
           <div className="flex items-baseline justify-between gap-4 mb-1">
             <p className="text-sm font-medium text-white">Your bids</p>
-            <p className="text-xs text-gray-500">
-              {counties.length > 1 ? `The same bids apply in each of the ${counties.length} counties.` : `Per lead · ${money(STEP * 100)} steps · from ${money(MIN_BID * 100)}`}
-            </p>
+            <p className="text-xs text-gray-500">{`Per lead · ${money(STEP * 100)} steps · from ${money(MIN_BID * 100)}`}</p>
           </div>
           <ul className="divide-y divide-[#2A2A2A] border-y border-[#2A2A2A]" aria-label="Bids by trade">
             {shownTrades.map((t) => {

@@ -69,22 +69,25 @@ describe('Bids', () => {
     expect(dialog()).toBeNull();
     await act(async () => byText('Set your bids')!.click());
     // Everything on one screen: where and the bids, no steps.
-    expect(dialog()?.textContent).toContain('Which counties do you work in?');
+    expect(dialog()?.textContent).toContain('Which county?');
     expect(dialog()?.textContent).toContain('Your bids');
     expect(dialog()!.querySelector('[aria-label="Steps"]')).toBeNull();
     expect(byText('Next')).toBeUndefined();
     expect(byText('Start bidding')!.disabled).toBe(true);
-    // Type a county, or a town and get its county.
+    // One county at a time: type a county, or a town and get its county; the search folds to a line once picked.
     const matches = () => Array.from(dialog()!.querySelectorAll('[aria-label="Counties"] button'));
     await act(async () => type(input('Search counties'), 'Mid'));
     expect(matches().map((b) => b.textContent)).toEqual(['Midland County']);
     await act(async () => (matches()[0] as HTMLButtonElement).click());
+    expect(input('Search counties')).toBeNull();
+    expect(dialog()!.querySelector('[aria-label="Counties"]')).toBeNull();
+    expect(dialog()!.querySelector('[aria-label="Where"]')?.textContent).toContain('Midland County');
+    await act(async () => (document.body.querySelector('button[aria-label="Change county"]') as HTMLButtonElement).click());
     await act(async () => type(input('Search counties'), 'Odessa'));
     expect(matches()[0].textContent).toBe('Ector CountyOdessa is in Ector County');
     await act(async () => (matches()[0] as HTMLButtonElement).click());
-    expect(dialog()!.querySelector('[aria-label="Chosen counties"]')?.textContent).toBe('Midland CountyEctor County');
-    expect(input('Search counties').value).toBe('');
-    expect(dialog()!.textContent).toContain('The same bids apply in each of the 2 counties.');
+    expect(dialog()!.querySelector('[aria-label="Where"]')?.textContent).toContain('Ector County');
+    expect(dialog()!.textContent).toContain('Per lead · $50.00 steps · from $200.00');
 
     // One row per trade. Their own trade is live at the minimum; the other waits behind "Bid $200.00".
     const rowsByTrade = () => Array.from(dialog()!.querySelectorAll('[aria-label="Bids by trade"] > li'));
@@ -122,13 +125,11 @@ describe('Bids', () => {
     await act(async () => byText('Start bidding')!.click());
     await flush();
     expect(setStanding.mock.calls).toEqual([
-      ['o2', 'Midland', 'landscaping', 250],
-      ['o2', 'Midland', 'roofing', 250],
       ['o2', 'Ector', 'landscaping', 250],
       ['o2', 'Ector', 'roofing', 250],
     ]);
     expect(dialog()).toBeNull();
-    expect(document.body.textContent).toContain("You're set: new Landscaping and Roofing leads in 2 counties go to you the moment they come in, at $250.00, while your bid is the highest.");
+    expect(document.body.textContent).toContain("You're set: new Landscaping and Roofing leads in Ector County go to you the moment they come in, at $250.00, while your bid is the highest.");
   });
 
   it('shows where each standing bid stands, lets the company edit or remove it, and opens the dialog to add more', async () => {
@@ -161,10 +162,11 @@ describe('Bids', () => {
     await act(async () => (dialog()!.querySelector('[aria-label="Counties"] button') as HTMLButtonElement).click());
     expect(input('Landscaping bid').value).toBe('250');
     expect(dialog()!.querySelector('[aria-label="Bids by trade"] > li')?.textContent).toContain('TOP');
+    await act(async () => (document.body.querySelector('button[aria-label="Change county"]') as HTMLButtonElement).click());
     await act(async () => type(input('Search counties'), 'Odessa'));
     await act(async () => (dialog()!.querySelector('[aria-label="Counties"] button') as HTMLButtonElement).click());
     expect(dialog()!.querySelector('[aria-label="Bids by trade"] > li')?.textContent).toContain('Outbid · raise to win');
-    expect(byText('Save 2 bids')).toBeTruthy();
+    expect(byText('Save bid')).toBeTruthy();
     await act(async () => (dialog()!.querySelector('button[aria-label="Close modal"]') as HTMLButtonElement).click());
     expect(dialog()).toBeNull();
   });
