@@ -10,7 +10,6 @@ let results: unknown[] = [];
 const setStanding = jest.fn(async (_org: string, _county: string, _jobType: string, _amount: number) => 'sb1');
 const removeStanding = jest.fn(async (_id: string) => undefined);
 const pauseStanding = jest.fn(async (_id: string, _paused: boolean) => undefined);
-const pauseAllStanding = jest.fn(async (_org: string, _paused: boolean) => 3);
 const createLink = jest.fn(async (_id: string) => 'tok');
 
 jest.mock('../../lib/api', () => ({
@@ -24,7 +23,6 @@ jest.mock('../../lib/api', () => ({
     setStanding: (...a: unknown[]) => setStanding(...(a as [string, string, string, number])),
     removeStanding: (id: string) => removeStanding(id),
     pauseStanding: (id: string, paused: boolean) => pauseStanding(id, paused),
-    pauseAllStanding: (org: string, paused: boolean) => pauseAllStanding(org, paused),
     results: async () => results,
   },
   industriesAPI: { list: async () => [{ id: 'roofing', name: 'Roofing' }, { id: 'landscaping', name: 'Landscaping' }] },
@@ -160,16 +158,22 @@ describe('Bids', () => {
     await act(async () => (document.body.querySelector('button[aria-label="Save bid"]') as HTMLButtonElement).click());
     await flush();
     expect(setStanding).toHaveBeenCalledWith('o2', 'Midland', 'landscaping', 275);
+    // Removing asks first: declined keeps the bid, confirmed removes it.
+    const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false);
+    await act(async () => (document.body.querySelector('button[aria-label="Remove bid for Landscaping in Ector"]') as HTMLButtonElement).click());
+    await flush();
+    expect(confirm).toHaveBeenCalledWith('Remove your Landscaping bid in Ector County? You can add it again later.');
+    expect(removeStanding).not.toHaveBeenCalled();
+    confirm.mockReturnValue(true);
     await act(async () => (document.body.querySelector('button[aria-label="Remove bid for Landscaping in Ector"]') as HTMLButtonElement).click());
     await flush();
     expect(removeStanding).toHaveBeenCalledWith('sb2');
-    // Pause keeps the bid but takes it out of the running; Pause all does every row.
+    confirm.mockRestore();
+    // Pause keeps the bid but takes it out of the running; there is no pause-all.
     await act(async () => (document.body.querySelector('button[aria-label="Pause bid for Landscaping in Midland"]') as HTMLButtonElement).click());
     await flush();
     expect(pauseStanding).toHaveBeenCalledWith('sb1', true);
-    await act(async () => byText('Pause all')!.click());
-    await flush();
-    expect(pauseAllStanding).toHaveBeenCalledWith('o2', true);
+    expect(byText('Pause all')).toBeUndefined();
     await act(async () => byText('Add bid')!.click());
     expect(dialog()?.querySelector('#modal-title')?.textContent).toBe('Add a bid');
     // Picking a county you already bid in fills the row with that bid and says where it stands.
@@ -186,21 +190,19 @@ describe('Bids', () => {
     expect(dialog()).toBeNull();
   });
 
-  it('shows paused bids as paused everywhere and offers Resume all when every bid is paused', async () => {
+  it('shows paused bids as paused everywhere and resumes them from the row', async () => {
     standing = [
       { id: 'sb1', county: 'Midland', jobType: 'landscaping', amountCents: 25000, funded: false, leading: false, contested: false, paused: true },
     ];
     await render();
-    expect(document.body.textContent).toContain('All bids paused');
+    expect(document.body.textContent).not.toContain('All bids paused');
+    expect(byText('Resume all')).toBeUndefined();
     const row = document.body.querySelector('[aria-label="My standing bids"] tbody tr')!;
     expect(row.textContent).toContain('Paused');
     expect(row.textContent).not.toContain('Add funds');
     await act(async () => (document.body.querySelector('button[aria-label="Resume bid for Landscaping in Midland"]') as HTMLButtonElement).click());
     await flush();
     expect(pauseStanding).toHaveBeenCalledWith('sb1', false);
-    await act(async () => byText('Resume all')!.click());
-    await flush();
-    expect(pauseAllStanding).toHaveBeenCalledWith('o2', false);
     await act(async () => byText('Add bid')!.click());
     await act(async () => type(input('Search counties'), 'Mid'));
     await act(async () => (dialog()!.querySelector('[aria-label="Counties"] button') as HTMLButtonElement).click());

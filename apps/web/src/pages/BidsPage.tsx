@@ -99,17 +99,6 @@ const BidsPage: React.FC = () => {
   const tradeName = (slug?: string) => trades.find((t) => t.id === slug)?.name ?? titleFromSlug(slug);
   const notify = (text: string, good = true) => setMessage({ text, good });
   const won = results?.filter((r) => r.won).length ?? 0;
-  const allPaused = !!standing && standing.length > 0 && standing.every((b) => b.paused);
-  const pauseAll = async (paused: boolean) => {
-    if (!organizationId) return;
-    try {
-      await bidsAPI.pauseAllStanding(organizationId, paused);
-      notify(paused ? 'All bids paused. No leads will be sent to you until you resume.' : 'Bids resumed.');
-      await load();
-    } catch (err) {
-      notify(err instanceof Error ? err.message : "That didn't work", false);
-    }
-  };
 
   return (
     <div className="p-4 md:p-6 text-white">
@@ -118,22 +107,13 @@ const BidsPage: React.FC = () => {
           <h1 className="text-xl font-semibold">Bids</h1>
           <p className="text-sm text-gray-400">
             {standing ? `${standing.length} standing bid${standing.length === 1 ? '' : 's'}` : 'Loading…'} · {won} lead{won === 1 ? '' : 's'} won
-            {allPaused && <span className="text-amber-200"> · All bids paused</span>}
           </p>
         </div>
         {standing && (
-          <div className="flex items-center gap-2">
-            {standing.length > 0 && (
-              <button type="button" onClick={() => pauseAll(!allPaused)} className={secondary}>
-                {allPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
-                {allPaused ? 'Resume all' : 'Pause all'}
-              </button>
-            )}
-            <button type="button" onClick={() => setAdding(true)} className={primary}>
-              <Plus className="w-4 h-4" />
-              {standing.length === 0 ? 'Set your bids' : 'Add bid'}
-            </button>
-          </div>
+          <button type="button" onClick={() => setAdding(true)} className={primary}>
+            <Plus className="w-4 h-4" />
+            {standing.length === 0 ? 'Set your bids' : 'Add bid'}
+          </button>
         )}
       </div>
       <p className="text-xs text-gray-500 mb-4">
@@ -296,28 +276,34 @@ function StandingTab({
               </td>
               <td className="px-4 py-3">
                 <Chip bid={bid} />
-                {!bid.funded && !bid.paused && (
-                  <button type="button" onClick={onAddFunds} className="block text-xs text-[#7fb0e0] underline underline-offset-2 mt-1">
-                    Add funds
+                <span className="flex items-center gap-3 mt-1 text-xs">
+                  {/* Pause sits here, well away from the trash. */}
+                  <button
+                    type="button"
+                    aria-label={`${bid.paused ? 'Resume' : 'Pause'} bid for ${tradeName(bid.jobType)} in ${bid.county}`}
+                    disabled={busy}
+                    onClick={() => act(() => bidsAPI.pauseStanding(bid.id, !bid.paused), bid.paused ? 'Bid resumed.' : 'Bid paused.')}
+                    className="inline-flex items-center gap-1 text-gray-400 hover:text-white underline underline-offset-2"
+                  >
+                    {bid.paused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
+                    {bid.paused ? 'Resume' : 'Pause'}
                   </button>
-                )}
+                  {!bid.funded && !bid.paused && (
+                    <button type="button" onClick={onAddFunds} className="text-[#7fb0e0] underline underline-offset-2">
+                      Add funds
+                    </button>
+                  )}
+                </span>
               </td>
-              <td className="px-4 py-3 text-right whitespace-nowrap">
-                <button
-                  type="button"
-                  aria-label={`${bid.paused ? 'Resume' : 'Pause'} bid for ${tradeName(bid.jobType)} in ${bid.county}`}
-                  title={bid.paused ? 'Resume' : 'Pause'}
-                  disabled={busy}
-                  onClick={() => act(() => bidsAPI.pauseStanding(bid.id, !bid.paused), bid.paused ? 'Bid resumed.' : 'Bid paused.')}
-                  className="p-2 text-gray-500 hover:text-white"
-                >
-                  {bid.paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
-                </button>
+              <td className="px-4 py-3 text-right">
                 <button
                   type="button"
                   aria-label={`Remove bid for ${tradeName(bid.jobType)} in ${bid.county}`}
                   disabled={busy}
-                  onClick={() => act(() => bidsAPI.removeStanding(bid.id), 'Bid removed.')}
+                  onClick={() => {
+                    if (!window.confirm(`Remove your ${tradeName(bid.jobType)} bid in ${bid.county} County? You can add it again later.`)) return;
+                    act(() => bidsAPI.removeStanding(bid.id), 'Bid removed.');
+                  }}
                   className="p-2 text-gray-500 hover:text-red-400"
                 >
                   <Trash2 className="w-4 h-4" />
