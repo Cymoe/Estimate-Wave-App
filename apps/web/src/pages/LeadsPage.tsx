@@ -524,37 +524,37 @@ const LeadsPage: React.FC = () => {
                             </div>
                           </div>
                           {/* Only the Call link keeps the tap; anywhere else on the card opens the lead. */}
-                          {compact && (
-                            <div className="flex items-center justify-between gap-2 mt-1.5">
-                              {lead.phone ? (
-                                <a
-                                  href={`tel:${tel(lead.phone)}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    logContact(lead, 'call');
-                                  }}
-                                  className={callButton}
-                                >
-                                  <Phone className="w-3.5 h-3.5" /> {lead.phone}
-                                </a>
-                              ) : (
-                                <span className="text-xs text-gray-500">No phone</span>
-                              )}
+                          {compact ? (
+                            <div className="flex items-end justify-between gap-2 mt-1.5">
+                              <div className="min-w-0 space-y-1.5">
+                                {lead.phone ? (
+                                  <a
+                                    href={`tel:${tel(lead.phone)}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      logContact(lead, 'call');
+                                    }}
+                                    className={callButton}
+                                  >
+                                    <Phone className="w-3.5 h-3.5" /> {lead.phone}
+                                  </a>
+                                ) : (
+                                  <span className="text-xs text-gray-500">No phone</span>
+                                )}
+                                <div><LeadStatusLine lead={lead} now={now} /></div>
+                              </div>
+                              {/* The trade sits right on top of the value, both flush right, no gap between them. */}
+                              <div className="text-xs text-right flex-shrink-0 leading-tight">
+                                {lead.jobType && <div className="text-gray-500 truncate">{tradeName.get(lead.jobType) ?? lead.jobType}</div>}
+                                {leadValue(lead) > 0 && <div className="text-white">{formatCurrency(leadValue(lead))}</div>}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="mt-1.5 flex items-center justify-between gap-2">
+                              <LeadStatusLine lead={lead} now={now} />
+                              {leadValue(lead) > 0 && <span className="text-xs text-white">{formatCurrency(leadValue(lead))}</span>}
                             </div>
                           )}
-                          <div className="mt-1.5 flex items-center justify-between gap-2">
-                            <LeadStatusLine lead={lead} now={now} />
-                            {/* Trade and value together on the right, so there is no gap between them. */}
-                            <span className="text-xs text-right truncate flex-shrink-0">
-                              {compact && lead.jobType && (
-                                <span className="text-gray-500">
-                                  {tradeName.get(lead.jobType) ?? lead.jobType}
-                                  {leadValue(lead) > 0 ? ' · ' : ''}
-                                </span>
-                              )}
-                              {leadValue(lead) > 0 && <span className="text-white">{formatCurrency(leadValue(lead))}</span>}
-                            </span>
-                          </div>
                           {!compact && (
                           <>
                           {lead.jobType && <div className="text-xs text-gray-400 mt-1">{tradeName.get(lead.jobType) ?? lead.jobType}{lead.city ? ` · ${lead.city}` : ''}</div>}

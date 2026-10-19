@@ -154,7 +154,7 @@ describe('Leads board', () => {
     await flush();
     const card = container.querySelector('[data-lead-card]')!;
     // The trade sits beside the value, bottom right of the card.
-    const corner = Array.from(card.querySelectorAll('span')).find((el) => /^landscaping/i.test(el.textContent ?? ''))!;
+    const corner = Array.from(card.querySelectorAll('div')).find((el) => /^landscaping/i.test(el.textContent ?? ''))!;
     act(() => click(corner));
     expect(document.body.querySelector('form input[aria-label="Name"]')).toBeTruthy();
     // Create estimate lives in the drawer now, not on the card.
