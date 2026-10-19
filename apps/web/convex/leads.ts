@@ -236,9 +236,10 @@ export const ensureClient = mutation({
   },
 });
 
-// [name, phone, trade, source, value, status, follow-up in days, notes, lost reason, touch]
+// [name, phone, trade, source, value, status, follow-up in days, notes, lost reason, touch, came in hours ago]
 // touch: calls and texts so far, and how many hours after the lead came in
-// it was last reached. Leads still at New have none.
+// it was last reached. Leads still at New have none, and no follow-up: a
+// reminder only makes sense once somebody has worked the lead.
 type Touch = { calls: number; texts?: number; hoursAfter: number };
 type Sample = [
   string,
@@ -250,7 +251,8 @@ type Sample = [
   number | null,
   string,
   string | undefined,
-  Touch?,
+  Touch | undefined,
+  number,
 ];
 const SAMPLES: Sample[] = [
   [
@@ -260,9 +262,11 @@ const SAMPLES: Sample[] = [
     "Referral",
     14500,
     "new",
-    1,
+    null,
     "Leaking around the chimney after the last storm. Wants a full replacement quote.",
     undefined,
+    undefined,
+    2,
   ],
   [
     "Dan & Priya Shah",
@@ -271,9 +275,11 @@ const SAMPLES: Sample[] = [
     "Google",
     9800,
     "new",
-    -2,
+    null,
     "AC unit is 18 years old, short-cycling. Asked about heat pumps.",
     undefined,
+    undefined,
+    5,
   ],
   [
     "Oak Street Dental",
@@ -286,6 +292,7 @@ const SAMPLES: Sample[] = [
     "Repaint lobby and two exam rooms, after hours only.",
     undefined,
     { calls: 1, hoursAfter: 2 },
+    24,
   ],
   [
     "Tom Becker",
@@ -298,6 +305,7 @@ const SAMPLES: Sample[] = [
     "Cracked driveway, about 600 sq ft. Considering stamped finish.",
     undefined,
     { calls: 1, texts: 1, hoursAfter: 1 },
+    72,
   ],
   [
     "Hannah Kim",
@@ -310,6 +318,7 @@ const SAMPLES: Sample[] = [
     "Eight windows, double-hung, wants energy-efficient glass.",
     undefined,
     { calls: 2, hoursAfter: 1 },
+    96,
   ],
   [
     "Riverside Apartments",
@@ -322,6 +331,7 @@ const SAMPLES: Sample[] = [
     "Repipe two units. Property manager: Lisa.",
     undefined,
     { calls: 2, texts: 1, hoursAfter: 0.5 },
+    144,
   ],
   [
     "Carlos Mendes",
@@ -334,6 +344,7 @@ const SAMPLES: Sample[] = [
     "Deck repair and two interior doors. Booked for next week.",
     undefined,
     { calls: 2, hoursAfter: 0.5 },
+    216,
   ],
   [
     "Jenna Walsh",
@@ -346,6 +357,7 @@ const SAMPLES: Sample[] = [
     "Panel upgrade to 200A.",
     "Went with a cheaper quote",
     { calls: 1, hoursAfter: 0.5 },
+    288,
   ],
 ];
 
@@ -367,23 +379,21 @@ export const addSamples = mutation({
       );
     const now = new Date();
     for (const [
-      index,
-      [
-        name,
-        phone,
-        jobType,
-        source,
-        estimatedValue,
-        status,
-        days,
-        notes,
-        lostReason,
-        touch,
-      ],
-    ] of SAMPLES.entries()) {
+      name,
+      phone,
+      jobType,
+      source,
+      estimatedValue,
+      status,
+      days,
+      notes,
+      lostReason,
+      touch,
+      hoursAgo,
+    ] of SAMPLES) {
       const followUp =
         days === null ? undefined : new Date(now.getTime() + days * 86_400_000);
-      const createdMs = now.getTime() - (SAMPLES.length - index) * 3_600_000;
+      const createdMs = now.getTime() - hoursAgo * 3_600_000;
       const createdAt = new Date(createdMs).toISOString();
       // Reached some time after it came in, never later than now.
       const history = touch

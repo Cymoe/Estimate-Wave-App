@@ -1142,6 +1142,25 @@ describe("sample leads", () => {
     expect(maria.status).toBe("new");
     expect(maria.lastContactAt).toBeUndefined();
     expect(maria.contacts).toBeUndefined();
+    // The timeline holds together: New leads came in hours ago with no
+    // reminder; worked leads came in days ago, and only those carry follow-ups.
+    const nowMs = Date.now();
+    const today = new Date().toISOString().slice(0, 10);
+    for (const name of ["Maria Lopez", "Dan & Priya Shah"]) {
+      const fresh = leads.find((lead) => lead.name === name)!;
+      expect(fresh.followUpDate).toBeUndefined();
+      expect(nowMs - Date.parse(fresh.createdAt)).toBeLessThan(6 * 3_600_000);
+    }
+    const tom = leads.find((lead) => lead.name === "Tom Becker")!;
+    expect(Math.round((nowMs - Date.parse(tom.createdAt)) / 86_400_000)).toBe(
+      3,
+    );
+    expect(tom.followUpDate! < today).toBe(true);
+    expect(
+      tom.lastContactAt! > tom.createdAt &&
+        tom.lastContactAt! <= new Date().toISOString(),
+    ).toBe(true);
+    expect(dental.followUpDate! > today).toBe(true);
 
     await as.mutation(api.leads.create, {
       organizationId,
