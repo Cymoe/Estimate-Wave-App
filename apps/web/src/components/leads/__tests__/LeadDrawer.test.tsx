@@ -103,13 +103,12 @@ describe('LeadDrawer', () => {
     expect(onStatus).toHaveBeenCalledWith(lead, 'quoted');
   });
 
-  it('shows every stage as a chip; one tap moves the lead', () => {
-    const { onStatus } = open();
-    const chips = Array.from(document.body.querySelectorAll('[role="group"][aria-label="Stage"] button'));
-    expect(chips.map((c) => c.textContent?.trim())).toEqual(['New', 'No Answer', 'Contacted', 'Estimate Scheduled', 'Estimate Sent', 'Won', 'Lost']);
-    expect(chips.filter((c) => c.getAttribute('aria-pressed') === 'true')).toHaveLength(1);
-    act(() => chips.find((c) => c.textContent?.includes('Won'))!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-    expect(onStatus).toHaveBeenCalledWith(lead, 'won');
+  it('lists every stage in the dropdown with the current one selected', () => {
+    open();
+    const stage = document.body.querySelector('select[aria-label="Stage"]') as HTMLSelectElement;
+    expect(Array.from(stage.options).map((o) => o.text)).toEqual(['New', 'No Answer', 'Contacted', 'Estimate Scheduled', 'Estimate Sent', 'Won', 'Lost']);
+    expect(stage.value).toBe('scheduled');
+    expect(document.body.querySelector('[role="group"][aria-label="Stage"]')).toBeNull();
   });
 
   it('adds a new lead with the button', async () => {
