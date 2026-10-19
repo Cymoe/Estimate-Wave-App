@@ -207,6 +207,23 @@ describe('Leads board', () => {
     rows = [own];
   });
 
+  it('never says "not contacted" on a lead already past No Answer', async () => {
+    const own = rows[0];
+    rows = [
+      { id: 'l3', name: 'Oak Street Dental', status: 'contacted', createdAt: '2026-10-02T00:00:00Z', phone: '(555) 330-7712', city: 'Midland' },
+      { id: 'l4', name: 'Maria Lopez', status: 'new', createdAt: '2026-10-02T00:00:00Z', phone: '(555) 201-3344', city: 'Midland' },
+    ] as typeof rows;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
+    await flush();
+    const line = (who: string) =>
+      Array.from(container.querySelectorAll('[data-lead-card]')).find((el) => el.textContent?.includes(who))!.querySelector('[data-testid="lead-status-line"]')?.textContent;
+    expect(line('Oak Street Dental')).toMatch(/^Came in \d+d ago$/);
+    expect(line('Maria Lopez')).toMatch(/^Came in \d+d ago · not contacted$/);
+    rows = [own];
+  });
+
   it('shows the intake answers, a Call button and what to do next; a call and a note are logged from the card', async () => {
     const own = rows[0];
     rows = [

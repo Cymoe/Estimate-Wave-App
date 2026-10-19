@@ -102,6 +102,13 @@ export const create = mutation({
   },
 });
 
+/** Stages a lead can only be in once the company has reached them. */
+const TOUCHED_STATUSES: Doc<"leads">["status"][] = [
+  "contacted",
+  "scheduled",
+  "quoted",
+];
+
 export const update = mutation({
   args: { id: v.id("leads"), data: v.any() },
   handler: async (ctx, { id, data }) => {
@@ -130,7 +137,18 @@ export const update = mutation({
     const cityPicked =
       "city" in fields && (fields.city ?? "") !== (doc.city ?? "");
     if (addressChanged && !cityPicked) fields.city = undefined;
-    await ctx.db.patch(id, { ...fields, updatedAt: nowIso() });
+    // Moving a lead to Contacted or beyond means somebody reached them, so a
+    // lead with no logged call gets its first contact stamped now.
+    const touched =
+      fields.status !== undefined &&
+      fields.status !== doc.status &&
+      TOUCHED_STATUSES.includes(fields.status) &&
+      !doc.lastContactAt;
+    await ctx.db.patch(id, {
+      ...fields,
+      ...(touched ? { lastContactAt: nowIso() } : {}),
+      updatedAt: nowIso(),
+    });
     const lead = (await ctx.db.get(id))!;
     if (addressChanged && !cityPicked) await findCity(ctx, lead);
     return await ctx.db.get(id);
@@ -216,7 +234,10 @@ export const ensureClient = mutation({
   },
 });
 
-// [name, phone, trade, source, value, status, follow-up in days, notes, lost reason]
+// [name, phone, trade, source, value, status, follow-up in days, notes, lost reason, touch]
+// touch: calls and texts so far, and how many hours after the lead came in
+// it was last reached. Leads still at New have none.
+type Touch = { calls: number; texts?: number; hoursAfter: number };
 type Sample = [
   string,
   string,
@@ -226,7 +247,8 @@ type Sample = [
   Doc<"leads">["status"],
   number | null,
   string,
-  string?,
+  string | undefined,
+  Touch?,
 ];
 const SAMPLES: Sample[] = [
   [
@@ -238,6 +260,7 @@ const SAMPLES: Sample[] = [
     "new",
     1,
     "Leaking around the chimney after the last storm. Wants a full replacement quote.",
+    undefined,
   ],
   [
     "Dan & Priya Shah",
@@ -248,6 +271,7 @@ const SAMPLES: Sample[] = [
     "new",
     -2,
     "AC unit is 18 years old, short-cycling. Asked about heat pumps.",
+    undefined,
   ],
   [
     "Oak Street Dental",
@@ -258,6 +282,8 @@ const SAMPLES: Sample[] = [
     "contacted",
     3,
     "Repaint lobby and two exam rooms, after hours only.",
+    undefined,
+    { calls: 1, hoursAfter: 2 },
   ],
   [
     "Tom Becker",
@@ -268,6 +294,8 @@ const SAMPLES: Sample[] = [
     "contacted",
     -1,
     "Cracked driveway, about 600 sq ft. Considering stamped finish.",
+    undefined,
+    { calls: 1, texts: 1, hoursAfter: 1 },
   ],
   [
     "Hannah Kim",
@@ -278,6 +306,8 @@ const SAMPLES: Sample[] = [
     "quoted",
     5,
     "Eight windows, double-hung, wants energy-efficient glass.",
+    undefined,
+    { calls: 2, hoursAfter: 1 },
   ],
   [
     "Riverside Apartments",
@@ -288,6 +318,8 @@ const SAMPLES: Sample[] = [
     "quoted",
     7,
     "Repipe two units. Property manager: Lisa.",
+    undefined,
+    { calls: 2, texts: 1, hoursAfter: 0.5 },
   ],
   [
     "Carlos Mendes",
@@ -298,6 +330,8 @@ const SAMPLES: Sample[] = [
     "won",
     null,
     "Deck repair and two interior doors. Booked for next week.",
+    undefined,
+    { calls: 2, hoursAfter: 0.5 },
   ],
   [
     "Jenna Walsh",
@@ -309,6 +343,7 @@ const SAMPLES: Sample[] = [
     null,
     "Panel upgrade to 200A.",
     "Went with a cheaper quote",
+    { calls: 1, hoursAfter: 0.5 },
   ],
 ];
 
@@ -341,13 +376,23 @@ export const addSamples = mutation({
         days,
         notes,
         lostReason,
+        touch,
       ],
     ] of SAMPLES.entries()) {
       const followUp =
         days === null ? undefined : new Date(now.getTime() + days * 86_400_000);
-      const createdAt = new Date(
-        now.getTime() - (SAMPLES.length - index) * 3_600_000,
-      ).toISOString();
+      const createdMs = now.getTime() - (SAMPLES.length - index) * 3_600_000;
+      const createdAt = new Date(createdMs).toISOString();
+      // Reached some time after it came in, never later than now.
+      const history = touch
+        ? {
+            contacts: touch.calls,
+            ...(touch.texts ? { texts: touch.texts } : {}),
+            lastContactAt: new Date(
+              Math.min(createdMs + touch.hoursAfter * 3_600_000, now.getTime()),
+            ).toISOString(),
+          }
+        : {};
       await ctx.db.insert("leads", {
         name,
         phone,
@@ -360,6 +405,7 @@ export const addSamples = mutation({
           ? { followUpDate: followUp.toISOString().split("T")[0] }
           : {}),
         ...(lostReason ? { lostReason } : {}),
+        ...history,
         isSample: true,
         organizationId,
         userId: user._id,

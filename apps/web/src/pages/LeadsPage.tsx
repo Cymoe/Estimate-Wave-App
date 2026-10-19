@@ -74,8 +74,12 @@ const LeadStatusLine: React.FC<{ lead: Lead; now: number }> = ({ lead, now }) =>
     );
   }
   if (!OPEN.includes(lead.status)) return null;
-  // Nobody has called yet: how long it's been sitting is the number that matters.
   const since = lead.assignedAt ?? lead.createdAt;
+  // Past No Answer the company has reached them, even if no call was logged.
+  if (lead.status !== 'new' && lead.status !== 'no_answer') {
+    return since ? <span className="text-xs text-gray-500" data-testid="lead-status-line">Came in {ago(since, now)}</span> : null;
+  }
+  // Nobody has called yet: how long it's been sitting is the number that matters.
   const waitingMs = since ? now - Date.parse(since) : 0;
   const tone = waitingMs > 24 * 60 * 60_000 ? 'text-red-400' : waitingMs > 60 * 60_000 ? 'text-amber-300' : 'text-gray-500';
   return (
