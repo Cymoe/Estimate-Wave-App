@@ -307,21 +307,39 @@ export const LeadDrawer: React.FC<{
             className="w-full bg-transparent border-0 p-0 text-[26px] font-semibold tracking-tight text-white placeholder-gray-600 focus:outline-none focus:ring-0"
           />
 
-          {/* The stage, as a pill; the real picker sits invisibly on top. */}
-          <label className="relative mt-2 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/5 text-sm cursor-pointer">
-            <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
-            <span className={status.color}>{status.label}</span>
+          {/* The stage: one tap on a chip moves the lead, no dragging needed. */}
+          <div className="mt-3" role="group" aria-label="Stage">
+            <div className="flex flex-wrap gap-1.5">
+              {STATUSES.map((s) => {
+                const on = s.value === status.value;
+                return (
+                  <button
+                    key={s.value}
+                    type="button"
+                    onClick={() => changeStatus(s.value)}
+                    aria-pressed={on}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm border transition-colors ${
+                      on ? `border-white/30 bg-white/10 ${s.color}` : 'border-[#2A2A2A] text-gray-400 hover:border-[#444444] hover:text-gray-200'
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
+                    {s.label}
+                  </button>
+                );
+              })}
+            </div>
+            {/* The same choice as a select, for screen readers and keyboards. */}
             <select
               value={status.value}
               onChange={(e) => changeStatus(e.target.value as LeadStatus)}
               aria-label="Stage"
-              className="absolute inset-0 opacity-0 cursor-pointer text-base"
+              className="sr-only"
             >
               {STATUSES.map((s) => (
                 <option key={s.value} value={s.value}>{s.label}</option>
               ))}
             </select>
-          </label>
+          </div>
 
           {lead && <LeadCredit lead={lead} onRequested={(creditRequest) => onChanged(lead, { creditRequest })} />}
 

@@ -79,7 +79,6 @@ html.light .bg-gray-900\/50 { background-color: rgba(255, 255, 255, 0.5); }
 html.light .bg-gray-900\/80 { background-color: rgba(255, 255, 255, 0.8); }
 html.light .bg-white\/10 { background-color: rgba(0, 0, 0, 0.050); }
 html.light .bg-white\/20 { background-color: rgba(0, 0, 0, 0.100); }
-html.light .bg-white\/5 { background-color: rgba(0, 0, 0, 0.025); }
 html.light .bg-white\/8 { background-color: rgba(0, 0, 0, 0.040); }
 html.light .border-\[\#0a0a0a\] { border-color: #EEF0F2; }
 html.light .border-\[\#1E1E1E\] { border-color: #EEF0F2; }
@@ -114,6 +113,7 @@ html.light .border-gray-800\/50 { border-color: rgba(229, 231, 235, 0.5); }
 html.light .border-gray-900 { border-color: #EEF0F2; }
 html.light .border-white\/10 { border-color: rgba(0, 0, 0, 0.100); }
 html.light .border-white\/20 { border-color: rgba(0, 0, 0, 0.200); }
+html.light .border-white\/30 { border-color: rgba(0, 0, 0, 0.300); }
 html.light .border-white\/8 { border-color: rgba(0, 0, 0, 0.080); }
 html.light .disabled\:bg-\[\#2a2a2a\]:disabled { background-color: #F1F2F4; }
 html.light .disabled\:bg-gray-700:disabled { background-color: #E5E7EB; }
@@ -195,6 +195,7 @@ html.light .hover\:text-\[\#999\]:hover { color: #666666; }
 html.light .hover\:text-\[\#FFFFFF\]:hover { color: #111827; }
 html.light .hover\:text-blue-300:hover { color: #1d4ed8; }
 html.light .hover\:text-blue-400:hover { color: #1d4ed8; }
+html.light .hover\:text-gray-200:hover { color: #1F2937; }
 html.light .hover\:text-gray-300:hover { color: #374151; }
 html.light .hover\:text-gray-400:hover { color: #4B5563; }
 html.light .hover\:text-gray-500:hover { color: #6B7280; }

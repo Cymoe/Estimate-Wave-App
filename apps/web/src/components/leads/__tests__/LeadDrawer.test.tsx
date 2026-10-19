@@ -95,12 +95,21 @@ describe('LeadDrawer', () => {
 
   it('changes the stage through the board', () => {
     const { onStatus } = open();
-    const stage = field('Stage') as unknown as HTMLSelectElement;
+    const stage = document.body.querySelector('select[aria-label="Stage"]') as HTMLSelectElement;
     act(() => {
       stage.value = 'quoted';
       stage.dispatchEvent(new Event('change', { bubbles: true }));
     });
     expect(onStatus).toHaveBeenCalledWith(lead, 'quoted');
+  });
+
+  it('shows every stage as a chip; one tap moves the lead', () => {
+    const { onStatus } = open();
+    const chips = Array.from(document.body.querySelectorAll('[role="group"][aria-label="Stage"] button'));
+    expect(chips.map((c) => c.textContent?.trim())).toEqual(['New', 'No Answer', 'Contacted', 'Estimate Scheduled', 'Estimate Sent', 'Won', 'Lost']);
+    expect(chips.filter((c) => c.getAttribute('aria-pressed') === 'true')).toHaveLength(1);
+    act(() => chips.find((c) => c.textContent?.includes('Won'))!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(onStatus).toHaveBeenCalledWith(lead, 'won');
   });
 
   it('adds a new lead with the button', async () => {
