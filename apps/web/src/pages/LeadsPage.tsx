@@ -543,10 +543,10 @@ const LeadsPage: React.FC = () => {
                                 )}
                                 <div><LeadStatusLine lead={lead} now={now} /></div>
                               </div>
-                              {/* The trade sits right on top of the value, both flush right, no gap between them. */}
+                              {/* The value sits right on top of the trade, both flush right, no gap between them. */}
                               <div className="text-xs text-right flex-shrink-0 leading-tight">
-                                {lead.jobType && <div className="text-gray-500 truncate">{tradeName.get(lead.jobType) ?? lead.jobType}</div>}
                                 {leadValue(lead) > 0 && <div className="text-white">{formatCurrency(leadValue(lead))}</div>}
+                                {lead.jobType && <div className="text-gray-500 truncate">{tradeName.get(lead.jobType) ?? lead.jobType}</div>}
                               </div>
                             </div>
                           ) : (
