@@ -53,10 +53,18 @@ const TONE_MS = 350;
 const PULSE_MS = 900;
 
 type Via = 'up' | 'down' | 'type';
+
+/** Auction-room wording for the two beats under a row's stepper, picked fresh for each save. */
+export const PLACING = ['Going once…', 'Raising the paddle…', 'Placing your bid…', 'Calling it in…', 'Going twice…'];
+export const PLACED = ["Bid's in.", 'Locked in.', "Paddle's up.", 'On the books.', 'Sold on that.'];
+const anyOf = (words: string[]) => words[Math.floor(Math.random() * words.length)];
+
 type RowState = {
   /** The amount being changed, until it's saved. */
   draft?: string;
   status: 'idle' | 'saving' | 'saved' | 'failed';
+  /** The wording this save uses, so it doesn't change mid-beat. */
+  words?: { placing: string; placed: string };
   /** Tints the amount for a moment after a tap. */
   tone?: 'up' | 'down';
   /** What a failed save was trying to set, for Retry. */
@@ -231,7 +239,7 @@ function StandingTab({
   onAddFunds: () => void;
 }) {
   // Each row's amount saves on its own a moment after the last tap or keystroke: no Save button.
-  // The row shows the three beats itself: the amount moving, "Saving…", then "Saved" (or a Retry).
+  // The row shows the three beats itself: the amount moving, a "going once…" line, then a "bid's in" line (or a Retry).
   const [rows, setRows] = useState<Record<string, RowState>>({});
   const [busy, setBusy] = useState(false);
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -244,7 +252,7 @@ function StandingTab({
   };
   const save = async (bid: StandingBid, value: string) => {
     const dollars = Number(value);
-    patchRow(bid.id, { status: 'saving', failedValue: undefined, error: undefined });
+    patchRow(bid.id, { status: 'saving', failedValue: undefined, error: undefined, words: { placing: anyOf(PLACING), placed: anyOf(PLACED) } });
     try {
       await bidsAPI.setStanding(organizationId, bid.county, bid.jobType, dollars);
       await onChanged();
@@ -332,11 +340,11 @@ function StandingTab({
                       />
                       {/* Always present, so the row never moves as the text comes and goes. */}
                       <span aria-live="polite" className="block h-4 mt-0.5 text-[10px] leading-4 whitespace-nowrap">
-                        {state.status === 'saving' && <span className="text-gray-500">Saving…</span>}
-                        {state.status === 'saved' && <span className="text-emerald-300">Saved</span>}
+                        {state.status === 'saving' && <span className="text-gray-500">{state.words?.placing}</span>}
+                        {state.status === 'saved' && <span className="text-emerald-300">{state.words?.placed}</span>}
                         {state.status === 'failed' && (
                           <span className="text-red-300" title={state.error}>
-                            Couldn't save ·{' '}
+                            Didn't take ·{' '}
                             <button type="button" onClick={() => state.failedValue && save(bid, state.failedValue)} className="underline underline-offset-2">
                               Retry
                             </button>

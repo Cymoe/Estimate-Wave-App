@@ -30,7 +30,7 @@ jest.mock('../../components/layouts/DashboardLayout', () => ({
   OrganizationContext: require('react').createContext({ selectedOrg: { id: 'o2', name: 'Mio Homes', industry: 'Landscaping' } }),
 }));
 
-import BidsPage, { SAVED_HINT_MS, SAVE_DELAY, STEP_SAVE_DELAY } from '../BidsPage';
+import BidsPage, { PLACED, PLACING, SAVED_HINT_MS, SAVE_DELAY, STEP_SAVE_DELAY } from '../BidsPage';
 
 const flush = () => act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
 const buttons = () => Array.from(document.body.querySelectorAll('button'));
@@ -191,13 +191,13 @@ describe('Bids', () => {
     let release!: (id: string) => void;
     setStanding.mockImplementationOnce(() => new Promise<string>((resolve) => { release = resolve; }));
     await act(async () => { jest.advanceTimersByTime(STEP_SAVE_DELAY + 10); });
-    expect(status().textContent).toBe('Saving…');
+    expect(PLACING).toContain(status().textContent); // auction-room wording, one of a few
     await act(async () => release('sb1'));
     await flush();
     expect(setStanding).toHaveBeenCalledTimes(1);
     expect(setStanding).toHaveBeenCalledWith('o2', 'Midland', 'landscaping', 350);
-    // Beat 3: "Saved" for a moment, then the line is empty but still there, so nothing moves.
-    expect(status().textContent).toBe('Saved');
+    // Beat 3: a "bid's in" line for a moment, then the line is empty but still there, so nothing moves.
+    expect(PLACED).toContain(status().textContent);
     await act(async () => { jest.advanceTimersByTime(SAVED_HINT_MS + 50); });
     expect(status().textContent).toBe('');
     expect(rows[0].querySelector('.animate-rise')).toBeNull(); // the lift-off has long faded
@@ -217,12 +217,12 @@ describe('Bids', () => {
     await act(async () => { jest.advanceTimersByTime(SAVE_DELAY + 50); });
     await flush();
     expect(input('Bid for Landscaping in Midland').value).toBe('250');
-    expect(status().textContent).toContain("Couldn't save");
+    expect(status().textContent).toContain("Didn't take");
     expect(document.body.querySelector('[role="alert"]')).toBeNull();
     await act(async () => (status().querySelector('button') as HTMLButtonElement).click());
     await flush();
     expect(setStanding).toHaveBeenLastCalledWith('o2', 'Midland', 'landscaping', 400);
-    expect(status().textContent).toBe('Saved');
+    expect(PLACED).toContain(status().textContent);
     // Below the minimum nothing is sent.
     await act(async () => type(input('Bid for Landscaping in Midland'), '150'));
     await act(async () => { jest.advanceTimersByTime(SAVE_DELAY + 50); });
