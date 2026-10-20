@@ -1,62 +1,36 @@
-import React, { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { IndustryPicker } from './IndustryPicker';
+import React, { useContext, useEffect } from 'react';
+import { Modal } from './Modal';
+import { OrganizationContext } from '../layouts/DashboardLayout';
+import { TradesEditor } from '../settings/TradesEditor';
 
 interface IndustryManagementModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+/** "Your trades" as a pop-up (from the Price Book line): the same editor as Company settings → Trades. */
 export const IndustryManagementModal: React.FC<IndustryManagementModalProps> = ({ isOpen, onClose }) => {
-  const [isClosing, setIsClosing] = useState(false);
-  // Starts hidden and fades in on the next frame, matching the fade-out.
-  const [isShown, setIsShown] = useState(false);
-
+  const { selectedOrg } = useContext(OrganizationContext);
+  // The floating + button steps aside while this is open.
   useEffect(() => {
-    if (!isOpen) {
-      setIsShown(false);
-      return;
-    }
-    const frame = requestAnimationFrame(() => setIsShown(true));
-    return () => cancelAnimationFrame(frame);
+    window.dispatchEvent(new CustomEvent('industryModalToggle', { detail: { isOpen } }));
   }, [isOpen]);
-
-  // Prevent body scroll when modal is open
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-      return () => {
-        document.body.style.overflow = 'unset';
-      };
-    }
-  }, [isOpen]);
-
-  const handleClose = () => {
-    setIsClosing(true);
-    setTimeout(() => {
-      onClose();
-      setIsClosing(false);
-    }, 200);
-  };
-
-  if (!isOpen) return null;
-
-  return createPortal(
-    <>
-      <div
-        className={`fixed inset-0 bg-black/70 z-[100] transition-opacity duration-200 ${isShown && !isClosing ? 'opacity-100' : 'opacity-0'}`}
-        onClick={handleClose}
-      />
-      <div className="fixed inset-0 z-[101] flex items-center justify-center p-4 pointer-events-none">
-        <div
-          className={`bg-[#1D1F25] border border-[#333333] shadow-2xl max-w-2xl w-full h-[85vh] flex flex-col pointer-events-auto transition-opacity duration-200 ${
-            isShown && !isClosing ? 'opacity-100' : 'opacity-0'
-          }`}
-        >
-          <IndustryPicker isOpen={isOpen} onClose={handleClose} />
+  if (!isOpen || !selectedOrg?.id) return null;
+  return (
+    <Modal
+      isOpen
+      title="Your trades"
+      onClose={onClose}
+      size="xl"
+      footer={
+        <div className="flex justify-end">
+          <button type="button" onClick={onClose} className="px-5 py-2 rounded text-sm font-medium text-white bg-[#336699] hover:bg-[#2a5580]">
+            Done
+          </button>
         </div>
-      </div>
-    </>,
-    document.body,
+      }
+    >
+      <TradesEditor organizationId={selectedOrg.id} className="p-6" />
+    </Modal>
   );
 };

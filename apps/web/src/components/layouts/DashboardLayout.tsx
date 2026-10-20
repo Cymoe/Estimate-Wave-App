@@ -43,7 +43,6 @@ import { PageHeaderBar } from '../common/PageHeaderBar';
 // import { supabase } from '../../lib/supabase';
 import { ActivityPanel } from '../activity/ActivityPanel';
 import { IndustryBanner } from '../common/IndustryBanner';
-import { IndustryManagementDrawer } from '../common/IndustryManagementDrawer';
 import { ProjectPreviewPanel } from '../projects/ProjectPreviewPanel';
 import { useProjectShortcuts, type ProjectShortcut } from '../projects/useProjectShortcuts';
 import { FEATURES } from '../../config/features';
@@ -74,7 +73,6 @@ interface Organization {
   is_default?: boolean;
 }
 
-export const IndustryContext = createContext<{ selectedIndustry: string; setSelectedIndustry: (v: string) => void }>({ selectedIndustry: 'All Trades', setSelectedIndustry: () => {} });
 
 // Context for selected organization
 export const OrganizationContext = createContext<{ 
@@ -150,7 +148,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
     const [showActivityPanel, setShowActivityPanel] = useState(false);
     const navigate = useNavigate();
     const profileMenuRef = useRef<HTMLDivElement>(null);
-  const [selectedIndustry, setSelectedIndustry] = useState('All Trades');
   const [orgDropdownOpen, setOrgDropdownOpen] = useState(false);
   const [isProjectsSidebarOpen, setIsProjectsSidebarOpen] = useState(false);
   const [isProjectsSidebarClosing, setIsProjectsSidebarClosing] = useState(false);
@@ -164,7 +161,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
       return false;
     }
   });
-  const [isIndustryDrawerOpen, setIsIndustryDrawerOpen] = useState(false);
   const [selectedTimePeriod, setSelectedTimePeriod] = useState<'D' | 'W' | 'M' | 'Q' | 'Y'>('D');
   const [hoverTimeout, setHoverTimeout] = useState<NodeJS.Timeout | null>(null);
   const [isLiveRevenuePopoverOpen, setIsLiveRevenuePopoverOpen] = useState(false);
@@ -250,18 +246,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
     }
   }, [selectedOrg]);
 
-  // Listen for industry drawer state changes
-  useEffect(() => {
-    const handleIndustryDrawerStateChange = (event: CustomEvent) => {
-      setIsIndustryDrawerOpen(event.detail.isOpen);
-    };
-
-    window.addEventListener('industryDrawerStateChange', handleIndustryDrawerStateChange as EventListener);
-    return () => {
-      window.removeEventListener('industryDrawerStateChange', handleIndustryDrawerStateChange as EventListener);
-    };
-  }, []);
-
   // Listen for projects sidebar close event
   useEffect(() => {
     const handleCloseProjectsSidebar = () => {
@@ -277,13 +261,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
       window.removeEventListener('closeProjectsSidebar', handleCloseProjectsSidebar);
     };
   }, []);
-
-  // When the drawer closes, notify the banner to reset its state
-  useEffect(() => {
-    if (!isIndustryDrawerOpen) {
-      window.dispatchEvent(new CustomEvent('industryDrawerClosed'));
-    }
-  }, [isIndustryDrawerOpen]);
 
   // Handle click outside for live revenue popover
   useEffect(() => {
@@ -541,7 +518,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
   };
   
   return (
-    <IndustryContext.Provider value={{ selectedIndustry, setSelectedIndustry }}>
+    <>
       <OrganizationContext.Provider value={{ selectedOrg, setSelectedOrg }}>
         <MobileMenuContext.Provider value={{ isMobileMenuOpen, setIsMobileMenuOpen }}>
           <MobileCreateMenuContext.Provider value={{ isCreateMenuOpen, setIsCreateMenuOpen }}>
@@ -566,7 +543,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                     isSidebarCollapsed={isSidebarCollapsed}
                     isProjectsSidebarLocked={isProjectsSidebarLocked}
                     isProjectsSidebarOpen={isProjectsSidebarOpen}
-                    isIndustryDrawerOpen={isIndustryDrawerOpen}
                     hidden={/^\/estimates\/[^/]+/.test(location.pathname)}
                   >
                     <QuickCreateMenu 
@@ -578,7 +554,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                   {/* Desktop Layout Container */}
                   <div className="hidden md:grid w-full h-[100dvh] overflow-hidden" 
                     style={{
-                      gridTemplateColumns: `minmax(400px, 1fr) ${isIndustryDrawerOpen ? '400px' : '0px'} ${(isProjectsSidebarLocked || isProjectsSidebarOpen || isProjectsSidebarClosing) ? '320px' : '0px'} ${isSidebarCollapsed ? '48px' : '192px'}`,
+                      gridTemplateColumns: `minmax(400px, 1fr) ${(isProjectsSidebarLocked || isProjectsSidebarOpen || isProjectsSidebarClosing) ? '320px' : '0px'} ${isSidebarCollapsed ? '48px' : '192px'}`,
                       transition: 'grid-template-columns 100ms ease-out'
                     }}
                   >
@@ -589,18 +565,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                       <div className={`min-h-full ${fullWidth ? '' : 'max-w-5xl mx-auto px-4'}`}>
                         {isDesktop && children}
                       </div>
-                    </div>
-                    
-                    {/* Industry Management Drawer */}
-                    <div 
-                      className={`h-[100dvh] bg-[#1F2937] transition-all duration-200 ${
-                        isIndustryDrawerOpen ? 'w-[400px] border-l border-[#374151]' : 'w-0 overflow-hidden'
-                      }`}
-                    >
-                      <IndustryManagementDrawer 
-                        isOpen={isIndustryDrawerOpen} 
-                        onClose={() => setIsIndustryDrawerOpen(false)} 
-                      />
                     </div>
                     
                     {/* Projects Sidebar */}
@@ -1122,6 +1086,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
           </MobileCreateMenuContext.Provider>
         </MobileMenuContext.Provider>
       </OrganizationContext.Provider>
-    </IndustryContext.Provider>
+    </>
   );
 };
