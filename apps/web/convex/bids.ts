@@ -85,8 +85,8 @@ export const setStanding = mutation({
     const amountCents = toCents(amount);
     if (amountCents < MIN_START_CENTS)
       fail("INVALID", `Bids start at ${dollars(MIN_START_CENTS)}`);
-    if ((organization.walletBalanceCents ?? 0) < amountCents)
-      fail("INVALID", "Add funds to cover this bid");
+    // A bid above the balance is kept, not refused: it can't win until the
+    // company adds funds, and listStanding says so on the row.
     const now = nowIso();
     const existing = (
       await ctx.db

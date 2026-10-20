@@ -43,6 +43,8 @@ export const MIN_BID = 200;
 export const STEP = 50;
 /** How long after the last tap or keystroke a changed amount is saved. */
 export const SAVE_DELAY = 600;
+/** How long the small "Saved" hint stays under a row's stepper. */
+export const SAVED_HINT_MS = 1500;
 const stepUp = (d: number) => Math.max(MIN_BID, Math.floor(d / STEP) * STEP + STEP);
 const stepDown = (d: number) => Math.max(MIN_BID, Math.ceil(d / STEP) * STEP - STEP);
 
@@ -215,6 +217,8 @@ function StandingTab({
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // Rows that just saved show a small "Saved" for a moment.
+  const [saved, setSaved] = useState<Record<string, true>>({});
   useEffect(() => () => Object.values(timers.current).forEach(clearTimeout), []);
   const changeAmount = (bid: StandingBid, value: string) => {
     setDrafts((d) => ({ ...d, [bid.id]: value }));
@@ -231,7 +235,21 @@ function StandingTab({
           const { [bid.id]: _done, ...rest } = d;
           return rest;
         });
+        setSaved((m) => ({ ...m, [bid.id]: true }));
+        timers.current[`${bid.id}:saved`] = setTimeout(
+          () =>
+            setSaved((m) => {
+              const { [bid.id]: _gone, ...rest } = m;
+              return rest;
+            }),
+          SAVED_HINT_MS,
+        );
       } catch (err) {
+        // Put the saved amount back so the row never shows a number that didn't take.
+        setDrafts((d) => {
+          const { [bid.id]: _dropped, ...rest } = d;
+          return rest;
+        });
         onNotify(err instanceof Error ? err.message : "The bid couldn't be saved", false);
       }
     }, SAVE_DELAY);
@@ -285,11 +303,18 @@ function StandingTab({
               <td className="px-4 py-3 text-white">{bid.county} County</td>
               <td className="px-4 py-3 text-gray-300">{tradeName(bid.jobType)}</td>
               <td className="px-4 py-3 text-right">
-                <BidStepper
-                  label={`Bid for ${tradeName(bid.jobType)} in ${bid.county}`}
-                  value={drafts[bid.id] ?? String(bid.amountCents / 100)}
-                  onChange={(v) => changeAmount(bid, v)}
-                />
+                <span className="relative inline-block">
+                  <BidStepper
+                    label={`Bid for ${tradeName(bid.jobType)} in ${bid.county}`}
+                    value={drafts[bid.id] ?? String(bid.amountCents / 100)}
+                    onChange={(v) => changeAmount(bid, v)}
+                  />
+                  {saved[bid.id] && (
+                    <span role="status" className="absolute right-0 top-full mt-0.5 text-[10px] text-emerald-300 whitespace-nowrap">
+                      Saved
+                    </span>
+                  )}
+                </span>
               </td>
               <td className="px-4 py-3">
                 <Chip bid={bid} />

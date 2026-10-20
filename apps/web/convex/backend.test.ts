@@ -2952,7 +2952,7 @@ describe("standing bids and instant awards", () => {
   const results = (who: { as: any; organizationId: any }) =>
     who.as.query(api.bids.results, { organizationId: who.organizationId });
 
-  test("a standing bid needs a real county, a trade, $200 or more and the balance to cover it", async () => {
+  test("a standing bid needs a real county, a trade and $200 or more; one above the balance is kept but unfunded", async () => {
     const { admin, mio, soco, broke } = await market();
     await expect(standing(mio, "Narnia", "landscaping", 250)).rejects.toThrow(
       /isn't a Texas county/,
@@ -2963,9 +2963,15 @@ describe("standing bids and instant awards", () => {
     await expect(standing(mio, "Midland", "landscaping", 150)).rejects.toThrow(
       /start at \$200/,
     );
-    await expect(
-      standing(broke, "Midland", "landscaping", 250),
-    ).rejects.toThrow(/Add funds/);
+    // No balance: the bid is kept and simply can't win until funds are added.
+    const brokeBid = await standing(broke, "Midland", "landscaping", 250);
+    expect(
+      (
+        await broke.as.query(api.bids.listStanding, {
+          organizationId: broke.organizationId,
+        })
+      ).find((b) => b.id === brokeBid),
+    ).toMatchObject({ funded: false, leading: false });
     await expect(
       soco.as.mutation(api.bids.setStanding, {
         organizationId: mio.organizationId,
@@ -3207,6 +3213,30 @@ describe("standing bids and instant awards", () => {
       status: "assigned",
       priceCents: 30000,
       assignedOrganizationId: soco.organizationId,
+    });
+  });
+
+  test("a bid above the balance is kept, shown as unfunded, and funded again once lowered", async () => {
+    const { mio } = await market();
+    const id = await standing(mio, "Midland", "landscaping", 250);
+    const mine = () =>
+      mio.as.query(api.bids.listStanding, { organizationId: mio.organizationId });
+    expect((await mine()).find((b) => b.id === id)).toMatchObject({
+      funded: true,
+      leading: true,
+    });
+    // Raise past the $1,000 balance: accepted, but it can't win until funds are added.
+    expect(await standing(mio, "Midland", "landscaping", 1200)).toBe(id);
+    expect((await mine()).find((b) => b.id === id)).toMatchObject({
+      amountCents: 120000,
+      funded: false,
+      leading: false,
+    });
+    await standing(mio, "Midland", "landscaping", 900);
+    expect((await mine()).find((b) => b.id === id)).toMatchObject({
+      amountCents: 90000,
+      funded: true,
+      leading: true,
     });
   });
 

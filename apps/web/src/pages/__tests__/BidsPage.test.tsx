@@ -30,7 +30,7 @@ jest.mock('../../components/layouts/DashboardLayout', () => ({
   OrganizationContext: require('react').createContext({ selectedOrg: { id: 'o2', name: 'Mio Homes', industry: 'Landscaping' } }),
 }));
 
-import BidsPage, { SAVE_DELAY } from '../BidsPage';
+import BidsPage, { SAVED_HINT_MS, SAVE_DELAY } from '../BidsPage';
 
 const flush = () => act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
 const buttons = () => Array.from(document.body.querySelectorAll('button'));
@@ -167,11 +167,22 @@ describe('Bids', () => {
     expect(setStanding).toHaveBeenCalledTimes(1);
     expect(setStanding).toHaveBeenCalledWith('o2', 'Midland', 'landscaping', 275);
     expect(document.body.querySelector('button[aria-label="Save bid"]')).toBeNull();
+    // A small "Saved" under the stepper for a moment, then gone.
+    expect(rows[0].textContent).toContain('Saved');
+    await act(async () => { jest.advanceTimersByTime(SAVED_HINT_MS + 50); });
+    expect(rows[0].textContent).not.toContain('Saved');
+    // A save the server refuses puts the saved number back and says why.
+    setStanding.mockRejectedValueOnce(new Error('Nope'));
+    await act(async () => type(input('Bid for Landscaping in Midland'), '400'));
+    await act(async () => { jest.advanceTimersByTime(SAVE_DELAY + 50); });
+    await flush();
+    expect(input('Bid for Landscaping in Midland').value).toBe('250');
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toContain('Nope');
     // Below the minimum nothing is sent.
     await act(async () => type(input('Bid for Landscaping in Midland'), '150'));
     await act(async () => { jest.advanceTimersByTime(SAVE_DELAY + 50); });
     await flush();
-    expect(setStanding).toHaveBeenCalledTimes(1);
+    expect(setStanding).toHaveBeenCalledTimes(2);
     jest.useRealTimers();
     // The row itself is the feedback: no banner for a saved amount.
     expect(document.body.querySelector('[role="status"]')).toBeNull();
