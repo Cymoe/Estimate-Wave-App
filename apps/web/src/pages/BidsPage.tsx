@@ -879,7 +879,7 @@ function AddBidDialog({
     <div className="flex flex-wrap items-center justify-between gap-3">
       <p className={`text-xs ${ready && !affordable ? 'text-amber-200' : 'text-gray-500'}`}>
         {!county
-          ? 'Pick a county to start.'
+          ? 'Pick a county to start. You pay your bid only when you win a lead.'
           : !amountsOk
           ? `Bids start at ${money(MIN_BID * 100)}.`
           : !changed
@@ -888,7 +888,7 @@ function AddBidDialog({
               ? over.length === 1
                 ? `${over[0].name} at ${money(amountCents(over[0].id))} is more than your ${money(balance)} balance.`
                 : `${over.length} bids are more than your ${money(balance)} balance.`
-              : `Balance ${money(balance)} covers about ${covers} lead${covers === 1 ? '' : 's'} at your top bid. You only pay when you win.`}
+              : `Balance ${money(balance)} covers about ${covers} lead${covers === 1 ? '' : 's'} at your top bid. You pay your bid only when you win a lead.`}
       </p>
       <div className="flex items-center gap-2 ml-auto">
         <button type="button" onClick={onClose} className={secondary}>

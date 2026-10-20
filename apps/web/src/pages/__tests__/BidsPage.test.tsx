@@ -81,7 +81,7 @@ describe('Bids', () => {
     expect(dialog()?.textContent).not.toContain('you bid here');
     expect(dialog()!.querySelector('[aria-label="Steps"]')).toBeNull();
     expect(byText('Next')).toBeUndefined();
-    expect(dialog()?.textContent).toContain('Pick a county to start.');
+    expect(dialog()?.textContent).toContain('Pick a county to start. You pay your bid only when you win a lead.');
     expect(byText('Start bidding')!.disabled).toBe(true);
     // The buttons are pinned under the trade list, outside the part that scrolls, so they never need scrolling to.
     const scroller = dialog()!.querySelector('.overflow-y-auto')!;
@@ -159,7 +159,7 @@ describe('Bids', () => {
     expect(input('Roofing bid').value).toBe('200');
     await act(async () => button('Raise Roofing bid').click());
     expect(input('Roofing bid').value).toBe('250');
-    expect(dialog()!.textContent).toContain('covers about 4 leads at your top bid');
+    expect(dialog()!.textContent).toContain('covers about 4 leads at your top bid. You pay your bid only when you win a lead.');
     // Below the minimum blocks saving; so does switching every trade off.
     await act(async () => type(input('Landscaping bid'), '150'));
     expect(dialog()!.textContent).toContain('Bids start at $200.00');
