@@ -25,7 +25,6 @@ export async function standingBidsFor(
     .collect();
   const active: Doc<"standingBids">[] = [];
   for (const row of rows) {
-    if (row.paused) continue;
     const organization = await ctx.db.get(row.organizationId);
     if (organization?.isActive) active.push(row);
   }

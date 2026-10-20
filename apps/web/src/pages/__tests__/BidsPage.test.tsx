@@ -9,7 +9,6 @@ let standing: unknown[] = [];
 let results: unknown[] = [];
 const setStanding = jest.fn(async (_org: string, _county: string, _jobType: string, _amount: number) => 'sb1');
 const removeStanding = jest.fn(async (_id: string) => undefined);
-const pauseStanding = jest.fn(async (_id: string, _paused: boolean) => undefined);
 const createLink = jest.fn(async (_id: string) => 'tok');
 
 jest.mock('../../lib/api', () => ({
@@ -22,7 +21,6 @@ jest.mock('../../lib/api', () => ({
     listStanding: async () => standing,
     setStanding: (...a: unknown[]) => setStanding(...(a as [string, string, string, number])),
     removeStanding: (id: string) => removeStanding(id),
-    pauseStanding: (id: string, paused: boolean) => pauseStanding(id, paused),
     results: async () => results,
   },
   industriesAPI: { list: async () => [{ id: 'roofing', name: 'Roofing' }, { id: 'landscaping', name: 'Landscaping' }] },
@@ -143,9 +141,9 @@ describe('Bids', () => {
 
   it('shows where each standing bid stands, lets the company edit or remove it, and opens the dialog to add more', async () => {
     standing = [
-      { id: 'sb1', county: 'Midland', jobType: 'landscaping', amountCents: 25000, funded: true, leading: true, contested: false, paused: false },
-      { id: 'sb2', county: 'Ector', jobType: 'landscaping', amountCents: 25000, funded: true, leading: false, contested: true, paused: false },
-      { id: 'sb3', county: 'Howard', jobType: 'roofing', amountCents: 150000, funded: false, leading: false, contested: false, paused: false },
+      { id: 'sb1', county: 'Midland', jobType: 'landscaping', amountCents: 25000, funded: true, leading: true, contested: false },
+      { id: 'sb2', county: 'Ector', jobType: 'landscaping', amountCents: 25000, funded: true, leading: false, contested: true },
+      { id: 'sb3', county: 'Howard', jobType: 'roofing', amountCents: 150000, funded: false, leading: false, contested: false },
     ];
     await render();
     const rows = Array.from(document.body.querySelectorAll('[aria-label="My standing bids"] tbody tr'));
@@ -176,12 +174,8 @@ describe('Bids', () => {
     confirm.mockRestore();
     // A removed row leaves nothing to look at, so a quiet toast says so.
     expect(document.body.querySelector('[role="status"]')?.textContent).toBe('Bid removed.');
-    // Pause keeps the bid but takes it out of the running; there is no pause-all.
-    await act(async () => (document.body.querySelector('button[aria-label="Pause bid for Landscaping in Midland"]') as HTMLButtonElement).click());
-    await flush();
-    expect(pauseStanding).toHaveBeenCalledWith('sb1', true);
-    expect(document.body.textContent).not.toContain('Bid paused');
-    expect(byText('Pause all')).toBeUndefined();
+    // No pausing: a bid is live until it's removed.
+    expect(document.body.textContent).not.toContain('Pause');
     await act(async () => byText('Add bid')!.click());
     expect(dialog()?.querySelector('#modal-title')?.textContent).toBe('Add a bid');
     // Picking a county you already bid in fills the row with that bid and says where it stands.
@@ -196,25 +190,6 @@ describe('Bids', () => {
     expect(byText('Save bid')).toBeTruthy();
     await act(async () => (dialog()!.querySelector('button[aria-label="Close modal"]') as HTMLButtonElement).click());
     expect(dialog()).toBeNull();
-  });
-
-  it('shows paused bids as paused everywhere and resumes them from the row', async () => {
-    standing = [
-      { id: 'sb1', county: 'Midland', jobType: 'landscaping', amountCents: 25000, funded: false, leading: false, contested: false, paused: true },
-    ];
-    await render();
-    expect(document.body.textContent).not.toContain('All bids paused');
-    expect(byText('Resume all')).toBeUndefined();
-    const row = document.body.querySelector('[aria-label="My standing bids"] tbody tr')!;
-    expect(row.textContent).toContain('Paused');
-    expect(row.textContent).not.toContain('Add funds');
-    await act(async () => (document.body.querySelector('button[aria-label="Resume bid for Landscaping in Midland"]') as HTMLButtonElement).click());
-    await flush();
-    expect(pauseStanding).toHaveBeenCalledWith('sb1', false);
-    await act(async () => byText('Add bid')!.click());
-    await act(async () => type(input('Search counties'), 'Mid'));
-    await act(async () => (dialog()!.querySelector('[aria-label="Counties"] button') as HTMLButtonElement).click());
-    expect(dialog()!.querySelector('[aria-label="Bids by trade"] > li')?.textContent).toContain('Paused');
   });
 
   it('lists what the bids won and missed under the bids, on the same screen', async () => {

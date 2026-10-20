@@ -472,7 +472,7 @@ export default defineSchema({
     updatedAt: v.string(),
     /** Added by "Add demo bids"; "Remove demo data" takes it out. */
     isSample: v.optional(v.boolean()),
-    /** Kept but out of the running: a paused bid never wins or is charged. */
+    /** Left over from a pause feature that was removed; ignored, kept so old rows still validate. */
     paused: v.optional(v.boolean()),
   })
     .index("by_organization", ["organizationId"])
