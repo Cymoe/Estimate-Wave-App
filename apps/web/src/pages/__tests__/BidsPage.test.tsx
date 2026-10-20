@@ -30,7 +30,7 @@ jest.mock('../../components/layouts/DashboardLayout', () => ({
   OrganizationContext: require('react').createContext({ selectedOrg: { id: 'o2', name: 'Mio Homes', industry: 'Landscaping' } }),
 }));
 
-import BidsPage, { PLACED, PLACING, ROW_COLLAPSE_MS, ROW_OUT_MS, SAVED_HINT_MS, SAVE_DELAY, STEP_SAVE_DELAY } from '../BidsPage';
+import BidsPage, { CAP_HINT_MS, PLACED, PLACING, ROW_COLLAPSE_MS, ROW_OUT_MS, SAVED_HINT_MS, SAVE_DELAY, STEP_SAVE_DELAY } from '../BidsPage';
 
 const flush = () => act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
 const buttons = () => Array.from(document.body.querySelectorAll('button'));
@@ -171,7 +171,8 @@ describe('Bids', () => {
     expect(rows[0].textContent).toContain('Midland County');
     expect(rows[0].textContent).toContain('Highest here');
     expect(rows[1].textContent).toContain('Outbid here · raise to win the next lead');
-    expect(rows[2].textContent).toContain('Add funds to cover this bid');
+    // A bid the balance has fallen below is paused, not live.
+    expect(rows[2].textContent).toContain('Paused until you add funds');
     // The uncovered row carries a faint wash and a red edge; covered rows don't. The edge is an inset
     // shadow so the table keeps its own left border on every row.
     expect(rows[2].getAttribute('data-unfunded')).toBe('true');
@@ -243,23 +244,40 @@ describe('Bids', () => {
     await flush();
     expect(setStanding).toHaveBeenLastCalledWith('o2', 'Midland', 'landscaping', 400);
     expect(PLACED.up).toContain(status().textContent);
-    // Optimistic standing: past the $1,000 balance the chip goes red with its link on the tap itself,
-    // before any save, and comes straight back when the amount drops under again.
+    // A raise past the $1,000 balance isn't placed: nothing is sent, the standing doesn't move,
+    // and the row's line says to add funds. Leaving the field puts the placed amount back.
     await act(async () => type(input('Bid for Landscaping in Midland'), '1200'));
-    expect(rows[0].textContent).toContain('Add funds to cover this bid');
-    expect(rows[0].getAttribute('data-unfunded')).toBe('true'); // the whole row lights up on the tap
-    expect(Array.from(rows[0].querySelectorAll('button')).some((b) => b.textContent === 'Add funds')).toBe(true);
-    expect(setStanding).toHaveBeenCalledTimes(4); // nothing sent yet for this change
-    await act(async () => type(input('Bid for Landscaping in Midland'), '900'));
+    expect(status().textContent).toBe('Add funds to bid higher');
     expect(rows[0].textContent).toContain('Highest here');
     expect(rows[0].getAttribute('data-unfunded')).toBeNull();
-    expect(rows[0].textContent).not.toContain('Add funds');
+    expect(rows[0].querySelector('[data-pending]')).toBeNull();
     await act(async () => { jest.advanceTimersByTime(SAVE_DELAY + 50); });
     await flush();
-    expect(setStanding).toHaveBeenLastCalledWith('o2', 'Midland', 'landscaping', 900);
-    // A row the server last saw as uncovered has no known standing once it's brought under the
-    // balance: say so rather than guess "Outbid" until the save lands.
+    expect(setStanding).toHaveBeenCalledTimes(4); // never sent
+    await act(async () => input('Bid for Landscaping in Midland').dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
+    expect(input('Bid for Landscaping in Midland').value).toBe('250');
+    expect(status().textContent).toBe('');
+    // + stops at the balance: at $1,000 it looks spent, and a tap doesn't move the amount but says why, for a moment.
+    const raiseButton = () => document.body.querySelector('button[aria-label="Raise Bid for Landscaping in Midland"]') as HTMLButtonElement;
+    await act(async () => type(input('Bid for Landscaping in Midland'), '1000'));
+    expect(raiseButton().getAttribute('aria-disabled')).toBe('true');
+    await act(async () => raise());
+    expect(input('Bid for Landscaping in Midland').value).toBe('1000');
+    expect(status().textContent).toBe('Add funds to bid higher');
+    expect(Array.from(status().querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Add funds']);
+    await act(async () => { jest.advanceTimersByTime(SAVE_DELAY + 50); });
+    await flush();
+    expect(setStanding).toHaveBeenLastCalledWith('o2', 'Midland', 'landscaping', 1000); // $1,000 itself is covered
+    await act(async () => { jest.advanceTimersByTime(CAP_HINT_MS); });
+    expect(status().textContent).not.toContain('Add funds');
+    // A paused bid can't be raised either...
+    await act(async () => (document.body.querySelector('button[aria-label="Raise Bid for Roofing in Howard"]') as HTMLButtonElement).click());
+    expect(input('Bid for Roofing in Howard').value).toBe('1500');
+    expect(rows[2].querySelector('[aria-live="polite"]')!.textContent).toBe('Add funds to bid higher');
+    // ...but it can always be lowered. Once it's under the balance the server hasn't worked out
+    // its standing yet: say so rather than guess "Outbid" until the save lands.
     await act(async () => type(input('Bid for Roofing in Howard'), '900'));
+    expect(rows[2].getAttribute('data-unfunded')).toBeNull();
     expect(rows[2].textContent).toContain('Checking standing…');
     expect(rows[2].textContent).not.toContain('Outbid');
     await act(async () => { jest.advanceTimersByTime(SAVE_DELAY + 50); });
@@ -301,8 +319,8 @@ describe('Bids', () => {
     jest.useRealTimers();
     // A removed row leaves nothing to look at, so a quiet toast says so.
     expect(document.body.querySelector('[role="status"]')?.textContent).toBe('Bid removed.');
-    // No pausing: a bid is live until it's removed.
-    expect(document.body.textContent).not.toContain('Pause');
+    // No pause or resume buttons: a covered bid is live until it's removed.
+    expect(buttons().some((b) => /^(Pause|Resume)/.test(b.textContent?.trim() ?? ''))).toBe(false);
     await act(async () => byText('Add bid')!.click());
     expect(dialog()?.querySelector('#modal-title')?.textContent).toBe('Add a bid');
     // Picking a county you already bid in fills the row with that bid and says where it stands.
@@ -320,6 +338,17 @@ describe('Bids', () => {
     await act(async () => (dialog()!.querySelector('[aria-label="Counties"] button') as HTMLButtonElement).click());
     expect(dialog()!.querySelector('[aria-label="Bids by trade"] > li')?.textContent).toContain('Outbid · raise to win');
     expect(byText('Save bid')).toBeTruthy();
+    // A bid the balance can't cover isn't placed: the button goes to the wallet instead of saving.
+    await act(async () => type(input('Landscaping bid'), '1200'));
+    expect(byText('Save bid')).toBeUndefined();
+    expect(dialog()!.textContent).toContain('Your balance is $1,000.00. Add funds to place a bid this high.');
+    await act(async () => byText('Add funds to place bid')!.click());
+    await flush();
+    expect(createLink).toHaveBeenCalledWith('o2');
+    expect(setStanding).toHaveBeenCalledTimes(6);
+    await act(async () => type(input('Landscaping bid'), '300'));
+    expect(byText('Add funds to place bid')).toBeUndefined();
+    expect(byText('Save bid')!.disabled).toBe(false);
     // A tap outside or Escape leaves the dialog where it is; only the X closes it.
     await act(async () => (document.body.querySelector('[data-testid="modal-backdrop"]') as HTMLElement).click());
     expect(dialog()).not.toBeNull();

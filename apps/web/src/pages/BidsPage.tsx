@@ -19,7 +19,8 @@ interface StandingBid {
   county: string;
   jobType: string;
   amountCents: number;
-  /** The balance covers it, so it can win. */
+  /** The balance covers it, so it can win. A bid is only placed when it's covered; it can drop
+   *  below the balance later (after a win, say), and is then paused until funds are added. */
   funded: boolean;
   /** No other funded bid beats it here. */
   leading: boolean;
@@ -55,6 +56,8 @@ const PULSE_MS = 900;
 /** A removed row fades and slips right, then its height closes up so the rows below glide in. */
 export const ROW_OUT_MS = 180;
 export const ROW_COLLAPSE_MS = 160;
+/** How long "Add funds to bid higher" stays after a tap on + that the balance can't cover. */
+export const CAP_HINT_MS = 3000;
 
 type Via = 'up' | 'down' | 'type';
 
@@ -82,6 +85,8 @@ type RowState = {
   /** What a failed save was trying to set, for Retry. */
   failedValue?: string;
   error?: string;
+  /** The amount asked for is a raise the balance can't cover: nothing is sent, and the row says to add funds. */
+  over?: boolean;
 };
 const stepUp = (d: number) => Math.max(MIN_BID, Math.floor(d / STEP) * STEP + STEP);
 const stepDown = (d: number) => Math.max(MIN_BID, Math.ceil(d / STEP) * STEP - STEP);
@@ -127,8 +132,14 @@ const BidsPage: React.FC = () => {
 
   useEffect(() => {
     const onWallet = () => load().catch(() => {});
+    // Funds are added in another tab; coming back here picks up the new balance at once.
+    const onVisible = () => document.visibilityState === 'visible' && onWallet();
     window.addEventListener(WALLET_CHANGED, onWallet);
-    return () => window.removeEventListener(WALLET_CHANGED, onWallet);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener(WALLET_CHANGED, onWallet);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [load]);
   useEffect(() => {
     load().catch(() => {
@@ -254,7 +265,7 @@ function Chip({ bid, funded = bid.funded, pending = false }: { bid: StandingBid;
   // and the amount is now covered but unsaved, the standing is simply not known yet.
   const unknown = pending && funded && !bid.funded;
   const [tone, text] = !funded
-    ? ['bg-red-600/25 text-red-200', 'Add funds to cover this bid']
+    ? ['bg-red-600/25 text-red-200', 'Paused until you add funds']
     : unknown
       ? ['bg-[#333] text-gray-300', 'Checking standing…']
       : bid.leading
@@ -363,7 +374,10 @@ function StandingTab({
     const current = row(bid.id);
     const dollars = Number(value);
     const saved = bid.amountCents / 100;
-    const valid = dollars >= MIN_BID && dollars !== saved;
+    // A raise the balance can't cover isn't placed: the server would refuse it, so don't send it.
+    // Lowering always goes through, so a paused bid can be brought back under the balance.
+    const over = dollars >= MIN_BID && dollars > saved && dollars * 100 > balance;
+    const valid = dollars >= MIN_BID && dollars !== saved && !over;
     const dir = dollars < saved ? 'down' : 'up';
     // The line answers the tap itself: pick the words now (fresh ones if the direction flips)
     // and show them from this moment, through the save, until "bid's in".
@@ -376,11 +390,24 @@ function StandingTab({
       words,
       wordsDir: valid ? dir : undefined,
       status: valid ? (current.status === 'saving' ? 'saving' : 'pending') : 'idle',
+      over,
     });
     if (tone) later(`${bid.id}:tone`, TONE_MS, () => patchRow(bid.id, { tone: undefined }));
     clearTimeout(timers.current[bid.id]);
     if (!valid) return;
     later(bid.id, via === 'type' ? SAVE_DELAY : STEP_SAVE_DELAY, () => save(bid, value, words));
+  };
+  /** A tap on + the balance can't cover: the amount stays put and the row says to add funds, for a moment. */
+  const capped = (bid: StandingBid) => {
+    patchRow(bid.id, { over: true });
+    later(`${bid.id}:over`, CAP_HINT_MS, () =>
+      setRows((all) => {
+        const r = all[bid.id];
+        // A typed amount that's still over keeps the hint; it goes when the amount changes or the field is left.
+        if (!r?.over || (r.draft !== undefined && Number(r.draft) * 100 > balance && Number(r.draft) * 100 > bid.amountCents)) return all;
+        return { ...all, [bid.id]: { ...r, over: false } };
+      }),
+    );
   };
   const act = async (work: () => Promise<unknown>, done?: string) => {
     setBusy(true);
@@ -431,11 +458,17 @@ function StandingTab({
             const state = row(bid.id);
             const draft = state.draft !== undefined ? Number(state.draft) : NaN;
             // Optimistic: the balance is known here, so "covered or not" updates on the tap itself.
-            const funded = Number.isFinite(draft) ? draft * 100 <= balance : bid.funded;
-            const pending = (Number.isFinite(draft) && draft !== bid.amountCents / 100) || state.status === 'saving';
+            // An amount that won't be sent (over the balance, or below the minimum) doesn't count.
+            const sendable = Number.isFinite(draft) && draft >= MIN_BID && !state.over;
+            const funded = sendable ? draft * 100 <= balance : bid.funded;
+            const pending = (sendable && draft !== bid.amountCents / 100) || state.status === 'saving';
+            // + stops at the balance, unless it's only climbing back toward a bid already placed.
+            const shown = Number.isFinite(draft) ? draft : bid.amountCents / 100;
+            const next = stepUp(shown) * 100;
+            const canRaise = next <= balance || next <= bid.amountCents;
             return (
             // A bid the balance can't cover gets a faint wash and a red edge, so it stands out in a scan
-            // without reading as an error: the bid is fine, it just can't win until funds are added.
+            // without reading as an error: it's paused, and comes back on its own once funds cover it.
             <tr
               key={bid.id}
               data-unfunded={!funded || undefined}
@@ -457,17 +490,27 @@ function StandingTab({
                         label={`Bid for ${tradeName(bid.jobType)} in ${bid.county}`}
                         value={value}
                         tone={state.tone}
+                        canRaise={canRaise}
+                        onCapped={() => capped(bid)}
                         onChange={(v, via) => changeAmount(bid, v, via)}
                         onBlur={() => {
-                          // Leaving the field with nothing valid in it puts the saved amount back.
-                          if (state.draft !== undefined && !(Number(state.draft) >= MIN_BID)) patchRow(bid.id, { draft: undefined });
+                          // Leaving the field with nothing it can send in it puts the saved amount back.
+                          if (state.draft !== undefined && (!(Number(state.draft) >= MIN_BID) || state.over)) patchRow(bid.id, { draft: undefined, over: false });
                         }}
                       />
                       {/* Always present, so the row never moves as the text comes and goes. */}
                       <span aria-live="polite" className="block h-4 mt-0.5 text-[10px] leading-4 whitespace-nowrap">
-                        {(state.status === 'pending' || state.status === 'saving') && <span className="text-gray-500">{state.words?.placing}</span>}
-                        {state.status === 'saved' && <span className="text-emerald-300">{state.words?.placed}</span>}
-                        {state.status === 'failed' && (
+                        {state.over && (
+                          <span className="text-amber-200">
+                            <button type="button" onClick={onAddFunds} className="underline underline-offset-2">
+                              Add funds
+                            </button>{' '}
+                            to bid higher
+                          </span>
+                        )}
+                        {!state.over && (state.status === 'pending' || state.status === 'saving') && <span className="text-gray-500">{state.words?.placing}</span>}
+                        {!state.over && state.status === 'saved' && <span className="text-emerald-300">{state.words?.placed}</span>}
+                        {!state.over && state.status === 'failed' && (
                           <span className="text-red-300" title={state.error}>
                             Didn't take ·{' '}
                             <button type="button" onClick={() => state.failedValue && save(bid, state.failedValue)} className="underline underline-offset-2">
@@ -544,10 +587,15 @@ function BidStepper({
   onChange,
   onBlur,
   tone,
+  canRaise = true,
+  onCapped,
 }: {
   label: string;
   value: string;
   onChange: (value: string, via: Via) => void;
+  /** False when the next step is more than the balance covers: + looks spent, and a tap calls onCapped instead. */
+  canRaise?: boolean;
+  onCapped?: () => void;
   /** Called when the field is left, so the owner can put a valid amount back if what's typed isn't one. */
   onBlur?: () => void;
   /** Tints the amount for a moment after a tap: green going up, amber going down. */
@@ -589,7 +637,15 @@ function BidStepper({
           className={`w-16 bg-transparent px-1 py-2 text-right text-base md:text-sm focus:outline-none transition-colors duration-300 ${amount}`}
         />
       </label>
-      <button type="button" aria-label={`Raise ${label}`} disabled={!ok} onClick={() => step('up', stepUp(dollars))} className={control}>
+      {/* Kept tappable when capped (aria-disabled, not disabled) so a tap can say why it didn't move. */}
+      <button
+        type="button"
+        aria-label={`Raise ${label}`}
+        aria-disabled={!canRaise || undefined}
+        disabled={!ok}
+        onClick={() => (canRaise ? step('up', stepUp(dollars)) : onCapped?.())}
+        className={`${control} ${canRaise ? '' : 'opacity-30 hover:text-gray-300 active:scale-100'}`}
+      >
         +
       </button>
     </div>
@@ -684,13 +740,17 @@ function AddBidDialog({
     return mine ? (mine.leading ? 'top' : 'outbid') : null;
   };
 
+  const placed = (id: string) => standing.find((sb) => sb.county === county && sb.jobType === id);
   const amounts = live.map((t) => Number(bids[t.id]));
   const amountsOk = amounts.every((a) => Number.isFinite(a) && a >= MIN_BID);
   const top = amounts.length ? Math.max(...amounts) : 0;
-  const affordable = amountsOk && top * 100 <= balance;
+  // A bid is only placed when the balance covers it. Lowering one already placed always goes through.
+  const affordable = amountsOk && live.every((t) => {
+    const cents = Math.round(Number(bids[t.id]) * 100);
+    return cents <= balance || cents <= (placed(t.id)?.amountCents ?? 0);
+  });
   const covers = amountsOk && top > 0 ? Math.floor(balance / (top * 100)) : 0;
   // Nothing to save if every live row already matches a placed bid in this county.
-  const placed = (id: string) => standing.find((sb) => sb.county === county && sb.jobType === id);
   const changed = live.some((t) => placed(t.id)?.amountCents !== Math.round(Number(bids[t.id]) * 100));
   const ready = county !== null && live.length > 0 && amountsOk && changed;
   const rows = live.length;
@@ -837,21 +897,23 @@ function AddBidDialog({
               : !changed
                 ? live.length > 0 ? 'These are your current bids here.' : ''
                 : !affordable
-                  ? `Your top bid is more than your balance (${money(balance)}); it can't win until you add funds.`
+                  ? `Your balance is ${money(balance)}. Add funds to place a bid this high.`
                   : `Balance ${money(balance)} covers about ${covers} lead${covers === 1 ? '' : 's'} at your top bid. You only pay when you win.`}
-            {amountsOk && !affordable && (
-              <button type="button" onClick={onAddFunds} className="ml-2 text-[#7fb0e0] underline underline-offset-2">
-                Add funds
-              </button>
-            )}
           </p>
           <div className="flex items-center gap-2 ml-auto">
             <button type="button" onClick={onClose} className={secondary}>
               Cancel
             </button>
-            <button type="button" disabled={busy || !ready} onClick={save} className={primary}>
-              {busy ? 'Saving…' : firstTime ? 'Start bidding' : rows > 1 ? `Save ${rows} bids` : 'Save bid'}
-            </button>
+            {ready && !affordable ? (
+              // Saving isn't placing until the balance covers it, so the button goes to the wallet instead.
+              <button type="button" onClick={onAddFunds} className={primary}>
+                Add funds to place bid
+              </button>
+            ) : (
+              <button type="button" disabled={busy || !ready} onClick={save} className={primary}>
+                {busy ? 'Saving…' : firstTime ? 'Start bidding' : rows > 1 ? `Save ${rows} bids` : 'Save bid'}
+              </button>
+            )}
           </div>
         </div>
       </div>

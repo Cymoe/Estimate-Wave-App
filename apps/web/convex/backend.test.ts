@@ -2952,7 +2952,7 @@ describe("standing bids and instant awards", () => {
   const results = (who: { as: any; organizationId: any }) =>
     who.as.query(api.bids.results, { organizationId: who.organizationId });
 
-  test("a standing bid needs a real county, a trade and $200 or more; one above the balance is kept but unfunded", async () => {
+  test("a standing bid needs a real county, a trade, $200 or more and a balance that covers it", async () => {
     const { admin, mio, soco, broke } = await market();
     await expect(standing(mio, "Narnia", "landscaping", 250)).rejects.toThrow(
       /isn't a Texas county/,
@@ -2963,15 +2963,15 @@ describe("standing bids and instant awards", () => {
     await expect(standing(mio, "Midland", "landscaping", 150)).rejects.toThrow(
       /start at \$200/,
     );
-    // No balance: the bid is kept and simply can't win until funds are added.
-    const brokeBid = await standing(broke, "Midland", "landscaping", 250);
+    // No balance: the bid isn't placed at all.
+    await expect(standing(broke, "Midland", "landscaping", 250)).rejects.toThrow(
+      "Your balance is $0.00. Add funds to bid $250.00.",
+    );
     expect(
-      (
-        await broke.as.query(api.bids.listStanding, {
-          organizationId: broke.organizationId,
-        })
-      ).find((b) => b.id === brokeBid),
-    ).toMatchObject({ funded: false, leading: false });
+      await broke.as.query(api.bids.listStanding, {
+        organizationId: broke.organizationId,
+      }),
+    ).toEqual([]);
     await expect(
       soco.as.mutation(api.bids.setStanding, {
         organizationId: mio.organizationId,
@@ -3216,25 +3216,43 @@ describe("standing bids and instant awards", () => {
     });
   });
 
-  test("a bid above the balance is kept, shown as unfunded, and funded again once lowered", async () => {
-    const { mio } = await market();
-    const id = await standing(mio, "Midland", "landscaping", 250);
+  test("a raise past the balance is refused; a bid the balance fell below is paused and can still be lowered", async () => {
+    const { admin, mio } = await market();
+    const id = await standing(mio, "Midland", "landscaping", 900);
     const mine = () =>
       mio.as.query(api.bids.listStanding, { organizationId: mio.organizationId });
     expect((await mine()).find((b) => b.id === id)).toMatchObject({
       funded: true,
       leading: true,
     });
-    // Raise past the $1,000 balance: accepted, but it can't win until funds are added.
-    expect(await standing(mio, "Midland", "landscaping", 1200)).toBe(id);
+    // Raise past the $1,000 balance: refused, the bid is unchanged.
+    await expect(standing(mio, "Midland", "landscaping", 1200)).rejects.toThrow(
+      "Your balance is $1000.00. Add funds to bid $1200.00.",
+    );
+    expect((await mine()).find((b) => b.id === id)?.amountCents).toBe(90000);
+    // Spending drops the balance to $800, under the $900 bid: it's kept but paused.
+    const other = await admin.as.mutation(api.marketplace.createLead, {
+      data: { name: "Spend", city: "Midland", jobType: "roofing" },
+    });
+    await mio.as.mutation(api.marketplace.buy, {
+      leadId: other!._id,
+      organizationId: mio.organizationId,
+    });
+    expect(await balance(mio)).toBe(80000);
     expect((await mine()).find((b) => b.id === id)).toMatchObject({
-      amountCents: 120000,
       funded: false,
       leading: false,
     });
-    await standing(mio, "Midland", "landscaping", 900);
+    // Lowering is always allowed, even while still above the balance...
+    expect(await standing(mio, "Midland", "landscaping", 850)).toBe(id);
     expect((await mine()).find((b) => b.id === id)).toMatchObject({
-      amountCents: 90000,
+      amountCents: 85000,
+      funded: false,
+    });
+    // ...and once it's under the balance the bid is live again.
+    await standing(mio, "Midland", "landscaping", 750);
+    expect((await mine()).find((b) => b.id === id)).toMatchObject({
+      amountCents: 75000,
       funded: true,
       leading: true,
     });

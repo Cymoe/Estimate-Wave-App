@@ -85,8 +85,6 @@ export const setStanding = mutation({
     const amountCents = toCents(amount);
     if (amountCents < MIN_START_CENTS)
       fail("INVALID", `Bids start at ${dollars(MIN_START_CENTS)}`);
-    // A bid above the balance is kept, not refused: it can't win until the
-    // company adds funds, and listStanding says so on the row.
     const now = nowIso();
     const existing = (
       await ctx.db
@@ -96,6 +94,16 @@ export const setStanding = mutation({
         )
         .collect()
     ).find((row) => row.county === name && row.jobType === trade);
+    // A bid is only placed when the balance can pay it. Lowering is always
+    // allowed, so a bid the balance fell below (after a win, say) can be
+    // brought back under it; that bid stays but is paused until it's covered.
+    const balance = organization.walletBalanceCents ?? 0;
+    const raising = !existing || amountCents > existing.amountCents;
+    if (raising && amountCents > balance)
+      fail(
+        "INVALID",
+        `Your balance is ${dollars(balance)}. Add funds to bid ${dollars(amountCents)}.`,
+      );
     if (existing) {
       await ctx.db.patch(existing._id, { amountCents, updatedAt: now });
       return existing._id;
