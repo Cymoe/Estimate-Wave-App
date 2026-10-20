@@ -50,6 +50,23 @@ export default {
         'rise': {
           '0%': { opacity: '1', transform: 'translateY(0)' },
           '100%': { opacity: '0', transform: 'translateY(-6px)' }
+        },
+        // Table rows arriving and leaving: a short fade with a nudge, and a wash that marks a new row.
+        'row-in': {
+          '0%': { opacity: '0', transform: 'translateY(-4px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' }
+        },
+        'row-out': {
+          '0%': { opacity: '1', transform: 'translateX(0)' },
+          '100%': { opacity: '0', transform: 'translateX(8px)' }
+        },
+        'fade-out': {
+          '0%': { opacity: '1' },
+          '100%': { opacity: '0' }
+        },
+        'wash': {
+          '0%': { backgroundColor: 'rgb(16 185 129 / 0.14)' },
+          '100%': { backgroundColor: 'transparent' }
         }
       },
       animation: {
@@ -58,7 +75,11 @@ export default {
         'slide-out': 'slide-out 0.3s ease-out forwards',
         'shimmer': 'shimmer 2s ease-out infinite',
         'fade-in': 'fade-in 0.3s ease-out forwards',
-        'rise': 'rise 0.9s ease-out forwards'
+        'rise': 'rise 0.9s ease-out forwards',
+        'row-in': 'row-in 0.2s ease-out both, wash 1.2s ease-out forwards',
+        'row-out': 'row-out 0.18s ease-in forwards',
+        'fade-out': 'fade-out 0.18s ease-in forwards',
+        'wash': 'wash 1.2s ease-out forwards'
       }
     },
   },

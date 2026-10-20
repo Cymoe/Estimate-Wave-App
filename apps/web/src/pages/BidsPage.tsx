@@ -51,6 +51,9 @@ export const SAVED_HINT_MS = 1500;
 const TONE_MS = 350;
 /** How long a tap's "+$50" takes to lift off and fade (matches the rise animation). */
 const PULSE_MS = 900;
+/** A removed row fades and slips right, then its height closes up so the rows below glide in. */
+export const ROW_OUT_MS = 180;
+export const ROW_COLLAPSE_MS = 160;
 
 type Via = 'up' | 'down' | 'type';
 
@@ -214,6 +217,20 @@ const BidsPage: React.FC = () => {
 };
 
 /**
+ * A table cell whose height can close up: while `collapsed` the content's row track goes to
+ * 0fr and the padding to 0, so a leaving row's neighbours glide into its place.
+ */
+function Cell({ collapsed, className = '', children }: { collapsed: boolean; className?: string; children?: React.ReactNode }) {
+  return (
+    <td className={`px-4 transition-[padding] duration-150 motion-reduce:transition-none ${collapsed ? 'py-0' : 'py-3'} ${className}`}>
+      <div className="grid transition-[grid-template-rows] duration-150 motion-reduce:transition-none" style={{ gridTemplateRows: collapsed ? '0fr' : '1fr' }}>
+        <div className={collapsed ? 'min-h-0 overflow-hidden' : 'min-h-0'}>{children}</div>
+      </div>
+    </td>
+  );
+}
+
+/**
  * Where the bid stands. `funded` is worked out in the browser the moment the amount
  * changes (the balance is known here); leading/outbid waits for the server, so while
  * a change is unsaved or saving the chip sits dimmed as "pending".
@@ -263,6 +280,37 @@ function StandingTab({
     clearTimeout(timers.current[key]);
     timers.current[key] = setTimeout(fn, ms);
   };
+  // Rows on their way out: first they fade ("out"), then their height closes ("collapse").
+  // Removal is optimistic: the row starts leaving on the tap; if the server refuses, it comes back.
+  const [leaving, setLeaving] = useState<Record<string, 'out' | 'collapse'>>({});
+  const remove = async (bid: StandingBid) => {
+    if (!window.confirm(`Remove your ${tradeName(bid.jobType)} bid in ${bid.county} County? You can add it again later.`)) return;
+    setLeaving((l) => ({ ...l, [bid.id]: 'out' }));
+    const gone = new Promise<void>((resolve) =>
+      later(`${bid.id}:out`, ROW_OUT_MS, () => {
+        setLeaving((l) => ({ ...l, [bid.id]: 'collapse' }));
+        later(`${bid.id}:collapse`, ROW_COLLAPSE_MS, resolve);
+      }),
+    );
+    try {
+      await Promise.all([bidsAPI.removeStanding(bid.id), gone]);
+      onNotify('Bid removed.');
+      await onChanged();
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : "That didn't work", false);
+    } finally {
+      setLeaving((l) => {
+        const { [bid.id]: _done, ...rest } = l;
+        return rest;
+      });
+    }
+  };
+  // Rows that weren't here last render fade in with a brief wash, so the eye finds where a new bid landed.
+  const seen = useRef<Set<string> | null>(null);
+  const fresh = seen.current ? new Set(standing.filter((b) => !seen.current!.has(b.id)).map((b) => b.id)) : new Set<string>();
+  useEffect(() => {
+    seen.current = new Set(standing.map((b) => b.id));
+  }, [standing]);
   const save = async (bid: StandingBid, value: string) => {
     const dollars = Number(value);
     patchRow(bid.id, { status: 'saving', failedValue: undefined, error: undefined, words: { placing: anyOf(PLACING), placed: anyOf(PLACED) } });
@@ -344,10 +392,18 @@ function StandingTab({
             return (
             // A bid the balance can't cover gets a faint wash and a red edge, so it stands out in a scan
             // without reading as an error: the bid is fine, it just can't win until funds are added.
-            <tr key={bid.id} data-unfunded={!funded || undefined} className={`transition-colors duration-300 ${funded ? '' : 'bg-red-500/[0.06]'}`}>
-              <td className={`px-4 py-3 text-white border-l-2 transition-colors duration-300 ${funded ? 'border-transparent' : 'border-red-400'}`}>{bid.county} County</td>
-              <td className="px-4 py-3 text-gray-300">{tradeName(bid.jobType)}</td>
-              <td className="px-4 py-3 text-right">
+            <tr
+              key={bid.id}
+              data-unfunded={!funded || undefined}
+              data-leaving={leaving[bid.id]}
+              data-fresh={fresh.has(bid.id) || undefined}
+              className={`transition-colors duration-300 ${funded ? '' : 'bg-red-500/[0.06]'} ${
+                leaving[bid.id] ? 'motion-safe:animate-row-out motion-reduce:animate-fade-out' : fresh.has(bid.id) ? 'motion-safe:animate-row-in motion-reduce:animate-wash' : ''
+              }`}
+            >
+              <Cell collapsed={leaving[bid.id] === 'collapse'} className={`text-white border-l-2 transition-colors duration-300 ${funded ? 'border-transparent' : 'border-red-400'}`}>{bid.county} County</Cell>
+              <Cell collapsed={leaving[bid.id] === 'collapse'} className="text-gray-300">{tradeName(bid.jobType)}</Cell>
+              <Cell collapsed={leaving[bid.id] === 'collapse'} className="text-right">
                 {(() => {
                   const value = state.draft ?? String(bid.amountCents / 100);
                   return (
@@ -374,8 +430,8 @@ function StandingTab({
                     </span>
                   );
                 })()}
-              </td>
-              <td className="px-4 py-3">
+              </Cell>
+              <Cell collapsed={leaving[bid.id] === 'collapse'}>
                 <span className="inline-flex items-center gap-2 whitespace-nowrap">
                   <Chip bid={bid} funded={funded} pending={pending} />
                   {!funded && (
@@ -384,21 +440,18 @@ function StandingTab({
                     </button>
                   )}
                 </span>
-              </td>
-              <td className="px-4 py-3 text-right">
+              </Cell>
+              <Cell collapsed={leaving[bid.id] === 'collapse'} className="text-right">
                 <button
                   type="button"
                   aria-label={`Remove bid for ${tradeName(bid.jobType)} in ${bid.county}`}
-                  disabled={busy}
-                  onClick={() => {
-                    if (!window.confirm(`Remove your ${tradeName(bid.jobType)} bid in ${bid.county} County? You can add it again later.`)) return;
-                    act(() => bidsAPI.removeStanding(bid.id), 'Bid removed.');
-                  }}
+                  disabled={busy || leaving[bid.id] !== undefined}
+                  onClick={() => remove(bid)}
                   className="p-2 text-gray-500 hover:text-red-400"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
-              </td>
+              </Cell>
             </tr>
             );
           })}

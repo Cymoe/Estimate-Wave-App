@@ -30,7 +30,7 @@ jest.mock('../../components/layouts/DashboardLayout', () => ({
   OrganizationContext: require('react').createContext({ selectedOrg: { id: 'o2', name: 'Mio Homes', industry: 'Landscaping' } }),
 }));
 
-import BidsPage, { PLACED, PLACING, SAVED_HINT_MS, SAVE_DELAY, STEP_SAVE_DELAY } from '../BidsPage';
+import BidsPage, { PLACED, PLACING, ROW_COLLAPSE_MS, ROW_OUT_MS, SAVED_HINT_MS, SAVE_DELAY, STEP_SAVE_DELAY } from '../BidsPage';
 
 const flush = () => act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
 const buttons = () => Array.from(document.body.querySelectorAll('button'));
@@ -260,9 +260,17 @@ describe('Bids', () => {
     expect(confirm).toHaveBeenCalledWith('Remove your Landscaping bid in Ector County? You can add it again later.');
     expect(removeStanding).not.toHaveBeenCalled();
     confirm.mockReturnValue(true);
+    // The row starts leaving on the tap (fade, then its height closes) while the server is asked.
+    jest.useFakeTimers();
     await act(async () => (document.body.querySelector('button[aria-label="Remove bid for Landscaping in Ector"]') as HTMLButtonElement).click());
-    await flush();
     expect(removeStanding).toHaveBeenCalledWith('sb2');
+    expect(rows[1].getAttribute('data-leaving')).toBe('out');
+    expect(document.body.querySelector('[role="status"]')).toBeNull(); // not yet
+    await act(async () => { jest.advanceTimersByTime(ROW_OUT_MS + 5); });
+    expect(rows[1].getAttribute('data-leaving')).toBe('collapse');
+    await act(async () => { jest.advanceTimersByTime(ROW_COLLAPSE_MS + 5); });
+    await flush();
+    jest.useRealTimers();
     confirm.mockRestore();
     // A removed row leaves nothing to look at, so a quiet toast says so.
     expect(document.body.querySelector('[role="status"]')?.textContent).toBe('Bid removed.');
