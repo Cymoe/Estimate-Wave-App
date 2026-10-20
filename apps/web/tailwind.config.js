@@ -67,6 +67,10 @@ export default {
         'wash': {
           '0%': { backgroundColor: 'rgb(16 185 129 / 0.14)' },
           '100%': { backgroundColor: 'transparent' }
+        },
+        'fade-in-plain': {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' }
         }
       },
       animation: {
@@ -79,7 +83,8 @@ export default {
         'row-in': 'row-in 0.2s ease-out both, wash 1.2s ease-out forwards',
         'row-out': 'row-out 0.18s ease-in forwards',
         'fade-out': 'fade-out 0.18s ease-in forwards',
-        'wash': 'wash 1.2s ease-out forwards'
+        'wash': 'wash 1.2s ease-out forwards',
+        'fade-in-plain': 'fade-in-plain 0.15s ease-out both'
       }
     },
   },

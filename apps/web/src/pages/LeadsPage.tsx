@@ -18,6 +18,7 @@ import { appointmentDay, formatAppointmentShort, toLocalInput } from '../utils/a
 import { ago, intakeAnswers, leadSummary } from '../components/leads/leadIntake';
 import { LeadExportService } from '../services/LeadExportService';
 import { Toast, useToast } from '../components/common/Notice';
+import { useConfirm } from '../components/common/ConfirmDialog';
 
 const OPEN: LeadStatus[] = ['new', 'no_answer', 'contacted', 'scheduled', 'quoted'];
 
@@ -281,8 +282,11 @@ const LeadsPage: React.FC = () => {
     }
   };
 
+  const [confirm, confirmDialog] = useConfirm();
   const removeSamples = async () => {
-    if (!organizationId || !window.confirm('Remove all sample leads? Leads you added yourself are kept.')) return;
+    if (!organizationId) return;
+    const yes = await confirm({ title: 'Remove all sample leads?', message: 'Leads you added yourself are kept.', confirmLabel: 'Remove samples' });
+    if (!yes) return;
     await leadsAPI.removeSamples(organizationId);
     load();
   };
@@ -346,7 +350,8 @@ const LeadsPage: React.FC = () => {
   };
 
   const remove = async (lead: Lead) => {
-    if (!window.confirm(`Delete the lead “${lead.name}”?`)) return;
+    const yes = await confirm({ title: `Delete the lead “${lead.name}”?`, message: "This can't be undone.", confirmLabel: 'Delete lead' });
+    if (!yes) return;
     await leadsAPI.delete(lead.id);
     setEditing(null);
     load();
@@ -412,6 +417,7 @@ const LeadsPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white">
       <Toast text={toast} />
+      {confirmDialog}
       <div className="p-6">
         <WalletBar organizationId={organizationId} refreshKey={leads.length} />
         {hasSamples && (

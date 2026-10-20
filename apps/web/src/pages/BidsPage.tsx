@@ -8,6 +8,7 @@ import { money } from '../components/market/wallet';
 import { WALLET_CHANGED, openFundingPage, type WalletSummary } from '../components/market/WalletBar';
 import { TEXAS_COUNTIES, countyForTown } from '../services/counties';
 import { InlineNotice, Toast, useToast } from '../components/common/Notice';
+import { useConfirm } from '../components/common/ConfirmDialog';
 
 interface Trade {
   id: string;
@@ -301,8 +302,14 @@ function StandingTab({
   // Rows on their way out: first they fade ("out"), then their height closes ("collapse").
   // Removal is optimistic: the row starts leaving on the tap; if the server refuses, it comes back.
   const [leaving, setLeaving] = useState<Record<string, 'out' | 'collapse'>>({});
+  const [confirm, confirmDialog] = useConfirm();
   const remove = async (bid: StandingBid) => {
-    if (!window.confirm(`Remove your ${tradeName(bid.jobType)} bid in ${bid.county} County? You can add it again later.`)) return;
+    const yes = await confirm({
+      title: `Remove your ${tradeName(bid.jobType)} bid in ${bid.county} County?`,
+      message: 'You can add it again later.',
+      confirmLabel: 'Remove bid',
+    });
+    if (!yes) return;
     setLeaving((l) => ({ ...l, [bid.id]: 'out' }));
     const gone = new Promise<void>((resolve) =>
       later(`${bid.id}:out`, ROW_OUT_MS, () => {
@@ -499,6 +506,7 @@ function StandingTab({
           })}
         </tbody>
       </table>
+      {confirmDialog}
     </div>
   );
 }

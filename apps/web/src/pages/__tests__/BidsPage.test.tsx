@@ -275,16 +275,22 @@ describe('Bids', () => {
     jest.useRealTimers();
     // The row itself is the feedback: no banner for a saved amount.
     expect(document.body.querySelector('[role="status"]')).toBeNull();
-    // Removing asks first: declined keeps the bid, confirmed removes it.
-    const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false);
+    // Removing asks first, in the app's own dialog: declined keeps the bid, confirmed removes it.
+    const ask = () => document.body.querySelector('[role="alertdialog"]');
+    const answer = (label: string) => Array.from(ask()!.querySelectorAll('button')).find((b) => b.textContent === label) as HTMLButtonElement;
     await act(async () => (document.body.querySelector('button[aria-label="Remove bid for Landscaping in Ector"]') as HTMLButtonElement).click());
+    expect(ask()?.textContent).toContain('Remove your Landscaping bid in Ector County?');
+    expect(ask()?.textContent).toContain('You can add it again later.');
+    expect(document.activeElement?.textContent).toBe('Cancel'); // the safe choice has focus
+    await act(async () => answer('Cancel').click());
     await flush();
-    expect(confirm).toHaveBeenCalledWith('Remove your Landscaping bid in Ector County? You can add it again later.');
+    expect(ask()).toBeNull();
     expect(removeStanding).not.toHaveBeenCalled();
-    confirm.mockReturnValue(true);
-    // The row starts leaving on the tap (fade, then its height closes) while the server is asked.
+    // The row starts leaving on the confirm (fade, then its height closes) while the server is asked.
     jest.useFakeTimers();
     await act(async () => (document.body.querySelector('button[aria-label="Remove bid for Landscaping in Ector"]') as HTMLButtonElement).click());
+    await act(async () => answer('Remove bid').click());
+    await act(async () => { await Promise.resolve(); });
     expect(removeStanding).toHaveBeenCalledWith('sb2');
     expect(rows[1].getAttribute('data-leaving')).toBe('out');
     expect(document.body.querySelector('[role="status"]')).toBeNull(); // not yet
@@ -293,7 +299,6 @@ describe('Bids', () => {
     await act(async () => { jest.advanceTimersByTime(ROW_COLLAPSE_MS + 5); });
     await flush();
     jest.useRealTimers();
-    confirm.mockRestore();
     // A removed row leaves nothing to look at, so a quiet toast says so.
     expect(document.body.querySelector('[role="status"]')?.textContent).toBe('Bid removed.');
     // No pausing: a bid is live until it's removed.
