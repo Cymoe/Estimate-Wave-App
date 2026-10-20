@@ -1,5 +1,8 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  // Hover styles only on devices that can hover: a tap on an iPad no longer leaves
+  // the next thing under the finger lit up (the trash icon after a row is removed).
+  future: { hoverOnlyWhenSupported: true },
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   darkMode: 'class',
   theme: {
