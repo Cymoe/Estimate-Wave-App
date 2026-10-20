@@ -60,13 +60,17 @@ export const leadsCovered = (wallet: WalletSummary) =>
 export function bidStatus(wallet: WalletSummary): {
   tone: 'good' | 'warn';
   text: string;
-  action: 'fund' | 'bids';
+  action: 'fund' | 'bids' | 'trades';
   /** The Bids link's words when it isn't "Set bids". */
   label?: string;
   /** A second, quieter link to the Bids page. */
   alsoBids?: boolean;
 } | null {
   const bids = wallet.standingBids ?? 0;
+  // Trades come first: they decide which leads a company can win at all.
+  if (bids === 0 && Array.isArray(wallet.leadTrades) && wallet.leadTrades.length === 0) {
+    return { tone: 'warn', text: 'Pick your trades first: they decide which leads you can win and what your Price Book shows.', action: 'trades', label: 'Pick trades' };
+  }
   const paused = Math.min(wallet.pausedBids ?? 0, bids);
   const balance = wallet.balanceCents;
   const covered = leadsCovered(wallet);
@@ -134,8 +138,9 @@ export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown
 
   if (!wallet || !organizationId) return null;
   const inMarket = wallet.transactions.length > 0 || wallet.leadsBought > 0 || Boolean(wallet.pendingFunding) || (wallet.standingBids ?? 0) > 0;
-  if (!inMarket) return null;
   const status = bidStatus(wallet);
+  // A company that hasn't picked its trades hears about it even before it buys leads.
+  if (!inMarket && status?.action !== 'trades') return null;
   const addFunds = () => openFundingPage(organizationId).catch(() => {});
 
   return (
@@ -184,7 +189,7 @@ export function BidStatusLine({
   className?: string;
 }) {
   // The Bids page has its own big "Set your bids" card, so a set-bids line there would say it twice.
-  if (!status || (onBidsPage && status.action === 'bids')) return null;
+  if (!status || (onBidsPage && (status.action === 'bids' || status.action === 'trades'))) return null;
   return (
     <div
       role={status.tone === 'warn' ? 'alert' : 'status'}
@@ -199,6 +204,10 @@ export function BidStatusLine({
         <button type="button" onClick={onAddFunds} className={`underline underline-offset-2 ${status.tone === 'warn' ? 'text-amber-100' : 'text-white'}`}>
           Add funds
         </button>
+      ) : status.action === 'trades' ? (
+        <Link to="/settings/organization?tab=trades" className="underline underline-offset-2 text-amber-100">
+          {status.label}
+        </Link>
       ) : (
         <Link to="/bids" className={`underline underline-offset-2 ${status.tone === 'warn' ? 'text-amber-100' : 'text-white'}`}>
           {status.label ?? 'Set bids'}

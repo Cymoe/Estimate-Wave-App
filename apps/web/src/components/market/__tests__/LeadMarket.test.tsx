@@ -319,6 +319,15 @@ describe('the bid status line', () => {
     expect(alert.querySelector('a[href="/bids"]')?.textContent).toBe('See bids');
   });
 
+  it('asks a company with no trades to pick them first, even before it buys leads', async () => {
+    expect(line({ balanceCents: 0, standingBids: 0, leadTrades: [] })).toMatchObject({ action: 'trades', label: 'Pick trades' });
+    wallet = { ...base, balanceCents: 0, standingBids: 0, leadTrades: [] };
+    const container = await render(<WalletBar organizationId="o2" />);
+    const alert = container.querySelector('[role="alert"]')!;
+    expect(alert.textContent).toContain('Pick your trades first');
+    expect(alert.querySelector('a[href="/settings/organization?tab=trades"]')?.textContent).toBe('Pick trades');
+  });
+
   it('tells the company on the Leads page when it has been outbid, with a link to its bids', async () => {
     wallet = { ...base, balanceCents: 100000, standingBids: 2, pausedBids: 0, outbidBids: 1 };
     const container = await render(<WalletBar organizationId="o2" />);

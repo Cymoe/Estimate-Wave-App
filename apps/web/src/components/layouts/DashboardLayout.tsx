@@ -32,7 +32,9 @@ import {
   Activity
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { organizationsAPI } from '../../lib/api';
+import { industriesAPI, organizationsAPI } from '../../lib/api';
+import { TRADES_CHANGED } from '../settings/TradesEditor';
+import { orgTradeLabel } from './orgTradeLabel';
 import { LineItemModal } from '../modals/LineItemModal';
 import { Sidebar } from './Sidebar';
 import { MobileHeader } from './MobileHeader';
@@ -48,15 +50,7 @@ import { useProjectShortcuts, type ProjectShortcut } from '../projects/useProjec
 import { FEATURES } from '../../config/features';
 import { projectStatusInfo } from '../projects/projectStatus';
 
-/** "landscaping" -> "Landscaping", "general-construction" -> "General Construction". */
-const titleFromSlug = (slug: string) =>
-  slug.split('-').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-
-/** What a company does, shown under its name: the trades it buys leads for, else its industry. */
-export const orgTradeLabel = (org: { leadTrades?: string[]; industryId?: string }) =>
-  org.leadTrades?.length
-    ? org.leadTrades.map(titleFromSlug).join(', ')
-    : titleFromSlug(org.industryId || 'general-construction');
+export { orgTradeLabel } from './orgTradeLabel';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -199,14 +193,15 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
         setLoadingOrgs(true);
         console.log('Loading organizations for user:', user.id);
         
-        // Organizations the signed-in user belongs to
-        const orgsData = await organizationsAPI.list();
+        // Organizations the signed-in user belongs to, and the trade names to label them with
+        const [orgsData, tradeList] = await Promise.all([organizationsAPI.list(), industriesAPI.list().catch(() => [])]);
+        const names = new Map<string, string>((tradeList as Array<{ id: string; name: string }>).map((t) => [t.id, t.name]));
         
         // Transform to match expected format
         const formattedOrgs = orgsData.map((org: any) => ({
           id: org._id,
           name: org.name,
-          industry: orgTradeLabel(org),
+          industry: orgTradeLabel(org, names),
           industry_id: org.industryId || 'general-construction'
         }));
         
@@ -238,6 +233,23 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
     
     loadOrganizations();
   }, [user]);
+
+  // When a company's trades change, its label under the name follows without a reload.
+  useEffect(() => {
+    const refresh = async () => {
+      try {
+        const [orgsData, tradeList] = await Promise.all([organizationsAPI.list(), industriesAPI.list().catch(() => [])]);
+        const names = new Map<string, string>((tradeList as Array<{ id: string; name: string }>).map((t) => [t.id, t.name]));
+        const labels = new Map<string, string>(orgsData.map((org: any) => [org._id, orgTradeLabel(org, names)]));
+        setOrganizations((all) => all.map((o) => (labels.has(o.id) ? { ...o, industry: labels.get(o.id)! } : o)));
+        setSelectedOrg((cur) => (labels.has(cur.id) ? { ...cur, industry: labels.get(cur.id)! } : cur));
+      } catch {
+        // Keep the labels we have.
+      }
+    };
+    window.addEventListener(TRADES_CHANGED, refresh);
+    return () => window.removeEventListener(TRADES_CHANGED, refresh);
+  }, []);
 
   // Save selected org to localStorage when it changes
   useEffect(() => {

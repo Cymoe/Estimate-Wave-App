@@ -10,8 +10,9 @@ interface Trade {
   description?: string;
 }
 
-/** Sent after a company's trades change, so labels and lists that show them refresh. */
-export const TRADES_CHANGED = 'industryUpdate';
+import { TRADES_CHANGED } from './tradesLabels';
+
+export { NO_TRADES_LABEL, TRADES_CHANGED } from './tradesLabels';
 
 /**
  * Where a company picks its trades: one list that decides its leads, its bids

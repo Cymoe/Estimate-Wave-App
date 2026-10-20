@@ -221,6 +221,7 @@ const BidsPage: React.FC = () => {
             onAdd={() => setAdding(true)}
             onAddFunds={addFunds}
             newlyOutbid={newlyOutbid}
+            noTrades={Boolean(wallet && Array.isArray(wallet.leadTrades) && wallet.leadTrades.length === 0)}
           />
           {standing.length > 0 && (
             <section>
@@ -305,7 +306,10 @@ function StandingTab({
   onAdd,
   onAddFunds,
   newlyOutbid = new Set<string>(),
+  noTrades = false,
 }: {
+  /** The company hasn't picked its trades: the empty card points there first. */
+  noTrades?: boolean;
   organizationId: string;
   standing: StandingBid[];
   /** Bids outbid since the company last looked, marked "New" this visit. */
@@ -452,6 +456,14 @@ function StandingTab({
           Pick the counties you work in, the kind of work, and what a lead is worth to you. From then on, matching leads are yours the moment they come
           in, as long as your bid is the highest.
         </p>
+        {noTrades && (
+          <p className="text-sm text-amber-200 mt-3" data-no-trades>
+            First, pick your trades: they decide which leads you can win.{' '}
+            <Link to="/settings/organization?tab=trades" className="underline underline-offset-2 text-amber-100">
+              Pick trades
+            </Link>
+          </p>
+        )}
         <button type="button" onClick={onAdd} className={`${primary} mt-4`}>
           <Plus className="w-4 h-4" />
           Set your bids

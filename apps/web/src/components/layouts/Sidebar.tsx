@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { useNavigate, useLocation, NavLink } from 'react-router-dom';
+import { NO_TRADES_LABEL } from '../settings/tradesLabels';
 import type { ProjectShortcut } from '../projects/useProjectShortcuts';
 import {
   ChevronDown,
@@ -124,7 +125,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="flex items-center min-w-0 flex-1 overflow-hidden">
                 <div className="flex flex-col items-start">
                   <span className="text-white text-xs font-semibold leading-tight truncate max-w-[120px]">{selectedOrg.name}</span>
-                  <span className="text-[#336699] text-[10px] leading-tight">{selectedOrg.industry}</span>
+                  {/* No trades yet: the label nudges in amber; the dropdown has the link. */}
+                  <span className={`text-[10px] leading-tight truncate max-w-[120px] ${selectedOrg.industry === NO_TRADES_LABEL ? 'text-amber-300' : 'text-[#336699]'}`}>{selectedOrg.industry}</span>
                 </div>
               </div>
               <ChevronDown className={`text-[#336699] w-3 h-3 transition-transform duration-200 flex-shrink-0 ml-1 ${orgDropdownOpen ? 'transform rotate-180' : ''}`} />
@@ -151,6 +153,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
                 </button>
               ))}
+              {/* The company's trades are set in one place; this gets there from the switcher. */}
+              <button
+                type="button"
+                className="w-full text-left px-3 py-2 border-t border-[#2A2A2A] text-xs text-[#7fb0e0] hover:bg-[#2A2A2A]"
+                onClick={() => {
+                  setOrgDropdownOpen(false);
+                  navigate('/settings/organization?tab=trades');
+                }}
+              >
+                {selectedOrg.industry === NO_TRADES_LABEL ? 'Add your trades' : 'Change your trades'}
+              </button>
             </div>
           )}
         </div>
