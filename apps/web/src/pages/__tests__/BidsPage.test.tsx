@@ -30,7 +30,7 @@ jest.mock('../../components/layouts/DashboardLayout', () => ({
   OrganizationContext: require('react').createContext({ selectedOrg: { id: 'o2', name: 'Mio Homes', industry: 'Landscaping' } }),
 }));
 
-import BidsPage, { SAVED_HINT_MS, SAVE_DELAY } from '../BidsPage';
+import BidsPage, { SAVED_HINT_MS, SAVE_DELAY, STEP_SAVE_DELAY } from '../BidsPage';
 
 const flush = () => act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
 const buttons = () => Array.from(document.body.querySelectorAll('button'));
@@ -156,33 +156,59 @@ describe('Bids', () => {
     // The amount is a stepper that saves on its own a moment after the last change: no Save button.
     jest.useFakeTimers();
     expect(document.body.querySelector('button[aria-label="Save bid"]')).toBeNull();
-    await act(async () => (document.body.querySelector('button[aria-label="Raise Bid for Landscaping in Midland"]') as HTMLButtonElement).click());
+    const raise = () => (document.body.querySelector('button[aria-label="Raise Bid for Landscaping in Midland"]') as HTMLButtonElement).click();
+    const status = () => rows[0].querySelector('[aria-live="polite"]')!;
+    // Beat 1: the tap itself answers. The number moves and tints green, a "+$50" lifts off the field.
+    await act(async () => raise());
     expect(input('Bid for Landscaping in Midland').value).toBe('300');
-    await act(async () => (document.body.querySelector('button[aria-label="Raise Bid for Landscaping in Midland"]') as HTMLButtonElement).click());
+    expect(input('Bid for Landscaping in Midland').className).toContain('text-emerald-300');
+    expect(rows[0].querySelector('.animate-rise')?.textContent).toBe('+$50.00');
+    await act(async () => raise());
     expect(input('Bid for Landscaping in Midland').value).toBe('350');
+    expect(rows[0].querySelector('.animate-rise')?.textContent).toBe('+$100.00');
     expect(setStanding).not.toHaveBeenCalled();
-    await act(async () => type(input('Bid for Landscaping in Midland'), '275'));
-    await act(async () => { jest.advanceTimersByTime(SAVE_DELAY + 50); });
+    expect(status().textContent).toBe('');
+    // Beat 2: a moment after the last tap it saves, and the row says so in the reserved line while it does.
+    let release!: (id: string) => void;
+    setStanding.mockImplementationOnce(() => new Promise<string>((resolve) => { release = resolve; }));
+    await act(async () => { jest.advanceTimersByTime(STEP_SAVE_DELAY + 10); });
+    expect(status().textContent).toBe('Saving…');
+    await act(async () => release('sb1'));
     await flush();
     expect(setStanding).toHaveBeenCalledTimes(1);
-    expect(setStanding).toHaveBeenCalledWith('o2', 'Midland', 'landscaping', 275);
-    expect(document.body.querySelector('button[aria-label="Save bid"]')).toBeNull();
-    // A small "Saved" under the stepper for a moment, then gone.
-    expect(rows[0].textContent).toContain('Saved');
+    expect(setStanding).toHaveBeenCalledWith('o2', 'Midland', 'landscaping', 350);
+    // Beat 3: "Saved" for a moment, then the line is empty but still there, so nothing moves.
+    expect(status().textContent).toBe('Saved');
+    expect(rows[0].querySelector('.animate-rise')).toBeNull();
     await act(async () => { jest.advanceTimersByTime(SAVED_HINT_MS + 50); });
-    expect(rows[0].textContent).not.toContain('Saved');
-    // A save the server refuses puts the saved number back and says why.
+    expect(status().textContent).toBe('');
+    expect(status()).not.toBeNull();
+    // Typing waits a little longer than a tap before saving.
+    await act(async () => type(input('Bid for Landscaping in Midland'), '275'));
+    expect(input('Bid for Landscaping in Midland').className).not.toContain('text-emerald-300');
+    await act(async () => { jest.advanceTimersByTime(STEP_SAVE_DELAY + 10); });
+    expect(setStanding).toHaveBeenCalledTimes(1);
+    await act(async () => { jest.advanceTimersByTime(SAVE_DELAY - STEP_SAVE_DELAY); });
+    await flush();
+    expect(setStanding).toHaveBeenCalledTimes(2);
+    expect(setStanding).toHaveBeenLastCalledWith('o2', 'Midland', 'landscaping', 275);
+    // A save the server refuses puts the saved number back, says so in the row (not at the top), and offers a retry.
     setStanding.mockRejectedValueOnce(new Error('Nope'));
     await act(async () => type(input('Bid for Landscaping in Midland'), '400'));
     await act(async () => { jest.advanceTimersByTime(SAVE_DELAY + 50); });
     await flush();
     expect(input('Bid for Landscaping in Midland').value).toBe('250');
-    expect(document.body.querySelector('[role="alert"]')?.textContent).toContain('Nope');
+    expect(status().textContent).toContain("Couldn't save");
+    expect(document.body.querySelector('[role="alert"]')).toBeNull();
+    await act(async () => (status().querySelector('button') as HTMLButtonElement).click());
+    await flush();
+    expect(setStanding).toHaveBeenLastCalledWith('o2', 'Midland', 'landscaping', 400);
+    expect(status().textContent).toBe('Saved');
     // Below the minimum nothing is sent.
     await act(async () => type(input('Bid for Landscaping in Midland'), '150'));
     await act(async () => { jest.advanceTimersByTime(SAVE_DELAY + 50); });
     await flush();
-    expect(setStanding).toHaveBeenCalledTimes(2);
+    expect(setStanding).toHaveBeenCalledTimes(4);
     jest.useRealTimers();
     // The row itself is the feedback: no banner for a saved amount.
     expect(document.body.querySelector('[role="status"]')).toBeNull();

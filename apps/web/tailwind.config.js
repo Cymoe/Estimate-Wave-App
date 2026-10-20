@@ -45,6 +45,11 @@ export default {
         'fade-in': {
           '0%': { opacity: '0', transform: 'translateY(-10px) translateX(-50%)' },
           '100%': { opacity: '1', transform: 'translateY(0) translateX(-50%)' }
+        },
+        // A small "+$50" that lifts off a bid stepper and fades.
+        'rise': {
+          '0%': { opacity: '1', transform: 'translateY(0)' },
+          '100%': { opacity: '0', transform: 'translateY(-6px)' }
         }
       },
       animation: {
@@ -52,7 +57,8 @@ export default {
         'slide-in': 'slide-in 0.3s ease-out forwards',
         'slide-out': 'slide-out 0.3s ease-out forwards',
         'shimmer': 'shimmer 2s ease-out infinite',
-        'fade-in': 'fade-in 0.3s ease-out forwards'
+        'fade-in': 'fade-in 0.3s ease-out forwards',
+        'rise': 'rise 0.9s ease-out forwards'
       }
     },
   },

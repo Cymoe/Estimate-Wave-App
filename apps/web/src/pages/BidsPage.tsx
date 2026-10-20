@@ -41,10 +41,26 @@ interface BidResult {
 export const MIN_BID = 200;
 /** Bids move in $50 steps, never below the minimum. */
 export const STEP = 50;
-/** How long after the last tap or keystroke a changed amount is saved. */
+/** How long after the last keystroke a typed amount is saved. */
 export const SAVE_DELAY = 600;
+/** How long after the last + or − tap the amount is saved: quick taps still fold into one save. */
+export const STEP_SAVE_DELAY = 450;
 /** How long the small "Saved" hint stays under a row's stepper. */
 export const SAVED_HINT_MS = 1500;
+/** How long the amount stays tinted after a tap. */
+const TONE_MS = 350;
+
+type Via = 'up' | 'down' | 'type';
+type RowState = {
+  /** The amount being changed, until it's saved. */
+  draft?: string;
+  status: 'idle' | 'saving' | 'saved' | 'failed';
+  /** Tints the amount for a moment after a tap. */
+  tone?: 'up' | 'down';
+  /** What a failed save was trying to set, for Retry. */
+  failedValue?: string;
+  error?: string;
+};
 const stepUp = (d: number) => Math.max(MIN_BID, Math.floor(d / STEP) * STEP + STEP);
 const stepDown = (d: number) => Math.max(MIN_BID, Math.ceil(d / STEP) * STEP - STEP);
 
@@ -192,7 +208,7 @@ function Chip({ bid }: { bid: StandingBid }) {
     : bid.leading
       ? ['bg-emerald-600/30 text-emerald-200', 'Highest here']
       : ['bg-amber-600/30 text-amber-200', 'Outbid here · raise to win the next lead'];
-  return <span className={`inline-block text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${tone}`}>{text}</span>;
+  return <span className={`inline-block text-xs px-2 py-0.5 rounded-full whitespace-nowrap transition-colors duration-300 ${tone}`}>{text}</span>;
 }
 
 function StandingTab({
@@ -212,54 +228,51 @@ function StandingTab({
   onAdd: () => void;
   onAddFunds: () => void;
 }) {
-  // Amounts being changed, by bid id, until saved. Each tap or keystroke saves on its own
-  // a moment later, so there is no Save button to press.
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  // Each row's amount saves on its own a moment after the last tap or keystroke: no Save button.
+  // The row shows the three beats itself: the amount moving, "Saving…", then "Saved" (or a Retry).
+  const [rows, setRows] = useState<Record<string, RowState>>({});
   const [busy, setBusy] = useState(false);
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  // Rows that just saved show a small "Saved" for a moment.
-  const [saved, setSaved] = useState<Record<string, true>>({});
   useEffect(() => () => Object.values(timers.current).forEach(clearTimeout), []);
-  const changeAmount = (bid: StandingBid, value: string) => {
-    setDrafts((d) => ({ ...d, [bid.id]: value }));
+  const row = (id: string): RowState => rows[id] ?? { status: 'idle' };
+  const patchRow = (id: string, patch: Partial<RowState>) => setRows((all) => ({ ...all, [id]: { ...(all[id] ?? { status: 'idle' }), ...patch } }));
+  const later = (key: string, ms: number, fn: () => void) => {
+    clearTimeout(timers.current[key]);
+    timers.current[key] = setTimeout(fn, ms);
+  };
+  const save = async (bid: StandingBid, value: string) => {
+    const dollars = Number(value);
+    patchRow(bid.id, { status: 'saving', failedValue: undefined, error: undefined });
+    try {
+      await bidsAPI.setStanding(organizationId, bid.county, bid.jobType, dollars);
+      await onChanged();
+      setRows((all) => {
+        const current = all[bid.id] ?? { status: 'idle' };
+        // Keep a newer draft typed while this saved; otherwise the saved amount takes over.
+        const draft = current.draft !== value ? current.draft : undefined;
+        return { ...all, [bid.id]: { ...current, draft, status: 'saved' } };
+      });
+      later(`${bid.id}:saved`, SAVED_HINT_MS, () => setRows((all) => (all[bid.id]?.status === 'saved' ? { ...all, [bid.id]: { ...all[bid.id], status: 'idle' } } : all)));
+    } catch (err) {
+      // Put the saved amount back so the row never shows a number that didn't take, and offer a retry.
+      patchRow(bid.id, { draft: undefined, status: 'failed', failedValue: value, error: err instanceof Error ? err.message : "The bid couldn't be saved" });
+    }
+  };
+  const changeAmount = (bid: StandingBid, value: string, via: Via) => {
+    const tone = via === 'type' ? undefined : via;
+    patchRow(bid.id, { draft: value, tone, failedValue: undefined, error: undefined, status: row(bid.id).status === 'failed' ? 'idle' : row(bid.id).status });
+    if (tone) later(`${bid.id}:tone`, TONE_MS, () => patchRow(bid.id, { tone: undefined }));
     clearTimeout(timers.current[bid.id]);
     const dollars = Number(value);
     if (!(dollars >= MIN_BID) || dollars === bid.amountCents / 100) return;
-    timers.current[bid.id] = setTimeout(async () => {
-      try {
-        await bidsAPI.setStanding(organizationId, bid.county, bid.jobType, dollars);
-        await onChanged();
-        // Drop the draft only if nothing newer was typed while this saved.
-        setDrafts((d) => {
-          if (d[bid.id] !== value) return d;
-          const { [bid.id]: _done, ...rest } = d;
-          return rest;
-        });
-        setSaved((m) => ({ ...m, [bid.id]: true }));
-        timers.current[`${bid.id}:saved`] = setTimeout(
-          () =>
-            setSaved((m) => {
-              const { [bid.id]: _gone, ...rest } = m;
-              return rest;
-            }),
-          SAVED_HINT_MS,
-        );
-      } catch (err) {
-        // Put the saved amount back so the row never shows a number that didn't take.
-        setDrafts((d) => {
-          const { [bid.id]: _dropped, ...rest } = d;
-          return rest;
-        });
-        onNotify(err instanceof Error ? err.message : "The bid couldn't be saved", false);
-      }
-    }, SAVE_DELAY);
+    later(bid.id, via === 'type' ? SAVE_DELAY : STEP_SAVE_DELAY, () => save(bid, value));
   };
   const act = async (work: () => Promise<unknown>, done?: string) => {
     setBusy(true);
     try {
       await work();
       if (done) onNotify(done);
-      setDrafts({});
+      setRows({});
       await onChanged();
     } catch (err) {
       onNotify(err instanceof Error ? err.message : "That didn't work", false);
@@ -304,18 +317,35 @@ function StandingTab({
               <td className="px-4 py-3 text-white">{bid.county} County</td>
               <td className="px-4 py-3 text-gray-300">{tradeName(bid.jobType)}</td>
               <td className="px-4 py-3 text-right">
-                <span className="relative inline-block">
-                  <BidStepper
-                    label={`Bid for ${tradeName(bid.jobType)} in ${bid.county}`}
-                    value={drafts[bid.id] ?? String(bid.amountCents / 100)}
-                    onChange={(v) => changeAmount(bid, v)}
-                  />
-                  {saved[bid.id] && (
-                    <span role="status" className="absolute right-0 top-full mt-0.5 text-[10px] text-emerald-300 whitespace-nowrap">
-                      Saved
+                {(() => {
+                  const state = row(bid.id);
+                  const value = state.draft ?? String(bid.amountCents / 100);
+                  const delta = Number.isFinite(Number(value)) ? Number(value) - bid.amountCents / 100 : 0;
+                  return (
+                    <span className="inline-flex flex-col items-end">
+                      <BidStepper
+                        label={`Bid for ${tradeName(bid.jobType)} in ${bid.county}`}
+                        value={value}
+                        tone={state.tone}
+                        delta={delta}
+                        onChange={(v, via) => changeAmount(bid, v, via)}
+                      />
+                      {/* Always present, so the row never moves as the text comes and goes. */}
+                      <span aria-live="polite" className="block h-4 mt-0.5 text-[10px] leading-4 whitespace-nowrap">
+                        {state.status === 'saving' && <span className="text-gray-500">Saving…</span>}
+                        {state.status === 'saved' && <span className="text-emerald-300">Saved</span>}
+                        {state.status === 'failed' && (
+                          <span className="text-red-300" title={state.error}>
+                            Couldn't save ·{' '}
+                            <button type="button" onClick={() => state.failedValue && save(bid, state.failedValue)} className="underline underline-offset-2">
+                              Retry
+                            </button>
+                          </span>
+                        )}
+                      </span>
                     </span>
-                  )}
-                </span>
+                  );
+                })()}
               </td>
               <td className="px-4 py-3">
                 <span className="inline-flex items-center gap-2 whitespace-nowrap">
@@ -376,13 +406,34 @@ function ResultsTab({ results, tradeName }: { results: BidResult[]; tradeName: (
 
 /** Three steps in a dialog: where (counties), what (service), how much (per lead). */
 /** [−] $250 [+]: typed or stepped in $50s, never below the minimum. */
-function BidStepper({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function BidStepper({
+  label,
+  value,
+  onChange,
+  tone,
+  delta = 0,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string, via: Via) => void;
+  /** Tints the amount for a moment after a tap: green going up, amber going down. */
+  tone?: 'up' | 'down';
+  /** How far the amount is from what's saved; shown as a small "+$50" lifting off the field. */
+  delta?: number;
+}) {
   const dollars = Number(value);
   const ok = Number.isFinite(dollars) && value.trim() !== '';
-  const control = 'px-3 text-lg leading-none text-gray-300 hover:text-white disabled:opacity-30 disabled:hover:text-gray-300';
+  const control = 'px-3 text-lg leading-none text-gray-300 hover:text-white active:scale-90 transition-transform duration-100 disabled:opacity-30 disabled:hover:text-gray-300';
+  const amount = tone === 'up' ? 'text-emerald-300' : tone === 'down' ? 'text-amber-300' : 'text-white';
   return (
-    <div className="inline-flex items-stretch rounded border border-[#333] bg-[#1A1A1A]">
-      <button type="button" aria-label={`Lower ${label}`} disabled={!ok || dollars <= MIN_BID} onClick={() => onChange(String(stepDown(dollars)))} className={control}>
+    <div className="relative inline-flex items-stretch rounded border border-[#333] bg-[#1A1A1A]">
+      {delta !== 0 && (
+        <span key={delta} aria-hidden="true" className={`absolute -top-3.5 right-10 text-[11px] font-medium animate-rise pointer-events-none ${delta > 0 ? 'text-emerald-300' : 'text-amber-300'}`}>
+          {delta > 0 ? '+' : '−'}
+          {money(Math.abs(delta) * 100)}
+        </span>
+      )}
+      <button type="button" aria-label={`Lower ${label}`} disabled={!ok || dollars <= MIN_BID} onClick={() => onChange(String(stepDown(dollars)), 'down')} className={control}>
         −
       </button>
       <label className="flex items-center border-x border-[#333] text-sm text-gray-400">
@@ -391,11 +442,11 @@ function BidStepper({ label, value, onChange }: { label: string; value: string; 
           inputMode="decimal"
           aria-label={label}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-16 bg-transparent px-1 py-2 text-right text-white text-base md:text-sm focus:outline-none"
+          onChange={(e) => onChange(e.target.value, 'type')}
+          className={`w-16 bg-transparent px-1 py-2 text-right text-base md:text-sm focus:outline-none transition-colors duration-300 ${amount}`}
         />
       </label>
-      <button type="button" aria-label={`Raise ${label}`} disabled={!ok} onClick={() => onChange(String(stepUp(dollars)))} className={control}>
+      <button type="button" aria-label={`Raise ${label}`} disabled={!ok} onClick={() => onChange(String(stepUp(dollars)), 'up')} className={control}>
         +
       </button>
     </div>
