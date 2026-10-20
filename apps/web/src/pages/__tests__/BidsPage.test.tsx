@@ -73,7 +73,7 @@ describe('Bids', () => {
     // Everything on one screen from the start: the county line and the trade rows, no steps.
     expect(dialog()?.textContent).toContain('County');
     expect(dialog()?.textContent).toContain('Your bids');
-    expect(dialog()!.querySelectorAll('[aria-label="Bids by trade"] > li').length).toBeGreaterThan(0);
+    expect(dialog()!.querySelectorAll('[aria-label="Bids by trade"] > li:not([data-heading])').length).toBeGreaterThan(0);
     // No county suggestions until something is typed; the matches float so nothing jumps.
     expect(dialog()!.querySelector('[aria-label="Counties"]')).toBeNull();
     expect(dialog()?.textContent).not.toContain('you bid here');
@@ -137,7 +137,7 @@ describe('Bids', () => {
     expect(dialog()!.textContent).not.toContain('steps'); // no per-lead/step hint: each row shows its minimum
 
     // One row per trade. Their own trade is live at the minimum; the other waits behind "Bid $200.00".
-    const rowsByTrade = () => Array.from(dialog()!.querySelectorAll('[aria-label="Bids by trade"] > li'));
+    const rowsByTrade = () => Array.from(dialog()!.querySelectorAll('[aria-label="Bids by trade"] > li:not([data-heading])'));
     expect(rowsByTrade().map((li) => li.querySelector('p')?.textContent)).toEqual(['Landscaping', 'Roofing']);
     expect(rowsByTrade()[0].textContent).toContain('Min $200.00');
     expect(input('Landscaping bid').value).toBe('200');
@@ -345,11 +345,18 @@ describe('Bids', () => {
     expect(buttons().some((b) => /^(Pause|Resume)/.test(b.textContent?.trim() ?? ''))).toBe(false);
     await act(async () => byText('Add bid')!.click());
     expect(dialog()?.querySelector('#modal-title')?.textContent).toBe('Add a bid');
-    // Picking a county you already bid in fills the row with that bid and says where it stands.
-    await act(async () => type(input('Search counties'), 'Mid'));
-    await act(async () => (dialog()!.querySelector('[aria-label="Counties"] button') as HTMLButtonElement).click());
+    // The counties already bid in are offered before anything is typed, with how many bids each has.
+    const chips = () => Array.from(dialog()!.querySelectorAll('[aria-label="Your counties"] button'));
+    expect(chips().map((b) => b.textContent)).toEqual(['Ector County · 1 bid', 'Howard County · 1 bid', 'Midland County · 1 bid']);
+    await act(async () => type(input('Search counties'), 'M'));
+    expect(chips()).toEqual([]); // typing hands over to the matches
+    await act(async () => type(input('Search counties'), ''));
+    // Picking a county you already bid in (one tap on its chip) fills the row with that bid and says where it stands.
+    await act(async () => (chips().find((b) => b.textContent?.startsWith('Midland')) as HTMLButtonElement).click());
+    expect(dialog()!.querySelector('[aria-label="Where"]')?.textContent).toContain('Midland County');
+    expect(dialog()!.querySelector('[aria-label="Your counties"]')).toBeNull();
     expect(input('Landscaping bid').value).toBe('250');
-    expect(dialog()!.querySelector('[aria-label="Bids by trade"] > li')?.textContent).toContain('TOP');
+    expect(dialog()!.querySelector('[aria-label="Bids by trade"] > li:not([data-heading])')?.textContent).toContain('TOP');
     // Nothing has changed, so there is nothing to save; raise it and there is.
     expect(byText('Save bid')!.disabled).toBe(true);
     expect(dialog()!.textContent).toContain('These are your current bids here.');
@@ -358,7 +365,11 @@ describe('Bids', () => {
     await act(async () => (document.body.querySelector('button[aria-label="Change county"]') as HTMLButtonElement).click());
     await act(async () => type(input('Search counties'), 'Odessa'));
     await act(async () => (dialog()!.querySelector('[aria-label="Counties"] button') as HTMLButtonElement).click());
-    expect(dialog()!.querySelector('[aria-label="Bids by trade"] > li')?.textContent).toContain('Outbid · raise to win');
+    expect(dialog()!.querySelector('[aria-label="Bids by trade"] > li:not([data-heading])')?.textContent).toContain('Outbid · raise to win');
+    // The bids already placed here come first, under their own heading; the trades to add follow.
+    const headings = () => Array.from(dialog()!.querySelectorAll('[aria-label="Bids by trade"] > li[data-heading]')).map((h) => h.textContent);
+    expect(headings()).toEqual(['Your bids here', 'Add a trade']);
+    expect(dialog()!.querySelector('[aria-label="Bids by trade"] > li')?.getAttribute('data-heading')).not.toBeNull();
     expect(byText('Save bid')).toBeTruthy();
     // A bid the balance can't cover isn't placed: the button goes to the wallet instead of saving.
     await act(async () => type(input('Landscaping bid'), '1200'));
@@ -387,7 +398,7 @@ describe('Bids', () => {
     // After the first time, a save says what it did in a passing toast, not the sticky "You're set" banner.
     const stepper = (label: string) => document.body.querySelector(`button[aria-label="${label}"]`) as HTMLButtonElement;
     const toast = () => document.body.querySelector('[role="status"]')?.textContent;
-    const trades = () => Array.from(dialog()!.querySelectorAll('[aria-label="Bids by trade"] > li'));
+    const trades = () => Array.from(dialog()!.querySelectorAll('[aria-label="Bids by trade"] > li:not([data-heading])'));
     const openIn = async (q: string) => {
       await act(async () => byText('Add bid')!.click());
       await act(async () => type(input('Search counties'), q));
@@ -409,6 +420,7 @@ describe('Bids', () => {
     // A county with no bid yet: "added".
     setStanding.mockClear();
     await openIn('Andrews');
+    expect(dialog()!.querySelectorAll('[aria-label="Bids by trade"] > li[data-heading]').length).toBe(0); // nothing placed here
     await saveWith('Save bid');
     expect(setStanding.mock.calls).toEqual([['o2', 'Andrews', 'landscaping', 200]]);
     expect(toast()).toBe('Bid added: Landscaping in Andrews County at $200.00.');
