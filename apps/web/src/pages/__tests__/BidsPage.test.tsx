@@ -453,6 +453,22 @@ describe('Bids', () => {
     expect(tradeRow('Roofing').textContent).toContain('Paused at $1,500.00 · add funds');
     expect(tradeRow('Roofing').textContent).not.toContain('Outbid');
     await act(async () => (dialog()!.querySelector('button[aria-label="Close modal"]') as HTMLButtonElement).click());
+    // The X on a bid already placed removes it, after asking; on an unsaved row it only switches the trade off.
+    await openIn('Mid');
+    expect(dialog()!.querySelector('button[aria-label="Remove bid for Landscaping"]')).not.toBeNull();
+    removeStanding.mockClear();
+    const confirmBox = () => document.body.querySelector('[role="alertdialog"]');
+    const confirmBtn = (label: string) => Array.from(confirmBox()!.querySelectorAll('button')).find((b) => b.textContent === label) as HTMLButtonElement;
+    await act(async () => (dialog()!.querySelector('button[aria-label="Remove bid for Landscaping"]') as HTMLButtonElement).click());
+    expect(confirmBox()?.textContent).toContain('Remove your Landscaping bid in Midland County?');
+    await act(async () => confirmBtn('Cancel').click());
+    expect(removeStanding).not.toHaveBeenCalled();
+    await act(async () => (dialog()!.querySelector('button[aria-label="Remove bid for Landscaping"]') as HTMLButtonElement).click());
+    await act(async () => confirmBtn('Remove bid').click());
+    await flush();
+    expect(removeStanding).toHaveBeenCalledWith('sb1');
+    expect(toast()).toBe('Bid removed.');
+    await act(async () => (dialog()!.querySelector('button[aria-label="Close modal"]') as HTMLButtonElement).click());
   });
 
   it('lists what the bids won and missed under the bids, on the same screen', async () => {

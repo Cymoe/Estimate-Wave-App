@@ -773,6 +773,27 @@ function AddBidDialog({
     setSearch('');
   };
   const turnOn = (id: string) => setBid(id, String(MIN_BID));
+  // The X on a bid already placed here removes it (after asking), like the trash on the Bids table;
+  // on a row not yet saved it just switches the trade off.
+  const [confirmRemove, confirmDialog] = useConfirm();
+  const removePlaced = async (t: Trade) => {
+    const mine = placed(t.id);
+    if (!mine) return turnOff(t.id);
+    const yes = await confirmRemove({
+      title: `Remove your ${t.name} bid in ${county} County?`,
+      message: 'You can add it again later.',
+      confirmLabel: 'Remove bid',
+    });
+    if (!yes) return;
+    try {
+      await bidsAPI.removeStanding(mine.id);
+      turnOff(t.id);
+      onNotify('Bid removed.');
+      await onSaved();
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : "That didn't work", false);
+    }
+  };
   const turnOff = (id: string) => {
     setTouched((t) => new Set(t).add(id));
     setBids((b) => {
@@ -993,7 +1014,12 @@ function AddBidDialog({
                           if (!(Number(bids[t.id]) >= MIN_BID)) setBid(t.id, String(MIN_BID));
                         }}
                       />
-                      <button type="button" onClick={() => turnOff(t.id)} aria-label={`Stop bidding on ${t.name}`} className="p-2 text-gray-500 hover:text-white">
+                      <button
+                        type="button"
+                        onClick={() => removePlaced(t)}
+                        aria-label={placed(t.id) ? `Remove bid for ${t.name}` : `Stop bidding on ${t.name}`}
+                        className="p-2 text-gray-500 hover:text-white"
+                      >
                         <X className="w-4 h-4" />
                       </button>
                     </div>
@@ -1013,6 +1039,7 @@ function AddBidDialog({
           )}
         </section>
       </div>
+      {confirmDialog}
     </Modal>
   );
 }
