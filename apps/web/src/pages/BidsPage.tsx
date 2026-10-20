@@ -5,7 +5,7 @@ import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { Modal } from '../components/common/Modal';
 import { bidsAPI, industriesAPI, walletAPI } from '../lib/api';
 import { money } from '../components/market/wallet';
-import { WALLET_CHANGED, openFundingPage, type WalletSummary } from '../components/market/WalletBar';
+import { BidStatusLine, WALLET_CHANGED, openFundingPage, type WalletSummary } from '../components/market/WalletBar';
 import { TEXAS_COUNTIES, countyForTown } from '../services/counties';
 import { InlineNotice, Toast, useToast } from '../components/common/Notice';
 import { useConfirm } from '../components/common/ConfirmDialog';
@@ -186,6 +186,8 @@ const BidsPage: React.FC = () => {
         Where you work, what you do and what a lead is worth to you. Matching leads go to the highest bid the moment they come in and land in your Leads.
       </p>
 
+      {/* Same line as on Leads: what the bids are doing and, when money is the problem, Add funds. */}
+      {wallet && standing && <BidStatusLine wallet={wallet} onAddFunds={addFunds} onBidsPage />}
       {message && (
         <InlineNotice tone={message.good ? 'good' : 'bad'} onDismiss={() => setMessage(null)} className="mb-4">
           {message.text}

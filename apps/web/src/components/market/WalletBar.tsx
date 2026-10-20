@@ -145,34 +145,57 @@ export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown
           {wallet.pendingFunding.bonusCents > 0 ? ` (+${money(wallet.pendingFunding.bonusCents)} bonus)` : ''} is being confirmed. It'll show in your balance shortly.
         </div>
       )}
-      {status && (
-        <div
-          role={status.tone === 'warn' ? 'alert' : 'status'}
-          className={`mb-4 px-4 py-3 rounded border text-sm flex items-center gap-x-2 gap-y-1 flex-wrap ${
-            status.tone === 'warn' ? 'border-amber-500/40 bg-amber-500/10 text-amber-200' : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-100'
-          }`}
-        >
-          <Gavel className="w-4 h-4 flex-shrink-0" />
-          <span>{status.text}</span>
-          {status.action === 'fund' ? (
-            <button type="button" onClick={addFunds} className={`underline underline-offset-2 ${status.tone === 'warn' ? 'text-amber-100' : 'text-white'}`}>
-              Add funds
-            </button>
-          ) : (
-            <Link to="/bids" className="underline underline-offset-2 text-white">
-              Set bids
-            </Link>
-          )}
-          {status.alsoBids && (
-            <Link to="/bids" className="underline underline-offset-2 text-amber-200/80">
-              {(wallet.standingBids ?? 0) > 0 ? 'See bids' : 'Set bids'}
-            </Link>
-          )}
-        </div>
-      )}
+      {status && <BidStatusLine wallet={wallet} status={status} onAddFunds={addFunds} />}
     </>
   );
 };
+
+/**
+ * The bid status line (see bidStatus). On the Bids page itself (`onBidsPage`) it keeps only
+ * Add funds: the links to the bids would point where you already are.
+ */
+export function BidStatusLine({
+  wallet,
+  status = bidStatus(wallet),
+  onAddFunds,
+  onBidsPage = false,
+  className = 'mb-4',
+}: {
+  wallet: WalletSummary;
+  status?: ReturnType<typeof bidStatus>;
+  onAddFunds: () => void;
+  onBidsPage?: boolean;
+  className?: string;
+}) {
+  // The Bids page has its own big "Set your bids" card, so a set-bids line there would say it twice.
+  if (!status || (onBidsPage && status.action === 'bids')) return null;
+  return (
+    <div
+      role={status.tone === 'warn' ? 'alert' : 'status'}
+      data-bid-status
+      className={`${className} px-4 py-3 rounded border text-sm flex items-center gap-x-2 gap-y-1 flex-wrap ${
+        status.tone === 'warn' ? 'border-amber-500/40 bg-amber-500/10 text-amber-200' : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-100'
+      }`}
+    >
+      <Gavel className="w-4 h-4 flex-shrink-0" />
+      <span>{status.text}</span>
+      {status.action === 'fund' ? (
+        <button type="button" onClick={onAddFunds} className={`underline underline-offset-2 ${status.tone === 'warn' ? 'text-amber-100' : 'text-white'}`}>
+          Add funds
+        </button>
+      ) : (
+        <Link to="/bids" className="underline underline-offset-2 text-white">
+          Set bids
+        </Link>
+      )}
+      {status.alsoBids && !onBidsPage && (
+        <Link to="/bids" className="underline underline-offset-2 text-amber-200/80">
+          {(wallet.standingBids ?? 0) > 0 ? 'See bids' : 'Set bids'}
+        </Link>
+      )}
+    </div>
+  );
+}
 
 /** The Lead balance panel that slides in from the right: balance, what leads turned into, Add funds and history. */
 export function WalletDrawer({ wallet, onClose: closeNow, onAddFunds }: { wallet: WalletSummary; onClose: () => void; onAddFunds: () => void }) {

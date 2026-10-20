@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let balanceCents = 100_000;
+let walletExtra: Record<string, unknown> = {};
 let standing: unknown[] = [];
 let results: unknown[] = [];
 const setStanding = jest.fn(async (_org: string, _county: string, _jobType: string, _amount: number) => 'sb1');
@@ -13,7 +14,7 @@ const createLink = jest.fn(async (_id: string) => 'tok');
 
 jest.mock('../../lib/api', () => ({
   walletAPI: {
-    get: async () => ({ balanceCents, typicalLeadCents: 20000, spentCents: 0, leadsBought: 0, wonCents: 0, wonCount: 0, leadTrades: ['landscaping'], transactions: [] }),
+    get: async () => ({ balanceCents, typicalLeadCents: 20000, spentCents: 0, leadsBought: 0, wonCents: 0, wonCount: 0, leadTrades: ['landscaping'], transactions: [], ...walletExtra }),
     feed: async () => [],
     bids: async () => [],
   },
@@ -52,6 +53,7 @@ async function render(path = '/bids') {
 
 beforeEach(() => {
   balanceCents = 100_000;
+  walletExtra = {};
   standing = [];
   results = [];
 });
@@ -380,6 +382,36 @@ describe('Bids', () => {
     expect(items[0].textContent).toContain('Won at $250.00 · now in your Leads');
     expect(items[1].textContent).toContain('Outbid: a higher bid won it');
     expect(Array.from(document.body.querySelectorAll('a')).find((a) => a.textContent === 'Marketplace')?.getAttribute('href')).toBe('/marketplace');
+  });
+
+  it('says at the top when the bids are paused or there is no money, with Add funds', async () => {
+    // A funded company with no bids gets the big "Set your bids" card, not a second line saying the same.
+    await render();
+    expect(document.body.querySelector('[data-bid-status]')).toBeNull();
+    document.body.innerHTML = '';
+
+    // No bids and no money: both steps, and the step that's missing here is the money.
+    balanceCents = 0;
+    walletExtra = { standingBids: 0, pausedBids: 0 };
+    await render();
+    let line = document.body.querySelector('[data-bid-status]')!;
+    expect(line.textContent).toContain('Two steps to start winning leads: add funds, then set your bids.');
+    expect(line.querySelector('a')).toBeNull(); // no link to the page you're on
+    document.body.innerHTML = '';
+
+    // A bid the empty balance can't pay for: paused, and the line says so above the table.
+    standing = [{ id: 'sb1', county: 'Midland', jobType: 'concrete', amountCents: 20000, funded: false, leading: false, contested: false }];
+    walletExtra = { standingBids: 1, pausedBids: 1 };
+    await render();
+    line = document.body.querySelector('[data-bid-status]')!;
+    expect(line.getAttribute('role')).toBe('alert');
+    expect(line.textContent).toContain("Your bid is paused. Your balance is $0.00, so it can't win leads. Add funds to put it back in.");
+    expect(line.querySelector('a')).toBeNull();
+    const openTab = jest.spyOn(window, 'open').mockReturnValue(null);
+    await act(async () => (Array.from(line.querySelectorAll('button')).find((b) => b.textContent === 'Add funds') as HTMLButtonElement).click());
+    await flush();
+    expect(createLink).toHaveBeenCalledWith('o2');
+    openTab.mockRestore();
   });
 
   it('sends old Marketplace-tab links to the Marketplace page', async () => {
