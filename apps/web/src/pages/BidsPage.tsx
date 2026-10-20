@@ -1,6 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
-import { Gavel, Plus, Trash2, X } from 'lucide-react';
+import { Gavel, Plus, Trash2, Wallet, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { Modal } from '../components/common/Modal';
 import { bidsAPI, industriesAPI, walletAPI } from '../lib/api';
@@ -589,6 +589,7 @@ function BidStepper({
   onChange,
   onBlur,
   tone,
+  warn = false,
   canRaise = true,
   onCapped,
 }: {
@@ -602,6 +603,8 @@ function BidStepper({
   onBlur?: () => void;
   /** Tints the amount for a moment after a tap: green going up, amber going down. */
   tone?: 'up' | 'down';
+  /** The amount is more than the balance can place: amber edge and amount until it fits. */
+  warn?: boolean;
 }) {
   // Each tap lifts its own "+$50" / "−$50" off the field; a new tap restarts it.
   const [pulse, setPulse] = useState<{ id: number; dir: 'up' | 'down' } | null>(null);
@@ -616,9 +619,9 @@ function BidStepper({
   const dollars = Number(value);
   const ok = Number.isFinite(dollars) && value.trim() !== '';
   const control = 'px-3 text-lg leading-none text-gray-300 hover:text-white active:scale-90 transition-transform duration-100 disabled:opacity-30 disabled:hover:text-gray-300';
-  const amount = tone === 'up' ? 'text-emerald-300' : tone === 'down' ? 'text-amber-300' : 'text-white';
+  const amount = warn ? 'text-amber-300' : tone === 'up' ? 'text-emerald-300' : tone === 'down' ? 'text-amber-300' : 'text-white';
   return (
-    <div className="relative inline-flex items-stretch rounded border border-[#333] bg-[#1A1A1A]">
+    <div data-warn={warn || undefined} className={`relative inline-flex items-stretch rounded border bg-[#1A1A1A] transition-colors duration-300 ${warn ? 'border-amber-500/70' : 'border-[#333]'}`}>
       {pulse && (
         <span key={pulse.id} aria-hidden="true" className={`absolute -top-3.5 right-10 text-[11px] font-medium animate-rise pointer-events-none ${pulse.dir === 'up' ? 'text-emerald-300' : 'text-amber-300'}`}>
           {pulse.dir === 'up' ? '+' : '−'}
@@ -756,10 +759,11 @@ function AddBidDialog({
   const amountsOk = amounts.every((a) => Number.isFinite(a) && a >= MIN_BID);
   const top = amounts.length ? Math.max(...amounts) : 0;
   // A bid is only placed when the balance covers it. Lowering one already placed always goes through.
-  const affordable = amountsOk && live.every((t) => {
-    const cents = Math.round(Number(bids[t.id]) * 100);
-    return cents <= balance || cents <= (placed(t.id)?.amountCents ?? 0);
-  });
+  // Which rows ask for more than the balance can place (lowering one already placed is fine).
+  const amountCents = (id: string) => Math.round(Number(bids[id]) * 100);
+  const tooHigh = (id: string) => amountCents(id) > balance && amountCents(id) > (placed(id)?.amountCents ?? 0);
+  const over = amountsOk ? live.filter((t) => tooHigh(t.id)) : [];
+  const affordable = amountsOk && over.length === 0;
   const covers = amountsOk && top > 0 ? Math.floor(balance / (top * 100)) : 0;
   // Nothing to save if every live row already matches a placed bid in this county.
   const changed = live.some((t) => placed(t.id)?.amountCents !== Math.round(Number(bids[t.id]) * 100));
@@ -805,7 +809,7 @@ function AddBidDialog({
   // Pinned under the trade list so Save stays in reach however many trades are on.
   const footer = (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <p className="text-xs text-gray-500">
+      <p className={`text-xs ${ready && !affordable ? 'text-amber-200' : 'text-gray-500'}`}>
         {!county
           ? 'Pick a county to start.'
           : !amountsOk
@@ -813,7 +817,9 @@ function AddBidDialog({
           : !changed
             ? live.length > 0 ? 'These are your current bids here.' : ''
             : !affordable
-              ? `Your balance is ${money(balance)}. Add funds to place a bid this high.`
+              ? over.length === 1
+                ? `${over[0].name} at ${money(amountCents(over[0].id))} is more than your ${money(balance)} balance.`
+                : `${over.length} bids are more than your ${money(balance)} balance.`
               : `Balance ${money(balance)} covers about ${covers} lead${covers === 1 ? '' : 's'} at your top bid. You only pay when you win.`}
       </p>
       <div className="flex items-center gap-2 ml-auto">
@@ -822,7 +828,13 @@ function AddBidDialog({
         </button>
         {ready && !affordable ? (
           // Saving isn't placing until the balance covers it, so the button goes to the wallet instead.
-          <button type="button" onClick={onAddFunds} className={primary}>
+          // Amber, like every other "money is what's missing" cue: this goes to the wallet, it doesn't save.
+          <button
+            type="button"
+            onClick={onAddFunds}
+            className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-amber-500 hover:bg-amber-400 text-black text-sm font-medium whitespace-nowrap"
+          >
+            <Wallet className="w-4 h-4" />
             Add funds to place bid
           </button>
         ) : (
@@ -925,6 +937,7 @@ function AddBidDialog({
                       <BidStepper
                         label={`${t.name} bid`}
                         value={bids[t.id]}
+                        warn={amountsOk && tooHigh(t.id)}
                         onChange={(v) => setBid(t.id, v)}
                         onBlur={() => {
                           if (!(Number(bids[t.id]) >= MIN_BID)) setBid(t.id, String(MIN_BID));

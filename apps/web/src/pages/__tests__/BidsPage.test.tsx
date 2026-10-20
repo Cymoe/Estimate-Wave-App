@@ -363,13 +363,18 @@ describe('Bids', () => {
     // A bid the balance can't cover isn't placed: the button goes to the wallet instead of saving.
     await act(async () => type(input('Landscaping bid'), '1200'));
     expect(byText('Save bid')).toBeUndefined();
-    expect(dialog()!.textContent).toContain('Your balance is $1,000.00. Add funds to place a bid this high.');
+    // The line names the bid that's too high, the row's amount turns amber, and the button is amber, not the green of Save.
+    expect(dialog()!.textContent).toContain('Landscaping at $1,200.00 is more than your $1,000.00 balance.');
+    expect(input('Landscaping bid').closest('[data-warn]')).not.toBeNull();
+    expect(byText('Add funds to place bid')!.className).toContain('bg-amber-500');
+    expect(byText('Add funds to place bid')!.className).not.toContain('emerald');
     await act(async () => byText('Add funds to place bid')!.click());
     await flush();
     expect(createLink).toHaveBeenCalledWith('o2');
     expect(setStanding).toHaveBeenCalledTimes(6);
     await act(async () => type(input('Landscaping bid'), '300'));
     expect(byText('Add funds to place bid')).toBeUndefined();
+    expect(input('Landscaping bid').closest('[data-warn]')).toBeNull();
     expect(byText('Save bid')!.disabled).toBe(false);
     // A tap outside or Escape leaves the dialog where it is; only the X closes it.
     await act(async () => (document.body.querySelector('[data-testid="modal-backdrop"]') as HTMLElement).click());
