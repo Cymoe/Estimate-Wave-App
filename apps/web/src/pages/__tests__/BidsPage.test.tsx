@@ -136,6 +136,9 @@ describe('Bids', () => {
     ]);
     expect(dialog()).toBeNull();
     expect(document.body.textContent).toContain("You're set: new Landscaping and Roofing leads in Ector County go to you the moment they come in, at $250.00, while your bid is the highest.");
+    // The one-time line stays until it's dismissed; it is the only banner on the page.
+    await act(async () => (document.body.querySelector('button[aria-label="Dismiss"]') as HTMLButtonElement).click());
+    expect(document.body.textContent).not.toContain("You're set");
   });
 
   it('shows where each standing bid stands, lets the company edit or remove it, and opens the dialog to add more', async () => {
@@ -158,6 +161,8 @@ describe('Bids', () => {
     await act(async () => (document.body.querySelector('button[aria-label="Save bid"]') as HTMLButtonElement).click());
     await flush();
     expect(setStanding).toHaveBeenCalledWith('o2', 'Midland', 'landscaping', 275);
+    // The row itself is the feedback: no banner for a saved amount.
+    expect(document.body.querySelector('[role="status"]')).toBeNull();
     // Removing asks first: declined keeps the bid, confirmed removes it.
     const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false);
     await act(async () => (document.body.querySelector('button[aria-label="Remove bid for Landscaping in Ector"]') as HTMLButtonElement).click());
@@ -169,10 +174,13 @@ describe('Bids', () => {
     await flush();
     expect(removeStanding).toHaveBeenCalledWith('sb2');
     confirm.mockRestore();
+    // A removed row leaves nothing to look at, so a quiet toast says so.
+    expect(document.body.querySelector('[role="status"]')?.textContent).toBe('Bid removed.');
     // Pause keeps the bid but takes it out of the running; there is no pause-all.
     await act(async () => (document.body.querySelector('button[aria-label="Pause bid for Landscaping in Midland"]') as HTMLButtonElement).click());
     await flush();
     expect(pauseStanding).toHaveBeenCalledWith('sb1', true);
+    expect(document.body.textContent).not.toContain('Bid paused');
     expect(byText('Pause all')).toBeUndefined();
     await act(async () => byText('Add bid')!.click());
     expect(dialog()?.querySelector('#modal-title')?.textContent).toBe('Add a bid');

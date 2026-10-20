@@ -71,7 +71,7 @@ describe('the monthly plan', () => {
     await act(async () => start.click());
     await flush();
     expect(startPlan).toHaveBeenCalled();
-    expect(container.querySelector('[role="status"]')?.textContent).toContain('Balance too low');
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Balance too low');
     expect(Array.from(container.querySelectorAll('button')).some((b) => b.textContent?.trim() === 'Add funds')).toBe(true);
   });
 

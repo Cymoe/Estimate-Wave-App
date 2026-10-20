@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { money, planLabel, shortDate, type PlanSummary } from './wallet';
 import { WALLET_CHANGED, notifyWalletChanged, openFundingPage } from './WalletBar';
+import { InlineNotice, Toast, useToast } from '../common/Notice';
 
 export { planLabel, type PlanSummary };
 
@@ -46,7 +47,8 @@ const secondary = 'inline-flex items-center justify-center px-4 py-2.5 rounded b
  */
 export const PlanPanel: React.FC<{ organizationId?: string; plan: PlanSummary | null; onChanged?: () => void }> = ({ organizationId, plan, onChanged }) => {
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ text: string; good: boolean; short?: boolean } | null>(null);
+  const [message, setMessage] = useState<{ text: string; short?: boolean } | null>(null);
+  const { toast, show } = useToast();
   const monthly = plan?.monthlyCents ?? 9900;
   const included = plan?.claimsIncluded ?? 10;
   const extra = plan?.extraClaimCents ?? 1500;
@@ -56,12 +58,12 @@ export const PlanPanel: React.FC<{ organizationId?: string; plan: PlanSummary | 
     setMessage(null);
     try {
       await work();
-      setMessage({ text: done, good: true });
+      show(done);
       notifyWalletChanged();
       onChanged?.();
     } catch (err) {
       const text = err instanceof Error ? err.message : 'That didn’t work';
-      setMessage({ text, good: false, short: /balance too low/i.test(text) });
+      setMessage({ text, short: /balance too low/i.test(text) });
     } finally {
       setBusy(false);
     }
@@ -108,10 +110,11 @@ export const PlanPanel: React.FC<{ organizationId?: string; plan: PlanSummary | 
         <span className="text-2xl font-semibold">{money(monthly)}</span> a month, from your lead balance. No card, no contract.
       </p>
       {message && (
-        <p role="status" className={`mt-3 rounded px-3 py-2 border ${message.good ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200' : 'border-red-500/40 bg-red-500/10 text-red-300'}`}>
+        <InlineNotice tone="bad" onDismiss={() => setMessage(null)} className="mt-3">
           {message.text}
-        </p>
+        </InlineNotice>
       )}
+      <Toast text={toast} />
       <div className="mt-4 flex flex-wrap gap-2">
         {plan?.status === 'active' ? (
           <button type="button" onClick={cancel} disabled={busy} className={secondary}>

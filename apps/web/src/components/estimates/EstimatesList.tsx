@@ -15,6 +15,7 @@ import { EstimateExportService } from '../../services/EstimateExportService';
 import { EstimateActionsMenu, EstimateAction } from './EstimateActionsMenu';
 import { copyText, duplicateEstimate, sendEstimateLink } from './estimateActions';
 import { createPortal } from 'react-dom';
+import { Toast, useToast } from '../common/Notice';
 
 /** Estimate, client, status, date, amount: shared by the header and every row. */
 const ROW_GRID = 'grid grid-cols-[minmax(8.5rem,1fr)_minmax(0,2fr)_6.5rem_7rem_minmax(7rem,1fr)] gap-4 items-center';
@@ -53,13 +54,8 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
   // Holding a row down (or right-clicking it) opens its actions menu.
   const [menuFor, setMenuFor] = useState<{ estimate: Estimate; x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Estimate | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const { toast, show: showNotice } = useToast();
   const press = useRef<{ timer?: ReturnType<typeof setTimeout>; x: number; y: number; opened: boolean }>({ x: 0, y: 0, opened: false });
-
-  const showNotice = (text: string) => {
-    setNotice(text);
-    setTimeout(() => setNotice((current) => (current === text ? null : current)), 2500);
-  };
 
   const pressHandlers = (estimate: Estimate) => ({
     onTouchStart: (e: React.TouchEvent) => {
@@ -732,13 +728,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
           </div>,
           document.body,
         )}
-      {notice &&
-        createPortal(
-          <div role="status" className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[10030] px-4 py-2 rounded-lg bg-[#1E1E1E] border border-[#333333] text-sm text-white shadow-xl">
-            {notice}
-          </div>,
-          document.body,
-        )}
+      <Toast text={toast} />
     </div>
   );
 };

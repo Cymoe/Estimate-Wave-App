@@ -7,6 +7,7 @@ import { bidsAPI, industriesAPI, walletAPI } from '../lib/api';
 import { money } from '../components/market/wallet';
 import { openFundingPage, type WalletSummary } from '../components/market/WalletBar';
 import { TEXAS_COUNTIES, countyForTown } from '../services/counties';
+import { InlineNotice, Toast, useToast } from '../components/common/Notice';
 
 interface Trade {
   id: string;
@@ -67,6 +68,7 @@ const BidsPage: React.FC = () => {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [adding, setAdding] = useState(false);
   const [message, setMessage] = useState<{ text: string; good: boolean } | null>(null);
+  const { toast, show } = useToast();
 
   const load = useCallback(async () => {
     if (!organizationId) return;
@@ -97,7 +99,14 @@ const BidsPage: React.FC = () => {
   const balance = wallet?.balanceCents ?? 0;
   const addFunds = () => organizationId && openFundingPage(organizationId).catch(() => {});
   const tradeName = (slug?: string) => trades.find((t) => t.id === slug)?.name ?? titleFromSlug(slug);
-  const notify = (text: string, good = true) => setMessage({ text, good });
+  // Errors and the one-time "You're set" line sit in the page; brief confirmations go to the toast.
+  const notify = (text: string, good = true) => {
+    if (!good || text.startsWith("You're set")) setMessage({ text, good });
+    else {
+      setMessage(null);
+      show(text);
+    }
+  };
   const won = results?.filter((r) => r.won).length ?? 0;
 
   return (
@@ -121,10 +130,11 @@ const BidsPage: React.FC = () => {
       </p>
 
       {message && (
-        <p role="status" className={`text-sm rounded px-3 py-2 mb-4 border ${message.good ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200' : 'border-red-500/40 bg-red-500/10 text-red-300'}`}>
+        <InlineNotice tone={message.good ? 'good' : 'bad'} onDismiss={() => setMessage(null)} className="mb-4">
           {message.text}
-        </p>
+        </InlineNotice>
       )}
+      <Toast text={toast} />
 
       {standing === null || results === null ? (
         <p className="text-sm text-gray-500">Loading…</p>
@@ -204,11 +214,11 @@ function StandingTab({
   // Amounts being changed, by bid id, until saved.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
-  const act = async (work: () => Promise<unknown>, done: string) => {
+  const act = async (work: () => Promise<unknown>, done?: string) => {
     setBusy(true);
     try {
       await work();
-      onNotify(done);
+      if (done) onNotify(done);
       setDrafts({});
       await onChanged();
     } catch (err) {
@@ -261,7 +271,7 @@ function StandingTab({
                       className="inline-flex items-center gap-2"
                       onSubmit={(e) => {
                         e.preventDefault();
-                        if (changed) act(() => bidsAPI.setStanding(organizationId, bid.county, bid.jobType, Number(draft)), 'Bid updated.');
+                        if (changed) act(() => bidsAPI.setStanding(organizationId, bid.county, bid.jobType, Number(draft)));
                       }}
                     >
                       <BidStepper label={`Bid for ${tradeName(bid.jobType)} in ${bid.county}`} value={draft} onChange={(v) => setDrafts((d) => ({ ...d, [bid.id]: v }))} />
@@ -282,7 +292,7 @@ function StandingTab({
                     type="button"
                     aria-label={`${bid.paused ? 'Resume' : 'Pause'} bid for ${tradeName(bid.jobType)} in ${bid.county}`}
                     disabled={busy}
-                    onClick={() => act(() => bidsAPI.pauseStanding(bid.id, !bid.paused), bid.paused ? 'Bid resumed.' : 'Bid paused.')}
+                    onClick={() => act(() => bidsAPI.pauseStanding(bid.id, !bid.paused))}
                     className="inline-flex items-center gap-1 text-gray-400 hover:text-white underline underline-offset-2"
                   >
                     {bid.paused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}

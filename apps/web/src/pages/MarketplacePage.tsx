@@ -6,6 +6,7 @@ import { walletAPI } from '../lib/api';
 import { money } from '../components/market/wallet';
 import { notifyWalletChanged, openFundingPage, type WalletSummary } from '../components/market/WalletBar';
 import { fillTimeMs, priceAt, type Auction } from '../services/auction';
+import { InlineNotice, Toast, useToast } from '../components/common/Notice';
 
 export interface FeedLead {
   id: string;
@@ -68,7 +69,8 @@ const MarketplacePage: React.FC = () => {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [ordering, setOrdering] = useState<{ id: string; value: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ text: string; good: boolean } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const { toast, show } = useToast();
 
   const load = useCallback(async () => {
     if (!organizationId) return;
@@ -97,12 +99,12 @@ const MarketplacePage: React.FC = () => {
 
   const act = async (work: () => Promise<unknown>, done: string) => {
     setBusy(true);
-    setMessage(null);
+    setError(null);
     try {
       await work();
-      setMessage({ text: done, good: true });
+      show(done);
     } catch (err) {
-      setMessage({ text: err instanceof Error ? err.message : 'That didn’t work', good: false });
+      setError(err instanceof Error ? err.message : 'That didn’t work');
     } finally {
       setBusy(false);
       setConfirming(null);
@@ -240,11 +242,12 @@ const MarketplacePage: React.FC = () => {
         Only one company gets each lead.
       </p>
 
-      {message && (
-        <p role="status" className={`text-sm rounded px-3 py-2 mb-4 border ${message.good ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200' : 'border-red-500/40 bg-red-500/10 text-red-300'}`}>
-          {message.text}
-        </p>
+      {error && (
+        <InlineNotice tone="bad" onDismiss={() => setError(null)} className="mb-4">
+          {error}
+        </InlineNotice>
       )}
+      <Toast text={toast} />
 
       <div className="flex items-center gap-2 mb-3">
         <button

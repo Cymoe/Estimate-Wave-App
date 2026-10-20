@@ -5,6 +5,7 @@ import { walletAPI } from '../lib/api';
 import { money } from '../components/market/wallet';
 import { notifyWalletChanged } from '../components/market/WalletBar';
 import { PlanPanel, type PlanSummary } from '../components/market/plan';
+import { InlineNotice, Toast, useToast } from '../components/common/Notice';
 
 /** A lead in the Vault: a week or more old, no price countdown. */
 export interface VaultLead {
@@ -44,7 +45,8 @@ const VaultPage: React.FC = () => {
   const [pool, setPool] = useState<VaultPool | null>(null);
   const [mineOnly, setMineOnly] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ text: string; good: boolean } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const { toast, show } = useToast();
 
   const load = useCallback(async () => {
     if (!organizationId) return;
@@ -58,12 +60,12 @@ const VaultPage: React.FC = () => {
 
   const claim = async (lead: VaultLead) => {
     setBusy(true);
-    setMessage(null);
+    setError(null);
     try {
       await walletAPI.claim(lead.id, organizationId!);
-      setMessage({ text: 'Lead claimed: it’s in your Leads with the homeowner’s details.', good: true });
+      show('Lead claimed: it’s in your Leads with the homeowner’s details.');
     } catch (err) {
-      setMessage({ text: err instanceof Error ? err.message : 'That didn’t work', good: false });
+      setError(err instanceof Error ? err.message : 'That didn’t work');
     } finally {
       setBusy(false);
       await load().catch(() => {});
@@ -98,11 +100,12 @@ const VaultPage: React.FC = () => {
         Leads nobody bought in their first week. Still exclusive: the first company to claim one gets it, and the homeowner has heard from nobody else.
       </p>
 
-      {message && (
-        <p role="status" className={`text-sm rounded px-3 py-2 mb-4 border ${message.good ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200' : 'border-red-500/40 bg-red-500/10 text-red-300'}`}>
-          {message.text}
-        </p>
+      {error && (
+        <InlineNotice tone="bad" onDismiss={() => setError(null)} className="mb-4">
+          {error}
+        </InlineNotice>
       )}
+      <Toast text={toast} />
 
       {pool === null ? (
         <p className="text-sm text-gray-500">Loading…</p>
