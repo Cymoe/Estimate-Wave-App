@@ -38,6 +38,9 @@ jest.mock('../../lib/api', () => ({
   walletAPI: { get: jest.fn(async () => null) },
 }));
 jest.mock('../../services/EstimateService', () => ({ EstimateService: {} }));
+const exportCsv = jest.fn();
+const exportExcel = jest.fn();
+jest.mock('../../services/LeadExportService', () => ({ LeadExportService: { csv: (...a: unknown[]) => exportCsv(...a), excel: (...a: unknown[]) => exportExcel(...a) } }));
 jest.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }));
 jest.mock('../../components/estimates/CreateEstimateDrawer', () => ({ CreateEstimateDrawer: () => null }));
 jest.mock('../../components/layouts/DashboardLayout', () => {
@@ -332,5 +335,32 @@ describe('Leads board', () => {
     expect(logContact).toHaveBeenCalledWith('l2', 'note', 'left VM');
     expect(card().querySelector('[aria-label="Intake answers"]')?.textContent).toContain('left VM');
     rows = [own];
+  });
+
+  it('exports the leads on screen to CSV or Excel from the toolbar menu, filters included', async () => {
+    rows = [
+      { id: 'l1', name: 'Rocky Vansau', status: 'scheduled', appointmentAt: start.toISOString(), createdAt: '2026-10-01T00:00:00Z' },
+      { id: 'l2', name: 'Maria Lopez', status: 'new', createdAt: '2026-10-02T00:00:00Z' } as (typeof rows)[number],
+    ];
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
+    await flush();
+    const more = () => container.querySelector('button[aria-label="More"]') as HTMLButtonElement;
+    expect(container.querySelector('[role="menu"]')).toBeNull();
+    await act(async () => click(more()));
+    const item = (label: string) => Array.from(container.querySelectorAll('[role="menuitem"]')).find((b) => b.textContent?.includes(label)) as HTMLButtonElement;
+    await act(async () => click(item('Export to CSV')));
+    expect(exportCsv).toHaveBeenCalledTimes(1);
+    expect((exportCsv.mock.calls[0][0] as { name: string }[]).map((l) => l.name)).toEqual(['Rocky Vansau', 'Maria Lopez']);
+    expect(container.querySelector('[role="menu"]')).toBeNull();
+
+    // Narrow the board, and the export narrows with it.
+    const search = container.querySelector('input[aria-label="Search leads"]') as HTMLInputElement;
+    await act(async () => pick(search, 'Maria'));
+    await act(async () => click(more()));
+    await act(async () => click(item('Export to Excel')));
+    expect((exportExcel.mock.calls[0][0] as { name: string }[]).map((l) => l.name)).toEqual(['Maria Lopez']);
+    rows = [rows[0]];
   });
 });

@@ -1,6 +1,6 @@
-import React, { useContext, useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { CalendarClock, CalendarDays, ChevronsDownUp, ChevronsUpDown, Kanban, Mail, MapPin, MessageSquare, Phone, Plus, Search, UserPlus } from 'lucide-react';
+import { CalendarClock, CalendarDays, ChevronsDownUp, ChevronsUpDown, Download, FileSpreadsheet, Kanban, Mail, MapPin, MessageSquare, MoreVertical, Phone, Plus, Search, UserPlus } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
 import { industriesAPI, leadsAPI } from '../lib/api';
@@ -15,6 +15,8 @@ import { isWonLead } from '../components/market/wallet';
 import { STATUSES, type Lead, type LeadStatus, type Trade } from '../components/leads/leadTypes';
 import { appointmentDay, formatAppointmentShort, toLocalInput } from '../utils/appointments';
 import { ago, intakeAnswers, leadSummary } from '../components/leads/leadIntake';
+import { LeadExportService } from '../services/LeadExportService';
+import { Toast, useToast } from '../components/common/Notice';
 
 const OPEN: LeadStatus[] = ['new', 'no_answer', 'contacted', 'scheduled', 'quoted'];
 
@@ -306,6 +308,18 @@ const LeadsPage: React.FC = () => {
   const [leadFilter, setLeadFilter] = useState<LeadFilter>('all');
   // '' is every county; NO_COUNTY is leads whose county isn't known.
   const [countyFilter, setCountyFilter] = useState('');
+  // Export menu, like the one on Estimates: the leads on screen, filters included.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const { toast, show: showToast } = useToast();
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [menuOpen]);
   const [view, setView] = useState<'board' | 'calendar'>(() => {
     try {
       return localStorage.getItem(VIEW_KEY) === 'calendar' ? 'calendar' : 'board';
@@ -350,6 +364,18 @@ const LeadsPage: React.FC = () => {
 
   // Today's date where you are; the UTC date is already tomorrow on US evenings.
   const todayIso = appointmentDay(toLocalInput(new Date().toISOString()));
+  const exportLeads = (kind: 'csv' | 'excel') => {
+    setMenuOpen(false);
+    if (visible.length === 0) {
+      showToast('No leads to export.');
+      return;
+    }
+    try {
+      LeadExportService[kind](visible, (slug) => (slug && tradeName.get(slug)) || slug || '');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "The export didn't work");
+    }
+  };
   // The status lines ("Last touched 35m ago") keep up on their own.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -376,6 +402,7 @@ const LeadsPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white">
+      <Toast text={toast} />
       <div className="p-6">
         <WalletBar organizationId={organizationId} refreshKey={leads.length} />
         {hasSamples && (
@@ -467,6 +494,29 @@ const LeadsPage: React.FC = () => {
                   <Icon className="w-4 h-4" />
                 </button>
               ))}
+            </div>
+            <div className="relative" ref={menuRef}>
+              <button
+                type="button"
+                onClick={() => setMenuOpen((o) => !o)}
+                aria-label="More"
+                aria-expanded={menuOpen}
+                className="p-2 border border-[#333333] text-gray-400 hover:text-white"
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+              {menuOpen && (
+                <div role="menu" className="absolute top-full right-0 mt-2 w-48 bg-[#1E1E1E] border border-[#333333] shadow-lg z-50 py-1">
+                  <button type="button" role="menuitem" onClick={() => exportLeads('csv')} className="w-full flex items-center px-3 py-2 text-sm text-white hover:bg-[#333333]">
+                    <Download className="w-3 h-3 mr-3 text-gray-400" />
+                    Export to CSV
+                  </button>
+                  <button type="button" role="menuitem" onClick={() => exportLeads('excel')} className="w-full flex items-center px-3 py-2 text-sm text-white hover:bg-[#333333]">
+                    <FileSpreadsheet className="w-3 h-3 mr-3 text-gray-400" />
+                    Export to Excel
+                  </button>
+                </div>
+              )}
             </div>
           </div>
           {view === 'calendar' ? (
