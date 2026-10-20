@@ -93,6 +93,25 @@ describe('Bids', () => {
     expect(matches()[0].textContent).toBe('Ector CountyOdessa is in Ector County');
     await act(async () => (matches()[0] as HTMLButtonElement).click());
     expect(dialog()!.querySelector('[aria-label="Where"]')?.textContent).toContain('Ector County');
+    // The keyboard works too: arrows move the highlight through the matches and Enter picks it.
+    await act(async () => (document.body.querySelector('button[aria-label="Change county"]') as HTMLButtonElement).click());
+    await act(async () => type(input('Search counties'), 'M'));
+    expect(matches().length).toBeGreaterThan(1);
+    const key = (k: string) => input('Search counties').dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+    expect(matches()[0].getAttribute('aria-current')).toBe('true');
+    await act(async () => key('ArrowDown'));
+    expect(matches()[0].getAttribute('aria-current')).toBeNull();
+    expect(matches()[1].getAttribute('aria-current')).toBe('true');
+    const second = matches()[1].textContent;
+    await act(async () => key('ArrowUp'));
+    await act(async () => key('ArrowDown'));
+    await act(async () => key('Enter'));
+    expect(dialog()!.querySelector('[aria-label="Where"]')?.textContent).toContain(second!.replace(/County.*/, 'County'));
+    // Back to Ector for the rest of the flow.
+    await act(async () => (document.body.querySelector('button[aria-label="Change county"]') as HTMLButtonElement).click());
+    await act(async () => type(input('Search counties'), 'Odessa'));
+    await act(async () => key('Enter'));
+    expect(dialog()!.querySelector('[aria-label="Where"]')?.textContent).toContain('Ector County');
     expect(dialog()!.textContent).toContain('Per lead · $50.00 steps · from $200.00');
 
     // One row per trade. Their own trade is live at the minimum; the other waits behind "Bid $200.00".

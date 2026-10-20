@@ -485,6 +485,8 @@ function AddBidDialog({
   onAddFunds: () => void;
 }) {
   const [search, setSearch] = useState('');
+  // Which county match the arrow keys have landed on; Enter picks it.
+  const [active, setActive] = useState(0);
   // One county at a time; bids in another county are a second visit.
   const [county, setCounty] = useState<string | null>(null);
   // One amount per trade; a trade with no entry isn't being bid on.
@@ -591,13 +593,23 @@ function AddBidDialog({
             <>
               <input
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setActive(0);
+                }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && matches[0]) {
+                  if (e.key === 'ArrowDown' && matches.length) {
                     e.preventDefault();
-                    pick(matches[0].county);
+                    setActive((i) => Math.min(i + 1, matches.length - 1));
+                  } else if (e.key === 'ArrowUp' && matches.length) {
+                    e.preventDefault();
+                    setActive((i) => Math.max(i - 1, 0));
+                  } else if (e.key === 'Enter' && matches[active]) {
+                    e.preventDefault();
+                    pick(matches[active].county);
                   }
                 }}
+                aria-activedescendant={matches[active] ? `county-${matches[active].county}` : undefined}
                 placeholder="Type a county or town, like Midland or Odessa"
                 aria-label="Search counties"
                 autoFocus
@@ -606,9 +618,15 @@ function AddBidDialog({
               {/* Matches float over the trades below, so the dialog never jumps. */}
               {search.trim() !== '' && (
                 <ul className="absolute left-0 right-0 top-full mt-1 z-10 max-h-48 overflow-y-auto divide-y divide-[#2A2A2A] border border-[#333] rounded bg-[#1A1A1A] shadow-xl" aria-label="Counties">
-                  {matches.map((m) => (
-                    <li key={m.county}>
-                      <button type="button" onClick={() => pick(m.county)} className="w-full flex items-center justify-between px-3 py-2 text-left text-sm text-gray-200 hover:bg-[#2A2A2A]">
+                  {matches.map((m, i) => (
+                    <li key={m.county} id={`county-${m.county}`}>
+                      <button
+                        type="button"
+                        onClick={() => pick(m.county)}
+                        onMouseEnter={() => setActive(i)}
+                        aria-current={i === active ? 'true' : undefined}
+                        className={`w-full flex items-center justify-between px-3 py-2 text-left text-sm text-gray-200 hover:bg-[#2A2A2A] ${i === active ? 'bg-[#2A2A2A]' : ''}`}
+                      >
                         <span>{m.county} County</span>
                         {m.via && <span className="text-xs text-gray-500">{m.via} is in {m.county} County</span>}
                       </button>
