@@ -287,14 +287,15 @@ function StandingTab({
 
   return (
     <div className="space-y-4">
-      <table className="w-full text-sm border border-[#2A2A2A] rounded" aria-label="My standing bids">
+      {/* Fixed column widths and one-line cells, so a row never jumps as its standing changes. */}
+      <table className="w-full table-fixed text-sm border border-[#2A2A2A] rounded" aria-label="My standing bids">
         <thead>
           <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
             <th className="font-medium px-4 py-2">County</th>
             <th className="font-medium px-4 py-2">Service</th>
-            <th className="font-medium px-4 py-2 text-right">Your bid</th>
-            <th className="font-medium px-4 py-2">Standing</th>
-            <th className="px-4 py-2" />
+            <th className="font-medium px-4 py-2 text-right w-44">Your bid</th>
+            <th className="font-medium px-4 py-2 w-[21rem]">Standing</th>
+            <th className="px-4 py-2 w-16" />
           </tr>
         </thead>
         <tbody className="divide-y divide-[#2A2A2A]">
@@ -317,14 +318,14 @@ function StandingTab({
                 </span>
               </td>
               <td className="px-4 py-3">
-                <Chip bid={bid} />
-                {!bid.funded && (
-                  <span className="block mt-1 text-xs">
-                    <button type="button" onClick={onAddFunds} className="text-[#7fb0e0] underline underline-offset-2">
+                <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                  <Chip bid={bid} />
+                  {!bid.funded && (
+                    <button type="button" onClick={onAddFunds} className="text-xs text-[#7fb0e0] underline underline-offset-2">
                       Add funds
                     </button>
-                  </span>
-                )}
+                  )}
+                </span>
               </td>
               <td className="px-4 py-3 text-right">
                 <button
