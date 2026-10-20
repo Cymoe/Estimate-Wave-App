@@ -481,6 +481,8 @@ export const bidsAPI = {
   setStanding: (organizationId: string, county: string, jobType: string, amount: number) =>
     run('mutation', api.bids.setStanding, { organizationId, county, jobType, amount }),
   removeStanding: (id: string) => run('mutation', api.bids.removeStanding, { id }),
+  /** The company has seen its bids: outbids so far stop being news. */
+  markOutbidSeen: (organizationId: string) => run('mutation', api.bids.markOutbidSeen, { organizationId }),
   results: (organizationId: string) => run('query', api.bids.results, { organizationId }),
 };
 

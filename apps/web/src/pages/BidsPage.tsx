@@ -26,6 +26,8 @@ interface StandingBid {
   leading: boolean;
   /** Another company has a funded bid here. */
   contested: boolean;
+  /** Another company took the lead since the company last looked at its bids. */
+  outbidNew?: boolean;
   /** Kept but out of the running. */
 }
 interface BidResult {
@@ -113,6 +115,8 @@ const BidsPage: React.FC = () => {
   const [standing, setStanding] = useState<StandingBid[] | null>(null);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [adding, setAdding] = useState(false);
+  // Bids outbid since the last visit, marked for the rest of this one.
+  const [newlyOutbid, setNewlyOutbid] = useState<Set<string>>(() => new Set());
   const [message, setMessage] = useState<{ text: string; good: boolean } | null>(null);
   const { toast, show } = useToast();
 
@@ -128,6 +132,12 @@ const BidsPage: React.FC = () => {
     setResults(r);
     setStanding(s);
     setTrades(t);
+    // Looking at the page is seeing the news: the outbid notice elsewhere goes, and these rows keep a "new" mark this visit.
+    const fresh = (s as StandingBid[]).filter((b) => b.outbidNew).map((b) => b.id);
+    if (fresh.length) {
+      setNewlyOutbid((prev) => new Set([...prev, ...fresh]));
+      bidsAPI.markOutbidSeen(organizationId).catch(() => {});
+    }
   }, [organizationId]);
 
   useEffect(() => {
@@ -208,6 +218,7 @@ const BidsPage: React.FC = () => {
             onNotify={notify}
             onAdd={() => setAdding(true)}
             onAddFunds={addFunds}
+            newlyOutbid={newlyOutbid}
           />
           {standing.length > 0 && (
             <section>
@@ -291,9 +302,12 @@ function StandingTab({
   onNotify,
   onAdd,
   onAddFunds,
+  newlyOutbid = new Set<string>(),
 }: {
   organizationId: string;
   standing: StandingBid[];
+  /** Bids outbid since the company last looked, marked "New" this visit. */
+  newlyOutbid?: Set<string>;
   /** Wallet balance in cents, so the row can tell at once whether a changed amount is covered. */
   balance: number;
   tradeName: (slug?: string) => string;
@@ -529,6 +543,11 @@ function StandingTab({
               </Cell>
               <Cell collapsed={leaving[bid.id] === 'collapse'}>
                 <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                  {newlyOutbid.has(bid.id) && !bid.leading && funded && (
+                    <span data-newly-outbid className="text-[10px] font-semibold text-amber-300" title="Outbid since you last looked">
+                      New
+                    </span>
+                  )}
                   <Chip bid={bid} funded={funded} pending={pending} />
                   {!funded && (
                     <button type="button" onClick={onAddFunds} className="text-xs text-[#7fb0e0] underline underline-offset-2">

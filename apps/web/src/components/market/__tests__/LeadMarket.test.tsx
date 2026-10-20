@@ -295,6 +295,16 @@ describe('the bid status line', () => {
       "Your bids are live. Your balance covers about 1 more lead. Add funds so you don't miss any.",
     );
     expect(line({ balanceCents: 100000, standingBids: 2, pausedBids: 0 })).toBeNull();
+    // Outbid is news even when money is fine, and the link goes to the bids.
+    expect(line({ balanceCents: 100000, standingBids: 2, pausedBids: 0, outbidBids: 1 })).toEqual({
+      tone: 'warn',
+      text: "You've been outbid on a bid: a higher or earlier bid now leads. Raise it to win the next lead.",
+      action: 'bids',
+      label: 'See bids',
+    });
+    expect(line({ balanceCents: 100000, standingBids: 3, pausedBids: 0, outbidBids: 2 })?.text).toContain('outbid on 2 bids');
+    // Money problems come first: a paused bid says so before any outbid.
+    expect(line({ balanceCents: 0, standingBids: 1, pausedBids: 1, outbidBids: 1 })?.text).toContain('paused');
     // A payment being confirmed will fix the money side, so there's no nag meanwhile.
     expect(line({ balanceCents: 0, standingBids: 1, pausedBids: 1, pendingFunding: { amountCents: 50000, bonusCents: 0 } })).toBeNull();
   });
@@ -306,6 +316,14 @@ describe('the bid status line', () => {
     expect(alert.textContent).toContain('Your bid is paused.');
     expect(alert.textContent).not.toContain("can't be sent to you");
     expect(Array.from(alert.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Add funds']);
+    expect(alert.querySelector('a[href="/bids"]')?.textContent).toBe('See bids');
+  });
+
+  it('tells the company on the Leads page when it has been outbid, with a link to its bids', async () => {
+    wallet = { ...base, balanceCents: 100000, standingBids: 2, pausedBids: 0, outbidBids: 1 };
+    const container = await render(<WalletBar organizationId="o2" />);
+    const alert = container.querySelector('[role="alert"]')!;
+    expect(alert.textContent).toContain("You've been outbid on a bid");
     expect(alert.querySelector('a[href="/bids"]')?.textContent).toBe('See bids');
   });
 });

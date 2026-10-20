@@ -3,7 +3,8 @@ import type { Doc } from "./_generated/dataModel";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { fail, nowIso, requireMember } from "./lib/access";
 import { MIN_START_CENTS } from "./lib/auction";
-import { closeLegacyRound, standingBidsFor } from "./lib/awards";
+import { closeLegacyRound } from "./lib/awards";
+import { fundedBidsFor, outbidUnseen, refreshStanding } from "./lib/standing";
 import { normalizeCounty, TEXAS_COUNTIES } from "./lib/counties";
 import { dollars } from "./lib/wallet";
 
@@ -41,13 +42,9 @@ export const listStanding = query({
         a.county.localeCompare(b.county) || a.jobType.localeCompare(b.jobType),
     )) {
       // Only bids a balance can cover count: an unfunded bid can't win a lead.
-      const funded: Doc<"standingBids">[] = [];
-      for (const bid of await standingBidsFor(ctx, row.county, row.jobType)) {
-        const balance =
-          (await ctx.db.get(bid.organizationId))?.walletBalanceCents ?? 0;
-        if (balance >= bid.amountCents) funded.push(bid);
-      }
+      const funded = await fundedBidsFor(ctx, row.county, row.jobType);
       const mineFunded = funded.some((b) => b._id === row._id);
+      const leading = mineFunded && funded[0]._id === row._id;
       out.push({
         id: row._id,
         county: row.county,
@@ -56,7 +53,9 @@ export const listStanding = query({
         updatedAt: row.updatedAt,
         funded: mineFunded,
         contested: funded.some((b) => b.organizationId !== organizationId),
-        leading: mineFunded && funded[0]._id === row._id,
+        leading,
+        /** Another company took the lead since the company last looked at its bids. */
+        outbidNew: !leading && mineFunded && outbidUnseen(row),
       });
     }
     return out;
@@ -104,19 +103,24 @@ export const setStanding = mutation({
         "INVALID",
         `Your balance is ${dollars(balance)}. Add funds to bid ${dollars(amountCents)}.`,
       );
+    let id;
     if (existing) {
       await ctx.db.patch(existing._id, { amountCents, updatedAt: now });
-      return existing._id;
+      id = existing._id;
+    } else {
+      id = await ctx.db.insert("standingBids", {
+        organizationId,
+        county: name,
+        jobType: trade,
+        amountCents,
+        createdBy: user._id,
+        createdAt: now,
+        updatedAt: now,
+      });
     }
-    return await ctx.db.insert("standingBids", {
-      organizationId,
-      county: name,
-      jobType: trade,
-      amountCents,
-      createdBy: user._id,
-      createdAt: now,
-      updatedAt: now,
-    });
+    // Whoever this move pushed out of the lead hears about it.
+    await refreshStanding(ctx, name, trade, organizationId);
+    return id;
   },
 });
 
@@ -127,6 +131,21 @@ export const removeStanding = mutation({
     if (row === null) fail("NOT_FOUND", "Bid not found");
     await requireMember(ctx, row.organizationId, "admin");
     await ctx.db.delete(id);
+    await refreshStanding(ctx, row.county, row.jobType, row.organizationId);
+  },
+});
+
+/** The company has looked at its bids: outbids so far are no longer news. */
+export const markOutbidSeen = mutation({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    await requireMember(ctx, organizationId);
+    const now = nowIso();
+    const rows = await ctx.db
+      .query("standingBids")
+      .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
+      .collect();
+    for (const row of rows) if (outbidUnseen(row)) await ctx.db.patch(row._id, { outbidSeenAt: now });
   },
 });
 

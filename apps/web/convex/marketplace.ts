@@ -35,6 +35,7 @@ import {
 import { pendingFundingFor } from "./funding";
 import { sellLead } from "./lib/sales";
 import { listLead } from "./lib/awards";
+import { outbidUnseen } from "./lib/standing";
 import {
   ARCHIVE_AFTER_DAYS,
   OLDER_AFTER_DAYS,
@@ -1150,6 +1151,10 @@ export const wallet = query({
       ),
       openBids,
       standingBids: standingBids.length,
+      // Bids another company took the lead from since this one last looked.
+      outbidBids: standingBids.filter(
+        (b) => outbidUnseen(b) && (organization.walletBalanceCents ?? 0) >= b.amountCents,
+      ).length,
       // Bids the balance can't pay for: kept, but they can't win until funds are added.
       pausedBids: standingBids.filter(
         (b) => b.amountCents > (organization.walletBalanceCents ?? 0),

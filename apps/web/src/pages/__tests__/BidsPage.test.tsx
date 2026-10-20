@@ -10,6 +10,7 @@ let standing: unknown[] = [];
 let results: unknown[] = [];
 const setStanding = jest.fn(async (_org: string, _county: string, _jobType: string, _amount: number) => 'sb1');
 const removeStanding = jest.fn(async (_id: string) => undefined);
+const markOutbidSeen = jest.fn(async (_org: string) => undefined);
 const createLink = jest.fn(async (_id: string) => 'tok');
 
 jest.mock('../../lib/api', () => ({
@@ -22,6 +23,7 @@ jest.mock('../../lib/api', () => ({
     listStanding: async () => standing,
     setStanding: (...a: unknown[]) => setStanding(...(a as [string, string, string, number])),
     removeStanding: (id: string) => removeStanding(id),
+    markOutbidSeen: (org: string) => markOutbidSeen(org),
     results: async () => results,
   },
   industriesAPI: { list: async () => [{ id: 'roofing', name: 'Roofing' }, { id: 'landscaping', name: 'Landscaping' }] },
@@ -494,6 +496,20 @@ describe('Bids', () => {
     await flush();
     expect(createLink).toHaveBeenCalledWith('o2');
     openTab.mockRestore();
+  });
+
+  it('marks a bid outbid since the last visit as new, and tells the server it has been seen', async () => {
+    standing = [
+      { id: 'sb1', county: 'Midland', jobType: 'landscaping', amountCents: 25000, funded: true, leading: false, contested: true, outbidNew: true },
+      { id: 'sb2', county: 'Ector', jobType: 'landscaping', amountCents: 25000, funded: true, leading: false, contested: true },
+    ];
+    await render();
+    const rows = Array.from(document.body.querySelectorAll('[aria-label="My standing bids"] tbody tr'));
+    expect(rows[0].querySelector('[data-newly-outbid]')?.textContent).toBe('New');
+    expect(rows[1].querySelector('[data-newly-outbid]')).toBeNull(); // outbid before, already seen
+    expect(markOutbidSeen).toHaveBeenCalledWith('o2');
+    // The Bids page doesn't repeat the "you've been outbid" line: the rows say it.
+    expect(document.body.querySelector('[data-bid-status]')).toBeNull();
   });
 
   it('sends old Marketplace-tab links to the Marketplace page', async () => {

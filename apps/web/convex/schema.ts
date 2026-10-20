@@ -474,6 +474,12 @@ export default defineSchema({
     isSample: v.optional(v.boolean()),
     /** Left over from a pause feature that was removed; ignored, kept so old rows still validate. */
     paused: v.optional(v.boolean()),
+    /** Led its county and trade when standing was last worked out (lib/standing.ts). */
+    wasLeading: v.optional(v.boolean()),
+    /** When another company's bid took the lead from it; cleared when it leads again. */
+    outbidAt: v.optional(v.string()),
+    /** When the company last saw its bids, so an outbid is only news once. */
+    outbidSeenAt: v.optional(v.string()),
   })
     .index("by_organization", ["organizationId"])
     .index("by_county_and_type", ["county", "jobType"]),

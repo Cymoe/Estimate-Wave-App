@@ -3263,6 +3263,49 @@ describe("standing bids and instant awards", () => {
     expect(await summary()).toMatchObject({ standingBids: 1, pausedBids: 0 });
   });
 
+  test("a company hears it was outbid once, until it looks; leading again or its own moves clear it", async () => {
+    const { admin, mio, soco } = await market();
+    const wallet = (who: { as: any; organizationId: any }) =>
+      who.as.query(api.marketplace.wallet, { organizationId: who.organizationId });
+    const mine = (who: { as: any; organizationId: any }) =>
+      who.as.query(api.bids.listStanding, { organizationId: who.organizationId });
+    await standing(mio, "Midland", "landscaping", 250);
+    expect((await wallet(mio)).outbidBids).toBe(0);
+    // Soco bids higher: Mio is told, Soco (who made the move) isn't.
+    await standing(soco, "Midland", "landscaping", 300);
+    expect((await wallet(mio)).outbidBids).toBe(1);
+    expect((await mine(mio))[0]).toMatchObject({ leading: false, outbidNew: true });
+    expect((await wallet(soco)).outbidBids).toBe(0);
+    // Once Mio has looked at its bids it's no longer news, though the bid is still outbid.
+    await mio.as.mutation(api.bids.markOutbidSeen, { organizationId: mio.organizationId });
+    expect((await wallet(mio)).outbidBids).toBe(0);
+    expect((await mine(mio))[0]).toMatchObject({ leading: false, outbidNew: false });
+    // Mio raises and leads again; now Soco is the one outbid.
+    await standing(mio, "Midland", "landscaping", 350);
+    expect((await mine(mio))[0]).toMatchObject({ leading: true, outbidNew: false });
+    expect((await wallet(soco)).outbidBids).toBe(1);
+    // Soco lowering its own bid isn't news to Soco; and a bid paused by a falling balance isn't "outbid".
+    await soco.as.mutation(api.bids.markOutbidSeen, { organizationId: soco.organizationId });
+    await standing(soco, "Midland", "landscaping", 200);
+    expect((await wallet(soco)).outbidBids).toBe(0);
+    await standing(soco, "Ector", "painting", 900);
+    const spend = await admin.as.mutation(api.marketplace.createLead, {
+      data: { name: "Spend", city: "Midland", jobType: "roofing" },
+    });
+    await soco.as.mutation(api.marketplace.buy, {
+      leadId: spend!._id,
+      organizationId: soco.organizationId,
+    });
+    expect(await balance(soco)).toBe(80000);
+    expect((await mine(soco)).find((b) => b.county === "Ector")).toMatchObject({ funded: false, outbidNew: false });
+    expect((await wallet(soco)).outbidBids).toBe(0);
+    // A rival who only becomes covered by topping up can outbid too.
+    await admin.as.mutation(api.marketplace.recordTopUp, { organizationId: soco.organizationId, amount: 500 });
+    await standing(mio, "Ector", "painting", 950);
+    await soco.as.mutation(api.bids.markOutbidSeen, { organizationId: soco.organizationId });
+    expect((await wallet(soco)).outbidBids).toBe(0);
+  });
+
   test("a lead nobody can pay for goes to the Marketplace, and a legacy round still closes", async () => {
     const { t, admin, mio, soco } = await market();
     await standing(mio, "Howard", "landscaping", 900);

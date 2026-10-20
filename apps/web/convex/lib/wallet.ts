@@ -1,6 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { fail, nowIso } from "./access";
+import { refreshStandingFor } from "./standing";
 import {
   type Auction,
   type Pricing,
@@ -97,5 +98,7 @@ export async function postTransaction(
     walletBalanceCents: after,
     updatedAt: now,
   });
+  // A balance going up or down can move who leads where this company bids.
+  await refreshStandingFor(ctx, organizationId);
   return after;
 }

@@ -10,29 +10,9 @@ import { nowIso } from "./access";
 import { countyForTown, normalizeCounty } from "./counties";
 import { sellLead } from "./sales";
 import { dollars, pricingFor } from "./wallet";
+import { standingBidsFor } from "./standing";
 
-/** Active companies' standing bids for a county and trade, highest first; ties go to whoever bid first. */
-export async function standingBidsFor(
-  ctx: QueryCtx | MutationCtx,
-  county: string,
-  jobType: string,
-): Promise<Doc<"standingBids">[]> {
-  const rows = await ctx.db
-    .query("standingBids")
-    .withIndex("by_county_and_type", (q) =>
-      q.eq("county", county).eq("jobType", jobType),
-    )
-    .collect();
-  const active: Doc<"standingBids">[] = [];
-  for (const row of rows) {
-    const organization = await ctx.db.get(row.organizationId);
-    if (organization?.isActive) active.push(row);
-  }
-  return active.sort(
-    (a, b) =>
-      b.amountCents - a.amountCents || a.createdAt.localeCompare(b.createdAt),
-  );
-}
+export { standingBidsFor };
 
 /**
  * Lists a lead: works out its county from the town when it has none, puts

@@ -18,6 +18,8 @@ export interface WalletSummary {
   standingBids?: number;
   /** Standing bids above the balance: kept, but paused until funds cover them. */
   pausedBids?: number;
+  /** Bids another company took the lead from since the company last looked at its bids. */
+  outbidBids?: number;
   leadTrades?: string[];
   plan?: PlanSummary | null;
   olderLeads?: number;
@@ -59,6 +61,8 @@ export function bidStatus(wallet: WalletSummary): {
   tone: 'good' | 'warn';
   text: string;
   action: 'fund' | 'bids';
+  /** The Bids link's words when it isn't "Set bids". */
+  label?: string;
   /** A second, quieter link to the Bids page. */
   alsoBids?: boolean;
 } | null {
@@ -75,7 +79,18 @@ export function bidStatus(wallet: WalletSummary): {
     const covers = balance > 0 && covered > 0 ? ` Your ${money(balance)} covers about ${covered} lead${covered === 1 ? '' : 's'}.` : '';
     return { tone: 'good', text: `Set your bids to start winning leads.${covers}`, action: 'bids' };
   }
-  if (funding) return null;
+  // Being outbid is news even while money is fine: someone else now gets these leads.
+  const outbid = wallet.outbidBids ?? 0;
+  const outbidLine =
+    outbid > 0
+      ? {
+          tone: 'warn' as const,
+          text: `You've been outbid on ${outbid === 1 ? 'a bid' : `${outbid} bids`}: a higher or earlier bid now leads. Raise ${outbid === 1 ? 'it' : 'them'} to win the next lead.`,
+          action: 'bids' as const,
+          label: 'See bids',
+        }
+      : null;
+  if (funding) return outbidLine;
   const why = balance <= 0 ? `Your balance is ${money(0)}, so ${bids === 1 ? 'it' : 'they'} can't win leads.` : `${bids === 1 ? "It's" : "They're"} higher than your ${money(balance)} balance, so ${bids === 1 ? 'it' : 'they'} can't win leads.`;
   if (paused === bids) {
     return { tone: 'warn', text: `${bids === 1 ? 'Your bid is' : 'Your bids are'} paused. ${why} Add funds to put ${bids === 1 ? 'it' : 'them'} back in.`, action: 'fund', alsoBids: true };
@@ -88,6 +103,7 @@ export function bidStatus(wallet: WalletSummary): {
       alsoBids: true,
     };
   }
+  if (outbidLine) return outbidLine;
   if (covered < 2) {
     const left = covered >= 1 ? `covers about ${covered} more lead` : `is down to ${money(balance)}`;
     return { tone: 'warn', text: `Your bids are live. Your balance ${left}. Add funds so you don't miss any.`, action: 'fund' };
@@ -184,8 +200,8 @@ export function BidStatusLine({
           Add funds
         </button>
       ) : (
-        <Link to="/bids" className="underline underline-offset-2 text-white">
-          Set bids
+        <Link to="/bids" className={`underline underline-offset-2 ${status.tone === 'warn' ? 'text-amber-100' : 'text-white'}`}>
+          {status.label ?? 'Set bids'}
         </Link>
       )}
       {status.alsoBids && !onBidsPage && (
