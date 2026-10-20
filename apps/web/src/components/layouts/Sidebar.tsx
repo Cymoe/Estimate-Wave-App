@@ -578,12 +578,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 
                 <button
                   onClick={() => {
-                    navigate('/settings/industries');
+                    navigate('/settings/organization?tab=trades');
                     setIsProfileMenuOpen(false);
                   }}
                   className="w-full text-left px-4 py-3 text-sm text-white hover:bg-[#3A3A3A] transition-colors duration-200"
                 >
-                  <span className="font-['Roboto']">Industry Settings</span>
+                  <span className="font-['Roboto']">Your trades</span>
                 </button>
                 
                 <button

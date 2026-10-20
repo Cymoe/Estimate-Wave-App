@@ -1,17 +1,20 @@
 import React, { useContext, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Building2, Package, Users, Bell, Shield } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { BusinessDetailsForm } from '../components/settings/BusinessDetailsForm';
+import { TradesEditor } from '../components/settings/TradesEditor';
 
 export default function OrganizationSettings() {
   const navigate = useNavigate();
   const { selectedOrg, setSelectedOrg } = useContext(OrganizationContext);
-  const [activeTab, setActiveTab] = useState('general');
+  const [params] = useSearchParams();
+  // ?tab=trades opens straight on Trades (the menu's "Your trades" and old links use it).
+  const [activeTab, setActiveTab] = useState(params.get('tab') ?? 'general');
 
   const tabs = [
     { id: 'general', label: 'General', icon: Building2 },
-    { id: 'industries', label: 'Industries', icon: Package },
+    { id: 'trades', label: 'Trades', icon: Package },
     { id: 'team', label: 'Team & Permissions', icon: Users },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'security', label: 'Security', icon: Shield },
@@ -83,18 +86,10 @@ export default function OrganizationSettings() {
             )}
 
 
-            {activeTab === 'industries' && (
+            {activeTab === 'trades' && (
               <div className="bg-[#1A1A1A] rounded-lg p-6">
-                <h2 className="text-lg font-semibold text-white mb-4">Industry Configuration</h2>
-                <p className="text-gray-400 mb-4">
-                  Manage your selected industries and customize services for each.
-                </p>
-                <button
-                  onClick={() => navigate('/settings/industries')}
-                  className="px-4 py-2 bg-[#F59E0B] text-black font-medium rounded-lg hover:bg-[#D97706] transition-colors"
-                >
-                  Manage Industries
-                </button>
+                <h2 className="text-lg font-semibold text-white mb-1">Your trades</h2>
+                <TradesEditor organizationId={selectedOrg.id} />
               </div>
             )}
 

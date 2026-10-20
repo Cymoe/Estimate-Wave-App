@@ -32,7 +32,6 @@ import PlanPage from './pages/PlanPage';
 import VaultPage from './pages/VaultPage';
 import { PlanGate } from './components/market/plan';
 import FundAccountPage from './pages/FundAccountPage';
-import IndustrySettings from './pages/IndustrySettings';
 import OrganizationSettings from './pages/OrganizationSettings';
 import { Expenses } from './pages/Expenses';
 import { VendorDetailPage } from './pages/VendorDetailPage';
@@ -532,16 +531,8 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/settings/industries"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <IndustrySettings />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
+      {/* The old full-page trade settings: trades now live in Company settings. */}
+      <Route path="/settings/industries" element={<Navigate to="/settings/organization?tab=trades" replace />} />
       <Route
         path="/settings/organization"
         element={
