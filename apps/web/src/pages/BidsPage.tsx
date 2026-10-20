@@ -494,8 +494,8 @@ function AddBidDialog({
     <Modal isOpen title={firstTime ? 'Set your bids' : 'Add a bid'} onClose={onClose} size="xl">
       <div className="p-6 space-y-7">
         {/* Where: a search box until a county is picked, then just its name. */}
-        <section aria-label="Where">
-          <p className="text-sm font-medium text-white mb-2">{county ? 'County' : 'Which county?'}</p>
+        <section aria-label="Where" className="relative">
+          <p className="text-sm font-medium text-white mb-2">County</p>
           {county ? (
             <p className="flex items-center justify-between gap-3 px-3 py-2 rounded border border-[#2A2A2A] bg-[#121212] text-sm">
               <span className="text-white">{county} County</span>
@@ -519,28 +519,25 @@ function AddBidDialog({
                 autoFocus
                 className={`${input} w-full`}
               />
-              {/* Fixed height, so the dialog doesn't jump as matches come and go. */}
-              <ul className="mt-1 h-36 overflow-y-auto divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Counties">
-                {matches.map((m) => (
-                  <li key={m.county}>
-                    <button type="button" onClick={() => pick(m.county)} className="w-full flex items-center justify-between px-3 py-2 text-left text-sm text-gray-200 hover:bg-[#1E1E1E]">
-                      <span>{m.county} County</span>
-                      {m.via && <span className="text-xs text-gray-500">{m.via} is in {m.county} County</span>}
-                    </button>
-                  </li>
-                ))}
-                {matches.length === 0 && (
-                  <li className="px-3 py-2 text-sm text-gray-500">
-                    {search.trim() === '' ? 'Type to find a county. Any Texas county works.' : `Nothing matches "${search.trim()}". Try the county name or a town in it.`}
-                  </li>
-                )}
-              </ul>
+              {/* Matches float over the trades below, so the dialog never jumps. */}
+              {search.trim() !== '' && (
+                <ul className="absolute left-0 right-0 top-full mt-1 z-10 max-h-48 overflow-y-auto divide-y divide-[#2A2A2A] border border-[#333] rounded bg-[#1A1A1A] shadow-xl" aria-label="Counties">
+                  {matches.map((m) => (
+                    <li key={m.county}>
+                      <button type="button" onClick={() => pick(m.county)} className="w-full flex items-center justify-between px-3 py-2 text-left text-sm text-gray-200 hover:bg-[#2A2A2A]">
+                        <span>{m.county} County</span>
+                        {m.via && <span className="text-xs text-gray-500">{m.via} is in {m.county} County</span>}
+                      </button>
+                    </li>
+                  ))}
+                  {matches.length === 0 && <li className="px-3 py-2 text-sm text-gray-500">{`Nothing matches "${search.trim()}". Try the county name or a town in it.`}</li>}
+                </ul>
+              )}
             </>
           )}
         </section>
 
-        {/* Your bids: one row per trade, each with its own price. Shown once a county is picked. */}
-        {county && (
+        {/* Your bids: one row per trade, each with its own price, on screen from the start. */}
         <section aria-label="Your bids">
           <div className="flex items-baseline justify-between gap-4 mb-1">
             <p className="text-sm font-medium text-white">Your bids</p>
@@ -582,12 +579,11 @@ function AddBidDialog({
             </button>
           )}
         </section>
-        )}
 
         <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
           <p className="text-xs text-gray-500">
             {!county
-              ? ''
+              ? 'Pick a county to start.'
               : !amountsOk
               ? `Bids start at ${money(MIN_BID * 100)}.`
               : !affordable

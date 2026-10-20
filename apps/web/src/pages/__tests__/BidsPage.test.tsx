@@ -68,14 +68,16 @@ describe('Bids', () => {
     expect(document.body.textContent).not.toContain('Recent results');
     expect(dialog()).toBeNull();
     await act(async () => byText('Set your bids')!.click());
-    // Everything on one screen: where and the bids, no steps.
-    expect(dialog()?.textContent).toContain('Which county?');
-    // Nothing but the search until a county is picked: no suggestions, no bid rows.
-    expect(dialog()!.querySelectorAll('[aria-label="Counties"] button')).toHaveLength(0);
+    // Everything on one screen from the start: the county line and the trade rows, no steps.
+    expect(dialog()?.textContent).toContain('County');
+    expect(dialog()?.textContent).toContain('Your bids');
+    expect(dialog()!.querySelectorAll('[aria-label="Bids by trade"] > li').length).toBeGreaterThan(0);
+    // No county suggestions until something is typed; the matches float so nothing jumps.
+    expect(dialog()!.querySelector('[aria-label="Counties"]')).toBeNull();
     expect(dialog()?.textContent).not.toContain('you bid here');
-    expect(dialog()?.textContent).not.toContain('Your bids');
     expect(dialog()!.querySelector('[aria-label="Steps"]')).toBeNull();
     expect(byText('Next')).toBeUndefined();
+    expect(dialog()?.textContent).toContain('Pick a county to start.');
     expect(byText('Start bidding')!.disabled).toBe(true);
     // One county at a time: type a county, or a town and get its county; the search folds to a line once picked.
     const matches = () => Array.from(dialog()!.querySelectorAll('[aria-label="Counties"] button'));
