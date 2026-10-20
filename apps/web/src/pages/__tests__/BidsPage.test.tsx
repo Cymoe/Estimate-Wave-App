@@ -188,12 +188,17 @@ describe('Bids', () => {
     expect(setStanding).not.toHaveBeenCalled();
     expect(status().textContent).toBe('');
     // Beat 2: a moment after the last tap it saves, and the row says so in the reserved line while it does.
+    // The standing chip sits dimmed ("pending") from the tap until the server confirms.
+    const chip = () => rows[0].querySelector('[data-pending]');
+    expect(chip()).not.toBeNull();
     let release!: (id: string) => void;
     setStanding.mockImplementationOnce(() => new Promise<string>((resolve) => { release = resolve; }));
     await act(async () => { jest.advanceTimersByTime(STEP_SAVE_DELAY + 10); });
     expect(PLACING).toContain(status().textContent); // auction-room wording, one of a few
+    expect(chip()).not.toBeNull();
     await act(async () => release('sb1'));
     await flush();
+    expect(chip()).toBeNull();
     expect(setStanding).toHaveBeenCalledTimes(1);
     expect(setStanding).toHaveBeenCalledWith('o2', 'Midland', 'landscaping', 350);
     // Beat 3: a "bid's in" line for a moment, then the line is empty but still there, so nothing moves.
@@ -223,11 +228,23 @@ describe('Bids', () => {
     await flush();
     expect(setStanding).toHaveBeenLastCalledWith('o2', 'Midland', 'landscaping', 400);
     expect(PLACED).toContain(status().textContent);
+    // Optimistic standing: past the $1,000 balance the chip goes red with its link on the tap itself,
+    // before any save, and comes straight back when the amount drops under again.
+    await act(async () => type(input('Bid for Landscaping in Midland'), '1200'));
+    expect(rows[0].textContent).toContain('Add funds to cover this bid');
+    expect(Array.from(rows[0].querySelectorAll('button')).some((b) => b.textContent === 'Add funds')).toBe(true);
+    expect(setStanding).toHaveBeenCalledTimes(4); // nothing sent yet for this change
+    await act(async () => type(input('Bid for Landscaping in Midland'), '900'));
+    expect(rows[0].textContent).toContain('Highest here');
+    expect(rows[0].textContent).not.toContain('Add funds');
+    await act(async () => { jest.advanceTimersByTime(SAVE_DELAY + 50); });
+    await flush();
+    expect(setStanding).toHaveBeenLastCalledWith('o2', 'Midland', 'landscaping', 900);
     // Below the minimum nothing is sent.
     await act(async () => type(input('Bid for Landscaping in Midland'), '150'));
     await act(async () => { jest.advanceTimersByTime(SAVE_DELAY + 50); });
     await flush();
-    expect(setStanding).toHaveBeenCalledTimes(4);
+    expect(setStanding).toHaveBeenCalledTimes(5);
     jest.useRealTimers();
     // The row itself is the feedback: no banner for a saved amount.
     expect(document.body.querySelector('[role="status"]')).toBeNull();

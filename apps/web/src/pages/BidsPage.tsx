@@ -172,6 +172,7 @@ const BidsPage: React.FC = () => {
           <StandingTab
             organizationId={organizationId!}
             standing={standing}
+            balance={balance}
             tradeName={tradeName}
             onChanged={load}
             onNotify={notify}
@@ -212,18 +213,28 @@ const BidsPage: React.FC = () => {
   );
 };
 
-function Chip({ bid }: { bid: StandingBid }) {
-  const [tone, text] = !bid.funded
+/**
+ * Where the bid stands. `funded` is worked out in the browser the moment the amount
+ * changes (the balance is known here); leading/outbid waits for the server, so while
+ * a change is unsaved or saving the chip sits dimmed as "pending".
+ */
+function Chip({ bid, funded = bid.funded, pending = false }: { bid: StandingBid; funded?: boolean; pending?: boolean }) {
+  const [tone, text] = !funded
     ? ['bg-red-600/25 text-red-200', 'Add funds to cover this bid']
     : bid.leading
       ? ['bg-emerald-600/30 text-emerald-200', 'Highest here']
       : ['bg-amber-600/30 text-amber-200', 'Outbid here · raise to win the next lead'];
-  return <span className={`inline-block text-xs px-2 py-0.5 rounded-full whitespace-nowrap transition-colors duration-300 ${tone}`}>{text}</span>;
+  return (
+    <span data-pending={pending || undefined} className={`inline-block text-xs px-2 py-0.5 rounded-full whitespace-nowrap transition-[colors,opacity] duration-300 ${pending ? 'opacity-60' : ''} ${tone}`}>
+      {text}
+    </span>
+  );
 }
 
 function StandingTab({
   organizationId,
   standing,
+  balance,
   tradeName,
   onChanged,
   onNotify,
@@ -232,6 +243,8 @@ function StandingTab({
 }: {
   organizationId: string;
   standing: StandingBid[];
+  /** Wallet balance in cents, so the row can tell at once whether a changed amount is covered. */
+  balance: number;
   tradeName: (slug?: string) => string;
   onChanged: () => Promise<void>;
   onNotify: (text: string, good?: boolean) => void;
@@ -356,14 +369,23 @@ function StandingTab({
                 })()}
               </td>
               <td className="px-4 py-3">
-                <span className="inline-flex items-center gap-2 whitespace-nowrap">
-                  <Chip bid={bid} />
-                  {!bid.funded && (
-                    <button type="button" onClick={onAddFunds} className="text-xs text-[#7fb0e0] underline underline-offset-2">
-                      Add funds
-                    </button>
-                  )}
-                </span>
+                {(() => {
+                  const state = row(bid.id);
+                  const draft = state.draft !== undefined ? Number(state.draft) : NaN;
+                  // Optimistic: the balance is known here, so "covered or not" updates on the tap itself.
+                  const funded = Number.isFinite(draft) ? draft * 100 <= balance : bid.funded;
+                  const pending = (Number.isFinite(draft) && draft !== bid.amountCents / 100) || state.status === 'saving';
+                  return (
+                    <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                      <Chip bid={bid} funded={funded} pending={pending} />
+                      {!funded && (
+                        <button type="button" onClick={onAddFunds} className="text-xs text-[#7fb0e0] underline underline-offset-2">
+                          Add funds
+                        </button>
+                      )}
+                    </span>
+                  );
+                })()}
               </td>
               <td className="px-4 py-3 text-right">
                 <button
