@@ -1,4 +1,4 @@
-import React, { Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { Gavel, Plus, Trash2, Wallet, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
@@ -708,18 +708,11 @@ function AddBidDialog({
   const [showAll, setShowAll] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  // Bids already placed in this county first, then the company's own trades, then everything else.
-  const placedHere = useMemo(() => new Set(standing.filter((sb) => sb.county === county).map((sb) => sb.jobType)), [standing, county]);
+  // The company's own trades first, then everything else.
   const ordered = useMemo(() => {
-    const rank = (t: Trade) => (placedHere.has(t.id) ? 0 : preferredTrades.includes(t.id) ? 1 : 2);
-    return trades.map((t, i) => ({ t, i })).sort((a, b) => rank(a.t) - rank(b.t) || a.i - b.i).map(({ t }) => t);
-  }, [trades, preferredTrades, placedHere]);
-  // Where the company already bids, for one-tap picks before anything is typed.
-  const myCounties = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const sb of standing) counts.set(sb.county, (counts.get(sb.county) ?? 0) + 1);
-    return [...counts.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [standing]);
+    const preferred = trades.filter((t) => preferredTrades.includes(t.id));
+    return [...preferred, ...trades.filter((t) => !preferredTrades.includes(t.id))];
+  }, [trades, preferredTrades]);
   // A long catalogue is folded to the company's trades plus anything live, until "More trades".
   const FOLD_AT = 8;
   const folded = ordered.length > FOLD_AT && !showAll;
@@ -915,24 +908,6 @@ function AddBidDialog({
                   {matches.length === 0 && <li className="px-3 py-2 text-sm text-gray-500">{`Nothing matches "${search.trim()}". Try the county name or a town in it.`}</li>}
                 </ul>
               )}
-              {/* Counties already bid in: one tap opens their bids to change, no typing needed. */}
-              {search.trim() === '' && myCounties.length > 0 && (
-                <div className="mt-3" aria-label="Your counties">
-                  <p className="text-xs text-gray-500 mb-1.5">Your counties</p>
-                  <div className="flex flex-wrap gap-2">
-                    {myCounties.map(([name, n]) => (
-                      <button
-                        key={name}
-                        type="button"
-                        onClick={() => pick(name)}
-                        className="px-3 py-1.5 rounded-full border border-[#333] bg-[#1A1A1A] text-sm text-gray-200 hover:border-[#336699] hover:text-white"
-                      >
-                        {name} County <span className="text-gray-500">· {n} bid{n === 1 ? '' : 's'}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
             </>
           )}
         </section>
@@ -941,26 +916,11 @@ function AddBidDialog({
         <section aria-label="Your bids">
           <p className="text-sm font-medium text-white mb-1">Your bids</p>
           <ul className="divide-y divide-[#2A2A2A] border-y border-[#2A2A2A]" aria-label="Bids by trade">
-            {shownTrades.map((t, i) => {
+            {shownTrades.map((t) => {
               const on = bids[t.id] !== undefined;
               const where = standingFor(t.id);
-              // Two groups once a county with bids is picked: what you bid here, then trades to add.
-              const grouped = shownTrades.some((x) => placedHere.has(x.id)) && shownTrades.some((x) => !placedHere.has(x.id));
-              const heading = !grouped
-                ? null
-                : i === 0
-                  ? 'Your bids here'
-                  : placedHere.has(shownTrades[i - 1].id) && !placedHere.has(t.id)
-                    ? 'Add a trade'
-                    : null;
               return (
-                <Fragment key={t.id}>
-                {heading && (
-                  <li data-heading aria-hidden="true" className="pt-3 pb-1 text-[11px] uppercase tracking-wide text-gray-500">
-                    {heading}
-                  </li>
-                )}
-                <li className="flex items-center justify-between gap-4 py-3.5">
+                <li key={t.id} className="flex items-center justify-between gap-4 py-3.5">
                   <div className="min-w-0">
                     <p className="text-sm text-white">{t.name}</p>
                     <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-2">
@@ -990,7 +950,6 @@ function AddBidDialog({
                     </button>
                   )}
                 </li>
-                </Fragment>
               );
             })}
           </ul>
