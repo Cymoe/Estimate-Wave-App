@@ -79,6 +79,11 @@ describe('Bids', () => {
     expect(byText('Next')).toBeUndefined();
     expect(dialog()?.textContent).toContain('Pick a county to start.');
     expect(byText('Start bidding')!.disabled).toBe(true);
+    // The buttons are pinned under the trade list, outside the part that scrolls, so they never need scrolling to.
+    const scroller = dialog()!.querySelector('.overflow-y-auto')!;
+    expect(scroller.contains(dialog()!.querySelector('[aria-label="Bids by trade"]'))).toBe(true);
+    expect(scroller.contains(byText('Start bidding')!)).toBe(false);
+    expect(dialog()!.contains(byText('Start bidding')!)).toBe(true);
     // One county at a time: type a county, or a town and get its county; the search folds to a line once picked.
     const matches = () => Array.from(dialog()!.querySelectorAll('[aria-label="Counties"] button'));
     await act(async () => type(input('Search counties'), 'Mid'));

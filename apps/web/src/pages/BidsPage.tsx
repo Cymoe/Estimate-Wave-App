@@ -775,8 +775,39 @@ function AddBidDialog({
     }
   };
 
+  // Pinned under the trade list so Save stays in reach however many trades are on.
+  const footer = (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <p className="text-xs text-gray-500">
+        {!county
+          ? 'Pick a county to start.'
+          : !amountsOk
+          ? `Bids start at ${money(MIN_BID * 100)}.`
+          : !changed
+            ? live.length > 0 ? 'These are your current bids here.' : ''
+            : !affordable
+              ? `Your balance is ${money(balance)}. Add funds to place a bid this high.`
+              : `Balance ${money(balance)} covers about ${covers} lead${covers === 1 ? '' : 's'} at your top bid. You only pay when you win.`}
+      </p>
+      <div className="flex items-center gap-2 ml-auto">
+        <button type="button" onClick={onClose} className={secondary}>
+          Cancel
+        </button>
+        {ready && !affordable ? (
+          // Saving isn't placing until the balance covers it, so the button goes to the wallet instead.
+          <button type="button" onClick={onAddFunds} className={primary}>
+            Add funds to place bid
+          </button>
+        ) : (
+          <button type="button" disabled={busy || !ready} onClick={save} className={primary}>
+            {busy ? 'Saving…' : firstTime ? 'Start bidding' : rows > 1 ? `Save ${rows} bids` : 'Save bid'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
   return (
-    <Modal isOpen title={firstTime ? 'Set your bids' : 'Add a bid'} onClose={onClose} size="xl" dismissible={false}>
+    <Modal isOpen title={firstTime ? 'Set your bids' : 'Add a bid'} onClose={onClose} size="xl" dismissible={false} footer={footer}>
       <div className="p-6 space-y-7">
         {/* Where: a search box until a county is picked, then just its name. */}
         <section aria-label="Where" className="relative">
@@ -887,35 +918,6 @@ function AddBidDialog({
             </button>
           )}
         </section>
-
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-          <p className="text-xs text-gray-500">
-            {!county
-              ? 'Pick a county to start.'
-              : !amountsOk
-              ? `Bids start at ${money(MIN_BID * 100)}.`
-              : !changed
-                ? live.length > 0 ? 'These are your current bids here.' : ''
-                : !affordable
-                  ? `Your balance is ${money(balance)}. Add funds to place a bid this high.`
-                  : `Balance ${money(balance)} covers about ${covers} lead${covers === 1 ? '' : 's'} at your top bid. You only pay when you win.`}
-          </p>
-          <div className="flex items-center gap-2 ml-auto">
-            <button type="button" onClick={onClose} className={secondary}>
-              Cancel
-            </button>
-            {ready && !affordable ? (
-              // Saving isn't placing until the balance covers it, so the button goes to the wallet instead.
-              <button type="button" onClick={onAddFunds} className={primary}>
-                Add funds to place bid
-              </button>
-            ) : (
-              <button type="button" disabled={busy || !ready} onClick={save} className={primary}>
-                {busy ? 'Saving…' : firstTime ? 'Start bidding' : rows > 1 ? `Save ${rows} bids` : 'Save bid'}
-              </button>
-            )}
-          </div>
-        </div>
       </div>
     </Modal>
   );

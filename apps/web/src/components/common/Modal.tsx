@@ -10,6 +10,8 @@ interface ModalProps {
   size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | 'full';
   /** When false, a tap outside or Escape does nothing: only the X (or the dialog's own buttons) closes it. */
   dismissible?: boolean;
+  /** Pinned under the content, outside the scroll: the dialog's main buttons stay in reach however long the content gets. */
+  footer?: React.ReactNode;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -19,6 +21,7 @@ export const Modal: React.FC<ModalProps> = ({
   children,
   size = 'md',
   dismissible = true,
+  footer,
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -96,14 +99,14 @@ export const Modal: React.FC<ModalProps> = ({
       {/* Modal */}
       <div 
         ref={modalRef}
-        className={`relative w-full ${sizeClasses[size]} bg-[#1E1E1E] rounded-[4px] shadow-2xl border border-[#333333] max-h-[84vh] overflow-hidden transition-opacity duration-200 ${shown ? 'opacity-100' : 'opacity-0'}`}
+        className={`relative w-full ${sizeClasses[size]} bg-[#1E1E1E] rounded-[4px] shadow-2xl border border-[#333333] max-h-[84vh] overflow-hidden flex flex-col transition-opacity duration-200 ${shown ? 'opacity-100' : 'opacity-0'}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
         tabIndex={-1}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#333333]">
+        <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-[#333333]">
           <h2 id="modal-title" className="text-lg font-semibold text-white">{title}</h2>
           <button
             onClick={onClose}
@@ -114,10 +117,11 @@ export const Modal: React.FC<ModalProps> = ({
           </button>
         </div>
         
-        {/* Content */}
-        <div className="overflow-y-auto max-h-[calc(84vh-80px)]">
+        {/* Content: the only part that scrolls. */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
           {children}
         </div>
+        {footer && <div className="flex-shrink-0 border-t border-[#333333] bg-[#1E1E1E] px-6 py-4">{footer}</div>}
       </div>
     </div>,
     document.body,
