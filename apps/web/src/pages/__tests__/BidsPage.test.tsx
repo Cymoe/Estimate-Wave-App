@@ -203,6 +203,10 @@ describe('Bids', () => {
     expect(rows[2].querySelector('td')!.className).toContain('shadow-[inset_2px_0_0_0_#f87171]');
     expect(rows[0].getAttribute('data-unfunded')).toBeNull();
     expect(rows[0].querySelector('td')!.className).not.toContain('border-l');
+    // The bids share one balance: the line under the table says how far it goes ($1,000 at the $250 top covered bid).
+    expect(document.body.querySelector('[data-shared-balance]')?.textContent).toBe(
+      'Your $1,000.00 covers about 4 leads at your highest bid. Every win comes out of this one balance.',
+    );
     // The amount is a stepper that saves on its own a moment after the last change: no Save button.
     jest.useFakeTimers();
     expect(document.body.querySelector('button[aria-label="Save bid"]')).toBeNull();
@@ -510,6 +514,13 @@ describe('Bids', () => {
     expect(markOutbidSeen).toHaveBeenCalledWith('o2');
     // The Bids page doesn't repeat the "you've been outbid" line: the rows say it.
     expect(document.body.querySelector('[data-bid-status]')).toBeNull();
+  });
+
+  it('says nothing about the shared balance when no bid is covered', async () => {
+    balanceCents = 0;
+    standing = [{ id: 'sb1', county: 'Midland', jobType: 'landscaping', amountCents: 25000, funded: false, leading: false, contested: false }];
+    await render();
+    expect(document.body.querySelector('[data-shared-balance]')).toBeNull();
   });
 
   it('sends old Marketplace-tab links to the Marketplace page', async () => {

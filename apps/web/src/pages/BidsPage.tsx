@@ -572,6 +572,18 @@ function StandingTab({
           })}
         </tbody>
       </table>
+      {/* Bids don't each hold money: every win comes out of one balance. Say how far it goes. */}
+      {(() => {
+        const covered = standing.filter((b) => b.amountCents <= balance);
+        if (covered.length === 0) return null;
+        const top = Math.max(...covered.map((b) => b.amountCents));
+        const n = Math.floor(balance / top);
+        return (
+          <p data-shared-balance className="text-xs text-gray-500">
+            Your {money(balance)} covers about {n} lead{n === 1 ? '' : 's'} at your highest bid. Every win comes out of this one balance.
+          </p>
+        );
+      })()}
       {confirmDialog}
     </div>
   );
