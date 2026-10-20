@@ -1150,6 +1150,10 @@ export const wallet = query({
       ),
       openBids,
       standingBids: standingBids.length,
+      // Bids the balance can't pay for: kept, but they can't win until funds are added.
+      pausedBids: standingBids.filter(
+        (b) => b.amountCents > (organization.walletBalanceCents ?? 0),
+      ).length,
       spentCents: bought
         .filter((l) => l.status === "assigned")
         .reduce((sum, l) => sum + (l.priceCents ?? 0), 0),

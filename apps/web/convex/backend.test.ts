@@ -3243,6 +3243,10 @@ describe("standing bids and instant awards", () => {
       funded: false,
       leading: false,
     });
+    // The wallet counts it as paused, for the Leads page's bid status line.
+    const summary = () =>
+      mio.as.query(api.marketplace.wallet, { organizationId: mio.organizationId });
+    expect(await summary()).toMatchObject({ standingBids: 1, pausedBids: 1 });
     // Lowering is always allowed, even while still above the balance...
     expect(await standing(mio, "Midland", "landscaping", 850)).toBe(id);
     expect((await mine()).find((b) => b.id === id)).toMatchObject({
@@ -3256,6 +3260,7 @@ describe("standing bids and instant awards", () => {
       funded: true,
       leading: true,
     });
+    expect(await summary()).toMatchObject({ standingBids: 1, pausedBids: 0 });
   });
 
   test("a lead nobody can pay for goes to the Marketplace, and a legacy round still closes", async () => {

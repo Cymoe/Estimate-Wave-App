@@ -69,7 +69,7 @@ jest.mock('../../../lib/api', () => ({
 jest.mock('../../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1', role } }) }));
 
 import LeadMarketPage from '../../../pages/LeadMarketPage';
-import { WalletBar } from '../WalletBar';
+import { WalletBar, bidStatus, type WalletSummary } from '../WalletBar';
 import { WalletTile } from '../WalletTile';
 import { LeadCredit } from '../LeadCredit';
 import { suggestedBonus } from '../wallet';
@@ -165,11 +165,12 @@ describe("a company's lead balance", () => {
       wonCount: 1,
       transactions: [{ id: 't1', type: 'top_up', amountCents: 23000, balanceAfterCents: 23000, method: 'Zelle', createdAt: '2026-10-10' }],
     };
+    wallet.standingBids = 1;
+    wallet.pausedBids = 0;
     const container = await render(<WalletBar organizationId="o2" />);
     // The balance itself lives in the navigation, not here.
-    expect(container.textContent).not.toContain('$60.00');
     expect(container.textContent).not.toContain('$12,000.00');
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain('covers about 1 more lead');
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Your bids are live. Your balance covers about 1 more lead.');
 
     document.body.innerHTML = '';
     const tile = await render(<WalletTile organizationId="o2" />);
@@ -267,6 +268,45 @@ describe('loading the balance and buying leads', () => {
     expect(document.body.textContent).toContain('Your $7,500.00 payment (+$375.00 bonus) is being confirmed');
     const browse = Array.from(document.body.querySelectorAll('a')).find((a) => a.textContent?.includes('1 new lead in the Marketplace'))!;
     expect(browse.getAttribute('href')).toBe('/marketplace');
+  });
+});
+
+describe('the bid status line', () => {
+  const base = { typicalLeadCents: 15000, spentCents: 0, leadsBought: 0, wonCents: 0, wonCount: 0, transactions: [] };
+  const line = (w: Partial<WalletSummary>) => bidStatus({ ...base, balanceCents: 0, ...w } as WalletSummary);
+
+  it('always talks about bids, with one next step', () => {
+    expect(line({ balanceCents: 0, standingBids: 0 })).toEqual({
+      tone: 'warn', text: 'Two steps to start winning leads: add funds, then set your bids.', action: 'fund', alsoBids: true,
+    });
+    expect(line({ balanceCents: 30000, standingBids: 0 })).toEqual({
+      tone: 'good', text: 'Set your bids to start winning leads. Your $300.00 covers about 2 leads.', action: 'bids',
+    });
+    expect(line({ balanceCents: 0, standingBids: 1, pausedBids: 1 })?.text).toBe(
+      "Your bid is paused. Your balance is $0.00, so it can't win leads. Add funds to put it back in.",
+    );
+    expect(line({ balanceCents: 10000, standingBids: 2, pausedBids: 2 })?.text).toBe(
+      "Your bids are paused. They're higher than your $100.00 balance, so they can't win leads. Add funds to put them back in.",
+    );
+    expect(line({ balanceCents: 15000, standingBids: 3, pausedBids: 2 })).toMatchObject({
+      tone: 'warn', action: 'fund', text: '2 of your 3 bids are paused because they\'re higher than your $150.00 balance. Add funds to put them back in.',
+    });
+    expect(line({ balanceCents: 20000, standingBids: 2, pausedBids: 0 })?.text).toBe(
+      "Your bids are live. Your balance covers about 1 more lead. Add funds so you don't miss any.",
+    );
+    expect(line({ balanceCents: 100000, standingBids: 2, pausedBids: 0 })).toBeNull();
+    // A payment being confirmed will fix the money side, so there's no nag meanwhile.
+    expect(line({ balanceCents: 0, standingBids: 1, pausedBids: 1, pendingFunding: { amountCents: 50000, bonusCents: 0 } })).toBeNull();
+  });
+
+  it('shows the paused line on the Leads page with Add funds and a link to the bids', async () => {
+    wallet = { ...base, balanceCents: 0, standingBids: 1, pausedBids: 1 };
+    const container = await render(<WalletBar organizationId="o2" />);
+    const alert = container.querySelector('[role="alert"]')!;
+    expect(alert.textContent).toContain('Your bid is paused.');
+    expect(alert.textContent).not.toContain("can't be sent to you");
+    expect(Array.from(alert.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Add funds']);
+    expect(alert.querySelector('a[href="/bids"]')?.textContent).toBe('See bids');
   });
 });
 

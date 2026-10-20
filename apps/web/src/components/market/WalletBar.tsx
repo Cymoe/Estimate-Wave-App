@@ -16,6 +16,8 @@ export interface WalletSummary {
   availableLeads?: number;
   openBids?: number;
   standingBids?: number;
+  /** Standing bids above the balance: kept, but paused until funds cover them. */
+  pausedBids?: number;
   leadTrades?: string[];
   plan?: PlanSummary | null;
   olderLeads?: number;
@@ -49,10 +51,55 @@ export const leadsCovered = (wallet: WalletSummary) =>
   wallet.typicalLeadCents > 0 ? Math.floor(wallet.balanceCents / wallet.typicalLeadCents) : 0;
 
 /**
+ * What the company's bids are doing, in one line with one next step. Leads
+ * reach a company through a winning bid, so the line always talks about bids
+ * and treats the balance as what powers them. Null when all is well.
+ */
+export function bidStatus(wallet: WalletSummary): {
+  tone: 'good' | 'warn';
+  text: string;
+  action: 'fund' | 'bids';
+  /** A second, quieter link to the Bids page. */
+  alsoBids?: boolean;
+} | null {
+  const bids = wallet.standingBids ?? 0;
+  const paused = Math.min(wallet.pausedBids ?? 0, bids);
+  const balance = wallet.balanceCents;
+  const covered = leadsCovered(wallet);
+  // A payment on its way will fix the money side; don't nag about it meanwhile.
+  const funding = Boolean(wallet.pendingFunding);
+  if (bids === 0) {
+    if (balance <= 0 && !funding) {
+      return { tone: 'warn', text: 'Two steps to start winning leads: add funds, then set your bids.', action: 'fund', alsoBids: true };
+    }
+    const covers = balance > 0 && covered > 0 ? ` Your ${money(balance)} covers about ${covered} lead${covered === 1 ? '' : 's'}.` : '';
+    return { tone: 'good', text: `Set your bids to start winning leads.${covers}`, action: 'bids' };
+  }
+  if (funding) return null;
+  const why = balance <= 0 ? `Your balance is ${money(0)}, so ${bids === 1 ? 'it' : 'they'} can't win leads.` : `${bids === 1 ? "It's" : "They're"} higher than your ${money(balance)} balance, so ${bids === 1 ? 'it' : 'they'} can't win leads.`;
+  if (paused === bids) {
+    return { tone: 'warn', text: `${bids === 1 ? 'Your bid is' : 'Your bids are'} paused. ${why} Add funds to put ${bids === 1 ? 'it' : 'them'} back in.`, action: 'fund', alsoBids: true };
+  }
+  if (paused > 0) {
+    return {
+      tone: 'warn',
+      text: `${paused} of your ${bids} bids ${paused === 1 ? 'is' : 'are'} paused because ${paused === 1 ? "it's" : "they're"} higher than your ${money(balance)} balance. Add funds to put ${paused === 1 ? 'it' : 'them'} back in.`,
+      action: 'fund',
+      alsoBids: true,
+    };
+  }
+  if (covered < 2) {
+    const left = covered >= 1 ? `covers about ${covered} more lead` : `is down to ${money(balance)}`;
+    return { tone: 'warn', text: `Your bids are live. Your balance ${left}. Add funds so you don't miss any.`, action: 'fund' };
+  }
+  return null;
+}
+
+/**
  * Lead notices on the Leads page: a link to the Marketplace when leads are
- * waiting, what bought leads turned into, and a nudge when the balance is
- * about to run out. The balance itself lives in the navigation (WalletTile).
- * Hidden for companies that don't buy leads from FieldQuote.
+ * waiting, a payment being confirmed, and one line on what the company's bids
+ * are doing (see bidStatus). The balance itself lives in the navigation
+ * (WalletTile). Hidden for companies that don't buy leads from FieldQuote.
  */
 export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown }> = ({ organizationId, refreshKey }) => {
   const [wallet, setWallet] = useState<WalletSummary | null>(null);
@@ -70,10 +117,9 @@ export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown
   }, [organizationId, refreshKey]);
 
   if (!wallet || !organizationId) return null;
-  const inMarket = wallet.transactions.length > 0 || wallet.leadsBought > 0 || Boolean(wallet.pendingFunding);
+  const inMarket = wallet.transactions.length > 0 || wallet.leadsBought > 0 || Boolean(wallet.pendingFunding) || (wallet.standingBids ?? 0) > 0;
   if (!inMarket) return null;
-  const covered = leadsCovered(wallet);
-  const low = covered < 2 && !wallet.pendingFunding;
+  const status = bidStatus(wallet);
   const addFunds = () => openFundingPage(organizationId).catch(() => {});
 
   return (
@@ -99,23 +145,29 @@ export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown
           {wallet.pendingFunding.bonusCents > 0 ? ` (+${money(wallet.pendingFunding.bonusCents)} bonus)` : ''} is being confirmed. It'll show in your balance shortly.
         </div>
       )}
-      {wallet.standingBids === 0 && wallet.balanceCents > 0 && (
-        <div role="status" className="mb-4 px-4 py-3 rounded border border-emerald-500/40 bg-emerald-500/10 text-sm text-emerald-100 flex items-center gap-2 flex-wrap">
+      {status && (
+        <div
+          role={status.tone === 'warn' ? 'alert' : 'status'}
+          className={`mb-4 px-4 py-3 rounded border text-sm flex items-center gap-x-2 gap-y-1 flex-wrap ${
+            status.tone === 'warn' ? 'border-amber-500/40 bg-amber-500/10 text-amber-200' : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-100'
+          }`}
+        >
           <Gavel className="w-4 h-4 flex-shrink-0" />
-          Set your bids to start winning leads: pick your counties, services and price.
-          <Link to="/bids" className="underline underline-offset-2 text-white">
-            Set bids
-          </Link>
-        </div>
-      )}
-      {low && (
-        <div role="alert" className="mb-4 px-4 py-3 rounded border border-amber-500/40 bg-amber-500/10 text-sm text-amber-200">
-          {wallet.balanceCents <= 0
-            ? "Your lead balance is empty, so new leads can't be sent to you. Add funds to keep them coming."
-            : `Your balance covers about ${covered} more lead${covered === 1 ? '' : 's'}. Add funds so you don't miss any.`}
-          <button type="button" onClick={addFunds} className="ml-2 underline underline-offset-2 text-amber-100">
-            Add funds
-          </button>
+          <span>{status.text}</span>
+          {status.action === 'fund' ? (
+            <button type="button" onClick={addFunds} className={`underline underline-offset-2 ${status.tone === 'warn' ? 'text-amber-100' : 'text-white'}`}>
+              Add funds
+            </button>
+          ) : (
+            <Link to="/bids" className="underline underline-offset-2 text-white">
+              Set bids
+            </Link>
+          )}
+          {status.alsoBids && (
+            <Link to="/bids" className="underline underline-offset-2 text-amber-200/80">
+              {(wallet.standingBids ?? 0) > 0 ? 'See bids' : 'Set bids'}
+            </Link>
+          )}
         </div>
       )}
     </>
