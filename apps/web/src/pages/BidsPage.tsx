@@ -1,6 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
-import { Gavel, Plus, Trash2, Wallet, X } from 'lucide-react';
+import { ArrowDownCircle, CheckCircle2, Gavel, PauseCircle, Plus, Trash2, Wallet, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { Modal } from '../components/common/Modal';
 import { bidsAPI, industriesAPI, walletAPI } from '../lib/api';
@@ -266,15 +266,17 @@ function Chip({ bid, funded = bid.funded, pending = false }: { bid: StandingBid;
   // The server only works out leading/outbid for a covered bid. If its last word was "uncovered"
   // and the amount is now covered but unsaved, the standing is simply not known yet.
   const unknown = pending && funded && !bid.funded;
-  const [tone, text] = !funded
-    ? ['bg-red-600/25 text-red-200', 'Paused until you add funds']
+  // Plain auction words with an icon each, so the state reads by shape as well as colour.
+  const [tone, text, Icon] = !funded
+    ? ['bg-red-600/25 text-red-200', 'Paused until you add funds', PauseCircle]
     : unknown
-      ? ['bg-[#333] text-gray-300', 'Checking standing…']
+      ? ['bg-[#333] text-gray-300', 'Checking standing…', null]
       : bid.leading
-        ? ['bg-emerald-600/30 text-emerald-200', 'Highest here']
-        : ['bg-amber-600/30 text-amber-200', 'Outbid here · raise to win the next lead'];
+        ? ['bg-emerald-600/30 text-emerald-200', 'Winning', CheckCircle2]
+        : ['bg-amber-600/30 text-amber-200', 'Outbid here · raise to win the next lead', ArrowDownCircle];
   return (
-    <span data-pending={pending || undefined} className={`inline-block text-xs px-2 py-0.5 rounded-full whitespace-nowrap transition-[colors,opacity] duration-300 ${pending ? 'opacity-60' : ''} ${tone}`}>
+    <span data-pending={pending || undefined} className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full whitespace-nowrap transition-[colors,opacity] duration-300 ${pending ? 'opacity-60' : ''} ${tone}`}>
+      {Icon && <Icon className="w-3.5 h-3.5 flex-shrink-0" aria-hidden="true" />}
       {text}
     </span>
   );
@@ -749,9 +751,12 @@ function AddBidDialog({
     });
   };
   /** Where the company's existing bid for this trade stands in the chosen county. */
-  const standingFor = (id: string): 'top' | 'outbid' | null => {
+  /** Where the company's bid for this trade stands here, in the same words as the Bids table. */
+  const standingFor = (id: string): 'winning' | 'outbid' | 'paused' | null => {
     const mine = standing.find((sb) => sb.jobType === id && sb.county === county);
-    return mine ? (mine.leading ? 'top' : 'outbid') : null;
+    if (!mine) return null;
+    // A bid the balance can't cover isn't outbid, it's out of the running until funds are added.
+    return !mine.funded ? 'paused' : mine.leading ? 'winning' : 'outbid';
   };
 
   const placed = (id: string) => standing.find((sb) => sb.county === county && sb.jobType === id);
@@ -923,11 +928,28 @@ function AddBidDialog({
                 <li key={t.id} className="flex items-center justify-between gap-4 py-3.5">
                   <div className="min-w-0">
                     <p className="text-sm text-white">{t.name}</p>
-                    <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-2">
-                      <span>Min {money(MIN_BID * 100)}</span>
-                      {where === 'top' && <span className="px-1.5 py-px rounded bg-emerald-600/30 text-emerald-200 text-[10px] font-semibold tracking-wide">TOP</span>}
-                      {where === 'outbid' && <span className="text-amber-200">Outbid · raise to win</span>}
-                    </p>
+                    {/* One line that says where this bid stands, always about a specific amount. */}
+                    {(() => {
+                      const mine = placed(t.id);
+                      if (!mine) return <p className="text-xs text-gray-500 mt-0.5">From {money(MIN_BID * 100)}</p>;
+                      const at = money(mine.amountCents);
+                      if (on && amountCents(t.id) !== mine.amountCents) {
+                        // The old standing was about the old amount; say what saving will do instead.
+                        return <p className="text-xs text-gray-400 mt-0.5">Was {at} · saving updates your bid</p>;
+                      }
+                      const [tone, text, Icon] =
+                        where === 'winning'
+                          ? ['text-emerald-300', `Winning at ${at}`, CheckCircle2]
+                          : where === 'paused'
+                            ? ['text-red-300', `Paused at ${at} · add funds`, PauseCircle]
+                            : ['text-amber-200', `Outbid at ${at} · raise to win`, ArrowDownCircle];
+                      return (
+                        <p data-standing={where ?? undefined} className={`text-xs mt-0.5 flex items-center gap-1 ${tone}`}>
+                          <Icon className="w-3.5 h-3.5 flex-shrink-0" aria-hidden="true" />
+                          {text}
+                        </p>
+                      );
+                    })()}
                   </div>
                   {on ? (
                     <div className="flex items-center gap-1.5 flex-shrink-0">

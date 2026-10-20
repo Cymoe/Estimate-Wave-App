@@ -139,7 +139,7 @@ describe('Bids', () => {
     // One row per trade. Their own trade is live at the minimum; the other waits behind "Bid $200.00".
     const rowsByTrade = () => Array.from(dialog()!.querySelectorAll('[aria-label="Bids by trade"] > li'));
     expect(rowsByTrade().map((li) => li.querySelector('p')?.textContent)).toEqual(['Landscaping', 'Roofing']);
-    expect(rowsByTrade()[0].textContent).toContain('Min $200.00');
+    expect(rowsByTrade()[0].textContent).toContain('From $200.00'); // not bid on yet: just the minimum
     expect(input('Landscaping bid').value).toBe('200');
     expect(input('Roofing bid')).toBeNull();
     const button = (label: string) => document.body.querySelector(`button[aria-label="${label}"]`) as HTMLButtonElement;
@@ -191,7 +191,7 @@ describe('Bids', () => {
     await render();
     const rows = Array.from(document.body.querySelectorAll('[aria-label="My standing bids"] tbody tr'));
     expect(rows[0].textContent).toContain('Midland County');
-    expect(rows[0].textContent).toContain('Highest here');
+    expect(rows[0].textContent).toContain('Winning');
     expect(rows[1].textContent).toContain('Outbid here · raise to win the next lead');
     // A bid the balance has fallen below is paused, not live.
     expect(rows[2].textContent).toContain('Paused until you add funds');
@@ -270,7 +270,7 @@ describe('Bids', () => {
     // and the row's line says to add funds. Leaving the field puts the placed amount back.
     await act(async () => type(input('Bid for Landscaping in Midland'), '1200'));
     expect(status().textContent).toBe('Add funds to bid higher');
-    expect(rows[0].textContent).toContain('Highest here');
+    expect(rows[0].textContent).toContain('Winning');
     expect(rows[0].getAttribute('data-unfunded')).toBeNull();
     expect(rows[0].querySelector('[data-pending]')).toBeNull();
     await act(async () => { jest.advanceTimersByTime(SAVE_DELAY + 50); });
@@ -349,16 +349,24 @@ describe('Bids', () => {
     await act(async () => type(input('Search counties'), 'Mid'));
     await act(async () => (dialog()!.querySelector('[aria-label="Counties"] button') as HTMLButtonElement).click());
     expect(input('Landscaping bid').value).toBe('250');
-    expect(dialog()!.querySelector('[aria-label="Bids by trade"] > li')?.textContent).toContain('TOP');
+    // Each placed row says where that amount stands, in the table's words; trades not bid on show their minimum.
+    const tradeRow = (name: string) => Array.from(dialog()!.querySelectorAll('[aria-label="Bids by trade"] > li')).find((li) => li.querySelector('p')?.textContent === name)!;
+    expect(tradeRow('Landscaping').textContent).toContain('Winning at $250.00');
+    expect(tradeRow('Landscaping').textContent).not.toContain('TOP');
+    expect(tradeRow('Roofing').textContent).toContain('From $200.00');
     // Nothing has changed, so there is nothing to save; raise it and there is.
     expect(byText('Save bid')!.disabled).toBe(true);
     expect(dialog()!.textContent).toContain('These are your current bids here.');
     await act(async () => (document.body.querySelector('button[aria-label="Raise Landscaping bid"]') as HTMLButtonElement).click());
     expect(byText('Save bid')!.disabled).toBe(false);
+    // Once changed, the old standing no longer applies: the line says what saving will do.
+    expect(tradeRow('Landscaping').textContent).toContain('Was $250.00 · saving updates your bid');
+    expect(tradeRow('Landscaping').textContent).not.toContain('Winning');
     await act(async () => (document.body.querySelector('button[aria-label="Change county"]') as HTMLButtonElement).click());
     await act(async () => type(input('Search counties'), 'Odessa'));
     await act(async () => (dialog()!.querySelector('[aria-label="Counties"] button') as HTMLButtonElement).click());
-    expect(dialog()!.querySelector('[aria-label="Bids by trade"] > li')?.textContent).toContain('Outbid · raise to win');
+    // The $300 typed for Midland carries over, so this row's old standing no longer applies either.
+    expect(tradeRow('Landscaping').textContent).toContain('Was $250.00 · saving updates your bid');
     expect(byText('Save bid')).toBeTruthy();
     // A bid the balance can't cover isn't placed: the button goes to the wallet instead of saving.
     await act(async () => type(input('Landscaping bid'), '1200'));
@@ -415,6 +423,9 @@ describe('Bids', () => {
     // One new and one changed in the same save.
     setStanding.mockClear();
     await openIn('Odessa');
+    // Opened fresh, Ector's placed bid says where it stands: outbid, with what to do about it.
+    expect(tradeRow('Landscaping').textContent).toContain('Outbid at $250.00 · raise to win');
+    expect(tradeRow('Landscaping').querySelector('[data-standing="outbid"]')).not.toBeNull();
     await act(async () => stepper('Raise Landscaping bid').click());
     await act(async () => (trades()[1].querySelector('button') as HTMLButtonElement).click());
     await saveWith('Save 2 bids');
@@ -431,6 +442,11 @@ describe('Bids', () => {
     expect(setStanding.mock.calls).toEqual([['o2', 'Midland', 'roofing', 200]]);
     expect(toast()).toBe('Bid added: Roofing in Midland County at $200.00.');
     expect(document.body.textContent).not.toContain("You're set");
+    // A bid the balance can't cover reads as paused, never as outbid: raising it wouldn't help.
+    await openIn('Howard');
+    expect(tradeRow('Roofing').textContent).toContain('Paused at $1,500.00 · add funds');
+    expect(tradeRow('Roofing').textContent).not.toContain('Outbid');
+    await act(async () => (dialog()!.querySelector('button[aria-label="Close modal"]') as HTMLButtonElement).click());
   });
 
   it('lists what the bids won and missed under the bids, on the same screen', async () => {
