@@ -371,8 +371,9 @@ describe('Bids', () => {
     await act(async () => (document.body.querySelector('button[aria-label="Change county"]') as HTMLButtonElement).click());
     await act(async () => type(input('Search counties'), 'Odessa'));
     await act(async () => (dialog()!.querySelector('[aria-label="Counties"] button') as HTMLButtonElement).click());
-    // The $300 typed for Midland carries over, so this row's old standing no longer applies either.
-    expect(tradeRow('Landscaping').textContent).toContain('Was $250.00 · saving updates your bid');
+    // Switching county starts fresh: Ector's own bid, not the $300 just set for Midland.
+    expect(input('Landscaping bid').value).toBe('250');
+    expect(tradeRow('Landscaping').textContent).toContain('Outbid at $250.00 · a higher or earlier bid leads');
     expect(byText('Save bid')).toBeTruthy();
     // A bid the balance can't cover isn't placed: the button goes to the wallet instead of saving.
     await act(async () => type(input('Landscaping bid'), '1200'));

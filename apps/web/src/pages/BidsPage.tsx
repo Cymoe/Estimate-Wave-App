@@ -729,9 +729,10 @@ function AddBidDialog({
   // One county at a time; bids in another county are a second visit.
   const [county, setCounty] = useState<string | null>(null);
   // One amount per trade; a trade with no entry isn't being bid on.
-  const [bids, setBids] = useState<Record<string, string>>(() =>
-    Object.fromEntries(preferredTrades.filter((t) => trades.some((x) => x.id === t)).map((t) => [t, String(MIN_BID)])),
-  );
+  // The company's own trades start on at the minimum.
+  const startingBids = () =>
+    Object.fromEntries(preferredTrades.filter((t) => trades.some((x) => x.id === t)).map((t) => [t, String(MIN_BID)]));
+  const [bids, setBids] = useState<Record<string, string>>(startingBids);
   // Rows the company has set by hand; a bid already placed never overwrites those.
   const [touched, setTouched] = useState<Set<string>>(() => new Set());
   const setBid = (id: string, value: string) => {
@@ -762,14 +763,24 @@ function AddBidDialog({
     const out = [...(town ? [{ county: town, via: search.trim() }] : []), ...[...starts, ...within].map((county) => ({ county, via: undefined as string | undefined }))];
     return out.filter((m, i) => out.findIndex((o) => o.county === m.county) === i).slice(0, 8);
   }, [search]);
+  const lastCounty = useRef<string | null>(null);
   const pick = (name: string) => {
+    // Switching from one county to another starts fresh: amounts set for the last county
+    // don't follow you, or they'd be saved here without meaning to. (Amounts set before
+    // the first county is picked are kept.)
+    // "Change county" clears the county before the next pick, so remember the last one picked.
+    const switching = lastCounty.current !== null && lastCounty.current !== name;
+    lastCounty.current = name;
     setCounty(name);
     // Bids already placed there fill their rows, so this screen edits as well as adds.
     setBids((b) => {
-      const next = { ...b };
-      for (const sb of standing) if (sb.county === name && !touched.has(sb.jobType)) next[sb.jobType] = String(sb.amountCents / 100);
+      const next = switching ? startingBids() : { ...b };
+      for (const sb of standing) {
+        if (sb.county === name && (switching || !touched.has(sb.jobType))) next[sb.jobType] = String(sb.amountCents / 100);
+      }
       return next;
     });
+    if (switching) setTouched(new Set());
     setSearch('');
   };
   const turnOn = (id: string) => setBid(id, String(MIN_BID));
