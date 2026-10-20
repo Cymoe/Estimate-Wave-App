@@ -688,7 +688,7 @@ function AddBidDialog({
   };
 
   return (
-    <Modal isOpen title={firstTime ? 'Set your bids' : 'Add a bid'} onClose={onClose} size="xl">
+    <Modal isOpen title={firstTime ? 'Set your bids' : 'Add a bid'} onClose={onClose} size="xl" dismissible={false}>
       <div className="p-6 space-y-7">
         {/* Where: a search box until a county is picked, then just its name. */}
         <section aria-label="Where" className="relative">

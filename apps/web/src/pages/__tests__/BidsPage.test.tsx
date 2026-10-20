@@ -310,6 +310,11 @@ describe('Bids', () => {
     await act(async () => (dialog()!.querySelector('[aria-label="Counties"] button') as HTMLButtonElement).click());
     expect(dialog()!.querySelector('[aria-label="Bids by trade"] > li')?.textContent).toContain('Outbid · raise to win');
     expect(byText('Save bid')).toBeTruthy();
+    // A tap outside or Escape leaves the dialog where it is; only the X closes it.
+    await act(async () => (document.body.querySelector('[data-testid="modal-backdrop"]') as HTMLElement).click());
+    expect(dialog()).not.toBeNull();
+    await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    expect(dialog()).not.toBeNull();
     await act(async () => (dialog()!.querySelector('button[aria-label="Close modal"]') as HTMLButtonElement).click());
     expect(dialog()).toBeNull();
   });

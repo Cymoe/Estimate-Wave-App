@@ -8,6 +8,8 @@ interface ModalProps {
   title: string;
   children: React.ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | 'full';
+  /** When false, a tap outside or Escape does nothing: only the X (or the dialog's own buttons) closes it. */
+  dismissible?: boolean;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -15,7 +17,8 @@ export const Modal: React.FC<ModalProps> = ({
   onClose,
   title,
   children,
-  size = 'md'
+  size = 'md',
+  dismissible = true,
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -39,7 +42,7 @@ export const Modal: React.FC<ModalProps> = ({
   // Handle escape key press
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
+      if (e.key === 'Escape' && isOpen && dismissible) {
         onClose();
       }
     };
@@ -64,7 +67,7 @@ export const Modal: React.FC<ModalProps> = ({
         previousFocusRef.current.focus();
       }
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, dismissible]);
   if (!isOpen) {
     return null;
   }
@@ -86,7 +89,8 @@ export const Modal: React.FC<ModalProps> = ({
       {/* Backdrop with blur and darker opacity. The dialog sits near the top so an on-screen keyboard never re-centres it. */}
       <div
         className={`fixed inset-0 bg-black/70 backdrop-blur-sm transition-opacity duration-200 ${shown ? 'opacity-100' : 'opacity-0'}`}
-        onClick={onClose}
+        onClick={dismissible ? onClose : undefined}
+        data-testid="modal-backdrop"
       />
       
       {/* Modal */}
