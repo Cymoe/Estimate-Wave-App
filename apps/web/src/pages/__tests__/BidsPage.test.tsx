@@ -30,7 +30,7 @@ jest.mock('../../components/layouts/DashboardLayout', () => ({
   OrganizationContext: require('react').createContext({ selectedOrg: { id: 'o2', name: 'Mio Homes', industry: 'Landscaping' } }),
 }));
 
-import BidsPage from '../BidsPage';
+import BidsPage, { SAVE_DELAY } from '../BidsPage';
 
 const flush = () => act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
 const buttons = () => Array.from(document.body.querySelectorAll('button'));
@@ -151,14 +151,26 @@ describe('Bids', () => {
     expect(rows[0].textContent).toContain('Highest here');
     expect(rows[1].textContent).toContain('Outbid here · raise to win the next lead');
     expect(rows[2].textContent).toContain('Add funds to cover this bid');
-    // The amount is a stepper: Save appears once it differs from what's saved.
+    // The amount is a stepper that saves on its own a moment after the last change: no Save button.
+    jest.useFakeTimers();
     expect(document.body.querySelector('button[aria-label="Save bid"]')).toBeNull();
     await act(async () => (document.body.querySelector('button[aria-label="Raise Bid for Landscaping in Midland"]') as HTMLButtonElement).click());
     expect(input('Bid for Landscaping in Midland').value).toBe('300');
+    await act(async () => (document.body.querySelector('button[aria-label="Raise Bid for Landscaping in Midland"]') as HTMLButtonElement).click());
+    expect(input('Bid for Landscaping in Midland').value).toBe('350');
+    expect(setStanding).not.toHaveBeenCalled();
     await act(async () => type(input('Bid for Landscaping in Midland'), '275'));
-    await act(async () => (document.body.querySelector('button[aria-label="Save bid"]') as HTMLButtonElement).click());
+    await act(async () => { jest.advanceTimersByTime(SAVE_DELAY + 50); });
     await flush();
+    expect(setStanding).toHaveBeenCalledTimes(1);
     expect(setStanding).toHaveBeenCalledWith('o2', 'Midland', 'landscaping', 275);
+    expect(document.body.querySelector('button[aria-label="Save bid"]')).toBeNull();
+    // Below the minimum nothing is sent.
+    await act(async () => type(input('Bid for Landscaping in Midland'), '150'));
+    await act(async () => { jest.advanceTimersByTime(SAVE_DELAY + 50); });
+    await flush();
+    expect(setStanding).toHaveBeenCalledTimes(1);
+    jest.useRealTimers();
     // The row itself is the feedback: no banner for a saved amount.
     expect(document.body.querySelector('[role="status"]')).toBeNull();
     // Removing asks first: declined keeps the bid, confirmed removes it.

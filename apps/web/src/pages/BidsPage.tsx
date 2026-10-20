@@ -1,6 +1,6 @@
-import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
-import { Check, Gavel, Plus, Trash2, X } from 'lucide-react';
+import { Gavel, Plus, Trash2, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { Modal } from '../components/common/Modal';
 import { bidsAPI, industriesAPI, walletAPI } from '../lib/api';
@@ -41,6 +41,8 @@ interface BidResult {
 export const MIN_BID = 200;
 /** Bids move in $50 steps, never below the minimum. */
 export const STEP = 50;
+/** How long after the last tap or keystroke a changed amount is saved. */
+export const SAVE_DELAY = 600;
 const stepUp = (d: number) => Math.max(MIN_BID, Math.floor(d / STEP) * STEP + STEP);
 const stepDown = (d: number) => Math.max(MIN_BID, Math.ceil(d / STEP) * STEP - STEP);
 
@@ -208,9 +210,32 @@ function StandingTab({
   onAdd: () => void;
   onAddFunds: () => void;
 }) {
-  // Amounts being changed, by bid id, until saved.
+  // Amounts being changed, by bid id, until saved. Each tap or keystroke saves on its own
+  // a moment later, so there is no Save button to press.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  useEffect(() => () => Object.values(timers.current).forEach(clearTimeout), []);
+  const changeAmount = (bid: StandingBid, value: string) => {
+    setDrafts((d) => ({ ...d, [bid.id]: value }));
+    clearTimeout(timers.current[bid.id]);
+    const dollars = Number(value);
+    if (!(dollars >= MIN_BID) || dollars === bid.amountCents / 100) return;
+    timers.current[bid.id] = setTimeout(async () => {
+      try {
+        await bidsAPI.setStanding(organizationId, bid.county, bid.jobType, dollars);
+        await onChanged();
+        // Drop the draft only if nothing newer was typed while this saved.
+        setDrafts((d) => {
+          if (d[bid.id] !== value) return d;
+          const { [bid.id]: _done, ...rest } = d;
+          return rest;
+        });
+      } catch (err) {
+        onNotify(err instanceof Error ? err.message : "The bid couldn't be saved", false);
+      }
+    }, SAVE_DELAY);
+  };
   const act = async (work: () => Promise<unknown>, done?: string) => {
     setBusy(true);
     try {
@@ -260,26 +285,11 @@ function StandingTab({
               <td className="px-4 py-3 text-white">{bid.county} County</td>
               <td className="px-4 py-3 text-gray-300">{tradeName(bid.jobType)}</td>
               <td className="px-4 py-3 text-right">
-                {(() => {
-                  const draft = drafts[bid.id] ?? String(bid.amountCents / 100);
-                  const changed = Number(draft) !== bid.amountCents / 100;
-                  return (
-                    <form
-                      className="inline-flex items-center gap-2"
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        if (changed) act(() => bidsAPI.setStanding(organizationId, bid.county, bid.jobType, Number(draft)));
-                      }}
-                    >
-                      <BidStepper label={`Bid for ${tradeName(bid.jobType)} in ${bid.county}`} value={draft} onChange={(v) => setDrafts((d) => ({ ...d, [bid.id]: v }))} />
-                      {changed && (
-                        <button type="submit" disabled={busy || !(Number(draft) >= MIN_BID)} className={primary} aria-label="Save bid">
-                          <Check className="w-4 h-4" />
-                        </button>
-                      )}
-                    </form>
-                  );
-                })()}
+                <BidStepper
+                  label={`Bid for ${tradeName(bid.jobType)} in ${bid.county}`}
+                  value={drafts[bid.id] ?? String(bid.amountCents / 100)}
+                  onChange={(v) => changeAmount(bid, v)}
+                />
               </td>
               <td className="px-4 py-3">
                 <Chip bid={bid} />
