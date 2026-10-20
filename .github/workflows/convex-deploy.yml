@@ -81,6 +81,11 @@ jobs:
       - name: Load shared catalog
         run: npx convex run seed:catalog
 
+      - name: Fold old Price Book trade picks into each company's trades
+        # One list of trades per company (organizations.leadTrades). Safe to
+        # re-run: once the old rows are gone it does nothing.
+        run: npx convex run industries:mergeChosenTrades
+
       - name: Smoke test the live deployment
         run: node scripts/convex-smoke-test.mjs
 

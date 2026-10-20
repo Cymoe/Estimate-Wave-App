@@ -385,7 +385,9 @@ export default defineSchema({
     // Lead Market. Set by the server only: not in organizationFields, so
     // organizations.update can't touch them.
     walletBalanceCents: v.optional(v.number()),
-    // Trade slugs the company buys leads for.
+    // The company's trades (slugs): what it works in and buys leads for.
+    // The one list bids, the Marketplace, the Vault and the Price Book read;
+    // the company sets it (industries.setForOrganization).
     leadTrades: v.optional(v.array(v.string())),
     // The monthly plan (Estimates, Price Book, Projects, Older leads).
     plan: v.optional(planFields),
@@ -697,7 +699,9 @@ export default defineSchema({
     ...snakeTimestamps,
   }).index("by_slug", ["slug"]),
 
-  // Trades a company works in (by industry slug).
+  // Old home of a company's Price Book trade picks; folded into
+  // organizations.leadTrades by industries.mergeChosenTrades and no longer
+  // read. Kept so rows still validate until the merge has run.
   organizationIndustries: defineTable({
     organizationId: v.id("organizations"),
     industrySlug: v.string(),

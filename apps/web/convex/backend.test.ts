@@ -711,6 +711,14 @@ describe("price book", () => {
         .map((i) => i.id)
         .sort(),
     ).toEqual(["hvac", "roofing"]);
+    // One list: the same trades drive leads and bids (the wallet reads them too).
+    expect(
+      (
+        await alice.as.query(api.marketplace.wallet, {
+          organizationId: alice.organizationId,
+        })
+      ).leadTrades,
+    ).toEqual(["roofing", "hvac"]);
 
     await expect(
       bob.as.query(api.industries.forOrganization, {
@@ -723,6 +731,38 @@ describe("price book", () => {
         industryIds: [],
       }),
     ).rejects.toThrow(/access/);
+  });
+
+  test("old Price Book trade picks fold into the company's trades, once", async () => {
+    const t = setup();
+    await t.action(internal.seed.catalog, {});
+    const alice = await signUp(t, "alice@example.com");
+    await alice.as.mutation(api.industries.setForOrganization, {
+      organizationId: alice.organizationId,
+      industryIds: ["concrete"],
+    });
+    // Rows the old picker wrote, including a duplicate and a trade that no longer exists.
+    await t.run(async (ctx) => {
+      for (const industrySlug of ["handyman", "concrete", "gone-trade"])
+        await ctx.db.insert("organizationIndustries", {
+          organizationId: alice.organizationId,
+          industrySlug,
+          createdAt: "2026-01-01T00:00:00Z",
+        });
+    });
+    expect(await t.mutation(internal.industries.mergeChosenTrades, {})).toEqual({ companies: 1, rows: 3 });
+    expect(
+      (
+        await alice.as.query(api.industries.forOrganization, {
+          organizationId: alice.organizationId,
+        })
+      )
+        .map((i) => i.id)
+        .sort(),
+    ).toEqual(["concrete", "handyman"]);
+    expect(await t.run((ctx) => ctx.db.query("organizationIndustries").collect())).toEqual([]);
+    // Running it again does nothing.
+    expect(await t.mutation(internal.industries.mergeChosenTrades, {})).toEqual({ companies: 0, rows: 0 });
   });
 
   test("only super admins can change the shared catalog", async () => {
