@@ -241,6 +241,11 @@ describe('Bids', () => {
     await act(async () => type(input('Bid for Landscaping in Midland'), '900'));
     expect(rows[0].textContent).toContain('Highest here');
     expect(rows[0].getAttribute('data-unfunded')).toBeNull();
+    // A row the server last saw as uncovered has no known standing once it's brought under the
+    // balance: say so rather than guess "Outbid" until the save lands.
+    await act(async () => type(input('Bid for Roofing in Howard'), '900'));
+    expect(rows[2].textContent).toContain('Checking standing…');
+    expect(rows[2].textContent).not.toContain('Outbid');
     expect(rows[0].textContent).not.toContain('Add funds');
     await act(async () => { jest.advanceTimersByTime(SAVE_DELAY + 50); });
     await flush();

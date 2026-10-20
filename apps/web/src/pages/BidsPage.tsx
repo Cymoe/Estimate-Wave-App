@@ -236,11 +236,16 @@ function Cell({ collapsed, className = '', children }: { collapsed: boolean; cla
  * a change is unsaved or saving the chip sits dimmed as "pending".
  */
 function Chip({ bid, funded = bid.funded, pending = false }: { bid: StandingBid; funded?: boolean; pending?: boolean }) {
+  // The server only works out leading/outbid for a covered bid. If its last word was "uncovered"
+  // and the amount is now covered but unsaved, the standing is simply not known yet.
+  const unknown = pending && funded && !bid.funded;
   const [tone, text] = !funded
     ? ['bg-red-600/25 text-red-200', 'Add funds to cover this bid']
-    : bid.leading
-      ? ['bg-emerald-600/30 text-emerald-200', 'Highest here']
-      : ['bg-amber-600/30 text-amber-200', 'Outbid here · raise to win the next lead'];
+    : unknown
+      ? ['bg-[#333] text-gray-300', 'Checking standing…']
+      : bid.leading
+        ? ['bg-emerald-600/30 text-emerald-200', 'Highest here']
+        : ['bg-amber-600/30 text-amber-200', 'Outbid here · raise to win the next lead'];
   return (
     <span data-pending={pending || undefined} className={`inline-block text-xs px-2 py-0.5 rounded-full whitespace-nowrap transition-[colors,opacity] duration-300 ${pending ? 'opacity-60' : ''} ${tone}`}>
       {text}
