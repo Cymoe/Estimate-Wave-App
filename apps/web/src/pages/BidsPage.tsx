@@ -914,10 +914,7 @@ function AddBidDialog({
 
         {/* Your bids: one row per trade, each with its own price, on screen from the start. */}
         <section aria-label="Your bids">
-          <div className="flex items-baseline justify-between gap-4 mb-1">
-            <p className="text-sm font-medium text-white">Your bids</p>
-            <p className="text-xs text-gray-500">{`Per lead · ${money(STEP * 100)} steps · from ${money(MIN_BID * 100)}`}</p>
-          </div>
+          <p className="text-sm font-medium text-white mb-1">Your bids</p>
           <ul className="divide-y divide-[#2A2A2A] border-y border-[#2A2A2A]" aria-label="Bids by trade">
             {shownTrades.map((t) => {
               const on = bids[t.id] !== undefined;

@@ -134,7 +134,7 @@ describe('Bids', () => {
     await act(async () => type(input('Search counties'), 'Odessa'));
     await act(async () => key('Enter'));
     expect(dialog()!.querySelector('[aria-label="Where"]')?.textContent).toContain('Ector County');
-    expect(dialog()!.textContent).toContain('Per lead · $50.00 steps · from $200.00');
+    expect(dialog()!.textContent).not.toContain('steps'); // no per-lead/step hint: each row shows its minimum
 
     // One row per trade. Their own trade is live at the minimum; the other waits behind "Bid $200.00".
     const rowsByTrade = () => Array.from(dialog()!.querySelectorAll('[aria-label="Bids by trade"] > li'));
