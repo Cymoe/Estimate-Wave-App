@@ -84,6 +84,8 @@ describe('Bids', () => {
     expect(scroller.contains(dialog()!.querySelector('[aria-label="Bids by trade"]'))).toBe(true);
     expect(scroller.contains(byText('Start bidding')!)).toBe(false);
     expect(dialog()!.contains(byText('Start bidding')!)).toBe(true);
+    // It opens tall enough for the county matches to show in full.
+    expect(dialog()!.querySelector('[data-testid="add-bid-body"]')!.className).toContain('min-h-[20rem]');
     // One county at a time: type a county, or a town and get its county; the search folds to a line once picked.
     const matches = () => Array.from(dialog()!.querySelectorAll('[aria-label="Counties"] button'));
     await act(async () => type(input('Search counties'), 'Mid'));

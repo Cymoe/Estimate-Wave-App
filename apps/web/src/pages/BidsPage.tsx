@@ -808,7 +808,9 @@ function AddBidDialog({
   );
   return (
     <Modal isOpen title={firstTime ? 'Set your bids' : 'Add a bid'} onClose={onClose} size="xl" dismissible={false} footer={footer}>
-      <div className="p-6 space-y-7">
+      {/* Tall enough from the start for the county matches (up to 12rem) to float in full under the search
+          box, without being clipped by the scrolling area or making the window grow as you type. */}
+      <div className="p-6 space-y-7 min-h-[20rem]" data-testid="add-bid-body">
         {/* Where: a search box until a county is picked, then just its name. */}
         <section aria-label="Where" className="relative">
           <p className="text-sm font-medium text-white mb-2">County</p>
