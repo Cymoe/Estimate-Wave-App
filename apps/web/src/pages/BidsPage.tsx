@@ -284,7 +284,7 @@ function Chip({ bid, funded = bid.funded, pending = false }: { bid: StandingBid;
       ? ['bg-[#333] text-gray-300', 'Checking standing…', null]
       : bid.leading
         ? ['bg-emerald-600/30 text-emerald-200', 'Winning', CheckCircle2]
-        : ['bg-amber-600/30 text-amber-200', 'Outbid here · raise to win the next lead', ArrowDownCircle];
+        : ['bg-amber-600/30 text-amber-200', 'Outbid · a higher or earlier bid leads', ArrowDownCircle];
   return (
     <span data-pending={pending || undefined} className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full whitespace-nowrap transition-[colors,opacity] duration-300 ${pending ? 'opacity-60' : ''} ${tone}`}>
       {Icon && <Icon className="w-3.5 h-3.5 flex-shrink-0" aria-hidden="true" />}
@@ -973,7 +973,7 @@ function AddBidDialog({
                           ? ['text-emerald-300', `Winning at ${at}`, CheckCircle2]
                           : where === 'paused'
                             ? ['text-red-300', `Paused at ${at} · add funds`, PauseCircle]
-                            : ['text-amber-200', `Outbid at ${at} · raise to win`, ArrowDownCircle];
+                            : ['text-amber-200', `Outbid at ${at} · a higher or earlier bid leads`, ArrowDownCircle];
                       return (
                         <p data-standing={where ?? undefined} className={`text-xs mt-0.5 flex items-center gap-1 ${tone}`}>
                           <Icon className="w-3.5 h-3.5 flex-shrink-0" aria-hidden="true" />

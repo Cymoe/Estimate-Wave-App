@@ -194,7 +194,7 @@ describe('Bids', () => {
     const rows = Array.from(document.body.querySelectorAll('[aria-label="My standing bids"] tbody tr'));
     expect(rows[0].textContent).toContain('Midland County');
     expect(rows[0].textContent).toContain('Winning');
-    expect(rows[1].textContent).toContain('Outbid here · raise to win the next lead');
+    expect(rows[1].textContent).toContain('Outbid · a higher or earlier bid leads');
     // A bid the balance has fallen below is paused, not live.
     expect(rows[2].textContent).toContain('Paused until you add funds');
     // The uncovered row carries a faint wash and a red edge; covered rows don't. The edge is an inset
@@ -430,7 +430,7 @@ describe('Bids', () => {
     setStanding.mockClear();
     await openIn('Odessa');
     // Opened fresh, Ector's placed bid says where it stands: outbid, with what to do about it.
-    expect(tradeRow('Landscaping').textContent).toContain('Outbid at $250.00 · raise to win');
+    expect(tradeRow('Landscaping').textContent).toContain('Outbid at $250.00 · a higher or earlier bid leads');
     expect(tradeRow('Landscaping').querySelector('[data-standing="outbid"]')).not.toBeNull();
     await act(async () => stepper('Raise Landscaping bid').click());
     await act(async () => (trades()[1].querySelector('button') as HTMLButtonElement).click());
