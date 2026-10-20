@@ -1,5 +1,6 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { createPortal } from 'react-dom';
 import { CalendarClock, CalendarDays, ChevronsDownUp, ChevronsUpDown, Download, FileSpreadsheet, Kanban, Mail, MapPin, MessageSquare, MoreVertical, Phone, Plus, Search, UserPlus } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
@@ -309,17 +310,25 @@ const LeadsPage: React.FC = () => {
   // '' is every county; NO_COUNTY is leads whose county isn't known.
   const [countyFilter, setCountyFilter] = useState('');
   // Export menu, like the one on Estimates: the leads on screen, filters included.
-  const [menuOpen, setMenuOpen] = useState(false);
+  // It opens in a portal at a fixed spot under the button so the board can't paint over it.
+  const [menuAt, setMenuAt] = useState<{ top: number; right: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const { toast, show: showToast } = useToast();
+  const toggleMenu = () => {
+    if (menuAt) return setMenuAt(null);
+    const rect = menuButtonRef.current?.getBoundingClientRect();
+    if (rect) setMenuAt({ top: rect.bottom + 8, right: Math.max(8, window.innerWidth - rect.right) });
+  };
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menuAt) return;
     const close = (e: MouseEvent) => {
-      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+      const target = e.target as Node;
+      if (!menuRef.current?.contains(target) && !menuButtonRef.current?.contains(target)) setMenuAt(null);
     };
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
-  }, [menuOpen]);
+  }, [menuAt]);
   const [view, setView] = useState<'board' | 'calendar'>(() => {
     try {
       return localStorage.getItem(VIEW_KEY) === 'calendar' ? 'calendar' : 'board';
@@ -365,7 +374,7 @@ const LeadsPage: React.FC = () => {
   // Today's date where you are; the UTC date is already tomorrow on US evenings.
   const todayIso = appointmentDay(toLocalInput(new Date().toISOString()));
   const exportLeads = (kind: 'csv' | 'excel') => {
-    setMenuOpen(false);
+    setMenuAt(null);
     if (visible.length === 0) {
       showToast('No leads to export.');
       return;
@@ -495,18 +504,19 @@ const LeadsPage: React.FC = () => {
                 </button>
               ))}
             </div>
-            <div className="relative" ref={menuRef}>
-              <button
-                type="button"
-                onClick={() => setMenuOpen((o) => !o)}
-                aria-label="More"
-                aria-expanded={menuOpen}
-                className="p-2 border border-[#333333] text-gray-400 hover:text-white"
-              >
-                <MoreVertical className="w-4 h-4" />
-              </button>
-              {menuOpen && (
-                <div role="menu" className="absolute top-full right-0 mt-2 w-48 bg-[#1E1E1E] border border-[#333333] shadow-lg z-50 py-1">
+            <button
+              ref={menuButtonRef}
+              type="button"
+              onClick={toggleMenu}
+              aria-label="More"
+              aria-expanded={menuAt !== null}
+              className="p-2 border border-[#333333] text-gray-400 hover:text-white"
+            >
+              <MoreVertical className="w-4 h-4" />
+            </button>
+            {menuAt &&
+              createPortal(
+                <div ref={menuRef} role="menu" style={{ top: menuAt.top, right: menuAt.right }} className="fixed z-[10030] w-48 bg-[#1E1E1E] border border-[#333333] shadow-xl py-1">
                   <button type="button" role="menuitem" onClick={() => exportLeads('csv')} className="w-full flex items-center px-3 py-2 text-sm text-white hover:bg-[#333333]">
                     <Download className="w-3 h-3 mr-3 text-gray-400" />
                     Export to CSV
@@ -515,9 +525,9 @@ const LeadsPage: React.FC = () => {
                     <FileSpreadsheet className="w-3 h-3 mr-3 text-gray-400" />
                     Export to Excel
                   </button>
-                </div>
+                </div>,
+                document.body,
               )}
-            </div>
           </div>
           {view === 'calendar' ? (
             <LeadsCalendar leads={visible} onOpen={(lead) => setEditing(lead)} />

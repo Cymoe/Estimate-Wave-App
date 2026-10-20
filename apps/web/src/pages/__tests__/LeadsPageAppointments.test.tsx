@@ -347,13 +347,15 @@ describe('Leads board', () => {
     await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
     await flush();
     const more = () => container.querySelector('button[aria-label="More"]') as HTMLButtonElement;
-    expect(container.querySelector('[role="menu"]')).toBeNull();
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
     await act(async () => click(more()));
-    const item = (label: string) => Array.from(container.querySelectorAll('[role="menuitem"]')).find((b) => b.textContent?.includes(label)) as HTMLButtonElement;
+    // The menu is portalled and fixed, so the board can't paint over it.
+    expect(document.body.querySelector('[role="menu"]')?.className).toContain('fixed');
+    const item = (label: string) => Array.from(document.body.querySelectorAll('[role="menuitem"]')).find((b) => b.textContent?.includes(label)) as HTMLButtonElement;
     await act(async () => click(item('Export to CSV')));
     expect(exportCsv).toHaveBeenCalledTimes(1);
     expect((exportCsv.mock.calls[0][0] as { name: string }[]).map((l) => l.name)).toEqual(['Rocky Vansau', 'Maria Lopez']);
-    expect(container.querySelector('[role="menu"]')).toBeNull();
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
 
     // Narrow the board, and the export narrows with it.
     const search = container.querySelector('input[aria-label="Search leads"]') as HTMLInputElement;
