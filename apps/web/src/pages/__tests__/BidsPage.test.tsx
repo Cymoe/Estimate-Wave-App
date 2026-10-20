@@ -172,6 +172,9 @@ describe('Bids', () => {
     expect(rows[0].textContent).toContain('Highest here');
     expect(rows[1].textContent).toContain('Outbid here · raise to win the next lead');
     expect(rows[2].textContent).toContain('Add funds to cover this bid');
+    // The uncovered row carries a faint wash and a red edge; covered rows don't.
+    expect(rows[2].getAttribute('data-unfunded')).toBe('true');
+    expect(rows[0].getAttribute('data-unfunded')).toBeNull();
     // The amount is a stepper that saves on its own a moment after the last change: no Save button.
     jest.useFakeTimers();
     expect(document.body.querySelector('button[aria-label="Save bid"]')).toBeNull();
@@ -232,10 +235,12 @@ describe('Bids', () => {
     // before any save, and comes straight back when the amount drops under again.
     await act(async () => type(input('Bid for Landscaping in Midland'), '1200'));
     expect(rows[0].textContent).toContain('Add funds to cover this bid');
+    expect(rows[0].getAttribute('data-unfunded')).toBe('true'); // the whole row lights up on the tap
     expect(Array.from(rows[0].querySelectorAll('button')).some((b) => b.textContent === 'Add funds')).toBe(true);
     expect(setStanding).toHaveBeenCalledTimes(4); // nothing sent yet for this change
     await act(async () => type(input('Bid for Landscaping in Midland'), '900'));
     expect(rows[0].textContent).toContain('Highest here');
+    expect(rows[0].getAttribute('data-unfunded')).toBeNull();
     expect(rows[0].textContent).not.toContain('Add funds');
     await act(async () => { jest.advanceTimersByTime(SAVE_DELAY + 50); });
     await flush();

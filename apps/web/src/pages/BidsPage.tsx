@@ -335,13 +335,20 @@ function StandingTab({
           </tr>
         </thead>
         <tbody className="divide-y divide-[#2A2A2A]">
-          {standing.map((bid) => (
-            <tr key={bid.id}>
-              <td className="px-4 py-3 text-white">{bid.county} County</td>
+          {standing.map((bid) => {
+            const state = row(bid.id);
+            const draft = state.draft !== undefined ? Number(state.draft) : NaN;
+            // Optimistic: the balance is known here, so "covered or not" updates on the tap itself.
+            const funded = Number.isFinite(draft) ? draft * 100 <= balance : bid.funded;
+            const pending = (Number.isFinite(draft) && draft !== bid.amountCents / 100) || state.status === 'saving';
+            return (
+            // A bid the balance can't cover gets a faint wash and a red edge, so it stands out in a scan
+            // without reading as an error: the bid is fine, it just can't win until funds are added.
+            <tr key={bid.id} data-unfunded={!funded || undefined} className={`transition-colors duration-300 ${funded ? '' : 'bg-red-500/[0.06]'}`}>
+              <td className={`px-4 py-3 text-white border-l-2 transition-colors duration-300 ${funded ? 'border-transparent' : 'border-red-400'}`}>{bid.county} County</td>
               <td className="px-4 py-3 text-gray-300">{tradeName(bid.jobType)}</td>
               <td className="px-4 py-3 text-right">
                 {(() => {
-                  const state = row(bid.id);
                   const value = state.draft ?? String(bid.amountCents / 100);
                   return (
                     <span className="inline-flex flex-col items-end">
@@ -369,23 +376,14 @@ function StandingTab({
                 })()}
               </td>
               <td className="px-4 py-3">
-                {(() => {
-                  const state = row(bid.id);
-                  const draft = state.draft !== undefined ? Number(state.draft) : NaN;
-                  // Optimistic: the balance is known here, so "covered or not" updates on the tap itself.
-                  const funded = Number.isFinite(draft) ? draft * 100 <= balance : bid.funded;
-                  const pending = (Number.isFinite(draft) && draft !== bid.amountCents / 100) || state.status === 'saving';
-                  return (
-                    <span className="inline-flex items-center gap-2 whitespace-nowrap">
-                      <Chip bid={bid} funded={funded} pending={pending} />
-                      {!funded && (
-                        <button type="button" onClick={onAddFunds} className="text-xs text-[#7fb0e0] underline underline-offset-2">
-                          Add funds
-                        </button>
-                      )}
-                    </span>
-                  );
-                })()}
+                <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                  <Chip bid={bid} funded={funded} pending={pending} />
+                  {!funded && (
+                    <button type="button" onClick={onAddFunds} className="text-xs text-[#7fb0e0] underline underline-offset-2">
+                      Add funds
+                    </button>
+                  )}
+                </span>
               </td>
               <td className="px-4 py-3 text-right">
                 <button
@@ -402,7 +400,8 @@ function StandingTab({
                 </button>
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>
