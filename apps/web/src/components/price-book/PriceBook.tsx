@@ -21,6 +21,9 @@ import { PricingModePreviewModal } from './PricingModePreviewModal';
 import { PricingModesService, PricingMode } from '../../services/PricingModesService';
 import { PriceRangeCompact } from './PriceRangeDisplay';
 import { priceRange } from '../../utils/priceRange';
+import { IndustryService } from '../../services/IndustryService';
+import { TRADES_CHANGED } from '../settings/TradesEditor';
+import { inMyTrades } from './tradeScope';
 
 /** Price-book items are priced at their red line. */
 const withRedLinePrice = (item: LineItem): LineItem => ({ ...item, price: priceRange(item).redLine });
@@ -56,7 +59,10 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
   const [priceSort, setPriceSort] = useState<'asc' | 'desc'>('desc');
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const optionsMenuRef = useRef<HTMLDivElement>(null);
-  const [trades, setTrades] = useState<{ id: string; name: string; code: string; industry?: { id: string; name: string; icon?: string; color?: string } }[]>([]);
+  const [trades, setTrades] = useState<{ id: string; name: string; code: string; industry_id?: string; industry?: { id: string; name: string; icon?: string; color?: string } | null }[]>([]);
+  // The company's trades: the Price Book opens on their items, with "All trades" one tap away.
+  const [myTrades, setMyTrades] = useState<Set<string>>(new Set());
+  const [tradeScope, setTradeScope] = useState<'mine' | 'all'>('mine');
   const [selectedTradeId, setSelectedTradeId] = useState<string>('all');
   const [groupedTrades, setGroupedTrades] = useState<Map<string, typeof trades>>(new Map());
   const [selectedStatus, setSelectedStatus] = useState('all');
@@ -509,8 +515,23 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
   }, []);
 
 
+  useEffect(() => {
+    const orgId = selectedOrg?.id;
+    if (!orgId) return;
+    const load = () =>
+      IndustryService.getOrganizationIndustries(orgId)
+        .then((rows: Array<{ id: string }>) => setMyTrades(new Set(rows.map((r) => r.id))))
+        .catch(() => setMyTrades(new Set()));
+    load();
+    window.addEventListener(TRADES_CHANGED, load);
+    return () => window.removeEventListener(TRADES_CHANGED, load);
+  }, [selectedOrg?.id]);
+
   const filteredLineItems = useMemo(() => {
     let filtered = [...lineItems];
+
+    // My trades: items under a cost code for one of the company's trades (and any without a cost code).
+    if (tradeScope === 'mine') filtered = inMyTrades(filtered, trades, myTrades);
 
     // Status filter
     if (selectedStatus !== 'all') {
@@ -599,7 +620,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
         return b.price - a.price;
       }
     });
-  }, [lineItems, selectedStatus, showFavoritesOnly, selectedDateRange, selectedVendorId, selectedTradeId, searchTerm, minPrice, maxPrice, selectedUnit, priceSort, quickFilter, trades]);
+  }, [lineItems, selectedStatus, showFavoritesOnly, selectedDateRange, selectedVendorId, selectedTradeId, searchTerm, minPrice, maxPrice, selectedUnit, priceSort, quickFilter, trades, tradeScope, myTrades]);
   
   // Create grouped items by category for sidebar
   const groupedLineItemsByCategory = useMemo(() => {
@@ -1487,6 +1508,21 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
         <div className="flex items-center justify-between gap-4">
           {/* Left side - Filters */}
           <div className="flex items-center gap-3">
+            {myTrades.size > 0 && (
+              <div role="group" aria-label="Which trades" className="inline-flex border border-[#333333]">
+                {(['mine', 'all'] as const).map((scope) => (
+                  <button
+                    key={scope}
+                    type="button"
+                    aria-pressed={tradeScope === scope}
+                    onClick={() => setTradeScope(scope)}
+                    className={`px-3 py-2 text-sm whitespace-nowrap ${tradeScope === scope ? 'bg-[#336699] text-white' : 'text-gray-400 hover:text-white'}`}
+                  >
+                    {scope === 'mine' ? 'My trades' : 'All trades'}
+                  </button>
+                ))}
+              </div>
+            )}
             <select
               className="bg-[#1D1F25] border border-[#333333] px-3 py-2 text-sm text-white focus:outline-none focus:border-[#336699]"
               value={selectedTradeId}
