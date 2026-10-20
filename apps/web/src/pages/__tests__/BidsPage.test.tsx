@@ -141,7 +141,7 @@ describe('Bids', () => {
     // One row per trade. Their own trade is live at the minimum; the other waits behind "Bid $200.00".
     const rowsByTrade = () => Array.from(dialog()!.querySelectorAll('[aria-label="Bids by trade"] > li'));
     expect(rowsByTrade().map((li) => li.querySelector('p')?.textContent)).toEqual(['Landscaping', 'Roofing']);
-    expect(rowsByTrade()[0].textContent).toContain('From $200.00'); // not bid on yet: just the minimum
+    expect(rowsByTrade()[0].textContent).toContain('From $200.00 · or type any amount'); // a new trade: its minimum, and typing works
     expect(input('Landscaping bid').value).toBe('200');
     expect(input('Roofing bid')).toBeNull();
     const button = (label: string) => document.body.querySelector(`button[aria-label="${label}"]`) as HTMLButtonElement;
@@ -207,6 +207,12 @@ describe('Bids', () => {
     expect(document.body.querySelector('[data-shared-balance]')?.textContent).toBe(
       'Your $1,000.00 covers about 4 leads at your highest bid. Every win comes out of this one balance.',
     );
+    // Tapping into an amount says any amount can be typed, not just $50 steps.
+    const midlandLine = () => rows[0].querySelector('[aria-live="polite"]')!;
+    await act(async () => input('Bid for Landscaping in Midland').dispatchEvent(new FocusEvent('focusin', { bubbles: true })));
+    expect(midlandLine().textContent).toBe('Type any amount from $200.00');
+    await act(async () => input('Bid for Landscaping in Midland').dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
+    expect(midlandLine().textContent).toBe('');
     // The amount is a stepper that saves on its own a moment after the last change: no Save button.
     jest.useFakeTimers();
     expect(document.body.querySelector('button[aria-label="Save bid"]')).toBeNull();
@@ -360,6 +366,7 @@ describe('Bids', () => {
     expect(tradeRow('Landscaping').textContent).toContain('Winning at $250.00');
     expect(tradeRow('Landscaping').textContent).not.toContain('TOP');
     expect(tradeRow('Roofing').textContent).toContain('From $200.00');
+    expect(tradeRow('Roofing').textContent).not.toContain('type any amount'); // switched off: nothing to type into
     // Nothing has changed, so there is nothing to save; raise it and there is.
     expect(byText('Save bid')!.disabled).toBe(true);
     expect(dialog()!.textContent).toContain('These are your current bids here.');

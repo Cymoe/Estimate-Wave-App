@@ -89,6 +89,8 @@ type RowState = {
   error?: string;
   /** The amount asked for is a raise the balance can't cover: nothing is sent, and the row says to add funds. */
   over?: boolean;
+  /** The amount field has focus: the quiet line says any amount can be typed. */
+  typing?: boolean;
 };
 const stepUp = (d: number) => Math.max(MIN_BID, Math.floor(d / STEP) * STEP + STEP);
 const stepDown = (d: number) => Math.max(MIN_BID, Math.ceil(d / STEP) * STEP - STEP);
@@ -511,9 +513,11 @@ function StandingTab({
                         canRaise={canRaise}
                         onCapped={() => capped(bid)}
                         onChange={(v, via) => changeAmount(bid, v, via)}
+                        onFocus={() => patchRow(bid.id, { typing: true })}
                         onBlur={() => {
                           // Leaving the field with nothing it can send in it puts the saved amount back.
-                          if (state.draft !== undefined && (!(Number(state.draft) >= MIN_BID) || state.over)) patchRow(bid.id, { draft: undefined, over: false });
+                          if (state.draft !== undefined && (!(Number(state.draft) >= MIN_BID) || state.over)) patchRow(bid.id, { draft: undefined, over: false, typing: false });
+                          else patchRow(bid.id, { typing: false });
                         }}
                       />
                       {/* Always present, so the row never moves as the text comes and goes. */}
@@ -528,6 +532,9 @@ function StandingTab({
                         )}
                         {!state.over && (state.status === 'pending' || state.status === 'saving') && <span className="text-gray-500">{state.words?.placing}</span>}
                         {!state.over && state.status === 'saved' && <span className="text-emerald-300">{state.words?.placed}</span>}
+                        {!state.over && state.status === 'idle' && state.typing && (
+                          <span className="text-gray-500">Type any amount from {money(MIN_BID * 100)}</span>
+                        )}
                         {!state.over && state.status === 'failed' && (
                           <span className="text-red-300" title={state.error}>
                             Didn't take ·{' '}
@@ -621,6 +628,7 @@ function BidStepper({
   value,
   onChange,
   onBlur,
+  onFocus,
   tone,
   warn = false,
   canRaise = true,
@@ -634,6 +642,8 @@ function BidStepper({
   onCapped?: () => void;
   /** Called when the field is left, so the owner can put a valid amount back if what's typed isn't one. */
   onBlur?: () => void;
+  /** Called when the amount field is tapped into, to show that any amount can be typed. */
+  onFocus?: () => void;
   /** Tints the amount for a moment after a tap: green going up, amber going down. */
   tone?: 'up' | 'down';
   /** The amount is more than the balance can place: amber edge and amount until it fits. */
@@ -672,6 +682,7 @@ function BidStepper({
           value={value}
           onChange={(e) => onChange(e.target.value, 'type')}
           onBlur={onBlur}
+          onFocus={onFocus}
           className={`w-16 bg-transparent px-1 py-2 text-right text-base md:text-sm focus:outline-none transition-colors duration-300 ${amount}`}
         />
       </label>
@@ -994,7 +1005,15 @@ function AddBidDialog({
                     {/* One line that says where this bid stands, always about a specific amount. */}
                     {(() => {
                       const mine = placed(t.id);
-                      if (!mine) return <p className="text-xs text-gray-500 mt-0.5">From {money(MIN_BID * 100)}</p>;
+                      if (!mine) {
+                        // On a new trade, say the + and − aren't the only way: any amount can be typed.
+                        return (
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            From {money(MIN_BID * 100)}
+                            {on ? ' · or type any amount' : ''}
+                          </p>
+                        );
+                      }
                       const at = money(mine.amountCents);
                       if (on && amountCents(t.id) !== mine.amountCents) {
                         // The old standing was about the old amount; say what saving will do instead.
