@@ -49,6 +49,8 @@ export const STEP_SAVE_DELAY = 450;
 export const SAVED_HINT_MS = 1500;
 /** How long the amount stays tinted after a tap. */
 const TONE_MS = 350;
+/** How long a tap's "+$50" takes to lift off and fade (matches the rise animation). */
+const PULSE_MS = 900;
 
 type Via = 'up' | 'down' | 'type';
 type RowState = {
@@ -320,14 +322,12 @@ function StandingTab({
                 {(() => {
                   const state = row(bid.id);
                   const value = state.draft ?? String(bid.amountCents / 100);
-                  const delta = Number.isFinite(Number(value)) ? Number(value) - bid.amountCents / 100 : 0;
                   return (
                     <span className="inline-flex flex-col items-end">
                       <BidStepper
                         label={`Bid for ${tradeName(bid.jobType)} in ${bid.county}`}
                         value={value}
                         tone={state.tone}
-                        delta={delta}
                         onChange={(v, via) => changeAmount(bid, v, via)}
                       />
                       {/* Always present, so the row never moves as the text comes and goes. */}
@@ -411,29 +411,36 @@ function BidStepper({
   value,
   onChange,
   tone,
-  delta = 0,
 }: {
   label: string;
   value: string;
   onChange: (value: string, via: Via) => void;
   /** Tints the amount for a moment after a tap: green going up, amber going down. */
   tone?: 'up' | 'down';
-  /** How far the amount is from what's saved; shown as a small "+$50" lifting off the field. */
-  delta?: number;
 }) {
+  // Each tap lifts its own "+$50" / "−$50" off the field; a new tap restarts it.
+  const [pulse, setPulse] = useState<{ id: number; dir: 'up' | 'down' } | null>(null);
+  const pulseTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => () => clearTimeout(pulseTimer.current), []);
+  const step = (dir: 'up' | 'down', next: number) => {
+    setPulse((p) => ({ id: (p?.id ?? 0) + 1, dir }));
+    clearTimeout(pulseTimer.current);
+    pulseTimer.current = setTimeout(() => setPulse(null), PULSE_MS);
+    onChange(String(next), dir);
+  };
   const dollars = Number(value);
   const ok = Number.isFinite(dollars) && value.trim() !== '';
   const control = 'px-3 text-lg leading-none text-gray-300 hover:text-white active:scale-90 transition-transform duration-100 disabled:opacity-30 disabled:hover:text-gray-300';
   const amount = tone === 'up' ? 'text-emerald-300' : tone === 'down' ? 'text-amber-300' : 'text-white';
   return (
     <div className="relative inline-flex items-stretch rounded border border-[#333] bg-[#1A1A1A]">
-      {delta !== 0 && (
-        <span key={delta} aria-hidden="true" className={`absolute -top-3.5 right-10 text-[11px] font-medium animate-rise pointer-events-none ${delta > 0 ? 'text-emerald-300' : 'text-amber-300'}`}>
-          {delta > 0 ? '+' : '−'}
-          {money(Math.abs(delta) * 100)}
+      {pulse && (
+        <span key={pulse.id} aria-hidden="true" className={`absolute -top-3.5 right-10 text-[11px] font-medium animate-rise pointer-events-none ${pulse.dir === 'up' ? 'text-emerald-300' : 'text-amber-300'}`}>
+          {pulse.dir === 'up' ? '+' : '−'}
+          {money(STEP * 100)}
         </span>
       )}
-      <button type="button" aria-label={`Lower ${label}`} disabled={!ok || dollars <= MIN_BID} onClick={() => onChange(String(stepDown(dollars)), 'down')} className={control}>
+      <button type="button" aria-label={`Lower ${label}`} disabled={!ok || dollars <= MIN_BID} onClick={() => step('down', stepDown(dollars))} className={control}>
         −
       </button>
       <label className="flex items-center border-x border-[#333] text-sm text-gray-400">
@@ -446,7 +453,7 @@ function BidStepper({
           className={`w-16 bg-transparent px-1 py-2 text-right text-base md:text-sm focus:outline-none transition-colors duration-300 ${amount}`}
         />
       </label>
-      <button type="button" aria-label={`Raise ${label}`} disabled={!ok} onClick={() => onChange(String(stepUp(dollars)), 'up')} className={control}>
+      <button type="button" aria-label={`Raise ${label}`} disabled={!ok} onClick={() => step('up', stepUp(dollars))} className={control}>
         +
       </button>
     </div>

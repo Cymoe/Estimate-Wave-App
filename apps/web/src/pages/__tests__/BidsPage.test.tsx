@@ -158,14 +158,14 @@ describe('Bids', () => {
     expect(document.body.querySelector('button[aria-label="Save bid"]')).toBeNull();
     const raise = () => (document.body.querySelector('button[aria-label="Raise Bid for Landscaping in Midland"]') as HTMLButtonElement).click();
     const status = () => rows[0].querySelector('[aria-live="polite"]')!;
-    // Beat 1: the tap itself answers. The number moves and tints green, a "+$50" lifts off the field.
+    // Beat 1: the tap itself answers. The number moves and tints green, and each tap lifts its own "+$50" off the field.
     await act(async () => raise());
     expect(input('Bid for Landscaping in Midland').value).toBe('300');
     expect(input('Bid for Landscaping in Midland').className).toContain('text-emerald-300');
     expect(rows[0].querySelector('.animate-rise')?.textContent).toBe('+$50.00');
     await act(async () => raise());
     expect(input('Bid for Landscaping in Midland').value).toBe('350');
-    expect(rows[0].querySelector('.animate-rise')?.textContent).toBe('+$100.00');
+    expect(rows[0].querySelector('.animate-rise')?.textContent).toBe('+$50.00');
     expect(setStanding).not.toHaveBeenCalled();
     expect(status().textContent).toBe('');
     // Beat 2: a moment after the last tap it saves, and the row says so in the reserved line while it does.
@@ -179,9 +179,9 @@ describe('Bids', () => {
     expect(setStanding).toHaveBeenCalledWith('o2', 'Midland', 'landscaping', 350);
     // Beat 3: "Saved" for a moment, then the line is empty but still there, so nothing moves.
     expect(status().textContent).toBe('Saved');
-    expect(rows[0].querySelector('.animate-rise')).toBeNull();
     await act(async () => { jest.advanceTimersByTime(SAVED_HINT_MS + 50); });
     expect(status().textContent).toBe('');
+    expect(rows[0].querySelector('.animate-rise')).toBeNull(); // the lift-off has long faded
     expect(status()).not.toBeNull();
     // Typing waits a little longer than a tap before saving.
     await act(async () => type(input('Bid for Landscaping in Midland'), '275'));
