@@ -57,9 +57,15 @@ export const ROW_COLLAPSE_MS = 160;
 
 type Via = 'up' | 'down' | 'type';
 
-/** Auction-room wording for the two beats under a row's stepper, picked fresh for each save. */
-export const PLACING = ['Going once…', 'Raising the paddle…', 'Placing your bid…', 'Calling it in…', 'Going twice…'];
-export const PLACED = ["Bid's in.", 'Locked in.', "Paddle's up.", 'On the books.', 'Sold on that.'];
+/** Auction-room wording for the two beats under a row's stepper, picked fresh for each save and matching its direction. */
+export const PLACING = {
+  up: ['Going once…', 'Raising the paddle…', 'Placing your bid…', 'Calling it in…', 'Going twice…'],
+  down: ['Easing off…', 'Lowering the paddle…', 'Pulling back…', 'Trimming the bid…', 'Settling lower…'],
+};
+export const PLACED = {
+  up: ["Bid's in.", 'Locked in.', "Paddle's up.", 'On the books.', 'Sold on that.'],
+  down: ["Bid's in.", 'Eased off.', "Paddle's down.", 'On the books.', 'Trimmed.'],
+};
 const anyOf = (words: string[]) => words[Math.floor(Math.random() * words.length)];
 
 type RowState = {
@@ -323,7 +329,8 @@ function StandingTab({
   }, [standing]);
   const save = async (bid: StandingBid, value: string) => {
     const dollars = Number(value);
-    patchRow(bid.id, { status: 'saving', failedValue: undefined, error: undefined, words: { placing: anyOf(PLACING), placed: anyOf(PLACED) } });
+    const dir = dollars < bid.amountCents / 100 ? 'down' : 'up';
+    patchRow(bid.id, { status: 'saving', failedValue: undefined, error: undefined, words: { placing: anyOf(PLACING[dir]), placed: anyOf(PLACED[dir]) } });
     try {
       await bidsAPI.setStanding(organizationId, bid.county, bid.jobType, dollars);
       await onChanged();

@@ -200,7 +200,7 @@ describe('Bids', () => {
     let release!: (id: string) => void;
     setStanding.mockImplementationOnce(() => new Promise<string>((resolve) => { release = resolve; }));
     await act(async () => { jest.advanceTimersByTime(STEP_SAVE_DELAY + 10); });
-    expect(PLACING).toContain(status().textContent); // auction-room wording, one of a few
+    expect(PLACING.up).toContain(status().textContent); // auction-room wording for a raise, one of a few
     expect(chip()).not.toBeNull();
     await act(async () => release('sb1'));
     await flush();
@@ -208,20 +208,24 @@ describe('Bids', () => {
     expect(setStanding).toHaveBeenCalledTimes(1);
     expect(setStanding).toHaveBeenCalledWith('o2', 'Midland', 'landscaping', 350);
     // Beat 3: a "bid's in" line for a moment, then the line is empty but still there, so nothing moves.
-    expect(PLACED).toContain(status().textContent);
+    expect(PLACED.up).toContain(status().textContent);
     await act(async () => { jest.advanceTimersByTime(SAVED_HINT_MS + 50); });
     expect(status().textContent).toBe('');
     expect(rows[0].querySelector('.animate-rise')).toBeNull(); // the lift-off has long faded
     expect(status()).not.toBeNull();
-    // Typing waits a little longer than a tap before saving.
-    await act(async () => type(input('Bid for Landscaping in Midland'), '275'));
+    // Typing waits a little longer than a tap before saving. Going down, the words go down too.
+    await act(async () => type(input('Bid for Landscaping in Midland'), '225'));
     expect(input('Bid for Landscaping in Midland').className).not.toContain('text-emerald-300');
     await act(async () => { jest.advanceTimersByTime(STEP_SAVE_DELAY + 10); });
     expect(setStanding).toHaveBeenCalledTimes(1);
+    setStanding.mockImplementationOnce(() => new Promise<string>((resolve) => { release = resolve; }));
     await act(async () => { jest.advanceTimersByTime(SAVE_DELAY - STEP_SAVE_DELAY); });
+    expect(PLACING.down).toContain(status().textContent);
+    await act(async () => release('sb1'));
     await flush();
+    expect(PLACED.down).toContain(status().textContent);
     expect(setStanding).toHaveBeenCalledTimes(2);
-    expect(setStanding).toHaveBeenLastCalledWith('o2', 'Midland', 'landscaping', 275);
+    expect(setStanding).toHaveBeenLastCalledWith('o2', 'Midland', 'landscaping', 225);
     // A save the server refuses puts the saved number back, says so in the row (not at the top), and offers a retry.
     setStanding.mockRejectedValueOnce(new Error('Nope'));
     await act(async () => type(input('Bid for Landscaping in Midland'), '400'));
@@ -233,7 +237,7 @@ describe('Bids', () => {
     await act(async () => (status().querySelector('button') as HTMLButtonElement).click());
     await flush();
     expect(setStanding).toHaveBeenLastCalledWith('o2', 'Midland', 'landscaping', 400);
-    expect(PLACED).toContain(status().textContent);
+    expect(PLACED.up).toContain(status().textContent);
     // Optimistic standing: past the $1,000 balance the chip goes red with its link on the tap itself,
     // before any save, and comes straight back when the amount drops under again.
     await act(async () => type(input('Bid for Landscaping in Midland'), '1200'));
