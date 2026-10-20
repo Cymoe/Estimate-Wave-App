@@ -378,6 +378,54 @@ describe('Bids', () => {
     expect(dialog()).not.toBeNull();
     await act(async () => (dialog()!.querySelector('button[aria-label="Close modal"]') as HTMLButtonElement).click());
     expect(dialog()).toBeNull();
+
+    // After the first time, a save says what it did in a passing toast, not the sticky "You're set" banner.
+    const stepper = (label: string) => document.body.querySelector(`button[aria-label="${label}"]`) as HTMLButtonElement;
+    const toast = () => document.body.querySelector('[role="status"]')?.textContent;
+    const trades = () => Array.from(dialog()!.querySelectorAll('[aria-label="Bids by trade"] > li'));
+    const openIn = async (q: string) => {
+      await act(async () => byText('Add bid')!.click());
+      await act(async () => type(input('Search counties'), q));
+      await act(async () => (dialog()!.querySelector('[aria-label="Counties"] button') as HTMLButtonElement).click());
+    };
+    const saveWith = async (label: string) => {
+      await act(async () => byText(label)!.click());
+      await flush();
+      expect(dialog()).toBeNull();
+    };
+    setStanding.mockClear();
+    // Changing a bid already placed: "updated", and only that bid is sent.
+    await openIn('Mid');
+    await act(async () => stepper('Raise Landscaping bid').click());
+    await saveWith('Save bid');
+    expect(setStanding.mock.calls).toEqual([['o2', 'Midland', 'landscaping', 300]]);
+    expect(toast()).toBe('Bid updated: Landscaping in Midland County is now $300.00.');
+    expect(document.body.textContent).not.toContain("You're set");
+    // A county with no bid yet: "added".
+    setStanding.mockClear();
+    await openIn('Andrews');
+    await saveWith('Save bid');
+    expect(setStanding.mock.calls).toEqual([['o2', 'Andrews', 'landscaping', 200]]);
+    expect(toast()).toBe('Bid added: Landscaping in Andrews County at $200.00.');
+    // One new and one changed in the same save.
+    setStanding.mockClear();
+    await openIn('Odessa');
+    await act(async () => stepper('Raise Landscaping bid').click());
+    await act(async () => (trades()[1].querySelector('button') as HTMLButtonElement).click());
+    await saveWith('Save 2 bids');
+    expect(setStanding.mock.calls).toEqual([
+      ['o2', 'Ector', 'roofing', 200],
+      ['o2', 'Ector', 'landscaping', 300],
+    ]);
+    expect(toast()).toBe('Saved: 1 bid added, 1 updated in Ector County.');
+    // A row left at its placed amount isn't sent again, and doesn't count as a change.
+    setStanding.mockClear();
+    await openIn('Mid');
+    await act(async () => (trades()[1].querySelector('button') as HTMLButtonElement).click());
+    await saveWith('Save 2 bids');
+    expect(setStanding.mock.calls).toEqual([['o2', 'Midland', 'roofing', 200]]);
+    expect(toast()).toBe('Bid added: Roofing in Midland County at $200.00.');
+    expect(document.body.textContent).not.toContain("You're set");
   });
 
   it('lists what the bids won and missed under the bids, on the same screen', async () => {

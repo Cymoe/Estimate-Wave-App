@@ -769,13 +769,29 @@ function AddBidDialog({
   const save = async () => {
     setBusy(true);
     try {
-      for (const t of live) await bidsAPI.setStanding(organizationId, county!, t.id, Number(bids[t.id]));
+      // Each row is a new bid, a change to one already placed here, or unchanged (not sent again).
+      const cents = (t: Trade) => Math.round(Number(bids[t.id]) * 100);
+      const added = live.filter((t) => !placed(t.id));
+      const updated = live.filter((t) => placed(t.id) && placed(t.id)!.amountCents !== cents(t));
+      for (const t of [...added, ...updated]) await bidsAPI.setStanding(organizationId, county!, t.id, Number(bids[t.id]));
       const where = `${county} County`;
-      const names = live.map((t) => t.name);
-      const what = names.length <= 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
-      const same = amounts.every((a) => a === amounts[0]);
-      const price = same ? ` at ${money(amounts[0] * 100)},` : ' at the price you set for each,';
-      onNotify(`You're set: new ${what} leads in ${where} go to you the moment they come in,${price} while your bid is the highest.`);
+      const join = (names: string[]) => (names.length <= 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
+      const priced = (rows: Trade[], lead: string) =>
+        rows.every((t) => cents(t) === cents(rows[0])) ? `${lead}${money(cents(rows[0]))}` : `${lead}the price you set for each`;
+      if (firstTime) {
+        // The first bids get the one line that explains how winning works; it stays until dismissed.
+        onNotify(`You're set: new ${join(added.map((t) => t.name))} leads in ${where} go to you the moment they come in,${priced(added, ' at ')}, while your bid is the highest.`);
+      } else if (updated.length === 0) {
+        onNotify(`${added.length === 1 ? 'Bid' : 'Bids'} added: ${join(added.map((t) => t.name))} in ${where}${priced(added, ' at ')}.`);
+      } else if (added.length === 0) {
+        onNotify(
+          updated.length === 1
+            ? `Bid updated: ${updated[0].name} in ${where} is now ${money(cents(updated[0]))}.`
+            : `Bids updated: ${join(updated.map((t) => t.name))} in ${where}.`,
+        );
+      } else {
+        onNotify(`Saved: ${added.length} bid${added.length === 1 ? '' : 's'} added, ${updated.length} updated in ${where}.`);
+      }
       await onSaved();
       onClose();
     } catch (err) {
