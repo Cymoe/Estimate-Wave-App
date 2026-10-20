@@ -192,7 +192,9 @@ describe('Bids', () => {
     expect(input('Bid for Landscaping in Midland').value).toBe('350');
     expect(rows[0].querySelector('.animate-rise')?.textContent).toBe('+$50.00');
     expect(setStanding).not.toHaveBeenCalled();
-    expect(status().textContent).toBe('');
+    // The placing line shows on the tap itself, before anything is sent, and holds its words through the save.
+    expect(PLACING.up).toContain(status().textContent);
+    const chosen = status().textContent;
     // Beat 2: a moment after the last tap it saves, and the row says so in the reserved line while it does.
     // The standing chip sits dimmed ("pending") from the tap until the server confirms.
     const chip = () => rows[0].querySelector('[data-pending]');
@@ -200,7 +202,7 @@ describe('Bids', () => {
     let release!: (id: string) => void;
     setStanding.mockImplementationOnce(() => new Promise<string>((resolve) => { release = resolve; }));
     await act(async () => { jest.advanceTimersByTime(STEP_SAVE_DELAY + 10); });
-    expect(PLACING.up).toContain(status().textContent); // auction-room wording for a raise, one of a few
+    expect(status().textContent).toBe(chosen); // same words, not re-rolled when the save starts
     expect(chip()).not.toBeNull();
     await act(async () => release('sb1'));
     await flush();
@@ -216,6 +218,7 @@ describe('Bids', () => {
     // Typing waits a little longer than a tap before saving. Going down, the words go down too.
     await act(async () => type(input('Bid for Landscaping in Midland'), '225'));
     expect(input('Bid for Landscaping in Midland').className).not.toContain('text-emerald-300');
+    expect(PLACING.down).toContain(status().textContent); // lowering words, from the keystroke
     await act(async () => { jest.advanceTimersByTime(STEP_SAVE_DELAY + 10); });
     expect(setStanding).toHaveBeenCalledTimes(1);
     setStanding.mockImplementationOnce(() => new Promise<string>((resolve) => { release = resolve; }));
@@ -229,6 +232,8 @@ describe('Bids', () => {
     // A save the server refuses puts the saved number back, says so in the row (not at the top), and offers a retry.
     setStanding.mockRejectedValueOnce(new Error('Nope'));
     await act(async () => type(input('Bid for Landscaping in Midland'), '400'));
+    // Straight after a lowering, a raise gets raising words, and keeps them once the save starts.
+    expect(PLACING.up).toContain(status().textContent);
     await act(async () => { jest.advanceTimersByTime(SAVE_DELAY + 50); });
     await flush();
     expect(input('Bid for Landscaping in Midland').value).toBe('250');

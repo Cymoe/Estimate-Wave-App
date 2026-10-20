@@ -71,9 +71,11 @@ const anyOf = (words: string[]) => words[Math.floor(Math.random() * words.length
 type RowState = {
   /** The amount being changed, until it's saved. */
   draft?: string;
-  status: 'idle' | 'saving' | 'saved' | 'failed';
-  /** The wording this save uses, so it doesn't change mid-beat. */
+  /** `pending`: changed on screen, save not sent yet (the line already shows the placing words). */
+  status: 'idle' | 'pending' | 'saving' | 'saved' | 'failed';
+  /** The wording this change uses, so it doesn't change mid-beat, and the direction it was picked for. */
   words?: { placing: string; placed: string };
+  wordsDir?: 'up' | 'down';
   /** Tints the amount for a moment after a tap. */
   tone?: 'up' | 'down';
   /** What a failed save was trying to set, for Retry. */
@@ -327,10 +329,13 @@ function StandingTab({
   useEffect(() => {
     seen.current = new Set(standing.map((b) => b.id));
   }, [standing]);
-  const save = async (bid: StandingBid, value: string) => {
+  const save = async (bid: StandingBid, value: string, chosen?: RowState['words']) => {
     const dollars = Number(value);
     const dir = dollars < bid.amountCents / 100 ? 'down' : 'up';
-    patchRow(bid.id, { status: 'saving', failedValue: undefined, error: undefined, words: { placing: anyOf(PLACING[dir]), placed: anyOf(PLACED[dir]) } });
+    // Use the words the tap chose (passed in, since the timer's view of state is from before the tap);
+    // a Retry reuses what the row shows, and only a row with none picks fresh ones.
+    const words = chosen ?? row(bid.id).words ?? { placing: anyOf(PLACING[dir]), placed: anyOf(PLACED[dir]) };
+    patchRow(bid.id, { status: 'saving', failedValue: undefined, error: undefined, words });
     try {
       await bidsAPI.setStanding(organizationId, bid.county, bid.jobType, dollars);
       await onChanged();
@@ -338,9 +343,9 @@ function StandingTab({
         const current = all[bid.id] ?? { status: 'idle' };
         // Keep a newer draft typed while this saved; otherwise the saved amount takes over.
         const draft = current.draft !== value ? current.draft : undefined;
-        return { ...all, [bid.id]: { ...current, draft, status: 'saved' } };
+        return { ...all, [bid.id]: { ...current, draft, status: 'saved', wordsDir: undefined } };
       });
-      later(`${bid.id}:saved`, SAVED_HINT_MS, () => setRows((all) => (all[bid.id]?.status === 'saved' ? { ...all, [bid.id]: { ...all[bid.id], status: 'idle' } } : all)));
+      later(`${bid.id}:saved`, SAVED_HINT_MS, () => setRows((all) => (all[bid.id]?.status === 'saved' ? { ...all, [bid.id]: { ...all[bid.id], status: 'idle', words: undefined } } : all)));
     } catch (err) {
       // Put the saved amount back so the row never shows a number that didn't take, and offer a retry.
       patchRow(bid.id, { draft: undefined, status: 'failed', failedValue: value, error: err instanceof Error ? err.message : "The bid couldn't be saved" });
@@ -348,12 +353,27 @@ function StandingTab({
   };
   const changeAmount = (bid: StandingBid, value: string, via: Via) => {
     const tone = via === 'type' ? undefined : via;
-    patchRow(bid.id, { draft: value, tone, failedValue: undefined, error: undefined, status: row(bid.id).status === 'failed' ? 'idle' : row(bid.id).status });
+    const current = row(bid.id);
+    const dollars = Number(value);
+    const saved = bid.amountCents / 100;
+    const valid = dollars >= MIN_BID && dollars !== saved;
+    const dir = dollars < saved ? 'down' : 'up';
+    // The line answers the tap itself: pick the words now (fresh ones if the direction flips)
+    // and show them from this moment, through the save, until "bid's in".
+    const words = !valid ? undefined : current.words && current.wordsDir === dir ? current.words : { placing: anyOf(PLACING[dir]), placed: anyOf(PLACED[dir]) };
+    patchRow(bid.id, {
+      draft: value,
+      tone,
+      failedValue: undefined,
+      error: undefined,
+      words,
+      wordsDir: valid ? dir : undefined,
+      status: valid ? (current.status === 'saving' ? 'saving' : 'pending') : 'idle',
+    });
     if (tone) later(`${bid.id}:tone`, TONE_MS, () => patchRow(bid.id, { tone: undefined }));
     clearTimeout(timers.current[bid.id]);
-    const dollars = Number(value);
-    if (!(dollars >= MIN_BID) || dollars === bid.amountCents / 100) return;
-    later(bid.id, via === 'type' ? SAVE_DELAY : STEP_SAVE_DELAY, () => save(bid, value));
+    if (!valid) return;
+    later(bid.id, via === 'type' ? SAVE_DELAY : STEP_SAVE_DELAY, () => save(bid, value, words));
   };
   const act = async (work: () => Promise<unknown>, done?: string) => {
     setBusy(true);
@@ -438,7 +458,7 @@ function StandingTab({
                       />
                       {/* Always present, so the row never moves as the text comes and goes. */}
                       <span aria-live="polite" className="block h-4 mt-0.5 text-[10px] leading-4 whitespace-nowrap">
-                        {state.status === 'saving' && <span className="text-gray-500">{state.words?.placing}</span>}
+                        {(state.status === 'pending' || state.status === 'saving') && <span className="text-gray-500">{state.words?.placing}</span>}
                         {state.status === 'saved' && <span className="text-emerald-300">{state.words?.placed}</span>}
                         {state.status === 'failed' && (
                           <span className="text-red-300" title={state.error}>
