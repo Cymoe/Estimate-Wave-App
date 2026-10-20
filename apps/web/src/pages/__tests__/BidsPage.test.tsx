@@ -108,9 +108,22 @@ describe('Bids', () => {
     expect(matches().length).toBeGreaterThan(1);
     const key = (k: string) => input('Search counties').dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
     expect(matches()[0].getAttribute('aria-current')).toBe('true');
+    // The list scrolls with the highlight, so a match below the fold comes into view.
+    const scrolled: Element[] = [];
+    const scrollIntoView = jest.fn(function (this: Element) { scrolled.push(this); });
+    (Element.prototype as unknown as { scrollIntoView: unknown }).scrollIntoView = scrollIntoView;
     await act(async () => key('ArrowDown'));
     expect(matches()[0].getAttribute('aria-current')).toBeNull();
     expect(matches()[1].getAttribute('aria-current')).toBe('true');
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ block: 'nearest' });
+    expect(scrolled[scrolled.length - 1].contains(matches()[1])).toBe(true);
+    // Hovering moves the highlight without scrolling under the pointer.
+    scrollIntoView.mockClear();
+    await act(async () => matches()[2].dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+    expect(matches()[2].getAttribute('aria-current')).toBe('true');
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    await act(async () => matches()[1].dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+    delete (Element.prototype as unknown as { scrollIntoView?: unknown }).scrollIntoView;
     const second = matches()[1].textContent;
     await act(async () => key('ArrowUp'));
     await act(async () => key('ArrowDown'));

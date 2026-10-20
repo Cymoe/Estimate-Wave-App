@@ -681,6 +681,15 @@ function AddBidDialog({
   const [search, setSearch] = useState('');
   // Which county match the arrow keys have landed on; Enter picks it.
   const [active, setActive] = useState(0);
+  // When the arrow keys move the highlight, keep it in view: the list scrolls with it. Hovering
+  // with the mouse moves it too, but scrolling under the pointer would jump, so only keys do.
+  const countyList = useRef<HTMLUListElement>(null);
+  const byKey = useRef(false);
+  useEffect(() => {
+    if (!byKey.current) return;
+    byKey.current = false;
+    countyList.current?.children[active]?.scrollIntoView?.({ block: 'nearest' });
+  }, [active]);
   // One county at a time; bids in another county are a second visit.
   const [county, setCounty] = useState<string | null>(null);
   // One amount per trade; a trade with no entry isn't being bid on.
@@ -834,9 +843,11 @@ function AddBidDialog({
                 onKeyDown={(e) => {
                   if (e.key === 'ArrowDown' && matches.length) {
                     e.preventDefault();
+                    byKey.current = true;
                     setActive((i) => Math.min(i + 1, matches.length - 1));
                   } else if (e.key === 'ArrowUp' && matches.length) {
                     e.preventDefault();
+                    byKey.current = true;
                     setActive((i) => Math.max(i - 1, 0));
                   } else if (e.key === 'Enter' && matches[active]) {
                     e.preventDefault();
@@ -851,7 +862,7 @@ function AddBidDialog({
               />
               {/* Matches float over the trades below, so the dialog never jumps. */}
               {search.trim() !== '' && (
-                <ul className="absolute left-0 right-0 top-full mt-1 z-10 max-h-48 overflow-y-auto divide-y divide-[#2A2A2A] border border-[#333] rounded bg-[#1A1A1A] shadow-xl" aria-label="Counties">
+                <ul ref={countyList} className="absolute left-0 right-0 top-full mt-1 z-10 max-h-48 overflow-y-auto divide-y divide-[#2A2A2A] border border-[#333] rounded bg-[#1A1A1A] shadow-xl" aria-label="Counties">
                   {matches.map((m, i) => (
                     <li key={m.county} id={`county-${m.county}`}>
                       <button
