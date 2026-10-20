@@ -5,7 +5,7 @@ import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { Modal } from '../components/common/Modal';
 import { bidsAPI, industriesAPI, walletAPI } from '../lib/api';
 import { money } from '../components/market/wallet';
-import { openFundingPage, type WalletSummary } from '../components/market/WalletBar';
+import { WALLET_CHANGED, openFundingPage, type WalletSummary } from '../components/market/WalletBar';
 import { TEXAS_COUNTIES, countyForTown } from '../services/counties';
 import { InlineNotice, Toast, useToast } from '../components/common/Notice';
 
@@ -116,6 +116,11 @@ const BidsPage: React.FC = () => {
     setTrades(t);
   }, [organizationId]);
 
+  useEffect(() => {
+    const onWallet = () => load().catch(() => {});
+    window.addEventListener(WALLET_CHANGED, onWallet);
+    return () => window.removeEventListener(WALLET_CHANGED, onWallet);
+  }, [load]);
   useEffect(() => {
     load().catch(() => {
       setResults([]);
@@ -406,7 +411,8 @@ function StandingTab({
                 leaving[bid.id] ? 'motion-safe:animate-row-out motion-reduce:animate-fade-out' : fresh.has(bid.id) ? 'motion-safe:animate-row-in motion-reduce:animate-wash' : ''
               }`}
             >
-              <Cell collapsed={leaving[bid.id] === 'collapse'} className={`text-white border-l-2 transition-colors duration-300 ${funded ? 'border-transparent' : 'border-red-400'}`}>{bid.county} County</Cell>
+              {/* The red edge is an inset shadow, not a border: table borders collapse, and a cell border would swallow the table's own edge. */}
+              <Cell collapsed={leaving[bid.id] === 'collapse'} className={`text-white transition-shadow duration-300 ${funded ? '' : 'shadow-[inset_2px_0_0_0_#f87171]'}`}>{bid.county} County</Cell>
               <Cell collapsed={leaving[bid.id] === 'collapse'} className="text-gray-300">{tradeName(bid.jobType)}</Cell>
               <Cell collapsed={leaving[bid.id] === 'collapse'} className="text-right">
                 {(() => {
@@ -418,6 +424,10 @@ function StandingTab({
                         value={value}
                         tone={state.tone}
                         onChange={(v, via) => changeAmount(bid, v, via)}
+                        onBlur={() => {
+                          // Leaving the field with nothing valid in it puts the saved amount back.
+                          if (state.draft !== undefined && !(Number(state.draft) >= MIN_BID)) patchRow(bid.id, { draft: undefined });
+                        }}
                       />
                       {/* Always present, so the row never moves as the text comes and goes. */}
                       <span aria-live="polite" className="block h-4 mt-0.5 text-[10px] leading-4 whitespace-nowrap">
@@ -497,11 +507,14 @@ function BidStepper({
   label,
   value,
   onChange,
+  onBlur,
   tone,
 }: {
   label: string;
   value: string;
   onChange: (value: string, via: Via) => void;
+  /** Called when the field is left, so the owner can put a valid amount back if what's typed isn't one. */
+  onBlur?: () => void;
   /** Tints the amount for a moment after a tap: green going up, amber going down. */
   tone?: 'up' | 'down';
 }) {
@@ -537,6 +550,7 @@ function BidStepper({
           aria-label={label}
           value={value}
           onChange={(e) => onChange(e.target.value, 'type')}
+          onBlur={onBlur}
           className={`w-16 bg-transparent px-1 py-2 text-right text-base md:text-sm focus:outline-none transition-colors duration-300 ${amount}`}
         />
       </label>
@@ -640,7 +654,10 @@ function AddBidDialog({
   const top = amounts.length ? Math.max(...amounts) : 0;
   const affordable = amountsOk && top * 100 <= balance;
   const covers = amountsOk && top > 0 ? Math.floor(balance / (top * 100)) : 0;
-  const ready = county !== null && live.length > 0 && affordable;
+  // Nothing to save if every live row already matches a placed bid in this county.
+  const placed = (id: string) => standing.find((sb) => sb.county === county && sb.jobType === id);
+  const changed = live.some((t) => placed(t.id)?.amountCents !== Math.round(Number(bids[t.id]) * 100));
+  const ready = county !== null && live.length > 0 && amountsOk && changed;
   const rows = live.length;
 
   const save = async () => {
@@ -748,7 +765,14 @@ function AddBidDialog({
                   </div>
                   {on ? (
                     <div className="flex items-center gap-1.5 flex-shrink-0">
-                      <BidStepper label={`${t.name} bid`} value={bids[t.id]} onChange={(v) => setBid(t.id, v)} />
+                      <BidStepper
+                        label={`${t.name} bid`}
+                        value={bids[t.id]}
+                        onChange={(v) => setBid(t.id, v)}
+                        onBlur={() => {
+                          if (!(Number(bids[t.id]) >= MIN_BID)) setBid(t.id, String(MIN_BID));
+                        }}
+                      />
                       <button type="button" onClick={() => turnOff(t.id)} aria-label={`Stop bidding on ${t.name}`} className="p-2 text-gray-500 hover:text-white">
                         <X className="w-4 h-4" />
                       </button>
@@ -775,9 +799,11 @@ function AddBidDialog({
               ? 'Pick a county to start.'
               : !amountsOk
               ? `Bids start at ${money(MIN_BID * 100)}.`
-              : !affordable
-                ? `Your top bid is more than your balance (${money(balance)}).`
-                : `Balance ${money(balance)} covers about ${covers} lead${covers === 1 ? '' : 's'} at your top bid. You only pay when you win.`}
+              : !changed
+                ? live.length > 0 ? 'These are your current bids here.' : ''
+                : !affordable
+                  ? `Your top bid is more than your balance (${money(balance)}); it can't win until you add funds.`
+                  : `Balance ${money(balance)} covers about ${covers} lead${covers === 1 ? '' : 's'} at your top bid. You only pay when you win.`}
             {amountsOk && !affordable && (
               <button type="button" onClick={onAddFunds} className="ml-2 text-[#7fb0e0] underline underline-offset-2">
                 Add funds

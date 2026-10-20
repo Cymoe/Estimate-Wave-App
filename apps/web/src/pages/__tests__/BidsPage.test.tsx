@@ -172,9 +172,12 @@ describe('Bids', () => {
     expect(rows[0].textContent).toContain('Highest here');
     expect(rows[1].textContent).toContain('Outbid here · raise to win the next lead');
     expect(rows[2].textContent).toContain('Add funds to cover this bid');
-    // The uncovered row carries a faint wash and a red edge; covered rows don't.
+    // The uncovered row carries a faint wash and a red edge; covered rows don't. The edge is an inset
+    // shadow so the table keeps its own left border on every row.
     expect(rows[2].getAttribute('data-unfunded')).toBe('true');
+    expect(rows[2].querySelector('td')!.className).toContain('shadow-[inset_2px_0_0_0_#f87171]');
     expect(rows[0].getAttribute('data-unfunded')).toBeNull();
+    expect(rows[0].querySelector('td')!.className).not.toContain('border-l');
     // The amount is a stepper that saves on its own a moment after the last change: no Save button.
     jest.useFakeTimers();
     expect(document.body.querySelector('button[aria-label="Save bid"]')).toBeNull();
@@ -253,11 +256,13 @@ describe('Bids', () => {
     await act(async () => { jest.advanceTimersByTime(SAVE_DELAY + 50); });
     await flush();
     expect(setStanding).toHaveBeenLastCalledWith('o2', 'Howard', 'roofing', 900);
-    // Below the minimum nothing is sent.
+    // Below the minimum nothing is sent, and leaving the field puts the saved amount back.
     await act(async () => type(input('Bid for Landscaping in Midland'), '150'));
     await act(async () => { jest.advanceTimersByTime(SAVE_DELAY + 50); });
     await flush();
     expect(setStanding).toHaveBeenCalledTimes(6);
+    await act(async () => input('Bid for Landscaping in Midland').dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
+    expect(input('Bid for Landscaping in Midland').value).toBe('250');
     jest.useRealTimers();
     // The row itself is the feedback: no banner for a saved amount.
     expect(document.body.querySelector('[role="status"]')).toBeNull();
@@ -291,6 +296,11 @@ describe('Bids', () => {
     await act(async () => (dialog()!.querySelector('[aria-label="Counties"] button') as HTMLButtonElement).click());
     expect(input('Landscaping bid').value).toBe('250');
     expect(dialog()!.querySelector('[aria-label="Bids by trade"] > li')?.textContent).toContain('TOP');
+    // Nothing has changed, so there is nothing to save; raise it and there is.
+    expect(byText('Save bid')!.disabled).toBe(true);
+    expect(dialog()!.textContent).toContain('These are your current bids here.');
+    await act(async () => (document.body.querySelector('button[aria-label="Raise Landscaping bid"]') as HTMLButtonElement).click());
+    expect(byText('Save bid')!.disabled).toBe(false);
     await act(async () => (document.body.querySelector('button[aria-label="Change county"]') as HTMLButtonElement).click());
     await act(async () => type(input('Search counties'), 'Odessa'));
     await act(async () => (dialog()!.querySelector('[aria-label="Counties"] button') as HTMLButtonElement).click());
