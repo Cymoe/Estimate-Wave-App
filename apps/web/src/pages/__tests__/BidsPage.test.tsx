@@ -479,7 +479,7 @@ describe('Bids', () => {
       { bidId: 'b2', leadId: 'm2', jobType: 'landscaping', county: 'Ector', myBidCents: 25000, won: false, outcome: 'Outbid: a higher bid won it', resolvedAt: '2026-10-17T12:00:00Z' },
     ];
     await render();
-    expect(document.body.textContent).toContain('1 standing bid · 1 lead won');
+    expect(document.body.textContent).toContain('1 bid · 1 lead won');
     expect(document.body.querySelector('[aria-label="My standing bids"]')).not.toBeNull();
     expect(document.body.textContent).toContain('Recent results');
     const items = Array.from(document.body.querySelectorAll('[aria-label="Results"] li'));

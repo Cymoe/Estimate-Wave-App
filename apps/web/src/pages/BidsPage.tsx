@@ -182,7 +182,7 @@ const BidsPage: React.FC = () => {
         <div>
           <h1 className="text-xl font-semibold">Bids</h1>
           <p className="text-sm text-gray-400">
-            {standing ? `${standing.length} standing bid${standing.length === 1 ? '' : 's'}` : 'Loading…'} · {won} lead{won === 1 ? '' : 's'} won
+            {standing ? `${standing.length} bid${standing.length === 1 ? '' : 's'}` : 'Loading…'} · {won} lead{won === 1 ? '' : 's'} won
           </p>
         </div>
         {standing && (
