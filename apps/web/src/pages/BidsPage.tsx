@@ -223,7 +223,8 @@ const BidsPage: React.FC = () => {
             newlyOutbid={newlyOutbid}
             noTrades={Boolean(wallet && Array.isArray(wallet.leadTrades) && wallet.leadTrades.length === 0)}
           />
-          {standing.length > 0 && (
+          {/* Past results stay after the last bid is removed; a company with neither sees only the setup card. */}
+          {(standing.length > 0 || results.length > 0) && (
             <section>
               <h2 className="text-sm font-medium text-white mb-2">Recent results</h2>
               <ResultsTab results={results.slice(0, 10)} tradeName={tradeName} />

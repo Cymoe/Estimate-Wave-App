@@ -496,6 +496,14 @@ describe('Bids', () => {
     expect(Array.from(document.body.querySelectorAll('a')).find((a) => a.textContent === 'Marketplace')?.getAttribute('href')).toBe('/marketplace');
   });
 
+  it('keeps past results on screen after every bid is removed', async () => {
+    standing = [];
+    results = [{ bidId: 'b1', leadId: 'm1', jobType: 'landscaping', county: 'Midland', myBidCents: 25000, won: true, resolvedAt: '2026-10-18T12:00:00Z' }];
+    await render();
+    expect(document.body.textContent).toContain('Recent results');
+    expect(document.body.querySelectorAll('[aria-label="Results"] li')).toHaveLength(1);
+  });
+
   it('says at the top when the bids are paused or there is no money, with Add funds', async () => {
     // A funded company with no bids gets the big "Set your bids" card, not a second line saying the same.
     await render();
