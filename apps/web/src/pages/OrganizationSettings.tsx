@@ -9,7 +9,7 @@ export default function OrganizationSettings() {
   const navigate = useNavigate();
   const { selectedOrg, setSelectedOrg } = useContext(OrganizationContext);
   const [params] = useSearchParams();
-  // ?tab=trades opens straight on Trades (the menu's "Your trades" and old links use it).
+  // ?tab=trades opens straight on Trades (the "Pick your trades first" links and old links use it).
   const [activeTab, setActiveTab] = useState(params.get('tab') ?? 'general');
 
   const tabs = [
@@ -88,7 +88,7 @@ export default function OrganizationSettings() {
 
             {activeTab === 'trades' && (
               <div className="bg-[#1A1A1A] rounded-lg p-6">
-                <h2 className="text-lg font-semibold text-white mb-1">Your trades</h2>
+                <h2 className="text-lg font-semibold text-white mb-1">What work do you do?</h2>
                 <TradesEditor organizationId={selectedOrg.id} />
               </div>
             )}

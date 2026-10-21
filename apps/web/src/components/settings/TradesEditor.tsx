@@ -86,7 +86,7 @@ export const TradesEditor: React.FC<{ organizationId: string; className?: string
   return (
     <div className={className}>
       <Toast text={toast} />
-      <p className="text-sm text-gray-400">Your trades decide which leads and bids you see and what your Price Book opens on.</p>
+      <p className="text-sm text-gray-400">You'll get leads and bids for this work, and your Price Book opens on it.</p>
 
       {/* Your trades, as chips: tap the x to drop one. */}
       <div className="mt-4" aria-label="Your trades">
