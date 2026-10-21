@@ -1,4 +1,4 @@
-import { inMyTrades } from '../tradeScope';
+import { allOutsideMyTrades, inMyTrades } from '../tradeScope';
 
 const codes = [
   { id: 'cc-concrete', industry_id: 'concrete' },
@@ -19,5 +19,12 @@ describe('My trades in the Price Book', () => {
   });
   it('hides nothing when no trades are picked', () => {
     expect(inMyTrades(items, codes, new Set())).toEqual(items);
+  });
+  it('knows when your trades hide every item, so the page can offer all trades', () => {
+    const placed = items.slice(0, 2);
+    expect(allOutsideMyTrades(placed, codes, new Set(['roofing']))).toBe(true);
+    expect(allOutsideMyTrades(placed, codes, new Set(['concrete']))).toBe(false);
+    expect(allOutsideMyTrades([], codes, new Set(['roofing']))).toBe(false);
+    expect(allOutsideMyTrades(placed, codes, new Set())).toBe(false);
   });
 });

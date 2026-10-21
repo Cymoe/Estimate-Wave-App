@@ -125,7 +125,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="flex items-center min-w-0 flex-1 overflow-hidden">
                 <div className="flex flex-col items-start">
                   <span className="text-white text-xs font-semibold leading-tight truncate max-w-[120px]">{selectedOrg.name}</span>
-                  {/* No trades yet: the label nudges in amber; the dropdown has the link. */}
+                  {/* No trades yet: amber. Trades are changed in Company settings → Trades. */}
                   <span className={`text-[10px] leading-tight truncate max-w-[120px] ${selectedOrg.industry === NO_TRADES_LABEL ? 'text-amber-300' : 'text-[#336699]'}`}>{selectedOrg.industry}</span>
                 </div>
               </div>
@@ -153,17 +153,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
                 </button>
               ))}
-              {/* The company's trades are set in one place; this gets there from the switcher. */}
-              <button
-                type="button"
-                className="w-full text-left px-3 py-2 border-t border-[#2A2A2A] text-xs text-[#7fb0e0] hover:bg-[#2A2A2A]"
-                onClick={() => {
-                  setOrgDropdownOpen(false);
-                  navigate('/settings/organization?tab=trades');
-                }}
-              >
-                {selectedOrg.industry === NO_TRADES_LABEL ? 'Add your trades' : 'Change your trades'}
-              </button>
             </div>
           )}
         </div>
@@ -587,16 +576,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className="w-full text-left px-4 py-3 text-sm text-white hover:bg-[#3A3A3A] transition-colors duration-200"
                 >
                   <span className="font-['Roboto']">Profile Settings</span>
-                </button>
-                
-                <button
-                  onClick={() => {
-                    navigate('/settings/organization?tab=trades');
-                    setIsProfileMenuOpen(false);
-                  }}
-                  className="w-full text-left px-4 py-3 text-sm text-white hover:bg-[#3A3A3A] transition-colors duration-200"
-                >
-                  <span className="font-['Roboto']">Your trades</span>
                 </button>
                 
                 <button

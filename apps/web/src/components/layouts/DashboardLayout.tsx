@@ -44,7 +44,6 @@ import { PageHeaderBar } from '../common/PageHeaderBar';
 // Supabase removed - using MongoDB
 // import { supabase } from '../../lib/supabase';
 import { ActivityPanel } from '../activity/ActivityPanel';
-import { IndustryBanner } from '../common/IndustryBanner';
 import { ProjectPreviewPanel } from '../projects/ProjectPreviewPanel';
 import { useProjectShortcuts, type ProjectShortcut } from '../projects/useProjectShortcuts';
 import { FEATURES } from '../../config/features';
@@ -118,16 +117,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
   // The page renders once, in the desktop or the phone layout. Rendering it in
   // both (one hidden) ran every page twice and stacked two of each pop-up.
   const isDesktop = useIsDesktop();
-  
-  // Only show industry banner on pages where it's useful for filtering content
-  const shouldShowIndustryBanner = 
-    location.pathname === '/estimates' ||
-    location.pathname === '/services' ||
-    location.pathname === '/price-book' ||
-    location.pathname.startsWith('/services/') ||
-    location.pathname.startsWith('/price-book/');
-  
-  const shouldHideIndustryBanner = !shouldShowIndustryBanner;
   
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
@@ -572,8 +561,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                   >
                     {/* Main Content Area */}
                     <div className="min-h-full overflow-y-auto">
-                      {/* Industry Banner - Hidden on estimate detail pages */}
-                      {!shouldHideIndustryBanner && <IndustryBanner />}
                       <div className={`min-h-full ${fullWidth ? '' : 'max-w-5xl mx-auto px-4'}`}>
                         {isDesktop && children}
                       </div>

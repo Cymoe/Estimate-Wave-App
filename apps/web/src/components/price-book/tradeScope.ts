@@ -17,3 +17,12 @@ export function inMyTrades<T extends { cost_code_id?: string | null }>(
     return !trade || myTrades.has(trade);
   });
 }
+
+/** True when there are items but "My trades" hides every one of them. */
+export function allOutsideMyTrades(
+  items: Array<{ cost_code_id?: string | null }>,
+  costCodes: Parameters<typeof inMyTrades>[1],
+  myTrades: Set<string>,
+): boolean {
+  return myTrades.size > 0 && items.length > 0 && inMyTrades(items, costCodes, myTrades).length === 0;
+}

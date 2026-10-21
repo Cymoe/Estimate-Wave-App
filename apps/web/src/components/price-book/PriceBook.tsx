@@ -23,7 +23,7 @@ import { PriceRangeCompact } from './PriceRangeDisplay';
 import { priceRange } from '../../utils/priceRange';
 import { IndustryService } from '../../services/IndustryService';
 import { TRADES_CHANGED } from '../settings/TradesEditor';
-import { inMyTrades } from './tradeScope';
+import { allOutsideMyTrades, inMyTrades } from './tradeScope';
 
 /** Price-book items are priced at their red line. */
 const withRedLinePrice = (item: LineItem): LineItem => ({ ...item, price: priceRange(item).redLine });
@@ -62,6 +62,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
   const [trades, setTrades] = useState<{ id: string; name: string; code: string; industry_id?: string; industry?: { id: string; name: string; icon?: string; color?: string } | null }[]>([]);
   // The company's trades: the Price Book opens on their items, with "All trades" one tap away.
   const [myTrades, setMyTrades] = useState<Set<string>>(new Set());
+  const [myTradeNames, setMyTradeNames] = useState('');
   const [tradeScope, setTradeScope] = useState<'mine' | 'all'>('mine');
   const [selectedTradeId, setSelectedTradeId] = useState<string>('all');
   const [groupedTrades, setGroupedTrades] = useState<Map<string, typeof trades>>(new Map());
@@ -520,8 +521,14 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
     if (!orgId) return;
     const load = () =>
       IndustryService.getOrganizationIndustries(orgId)
-        .then((rows: Array<{ id: string }>) => setMyTrades(new Set(rows.map((r) => r.id))))
-        .catch(() => setMyTrades(new Set()));
+        .then((rows: Array<{ id: string; name?: string }>) => {
+          setMyTrades(new Set(rows.map((r) => r.id)));
+          setMyTradeNames(rows.map((r) => r.name ?? r.id).join(', '));
+        })
+        .catch(() => {
+          setMyTrades(new Set());
+          setMyTradeNames('');
+        });
     load();
     window.addEventListener(TRADES_CHANGED, load);
     return () => window.removeEventListener(TRADES_CHANGED, load);
@@ -1515,6 +1522,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
                     key={scope}
                     type="button"
                     aria-pressed={tradeScope === scope}
+                    title={scope === 'mine' ? myTradeNames : undefined}
                     onClick={() => setTradeScope(scope)}
                     className={`px-3 py-2 text-sm whitespace-nowrap ${tradeScope === scope ? 'bg-[#336699] text-white' : 'text-gray-400 hover:text-white'}`}
                   >
@@ -1759,6 +1767,21 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
               Try Again
             </button>
           </div>
+        ) : displayedItems.length === 0 && tradeScope === 'mine' && allOutsideMyTrades(lineItems, trades, myTrades) ? (
+        // The book has items, just none in this company's trades: say so, and offer the rest.
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <h3 className="text-lg font-medium text-white mb-2">None of your items are in your trades yet</h3>
+          <p className="text-gray-400 mb-6 max-w-md">
+            Your trades are {myTradeNames}. You can change them in Company settings → Trades.
+          </p>
+          <button
+            type="button"
+            onClick={() => setTradeScope('all')}
+            className="bg-white hover:bg-gray-100 text-[#121212] px-6 py-3 rounded-[4px] font-medium transition-colors"
+          >
+            Show all trades ({lineItems.length})
+          </button>
+        </div>
         ) : displayedItems.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <div className="w-16 h-16 bg-[#333333] rounded-full flex items-center justify-center mb-4">

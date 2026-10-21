@@ -25,7 +25,6 @@ export const QuickCreateButton: React.FC<Props> = ({
   children
 }) => {
   const [isEstimateCartOpen, setIsEstimateCartOpen] = useState(false);
-  const [isIndustryModalOpen, setIsIndustryModalOpen] = useState(false);
   
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -52,20 +51,8 @@ export const QuickCreateButton: React.FC<Props> = ({
     };
   }, []);
 
-  // Listen for industry modal toggle events
-  useEffect(() => {
-    const handleModalToggle = (event: CustomEvent) => {
-      setIsIndustryModalOpen(event.detail.isOpen);
-    };
-
-    window.addEventListener('industryModalToggle', handleModalToggle as EventListener);
-    return () => {
-      window.removeEventListener('industryModalToggle', handleModalToggle as EventListener);
-    };
-  }, []);
-
-  // Hide button when estimate cart or industry modal is open
-  if (hidden || isEstimateCartOpen || isIndustryModalOpen) {
+  // Hide button when the estimate cart is open
+  if (hidden || isEstimateCartOpen) {
     return null;
   }
 
