@@ -1,6 +1,6 @@
 import React, { useContext, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Building2, Package, Users, Bell, Shield } from 'lucide-react';
+import { ArrowLeft, Building2, Hammer, Users, Bell, Shield } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { BusinessDetailsForm } from '../components/settings/BusinessDetailsForm';
 import { TradesEditor } from '../components/settings/TradesEditor';
@@ -14,7 +14,7 @@ export default function OrganizationSettings() {
 
   const tabs = [
     { id: 'general', label: 'General', icon: Building2 },
-    { id: 'trades', label: 'Trades', icon: Package },
+    { id: 'trades', label: 'Trades', icon: Hammer },
     { id: 'team', label: 'Team & Permissions', icon: Users },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'security', label: 'Security', icon: Shield },

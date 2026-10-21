@@ -4,7 +4,7 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import { fail, nowIso, requireMember } from "./lib/access";
 import { MIN_START_CENTS } from "./lib/auction";
 import { closeLegacyRound } from "./lib/awards";
-import { fundedBidsFor, outbidUnseen, refreshStanding } from "./lib/standing";
+import { dropBidsOutsideTrades, fundedBidsFor, outbidUnseen, refreshStanding } from "./lib/standing";
 import { normalizeCounty, TEXAS_COUNTIES } from "./lib/counties";
 import { dollars } from "./lib/wallet";
 
@@ -158,6 +158,27 @@ export const markOutbidSeen = mutation({
       .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
       .collect();
     for (const row of rows) if (outbidUnseen(row)) await ctx.db.patch(row._id, { outbidSeenAt: now });
+  },
+});
+
+/**
+ * One-time sweep for bids placed before bids were limited to a company's
+ * listed trades. Safe to run again: with nothing outside the lists it does
+ * nothing. The deploy runs it.
+ */
+export const removeBidsOutsideTrades = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    let companies = 0;
+    let bids = 0;
+    for (const org of await ctx.db.query("organizations").take(5000)) {
+      const removed = await dropBidsOutsideTrades(ctx, org._id, org.leadTrades ?? []);
+      if (removed > 0) {
+        companies++;
+        bids += removed;
+      }
+    }
+    return { companies, bids };
   },
 });
 

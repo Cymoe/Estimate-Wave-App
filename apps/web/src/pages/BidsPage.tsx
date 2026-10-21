@@ -117,6 +117,7 @@ const BidsPage: React.FC = () => {
   const [standing, setStanding] = useState<StandingBid[] | null>(null);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [adding, setAdding] = useState(false);
+  const noTrades = Boolean(wallet && Array.isArray(wallet.leadTrades) && wallet.leadTrades.length === 0);
   // Bids outbid since the last visit, marked for the rest of this one.
   const [newlyOutbid, setNewlyOutbid] = useState<Set<string>>(() => new Set());
   const [message, setMessage] = useState<{ text: string; good: boolean } | null>(null);
@@ -187,15 +188,20 @@ const BidsPage: React.FC = () => {
             {standing ? `${standing.length} bid${standing.length === 1 ? '' : 's'}` : 'Loading…'} · {won} lead{won === 1 ? '' : 's'} won
           </p>
         </div>
-        {standing && (
+        {standing && noTrades ? (
+          // No trades yet: there is nothing to bid on, so the button goes to where trades are picked.
+          <Link to="/settings/organization?tab=trades" className={primary}>
+            Pick your trades
+          </Link>
+        ) : standing ? (
           <button type="button" onClick={() => setAdding(true)} className={primary}>
             <Plus className="w-4 h-4" />
             {standing.length === 0 ? 'Set your bids' : 'Add bid'}
           </button>
-        )}
+        ) : null}
       </div>
       <p className="text-xs text-gray-500 mb-4">
-        Where you work, what you do and what a lead is worth to you. Matching leads go to the highest bid the moment they come in and land in your Leads.
+        Where you work and what a lead is worth to you, per trade. Matching leads go to the highest bid the moment they come in and land in your Leads.
       </p>
 
       {/* Same line as on Leads: what the bids are doing and, when money is the problem, Add funds. */}
@@ -221,7 +227,7 @@ const BidsPage: React.FC = () => {
             onAdd={() => setAdding(true)}
             onAddFunds={addFunds}
             newlyOutbid={newlyOutbid}
-            noTrades={Boolean(wallet && Array.isArray(wallet.leadTrades) && wallet.leadTrades.length === 0)}
+            noTrades={noTrades}
           />
           {/* Past results stay after the last bid is removed; a company with neither sees only the setup card. */}
           {(standing.length > 0 || results.length > 0) && (
@@ -454,21 +460,25 @@ function StandingTab({
         <Gavel className="w-8 h-8 mx-auto text-[#7fb0e0] mb-2" />
         <h2 className="text-base font-semibold text-white">Set your bids</h2>
         <p className="text-sm text-gray-400 mt-1 max-w-md mx-auto">
-          Pick the counties you work in, the kind of work, and what a lead is worth to you. From then on, matching leads are yours the moment they come
-          in, as long as your bid is the highest.
+          Pick the counties you work in and what a lead is worth to you, per trade. From then on, matching leads are yours the moment they come in, as
+          long as your bid is the highest.
         </p>
-        {noTrades && (
-          <p className="text-sm text-amber-200 mt-3" data-no-trades>
-            First, pick your trades: they decide which leads you can win.{' '}
-            <Link to="/settings/organization?tab=trades" className="underline underline-offset-2 text-amber-100">
-              Pick trades
+        {noTrades ? (
+          // Nothing to bid on until the company says what work it does.
+          <>
+            <p className="text-sm text-amber-200 mt-3" data-no-trades>
+              First, pick your trades: they decide which leads you can win.
+            </p>
+            <Link to="/settings/organization?tab=trades" className={`${primary} mt-4`}>
+              Pick your trades
             </Link>
-          </p>
+          </>
+        ) : (
+          <button type="button" onClick={onAdd} className={`${primary} mt-4`}>
+            <Plus className="w-4 h-4" />
+            Set your bids
+          </button>
         )}
-        <button type="button" onClick={onAdd} className={`${primary} mt-4`}>
-          <Plus className="w-4 h-4" />
-          Set your bids
-        </button>
       </section>
     );
   }
@@ -1071,9 +1081,9 @@ function AddBidDialog({
             })}
           </ul>
           <p className="mt-2 text-xs text-gray-500">
-            Want more bids?{' '}
+            {ordered.length === 0 ? 'No trades picked yet. ' : 'Want more bids? '}
             <Link to="/settings/organization?tab=trades" className="text-[#7fb0e0] underline underline-offset-2">
-              Add another trade in Company settings
+              {ordered.length === 0 ? 'Pick your trades in Company settings' : 'Add another trade in Company settings'}
             </Link>
             .
           </p>

@@ -2236,6 +2236,9 @@ export const addDemoBids = mutation({
     const base = Date.now() - 4 * 24 * 60 * 60 * 1000;
     let standingBids = 0;
     for (const org of companies) {
+      // Bids are only for listed trades: a company with none lists the one its demo bids are in.
+      if (!org.leadTrades?.length)
+        await ctx.db.patch(org._id, { leadTrades: ["general-construction"], updatedAt: nowIso() });
       const trades = org.leadTrades?.length
         ? org.leadTrades
         : ["general-construction"];

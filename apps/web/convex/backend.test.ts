@@ -2089,6 +2089,10 @@ describe("smoke tests and demo data", () => {
       leads: 14,
       sold: 10,
     });
+    // The admin's company had no trades: it now lists the one its demo bids are in.
+    expect(
+      (await admin.as.query(api.marketplace.wallet, { organizationId: admin.organizationId })).leadTrades,
+    ).toEqual(["general-construction"]);
     await expect(
       admin.as.mutation(api.marketplace.addDemoBids, {}),
     ).rejects.toThrow(/already/);
@@ -3340,6 +3344,29 @@ describe("standing bids and instant awards", () => {
     expect((await mine(mio)).find((b) => b.jobType === "landscaping")).toMatchObject({ leading: true });
     // Mio's other bid is untouched by a change to a different trade.
     expect((await mine(mio)).map((b) => b.jobType).sort()).toEqual(["landscaping", "painting"]);
+  });
+
+  test("the deploy's sweep removes bids placed outside a company's trades before the rule", async () => {
+    const { t, admin, mio, soco } = await market();
+    await standing(mio, "Midland", "landscaping", 250);
+    // A roofing bid from before the rule, written straight to the table.
+    await t.run(async (ctx) => {
+      const now = new Date().toISOString();
+      await ctx.db.insert("standingBids", {
+        organizationId: soco.organizationId,
+        county: "Midland",
+        jobType: "roofing",
+        amountCents: 30000,
+        createdBy: soco.userId,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+    expect(await t.mutation(internal.bids.removeBidsOutsideTrades, {})).toEqual({ companies: 1, bids: 1 });
+    expect(await soco.as.query(api.bids.listStanding, { organizationId: soco.organizationId })).toEqual([]);
+    expect(await mio.as.query(api.bids.listStanding, { organizationId: mio.organizationId })).toHaveLength(1);
+    expect(await t.mutation(internal.bids.removeBidsOutsideTrades, {})).toEqual({ companies: 0, bids: 0 });
+    void admin;
   });
 
   test("a company hears it was outbid once, until it looks; leading again or its own moves clear it", async () => {

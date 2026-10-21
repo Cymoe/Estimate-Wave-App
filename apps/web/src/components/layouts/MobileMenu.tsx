@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { FEATURES } from '../../config/features';
 import { WalletTile } from '../market/WalletTile';
 import { planLabel, usePlan } from '../market/plan';
+import { NO_TRADES_LABEL } from '../settings/tradesLabels';
 
 interface MobileMenuProps {
   isOpen: boolean;
@@ -57,7 +58,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
           >
             <div className="text-left">
               <div className="text-white font-medium">{selectedOrg.name}</div>
-              <div className="text-gray-400 text-sm">{selectedOrg.industry}</div>
+              <div className={`text-sm ${selectedOrg.industry === NO_TRADES_LABEL ? 'text-amber-300' : 'text-gray-400'}`}>{selectedOrg.industry}</div>
             </div>
             <ChevronRight className={`h-4 w-4 text-gray-400 transition-transform ${orgDropdownOpen ? 'rotate-90' : ''}`} />
           </button>
@@ -78,7 +79,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
                   }`}
                 >
                   <div className="font-medium">{org.name}</div>
-                  <div className="text-sm opacity-70">{org.industry}</div>
+                  <div className={`text-sm ${org.industry === NO_TRADES_LABEL ? 'text-amber-300' : 'opacity-70'}`}>{org.industry}</div>
                 </button>
               ))}
             </div>

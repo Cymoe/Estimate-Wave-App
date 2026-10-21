@@ -568,7 +568,12 @@ describe('Bids', () => {
     walletExtra = { leadTrades: [] };
     await render();
     expect(document.body.querySelector('[data-no-trades]')?.textContent).toContain('First, pick your trades');
-    expect(document.body.querySelector('[data-no-trades] a')?.getAttribute('href')).toBe('/settings/organization?tab=trades');
+    // With nothing to bid on, both "Set your bids" buttons become the way to the trades, and no empty window opens.
+    const links = Array.from(document.body.querySelectorAll('a')).filter((a) => a.textContent === 'Pick your trades');
+    expect(links).toHaveLength(2);
+    expect(links.every((a) => a.getAttribute('href') === '/settings/organization?tab=trades')).toBe(true);
+    expect(byText('Set your bids')).toBeUndefined();
+    expect(dialog()).toBeNull();
     expect(document.body.querySelector('[data-bid-status]')).toBeNull(); // said once, in the card
   });
 

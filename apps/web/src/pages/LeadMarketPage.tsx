@@ -5,6 +5,7 @@ import { Building2, Check, Inbox, Link2, MapPin, Phone, Send, Tag, Trash2, X } f
 import { fundingAPI, industriesAPI, leadsAPI, marketplaceAPI, walletAPI } from '../lib/api';
 import { copyText } from '../components/estimates/estimateActions';
 import { useAuth } from '../contexts/AuthContext';
+import { useConfirm } from '../components/common/ConfirmDialog';
 import { STATUSES } from '../components/leads/leadTypes';
 import { CREDIT_REASON_LABELS, WalletHistory, leadOrigin, money, planLabel, suggestedBonus, type PlanSummary } from '../components/market/wallet';
 import { dropsToFloor, pricingFor } from '../services/auction';
@@ -518,7 +519,20 @@ function CompanyPanel({
     }
   };
 
+  // Bids are only for listed trades, so dropping one drops the company's bids in it: say so first.
+  const [confirm, confirmDialog] = useConfirm();
   const saveTrades = async (next: string[]) => {
+    const dropped = (company.standingBids ?? []).filter((b) => !next.includes(b.jobType));
+    if (dropped.length > 0) {
+      const names = [...new Set(dropped.map((b) => trades.find((t) => t.id === b.jobType)?.name ?? b.jobType))].join(', ');
+      const yes = await confirm({
+        title: `Drop ${names}?`,
+        message: `${company.name} has ${dropped.length} bid${dropped.length === 1 ? '' : 's'} there. ${dropped.length === 1 ? 'It goes' : 'They go'} too.`,
+        confirmLabel: 'Drop trade',
+        cancelLabel: 'Keep it',
+      });
+      if (!yes) return;
+    }
     setLeadTrades(next);
     await marketplaceAPI.setCompanyTrades(company.id, next);
     onChanged();
@@ -740,6 +754,7 @@ function CompanyPanel({
           <section>
             <h3 className="text-sm font-medium text-white mb-2">Buys leads for</h3>
             <TradePicker trades={trades} value={leadTrades} onChange={saveTrades} />
+            {confirmDialog}
           </section>
 
           <PlanSection company={company} onChanged={onChanged} />
