@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, Search, X } from 'lucide-react';
+import { Check, X } from 'lucide-react';
 import { IndustryService } from '../../services/IndustryService';
 import { WALLET_CHANGED } from '../market/WalletBar';
 import { Toast, useToast } from '../common/Notice';
@@ -16,14 +16,13 @@ export { NO_TRADES_LABEL, TRADES_CHANGED } from './tradesLabels';
 
 /**
  * Where a company picks its trades: one list that decides its leads, its bids
- * and what its Price Book opens on. Your trades sit at the top as chips; the
- * rest are below to tap on. Every tap saves on its own (no Save button), and
+ * and what its Price Book opens on. Your trades sit at the top as chips; every
+ * trade is listed below to tap on. Every tap saves on its own (no Save button), and
  * taps made while a save is going out are sent right after it.
  */
 export const TradesEditor: React.FC<{ organizationId: string; className?: string }> = ({ organizationId, className = '' }) => {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [mine, setMine] = useState<Set<string>>(new Set());
-  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { toast, show } = useToast();
@@ -79,14 +78,12 @@ export const TradesEditor: React.FC<{ organizationId: string; className?: string
     flush();
   };
 
-  const q = search.trim().toLowerCase();
   const chosen = trades.filter((t) => mine.has(t.id));
-  const matches = trades.filter((t) => !q || t.name.toLowerCase().includes(q) || (t.description ?? '').toLowerCase().includes(q));
 
   return (
     <div className={className}>
       <Toast text={toast} />
-      <p className="text-sm text-gray-400">You'll get leads and bids for this work, and your Price Book opens on it.</p>
+      <p className="text-sm text-gray-400">You'll get leads and bids for this work.</p>
 
       {/* Your trades, as chips: tap the x to drop one. */}
       <div className="mt-4" aria-label="Your trades">
@@ -111,21 +108,9 @@ export const TradesEditor: React.FC<{ organizationId: string; className?: string
         </p>
       )}
 
-      <div className="relative mt-5">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search trades"
-          aria-label="Search trades"
-          className="w-full pl-9 pr-3 py-2 rounded bg-[#1A1A1A] border border-[#333] text-base md:text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
-        />
-      </div>
-
       {/* Every trade: tap to add or drop. */}
-      <ul className="mt-3 divide-y divide-[#2A2A2A] border-y border-[#2A2A2A]" aria-label="All trades">
-        {matches.map((t) => {
+      <ul className="mt-5 divide-y divide-[#2A2A2A] border-y border-[#2A2A2A]" aria-label="All trades">
+        {trades.map((t) => {
           const on = mine.has(t.id);
           return (
             <li key={t.id}>
@@ -141,7 +126,6 @@ export const TradesEditor: React.FC<{ organizationId: string; className?: string
             </li>
           );
         })}
-        {!loading && matches.length === 0 && <li className="py-6 text-center text-sm text-gray-500">No trades match “{search.trim()}”.</li>}
       </ul>
     </div>
   );

@@ -56,13 +56,6 @@ describe('TradesEditor', () => {
     expect(setTrades).toHaveBeenLastCalledWith('o1', ['handyman']);
     expect(chips()).toEqual(['Handyman']);
 
-    // Search narrows the list by name or description.
-    const search = document.body.querySelector('input[aria-label="Search trades"]') as HTMLInputElement;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, 'heat');
-      search.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    expect(Array.from(document.body.querySelectorAll('[aria-label="All trades"] button')).map((b) => b.querySelector('span span')?.textContent)).toEqual(['HVAC']);
     window.removeEventListener(TRADES_CHANGED, changed);
   });
 
