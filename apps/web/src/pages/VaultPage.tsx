@@ -2,6 +2,7 @@ import React, { useCallback, useContext, useEffect, useMemo, useState } from 're
 import { MapPin, Sparkles } from 'lucide-react';
 import { Confirmed } from '../components/market/Confirmed';
 import { JobChip } from '../components/market/JobChip';
+import { PermitsNearYou } from '../components/market/PermitsNearYou';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { walletAPI } from '../lib/api';
 import { money } from '../components/market/wallet';
@@ -51,6 +52,8 @@ const VaultPage: React.FC = () => {
   const organizationId = selectedOrg?.id || undefined;
   const [pool, setPool] = useState<VaultPool | null>(null);
   const [mineOnly, setMineOnly] = useState(true);
+  // Two views: leads nobody bought, and public permits for work going on nearby.
+  const [tab, setTab] = useState<'leads' | 'permits'>('leads');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { toast, show } = useToast();
@@ -128,6 +131,24 @@ const VaultPage: React.FC = () => {
         </div>
       ) : (
         <>
+          <div role="tablist" aria-label="Vault sections" className="flex items-center gap-1 border-b border-[#2A2A2A] mb-4">
+            {(['leads', 'permits'] as const).map((id) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={tab === id}
+                onClick={() => setTab(id)}
+                className={`px-3 py-2 text-sm -mb-px border-b-2 ${tab === id ? 'border-[#336699] text-white' : 'border-transparent text-gray-400 hover:text-white'}`}
+              >
+                {id === 'leads' ? 'Older leads' : 'Permits near you'}
+              </button>
+            ))}
+          </div>
+          {tab === 'permits' ? (
+            <PermitsNearYou organizationId={organizationId!} />
+          ) : (
+            <>
           <div className="flex items-center gap-2 mb-3">
             <button
               type="button"
@@ -194,6 +215,8 @@ const VaultPage: React.FC = () => {
                   </li>
                 ))}
               </ul>
+            </>
+          )}
             </>
           )}
         </>

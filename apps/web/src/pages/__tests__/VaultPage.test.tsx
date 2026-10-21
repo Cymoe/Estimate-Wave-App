@@ -9,6 +9,16 @@ let pool: unknown = { locked: true, count: 2, plan: null, leads: [] };
 const claim = jest.fn(async () => ({ orgLeadId: 'ol2', priceCents: 0, claimsLeft: 6 }));
 const startPlan = jest.fn(async () => ({ ...trial, status: 'active' }));
 const createLink = jest.fn(async (_id: string) => 'tok');
+let permitsNear: unknown = {
+  county: 'Midland',
+  syncedAt: '2026-10-21T06:10:00Z',
+  locked: false,
+  summary: { days: 30, total: 128, residentialBuilding: 60, singleFamily: 41, inMyTrades: 2 },
+  permits: [
+    { id: 'p1', permitNumber: 'RES-1', name: 'Residential - Building', workClass: 'Alteration & Repair', address: '2705 HOWDY DR', status: 'Issued', appliedAt: '2026-10-16T16:57:14Z', residential: true, trades: ['painting'], matchesTrades: true },
+    { id: 'p2', permitNumber: 'MEC-1', name: 'Mechanical - Replacement', workClass: 'Heating, A/C', address: '301 SHARP LN', status: 'Issued', appliedAt: '2026-10-15T16:57:14Z', residential: false, trades: ['hvac'], matchesTrades: false },
+  ],
+};
 
 jest.mock('../../lib/api', () => ({
   walletAPI: {
@@ -19,6 +29,7 @@ jest.mock('../../lib/api', () => ({
     cancelPlan: async () => undefined,
   },
   fundingAPI: { createLink: (id: string) => createLink(id), url: (t: string) => `/fund/${t}` },
+  permitsAPI: { near: async () => permitsNear },
 }));
 jest.mock('../../components/layouts/DashboardLayout', () => ({
   OrganizationContext: require('react').createContext({ selectedOrg: { id: 'o2', name: 'Mio Homes', industry: 'Landscaping' } }),
@@ -80,5 +91,26 @@ describe('The Vault', () => {
     await render();
     expect(byText('Claim · $15.00')).toBeTruthy();
     expect(document.body.textContent).toContain('$15.00 each after that');
+  });
+
+  it('shows the permits applied for nearby, in the company\'s trades first, as a second tab on the plan', async () => {
+    pool = { locked: false, count: 0, plan: trial, leads: [] };
+    await render();
+    expect(document.body.querySelector('[data-testid="permits-near-you"]')).toBeNull();
+    await act(async () => byText('Permits near you')!.click());
+    await flush();
+    const panel = document.body.querySelector('[data-testid="permits-near-you"]')!;
+    expect(panel.textContent).toContain('128 permits applied for in Midland in the last 30 days · 41 single-family · 2 in your trades');
+    expect(panel.textContent).toContain('no contact details');
+    // "My trades" is on, so only the repair permit shows; off, the HVAC one too.
+    const table = () => panel.querySelector('[data-testid="permits-table"]')!;
+    expect(table().textContent).toContain('Residential - Building · Alteration & Repair');
+    expect(table().textContent).toContain('2705 HOWDY DR');
+    expect(table().textContent).not.toContain('301 SHARP LN');
+    await act(async () => Array.from(panel.querySelectorAll('button')).find((b) => b.textContent === 'My trades')!.click());
+    expect(table().textContent).toContain('301 SHARP LN');
+    // Back to the leads.
+    await act(async () => byText('Older leads')!.click());
+    expect(document.body.querySelector('[data-testid="permits-near-you"]')).toBeNull();
   });
 });

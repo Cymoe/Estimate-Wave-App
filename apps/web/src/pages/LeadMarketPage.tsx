@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { Building2, Check, Inbox, Link2, MapPin, Phone, Send, ShieldCheck, Tag, Trash2, X } from 'lucide-react';
-import { fundingAPI, industriesAPI, leadsAPI, marketplaceAPI, walletAPI } from '../lib/api';
+import { fundingAPI, industriesAPI, leadsAPI, marketplaceAPI, permitsAPI, walletAPI } from '../lib/api';
 import { copyText } from '../components/estimates/estimateActions';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../components/common/ConfirmDialog';
@@ -211,6 +211,50 @@ function VerifyDialog({ lead, onClose, onSaved }: { lead: MarketLead; onClose: (
         </div>
       </form>
     </Dialog>
+  );
+}
+
+/** The Midland permit feed: when it last ran, how it went, and a button to run it now. */
+function PermitsCard() {
+  type Status = { source: { syncedAt: string; fetched: number; added: number; updated: number; error?: string } | null; last30Days: number };
+  const [status, setStatus] = useState<Status | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const load = useCallback(() => permitsAPI.status().then(setStatus).catch(() => {}), []);
+  useEffect(() => {
+    load();
+  }, [load]);
+  const sync = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const r: { fetched: number; added: number; updated: number; error?: string } = await permitsAPI.syncNow();
+      setNote(r.error ? `The city's service failed: ${r.error}` : `Pulled ${r.fetched}: ${r.added} new, ${r.updated} updated.`);
+      await load();
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "That didn't work");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const s = status?.source;
+  return (
+    <section className="border border-[#2A2A2A] rounded p-4 flex flex-wrap items-center justify-between gap-3" aria-label="Midland permits">
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-white">Midland permits · the Vault's "Permits near you"</span>
+        <span className="block text-xs text-gray-500 mt-0.5">
+          {!status
+            ? 'Loading…'
+            : s
+              ? `Last pulled ${new Date(s.syncedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · ${s.fetched} fetched, ${s.added} new, ${s.updated} updated${s.error ? ` · failed: ${s.error}` : ''} · ${status.last30Days} building permits in the last 30 days`
+              : 'Not pulled yet. The deploy and a daily job pull them from the city.'}
+        </span>
+        {note && <span className="block text-xs text-gray-300 mt-1">{note}</span>}
+      </span>
+      <button type="button" onClick={sync} disabled={busy} className={secondary}>
+        {busy ? 'Pulling…' : 'Sync now'}
+      </button>
+    </section>
   );
 }
 
@@ -1404,6 +1448,7 @@ const LeadMarketPage: React.FC = () => {
           {(inbox.archivedCount ?? 0) > 0 && (
             <p className="text-xs text-gray-500">{inbox.archivedCount} archived lead{inbox.archivedCount === 1 ? '' : 's'}.</p>
           )}
+          <PermitsCard />
 
           {inbox.sold.length > 0 && (
             <section>

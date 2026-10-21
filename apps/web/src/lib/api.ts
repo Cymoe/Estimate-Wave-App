@@ -64,9 +64,10 @@ function withId<T>(value: T): T {
   return value;
 }
 
-async function run<T = any>(kind: 'query' | 'mutation', ref: FunctionReference<any>, args: Record<string, unknown>): Promise<T> {
+async function run<T = any>(kind: 'query' | 'mutation' | 'action', ref: FunctionReference<any>, args: Record<string, unknown>): Promise<T> {
   try {
-    const result = kind === 'query' ? await client.query(ref, args) : await client.mutation(ref, args);
+    const result =
+      kind === 'query' ? await client.query(ref, args) : kind === 'mutation' ? await client.mutation(ref, args) : await client.action(ref, args);
     return withId(result);
   } catch (error) {
     throw toAPIError(error);
@@ -478,6 +479,14 @@ export const walletAPI = {
   ensurePlan: (organizationId: string) => run('mutation', api.marketplace.ensurePlan, { organizationId }),
   startPlan: (organizationId: string) => run('mutation', api.marketplace.startPlan, { organizationId }),
   cancelPlan: (organizationId: string) => run('mutation', api.marketplace.cancelPlan, { organizationId }),
+};
+
+/** Building permits near a company, from the city's public feed (the Vault's second tab). */
+export const permitsAPI = {
+  near: (organizationId: string, days?: number) => run('query', api.permits.near, defined({ organizationId, days })),
+  monthly: () => run('query', api.permits.monthly, {}),
+  status: () => run('query', api.permits.status, {}),
+  syncNow: () => run('action', api.permits.syncNow, {}),
 };
 
 /** Standing bids by county and service type, and the leads they won or missed. */

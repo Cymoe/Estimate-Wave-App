@@ -89,6 +89,9 @@ jobs:
         # Bids are only for listed trades. Safe to re-run: with none outside
         # the lists it does nothing.
         run: npx convex run bids:removeBidsOutsideTrades
+      - name: Pull Midland's permits
+        # The Vault's "Permits near you". Incremental after the first run.
+        run: npx convex run permits:syncMidland
 
       - name: Smoke test the live deployment
         run: node scripts/convex-smoke-test.mjs

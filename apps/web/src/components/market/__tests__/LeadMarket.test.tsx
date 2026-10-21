@@ -25,6 +25,7 @@ const setCompanyOwner = jest.fn(async (_id: string, _email: string) => 'invited'
 const setPlan = jest.fn(async () => undefined);
 
 jest.mock('../../../lib/api', () => ({
+  permitsAPI: { status: async () => ({ source: null, last30Days: 0 }), syncNow: async () => ({ fetched: 0, added: 0, updated: 0 }) },
   marketplaceAPI: {
     inbox: async () => ({
       available: emptyMarket ? [] : [{ id: 'm1', name: 'Jane Cole', jobType: 'roofing', city: 'Midland', status: 'available', price: 8500, createdAt: '2026-10-16' }],

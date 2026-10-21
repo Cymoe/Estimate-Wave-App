@@ -880,7 +880,7 @@ export const setPlan = mutation({
 // ---- The company's side ----
 
 /** The plan as pages show it. */
-function planSummary(plan: Plan, nowMs: number) {
+export function planSummary(plan: Plan, nowMs: number) {
   return {
     status: plan.status,
     active: planIsActive(plan, nowMs),

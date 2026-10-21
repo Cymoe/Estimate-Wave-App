@@ -505,6 +505,42 @@ export default defineSchema({
     .index("by_organization", ["organizationId"])
     .index("by_county_and_type", ["county", "jobType"]),
 
+  // Building permits pulled from a city's public permit feed (lib/permits.ts),
+  // mapped to the trades that do that work. Public record: address and work,
+  // no contact details.
+  permits: defineTable({
+    source: v.string(),
+    permitNumber: v.string(),
+    name: v.string(),
+    workClass: v.optional(v.string()),
+    description: v.optional(v.string()),
+    status: v.optional(v.string()),
+    address: v.optional(v.string()),
+    county: v.string(),
+    city: v.string(),
+    appliedAt: v.string(),
+    issuedAt: v.optional(v.string()),
+    lat: v.optional(v.number()),
+    lng: v.optional(v.number()),
+    residential: v.optional(v.boolean()),
+    trades: v.array(v.string()),
+    url: v.optional(v.string()),
+    importedAt: v.string(),
+  })
+    .index("by_permit_number", ["permitNumber"])
+    .index("by_county_and_applied", ["county", "appliedAt"]),
+
+  // How each permit feed's last sync went.
+  permitSources: defineTable({
+    source: v.string(),
+    syncedAt: v.string(),
+    lastAppliedAt: v.optional(v.string()),
+    fetched: v.number(),
+    added: v.number(),
+    updated: v.number(),
+    error: v.optional(v.string()),
+  }).index("by_source", ["source"]),
+
   // Legacy: the round length from when leads sat in timed bidding rounds.
   // Kept so an existing row still deploys; nothing reads it.
   marketSettings: defineTable({

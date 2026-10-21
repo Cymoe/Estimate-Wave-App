@@ -3460,6 +3460,60 @@ describe("standing bids and instant awards", () => {
     expect((await results(mio)).find((r) => r.leadId === medium._id)).toMatchObject({ size: "medium", kind: "remodel", won: true });
   });
 
+  test("Midland's permits land in the Vault for companies on the plan, mapped to their trades", async () => {
+    const { t, mio } = await market();
+    const { rowsToPermits, tradesForPermit } = await import("./lib/permits");
+    expect(tradesForPermit("Residential - Building", "Single Family")).toEqual(
+      expect.arrayContaining(["general-construction", "roofing", "concrete"]),
+    );
+    expect(tradesForPermit("Residential - Building", "Alteration & Repair")).toContain("painting");
+    expect(tradesForPermit("Mechanical - Replacement", "Heating, A/C, Venting, Ductwork or Refridgeration")).toEqual(["hvac"]);
+    expect(tradesForPermit("Sign", "Sign")).toEqual([]);
+    const day = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const applied = (daysAgo: number) => now - daysAgo * day;
+    const feature = (PermitNumber: string, Name: string, PermitWorkClass: string, daysAgo: number, extra: Record<string, unknown> = {}) => ({
+      attributes: { PermitNumber, PermitStatus: "Issued", Name, PermitWorkClass, Description: `${Name} permit`, Address: "2705 HOWDY DR", ApplyDate: applied(daysAgo), DateIssued: applied(daysAgo), URL: null, ...extra },
+      geometry: { x: -102.07, y: 32.0 },
+    });
+    const rows = rowsToPermits([
+      feature("MEC-1", "Mechanical - Replacement", "Heating, A/C, Venting, Ductwork or Refridgeration", 1),
+      feature("SGN-1", "Sign", "Sign", 1),
+    ]);
+    // Signs aren't building work; the rest is mapped, dated and placed.
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ permitNumber: "MEC-1", trades: ["hvac"], lat: 32, lng: -102.07, status: "Issued" });
+    expect(rows[0].appliedAt).toBe(new Date(applied(1)).toISOString());
+    // Upserting is idempotent; a changed status is an update.
+    expect(await t.mutation(internal.permits.upsert, { source: "midland", rows })).toEqual({ added: 1, updated: 0 });
+    expect(await t.mutation(internal.permits.upsert, { source: "midland", rows })).toEqual({ added: 0, updated: 0 });
+    expect(await t.mutation(internal.permits.upsert, { source: "midland", rows: [{ ...rows[0], status: "Finaled" }] })).toEqual({ added: 0, updated: 1 });
+    await t.mutation(internal.permits.upsert, {
+      source: "midland",
+      rows: rowsToPermits([
+        feature("RES-1", "Residential - Building", "Single Family", 2),
+        feature("RES-2", "Residential - Building", "Alteration & Repair", 3),
+        feature("ELC-1", "Electrical - Construction", "Commercial Electrical", 40),
+      ]),
+    });
+    // Without the plan the counts show but not the permits.
+    const near = (days: number) => mio.as.query(api.permits.near, { organizationId: mio.organizationId, days });
+    expect(await near(30)).toMatchObject({ locked: true, permits: [], summary: { total: 3, singleFamily: 1, inMyTrades: 1 } });
+    await mio.as.mutation(api.marketplace.startPlan, { organizationId: mio.organizationId });
+    const open = await near(30);
+    expect(open.locked).toBe(false);
+    expect(open.permits.map((p) => p.permitNumber)).toEqual(["MEC-1", "RES-1", "RES-2"]);
+    // Mio paints: the repair permit is in its trades, the HVAC one isn't.
+    expect(open.permits.find((p) => p.permitNumber === "RES-2")?.matchesTrades).toBe(true);
+    expect(open.permits.find((p) => p.permitNumber === "MEC-1")?.matchesTrades).toBe(false);
+    expect((await near(90)).summary.total).toBe(4);
+    // The monthly report counts by kind.
+    const months = await mio.as.query(api.permits.monthly, {});
+    expect(months.reduce((n, m) => n + m.total, 0)).toBe(4);
+    expect(months.reduce((n, m) => n + m.singleFamily, 0)).toBe(1);
+    expect(months.reduce((n, m) => n + m.trade, 0)).toBe(2);
+  });
+
   test("a company hears it was outbid once, until it looks; leading again or its own moves clear it", async () => {
     const { admin, mio, soco } = await market();
     const wallet = (who: { as: any; organizationId: any }) =>

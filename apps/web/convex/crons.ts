@@ -15,4 +15,12 @@ crons.daily(
   {},
 );
 
+// Midland's permit feed, once a day (lib/permits.ts).
+crons.daily(
+  "sync Midland permits",
+  { hourUTC: 6, minuteUTC: 10 },
+  internal.permits.syncMidland,
+  {},
+);
+
 export default crons;
