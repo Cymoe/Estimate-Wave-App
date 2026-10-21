@@ -1071,9 +1071,9 @@ function AddBidDialog({
             })}
           </ul>
           <p className="mt-2 text-xs text-gray-500">
-            Work in another trade?{' '}
+            Want more bids?{' '}
             <Link to="/settings/organization?tab=trades" className="text-[#7fb0e0] underline underline-offset-2">
-              Add it in Company settings
+              Add another trade in Company settings
             </Link>
             .
           </p>

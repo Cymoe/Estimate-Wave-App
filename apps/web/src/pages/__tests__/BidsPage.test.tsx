@@ -516,7 +516,7 @@ describe('Bids', () => {
     const rows = () => Array.from(dialog()!.querySelectorAll('[aria-label="Bids by trade"] > li'));
     expect(rows().map((li) => li.querySelector('p')?.textContent)).toEqual(['Landscaping']);
     expect(dialog()!.textContent).not.toContain('More trades');
-    const link = Array.from(dialog()!.querySelectorAll('a')).find((a) => a.textContent === 'Add it in Company settings');
+    const link = Array.from(dialog()!.querySelectorAll('a')).find((a) => a.textContent === 'Add another trade in Company settings');
     expect(link?.getAttribute('href')).toBe('/settings/organization?tab=trades');
   });
 
