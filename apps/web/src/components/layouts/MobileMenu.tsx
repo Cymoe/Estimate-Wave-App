@@ -244,16 +244,6 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
             )}
             <button
               onClick={() => {
-                navigate('/profile');
-                onClose();
-              }}
-              className="w-full text-left p-3 hover:bg-[#333333] rounded-[4px] transition-colors text-gray-300"
-            >
-              <span>Profile Settings</span>
-            </button>
-
-            <button
-              onClick={() => {
                 navigate('/company-settings');
                 onClose();
               }}

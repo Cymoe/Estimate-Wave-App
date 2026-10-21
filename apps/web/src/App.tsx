@@ -16,7 +16,6 @@ import { LandingPage } from './components/LandingPage';
 import Projects from './pages/marketing/Projects';
 import { BillsList } from './components/bills/BillsList';
 import { Callback } from './components/auth/Callback';
-import { UserProfile } from './components/settings/UserProfile';
 import { PublicProfileView } from './components/settings/PublicProfileView';
 import { Toaster } from 'react-hot-toast';
 import LineItemTestPage from './pages/LineItemTestPage';
@@ -406,16 +405,8 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/profile"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <UserProfile />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
+      {/* The profile page was removed; old links land in Company settings. */}
+      <Route path="/profile" element={<Navigate to="/settings/organization" replace />} />
       
       {/* Documentation routes - publicly accessible */}
       <Route

@@ -62,7 +62,6 @@ html.light .bg-\[\#374151\] { background-color: #DDE0E4; }
 html.light .bg-\[\#3a1a1a\] { background-color: #F1F2F4; }
 html.light .bg-\[\#3a3a1a\] { background-color: #F1F2F4; }
 html.light .bg-\[\#444444\] { background-color: #DDE0E4; }
-html.light .bg-\[\#555555\] { background-color: #C9CDD3; }
 html.light .bg-\[\#9E9E9E\] { background-color: #616161; }
 html.light .bg-\[\#9E9E9E\]\/20 { background-color: rgba(97, 97, 97, 0.2); }
 html.light .bg-black { background-color: #F4F5F7; }
@@ -192,7 +191,6 @@ html.light .hover\:border-\[\#555555\]:hover { border-color: #C3C8CF; }
 html.light .hover\:border-\[\#666666\]:hover { border-color: #C3C8CF; }
 html.light .hover\:border-gray-600:hover { border-color: #D1D5DB; }
 html.light .hover\:text-\[\#121212\]:hover { color: #EDEDED; }
-html.light .hover\:text-\[\#60A5FA\]:hover { color: #0953AE; }
 html.light .hover\:text-\[\#999\]:hover { color: #666666; }
 html.light .hover\:text-\[\#FFFFFF\]:hover { color: #111827; }
 html.light .hover\:text-blue-300:hover { color: #1d4ed8; }
@@ -222,7 +220,6 @@ html.light .text-\[\#9E9E9E\] { color: #616161; }
 html.light .text-\[\#9cc3ea\] { color: #205C97; }
 html.light .text-\[\#9cc4ea\] { color: #205D97; }
 html.light .text-\[\#A0AEC0\] { color: #49596E; }
-html.light .text-\[\#EC4899\] { color: #A6115B; }
 html.light .text-\[\#FFFFFF\] { color: #111827; }
 html.light .text-\[\#cfe2f5\] { color: #205C98; }
 html.light .text-\[\#fbbf24\] { color: #AE8009; }
