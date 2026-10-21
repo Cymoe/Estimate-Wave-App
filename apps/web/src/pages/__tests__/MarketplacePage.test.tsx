@@ -47,7 +47,7 @@ async function render(path = '/marketplace') {
 
 beforeEach(() => {
   feed = [
-    { id: 'm1', jobType: 'landscaping', tradeName: 'Landscaping', city: 'Midland', summary: 'Backyard redo', receivedAt: listedAt, auction, matchesTrades: true, verified: { at: '2026-10-20T15:00:00Z', note: 'Wants a quote this month' } },
+    { id: 'm1', jobType: 'landscaping', tradeName: 'Landscaping', city: 'Midland', summary: 'Backyard redo', receivedAt: listedAt, auction, matchesTrades: true, size: 'medium', kind: 'remodel', verified: { at: '2026-10-20T15:00:00Z', note: 'Wants a quote this month' } },
     { id: 'm2', jobType: 'roofing', tradeName: 'Roofing', city: 'Odessa', receivedAt: listedAt, auction, matchesTrades: false },
   ];
   bids = [];
@@ -67,6 +67,10 @@ describe('Marketplace', () => {
     expect(marks).toHaveLength(2);
     expect(marks[0].textContent).toContain('Confirmed Oct 20');
     expect(marks[0].textContent).toContain('Wants a quote this month');
+    // The job size and kind sit next to the trade.
+    const chips = Array.from(document.body.querySelectorAll('[data-job]'));
+    expect(chips).toHaveLength(2);
+    expect(chips[0].textContent).toBe('Medium · Remodel');
   });
 
   it('formats countdowns', () => {

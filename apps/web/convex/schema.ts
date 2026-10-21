@@ -2,6 +2,10 @@ import { defineSchema, defineTable } from "convex/server";
 import { authTables } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 
+/** A lead's job size and kind (see lib/auction.ts for what they mean). */
+export const jobSize = v.union(v.literal("small"), v.literal("medium"), v.literal("large"));
+export const jobKind = v.union(v.literal("new"), v.literal("remodel"), v.literal("repair"));
+
 /**
  * FieldQuote data model.
  *
@@ -407,6 +411,10 @@ export default defineSchema({
     jobType: v.optional(v.string()),
     source: v.optional(v.string()),
     notes: v.optional(v.string()),
+    // How big the job is and what kind; the size scales the price and
+    // decides which standing bids compete for it.
+    size: v.optional(jobSize),
+    kind: v.optional(jobKind),
     status: marketplaceLeadStatus,
     // Legacy: set while a lead sat in a timed bidding round.
     round: v.optional(v.object({ opensAt: v.string(), closesAt: v.string() })),
@@ -478,6 +486,8 @@ export default defineSchema({
     county: v.string(),
     jobType: v.string(),
     amountCents: v.number(),
+    /** Only for jobs of this size; a bid with none covers every size. */
+    size: v.optional(jobSize),
     createdBy: v.id("users"),
     createdAt: v.string(),
     updatedAt: v.string(),
@@ -527,6 +537,10 @@ export default defineSchema({
     floorCents: v.optional(v.number()),
     dropCents: v.optional(v.number()),
     dropEveryMinutes: v.optional(v.number()),
+    // On the "default" row only: how much a lead's price scales by job size.
+    sizeMultipliers: v.optional(
+      v.object({ small: v.number(), medium: v.number(), large: v.number() }),
+    ),
     updatedAt: v.string(),
   }).index("by_job_type", ["jobType"]),
 
@@ -658,6 +672,9 @@ export default defineSchema({
     verified: v.optional(
       v.object({ at: v.string(), note: v.optional(v.string()) }),
     ),
+    // The job size and kind the Lead Market listed it with.
+    size: v.optional(jobSize),
+    kind: v.optional(jobKind),
     // Bought from the Lead Market (server-set, not in leadFields).
     marketplaceLeadId: v.optional(v.id("marketplaceLeads")),
     pricePaidCents: v.optional(v.number()),

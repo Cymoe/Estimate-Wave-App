@@ -5,8 +5,11 @@ import { refreshStandingFor } from "./standing";
 import {
   type Auction,
   type Pricing,
+  type Size,
+  DEFAULT_SIZE_MULTIPLIERS,
   priceAt,
   pricingFor as pricingFrom,
+  scalePricing,
 } from "./auction";
 
 type TransactionType = Doc<"walletTransactions">["type"];
@@ -31,13 +34,26 @@ export async function leadPriceRow(
   return null;
 }
 
-/** The drop schedule a lead for this trade is listed with. */
+/** How much a lead's price scales by job size: the admin's numbers, else the defaults. */
+export async function sizeMultipliers(
+  ctx: QueryCtx | MutationCtx,
+): Promise<Record<Size, number>> {
+  const row = await ctx.db
+    .query("leadPrices")
+    .withIndex("by_job_type", (q) => q.eq("jobType", "default"))
+    .unique();
+  return row?.sizeMultipliers ?? DEFAULT_SIZE_MULTIPLIERS;
+}
+
+/** The drop schedule a lead for this trade (and job size, if known) is listed with. */
 export async function pricingFor(
   ctx: QueryCtx | MutationCtx,
   jobType: string | undefined,
+  size?: Size,
 ): Promise<Pricing> {
   const row = await leadPriceRow(ctx, jobType);
-  return pricingFrom(row ?? { priceCents: DEFAULT_LEAD_PRICE_CENTS });
+  const base = pricingFrom(row ?? { priceCents: DEFAULT_LEAD_PRICE_CENTS });
+  return size ? scalePricing(base, (await sizeMultipliers(ctx))[size]) : base;
 }
 
 /** The schedule a lead is on: the one it was listed with, else its trade's today. */
@@ -46,7 +62,10 @@ export async function auctionFor(
   lead: Doc<"marketplaceLeads">,
 ): Promise<Auction> {
   if (lead.auction) return lead.auction;
-  return { ...(await pricingFor(ctx, lead.jobType)), listedAt: lead.createdAt };
+  return {
+    ...(await pricingFor(ctx, lead.jobType, lead.size)),
+    listedAt: lead.createdAt,
+  };
 }
 
 /** What a lead costs right now. */

@@ -3,6 +3,7 @@ import type { Doc } from "./_generated/dataModel";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { fail, nowIso, requireMember } from "./lib/access";
 import { MIN_START_CENTS } from "./lib/auction";
+import { jobSize } from "./schema";
 import { closeLegacyRound } from "./lib/awards";
 import { dropBidsOutsideTrades, fundedBidsFor, outbidUnseen, refreshStanding } from "./lib/standing";
 import { normalizeCounty, TEXAS_COUNTIES } from "./lib/counties";
@@ -42,13 +43,14 @@ export const listStanding = query({
         a.county.localeCompare(b.county) || a.jobType.localeCompare(b.jobType),
     )) {
       // Only bids a balance can cover count: an unfunded bid can't win a lead.
-      const funded = await fundedBidsFor(ctx, row.county, row.jobType);
+      const funded = await fundedBidsFor(ctx, row.county, row.jobType, row.size);
       const mineFunded = funded.some((b) => b._id === row._id);
       const leading = mineFunded && funded[0]._id === row._id;
       out.push({
         id: row._id,
         county: row.county,
         jobType: row.jobType,
+        size: row.size,
         amountCents: row.amountCents,
         updatedAt: row.updatedAt,
         funded: mineFunded,
@@ -69,8 +71,10 @@ export const setStanding = mutation({
     county: v.string(),
     jobType: v.string(),
     amount: v.number(),
+    /** Only for jobs of this size; leave it out to cover every size. */
+    size: v.optional(jobSize),
   },
-  handler: async (ctx, { organizationId, county, jobType, amount }) => {
+  handler: async (ctx, { organizationId, county, jobType, amount, size }) => {
     const { user, organization } = await requireMember(
       ctx,
       organizationId,
@@ -104,7 +108,9 @@ export const setStanding = mutation({
           q.eq("organizationId", organizationId),
         )
         .collect()
-    ).find((row) => row.county === name && row.jobType === trade);
+    ).find(
+      (row) => row.county === name && row.jobType === trade && row.size === size,
+    );
     // A bid is only placed when the balance can pay it. Lowering is always
     // allowed, so a bid the balance fell below (after a win, say) can be
     // brought back under it; that bid stays but is paused until it's covered.
@@ -124,6 +130,7 @@ export const setStanding = mutation({
         organizationId,
         county: name,
         jobType: trade,
+        size,
         amountCents,
         createdBy: user._id,
         createdAt: now,
@@ -211,6 +218,8 @@ export const results = query({
         bidId: bid._id,
         leadId: bid.marketplaceLeadId,
         jobType: lead?.jobType,
+        size: lead?.size,
+        kind: lead?.kind,
         county: lead?.county,
         city: lead?.city,
         myBidCents: bid.maxCents,
