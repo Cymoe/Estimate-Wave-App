@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
-import { Building2, Check, Inbox, Link2, MapPin, Phone, Send, Tag, Trash2, X } from 'lucide-react';
+import { Building2, Check, Inbox, Link2, MapPin, Phone, Send, ShieldCheck, Tag, Trash2, X } from 'lucide-react';
 import { fundingAPI, industriesAPI, leadsAPI, marketplaceAPI, walletAPI } from '../lib/api';
 import { copyText } from '../components/estimates/estimateActions';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../components/common/ConfirmDialog';
+import { Confirmed } from '../components/market/Confirmed';
 import { STATUSES } from '../components/leads/leadTypes';
 import { CREDIT_REASON_LABELS, WalletHistory, leadOrigin, money, planLabel, suggestedBonus, type PlanSummary } from '../components/market/wallet';
 import { dropsToFloor, pricingFor } from '../services/auction';
@@ -37,6 +38,8 @@ interface MarketLead {
   wonBy?: 'bid' | 'order';
   assignedAt?: string;
   companyName?: string;
+  /** A person confirmed it with the homeowner: when, and what they said. */
+  verified?: { at: string; note?: string };
   createdAt: string;
 }
 
@@ -155,6 +158,55 @@ function TradePicker({ trades, value, onChange }: { trades: Trade[]; value: stri
         );
       })}
     </div>
+  );
+}
+
+/** After the call: one line on what the homeowner said. Saving stamps today's date on the lead. */
+function VerifyDialog({ lead, onClose, onSaved }: { lead: MarketLead; onClose: () => void; onSaved: () => void }) {
+  const [note, setNote] = useState(lead.verified?.note ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      await marketplaceAPI.verifyLead(lead.id, note);
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "That didn't save");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Dialog title={`${lead.verified ? 'Re-confirm' : 'Confirm'} ${lead.name}`} onClose={onClose}>
+      <form onSubmit={save}>
+        <p className="text-sm text-gray-400 mb-3">
+          Companies will see “Confirmed {new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}” on this lead, with your line.
+        </p>
+        <Field label="What did they say?">
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={3}
+            placeholder="e.g. Wants a quote this month, budget about $8K"
+            className={input}
+            autoFocus
+          />
+        </Field>
+        {error && <p className="text-sm text-red-300 mb-3">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className={secondary}>
+            Cancel
+          </button>
+          <button type="submit" disabled={saving} className={primary}>
+            {saving ? 'Saving…' : 'Mark confirmed'}
+          </button>
+        </div>
+      </form>
+    </Dialog>
   );
 }
 
@@ -963,6 +1015,7 @@ const LeadMarketPage: React.FC = () => {
   const [payments, setPayments] = useState<PendingPayment[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState<MarketLead | null>(null);
+  const [verifying, setVerifying] = useState<MarketLead | null>(null);
   const [openCompanyId, setOpenCompanyId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const creating = searchParams.get('new');
@@ -1181,6 +1234,7 @@ const LeadMarketPage: React.FC = () => {
                       )}
                     </p>
                     {lead.notes && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{lead.notes}</p>}
+                    <Confirmed verified={lead.verified} className="mt-1" />
                   </div>
                   <span className="text-right">
                     <span className="block text-sm text-gray-300">{money(lead.price)}</span>
@@ -1192,6 +1246,15 @@ const LeadMarketPage: React.FC = () => {
                       </span>
                     )}
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => setVerifying(lead)}
+                    title={lead.verified ? 'Confirm it with the homeowner again' : 'Call the homeowner, then say what they told you'}
+                    aria-label={`${lead.verified ? 'Re-confirm' : 'Confirm'} ${lead.name}`}
+                    className={`p-2 ${lead.verified ? 'text-emerald-300' : 'text-gray-400'} hover:text-white`}
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                  </button>
                   <button
                     type="button"
                     onClick={() => setSending(lead)}
@@ -1235,17 +1298,28 @@ const LeadMarketPage: React.FC = () => {
                         {lead.county ? ` · ${lead.county} County` : lead.city ? ` · ${lead.city}` : ''} · listed{' '}
                         {new Date(lead.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                       </span>
+                      {/* Older leads are re-confirmed before they're worth claiming; say which still need the call. */}
+                      {lead.verified ? (
+                        <Confirmed verified={lead.verified} className="mt-0.5" />
+                      ) : (
+                        <span className="block text-xs text-amber-200/80 mt-0.5">Not confirmed yet</span>
+                      )}
                     </span>
-                    <button
-                      type="button"
-                      className={secondary}
-                      onClick={async () => {
-                        await marketplaceAPI.archiveLead(lead.id);
-                        reload();
-                      }}
-                    >
-                      Archive
-                    </button>
+                    <span className="flex items-center gap-2 flex-shrink-0">
+                      <button type="button" className={secondary} onClick={() => setVerifying(lead)}>
+                        {lead.verified ? 'Re-confirm' : 'Confirm'}
+                      </button>
+                      <button
+                        type="button"
+                        className={secondary}
+                        onClick={async () => {
+                          await marketplaceAPI.archiveLead(lead.id);
+                          reload();
+                        }}
+                      >
+                        Archive
+                      </button>
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -1338,6 +1412,7 @@ const LeadMarketPage: React.FC = () => {
 
       {creating === 'lead' && <NewLeadDialog trades={trades} onClose={closeCreate} onSaved={() => reload()} />}
       {creating === 'company' && <NewCompanyDialog trades={trades} onClose={closeCreate} onSaved={() => reload()} />}
+      {verifying && <VerifyDialog lead={verifying} onClose={() => setVerifying(null)} onSaved={() => reload()} />}
       {sending && (
         <SendToDialog
           lead={sending}

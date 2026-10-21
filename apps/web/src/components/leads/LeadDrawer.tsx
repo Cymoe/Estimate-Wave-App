@@ -13,11 +13,13 @@ import {
   Navigation,
   Phone,
   PhoneCall,
+  ShieldCheck,
   Trash2,
   Wrench,
   X,
   XCircle,
 } from 'lucide-react';
+import { confirmedOn } from '../market/Confirmed';
 import { leadsAPI } from '../../lib/api';
 import { formatCurrency } from '../../utils/format';
 import { AppointmentField } from './AppointmentField';
@@ -427,6 +429,14 @@ export const LeadDrawer: React.FC<{
                 ))}
               </select>
             </Row>
+            {lead?.verified && (
+              <Row icon={ShieldCheck} label="Confirmed">
+                <span className="text-sm text-gray-200">
+                  {confirmedOn(lead.verified.at).replace('Confirmed ', '')} by FieldQuote
+                  {lead.verified.note ? <span className="text-gray-400"> · {lead.verified.note}</span> : null}
+                </span>
+              </Row>
+            )}
             <Row icon={Globe} label="Source">
               <select value={draft.source} onChange={choose('source')} aria-label="Source" className={`${plainSelect} ${draft.source ? '' : 'text-gray-600'}`}>
                 <option value="">How did they find you?</option>

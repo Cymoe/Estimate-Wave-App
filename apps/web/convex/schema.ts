@@ -415,6 +415,15 @@ export default defineSchema({
     assignedAt: v.optional(v.string()),
     orgLeadId: v.optional(v.id("leads")),
     isSample: v.optional(v.boolean()),
+    // A person confirmed the lead with the homeowner (server-set by
+    // marketplace.verifyLead): when, what they said, and who called.
+    verified: v.optional(
+      v.object({
+        at: v.string(),
+        note: v.optional(v.string()),
+        by: v.id("users"),
+      }),
+    ),
     // The price schedule it was listed with (see lib/auction.ts). Leads
     // from before schedules existed have none and use their trade's prices.
     auction: v.optional(
@@ -644,6 +653,11 @@ export default defineSchema({
     // County, as the Lead Market knew it when it sold the lead (server-set).
     // Leads without one get it from their town when listed.
     county: v.optional(v.string()),
+    // Carried over from the Lead Market: when FieldQuote confirmed the lead
+    // with the homeowner, and what they said.
+    verified: v.optional(
+      v.object({ at: v.string(), note: v.optional(v.string()) }),
+    ),
     // Bought from the Lead Market (server-set, not in leadFields).
     marketplaceLeadId: v.optional(v.id("marketplaceLeads")),
     pricePaidCents: v.optional(v.number()),

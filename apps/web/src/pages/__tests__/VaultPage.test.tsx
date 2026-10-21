@@ -61,12 +61,13 @@ describe('The Vault', () => {
       locked: false,
       count: 1,
       plan: trial,
-      leads: [{ id: 'm9', jobType: 'landscaping', tradeName: 'Landscaping', city: 'Midland', county: 'Midland', summary: 'Sod and drip', receivedAt: '2026-10-01T00:00:00Z', ageDays: 9, matchesTrades: true }],
+      leads: [{ id: 'm9', jobType: 'landscaping', tradeName: 'Landscaping', city: 'Midland', county: 'Midland', summary: 'Sod and drip', receivedAt: '2026-10-01T00:00:00Z', ageDays: 9, matchesTrades: true, verified: { at: '2026-10-18T15:00:00Z', note: 'Still wants it done' } }],
     };
     await render();
     expect(document.body.textContent).toContain('7 of 10 claims left this month');
     const table = document.body.querySelector('[data-testid="vault-table"]')!;
     expect(table.textContent).toContain('Midland · Midland County');
+    expect(table.textContent).toContain('Confirmed Oct 18 · Still wants it done');
     expect(table.textContent).toContain('9 days');
     await act(async () => byText('Claim · included')!.click());
     await flush();

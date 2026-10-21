@@ -3369,6 +3369,41 @@ describe("standing bids and instant awards", () => {
     void admin;
   });
 
+  test("an admin confirms a lead with the homeowner; companies see when and what, and the buyer keeps it", async () => {
+    const { admin, mio } = await market();
+    const lead = await admin.as.mutation(api.marketplace.createLead, {
+      data: { name: "Dana Reyes", city: "Midland", jobType: "roofing", notes: "Hail damage" },
+    });
+    await expect(
+      mio.as.mutation(api.marketplace.verifyLead, { id: lead!._id, note: "x" }),
+    ).rejects.toThrow(/admin/);
+    const inFeed = async () =>
+      (
+        await mio.as.query(api.marketplace.feed, { organizationId: mio.organizationId })
+      ).find((l) => l.id === lead!._id);
+    expect((await inFeed())?.verified).toBeUndefined();
+    const confirmed = await admin.as.mutation(api.marketplace.verifyLead, {
+      id: lead!._id,
+      note: "  Wants a quote this month, budget about $8K  ",
+    });
+    const note = "Wants a quote this month, budget about $8K";
+    expect(confirmed?.verified).toMatchObject({ note, by: admin.userId });
+    const at = confirmed!.verified!.at;
+    // Companies see the date and the line, not who called.
+    expect((await inFeed())?.verified).toEqual({ at, note });
+    expect(
+      (await admin.as.query(api.marketplace.listInbox, {})).available.find((l) => l._id === lead!._id)?.verified?.note,
+    ).toBe(note);
+    // Bought: the confirmation travels with the lead into the company's Leads.
+    await mio.as.mutation(api.marketplace.buy, { leadId: lead!._id, organizationId: mio.organizationId });
+    const mine = await mio.as.query(api.leads.list, { organizationId: mio.organizationId });
+    expect(mine.find((l) => l.name === "Dana Reyes")?.verified).toEqual({ at, note });
+    // Once sold it can't be confirmed again.
+    await expect(
+      admin.as.mutation(api.marketplace.verifyLead, { id: lead!._id }),
+    ).rejects.toThrow(/listed or older/);
+  });
+
   test("a company hears it was outbid once, until it looks; leading again or its own moves clear it", async () => {
     const { admin, mio, soco } = await market();
     const wallet = (who: { as: any; organizationId: any }) =>

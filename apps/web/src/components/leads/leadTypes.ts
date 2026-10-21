@@ -31,6 +31,8 @@ export interface Lead {
   assignedAt?: string;
   /** How it got here: a standing bid won it, a buy order filled, bought in the Marketplace, or sent by FieldQuote. */
   wonVia?: 'bid' | 'order' | 'buy' | 'sent';
+  /** When FieldQuote confirmed the lead with the homeowner, and what they said. */
+  verified?: { at: string; note?: string };
   creditRequest?: { reason: string; note?: string; requestedAt: string; status: 'pending' | 'approved' | 'denied' };
 }
 

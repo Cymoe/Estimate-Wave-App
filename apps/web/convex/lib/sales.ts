@@ -61,6 +61,9 @@ export async function sellLead(
       pricePaidCents: priceCents,
       assignedAt: now,
       wonVia: sale.via,
+      verified: lead.verified
+        ? { at: lead.verified.at, note: lead.verified.note }
+        : undefined,
       organizationId,
       userId: user._id,
       createdAt: now,

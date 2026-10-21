@@ -247,6 +247,38 @@ export const removeLead = mutation({
   },
 });
 
+/**
+ * A platform admin confirms a lead with the homeowner (a call), with a line
+ * on what they said. Doing it again re-confirms: the date moves. Companies
+ * see the date and the line in the Marketplace, the Vault and their Leads.
+ */
+export const verifyLead = mutation({
+  args: { id: v.id("marketplaceLeads"), note: v.optional(v.string()) },
+  handler: async (ctx, { id, note }) => {
+    const user = await requireSuperAdmin(ctx);
+    const lead = await ctx.db.get(id);
+    if (lead === null) fail("NOT_FOUND", "Lead not found");
+    if (lead.status !== "available" && lead.status !== "older")
+      fail("INVALID", "Only a listed or older lead can be confirmed");
+    const now = nowIso();
+    await ctx.db.patch(id, {
+      verified: { at: now, note: note?.trim() || undefined, by: user._id },
+      updatedAt: now,
+    });
+    return await ctx.db.get(id);
+  },
+});
+
+/** Takes a confirmation back (a mistake). */
+export const clearVerified = mutation({
+  args: { id: v.id("marketplaceLeads") },
+  handler: async (ctx, { id }) => {
+    await requireSuperAdmin(ctx);
+    if ((await ctx.db.get(id)) === null) fail("NOT_FOUND", "Lead not found");
+    await ctx.db.patch(id, { verified: undefined, updatedAt: nowIso() });
+  },
+});
+
 /** Takes a lead out of every list without selling it. */
 export const archiveLead = mutation({
   args: { id: v.id("marketplaceLeads") },
@@ -998,6 +1030,12 @@ export const cancelPlan = mutation({
 });
 
 /** Looks up trade names by slug, once each. */
+/** What companies see of a confirmation: the date and the line, not who called. */
+const verifiedFor = (lead: Doc<"marketplaceLeads">) =>
+  lead.verified
+    ? { at: lead.verified.at, note: lead.verified.note }
+    : undefined;
+
 function tradeNamer(ctx: QueryCtx | MutationCtx) {
   const names = new Map<string, string | undefined>();
   return async (slug: string | undefined) => {
@@ -1054,6 +1092,7 @@ export const olderLeads = query({
             DAY_MS,
         ),
         matchesTrades: matches(lead),
+        verified: verifiedFor(lead),
       })),
     );
     return {
@@ -1061,7 +1100,9 @@ export const olderLeads = query({
       count,
       plan,
       leads: leads.sort(
-        (a, b) => Number(b.matchesTrades) - Number(a.matchesTrades),
+        (a, b) =>
+          Number(b.matchesTrades) - Number(a.matchesTrades) ||
+          Number(Boolean(b.verified)) - Number(Boolean(a.verified)),
       ),
     };
   },
@@ -1239,12 +1280,16 @@ export const feed = query({
           receivedAt: lead.createdAt,
           auction: await auctionFor(ctx, lead),
           matchesTrades: Boolean(lead.jobType && trades.includes(lead.jobType)),
+          verified: verifiedFor(lead),
           myBid: bid ? { id: bid._id, maxCents: bid.maxCents } : undefined,
         };
       }),
     );
+    // Your trades first, and within those the leads a person has confirmed.
     return leads.sort(
-      (a, b) => Number(b.matchesTrades) - Number(a.matchesTrades),
+      (a, b) =>
+        Number(b.matchesTrades) - Number(a.matchesTrades) ||
+        Number(Boolean(b.verified)) - Number(Boolean(a.verified)),
     );
   },
 });

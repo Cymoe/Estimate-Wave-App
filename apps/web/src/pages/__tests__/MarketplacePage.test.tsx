@@ -47,7 +47,7 @@ async function render(path = '/marketplace') {
 
 beforeEach(() => {
   feed = [
-    { id: 'm1', jobType: 'landscaping', tradeName: 'Landscaping', city: 'Midland', summary: 'Backyard redo', receivedAt: listedAt, auction, matchesTrades: true },
+    { id: 'm1', jobType: 'landscaping', tradeName: 'Landscaping', city: 'Midland', summary: 'Backyard redo', receivedAt: listedAt, auction, matchesTrades: true, verified: { at: '2026-10-20T15:00:00Z', note: 'Wants a quote this month' } },
     { id: 'm2', jobType: 'roofing', tradeName: 'Roofing', city: 'Odessa', receivedAt: listedAt, auction, matchesTrades: false },
   ];
   bids = [];
@@ -60,6 +60,15 @@ afterEach(() => {
 });
 
 describe('Marketplace', () => {
+  it('shows when FieldQuote confirmed a lead with the homeowner, and what they said', async () => {
+    await render();
+    // The table and the phone list both render, so the confirmed lead shows twice; the other not at all.
+    const marks = Array.from(document.body.querySelectorAll('[data-confirmed]'));
+    expect(marks).toHaveLength(2);
+    expect(marks[0].textContent).toContain('Confirmed Oct 20');
+    expect(marks[0].textContent).toContain('Wants a quote this month');
+  });
+
   it('formats countdowns', () => {
     expect(span(30_000)).toBe('now');
     expect(span(59 * 60_000)).toBe('59m');

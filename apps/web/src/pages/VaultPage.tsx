@@ -1,5 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { MapPin, Sparkles } from 'lucide-react';
+import { Confirmed } from '../components/market/Confirmed';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { walletAPI } from '../lib/api';
 import { money } from '../components/market/wallet';
@@ -18,6 +19,8 @@ export interface VaultLead {
   receivedAt: string;
   ageDays: number;
   matchesTrades: boolean;
+  /** When FieldQuote confirmed it with the homeowner, and what they said. */
+  verified?: { at: string; note?: string };
 }
 
 export interface VaultPool {
@@ -158,7 +161,10 @@ const VaultPage: React.FC = () => {
                         {lead.city || 'Area not given'}
                         {lead.county ? ` · ${lead.county} County` : ''}
                       </td>
-                      <td className="px-4 py-3 text-gray-300">{lead.summary || '—'}</td>
+                      <td className="px-4 py-3 text-gray-300">
+                        {lead.summary || '—'}
+                        <Confirmed verified={lead.verified} className="mt-0.5" />
+                      </td>
                       <td className="px-4 py-3 text-gray-400 whitespace-nowrap">{lead.ageDays} days</td>
                       <td className="px-4 py-3 text-right">{claimButton(lead)}</td>
                     </tr>
@@ -177,6 +183,7 @@ const VaultPage: React.FC = () => {
                       {lead.city || 'Area not given'} · {lead.ageDays} days old
                     </p>
                     {lead.summary && <p className="text-sm text-gray-300 mt-2">{lead.summary}</p>}
+                    <Confirmed verified={lead.verified} className="mt-1" />
                     <div className="mt-3">{claimButton(lead)}</div>
                   </li>
                 ))}

@@ -1,6 +1,7 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { MapPin, Sparkles } from 'lucide-react';
+import { Confirmed } from '../components/market/Confirmed';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { walletAPI } from '../lib/api';
 import { money } from '../components/market/wallet';
@@ -17,6 +18,8 @@ export interface FeedLead {
   receivedAt: string;
   auction: Auction;
   matchesTrades: boolean;
+  /** When FieldQuote confirmed it with the homeowner, and what they said. */
+  verified?: { at: string; note?: string };
   myBid?: { id: string; maxCents: number };
 }
 
@@ -292,6 +295,7 @@ const MarketplacePage: React.FC = () => {
                   <td className="px-4 py-3">
                     <span className="block text-white">{tradeOf(lead)}</span>
                     {lead.summary && <span className="block text-xs text-gray-500 truncate max-w-[18rem]">{lead.summary}</span>}
+                    <Confirmed verified={lead.verified} className="mt-0.5" />
                   </td>
                   <td className="px-4 py-3 text-gray-400 whitespace-nowrap">{ago(lead.receivedAt, now)}</td>
                   <td className="px-4 py-3 text-gray-400 whitespace-nowrap">{endsIn(price)}</td>
@@ -322,6 +326,7 @@ const MarketplacePage: React.FC = () => {
                   <span className="text-lg font-semibold text-white">{money(price.priceCents)}</span>
                 </div>
                 {lead.summary && <p className="text-sm text-gray-300 mt-2">{lead.summary}</p>}
+                <Confirmed verified={lead.verified} className="mt-1" />
                 <p className="text-xs text-gray-500 mt-2">
                   Next drop {nextDrop(price)} · floor {money(lead.auction.floorCents)} · ends in {endsIn(price)}
                 </p>
