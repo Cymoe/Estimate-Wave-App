@@ -493,6 +493,8 @@ describe('Bids', () => {
     expect(items[0].textContent).toContain('Landscaping · Midland County · Midland');
     expect(items[0].textContent).toContain('Won at $250.00 · now in your Leads');
     expect(items[1].textContent).toContain('Outbid: a higher bid won it');
+    expect(items[1].textContent).toContain('Missed');
+    expect(items[1].textContent).not.toContain('Lost');
     expect(Array.from(document.body.querySelectorAll('a')).find((a) => a.textContent === 'Marketplace')?.getAttribute('href')).toBe('/marketplace');
   });
 

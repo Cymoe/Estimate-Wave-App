@@ -623,11 +623,12 @@ function ResultsTab({ results, tradeName }: { results: BidResult[]; tradeName: (
               {r.city && r.county ? ` · ${r.city}` : ''}
             </span>
             <span className="block text-xs text-gray-500">
-              {r.won ? `Won at ${money(r.myBidCents)} · now in your Leads` : r.outcome ?? 'Lost'}
+              {r.won ? `Won at ${money(r.myBidCents)} · now in your Leads` : r.outcome ?? 'Missed'}
               {r.resolvedAt ? ` · ${new Date(r.resolvedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : ''}
             </span>
           </span>
-          <span className={`text-xs whitespace-nowrap ${r.won ? 'text-emerald-300' : 'text-gray-500'}`}>{r.won ? 'Won' : 'Lost'}</span>
+          {/* "Missed", not "Lost": Lost is the Leads stage for a customer you didn't close. */}
+          <span className={`text-xs whitespace-nowrap ${r.won ? 'text-emerald-300' : 'text-gray-500'}`}>{r.won ? 'Won' : 'Missed'}</span>
         </li>
       ))}
     </ul>
