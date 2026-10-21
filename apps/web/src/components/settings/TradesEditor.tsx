@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { IndustryService } from '../../services/IndustryService';
+import { bidsAPI } from '../../lib/api';
+import { useConfirm } from '../common/ConfirmDialog';
 import { WALLET_CHANGED } from '../market/WalletBar';
 import { Toast, useToast } from '../common/Notice';
 
@@ -69,10 +71,24 @@ export const TradesEditor: React.FC<{ organizationId: string; className?: string
       saving.current = false;
     }
   };
-  const toggle = (id: string) => {
+  // Bids are only for listed trades, so dropping a trade drops its bids: say so first.
+  const [confirm, confirmDialog] = useConfirm();
+  const toggle = async (id: string) => {
     const next = new Set(wanted.current);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
+    if (next.has(id)) {
+      const name = trades.find((t) => t.id === id)?.name ?? id;
+      const bids = await bidsAPI.listStanding(organizationId).then((rows: Array<{ jobType: string; county: string }>) => rows.filter((b) => b.jobType === id)).catch(() => []);
+      if (bids.length > 0) {
+        const yes = await confirm({
+          title: `Remove ${name}?`,
+          message: bids.length === 1 ? `Your ${name} bid in ${bids[0].county} County goes too.` : `Your ${bids.length} ${name} bids go too.`,
+          confirmLabel: 'Remove trade',
+          cancelLabel: 'Keep it',
+        });
+        if (!yes) return;
+      }
+      next.delete(id);
+    } else next.add(id);
     wanted.current = next;
     setMine(next);
     flush();
@@ -83,6 +99,7 @@ export const TradesEditor: React.FC<{ organizationId: string; className?: string
   return (
     <div className={className}>
       <Toast text={toast} />
+      {confirmDialog}
       <p className="text-sm text-gray-400">You'll get leads and bids for this work.</p>
 
       {/* Your trades, as chips: tap the x to drop one. */}

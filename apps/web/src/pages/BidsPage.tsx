@@ -754,7 +754,7 @@ function AddBidDialog({
   // One county at a time; bids in another county are a second visit.
   const [county, setCounty] = useState<string | null>(null);
   // One amount per trade; a trade with no entry isn't being bid on.
-  // The company's own trades start on at the minimum.
+  // The company's trades start on at the minimum; bids already placed here fill their rows.
   const startingBids = () =>
     Object.fromEntries(preferredTrades.filter((t) => trades.some((x) => x.id === t)).map((t) => [t, String(MIN_BID)]));
   const [bids, setBids] = useState<Record<string, string>>(startingBids);
@@ -764,18 +764,12 @@ function AddBidDialog({
     setTouched((t) => new Set(t).add(id));
     setBids((b) => ({ ...b, [id]: value }));
   };
-  const [showAll, setShowAll] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  // The company's own trades first, then everything else.
-  const ordered = useMemo(() => {
-    const preferred = trades.filter((t) => preferredTrades.includes(t.id));
-    return [...preferred, ...trades.filter((t) => !preferredTrades.includes(t.id))];
-  }, [trades, preferredTrades]);
-  // A long catalogue is folded to the company's trades plus anything live, until "More trades".
-  const FOLD_AT = 8;
-  const folded = ordered.length > FOLD_AT && !showAll;
-  const shownTrades = folded ? ordered.filter((t) => preferredTrades.includes(t.id) || bids[t.id] !== undefined) : ordered;
+  // Bids are only for the trades the company lists (the server refuses others),
+  // so those are the rows, plus any bid already placed here.
+  const ordered = useMemo(() => trades.filter((t) => preferredTrades.includes(t.id)), [trades, preferredTrades]);
+  const shownTrades = trades.filter((t) => preferredTrades.includes(t.id) || bids[t.id] !== undefined);
   const live = ordered.filter((t) => bids[t.id] !== undefined);
 
   // Type a county or a town: "Mid" finds Midland, "Odessa" finds Ector.
@@ -1076,11 +1070,13 @@ function AddBidDialog({
               );
             })}
           </ul>
-          {folded && (
-            <button type="button" onClick={() => setShowAll(true)} className="mt-2 text-sm text-[#7fb0e0] underline underline-offset-2">
-              More trades…
-            </button>
-          )}
+          <p className="mt-2 text-xs text-gray-500">
+            Work in another trade?{' '}
+            <Link to="/settings/organization?tab=trades" className="text-[#7fb0e0] underline underline-offset-2">
+              Add it in Company settings
+            </Link>
+            .
+          </p>
         </section>
       </div>
       {confirmDialog}

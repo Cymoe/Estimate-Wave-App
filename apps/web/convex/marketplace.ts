@@ -35,7 +35,7 @@ import {
 import { pendingFundingFor } from "./funding";
 import { sellLead } from "./lib/sales";
 import { listLead } from "./lib/awards";
-import { outbidUnseen } from "./lib/standing";
+import { dropBidsOutsideTrades, outbidUnseen } from "./lib/standing";
 import { knownTrades } from "./industries";
 import {
   ARCHIVE_AFTER_DAYS,
@@ -767,7 +767,10 @@ export const setCompanyTrades = mutation({
   },
   handler: async (ctx, { organizationId, leadTrades }) => {
     await requireSuperAdmin(ctx);
-    await ctx.db.patch(organizationId, { leadTrades: await knownTrades(ctx, leadTrades), updatedAt: nowIso() });
+    const trades = await knownTrades(ctx, leadTrades);
+    await ctx.db.patch(organizationId, { leadTrades: trades, updatedAt: nowIso() });
+    // A dropped trade takes the company's bids in it along.
+    await dropBidsOutsideTrades(ctx, organizationId, trades);
   },
 });
 

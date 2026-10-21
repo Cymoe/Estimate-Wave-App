@@ -15,7 +15,7 @@ const createLink = jest.fn(async (_id: string) => 'tok');
 
 jest.mock('../../lib/api', () => ({
   walletAPI: {
-    get: async () => ({ balanceCents, typicalLeadCents: 20000, spentCents: 0, leadsBought: 0, wonCents: 0, wonCount: 0, leadTrades: ['landscaping'], transactions: [], ...walletExtra }),
+    get: async () => ({ balanceCents, typicalLeadCents: 20000, spentCents: 0, leadsBought: 0, wonCents: 0, wonCount: 0, leadTrades: ['landscaping', 'roofing'], transactions: [], ...walletExtra }),
     feed: async () => [],
     bids: async () => [],
   },
@@ -26,7 +26,7 @@ jest.mock('../../lib/api', () => ({
     markOutbidSeen: (org: string) => markOutbidSeen(org),
     results: async () => results,
   },
-  industriesAPI: { list: async () => [{ id: 'roofing', name: 'Roofing' }, { id: 'landscaping', name: 'Landscaping' }] },
+  industriesAPI: { list: async () => [{ id: 'landscaping', name: 'Landscaping' }, { id: 'roofing', name: 'Roofing' }, { id: 'hvac', name: 'HVAC' }] },
   fundingAPI: { createLink: (id: string) => createLink(id), url: (t: string) => `/fund/${t}` },
 }));
 jest.mock('../../components/layouts/DashboardLayout', () => ({
@@ -138,12 +138,12 @@ describe('Bids', () => {
     expect(dialog()!.querySelector('[aria-label="Where"]')?.textContent).toContain('Ector County');
     expect(dialog()!.textContent).not.toContain('steps'); // no per-lead/step hint: each row shows its minimum
 
-    // One row per trade. Their own trade is live at the minimum; the other waits behind "Bid $200.00".
+    // One row per listed trade (HVAC isn't one), each live at the minimum on first setup.
     const rowsByTrade = () => Array.from(dialog()!.querySelectorAll('[aria-label="Bids by trade"] > li'));
     expect(rowsByTrade().map((li) => li.querySelector('p')?.textContent)).toEqual(['Landscaping', 'Roofing']);
     expect(rowsByTrade()[0].textContent).toContain('From $200.00 · or type any amount'); // a new trade: its minimum, and typing works
     expect(input('Landscaping bid').value).toBe('200');
-    expect(input('Roofing bid')).toBeNull();
+    expect(input('Roofing bid').value).toBe('200');
     const button = (label: string) => document.body.querySelector(`button[aria-label="${label}"]`) as HTMLButtonElement;
     // $50 steps, never below the minimum.
     expect(button('Lower Landscaping bid').disabled).toBe(true);
@@ -154,9 +154,7 @@ describe('Bids', () => {
     await act(async () => type(input('Landscaping bid'), '230'));
     await act(async () => button('Raise Landscaping bid').click());
     expect(input('Landscaping bid').value).toBe('250');
-    // Turn the other trade on, raise it, and the dialog is ready.
-    await act(async () => (rowsByTrade()[1].querySelector('button') as HTMLButtonElement).click());
-    expect(input('Roofing bid').value).toBe('200');
+    // Raise the other trade too, and the dialog is ready.
     await act(async () => button('Raise Roofing bid').click());
     expect(input('Roofing bid').value).toBe('250');
     expect(dialog()!.textContent).toContain('covers about 4 leads at your top bid. You pay your bid only when you win a lead.');
@@ -365,6 +363,9 @@ describe('Bids', () => {
     const tradeRow = (name: string) => Array.from(dialog()!.querySelectorAll('[aria-label="Bids by trade"] > li')).find((li) => li.querySelector('p')?.textContent === name)!;
     expect(tradeRow('Landscaping').textContent).toContain('Winning at $250.00');
     expect(tradeRow('Landscaping').textContent).not.toContain('TOP');
+    // The other listed trade starts on at its minimum; its X switches it off.
+    expect(tradeRow('Roofing').textContent).toContain('From $200.00 · or type any amount');
+    await act(async () => (document.body.querySelector('button[aria-label="Stop bidding on Roofing"]') as HTMLButtonElement).click());
     expect(tradeRow('Roofing').textContent).toContain('From $200.00');
     expect(tradeRow('Roofing').textContent).not.toContain('type any amount'); // switched off: nothing to type into
     // Nothing has changed, so there is nothing to save; raise it and there is.
@@ -381,6 +382,8 @@ describe('Bids', () => {
     // Switching county starts fresh: Ector's own bid, not the $300 just set for Midland.
     expect(input('Landscaping bid').value).toBe('250');
     expect(tradeRow('Landscaping').textContent).toContain('Outbid at $250.00 · a higher or earlier bid leads');
+    // Starting fresh also puts the other listed trade back on; switch it off to work on the one row.
+    await act(async () => (document.body.querySelector('button[aria-label="Stop bidding on Roofing"]') as HTMLButtonElement).click());
     expect(byText('Save bid')).toBeTruthy();
     // A bid the balance can't cover isn't placed: the button goes to the wallet instead of saving.
     await act(async () => type(input('Landscaping bid'), '1200'));
@@ -423,6 +426,7 @@ describe('Bids', () => {
     setStanding.mockClear();
     // Changing a bid already placed: "updated", and only that bid is sent.
     await openIn('Mid');
+    await act(async () => (document.body.querySelector('button[aria-label="Stop bidding on Roofing"]') as HTMLButtonElement).click());
     await act(async () => stepper('Raise Landscaping bid').click());
     await saveWith('Save bid');
     expect(setStanding.mock.calls).toEqual([['o2', 'Midland', 'landscaping', 300]]);
@@ -431,9 +435,9 @@ describe('Bids', () => {
     // A county with no bid yet: "added".
     setStanding.mockClear();
     await openIn('Andrews');
-    await saveWith('Save bid');
-    expect(setStanding.mock.calls).toEqual([['o2', 'Andrews', 'landscaping', 200]]);
-    expect(toast()).toBe('Bid added: Landscaping in Andrews County at $200.00.');
+    await saveWith('Save 2 bids');
+    expect(setStanding.mock.calls).toEqual([['o2', 'Andrews', 'landscaping', 200], ['o2', 'Andrews', 'roofing', 200]]);
+    expect(toast()).toBe('Bids added: Landscaping and Roofing in Andrews County at $200.00.');
     // One new and one changed in the same save.
     setStanding.mockClear();
     await openIn('Odessa');
@@ -441,7 +445,7 @@ describe('Bids', () => {
     expect(tradeRow('Landscaping').textContent).toContain('Outbid at $250.00 · a higher or earlier bid leads');
     expect(tradeRow('Landscaping').querySelector('[data-standing="outbid"]')).not.toBeNull();
     await act(async () => stepper('Raise Landscaping bid').click());
-    await act(async () => (trades()[1].querySelector('button') as HTMLButtonElement).click());
+    expect(input('Roofing bid').value).toBe('200'); // the other listed trade, on as a new row
     await saveWith('Save 2 bids');
     expect(setStanding.mock.calls).toEqual([
       ['o2', 'Ector', 'roofing', 200],
@@ -451,7 +455,6 @@ describe('Bids', () => {
     // A row left at its placed amount isn't sent again, and doesn't count as a change.
     setStanding.mockClear();
     await openIn('Mid');
-    await act(async () => (trades()[1].querySelector('button') as HTMLButtonElement).click());
     await saveWith('Save 2 bids');
     expect(setStanding.mock.calls).toEqual([['o2', 'Midland', 'roofing', 200]]);
     expect(toast()).toBe('Bid added: Roofing in Midland County at $200.00.');
@@ -504,6 +507,17 @@ describe('Bids', () => {
     await render();
     expect(document.body.textContent).toContain('Recent results');
     expect(document.body.querySelectorAll('[aria-label="Results"] li')).toHaveLength(1);
+  });
+
+  it('offers bids only in the trades the company lists, and points elsewhere to Company settings', async () => {
+    walletExtra = { leadTrades: ['landscaping'] };
+    await render();
+    await act(async () => byText('Set your bids')!.click());
+    const rows = () => Array.from(dialog()!.querySelectorAll('[aria-label="Bids by trade"] > li'));
+    expect(rows().map((li) => li.querySelector('p')?.textContent)).toEqual(['Landscaping']);
+    expect(dialog()!.textContent).not.toContain('More trades');
+    const link = Array.from(dialog()!.querySelectorAll('a')).find((a) => a.textContent === 'Add it in Company settings');
+    expect(link?.getAttribute('href')).toBe('/settings/organization?tab=trades');
   });
 
   it('says at the top when the bids are paused or there is no money, with Add funds', async () => {

@@ -101,3 +101,28 @@ export async function refreshStandingFor(
 /** Outbid since the company last looked at its bids. */
 export const outbidUnseen = (bid: Doc<"standingBids">) =>
   Boolean(bid.outbidAt && (!bid.outbidSeenAt || bid.outbidSeenAt < bid.outbidAt));
+
+/**
+ * A company's bids are only for the trades it lists. When a trade is dropped
+ * its bids in that trade go too, and each slot is re-ranked so whoever was
+ * behind moves up. Returns how many bids were removed.
+ */
+export async function dropBidsOutsideTrades(
+  ctx: MutationCtx,
+  organizationId: Id<"organizations">,
+  trades: string[],
+): Promise<number> {
+  const keep = new Set(trades);
+  const rows = await ctx.db
+    .query("standingBids")
+    .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
+    .collect();
+  let removed = 0;
+  for (const row of rows) {
+    if (keep.has(row.jobType)) continue;
+    await ctx.db.delete(row._id);
+    await refreshStanding(ctx, row.county, row.jobType, organizationId);
+    removed++;
+  }
+  return removed;
+}

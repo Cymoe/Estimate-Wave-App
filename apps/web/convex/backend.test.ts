@@ -2969,6 +2969,17 @@ describe("standing bids and instant awards", () => {
         organizationId: who.organizationId,
         amount: 1000,
       });
+    // Bids are only for listed trades. Soco lists no landscaping, so the
+    // lead counts below can tell the two apart.
+    for (const [who, leadTrades] of [
+      [mio, ["landscaping", "painting"]],
+      [soco, ["painting"]],
+      [broke, ["landscaping", "painting"]],
+    ] as const)
+      await admin.as.mutation(api.marketplace.setCompanyTrades, {
+        organizationId: who.organizationId,
+        leadTrades: [...leadTrades],
+      });
     return { t, admin, mio, soco, broke };
   }
   const balance = async (who: { as: any; organizationId: any }) =>
@@ -3126,8 +3137,8 @@ describe("standing bids and instant awards", () => {
     );
 
     // The Leads page's "new leads" count only counts leads in a company's trades:
-    // mio's landscaping bid covers Gloria, not the roofing lead; soco has no trades
-    // or bids, so nothing; give soco roofing and the roofing lead counts.
+    // mio's landscaping bid covers Gloria, not the roofing lead; soco lists
+    // neither, so nothing; give soco roofing and the roofing lead counts.
     const available = async (who: { as: any; organizationId: any }) =>
       (
         await who.as.query(api.marketplace.wallet, {
@@ -3303,6 +3314,34 @@ describe("standing bids and instant awards", () => {
     expect(await summary()).toMatchObject({ standingBids: 1, pausedBids: 0 });
   });
 
+  test("a bid is only for a listed trade; dropping the trade drops its bids and moves the next bid up", async () => {
+    const { admin, mio, soco } = await market();
+    await expect(standing(soco, "Midland", "landscaping", 250)).rejects.toThrow(
+      "Add landscaping to your trades in Company settings first.",
+    );
+    await admin.as.mutation(api.marketplace.setCompanyTrades, {
+      organizationId: soco.organizationId,
+      leadTrades: ["painting", "landscaping"],
+    });
+    await standing(soco, "Midland", "landscaping", 300);
+    await standing(mio, "Midland", "landscaping", 250);
+    await standing(mio, "Ector", "painting", 250);
+    const mine = (who: { as: any; organizationId: any }) =>
+      who.as.query(api.bids.listStanding, { organizationId: who.organizationId });
+    expect((await mine(mio)).find((b) => b.jobType === "landscaping")).toMatchObject({ leading: false });
+    // Soco drops landscaping from its own settings: its Midland bid goes, and Mio leads there.
+    expect(
+      await soco.as.mutation(api.industries.setForOrganization, {
+        organizationId: soco.organizationId,
+        industryIds: ["painting"],
+      }),
+    ).toEqual({ removedBids: 1 });
+    expect(await mine(soco)).toEqual([]);
+    expect((await mine(mio)).find((b) => b.jobType === "landscaping")).toMatchObject({ leading: true });
+    // Mio's other bid is untouched by a change to a different trade.
+    expect((await mine(mio)).map((b) => b.jobType).sort()).toEqual(["landscaping", "painting"]);
+  });
+
   test("a company hears it was outbid once, until it looks; leading again or its own moves clear it", async () => {
     const { admin, mio, soco } = await market();
     const wallet = (who: { as: any; organizationId: any }) =>
@@ -3312,6 +3351,10 @@ describe("standing bids and instant awards", () => {
     await standing(mio, "Midland", "landscaping", 250);
     expect((await wallet(mio)).outbidBids).toBe(0);
     // Soco bids higher: Mio is told, Soco (who made the move) isn't.
+    await admin.as.mutation(api.marketplace.setCompanyTrades, {
+      organizationId: soco.organizationId,
+      leadTrades: ["painting", "landscaping"],
+    });
     await standing(soco, "Midland", "landscaping", 300);
     expect((await wallet(mio)).outbidBids).toBe(1);
     expect((await mine(mio))[0]).toMatchObject({ leading: false, outbidNew: true });

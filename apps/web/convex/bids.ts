@@ -81,6 +81,18 @@ export const setStanding = mutation({
       fail("INVALID", `${county} isn't a Texas county`);
     const trade = jobType.trim();
     if (!trade) fail("INVALID", "Pick a service type");
+    // Bids are only for the work the company lists: that list is what the
+    // Marketplace, the Vault and the Price Book go by too.
+    if (!(organization.leadTrades ?? []).includes(trade)) {
+      const known = await ctx.db
+        .query("industries")
+        .withIndex("by_slug", (q) => q.eq("slug", trade))
+        .first();
+      fail(
+        "INVALID",
+        `Add ${known?.name ?? trade} to your trades in Company settings first.`,
+      );
+    }
     const amountCents = toCents(amount);
     if (amountCents < MIN_START_CENTS)
       fail("INVALID", `Bids start at ${dollars(MIN_START_CENTS)}`);

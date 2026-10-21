@@ -5,7 +5,8 @@ import { act } from 'react';
 
 let saved: string[] = ['concrete'];
 const setTrades = jest.fn(async (_org: string, slugs: string[]) => { saved = slugs; });
-jest.mock('../../../lib/api', () => ({}));
+let standingRows: Array<{ jobType: string; county: string }> = [];
+jest.mock('../../../lib/api', () => ({ bidsAPI: { listStanding: async () => standingRows } }));
 jest.mock('../../../services/IndustryService', () => ({
   IndustryService: {
     listAll: async () => [
@@ -28,6 +29,7 @@ const row = (name: string) => Array.from(document.body.querySelectorAll('[aria-l
 afterEach(() => {
   document.body.innerHTML = '';
   saved = ['concrete'];
+  standingRows = [];
   jest.clearAllMocks();
 });
 
@@ -66,5 +68,28 @@ describe('TradesEditor', () => {
     await act(async () => createRoot(container).render(<TradesEditor organizationId="o1" />));
     await flush();
     expect(document.body.textContent).toContain('No trades yet. Pick the ones you work in below.');
+  });
+
+  it('asks before dropping a trade that has bids, since the bids go with it', async () => {
+    standingRows = [{ jobType: 'concrete', county: 'Midland' }, { jobType: 'concrete', county: 'Ector' }];
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () => createRoot(container).render(<TradesEditor organizationId="o1" />));
+    await flush();
+    const box = () => document.body.querySelector('[role="alertdialog"]');
+    const answer = (label: string) => (Array.from(box()!.querySelectorAll('button')).find((b) => b.textContent === label) as HTMLButtonElement).click();
+    await act(async () => (document.body.querySelector('button[aria-label="Remove Concrete"]') as HTMLButtonElement).click());
+    await flush();
+    expect(box()!.textContent).toContain('Remove Concrete?');
+    expect(box()!.textContent).toContain('Your 2 Concrete bids go too.');
+    await act(async () => answer('Keep it'));
+    expect(setTrades).not.toHaveBeenCalled();
+    expect(chips()).toEqual(['Concrete']);
+    await act(async () => (document.body.querySelector('button[aria-label="Remove Concrete"]') as HTMLButtonElement).click());
+    await flush();
+    await act(async () => answer('Remove trade'));
+    await flush();
+    expect(setTrades).toHaveBeenLastCalledWith('o1', []);
+    expect(chips()).toEqual([]);
   });
 });

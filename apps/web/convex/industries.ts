@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, query, type QueryCtx } from "./_generated/server";
 import { nowIso, requireMember, requireUser } from "./lib/access";
+import { dropBidsOutsideTrades } from "./lib/standing";
 
 /** Shape the UI expects: `id` is the slug, which cost codes use as industry_id. */
 function toIndustry(row: Doc<"industries">) {
@@ -61,8 +62,10 @@ export const setForOrganization = mutation({
   args: { organizationId: v.id("organizations"), industryIds: v.array(v.string()) },
   handler: async (ctx, { organizationId, industryIds }) => {
     await requireMember(ctx, organizationId, "admin");
-    await ctx.db.patch(organizationId, { leadTrades: await knownTrades(ctx, industryIds), updatedAt: nowIso() });
-    return null;
+    const leadTrades = await knownTrades(ctx, industryIds);
+    await ctx.db.patch(organizationId, { leadTrades, updatedAt: nowIso() });
+    // Bids are only for listed trades, so a dropped trade takes its bids with it.
+    return { removedBids: await dropBidsOutsideTrades(ctx, organizationId, leadTrades) };
   },
 });
 
