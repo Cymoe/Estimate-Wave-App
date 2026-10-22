@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { Building2, Check, Inbox, Link2, MapPin, Phone, Send, ShieldCheck, Tag, Trash2, X } from 'lucide-react';
-import { fundingAPI, industriesAPI, leadsAPI, marketplaceAPI, permitsAPI, walletAPI } from '../lib/api';
+import { fundingAPI, industriesAPI, intakeAPI, leadsAPI, marketplaceAPI, permitsAPI, walletAPI } from '../lib/api';
 import { copyText } from '../components/estimates/estimateActions';
 import { useAuth } from '../contexts/AuthContext';
 import { Dialog, Field, input, primary, secondary } from '../components/ops/ui';
@@ -973,6 +973,8 @@ const LeadMarketPage: React.FC = () => {
   const staff = isStaff(user);
   const owner = isSuperAdmin(user);
   const [demoBusy, setDemoBusy] = useState(false);
+  // Bumped when demo intake leads are added so the Intake tab reloads.
+  const [intakeVersion, setIntakeVersion] = useState(0);
   const reload = useCallback(async () => {
     const [i, c, p, f] = await Promise.all([
       marketplaceAPI.inbox(),
@@ -1009,44 +1011,34 @@ const LeadMarketPage: React.FC = () => {
       const r = await marketplaceAPI.addDemoBids();
       return `Demo bids added: ${r.standingBids} bids across ${r.companies} companies, ${r.leads} leads, ${r.sold} awarded`;
     }, 'Demo bids added');
-  const demoBidsButton = owner && !hasDemoBids && (
-    <button
-      type="button"
-      disabled={demoBusy}
-      onClick={addDemoBids}
-      title="Gives every company demo funds and standing bids, then lists leads that get awarded on the spot. “Remove demo data” takes it all back."
-      className={secondary}
-    >
-      {demoBusy ? 'Adding…' : 'Add demo bids'}
+  const addDemoIntake = () =>
+    runDemo(async () => {
+      const r = await intakeAPI.addDemo();
+      setIntakeVersion((v) => v + 1);
+      return r.added > 0 ? `${r.added} demo leads added to Intake` : 'Demo leads are already in Intake';
+    }, 'Demo leads added');
+  // Every demo button in one place, on every tab, for the owner. Each one
+  // hides once its data is there; "Remove demo data" takes all of it back.
+  const demoButton = (label: string, action: () => void, title: string) => (
+    <button type="button" disabled={demoBusy} onClick={action} title={title} className={secondary}>
+      {demoBusy ? 'Adding…' : label}
     </button>
   );
-  // Demo companies are offered whenever there are none, listed leads or not:
-  // sample leads alone leave nobody to bid on them.
-  const demoCompaniesButton = owner && !hasDemoCompanies && (
-    <button
-      type="button"
-      disabled={demoBusy}
-      onClick={addDemo}
-      title="Demo companies with funds and leads, so the Marketplace and bids have both sides. “Remove demo data” takes it all back."
-      className={secondary}
-    >
-      {demoBusy ? 'Adding…' : 'Add demo companies and leads'}
-    </button>
-  );
-  const sampleButton = owner && (
-    <>
-      <button
-        type="button"
-        disabled={demoBusy}
-        onClick={addSamples}
-        title="Sample leads for trying the Marketplace. “Remove demo data” clears them, sold ones included."
-        className={secondary}
-      >
-        {demoBusy ? 'Adding…' : 'Add 20 sample leads'}
-      </button>
-      {demoCompaniesButton}
-      {demoBidsButton}
-    </>
+  const demoStrip = owner && (
+    <div className="mb-4 px-4 py-3 rounded border border-[#336699]/50 bg-[#336699]/10 text-sm flex flex-wrap items-center gap-2" data-testid="demo-strip">
+      <span className="text-gray-300 mr-auto">
+        {hasDemoCompanies ? "You're looking at demo companies and leads." : hasDemoBids ? "You're looking at demo bids, funds and leads." : 'Demo data, to try things with:'}
+      </span>
+      {!hasDemoCompanies && demoButton('Add demo companies and leads', addDemo, 'Demo companies with funds and leads, so the Marketplace and bids have both sides.')}
+      {demoButton('Add 20 sample leads', addSamples, 'Sample leads for trying the Marketplace.')}
+      {!hasDemoBids && demoButton('Add demo bids', addDemoBids, 'Gives every company demo funds and standing bids, then lists leads that get awarded on the spot.')}
+      {demoButton('Add demo leads to Intake', addDemoIntake, 'Six leads to try the queue and the confirmation call with.')}
+      {hasDemo && (
+        <button type="button" disabled={demoBusy} onClick={removeDemo} className="text-[#7fb0e0] hover:text-white whitespace-nowrap disabled:opacity-50">
+          Remove demo data
+        </button>
+      )}
+    </div>
   );
 
   useEffect(() => {
@@ -1119,14 +1111,7 @@ const LeadMarketPage: React.FC = () => {
         </div>
       </div>
 
-      {owner && hasDemo && (
-        <div className="mb-4 px-4 py-3 rounded border border-[#336699]/50 bg-[#336699]/10 text-sm flex items-center justify-between gap-3">
-          <span className="text-gray-300">{hasDemoCompanies ? "You're looking at demo companies and leads." : "You're looking at demo bids, funds and leads."}</span>
-          <button type="button" disabled={demoBusy} onClick={removeDemo} className="text-[#7fb0e0] hover:text-white whitespace-nowrap disabled:opacity-50">
-            Remove demo data
-          </button>
-        </div>
-      )}
+      {demoStrip}
 
       {owner && payments.length > 0 && tab !== 'prices' && (
         <button
@@ -1159,8 +1144,8 @@ const LeadMarketPage: React.FC = () => {
         <p className="text-sm text-gray-500">Loading…</p>
       ) : tab === 'intake' ? (
         <IntakeQueue
+          key={intakeVersion}
           trades={trades}
-          owner={owner}
           openNew={creating === 'lead'}
           onCloseNew={closeCreate}
           onListed={(message) => {
@@ -1178,9 +1163,6 @@ const LeadMarketPage: React.FC = () => {
             <div className="border border-dashed border-[#333] rounded p-8 text-center">
               <Inbox className="w-8 h-8 mx-auto text-gray-500 mb-2" />
               <p className="text-sm text-gray-400">Nothing listed. Leads get here from Intake once a call confirms them.</p>
-              <div className="flex justify-center gap-2 mt-4 flex-wrap">
-                {sampleButton}
-              </div>
             </div>
           ) : (
             <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Listed">
@@ -1253,7 +1235,6 @@ const LeadMarketPage: React.FC = () => {
               ))}
             </ul>
           )}
-          {inbox.available.length > 0 && <div className="flex justify-end gap-2 flex-wrap">{sampleButton}</div>}
 
           {(inbox.older?.length ?? 0) > 0 && (
             <section>
@@ -1334,12 +1315,6 @@ const LeadMarketPage: React.FC = () => {
           </div>
         ) : (
           <div className="space-y-3">
-          {demoBidsButton && (
-            <div className="flex items-center justify-between gap-3 px-4 py-3 rounded border border-[#2A2A2A] text-sm text-gray-400">
-              <span>No bids yet. Seed every company with demo funds, standing bids and awarded leads to see the Bids pages filled in.</span>
-              {demoBidsButton}
-            </div>
-          )}
           <div className="border border-[#2A2A2A] rounded overflow-x-auto">
             <table className="w-full text-sm" aria-label="Companies">
               <thead className="text-xs text-gray-500 uppercase tracking-wide">

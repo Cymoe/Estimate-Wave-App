@@ -204,15 +204,24 @@ describe('Lead Market', () => {
     expect(document.body.textContent).toContain('Jane Cole sent to Peak Roofing');
   });
 
-  it('offers demo companies under the listed leads too, until they exist', async () => {
+  it('keeps every demo button in one strip at the top, on every tab, and hides each once its data is there', async () => {
     await render(<LeadMarketPage />);
-    await openListed();
-    expect(document.body.textContent).toContain('Jane Cole');
+    const strip = () => document.body.querySelector('[data-testid="demo-strip"]')!;
+    const labels = () => Array.from(strip().querySelectorAll('button')).map((b) => b.textContent);
+    // On the Intake tab (the default), with no demo data.
+    expect(labels()).toEqual(['Add demo companies and leads', 'Add 20 sample leads', 'Add demo bids', 'Add demo leads to Intake']);
     await act(async () => byText('Add demo companies and leads')!.click());
     await flush();
     expect(addDemoData).toHaveBeenCalled();
-    expect(byText('Add demo companies and leads')).toBeUndefined();
-    expect(byText('Remove demo data')).toBeTruthy();
+    expect(labels()).toEqual(['Add 20 sample leads', 'Add demo bids', 'Add demo leads to Intake', 'Remove demo data']);
+    // Still there on the Companies tab.
+    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Companies'))!.click());
+    await flush();
+    expect(strip()).not.toBeNull();
+    await act(async () => byText('Add demo bids')!.click());
+    await flush();
+    expect(addDemoBids).toHaveBeenCalled();
+    expect(labels()).toEqual(['Add 20 sample leads', 'Add demo leads to Intake', 'Remove demo data']);
   });
 
   it('fills an empty market with demo companies, and removes them in one tap', async () => {
@@ -433,7 +442,7 @@ describe('standing bids in Admin', () => {
     demoCompanies = true;
     await render(<LeadMarketPage />);
     await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((b) => b.textContent?.startsWith('Companies'))!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-    expect(document.body.textContent).toContain('No bids yet. Seed every company');
+    expect(document.body.textContent).toContain("You're looking at demo companies and leads.");
     await act(async () => byText('Add demo bids')!.click());
     await flush();
     expect(addDemoBids).toHaveBeenCalled();
@@ -480,11 +489,11 @@ describe('standing bids in Admin', () => {
   it('lets the owner, and only the owner, fill the empty queue with demo leads', async () => {
     role = 'staff';
     await render(<LeadMarketPage />);
-    expect(byText('Add demo leads')).toBeUndefined();
+    expect(document.body.querySelector('[data-testid="demo-strip"]')).toBeNull();
     document.body.innerHTML = '';
     role = 'super_admin';
     await render(<LeadMarketPage />);
-    await act(async () => byText('Add demo leads')!.click());
+    await act(async () => byText('Add demo leads to Intake')!.click());
     await flush();
     expect(addDemoIntake).toHaveBeenCalled();
     const list = document.body.querySelector('[aria-label="Intake"]')!;

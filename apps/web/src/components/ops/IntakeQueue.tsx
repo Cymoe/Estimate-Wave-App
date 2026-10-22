@@ -37,24 +37,11 @@ export const IntakeQueue: React.FC<{
   openNew: boolean;
   onCloseNew: () => void;
   onListed?: (message: string) => void;
-  /** The owner can fill the empty queue with demo leads to try the flow. */
-  owner?: boolean;
-}> = ({ trades, openNew, onCloseNew, onListed, owner = false }) => {
+}> = ({ trades, openNew, onCloseNew, onListed }) => {
   const [filter, setFilter] = useState<'open' | 'closed' | 'confirmed'>('open');
   const [rows, setRows] = useState<IntakeRow[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [demoBusy, setDemoBusy] = useState(false);
-  const addDemo = async () => {
-    setDemoBusy(true);
-    try {
-      await intakeAPI.addDemo();
-      setFilter('open');
-      await load();
-    } finally {
-      setDemoBusy(false);
-    }
-  };
   const closeForm = () => {
     setAdding(false);
     onCloseNew();
@@ -104,17 +91,6 @@ export const IntakeQueue: React.FC<{
           <p className="text-sm text-gray-400">
             {filter === 'open' ? 'Nobody to call. Leads from the Facebook forms and calls land here.' : filter === 'closed' ? 'Nothing closed yet.' : 'Nothing listed from intake yet.'}
           </p>
-          {owner && filter === 'open' && (
-            <button
-              type="button"
-              disabled={demoBusy}
-              onClick={addDemo}
-              title="Six demo leads to try the queue and the confirmation call with. “Remove demo data” on the Listed tab takes them out."
-              className={`${secondary} mt-4`}
-            >
-              {demoBusy ? 'Adding…' : 'Add demo leads'}
-            </button>
-          )}
         </div>
       ) : (
         <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Intake">
