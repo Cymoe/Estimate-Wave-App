@@ -189,6 +189,122 @@ describe("staff", () => {
   });
 });
 
+describe("intake", () => {
+  async function ops() {
+    const t = setup();
+    const owner = await signUp(t, "owner@fieldquote.example", { role: "super_admin" });
+    const va = await signUp(t, "va@fieldquote.example", { role: "staff" });
+    await t.run(async (ctx) => {
+      const now = new Date().toISOString();
+      for (const [slug, name] of [["roofing", "Roofing"], ["painting", "Painting"], ["general-construction", "General Construction"]]) {
+        await ctx.db.insert("industries", { slug, name, display_order: 1, is_active: true, created_at: now, updated_at: now });
+      }
+    });
+    return { t, owner, va };
+  }
+
+  test("reads connector payloads, campaign names and phone numbers", async () => {
+    const { fieldsFromPayload, normalizePhone, parseCampaign } = await import("./lib/intake");
+    expect(normalizePhone("(432) 555-0133")).toBe("4325550133");
+    expect(normalizePhone("+1 432 555 0133")).toBe("4325550133");
+    expect(normalizePhone("555-0133")).toBeUndefined();
+
+    const trades = ["roofing", "general-construction", "painting"];
+    expect(parseCampaign("TX_MIDLAND_ROOFING_LG_202610", trades)).toEqual({ county: "Midland", jobType: "roofing" });
+    expect(parseCampaign("tx_tom_green_general_construction_lg", trades)).toEqual({ county: "Tom Green", jobType: "general-construction" });
+    expect(parseCampaign("Spring promo", trades)).toEqual({});
+
+    // Zapier's flattened shape.
+    expect(
+      fieldsFromPayload({
+        full_name: "Dana Reyes", phone_number: "+14325550133", email: "dana@example.com", city: "Midland", zip_code: "79701",
+        "which county is the home in?": "Midland County", "when do you want this done?": "Within a month",
+        "do you own this home?": "Yes", campaign_name: "TX_MIDLAND_ROOFING_LG_202610", adset_name: "TX_MIDLAND_ROOFING_hail", ad_name: "video1",
+        form_id: "1234", id: "9876543210123456", created_time: "2026-10-22T03:00:00+0000",
+        "I agree to be contacted by FieldQuote and one contractor": "true",
+      }),
+    ).toEqual({
+      name: "Dana Reyes", phone: "+14325550133", email: "dana@example.com", city: "Midland", zip: "79701", county: "Midland",
+      timeline: "Within a month", isOwner: true, campaignName: "TX_MIDLAND_ROOFING_LG_202610", adsetName: "TX_MIDLAND_ROOFING_hail", adName: "video1",
+      formId: "1234", externalId: "9876543210123456", createdTime: "2026-10-22T03:00:00+0000",
+      consent: { text: "iagreetobecontactedbyfieldquoteandonecontractor", value: "true", at: "2026-10-22T03:00:00+0000" },
+    });
+    // Meta's raw lead read, with field_data and custom disclaimer responses.
+    expect(
+      fieldsFromPayload({
+        id: "111", created_time: "2026-10-22T03:00:00+0000",
+        field_data: [{ name: "first_name", values: ["Sam"] }, { name: "last_name", values: ["Lee"] }, { name: "phone_number", values: ["4325550100"] }],
+        custom_disclaimer_responses: [{ checkbox_key: "contact_consent", is_checked: "1" }],
+      }),
+    ).toMatchObject({ name: "Sam Lee", phone: "4325550100", externalId: "111", consent: { text: "contact_consent", value: "1" } });
+  });
+
+  test("the webhook needs the key, queues the lead, reads county and trade from the campaign, and ignores retries", async () => {
+    const { t, va } = await ops();
+    vi.stubEnv("INTAKE_KEY", "s3cret");
+    try {
+      const body = JSON.stringify({ full_name: "Dana Reyes", phone_number: "432-555-0133", campaign_name: "TX_MIDLAND_ROOFING_LG_202610", id: "L1", "do you own this home?": "Yes" });
+      expect((await t.fetch("/intake/lead", { method: "POST", body })).status).toBe(401);
+      expect((await t.fetch("/intake/lead?key=wrong", { method: "POST", body })).status).toBe(401);
+      const first = await t.fetch("/intake/lead?key=s3cret", { method: "POST", body });
+      expect(first.status).toBe(201);
+      const { id, duplicate } = await first.json();
+      expect(duplicate).toBe(false);
+      // The same leadgen id again (Zapier retried) doesn't make a second row.
+      const again = await t.fetch("/intake/lead", { method: "POST", body, headers: { "x-intake-key": "s3cret" } });
+      expect(again.status).toBe(200);
+      expect((await again.json()).id).toBe(id);
+      expect((await t.fetch("/intake/lead?key=s3cret", { method: "POST", body: "not json" })).status).toBe(400);
+
+      const [row] = await va.as.query(api.intake.queue, {});
+      expect(row).toMatchObject({
+        source: "meta", status: "new", name: "Dana Reyes", phone: "432-555-0133", county: "Midland", countyFromCampaign: "Midland",
+        jobType: "roofing", tradeName: "Roofing", isOwner: true, attempts: [], lastAttempt: null,
+      });
+      expect(row.duplicateOf).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    // With no key configured the endpoint says so instead of accepting anything.
+    expect((await t.fetch("/intake/lead?key=s3cret", { method: "POST", body: "{}" })).status).toBe(503);
+  });
+
+  test("staff add, correct, log attempts on and close leads; a repeat phone within 45 days is flagged", async () => {
+    const { t, va } = await ops();
+    const other = await signUp(t, "other@example.com");
+    await expect(other.as.mutation(api.intake.create, { source: "call", name: "X" })).rejects.toThrow(/staff/);
+    await expect(va.as.mutation(api.intake.create, { source: "call" })).rejects.toThrow(/name or a phone/);
+    await expect(va.as.mutation(api.intake.create, { source: "call", name: "X", county: "Narnia" })).rejects.toThrow(/Texas county/);
+    await expect(va.as.mutation(api.intake.create, { source: "call", name: "X", jobType: "plumbing" })).rejects.toThrow(/trade/);
+
+    const { id, duplicate } = await va.as.mutation(api.intake.create, {
+      source: "call", name: "Pat Cole", phone: "(432) 555-0101", city: "Odessa", county: "ector county", jobType: "painting", notes: "Two bedrooms",
+    });
+    expect(duplicate).toBe(false);
+    // Same number through the webhook: flagged, not dropped.
+    const repeat = await t.mutation(internal.intake.receive, { payload: { name: "P. Cole", phone: "+1 432 555 0101" }, source: "api" });
+    expect(repeat.duplicate).toBe(true);
+    const dup = await va.as.query(api.intake.get, { id: repeat.id });
+    expect(dup.duplicate).toMatchObject({ id, label: "Pat Cole" });
+
+    await va.as.mutation(api.intake.update, { id, address: "12 Elm St", notes: "" });
+    await va.as.mutation(api.intake.logAttempt, { id, outcome: "voicemail" });
+    await va.as.mutation(api.intake.logAttempt, { id, outcome: "reached", note: "Call back after 5" });
+    const row = await va.as.query(api.intake.get, { id });
+    expect(row).toMatchObject({ status: "working", county: "Ector", address: "12 Elm St", attempts: [{ outcome: "voicemail" }, { outcome: "reached", note: "Call back after 5" }] });
+    expect(row.notes).toBeUndefined();
+    expect(row.lastAttempt).toMatchObject({ outcome: "reached" });
+
+    // Open queue: newest first; closing takes one out and reopening brings it back.
+    expect((await va.as.query(api.intake.queue, {})).map((r) => r.label)).toEqual(["P. Cole", "Pat Cole"]);
+    await va.as.mutation(api.intake.close, { id: repeat.id, disposition: "duplicate" });
+    expect((await va.as.query(api.intake.queue, {})).map((r) => r.label)).toEqual(["Pat Cole"]);
+    expect((await va.as.query(api.intake.queue, { status: "closed" })).map((r) => r.disposition)).toEqual(["duplicate"]);
+    await va.as.mutation(api.intake.reopen, { id: repeat.id });
+    expect((await va.as.query(api.intake.queue, {})).length).toBe(2);
+  });
+});
+
 describe("estimates", () => {
   test("totals are derived from items and tax, and recalculated on update", async () => {
     const t = setup();

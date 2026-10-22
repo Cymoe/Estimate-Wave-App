@@ -19,6 +19,20 @@ export const userRole = v.union(
   v.literal("super_admin"),
 );
 
+/** Where an intake lead came from and where it is in the queue. */
+export const intakeSource = v.union(v.literal("meta"), v.literal("call"), v.literal("manual"), v.literal("api"));
+export const intakeStatus = v.union(v.literal("new"), v.literal("working"), v.literal("confirmed"), v.literal("closed"));
+export const intakeDisposition = v.union(
+  v.literal("duplicate"),
+  v.literal("not_reached"),
+  v.literal("out_of_area"),
+  v.literal("renter"),
+  v.literal("wrong_trade"),
+  v.literal("not_interested"),
+  v.literal("bad_number"),
+  v.literal("other"),
+);
+
 export const memberRole = v.union(
   v.literal("owner"),
   v.literal("admin"),
@@ -601,6 +615,52 @@ export default defineSchema({
     createdAt: v.string(),
     acceptedAt: v.optional(v.string()),
   }).index("by_email", ["email"]),
+
+  // A lead on its way in: from a Facebook form, a call or a staff entry.
+  // Nothing is listed (and sold) until staff confirm it with the homeowner.
+  intakeLeads: defineTable({
+    source: intakeSource,
+    status: intakeStatus,
+    disposition: v.optional(intakeDisposition),
+    name: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    // Ten digits, for finding the same homeowner twice.
+    phoneNormalized: v.optional(v.string()),
+    email: v.optional(v.string()),
+    address: v.optional(v.string()),
+    city: v.optional(v.string()),
+    zip: v.optional(v.string()),
+    // The county the homeowner gave, normalized; and the one the ad targeted.
+    county: v.optional(v.string()),
+    countyFromCampaign: v.optional(v.string()),
+    jobType: v.optional(v.string()),
+    scope: v.optional(v.string()),
+    timeline: v.optional(v.string()),
+    isOwner: v.optional(v.boolean()),
+    notes: v.optional(v.string()),
+    // Meta's leadgen id (or any outside id) so the same lead isn't taken twice.
+    externalId: v.optional(v.string()),
+    campaignName: v.optional(v.string()),
+    adsetName: v.optional(v.string()),
+    adName: v.optional(v.string()),
+    formId: v.optional(v.string()),
+    // What the homeowner agreed to on the form, kept as proof.
+    consent: v.optional(
+      v.object({ text: v.optional(v.string()), value: v.optional(v.string()), at: v.optional(v.string()) }),
+    ),
+    raw: v.optional(v.any()),
+    duplicateOf: v.optional(v.id("intakeLeads")),
+    attempts: v.array(
+      v.object({ at: v.string(), by: v.id("users"), outcome: v.string(), note: v.optional(v.string()) }),
+    ),
+    confirmedLeadId: v.optional(v.id("marketplaceLeads")),
+    createdBy: v.optional(v.id("users")),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_status", ["status"])
+    .index("by_phone", ["phoneNormalized"])
+    .index("by_external_id", ["externalId"]),
 
   // People invited to run the Lead Market. Signing up with this email makes
   // them staff instead of giving them a company.

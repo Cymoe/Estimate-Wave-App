@@ -5,6 +5,8 @@ import { Building2, Check, Inbox, Link2, MapPin, Phone, Send, ShieldCheck, Tag, 
 import { fundingAPI, industriesAPI, leadsAPI, marketplaceAPI, permitsAPI, walletAPI } from '../lib/api';
 import { copyText } from '../components/estimates/estimateActions';
 import { useAuth } from '../contexts/AuthContext';
+import { Dialog, Field, input, primary, secondary } from '../components/ops/ui';
+import { IntakeQueue } from '../components/ops/IntakeQueue';
 import { isStaff, isSuperAdmin } from '../lib/roles';
 import { TeamCard } from '../components/ops/TeamCard';
 import { useConfirm } from '../components/common/ConfirmDialog';
@@ -12,7 +14,6 @@ import { Confirmed } from '../components/market/Confirmed';
 import { STATUSES } from '../components/leads/leadTypes';
 import { CREDIT_REASON_LABELS, WalletHistory, leadOrigin, money, planLabel, suggestedBonus, type PlanSummary } from '../components/market/wallet';
 import { dropsToFloor, pricingFor } from '../services/auction';
-import { TEXAS_COUNTIES, countyForTown } from '../services/counties';
 
 interface Trade {
   id: string;
@@ -94,51 +95,8 @@ interface PendingPayment {
   submittedAt?: string;
 }
 
-type Tab = 'inbox' | 'companies' | 'prices';
+type Tab = 'intake' | 'inbox' | 'companies' | 'prices';
 
-const input =
-  'w-full bg-[#1A1A1A] border border-[#333] rounded px-3 py-2 text-white text-base md:text-sm placeholder-gray-500 focus:outline-none focus:border-[#336699]';
-const primary =
-  'inline-flex items-center justify-center gap-2 px-4 py-2 rounded bg-[#336699] text-white text-sm font-medium [@media(hover:hover)]:hover:bg-[#2A5580] active:bg-[#2A5580] disabled:opacity-50';
-const secondary =
-  'inline-flex items-center justify-center gap-2 px-3 py-2 rounded border border-[#333] text-gray-200 text-sm [@media(hover:hover)]:hover:bg-[#222] active:bg-[#222] disabled:opacity-50';
-
-/** A centred dialog over a dimmed page. */
-function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-  return createPortal(
-    <div className="fixed inset-0 z-[10050] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-label={title}
-        onClick={(e) => e.stopPropagation()}
-        className="w-full sm:max-w-md max-h-[90dvh] overflow-y-auto bg-[#121212] border border-[#2A2A2A] rounded-t-lg sm:rounded-lg shadow-2xl"
-      >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[#2A2A2A]">
-          <h2 className="text-base font-semibold text-white">{title}</h2>
-          <button type="button" onClick={onClose} aria-label="Close" className="p-1 -mr-1 text-gray-400 hover:text-white">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-        <div className="p-5">{children}</div>
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block mb-3">
-      <span className="block text-xs text-gray-400 mb-1">{label}</span>
-      {children}
-    </label>
-  );
-}
 
 function TradePicker({ trades, value, onChange }: { trades: Trade[]; value: string[]; onChange: (next: string[]) => void }) {
   return (
@@ -253,81 +211,6 @@ function PermitsCard() {
         {busy ? 'Pulling…' : 'Sync now'}
       </button>
     </section>
-  );
-}
-
-function NewLeadDialog({ trades, onClose, onSaved }: { trades: Trade[]; onClose: () => void; onSaved: () => void }) {
-  const [draft, setDraft] = useState({ name: '', phone: '', email: '', address: '', city: '', county: '', jobType: '', notes: '' });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const set = (key: keyof typeof draft) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-    setDraft({ ...draft, [key]: e.target.value });
-  // The county decides whose bidding round the lead opens; fill it in from a town we know.
-  const setCity = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const city = e.target.value;
-    const known = countyForTown(city);
-    setDraft({ ...draft, city, county: known ?? (countyForTown(draft.city) === draft.county ? '' : draft.county) });
-  };
-  const save = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    setError(null);
-    try {
-      await marketplaceAPI.createLead(draft);
-      onSaved();
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "The lead couldn't be saved");
-    } finally {
-      setSaving(false);
-    }
-  };
-  return (
-    <Dialog title="New market lead" onClose={onClose}>
-      <form onSubmit={save}>
-        <Field label="Name">
-          <input value={draft.name} onChange={set('name')} className={input} autoFocus required />
-        </Field>
-        <Field label="Trade">
-          <select value={draft.jobType} onChange={set('jobType')} className={input}>
-            <option value="">Choose a trade</option>
-            {trades.map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
-        </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Phone">
-            <input type="tel" value={draft.phone} onChange={set('phone')} className={input} />
-          </Field>
-          <Field label="City">
-            <input value={draft.city} onChange={setCity} className={input} />
-          </Field>
-        </div>
-        <Field label="County">
-          <input value={draft.county} onChange={set('county')} list="texas-counties" placeholder="Fills in from the city when we know it" className={input} />
-          <datalist id="texas-counties">
-            {TEXAS_COUNTIES.map((c) => (
-              <option key={c} value={c} />
-            ))}
-          </datalist>
-          <span className="block text-xs text-gray-500 mt-1">Companies bid by county. The highest standing bid gets the lead the moment it's added; with no bid it goes to the Marketplace.</span>
-        </Field>
-        <Field label="Email">
-          <input type="email" value={draft.email} onChange={set('email')} className={input} />
-        </Field>
-        <Field label="Address">
-          <input value={draft.address} onChange={set('address')} className={input} />
-        </Field>
-        <Field label="What they need">
-          <textarea value={draft.notes} onChange={set('notes')} rows={3} className={input} />
-        </Field>
-        {error && <p className="text-sm text-red-400 mb-3">{error}</p>}
-        <button type="submit" disabled={saving || !draft.name.trim()} className={`${primary} w-full`}>
-          {saving ? 'Saving…' : 'Add to inbox'}
-        </button>
-      </form>
-    </Dialog>
   );
 }
 
@@ -1063,7 +946,7 @@ function PricesTab({ trades }: { trades: Trade[] }) {
 const LeadMarketPage: React.FC = () => {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [tab, setTab] = useState<Tab>(() => (searchParams.get('new') === 'company' ? 'companies' : 'inbox'));
+  const [tab, setTab] = useState<Tab>(() => (searchParams.get('new') === 'company' ? 'companies' : 'intake'));
   const [trades, setTrades] = useState<Trade[]>([]);
   const [inbox, setInbox] = useState<{ available: MarketLead[]; older?: MarketLead[]; archivedCount?: number; sold: MarketLead[] }>({
     available: [],
@@ -1160,7 +1043,7 @@ const LeadMarketPage: React.FC = () => {
 
   useEffect(() => {
     if (creating === 'company') setTab('companies');
-    if (creating === 'lead') setTab('inbox');
+    if (creating === 'lead') setTab('intake');
   }, [creating]);
 
   useEffect(() => {
@@ -1199,7 +1082,8 @@ const LeadMarketPage: React.FC = () => {
         <div className="flex rounded border border-[#333] overflow-hidden" role="tablist">
           {(
             [
-              ['inbox', `Inbox (${inbox.available.length})`],
+              ['intake', 'Intake'],
+              ['inbox', `Listed (${inbox.available.length})`],
               ['companies', `Companies (${companies.length})`],
               ...(owner ? ([['prices', 'Prices']] as Array<[Tab, string]>) : []),
             ] as Array<[Tab, string]>
@@ -1255,12 +1139,14 @@ const LeadMarketPage: React.FC = () => {
 
       {loading ? (
         <p className="text-sm text-gray-500">Loading…</p>
+      ) : tab === 'intake' ? (
+        <IntakeQueue trades={trades} openNew={creating === 'lead'} onCloseNew={closeCreate} onListed={() => reload()} />
       ) : tab === 'inbox' ? (
         <div className="space-y-6">
           {inbox.available.length === 0 ? (
             <div className="border border-dashed border-[#333] rounded p-8 text-center">
               <Inbox className="w-8 h-8 mx-auto text-gray-500 mb-2" />
-              <p className="text-sm text-gray-400">Nothing listed. Add a lead with the yellow + button.</p>
+              <p className="text-sm text-gray-400">Nothing listed. Leads get here from Intake once a call confirms them.</p>
               <div className="flex justify-center gap-2 mt-4 flex-wrap">
                 {sampleButton}
                 {owner && !hasDemo && (
@@ -1473,7 +1359,6 @@ const LeadMarketPage: React.FC = () => {
         <PricesTab trades={trades} />
       ) : null}
 
-      {creating === 'lead' && <NewLeadDialog trades={trades} onClose={closeCreate} onSaved={() => reload()} />}
       {owner && creating === 'company' && <NewCompanyDialog trades={trades} onClose={closeCreate} onSaved={() => reload()} />}
       {verifying && <VerifyDialog lead={verifying} onClose={() => setVerifying(null)} onSaved={() => reload()} />}
       {sending && (

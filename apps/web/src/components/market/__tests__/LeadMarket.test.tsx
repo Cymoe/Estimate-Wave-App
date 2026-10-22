@@ -27,7 +27,19 @@ const setPlan = jest.fn(async () => undefined);
 let staffInvites: Array<{ id: string; email: string; createdAt: string }> = [];
 const inviteStaff = jest.fn(async (email: string) => { staffInvites = [...staffInvites, { id: `i${staffInvites.length + 1}`, email, createdAt: '2026-10-22' }]; return { status: 'invited' }; });
 
+let intakeRows: unknown[] = [];
+const createIntake = jest.fn(async (_source: string, _fields: unknown) => ({ id: 'i1', duplicate: false }));
+
 jest.mock('../../../lib/api', () => ({
+  intakeAPI: {
+    queue: async () => intakeRows,
+    get: async () => null,
+    create: (source: string, fields: unknown) => createIntake(source, fields),
+    update: async () => null,
+    logAttempt: async () => null,
+    close: async () => null,
+    reopen: async () => null,
+  },
   staffAPI: {
     list: async () => ({ staff: [], invites: staffInvites }),
     invite: (email: string) => inviteStaff(email),
@@ -92,6 +104,11 @@ function type(el: HTMLInputElement, value: string) {
   el.dispatchEvent(new Event('input', { bubbles: true }));
 }
 const byText = (text: string) => buttons().find((b) => b.textContent?.includes(text));
+/** The Ops page opens on Intake; the listed leads sit behind the Listed tab. */
+const openListed = async () => {
+  await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Listed'))!.click());
+  await flush();
+};
 
 async function render(node: React.ReactNode, wrap = true) {
   const container = document.createElement('div');
@@ -112,6 +129,7 @@ afterEach(() => {
   pendingPayments = [];
   feedLeads = [];
   soldLeads = [];
+  intakeRows = [];
 });
 
 describe('Lead Market', () => {
@@ -124,7 +142,7 @@ describe('Lead Market', () => {
     role = 'staff';
     await render(<LeadMarketPage />);
     expect(document.body.textContent).toContain('FieldQuote staff');
-    expect(Array.from(document.body.querySelectorAll('[role="tab"]')).map((t) => t.textContent)).toEqual(['Inbox (1)', 'Companies (3)']);
+    expect(Array.from(document.body.querySelectorAll('[role="tablist"]:not([aria-label]) [role="tab"]')).map((t) => t.textContent)).toEqual(['Intake', 'Listed (1)', 'Companies (3)']);
     expect(document.body.textContent).not.toContain('Add 20 sample leads');
     expect(document.body.querySelector('[data-testid="team-card"]')).toBeNull();
     // The company panel reads only: no funding link, payments or plan.
@@ -156,6 +174,7 @@ describe('Lead Market', () => {
 
   it('sends a lead to one company, listing ones that buy the trade first and greying out ones that can’t afford it', async () => {
     await render(<LeadMarketPage />);
+    await openListed();
     expect(document.body.textContent).toContain('Jane Cole');
     await act(async () => (document.body.querySelector('button[aria-label^="Send "]') as HTMLButtonElement).click());
     const dialog = document.body.querySelector('[role="dialog"]')!;
@@ -171,6 +190,7 @@ describe('Lead Market', () => {
   it('fills an empty market with demo companies, and removes them in one tap', async () => {
     emptyMarket = true;
     await render(<LeadMarketPage />);
+    await openListed();
     await act(async () => byText('Add demo companies and leads')!.click());
     await flush();
     expect(addDemoData).toHaveBeenCalled();
@@ -393,6 +413,7 @@ describe('standing bids in Admin', () => {
 
   it('seeds demo bids for every company from the inbox, then offers to remove them', async () => {
     await render(<LeadMarketPage />);
+    await openListed();
     await act(async () => byText('Add demo bids')!.click());
     await flush();
     expect(addDemoBids).toHaveBeenCalled();
@@ -405,16 +426,42 @@ describe('standing bids in Admin', () => {
   it('shows which sold leads went to a standing bid', async () => {
     soldLeads = [{ id: 'm2', name: 'Ray Ortiz', jobType: 'painting', city: 'Odessa', county: 'Ector', status: 'assigned', price: 26000, priceCents: 26000, wonBy: 'bid', companyName: 'Peak Roofing', assignedAt: '2026-10-18T12:00:00Z', createdAt: '2026-10-18' }];
     await render(<LeadMarketPage />);
+    await openListed();
     expect(document.body.textContent).toContain('Painting · to Peak Roofing · won by bid');
   });
 
-  it('fills the county in from a town we know when adding a lead', async () => {
+  it('opens on Intake; a new lead goes into the queue, with the county filled in from a town we know', async () => {
     await render(<MemoryRouter initialEntries={['/lead-market?new=lead']}><LeadMarketPage /></MemoryRouter>, false);
+    expect(document.body.querySelector('[data-testid="intake-queue"]')).not.toBeNull();
+    expect(document.body.textContent).toContain('Nobody to call');
     const dialog = document.body.querySelector('[role="dialog"]')!;
+    expect(dialog.getAttribute('aria-label')).toBe('New lead');
     const inputs = Array.from(dialog.querySelectorAll('input'));
+    const name = inputs.find((i) => i.closest('label')?.textContent?.startsWith('Name'))!;
     const city = inputs.find((i) => i.closest('label')?.textContent?.startsWith('City'))!;
     const county = inputs.find((i) => i.closest('label')?.textContent?.startsWith('County'))!;
+    await act(async () => type(name, 'Pat Cole'));
     await act(async () => type(city, 'Odessa'));
     expect(county.value).toBe('Ector');
+    await act(async () => (dialog.querySelector('button[type="submit"]') as HTMLButtonElement).click());
+    await flush();
+    expect(createIntake).toHaveBeenCalledWith('call', expect.objectContaining({ name: 'Pat Cole', city: 'Odessa', county: 'Ector' }));
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('lists the queue with source, trade, county and the last try, and flags a repeat number', async () => {
+    intakeRows = [
+      { id: 'i1', source: 'meta', status: 'working', label: 'Dana Reyes', phone: '432-555-0133', county: 'Midland', jobType: 'roofing', tradeName: 'Roofing', attempts: [{ at: '2026-10-22T03:00:00Z', by: 'u1', outcome: 'voicemail' }], lastAttempt: { at: '2026-10-22T03:00:00Z', outcome: 'voicemail' }, createdAt: '2026-10-22T02:00:00Z', updatedAt: '2026-10-22T03:00:00Z' },
+      { id: 'i2', source: 'call', status: 'new', label: 'P. Cole', phone: '432-555-0101', duplicateOf: 'i0', attempts: [], lastAttempt: null, createdAt: '2026-10-22T03:30:00Z', updatedAt: '2026-10-22T03:30:00Z' },
+    ];
+    await render(<LeadMarketPage />);
+    const list = document.body.querySelector('[aria-label="Intake"]')!;
+    const items = Array.from(list.querySelectorAll('li'));
+    expect(items[0].textContent).toContain('Dana Reyes');
+    expect(items[0].textContent).toContain('Roofing · Midland County');
+    expect(items[0].textContent).toContain('1 try · Voicemail');
+    expect(items[0].querySelector('[aria-label="Facebook"]')).not.toBeNull();
+    expect(items[1].textContent).toContain('same number as another lead');
+    expect(items[1].textContent).toContain('Trade not set · County not set');
   });
 });

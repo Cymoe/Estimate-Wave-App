@@ -478,6 +478,31 @@ export const walletAPI = {
   cancelPlan: (organizationId: string) => run('mutation', api.marketplace.cancelPlan, { organizationId }),
 };
 
+/** The intake queue: leads on their way in, before staff confirm and list them. */
+export interface IntakeFields {
+  name?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  city?: string;
+  zip?: string;
+  county?: string;
+  jobType?: string;
+  scope?: string;
+  timeline?: string;
+  isOwner?: boolean;
+  notes?: string;
+}
+export const intakeAPI = {
+  queue: (status?: 'open' | 'closed' | 'confirmed') => run('query', api.intake.queue, defined({ status })),
+  get: (id: string) => run('query', api.intake.get, { id }),
+  create: (source: 'call' | 'manual', fields: IntakeFields) => run('mutation', api.intake.create, defined({ source, ...fields })),
+  update: (id: string, fields: IntakeFields) => run('mutation', api.intake.update, defined({ id, ...fields })),
+  logAttempt: (id: string, outcome: string, note?: string) => run('mutation', api.intake.logAttempt, defined({ id, outcome, note })),
+  close: (id: string, disposition: string, note?: string) => run('mutation', api.intake.close, defined({ id, disposition, note })),
+  reopen: (id: string) => run('mutation', api.intake.reopen, { id }),
+};
+
 /** Who runs the Lead Market (owner only). */
 export const staffAPI = {
   list: () => run('query', api.staff.list, {}),
