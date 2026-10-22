@@ -209,6 +209,18 @@ const LeadsPage: React.FC = () => {
     setEditing('new');
     setSearchParams({}, { replace: true });
   }, [searchParams, setSearchParams]);
+  // The alert's link: /leads?lead=<id>&ack=1 opens that lead and tells FieldQuote "got it".
+  useEffect(() => {
+    const id = searchParams.get('lead');
+    if (!id || loading) return;
+    const lead = leads.find((row) => row.id === id);
+    if (!lead) return;
+    setEditing(lead);
+    if (searchParams.get('ack') === '1' && !lead.acknowledgedAt) {
+      leadsAPI.acknowledge(lead.id).then((at) => setLeads((rows) => rows.map((row) => (row.id === lead.id ? { ...row, acknowledgedAt: at } : row)))).catch(() => {});
+    }
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams, leads, loading]);
   const [quoting, setQuoting] = useState<{ lead: Lead; clientId: string } | null>(null);
 
   const load = async () => {

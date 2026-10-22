@@ -33,11 +33,13 @@ jest.mock('../../lib/api', () => ({
     fillMissingCities: async () => ({}),
     update: (...args: [string, Record<string, unknown>]) => update(...args),
     logContact: (...args: [string, string, string?]) => logContact(...args),
+    acknowledge: (id: string) => acknowledge(id),
   },
   industriesAPI: { list: jest.fn(async () => []) },
   walletAPI: { get: jest.fn(async () => null) },
 }));
 jest.mock('../../services/EstimateService', () => ({ EstimateService: {} }));
+const acknowledge = jest.fn(async (_id: string) => '2026-10-22T16:04:00Z');
 const exportCsv = jest.fn();
 const exportExcel = jest.fn();
 jest.mock('../../services/LeadExportService', () => ({ LeadExportService: { csv: (...a: unknown[]) => exportCsv(...a), excel: (...a: unknown[]) => exportExcel(...a) } }));
@@ -186,9 +188,30 @@ describe('Leads board', () => {
     expect(card('Dana Ruiz').textContent).toContain('Won');
     expect(card('Rocky Vansau').textContent).not.toContain('Won');
 
-    // The lead's detail shows what it cost.
+    // The lead's detail shows what it cost, and "Got it" tells FieldQuote they have it.
     act(() => click(Array.from(container.querySelectorAll('span')).find((el) => el.textContent === 'Omar Haddad')!));
+    const credit = () => document.body.querySelector('[data-testid="lead-credit"]')!;
+    expect(credit().textContent).toContain('Won · $250.00');
+    await act(async () => (credit().querySelector('button') as HTMLButtonElement).click());
+    await flush();
+    expect(acknowledge).toHaveBeenCalledWith('l2');
+    expect(credit().querySelector('[data-testid="acknowledged"]')?.textContent).toContain('You acknowledged it at');
+    rows = [own];
+  });
+
+  it('opens the lead from the alert link and acknowledges it', async () => {
+    const own = rows[0];
+    rows = [
+      { ...own, appointmentAt: undefined },
+      { id: 'l2', name: 'Omar Haddad', status: 'new', createdAt: '2026-10-02T00:00:00Z', marketplaceLeadId: 'm1', pricePaidCents: 25000, wonVia: 'bid' },
+    ] as typeof rows;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () => createRoot(container).render(<MemoryRouter initialEntries={['/leads?lead=l2&ack=1']}><LeadsPage /></MemoryRouter>));
+    await flush();
+    expect(acknowledge).toHaveBeenCalledWith('l2');
     expect(document.body.querySelector('[data-testid="lead-credit"]')?.textContent).toContain('Won · $250.00');
+    expect(document.body.querySelector('[data-testid="acknowledged"]')).not.toBeNull();
     rows = [own];
   });
 

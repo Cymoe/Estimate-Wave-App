@@ -318,7 +318,7 @@ export const LeadDrawer: React.FC<{
             </select>
           </div>
 
-          {lead && <LeadCredit lead={lead} />}
+          {lead && <LeadCredit lead={lead} onAcknowledged={(at) => onChanged(lead, { acknowledgedAt: at })} />}
 
           {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
 

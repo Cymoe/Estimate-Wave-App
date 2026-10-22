@@ -392,6 +392,8 @@ export default defineSchema({
     phoneVerificationTime: v.optional(v.number()),
     isAnonymous: v.optional(v.boolean()),
     role: v.optional(userRole),
+    // Where lead alerts are texted (E.164). Set in Company settings → Notifications.
+    mobile: v.optional(v.string()),
   })
     .index("email", ["email"])
     .index("phone", ["phone"]),
@@ -429,6 +431,7 @@ export default defineSchema({
     priceCents: v.optional(v.number()),
     assignedOrganizationId: v.optional(v.id("organizations")),
     assignedAt: v.optional(v.string()),
+    acknowledgedAt: v.optional(v.string()),
     orgLeadId: v.optional(v.id("leads")),
     isSample: v.optional(v.boolean()),
     // A person confirmed the lead with the homeowner (server-set by
@@ -660,7 +663,22 @@ export default defineSchema({
   })
     .index("by_status", ["status"])
     .index("by_phone", ["phoneNormalized"])
-    .index("by_external_id", ["externalId"]),
+    .index("by_external_id", ["externalId"])
+    .index("by_confirmed_lead", ["confirmedLeadId"]),
+
+  // Every alert sent (or not) when a lead was awarded: the record staff
+  // read when a contractor says they never heard about it.
+  deliveries: defineTable({
+    orgLeadId: v.id("leads"),
+    marketplaceLeadId: v.id("marketplaceLeads"),
+    organizationId: v.id("organizations"),
+    channel: v.union(v.literal("email"), v.literal("sms"), v.literal("homeowner_sms")),
+    to: v.string(),
+    status: v.union(v.literal("sent"), v.literal("failed"), v.literal("skipped")),
+    error: v.optional(v.string()),
+    providerId: v.optional(v.string()),
+    createdAt: v.string(),
+  }).index("by_lead", ["marketplaceLeadId"]),
 
   // People invited to run the Lead Market. Signing up with this email makes
   // them staff instead of giving them a company.
@@ -769,6 +787,8 @@ export default defineSchema({
     marketplaceLeadId: v.optional(v.id("marketplaceLeads")),
     pricePaidCents: v.optional(v.number()),
     assignedAt: v.optional(v.string()),
+    // When someone at the company tapped "Got it" on the alert.
+    acknowledgedAt: v.optional(v.string()),
     // How it reached this company: a standing bid won it, a buy order
     // filled, they bought it in the Marketplace, or an admin sent it.
     wonVia: v.optional(

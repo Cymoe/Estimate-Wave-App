@@ -111,6 +111,19 @@ const TOUCHED_STATUSES: Doc<"leads">["status"][] = [
   "quoted",
 ];
 
+/** "Got it, calling now": the company saw the alert. Shown to staff on the Delivered tab. */
+export const acknowledge = mutation({
+  args: { id: v.id("leads") },
+  handler: async (ctx, { id }) => {
+    const { doc } = await getOwned(ctx, "leads", id);
+    if (doc.acknowledgedAt) return doc.acknowledgedAt;
+    const now = nowIso();
+    await ctx.db.patch(id, { acknowledgedAt: now, updatedAt: now });
+    if (doc.marketplaceLeadId) await ctx.db.patch(doc.marketplaceLeadId, { acknowledgedAt: now, updatedAt: now });
+    return now;
+  },
+});
+
 export const update = mutation({
   args: { id: v.id("leads"), data: v.any() },
   handler: async (ctx, { id, data }) => {

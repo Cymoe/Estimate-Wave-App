@@ -376,6 +376,8 @@ export const leadsAPI = {
   /** A call or text (counted), or a note typed on the card (stamped with the day). */
   logContact: (id: string, kind: 'call' | 'text' | 'note', note?: string) =>
     run('mutation', api.leads.logContact, defined({ id, kind, note })),
+  /** "Got it, calling now" on a lead FieldQuote sent. Returns when it was acknowledged. */
+  acknowledge: (id: string): Promise<string> => run('mutation', api.leads.acknowledge, { id }),
 
   /** Calls onUpdate with the org's leads now and after every change. Returns a stop function. */
   watch(organizationId: string, onUpdate: (leads: any[]) => void): () => void {
@@ -503,6 +505,17 @@ export const intakeAPI = {
   reopen: (id: string) => run('mutation', api.intake.reopen, { id }),
   confirm: (id: string, checks: Record<string, boolean>, fields: IntakeFields, note?: string, allowDuplicate?: boolean) =>
     run('mutation', api.intake.confirm, defined({ id, checks, note, allowDuplicate, ...fields })),
+};
+
+/** Lead alerts: what was sent to whom when a lead was awarded (staff). */
+export const deliveryAPI = {
+  recent: () => run('query', api.delivery.recent, {}),
+  resend: (orgLeadId: string) => run('mutation', api.delivery.resend, { orgLeadId }),
+};
+
+/** The signed-in person's own settings. */
+export const usersAPI = {
+  setMobile: (mobile: string): Promise<string | null> => run('mutation', api.users.setMobile, { mobile }),
 };
 
 /** Who runs the Lead Market (owner only). */

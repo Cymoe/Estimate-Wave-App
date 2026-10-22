@@ -4,6 +4,7 @@ import { ArrowLeft, Building2, Hammer, Users, Bell, Shield } from 'lucide-react'
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { BusinessDetailsForm } from '../components/settings/BusinessDetailsForm';
 import { TradesEditor } from '../components/settings/TradesEditor';
+import { NotificationsSettings } from '../components/settings/NotificationsSettings';
 
 export default function OrganizationSettings() {
   const navigate = useNavigate();
@@ -102,8 +103,8 @@ export default function OrganizationSettings() {
 
             {activeTab === 'notifications' && (
               <div className="bg-[#1A1A1A] rounded-lg p-6">
-                <h2 className="text-lg font-semibold text-white mb-4">Notification Settings</h2>
-                <p className="text-gray-400">Notification preferences coming soon...</p>
+                <h2 className="text-lg font-semibold text-white mb-4">Lead alerts</h2>
+                <NotificationsSettings organizationId={selectedOrg.id} />
               </div>
             )}
 

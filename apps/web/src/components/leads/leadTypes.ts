@@ -30,7 +30,9 @@ export interface Lead {
   pricePaidCents?: number;
   assignedAt?: string;
   /** How it got here: a standing bid won it, a buy order filled, bought in the Marketplace, or sent by FieldQuote. */
-  wonVia?: 'bid' | 'order' | 'buy' | 'sent';
+  wonVia?: 'bid' | 'order' | 'buy' | 'sent' | 'claim';
+  /** When someone here tapped "Got it" on the alert. */
+  acknowledgedAt?: string;
   /** When FieldQuote confirmed the lead with the homeowner, and what they said. */
   verified?: { at: string; note?: string };
   creditRequest?: { reason: string; note?: string; requestedAt: string; status: 'pending' | 'approved' | 'denied' };

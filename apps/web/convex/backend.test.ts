@@ -342,6 +342,158 @@ describe("intake", () => {
   });
 });
 
+describe("delivery", () => {
+  test("email and text contents, and the hours the clock runs", async () => {
+    const { emailBody, leadLink, smsText, withinHours } = await import("./delivery");
+    // 11:00 and 19:59 Central are inside; 20:00 and 07:59 are not (CDT in October).
+    expect(withinHours("2026-10-22T16:00:00Z")).toBe(true);
+    expect(withinHours("2026-10-23T00:59:00Z")).toBe(true);
+    expect(withinHours("2026-10-23T01:00:00Z")).toBe(false);
+    expect(withinHours("2026-10-22T12:59:00Z")).toBe(false);
+    const r = {
+      lead: { id: "l1" as any, marketplaceLeadId: "m1" as any, name: "Dana Reyes", phone: "432-555-0133", address: "12 Elm St", city: "Midland", county: "Midland", notes: "Hail damage", verified: { at: "2026-10-22T15:00:00Z", note: "Wants it this month" }, pricePaidCents: 25000 },
+      tradeName: "Roofing",
+      company: { id: "o1" as any, name: "Peak Roofing", email: "office@peak.example", phone: "432-555-0100" },
+      emails: ["office@peak.example"],
+      mobiles: ["+14325550177"],
+      homeownerConsent: true,
+    };
+    const link = leadLink("l1" as any, "https://app.example");
+    expect(link).toBe("https://app.example/leads?lead=l1&ack=1");
+    const sms = smsText(r, link);
+    expect(sms).toBe("FieldQuote: new roofing lead in Midland. Dana 432-555-0133. Details: https://app.example/leads?lead=l1&ack=1 Reply STOP to opt out");
+    expect(sms.length).toBeLessThanOrEqual(160);
+    const email = emailBody(r, link);
+    expect(email.subject).toBe("New roofing lead: Dana Reyes in Midland");
+    expect(email.text).toContain("12 Elm St, Midland, Midland County");
+    expect(email.text).toContain("Confirmed with the homeowner by FieldQuote: Wants it this month");
+    expect(email.text).toContain("Yours exclusively for $250.00.");
+    expect(email.html).toContain('href="tel:4325550133"');
+    expect(email.html).toContain("Got it, calling now");
+  });
+
+  test("a sale alerts the company: skipped without keys, sent with them, and Got it stamps the lead", async () => {
+    const t = setup();
+    const va = await signUp(t, "va@fieldquote.example", { role: "staff" });
+    const co = await signUp(t, "owner@peak.example");
+    await t.run(async (ctx) => {
+      const now = new Date().toISOString();
+      await ctx.db.insert("industries", { slug: "roofing", name: "Roofing", display_order: 1, is_active: true, created_at: now, updated_at: now });
+      await ctx.db.patch(co.organizationId, { name: "Peak Roofing", email: "office@peak.example", phone: "432-555-0100", leadTrades: ["roofing"], walletBalanceCents: 100000 });
+    });
+    expect(await co.as.mutation(api.users.setMobile, { mobile: "(432) 555-0177" })).toBe("+14325550177");
+    await expect(co.as.mutation(api.users.setMobile, { mobile: "555" })).rejects.toThrow(/10-digit/);
+    expect((await co.as.query(api.users.me, {}))!.mobile).toBe("+14325550177");
+    await co.as.mutation(api.bids.setStanding, { organizationId: co.organizationId, county: "Midland", jobType: "roofing", amount: 250 });
+
+    const all = { reached: true, phoneOwner: true, addressInCounty: true, trade: true, owner: true, consent: true };
+    const list = async () => {
+      const { id } = await va.as.mutation(api.intake.create, { source: "call", name: "Dana Reyes", phone: "432-555-0133", city: "Midland", county: "Midland", jobType: "roofing" });
+      vi.useFakeTimers();
+      try {
+        // The second listing reuses the number on purpose: list it anyway.
+        const result = await va.as.mutation(api.intake.confirm, { id, checks: all, note: "Hail damage", allowDuplicate: true });
+        await t.finishAllScheduledFunctions(vi.runAllTimers);
+        return result;
+      } finally {
+        vi.useRealTimers();
+      }
+    };
+
+    // No keys on the deployment: both channels recorded as skipped, the sale untouched.
+    const first = await list();
+    expect(first.outcome).toBe("sold");
+    let rows = await va.as.query(api.delivery.recent, {});
+    expect(rows[0]).toMatchObject({ name: "Dana Reyes", companyName: "Peak Roofing", priceCents: 25000 });
+    expect(rows[0].acknowledgedAt).toBeUndefined();
+    expect(rows[0].deliveries.map((d) => [d.channel, d.status])).toEqual([
+      ["email", "skipped"],
+      ["sms", "skipped"],
+    ]);
+    expect(rows[0].deliveries[0].to).toBe("office@peak.example, owner@peak.example");
+
+    // With keys, both go out over HTTPS; a provider error is recorded as failed.
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        if (url.includes("resend")) return { ok: true, status: 200, json: async () => ({ id: "em_1" }) };
+        return { ok: false, status: 400, json: async () => ({ message: "Unverified number" }) };
+      }),
+    );
+    vi.stubEnv("RESEND_API_KEY", "re_test");
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "AC1");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "tok");
+    vi.stubEnv("TWILIO_FROM", "+14320000000");
+    vi.stubEnv("SITE_URL", "https://app.example/");
+    try {
+      await list();
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+    rows = await va.as.query(api.delivery.recent, {});
+    const sent = rows[0].deliveries;
+    expect(sent.map((d) => [d.channel, d.status])).toEqual([
+      ["email", "sent"],
+      ["sms", "failed"],
+    ]);
+    expect(sent[1].error).toBe("Unverified number");
+    expect(calls[0].url).toBe("https://api.resend.com/emails");
+    const email = JSON.parse(calls[0].init.body as string);
+    expect(email.to).toEqual(["office@peak.example", "owner@peak.example"]);
+    expect(email.text).toContain(`https://app.example/leads?lead=${rows[0].orgLeadId}&ack=1`);
+    expect(calls[1].url).toBe("https://api.twilio.com/2010-04-01/Accounts/AC1/Messages.json");
+    expect(String(calls[1].init.body)).toContain("To=%2B14325550177");
+
+    // "Got it" from the company stamps both rows; the Delivered tab shows it.
+    const leads = await co.as.query(api.leads.list, { organizationId: co.organizationId });
+    const mine = leads.find((l) => l._id === rows[0].orgLeadId)!;
+    const at = await co.as.mutation(api.leads.acknowledge, { id: mine._id });
+    expect(at).toBeTruthy();
+    expect(await co.as.mutation(api.leads.acknowledge, { id: mine._id })).toBe(at);
+    rows = await va.as.query(api.delivery.recent, {});
+    expect(rows[0]).toMatchObject({ acknowledgedAt: at, overdue: false });
+    expect((await co.as.query(api.leads.list, { organizationId: co.organizationId })).find((l) => l._id === mine._id)!.acknowledgedAt).toBe(at);
+    // Staff can send the alerts again.
+    await va.as.mutation(api.delivery.resend, { orgLeadId: mine._id });
+    const other = await signUp(t, "other@example.com");
+    await expect(other.as.query(api.delivery.recent, {})).rejects.toThrow(/staff/);
+  });
+
+  test("an unacknowledged lead turns overdue after 15 minutes during hours, never after hours", async () => {
+    const t = setup();
+    const va = await signUp(t, "va@fieldquote.example", { role: "staff" });
+    const co = await signUp(t, "co@example.com");
+    const make = async (assignedAt: string) =>
+      t.run(async (ctx) => {
+        const now = assignedAt;
+        const orgLeadId = await ctx.db.insert("leads", { name: "X", status: "new", organizationId: co.organizationId, userId: co.userId, createdAt: now, updatedAt: now });
+        const id = await ctx.db.insert("marketplaceLeads", {
+          name: "X", status: "assigned", assignedOrganizationId: co.organizationId, assignedAt, orgLeadId, createdBy: va.userId, createdAt: now, updatedAt: now,
+        });
+        await ctx.db.patch(orgLeadId, { marketplaceLeadId: id });
+        return id;
+      });
+    vi.useFakeTimers();
+    try {
+      // 11:20 Central: a lead from 11:00 is overdue, one from 11:10 is not, one from 7:30 (before hours) is not.
+      vi.setSystemTime(new Date("2026-10-22T16:20:00Z"));
+      const late = await make("2026-10-22T16:00:00Z");
+      const fresh = await make("2026-10-22T16:10:00Z");
+      const early = await make("2026-10-22T12:30:00Z");
+      const rows = await va.as.query(api.delivery.recent, {});
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      expect(byId.get(late)).toMatchObject({ overdue: true, minutesOpen: 20, afterHours: false });
+      expect(byId.get(fresh)).toMatchObject({ overdue: false, minutesOpen: 10 });
+      expect(byId.get(early)).toMatchObject({ overdue: false, afterHours: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("estimates", () => {
   test("totals are derived from items and tax, and recalculated on update", async () => {
     const t = setup();

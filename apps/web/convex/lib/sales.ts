@@ -1,5 +1,6 @@
 // Selling a lead to one company: it lands in their leads, the price comes
 // off their balance, and everyone else's bids and orders on it close.
+import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { fail, logActivity, nowIso } from "./access";
@@ -106,6 +107,8 @@ export async function sellLead(
     }
     const delivered = (await ctx.db.get(orgLeadId))!;
     if (!delivered.city) await findCity(ctx, delivered);
+    // Tell the company right away: email now, a text once SMS is set up.
+    await ctx.scheduler.runAfter(0, internal.delivery.sendLeadAlerts, { orgLeadId });
     return { orgLeadId, priceCents };
   }
 }

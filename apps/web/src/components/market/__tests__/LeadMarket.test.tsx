@@ -31,7 +31,11 @@ let intakeRows: unknown[] = [];
 const createIntake = jest.fn(async (_source: string, _fields: unknown) => ({ id: 'i1', duplicate: false }));
 const confirmIntake = jest.fn(async () => ({ leadId: 'm7', outcome: 'sold', companyName: 'Peak Roofing', priceCents: 25000 }));
 
+let delivered: unknown[] = [];
+const resendAlerts = jest.fn(async (_id: string) => null);
+
 jest.mock('../../../lib/api', () => ({
+  deliveryAPI: { recent: async () => delivered, resend: (id: string) => resendAlerts(id) },
   intakeAPI: {
     queue: async () => intakeRows,
     get: async (id: string) => ({ ...(intakeRows as Array<{ id: string }>).find((r) => r.id === id)!, duplicate: null }),
@@ -132,6 +136,7 @@ afterEach(() => {
   feedLeads = [];
   soldLeads = [];
   intakeRows = [];
+  delivered = [];
 });
 
 describe('Lead Market', () => {
@@ -144,7 +149,7 @@ describe('Lead Market', () => {
     role = 'staff';
     await render(<LeadMarketPage />);
     expect(document.body.textContent).toContain('FieldQuote staff');
-    expect(Array.from(document.body.querySelectorAll('[role="tablist"]:not([aria-label]) [role="tab"]')).map((t) => t.textContent)).toEqual(['Intake', 'Listed (1)', 'Companies (3)']);
+    expect(Array.from(document.body.querySelectorAll('[role="tablist"]:not([aria-label]) [role="tab"]')).map((t) => t.textContent)).toEqual(['Intake', 'Listed (1)', 'Delivered', 'Companies (3)']);
     expect(document.body.textContent).not.toContain('Add 20 sample leads');
     expect(document.body.querySelector('[data-testid="team-card"]')).toBeNull();
     // The company panel reads only: no funding link, payments or plan.
@@ -465,6 +470,28 @@ describe('standing bids in Admin', () => {
     expect(items[0].querySelector('[aria-label="Facebook"]')).not.toBeNull();
     expect(items[1].textContent).toContain('same number as another lead');
     expect(items[1].textContent).toContain('Trade not set · County not set');
+  });
+
+  it('shows what was sent for each awarded lead and flags the ones nobody acknowledged', async () => {
+    delivered = [
+      { id: 'm1', orgLeadId: 'ol1', name: 'Dana Reyes', jobType: 'roofing', companyName: 'Peak Roofing', priceCents: 25000, assignedAt: '2026-10-22T16:00:00Z', minutesOpen: 22, afterHours: false, overdue: true,
+        deliveries: [{ id: 'd1', channel: 'email', to: 'office@peak.example', status: 'sent', at: '2026-10-22T16:00:01Z' }, { id: 'd2', channel: 'sms', to: '', status: 'skipped', error: 'Nobody at the company has a mobile for alerts', at: '2026-10-22T16:00:01Z' }] },
+      { id: 'm2', orgLeadId: 'ol2', name: 'Ray Ortiz', jobType: 'painting', companyName: 'Broke Roofing', priceCents: 20000, assignedAt: '2026-10-22T15:00:00Z', acknowledgedAt: '2026-10-22T15:04:00Z', minutesOpen: 4, afterHours: false, overdue: false, deliveries: [] },
+    ];
+    await render(<LeadMarketPage />);
+    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent === 'Delivered')!.click());
+    await flush();
+    const list = document.body.querySelector('[aria-label="Delivered"]')!;
+    expect(document.body.textContent).toContain('1 not acknowledged after 15 minutes: call the company.');
+    const items = Array.from(list.querySelectorAll(':scope > li'));
+    expect(items[0].getAttribute('data-overdue')).toBe('true');
+    expect(items[0].textContent).toContain('No “Got it” yet · 22 min');
+    expect(items[0].textContent).toContain('Email sent to office@peak.example');
+    expect(items[0].textContent).toContain('Text skipped: Nobody at the company has a mobile for alerts');
+    expect(items[1].getAttribute('data-overdue')).toBeNull();
+    expect(items[1].textContent).toContain('Got it in 4 min');
+    await act(async () => (items[0].querySelector('button') as HTMLButtonElement).click());
+    expect(resendAlerts).toHaveBeenCalledWith('ol1');
   });
 
   it('lists a lead only once all six checks are ticked, then says who got it', async () => {

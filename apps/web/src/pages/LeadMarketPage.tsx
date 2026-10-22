@@ -7,6 +7,7 @@ import { copyText } from '../components/estimates/estimateActions';
 import { useAuth } from '../contexts/AuthContext';
 import { Dialog, Field, input, primary, secondary } from '../components/ops/ui';
 import { IntakeQueue } from '../components/ops/IntakeQueue';
+import { Delivered } from '../components/ops/Delivered';
 import { isStaff, isSuperAdmin } from '../lib/roles';
 import { TeamCard } from '../components/ops/TeamCard';
 import { useConfirm } from '../components/common/ConfirmDialog';
@@ -95,7 +96,7 @@ interface PendingPayment {
   submittedAt?: string;
 }
 
-type Tab = 'intake' | 'inbox' | 'companies' | 'prices';
+type Tab = 'intake' | 'inbox' | 'delivered' | 'companies' | 'prices';
 
 
 function TradePicker({ trades, value, onChange }: { trades: Trade[]; value: string[]; onChange: (next: string[]) => void }) {
@@ -1084,6 +1085,7 @@ const LeadMarketPage: React.FC = () => {
             [
               ['intake', 'Intake'],
               ['inbox', `Listed (${inbox.available.length})`],
+              ['delivered', 'Delivered'],
               ['companies', `Companies (${companies.length})`],
               ...(owner ? ([['prices', 'Prices']] as Array<[Tab, string]>) : []),
             ] as Array<[Tab, string]>
@@ -1149,6 +1151,8 @@ const LeadMarketPage: React.FC = () => {
             reload();
           }}
         />
+      ) : tab === 'delivered' ? (
+        <Delivered tradeName={tradeName} />
       ) : tab === 'inbox' ? (
         <div className="space-y-6">
           {inbox.available.length === 0 ? (
