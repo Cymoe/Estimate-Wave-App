@@ -29,12 +29,14 @@ const inviteStaff = jest.fn(async (email: string) => { staffInvites = [...staffI
 
 let intakeRows: unknown[] = [];
 const createIntake = jest.fn(async (_source: string, _fields: unknown) => ({ id: 'i1', duplicate: false }));
+const confirmIntake = jest.fn(async () => ({ leadId: 'm7', outcome: 'sold', companyName: 'Peak Roofing', priceCents: 25000 }));
 
 jest.mock('../../../lib/api', () => ({
   intakeAPI: {
     queue: async () => intakeRows,
-    get: async () => null,
+    get: async (id: string) => ({ ...(intakeRows as Array<{ id: string }>).find((r) => r.id === id)!, duplicate: null }),
     create: (source: string, fields: unknown) => createIntake(source, fields),
+    confirm: (...args: unknown[]) => confirmIntake(...(args as [])),
     update: async () => null,
     logAttempt: async () => null,
     close: async () => null,
@@ -463,5 +465,34 @@ describe('standing bids in Admin', () => {
     expect(items[0].querySelector('[aria-label="Facebook"]')).not.toBeNull();
     expect(items[1].textContent).toContain('same number as another lead');
     expect(items[1].textContent).toContain('Trade not set · County not set');
+  });
+
+  it('lists a lead only once all six checks are ticked, then says who got it', async () => {
+    intakeRows = [
+      { id: 'i1', source: 'meta', status: 'working', label: 'Dana Reyes', name: 'Dana Reyes', phone: '432-555-0133', county: 'Midland', jobType: 'roofing', tradeName: 'Roofing', attempts: [], lastAttempt: null, createdAt: '2026-10-22T02:00:00Z', updatedAt: '2026-10-22T03:00:00Z' },
+    ];
+    await render(<LeadMarketPage />);
+    await act(async () => (document.body.querySelector('[aria-label="Intake"] button') as HTMLButtonElement).click());
+    await flush();
+    const panel = document.body.querySelector('[data-testid="confirm-checklist"]')!;
+    const confirmButton = Array.from(panel.querySelectorAll('button')).find((b) => b.textContent === 'Confirm & list') as HTMLButtonElement;
+    expect(confirmButton.disabled).toBe(true);
+    const boxes = Array.from(panel.querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
+    expect(boxes).toHaveLength(6);
+    for (const box of boxes.slice(0, 5)) await act(async () => box.click());
+    expect(confirmButton.disabled).toBe(true);
+    await act(async () => boxes[5].click());
+    expect(confirmButton.disabled).toBe(false);
+    await act(async () => type(panel.querySelector('input[aria-label="What they said"]') as HTMLInputElement, 'Hail damage, wants it this month'));
+    await act(async () => confirmButton.click());
+    await flush();
+    expect(confirmIntake).toHaveBeenCalledWith(
+      'i1',
+      { reached: true, phoneOwner: true, addressInCounty: true, trade: true, owner: true, consent: true },
+      expect.objectContaining({ name: 'Dana Reyes', county: 'Midland', jobType: 'roofing' }),
+      'Hail damage, wants it this month',
+      undefined,
+    );
+    expect(document.body.querySelector('[role="status"]')?.textContent).toContain('Listed and sold to Peak Roofing for $250.00');
   });
 });

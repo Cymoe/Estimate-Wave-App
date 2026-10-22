@@ -303,6 +303,43 @@ describe("intake", () => {
     await va.as.mutation(api.intake.reopen, { id: repeat.id });
     expect((await va.as.query(api.intake.queue, {})).length).toBe(2);
   });
+
+  test("nothing is listed until all six checks are ticked; then the auction runs and the lead carries the confirmation", async () => {
+    const { t, owner, va } = await ops();
+    // A funded painting bidder in Ector County.
+    const co = await signUp(t, "painter@example.com");
+    await t.run(async (ctx) => {
+      await ctx.db.patch(co.organizationId, { leadTrades: ["painting"], walletBalanceCents: 100000 });
+    });
+    await co.as.mutation(api.bids.setStanding, { organizationId: co.organizationId, county: "Ector", jobType: "painting", amount: 250 });
+
+    const { id } = await va.as.mutation(api.intake.create, { source: "call", name: "Pat Cole", phone: "432-555-0101", city: "Odessa", jobType: "painting", scope: "repair", timeline: "month", notes: "Two bedrooms" });
+    const all = { reached: true, phoneOwner: true, addressInCounty: true, trade: true, owner: true, consent: true };
+    await expect(va.as.mutation(api.intake.confirm, { id, checks: { ...all, consent: false } })).rejects.toThrow(/consent read/);
+    await expect(va.as.mutation(api.intake.confirm, { id, checks: all })).rejects.toThrow(/county/);
+    expect(await va.as.query(api.marketplace.listInbox, {})).toMatchObject({ available: [] });
+
+    const result = await va.as.mutation(api.intake.confirm, { id, checks: all, county: "Ector", address: "12 Elm St", note: "Wants it done before Thanksgiving" });
+    expect(result).toMatchObject({ outcome: "sold", companyName: "painter@example.com Co", priceCents: 25000 });
+    const row = await va.as.query(api.intake.get, { id });
+    expect(row).toMatchObject({ status: "confirmed", confirmedLeadId: result.leadId, county: "Ector", address: "12 Elm St" });
+    expect(row.attempts[row.attempts.length - 1]).toMatchObject({ outcome: "reached", note: "Wants it done before Thanksgiving" });
+    expect((await va.as.query(api.intake.queue, { status: "confirmed" })).map((r) => r.id)).toEqual([id]);
+    await expect(va.as.mutation(api.intake.confirm, { id, checks: all })).rejects.toThrow(/already listed/);
+
+    // The company got it with the confirmation and the answers on the card.
+    const [lead] = await co.as.query(api.leads.list, { organizationId: co.organizationId });
+    expect(lead).toMatchObject({ name: "Pat Cole", county: "Ector", pricePaidCents: 25000, verified: { note: "Wants it done before Thanksgiving" } });
+    expect(lead.notes).toBe("What kind of work? Repair\nWhen do they want it done? Within a month\nTwo bedrooms");
+    const sold = (await owner.as.query(api.marketplace.listInbox, {})).sold;
+    expect(sold.map((l: { source?: string }) => l.source)).toEqual(["Call"]);
+
+    // A duplicate needs an explicit "list it anyway".
+    const dup = await t.mutation(internal.intake.receive, { payload: { name: "Pat again", phone: "4325550101", county: "Ector", trade: "painting" }, source: "api" });
+    await expect(va.as.mutation(api.intake.confirm, { id: dup.id, checks: all })).rejects.toThrow(/Same number/);
+    const again = await va.as.mutation(api.intake.confirm, { id: dup.id, checks: all, allowDuplicate: true });
+    expect(again.outcome).toBe("sold");
+  });
 });
 
 describe("estimates", () => {

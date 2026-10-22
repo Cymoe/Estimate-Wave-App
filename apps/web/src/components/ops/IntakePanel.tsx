@@ -4,6 +4,7 @@ import { AlertTriangle, MessageSquare, Phone, X } from 'lucide-react';
 import { intakeAPI, type IntakeFields } from '../../lib/api';
 import { COUNTY_CHOICES } from '../../services/counties';
 import { Field, ago, input, primary, secondary } from './ui';
+import { ConfirmChecklist, type ConfirmResult } from './ConfirmChecklist';
 
 export interface IntakeRow {
   id: string;
@@ -73,10 +74,8 @@ export const IntakePanel: React.FC<{
   trades: Trade[];
   onClose: () => void;
   onChanged: () => void;
-  onListed: () => void;
-  /** Extra sections (the confirmation checklist) rendered under the fields. */
-  children?: (row: IntakeDetail, reload: () => Promise<void>) => React.ReactNode;
-}> = ({ id, trades, onClose, onChanged, children }) => {
+  onListed: (result: ConfirmResult) => void;
+}> = ({ id, trades, onClose, onChanged, onListed }) => {
   const [row, setRow] = useState<IntakeDetail | null>(null);
   const [draft, setDraft] = useState<IntakeFields | null>(null);
   const [note, setNote] = useState('');
@@ -287,7 +286,7 @@ export const IntakePanel: React.FC<{
             )}
           </section>
 
-          {children?.(row, load)}
+          {open && <ConfirmChecklist row={row} draft={draft} onListed={onListed} />}
 
           {open ? (
             <section className="border-t border-[#2A2A2A] pt-5">

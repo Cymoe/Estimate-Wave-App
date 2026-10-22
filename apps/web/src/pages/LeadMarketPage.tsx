@@ -1140,7 +1140,15 @@ const LeadMarketPage: React.FC = () => {
       {loading ? (
         <p className="text-sm text-gray-500">Loading…</p>
       ) : tab === 'intake' ? (
-        <IntakeQueue trades={trades} openNew={creating === 'lead'} onCloseNew={closeCreate} onListed={() => reload()} />
+        <IntakeQueue
+          trades={trades}
+          openNew={creating === 'lead'}
+          onCloseNew={closeCreate}
+          onListed={(message) => {
+            setNotice(message);
+            reload();
+          }}
+        />
       ) : tab === 'inbox' ? (
         <div className="space-y-6">
           {inbox.available.length === 0 ? (

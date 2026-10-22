@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { fail, nowIso, requireStaff } from "./lib/access";
+import { listLead } from "./lib/awards";
 import { normalizeCounty, TEXAS_COUNTIES } from "./lib/counties";
 import { DUPLICATE_WINDOW_DAYS, fieldsFromPayload, intakeLabel, normalizePhone, parseCampaign, type IntakeFields } from "./lib/intake";
 import { intakeDisposition, intakeSource } from "./schema";
@@ -270,6 +271,104 @@ export const close = mutation({
       updatedAt: now,
     });
     return null;
+  },
+});
+
+const SCOPE_LABELS: Record<string, string> = { repair: "Repair", replacement: "Replacement", new: "New install", remodel: "Remodel" };
+const TIMELINE_LABELS: Record<string, string> = {
+  asap: "As soon as possible",
+  month: "Within a month",
+  quarter: "In the next few months",
+  planning: "Just planning",
+};
+
+/** The checks a person makes on the phone before a lead is worth selling. */
+export const CHECKS = {
+  reached: "Reached the homeowner live",
+  phoneOwner: "The number is theirs",
+  addressInCounty: "Address confirmed, inside the county",
+  trade: "Trade and scope confirmed",
+  owner: "Owns the home and decides",
+  consent: "Consent read and acknowledged",
+} as const;
+
+const checksArg = v.object({
+  reached: v.boolean(),
+  phoneOwner: v.boolean(),
+  addressInCounty: v.boolean(),
+  trade: v.boolean(),
+  owner: v.boolean(),
+  consent: v.boolean(),
+});
+
+/**
+ * The gate in front of the auction. Only a lead a person has confirmed on
+ * the phone (all six checks) is listed; listing runs the instant award
+ * exactly as before, and the lead carries "Confirmed today · what they
+ * said" into the Marketplace and the buyer's Leads.
+ */
+export const confirm = mutation({
+  args: {
+    id: v.id("intakeLeads"),
+    checks: checksArg,
+    note: v.optional(v.string()),
+    allowDuplicate: v.optional(v.boolean()),
+    ...fieldArgs,
+  },
+  handler: async (ctx, { id, checks, note, allowDuplicate, ...fields }) => {
+    const user = await requireStaff(ctx);
+    const row = await openRow(ctx, id);
+    if (row.status === "closed") fail("INVALID", "Put it back in the queue first");
+    for (const [key, label] of Object.entries(CHECKS) as Array<[keyof typeof CHECKS, string]>) {
+      if (!checks[key]) fail("INVALID", `Not confirmed yet: ${label.toLowerCase()}`);
+    }
+    if (row.duplicateOf && !allowDuplicate) fail("INVALID", "Same number as another lead. Close it as a duplicate, or list it anyway.");
+    const clean = await cleanFields(ctx, fields);
+    const merged = { ...row, ...clean };
+    if (!merged.name) fail("INVALID", "The homeowner's name is needed");
+    if (!normalizePhone(merged.phone)) fail("INVALID", "A working phone number is needed");
+    if (!merged.county) fail("INVALID", "Pick the county: bids are by county");
+    if (!merged.jobType) fail("INVALID", "Pick the trade");
+
+    // What the company reads on the card: the answers, then anything typed.
+    const lines = [
+      merged.scope ? `What kind of work? ${SCOPE_LABELS[merged.scope] ?? merged.scope}` : null,
+      merged.timeline ? `When do they want it done? ${TIMELINE_LABELS[merged.timeline] ?? merged.timeline}` : null,
+      merged.notes?.trim() || null,
+    ].filter((l): l is string => l !== null);
+    const now = nowIso();
+    const leadId = await listLead(
+      ctx,
+      {
+        name: merged.name,
+        phone: merged.phone,
+        email: merged.email,
+        address: merged.address,
+        city: merged.city,
+        county: merged.county,
+        jobType: merged.jobType,
+        notes: lines.length ? lines.join("\n") : undefined,
+        verified: { at: now, note: note?.trim() || undefined, by: user._id },
+      },
+      user._id,
+      { source: row.source === "meta" ? "Facebook" : row.source === "call" ? "Call" : "Staff" },
+    );
+    await ctx.db.patch(id, {
+      ...clean,
+      phoneNormalized: normalizePhone(merged.phone),
+      status: "confirmed",
+      confirmedLeadId: leadId,
+      attempts: [...row.attempts, { at: now, by: user._id, outcome: "reached", note: note?.trim() || "Confirmed and listed" }],
+      updatedAt: now,
+    });
+    const lead = (await ctx.db.get(leadId))!;
+    const company = lead.assignedOrganizationId ? await ctx.db.get(lead.assignedOrganizationId) : null;
+    return {
+      leadId,
+      outcome: lead.status === "assigned" ? ("sold" as const) : ("available" as const),
+      companyName: company?.name,
+      priceCents: lead.status === "assigned" ? lead.priceCents : undefined,
+    };
   },
 });
 

@@ -32,7 +32,7 @@ export const ATTEMPT_LABELS: Record<string, string> = {
  * typed in. Staff call each homeowner from here; nothing is listed until
  * the call confirms it.
  */
-export const IntakeQueue: React.FC<{ trades: Trade[]; openNew: boolean; onCloseNew: () => void; onListed?: () => void }> = ({
+export const IntakeQueue: React.FC<{ trades: Trade[]; openNew: boolean; onCloseNew: () => void; onListed?: (message: string) => void }> = ({
   trades,
   openNew,
   onCloseNew,
@@ -151,10 +151,14 @@ export const IntakeQueue: React.FC<{ trades: Trade[]; openNew: boolean; onCloseN
           trades={trades}
           onClose={() => setSelected(null)}
           onChanged={() => load().catch(() => {})}
-          onListed={() => {
+          onListed={(result) => {
             setSelected(null);
             load().catch(() => {});
-            onListed?.();
+            onListed?.(
+              result.outcome === 'sold'
+                ? `Listed and sold to ${result.companyName} for $${((result.priceCents ?? 0) / 100).toFixed(2)}`
+                : 'Listed. No funded bid for this county and trade, so it’s in the Marketplace.',
+            );
           }}
         />
       )}
