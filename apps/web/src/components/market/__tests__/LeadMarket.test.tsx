@@ -65,7 +65,8 @@ jest.mock('../../../lib/api', () => ({
   permitsAPI: { status: async () => ({ source: null, last30Days: 0 }), syncNow: async () => ({ fetched: 0, added: 0, updated: 0 }) },
   marketplaceAPI: {
     inbox: async () => ({
-      available: emptyMarket ? [] : [{ id: 'm1', name: 'Jane Cole', jobType: 'roofing', city: 'Midland', status: 'available', price: 8500, createdAt: '2026-10-16' }],
+      available: emptyMarket ? [] : [{ id: 'm1', name: 'Jane Cole', jobType: 'roofing', city: 'Midland', status: 'available', price: 8500, createdAt: '2026-10-16', verified: { at: '2026-10-16T15:00:00Z', note: 'Wants it before the rain' } }],
+      older: emptyMarket ? [] : [{ id: 'm2', name: 'Old Hollis', jobType: 'painting', city: 'Odessa', status: 'older', price: 4000, createdAt: '2026-10-01' }],
       sold: soldLeads,
     }),
     companies: async () => demoCompanies
@@ -171,6 +172,21 @@ describe('Lead Market', () => {
     expect(panel.textContent).toContain('Standing bids');
     expect(panel.textContent).not.toContain('Send funding link');
     expect(panel.textContent).not.toContain('Record a payment');
+  });
+
+  it('confirms a lead once, in Intake: Listed shows the stamp with no second Confirm, and only a Vault lead offers Re-confirm', async () => {
+    role = 'super_admin';
+    await render(<LeadMarketPage />);
+    await openListed();
+    const listed = document.body.querySelector('ul[aria-label="Listed"]')!;
+    expect(listed.textContent).toContain('Jane Cole');
+    expect(listed.textContent).toContain('Confirmed');
+    expect(listed.querySelector('[aria-label^="Confirm"], [aria-label^="Re-confirm"]')).toBeNull();
+    expect(Array.from(listed.querySelectorAll('button')).map((b) => b.textContent)).not.toContain('Confirm');
+    const vault = document.body.querySelector('ul[aria-label="The Vault"]')!;
+    expect(vault.textContent).toContain('Old Hollis');
+    expect(vault.textContent).toContain('Not confirmed yet');
+    expect(Array.from(vault.querySelectorAll('button')).map((b) => b.textContent)).toContain('Confirm');
   });
 
   it('lets the owner invite staff from the Companies tab', async () => {

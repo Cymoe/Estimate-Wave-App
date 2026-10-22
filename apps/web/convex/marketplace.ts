@@ -1969,6 +1969,9 @@ const SAMPLE_LEADS: Array<[string, string, string, string, string, string]> = [
   ],
 ];
 
+/** What the demo intake call "heard": every demo lead is listed already confirmed, like a real one. */
+const DEMO_CONFIRM_NOTE = "Wants a quote this month";
+
 /**
  * Adds a batch of sample leads to the market, spread over the last few
  * hours so their prices differ. For trying the Marketplace; "Remove demo
@@ -1990,9 +1993,10 @@ export const addSampleLeads = mutation({
           ((SAMPLE_LEADS.length - 1 - i) * 6 * 60 * 60 * 1000) /
             (SAMPLE_LEADS.length - 1),
       ).toISOString();
+      // Demo leads arrive the way real ones do: confirmed on the intake call.
       await listLead(
         ctx,
-        { name, phone, address, city, jobType, notes },
+        { name, phone, address, city, jobType, notes, verified: { at: listedAt, note: DEMO_CONFIRM_NOTE, by: user._id } },
         user._id,
         { listedAt, source: "Demo", isSample: true },
       );
@@ -2337,7 +2341,7 @@ export const addDemoBids = mutation({
       ).toISOString();
       const id = await listLead(
         ctx,
-        { name, phone, address, city, jobType, notes },
+        { name, phone, address, city, jobType, notes, verified: { at: listedAt, note: DEMO_CONFIRM_NOTE, by: user._id } },
         user._id,
         { listedAt, source: "Demo", isSample: true },
       );
@@ -2362,6 +2366,7 @@ export const addDemoBids = mutation({
         source: "Demo",
         status: "older",
         auction: { ...(await pricingFor(ctx, jobType)), listedAt },
+        verified: { at: listedAt, note: DEMO_CONFIRM_NOTE, by: user._id },
         isSample: true,
         createdBy: user._id,
         createdAt: listedAt,

@@ -2490,6 +2490,8 @@ describe("smoke tests and demo data", () => {
       organizationId: company.organizationId,
     });
     expect(feed).toHaveLength(20);
+    // Confirmed on arrival, like a lead that came through Intake.
+    expect(feed.every((l) => l.verified?.at && l.verified.note)).toBe(true);
     expect(feed.filter((l) => l.matchesTrades)).toHaveLength(12);
     const prices = new Set(
       feed.map((l) => priceAt(l.auction, Date.now()).priceCents),

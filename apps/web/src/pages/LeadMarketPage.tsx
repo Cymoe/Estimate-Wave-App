@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
-import { Building2, Check, Inbox, Link2, MapPin, Phone, Send, ShieldCheck, Tag, Trash2, X } from 'lucide-react';
+import { Building2, Check, Inbox, Link2, MapPin, Phone, Send, Tag, Trash2, X } from 'lucide-react';
 import { fundingAPI, industriesAPI, intakeAPI, leadsAPI, marketplaceAPI, permitsAPI, walletAPI } from '../lib/api';
 import { copyText } from '../components/estimates/estimateActions';
 import { useAuth } from '../contexts/AuthContext';
@@ -123,7 +123,7 @@ function TradePicker({ trades, value, onChange }: { trades: Trade[]; value: stri
   );
 }
 
-/** After the call: one line on what the homeowner said. Saving stamps today's date on the lead. */
+/** Re-confirming a Vault lead after a fresh call: one line on what the homeowner said. Saving stamps today's date on the lead. Leads are confirmed the first time in Intake. */
 function VerifyDialog({ lead, onClose, onSaved }: { lead: MarketLead; onClose: () => void; onSaved: () => void }) {
   const [note, setNote] = useState(lead.verified?.note ?? '');
   const [saving, setSaving] = useState(false);
@@ -1201,15 +1201,6 @@ const LeadMarketPage: React.FC = () => {
                       </span>
                     )}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => setVerifying(lead)}
-                    title={lead.verified ? 'Confirm it with the homeowner again' : 'Call the homeowner, then say what they told you'}
-                    aria-label={`${lead.verified ? 'Re-confirm' : 'Confirm'} ${lead.name}`}
-                    className={`p-2 ${lead.verified ? 'text-emerald-300' : 'text-gray-400'} hover:text-white`}
-                  >
-                    <ShieldCheck className="w-4 h-4" />
-                  </button>
                   <button
                     type="button"
                     onClick={() => setSending(lead)}
