@@ -33,9 +33,6 @@ export interface Lead {
   wonVia?: 'bid' | 'order' | 'buy' | 'sent';
   /** When FieldQuote confirmed the lead with the homeowner, and what they said. */
   verified?: { at: string; note?: string };
-  /** The job size and kind the Lead Market listed it with. */
-  size?: 'small' | 'medium' | 'large';
-  kind?: 'new' | 'remodel' | 'repair';
   creditRequest?: { reason: string; note?: string; requestedAt: string; status: 'pending' | 'approved' | 'denied' };
 }
 

@@ -31,10 +31,7 @@ export async function listLead(
     ...fields,
     county,
     source: fields.source ?? extra.source,
-    auction: {
-      ...(await pricingFor(ctx, fields.jobType, fields.size)),
-      listedAt,
-    },
+    auction: { ...(await pricingFor(ctx, fields.jobType)), listedAt },
     status: "available",
     isSample: extra.isSample,
     createdBy,
@@ -59,12 +56,7 @@ export async function awardLead(
   const lead = await ctx.db.get(leadId);
   if (!lead || lead.status !== "available" || !lead.county || !lead.jobType)
     return "available";
-  const bids = await standingBidsFor(
-    ctx,
-    lead.county,
-    lead.jobType,
-    lead.size,
-  );
+  const bids = await standingBidsFor(ctx, lead.county, lead.jobType);
   if (bids.length === 0) return "available";
 
   const now = nowIso();

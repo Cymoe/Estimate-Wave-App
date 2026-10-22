@@ -13,7 +13,6 @@ import {
   Navigation,
   Phone,
   PhoneCall,
-  Ruler,
   ShieldCheck,
   Trash2,
   Wrench,
@@ -21,7 +20,6 @@ import {
   XCircle,
 } from 'lucide-react';
 import { confirmedOn } from '../market/Confirmed';
-import { SIZE_RANGES, jobLabel } from '../market/jobSize';
 import { leadsAPI } from '../../lib/api';
 import { formatCurrency } from '../../utils/format';
 import { AppointmentField } from './AppointmentField';
@@ -423,14 +421,6 @@ export const LeadDrawer: React.FC<{
                 </button>
               )}
             </Row>
-            {(lead?.size || lead?.kind) && (
-              <Row icon={Ruler} label="Job size">
-                <span className="text-sm text-gray-200">
-                  {jobLabel(lead.size, lead.kind)}
-                  {lead.size ? <span className="text-gray-500"> · {SIZE_RANGES[lead.size]}</span> : null}
-                </span>
-              </Row>
-            )}
             <Row icon={Wrench} label="Job type">
               <select value={draft.jobType} onChange={choose('jobType')} aria-label="Job type" className={`${plainSelect} ${draft.jobType ? '' : 'text-gray-600'}`}>
                 <option value="">Choose a trade</option>

@@ -25,12 +25,9 @@ import {
   pricingFor,
   postTransaction,
   dollars,
-  sizeMultipliers,
 } from "./lib/wallet";
 import {
-  KINDS,
   MIN_START_CENTS,
-  SIZES,
   fillTimeMs,
   priceAt,
   pricingFor as pricingFrom,
@@ -77,8 +74,6 @@ const marketplaceLeadFields = {
   jobType: true,
   source: true,
   notes: true,
-  size: true,
-  kind: true,
 };
 
 function cleanLead(data: unknown) {
@@ -92,10 +87,6 @@ function cleanLead(data: unknown) {
     else delete (fields as Record<string, string>)[key];
   }
   if (!fields.name) fail("INVALID", "Lead name is required");
-  if (fields.size && !(SIZES as readonly string[]).includes(fields.size))
-    fail("INVALID", `Job size must be one of ${SIZES.join(", ")}`);
-  if (fields.kind && !(KINDS as readonly string[]).includes(fields.kind))
-    fail("INVALID", `Job kind must be one of ${KINDS.join(", ")}`);
   if (fields.county) {
     const county = normalizeCounty(fields.county);
     if (!county || !TEXAS_COUNTIES.includes(county))
@@ -457,7 +448,6 @@ export const listLeadPrices = query({
     return {
       defaultCents: defaults.startCents,
       default: defaults,
-      sizeMultipliers: await sizeMultipliers(ctx),
       prices: rows.map((row) => ({ ...row, pricing: pricingFrom(row) })),
     };
   },
@@ -475,20 +465,9 @@ export const setLeadPrice = mutation({
     floor: v.optional(v.union(v.number(), v.null())),
     drop: v.optional(v.union(v.number(), v.null())),
     dropEveryMinutes: v.optional(v.union(v.number(), v.null())),
-    /** How much a lead's price scales by job size; only kept on the "default" row. */
-    sizeMultipliers: v.optional(
-      v.object({ small: v.number(), medium: v.number(), large: v.number() }),
-    ),
   },
-  handler: async (
-    ctx,
-    { jobType, price, floor, drop, dropEveryMinutes, sizeMultipliers: sizes },
-  ) => {
+  handler: async (ctx, { jobType, price, floor, drop, dropEveryMinutes }) => {
     await requireSuperAdmin(ctx);
-    if (sizes)
-      for (const [size, m] of Object.entries(sizes))
-        if (!(m > 0 && m <= 10))
-          fail("INVALID", `The ${size} job multiplier must be above 0 and at most 10`);
     const existing = await ctx.db
       .query("leadPrices")
       .withIndex("by_job_type", (q) => q.eq("jobType", jobType))
@@ -513,10 +492,6 @@ export const setLeadPrice = mutation({
       floorCents,
       dropCents,
       dropEveryMinutes: every,
-      sizeMultipliers:
-        jobType === "default"
-          ? (sizes ?? existing?.sizeMultipliers)
-          : undefined,
       updatedAt: nowIso(),
     };
     if (existing) await ctx.db.replace(existing._id, { jobType, ...row });
@@ -1117,8 +1092,6 @@ export const olderLeads = query({
             DAY_MS,
         ),
         matchesTrades: matches(lead),
-        size: lead.size,
-        kind: lead.kind,
         verified: verifiedFor(lead),
       })),
     );
@@ -1307,8 +1280,6 @@ export const feed = query({
           receivedAt: lead.createdAt,
           auction: await auctionFor(ctx, lead),
           matchesTrades: Boolean(lead.jobType && trades.includes(lead.jobType)),
-          size: lead.size,
-          kind: lead.kind,
           verified: verifiedFor(lead),
           myBid: bid ? { id: bid._id, maxCents: bid.maxCents } : undefined,
         };

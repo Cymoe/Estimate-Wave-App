@@ -3404,60 +3404,36 @@ describe("standing bids and instant awards", () => {
     ).rejects.toThrow(/listed or older/);
   });
 
-  test("job size scales a lead's price, and decides which standing bids compete for it", async () => {
-    const { admin, mio, soco } = await market();
-    const listed = async (data: Record<string, string>) =>
-      (await admin.as.mutation(api.marketplace.createLead, { data: { city: "Midland", ...data } }))!;
-    // Default pricing is $200 → $40: a large job doubles it, a small job halves it.
-    expect((await listed({ name: "Big", jobType: "roofing", size: "large" })).auction).toMatchObject({
-      startCents: 40000,
-      floorCents: 8000,
+  test("the one-off sweep clears job sizes: size bids go, plain bids and leads keep the rest", async () => {
+    const { t, admin, mio, soco } = await market();
+    const lead = (await admin.as.mutation(api.marketplace.createLead, {
+      data: { name: "Sized Lead", phone: "4325550133", city: "Midland", county: "Midland", jobType: "painting", notes: "Big one" },
+    }))!._id;
+    await mio.as.mutation(api.bids.setStanding, { organizationId: mio.organizationId, county: "Midland", jobType: "painting", amount: 200 });
+    await soco.as.mutation(api.bids.setStanding, { organizationId: soco.organizationId, county: "Midland", jobType: "painting", amount: 300 });
+    // Old rows as the dropped feature left them.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(lead, { size: "large", kind: "remodel" });
+      const mine = await ctx.db.query("standingBids").withIndex("by_organization", (q) => q.eq("organizationId", mio.organizationId)).collect();
+      await ctx.db.patch(mine[0]._id, { size: "large" });
+      const price = await ctx.db.query("leadPrices").withIndex("by_job_type", (q) => q.eq("jobType", "default")).unique();
+      if (price) await ctx.db.patch(price._id, { sizeMultipliers: { small: 0.5, medium: 1, large: 2 } });
+      else await ctx.db.insert("leadPrices", { jobType: "default", priceCents: 5000, sizeMultipliers: { small: 0.5, medium: 1, large: 2 }, updatedAt: new Date().toISOString() });
     });
-    expect((await listed({ name: "Tiny", jobType: "roofing", size: "small" })).auction).toMatchObject({
-      startCents: 10000,
-      floorCents: 2000,
+    const first = await t.mutation(internal.bids.removeJobSizes, {});
+    expect(first).toEqual({ bids: 1, leads: 1, prices: 1 });
+    await t.run(async (ctx) => {
+      const row = await ctx.db.get(lead);
+      expect(row?.size).toBeUndefined();
+      expect(row?.kind).toBeUndefined();
+      expect(row?.notes).toBe("Big one");
+      const price = await ctx.db.query("leadPrices").withIndex("by_job_type", (q) => q.eq("jobType", "default")).unique();
+      expect(price?.sizeMultipliers).toBeUndefined();
+      expect(price?.priceCents).toBeGreaterThan(0);
+      const bids = await ctx.db.query("standingBids").collect();
+      expect(bids.filter((b) => b.jobType === "painting").map((b) => b.amountCents)).toEqual([30000]);
     });
-    await expect(listed({ name: "Odd", jobType: "roofing", size: "huge" })).rejects.toThrow(/Job size/);
-    await expect(listed({ name: "Odd", jobType: "roofing", kind: "demolish" })).rejects.toThrow(/Job kind/);
-    // The admin's own multipliers replace the defaults.
-    await admin.as.mutation(api.marketplace.setLeadPrice, {
-      jobType: "default",
-      price: 200,
-      sizeMultipliers: { small: 0.5, medium: 1, large: 3 },
-    });
-    expect((await admin.as.query(api.marketplace.listLeadPrices, {})).sizeMultipliers).toEqual({ small: 0.5, medium: 1, large: 3 });
-    expect((await listed({ name: "Bigger", jobType: "roofing", size: "large" })).auction.startCents).toBe(60000);
-
-    // Mio covers every landscaping job at $250; Soco only large ones, at $400.
-    await standing(mio, "Midland", "landscaping", 250);
-    await admin.as.mutation(api.marketplace.setCompanyTrades, {
-      organizationId: soco.organizationId,
-      leadTrades: ["painting", "landscaping"],
-    });
-    await soco.as.mutation(api.bids.setStanding, {
-      organizationId: soco.organizationId,
-      county: "Midland",
-      jobType: "landscaping",
-      amount: 400,
-      size: "large",
-    });
-    const mine = (who: { as: any; organizationId: any }) =>
-      who.as.query(api.bids.listStanding, { organizationId: who.organizationId });
-    expect((await mine(soco))[0]).toMatchObject({ size: "large", leading: true, contested: true });
-    expect((await mine(mio))[0]).toMatchObject({ leading: true });
-    expect((await mine(mio))[0].size).toBeUndefined();
-    // A medium job is Mio's; Soco's large-only bid sits it out. A large job goes to Soco.
-    const medium = await listed({ name: "Medium", jobType: "landscaping", size: "medium", kind: "remodel" });
-    expect(medium).toMatchObject({ status: "assigned", assignedOrganizationId: mio.organizationId, priceCents: 25000 });
-    const large = await listed({ name: "Large", jobType: "landscaping", size: "large" });
-    expect(large).toMatchObject({ status: "assigned", assignedOrganizationId: soco.organizationId, priceCents: 40000 });
-    // A lead with no size is only for bids with none.
-    const plain = await listed({ name: "Plain", jobType: "landscaping" });
-    expect(plain).toMatchObject({ status: "assigned", assignedOrganizationId: mio.organizationId });
-    // The size and kind travel with the lead into the buyer's Leads, and show in results.
-    const leads = await mio.as.query(api.leads.list, { organizationId: mio.organizationId });
-    expect(leads.find((l) => l.name === "Medium")).toMatchObject({ size: "medium", kind: "remodel" });
-    expect((await results(mio)).find((r) => r.leadId === medium._id)).toMatchObject({ size: "medium", kind: "remodel", won: true });
+    expect(await t.mutation(internal.bids.removeJobSizes, {})).toEqual({ bids: 0, leads: 0, prices: 0 });
   });
 
   test("Midland's permits land in the Vault for companies on the plan, mapped to their trades", async () => {

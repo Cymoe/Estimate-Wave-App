@@ -520,44 +520,6 @@ describe('Bids', () => {
     expect(link?.getAttribute('href')).toBe('/settings/organization?tab=trades');
   });
 
-  it('lets a company bid by job size: one bid per size next to its plain bid', async () => {
-    standing = [
-      { id: 'sb1', county: 'Midland', jobType: 'landscaping', amountCents: 25000, funded: true, leading: true, contested: false },
-      { id: 'sb2', county: 'Midland', jobType: 'landscaping', size: 'large', amountCents: 40000, funded: true, leading: true, contested: false },
-    ];
-    await render();
-    // The table names a sized bid.
-    const rows = Array.from(document.body.querySelectorAll('[aria-label="My standing bids"] tbody tr'));
-    expect(rows[1].textContent).toContain('Landscaping · large jobs');
-    await act(async () => byText('Add bid')!.click());
-    await act(async () => type(input('Search counties'), 'Mid'));
-    await act(async () => (dialog()!.querySelector('[aria-label="Counties"] button') as HTMLButtonElement).click());
-    // The placed large bid opens its size rows, filled in and standing; small and medium wait behind "Bid $200".
-    const sizes = () => dialog()!.querySelector('[aria-label="Landscaping by job size"]')!;
-    expect(input('Landscaping large bid').value).toBe('400');
-    expect(sizes().textContent).toContain('Winning at $400.00');
-    expect(sizes().textContent).toContain('Small jobs · under $2K');
-    // Roofing has no size rows until asked.
-    expect(dialog()!.querySelector('[aria-label="Roofing by job size"]')).toBeNull();
-    const sizeLink = Array.from(dialog()!.querySelectorAll('button')).find((b) => b.textContent === 'Set by job size')!;
-    await act(async () => sizeLink.click());
-    expect(dialog()!.querySelector('[aria-label="Roofing by job size"]')).not.toBeNull();
-    // Switch the plain Roofing row off, add a small Landscaping bid and raise the large one:
-    // saving sends one bid per size, with the size, new bids first.
-    await act(async () => (document.body.querySelector('button[aria-label="Stop bidding on Roofing"]') as HTMLButtonElement).click());
-    await act(async () => Array.from(sizes().querySelectorAll('button')).find((b) => b.textContent === 'Bid $200.00')!.click());
-    expect(input('Landscaping small bid').value).toBe('200');
-    await act(async () => (document.body.querySelector('button[aria-label="Raise Landscaping large bid"]') as HTMLButtonElement).click());
-    setStanding.mockClear();
-    await act(async () => byText('Save 3 bids')!.click());
-    await flush();
-    expect(setStanding.mock.calls).toEqual([
-      ['o2', 'Midland', 'landscaping', 200, 'small'],
-      ['o2', 'Midland', 'landscaping', 450, 'large'],
-    ]);
-    expect(document.body.querySelector('[role="status"]')?.textContent).toBe('Saved: 1 bid added, 1 updated in Midland County.');
-  });
-
   it('says at the top when the bids are paused or there is no money, with Add funds', async () => {
     // A funded company with no bids gets the big "Set your bids" card, not a second line saying the same.
     await render();

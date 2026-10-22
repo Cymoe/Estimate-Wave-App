@@ -1,7 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { ArrowDownCircle, CheckCircle2, Gavel, PauseCircle, Plus, Trash2, Wallet, X } from 'lucide-react';
-import { SIZES, SIZE_LABELS, SIZE_RANGES, type Size, jobLabel } from '../components/market/jobSize';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { Modal } from '../components/common/Modal';
 import { bidsAPI, industriesAPI, walletAPI } from '../lib/api';
@@ -19,8 +18,6 @@ interface StandingBid {
   id: string;
   county: string;
   jobType: string;
-  /** Only for jobs of this size; a bid with none covers every size. */
-  size?: Size;
   amountCents: number;
   /** The balance covers it, so it can win. A bid is only placed when it's covered; it can drop
    *  below the balance later (after a win, say), and is then paused until funds are added. */
@@ -37,8 +34,6 @@ interface BidResult {
   bidId: string;
   leadId: string;
   jobType?: string;
-  size?: Size;
-  kind?: string;
   county?: string;
   city?: string;
   myBidCents: number;
@@ -528,10 +523,7 @@ function StandingTab({
             >
               {/* The red edge is an inset shadow, not a border: table borders collapse, and a cell border would swallow the table's own edge. */}
               <Cell collapsed={leaving[bid.id] === 'collapse'} className={`text-white transition-shadow duration-300 ${funded ? '' : 'shadow-[inset_2px_0_0_0_#f87171]'}`}>{bid.county} County</Cell>
-              <Cell collapsed={leaving[bid.id] === 'collapse'} className="text-gray-300">
-                {tradeName(bid.jobType)}
-                {bid.size ? <span className="text-gray-500"> · {SIZE_LABELS[bid.size].toLowerCase()} jobs</span> : null}
-              </Cell>
+              <Cell collapsed={leaving[bid.id] === 'collapse'} className="text-gray-300">{tradeName(bid.jobType)}</Cell>
               <Cell collapsed={leaving[bid.id] === 'collapse'} className="text-right">
                 {(() => {
                   const value = state.draft ?? String(bid.amountCents / 100);
@@ -637,8 +629,7 @@ function ResultsTab({ results, tradeName }: { results: BidResult[]; tradeName: (
         <li key={r.bidId} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
           <span className="min-w-0">
             <span className="block text-white truncate">
-              {tradeName(r.jobType)}
-              {jobLabel(r.size, r.kind) ? ` · ${jobLabel(r.size, r.kind)}` : ''} · {r.county ? `${r.county} County` : r.city || 'Area not given'}
+              {tradeName(r.jobType)} · {r.county ? `${r.county} County` : r.city || 'Area not given'}
               {r.city && r.county ? ` · ${r.city}` : ''}
             </span>
             <span className="block text-xs text-gray-500">
@@ -784,16 +775,6 @@ function AddBidDialog({
     setBids((b) => ({ ...b, [id]: value }));
   };
   const [busy, setBusy] = useState(false);
-  // Per-size amounts, optional: a trade can carry a plain bid for every job and/or one per size.
-  const [sized, setSized] = useState<Set<string>>(() => new Set());
-  const [sizeBids, setSizeBids] = useState<Record<string, Partial<Record<Size, string>>>>({});
-  const setSizeBid = (id: string, size: Size, value: string | undefined) =>
-    setSizeBids((b) => {
-      const next = { ...b, [id]: { ...(b[id] ?? {}) } };
-      if (value === undefined) delete next[id][size];
-      else next[id][size] = value;
-      return next;
-    });
 
   // Bids are only for the trades the company lists (the server refuses others),
   // so those are the rows, plus any bid already placed here.
@@ -824,20 +805,11 @@ function AddBidDialog({
     setBids((b) => {
       const next = switching ? startingBids() : { ...b };
       for (const sb of standing) {
-        if (sb.size) continue; // sized bids fill their own rows below
         if (sb.county === name && (switching || !touched.has(sb.jobType))) next[sb.jobType] = String(sb.amountCents / 100);
       }
       return next;
     });
     if (switching) setTouched(new Set());
-    // Sized bids already placed here open their rows, filled in.
-    const here = standing.filter((sb) => sb.county === name && sb.size);
-    setSizeBids(() => {
-      const next: Record<string, Partial<Record<Size, string>>> = {};
-      for (const sb of here) (next[sb.jobType] ??= {})[sb.size!] = String(sb.amountCents / 100);
-      return next;
-    });
-    setSized(new Set(here.map((sb) => sb.jobType)));
     setSearch('');
   };
   const turnOn = (id: string) => setBid(id, String(MIN_BID));
@@ -862,25 +834,6 @@ function AddBidDialog({
       onNotify(err instanceof Error ? err.message : "That didn't work", false);
     }
   };
-  /** The X on a sized row: removes the bid if it's placed (after asking), else just clears the row. */
-  const removeSized = async (t: Trade, size: Size) => {
-    const mine = placedSize(t.id, size);
-    if (!mine) return setSizeBid(t.id, size, undefined);
-    const yes = await confirmRemove({
-      title: `Remove your ${t.name} bid for ${SIZE_LABELS[size].toLowerCase()} jobs in ${county} County?`,
-      message: 'You can add it again later.',
-      confirmLabel: 'Remove bid',
-    });
-    if (!yes) return;
-    try {
-      await bidsAPI.removeStanding(mine.id);
-      setSizeBid(t.id, size, undefined);
-      onNotify('Bid removed.');
-      await onSaved();
-    } catch (err) {
-      onNotify(err instanceof Error ? err.message : "That didn't work", false);
-    }
-  };
   const turnOff = (id: string) => {
     setTouched((t) => new Set(t).add(id));
     setBids((b) => {
@@ -892,81 +845,50 @@ function AddBidDialog({
   /** Where the company's existing bid for this trade stands in the chosen county. */
   /** Where the company's bid for this trade stands here, in the same words as the Bids table. */
   const standingFor = (id: string): 'winning' | 'outbid' | 'paused' | null => {
-    const mine = standing.find((sb) => sb.jobType === id && sb.county === county && !sb.size);
+    const mine = standing.find((sb) => sb.jobType === id && sb.county === county);
     if (!mine) return null;
     // A bid the balance can't cover isn't outbid, it's out of the running until funds are added.
     return !mine.funded ? 'paused' : mine.leading ? 'winning' : 'outbid';
   };
 
-  const placed = (id: string) => standing.find((sb) => sb.county === county && sb.jobType === id && !sb.size);
-  const placedSize = (id: string, size: Size) => standing.find((sb) => sb.county === county && sb.jobType === id && sb.size === size);
-  // Every sized row with an amount, in trade then size order.
-  const sizeEntries = shownTrades.flatMap((t) =>
-    SIZES.flatMap((size) => (sizeBids[t.id]?.[size] !== undefined ? [{ t, size, value: sizeBids[t.id]![size]! }] : [])),
-  );
-  const sizeCents = (e: { value: string }) => Math.round(Number(e.value) * 100);
-  const amounts = [...live.map((t) => Number(bids[t.id])), ...sizeEntries.map((e) => Number(e.value))];
+  const placed = (id: string) => standing.find((sb) => sb.county === county && sb.jobType === id);
+  const amounts = live.map((t) => Number(bids[t.id]));
   const amountsOk = amounts.every((a) => Number.isFinite(a) && a >= MIN_BID);
   const top = amounts.length ? Math.max(...amounts) : 0;
   // A bid is only placed when the balance covers it. Lowering one already placed always goes through.
   // Which rows ask for more than the balance can place (lowering one already placed is fine).
   const amountCents = (id: string) => Math.round(Number(bids[id]) * 100);
   const tooHigh = (id: string) => amountCents(id) > balance && amountCents(id) > (placed(id)?.amountCents ?? 0);
-  const tooHighSize = (e: { t: Trade; size: Size; value: string }) =>
-    sizeCents(e) > balance && sizeCents(e) > (placedSize(e.t.id, e.size)?.amountCents ?? 0);
-  const over: Array<{ name: string; cents: number }> = amountsOk
-    ? [
-        ...live.filter((t) => tooHigh(t.id)).map((t) => ({ name: t.name, cents: amountCents(t.id) })),
-        ...sizeEntries.filter(tooHighSize).map((e) => ({ name: `${e.t.name} (${SIZE_LABELS[e.size].toLowerCase()} jobs)`, cents: sizeCents(e) })),
-      ]
-    : [];
+  const over = amountsOk ? live.filter((t) => tooHigh(t.id)) : [];
   const affordable = amountsOk && over.length === 0;
   const covers = amountsOk && top > 0 ? Math.floor(balance / (top * 100)) : 0;
   // Nothing to save if every live row already matches a placed bid in this county.
-  const changed =
-    live.some((t) => placed(t.id)?.amountCents !== Math.round(Number(bids[t.id]) * 100)) ||
-    sizeEntries.some((e) => placedSize(e.t.id, e.size)?.amountCents !== sizeCents(e));
-  const ready = county !== null && live.length + sizeEntries.length > 0 && amountsOk && changed;
-  const rows = live.length + sizeEntries.length;
+  const changed = live.some((t) => placed(t.id)?.amountCents !== Math.round(Number(bids[t.id]) * 100));
+  const ready = county !== null && live.length > 0 && amountsOk && changed;
+  const rows = live.length;
 
   const save = async () => {
     setBusy(true);
     try {
       // Each row is a new bid, a change to one already placed here, or unchanged (not sent again).
-      // A sized row is a bid of its own, named "Roofing (large jobs)". New bids go first.
-      type Saved = { name: string; cents: number; send: () => Promise<unknown> };
       const cents = (t: Trade) => Math.round(Number(bids[t.id]) * 100);
-      const added: Saved[] = [];
-      const updated: Saved[] = [];
-      for (const t of live) {
-        const mine = placed(t.id);
-        if (mine && mine.amountCents === cents(t)) continue;
-        (mine ? updated : added).push({ name: t.name, cents: cents(t), send: () => bidsAPI.setStanding(organizationId, county!, t.id, Number(bids[t.id])) });
-      }
-      for (const e of sizeEntries) {
-        const mine = placedSize(e.t.id, e.size);
-        if (mine && mine.amountCents === sizeCents(e)) continue;
-        (mine ? updated : added).push({
-          name: `${e.t.name} (${SIZE_LABELS[e.size].toLowerCase()} jobs)`,
-          cents: sizeCents(e),
-          send: () => bidsAPI.setStanding(organizationId, county!, e.t.id, Number(e.value), e.size),
-        });
-      }
-      for (const row of [...added, ...updated]) await row.send();
+      const added = live.filter((t) => !placed(t.id));
+      const updated = live.filter((t) => placed(t.id) && placed(t.id)!.amountCents !== cents(t));
+      for (const t of [...added, ...updated]) await bidsAPI.setStanding(organizationId, county!, t.id, Number(bids[t.id]));
       const where = `${county} County`;
       const join = (names: string[]) => (names.length <= 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
-      const priced = (rows: Saved[], lead: string) =>
-        rows.every((r) => r.cents === rows[0].cents) ? `${lead}${money(rows[0].cents)}` : `${lead}the price you set for each`;
+      const priced = (rows: Trade[], lead: string) =>
+        rows.every((t) => cents(t) === cents(rows[0])) ? `${lead}${money(cents(rows[0]))}` : `${lead}the price you set for each`;
       if (firstTime) {
         // The first bids get the one line that explains how winning works; it stays until dismissed.
-        onNotify(`You're set: new ${join(added.map((r) => r.name))} leads in ${where} go to you the moment they come in,${priced(added, ' at ')}, while your bid is the highest.`);
+        onNotify(`You're set: new ${join(added.map((t) => t.name))} leads in ${where} go to you the moment they come in,${priced(added, ' at ')}, while your bid is the highest.`);
       } else if (updated.length === 0) {
-        onNotify(`${added.length === 1 ? 'Bid' : 'Bids'} added: ${join(added.map((r) => r.name))} in ${where}${priced(added, ' at ')}.`);
+        onNotify(`${added.length === 1 ? 'Bid' : 'Bids'} added: ${join(added.map((t) => t.name))} in ${where}${priced(added, ' at ')}.`);
       } else if (added.length === 0) {
         onNotify(
           updated.length === 1
-            ? `Bid updated: ${updated[0].name} in ${where} is now ${money(updated[0].cents)}.`
-            : `Bids updated: ${join(updated.map((r) => r.name))} in ${where}.`,
+            ? `Bid updated: ${updated[0].name} in ${where} is now ${money(cents(updated[0]))}.`
+            : `Bids updated: ${join(updated.map((t) => t.name))} in ${where}.`,
         );
       } else {
         onNotify(`Saved: ${added.length} bid${added.length === 1 ? '' : 's'} added, ${updated.length} updated in ${where}.`);
@@ -990,10 +912,10 @@ function AddBidDialog({
           : !amountsOk
           ? `Bids start at ${money(MIN_BID * 100)}.`
           : !changed
-            ? rows > 0 ? 'These are your current bids here.' : ''
+            ? live.length > 0 ? 'These are your current bids here.' : ''
             : !affordable
               ? over.length === 1
-                ? `${over[0].name} at ${money(over[0].cents)} is more than your ${money(balance)} balance.`
+                ? `${over[0].name} at ${money(amountCents(over[0].id))} is more than your ${money(balance)} balance.`
                 : `${over.length} bids are more than your ${money(balance)} balance.`
               : `Balance ${money(balance)} covers about ${covers} lead${covers === 1 ? '' : 's'} at your top bid. You pay your bid only when you win a lead.`}
       </p>
@@ -1095,7 +1017,7 @@ function AddBidDialog({
               const on = bids[t.id] !== undefined;
               const where = standingFor(t.id);
               return (
-                <li key={t.id} className="flex flex-wrap items-center justify-between gap-4 py-3.5">
+                <li key={t.id} className="flex items-center justify-between gap-4 py-3.5">
                   <div className="min-w-0">
                     <p className="text-sm text-white">{t.name}</p>
                     {/* One line that says where this bid stands, always about a specific amount. */}
@@ -1153,64 +1075,6 @@ function AddBidDialog({
                     <button type="button" onClick={() => turnOn(t.id)} className={`${secondary} flex-shrink-0`}>
                       Bid {money(MIN_BID * 100)}
                     </button>
-                  )}
-                  {/* One optional amount per job size. A sized bid competes only for jobs of that size; the plain bid above covers the rest. */}
-                  {!sized.has(t.id) && (
-                    <button
-                      type="button"
-                      onClick={() => setSized((s) => new Set(s).add(t.id))}
-                      className="basis-full -mt-2 text-left text-xs text-[#7fb0e0] underline underline-offset-2"
-                    >
-                      Set by job size
-                    </button>
-                  )}
-                  {sized.has(t.id) && (
-                    <ul className="basis-full pl-3 ml-1 border-l border-[#2A2A2A] space-y-2" aria-label={`${t.name} by job size`}>
-                      {SIZES.map((size) => {
-                        const value = sizeBids[t.id]?.[size];
-                        const mine = placedSize(t.id, size);
-                        const unchanged = mine && value !== undefined && Math.round(Number(value) * 100) === mine.amountCents;
-                        return (
-                          <li key={size} className="flex items-center justify-between gap-3">
-                            <span className="min-w-0">
-                              <span className="block text-xs text-gray-300">
-                                {SIZE_LABELS[size]} jobs <span className="text-gray-500">· {SIZE_RANGES[size]}</span>
-                              </span>
-                              {unchanged && (
-                                <span className={`block text-[11px] ${!mine.funded ? 'text-red-300' : mine.leading ? 'text-emerald-300' : 'text-amber-200'}`}>
-                                  {!mine.funded ? 'Paused' : mine.leading ? 'Winning' : 'Outbid'} at {money(mine.amountCents)}
-                                </span>
-                              )}
-                            </span>
-                            {value !== undefined ? (
-                              <span className="flex items-center gap-1.5 flex-shrink-0">
-                                <BidStepper
-                                  label={`${t.name} ${size} bid`}
-                                  value={value}
-                                  warn={amountsOk && tooHighSize({ t, size, value })}
-                                  onChange={(v) => setSizeBid(t.id, size, v)}
-                                  onBlur={() => {
-                                    if (!(Number(value) >= MIN_BID)) setSizeBid(t.id, size, String(MIN_BID));
-                                  }}
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => removeSized(t, size)}
-                                  aria-label={mine ? `Remove ${size} bid for ${t.name}` : `Stop bidding on ${size} ${t.name} jobs`}
-                                  className="p-2 text-gray-500 hover:text-white"
-                                >
-                                  <X className="w-4 h-4" />
-                                </button>
-                              </span>
-                            ) : (
-                              <button type="button" onClick={() => setSizeBid(t.id, size, String(MIN_BID))} className={`${secondary} flex-shrink-0`}>
-                                Bid {money(MIN_BID * 100)}
-                              </button>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
                   )}
                 </li>
               );

@@ -2,7 +2,6 @@ import React, { useCallback, useContext, useEffect, useMemo, useState } from 're
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { MapPin, Sparkles } from 'lucide-react';
 import { Confirmed } from '../components/market/Confirmed';
-import { JobChip } from '../components/market/JobChip';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { walletAPI } from '../lib/api';
 import { money } from '../components/market/wallet';
@@ -19,9 +18,6 @@ export interface FeedLead {
   receivedAt: string;
   auction: Auction;
   matchesTrades: boolean;
-  /** How big the job is and what kind, when known. */
-  size?: 'small' | 'medium' | 'large';
-  kind?: 'new' | 'remodel' | 'repair';
   /** When FieldQuote confirmed it with the homeowner, and what they said. */
   verified?: { at: string; note?: string };
   myBid?: { id: string; maxCents: number };
@@ -297,10 +293,7 @@ const MarketplacePage: React.FC = () => {
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <span className="block text-white">
-                      {tradeOf(lead)}
-                      <JobChip size={lead.size} kind={lead.kind} className="ml-2" />
-                    </span>
+                    <span className="block text-white">{tradeOf(lead)}</span>
                     {lead.summary && <span className="block text-xs text-gray-500 truncate max-w-[18rem]">{lead.summary}</span>}
                     <Confirmed verified={lead.verified} className="mt-0.5" />
                   </td>
@@ -324,7 +317,6 @@ const MarketplacePage: React.FC = () => {
                     <p className="text-sm font-medium text-white flex items-center gap-1.5">
                       {lead.matchesTrades && <Sparkles className="w-3.5 h-3.5 text-amber-300" aria-label="Your trade" />}
                       {tradeOf(lead)}
-                      <JobChip size={lead.size} kind={lead.kind} />
                     </p>
                     <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
                       <MapPin className="w-3 h-3" />

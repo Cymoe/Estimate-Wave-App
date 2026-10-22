@@ -448,11 +448,8 @@ export const marketplaceAPI = {
   recordTopUp: (organizationId: string, payment: { amount: number; bonus?: number; method?: string; note?: string }) =>
     run('mutation', api.marketplace.recordTopUp, defined({ organizationId, ...payment })),
   prices: () => run('query', api.marketplace.listLeadPrices, {}),
-  setPrice: (
-    jobType: string,
-    price: number | null,
-    schedule?: { floor?: number | null; drop?: number | null; dropEveryMinutes?: number | null; sizeMultipliers?: { small: number; medium: number; large: number } },
-  ) => run('mutation', api.marketplace.setLeadPrice, { jobType, price, ...schedule }),
+  setPrice: (jobType: string, price: number | null, schedule?: { floor?: number | null; drop?: number | null; dropEveryMinutes?: number | null }) =>
+    run('mutation', api.marketplace.setLeadPrice, { jobType, price, ...(schedule ?? {}) }),
   pendingCredits: () => run('query', api.marketplace.pendingCredits, {}),
   reviewCredit: (orgLeadId: string, approve: boolean) => run('mutation', api.marketplace.reviewCredit, { orgLeadId, approve }),
   addDemoData: () => run('mutation', api.marketplace.addDemoData, {}),
@@ -492,8 +489,8 @@ export const permitsAPI = {
 /** Standing bids by county and service type, and the leads they won or missed. */
 export const bidsAPI = {
   listStanding: (organizationId: string) => run('query', api.bids.listStanding, { organizationId }),
-  setStanding: (organizationId: string, county: string, jobType: string, amount: number, size?: string) =>
-    run('mutation', api.bids.setStanding, { organizationId, county, jobType, amount, ...(size ? { size } : {}) }),
+  setStanding: (organizationId: string, county: string, jobType: string, amount: number) =>
+    run('mutation', api.bids.setStanding, { organizationId, county, jobType, amount }),
   removeStanding: (id: string) => run('mutation', api.bids.removeStanding, { id }),
   /** The company has seen its bids: outbids so far stop being news. */
   markOutbidSeen: (organizationId: string) => run('mutation', api.bids.markOutbidSeen, { organizationId }),

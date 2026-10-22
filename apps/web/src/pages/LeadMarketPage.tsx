@@ -7,8 +7,6 @@ import { copyText } from '../components/estimates/estimateActions';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../components/common/ConfirmDialog';
 import { Confirmed } from '../components/market/Confirmed';
-import { JobChip } from '../components/market/JobChip';
-import { KINDS, KIND_LABELS, SIZES, SIZE_LABELS, SIZE_RANGES, type Size } from '../components/market/jobSize';
 import { STATUSES } from '../components/leads/leadTypes';
 import { CREDIT_REASON_LABELS, WalletHistory, leadOrigin, money, planLabel, suggestedBonus, type PlanSummary } from '../components/market/wallet';
 import { dropsToFloor, pricingFor } from '../services/auction';
@@ -42,8 +40,6 @@ interface MarketLead {
   companyName?: string;
   /** A person confirmed it with the homeowner: when, and what they said. */
   verified?: { at: string; note?: string };
-  size?: 'small' | 'medium' | 'large';
-  kind?: 'new' | 'remodel' | 'repair';
   createdAt: string;
 }
 
@@ -68,7 +64,7 @@ interface Company {
   isSample?: boolean;
   /** Nothing in it yet (no leads, clients, estimates or money), so it can be removed. */
   isEmpty?: boolean;
-  standingBids?: Array<{ county: string; jobType: string; amountCents: number; size?: string }>;
+  standingBids?: Array<{ county: string; jobType: string; amountCents: number }>;
   /** How many of those were added by "Add demo bids". */
   sampleBids?: number;
 }
@@ -259,7 +255,7 @@ function PermitsCard() {
 }
 
 function NewLeadDialog({ trades, onClose, onSaved }: { trades: Trade[]; onClose: () => void; onSaved: () => void }) {
-  const [draft, setDraft] = useState({ name: '', phone: '', email: '', address: '', city: '', county: '', jobType: '', size: '', kind: '', notes: '' });
+  const [draft, setDraft] = useState({ name: '', phone: '', email: '', address: '', city: '', county: '', jobType: '', notes: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const set = (key: keyof typeof draft) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
@@ -298,29 +294,6 @@ function NewLeadDialog({ trades, onClose, onSaved }: { trades: Trade[]; onClose:
             ))}
           </select>
         </Field>
-        {/* The size scales the lead's price and decides which standing bids compete for it. */}
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Job size">
-            <select value={draft.size} onChange={set('size')} className={input} aria-label="Job size">
-              <option value="">Not sure</option>
-              {SIZES.map((s) => (
-                <option key={s} value={s}>
-                  {SIZE_LABELS[s]} · {SIZE_RANGES[s]}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Kind">
-            <select value={draft.kind} onChange={set('kind')} className={input} aria-label="Job kind">
-              <option value="">Not sure</option>
-              {KINDS.map((k) => (
-                <option key={k} value={k}>
-                  {KIND_LABELS[k]}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </div>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Phone">
             <input type="tel" value={draft.phone} onChange={set('phone')} className={input} />
@@ -892,7 +865,6 @@ function CompanyPanel({
                   <li key={`${bid.county}-${bid.jobType}`} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
                     <span className="text-gray-300">
                       {bid.county} County · {trades.find((t) => t.id === bid.jobType)?.name ?? bid.jobType}
-                      {bid.size ? ` · ${bid.size} jobs` : ''}
                     </span>
                     <span className="text-white">{money(bid.amountCents)}</span>
                   </li>
@@ -988,45 +960,18 @@ const fromRow = (row: { priceCents: number; floorCents?: number; dropCents?: num
  */
 function PricesTab({ trades }: { trades: Trade[] }) {
   const [drafts, setDrafts] = useState<Record<string, PriceDraft>>({});
-  // How much a lead's price scales by job size, as typed.
-  const [sizes, setSizes] = useState<Record<Size, string>>({ small: '0.5', medium: '1', large: '2' });
   const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     marketplaceAPI
       .prices()
-      .then(
-        (result: {
-          defaultCents: number;
-          sizeMultipliers: Record<Size, number>;
-          prices: Array<{ jobType: string; priceCents: number; floorCents?: number; dropCents?: number; dropEveryMinutes?: number }>;
-        }) => {
-          const next: Record<string, PriceDraft> = { default: { ...emptyDraft, price: String(result.defaultCents / 100) } };
-          for (const row of result.prices) next[row.jobType] = fromRow(row);
-          setDrafts(next);
-          setSizes({ small: String(result.sizeMultipliers.small), medium: String(result.sizeMultipliers.medium), large: String(result.sizeMultipliers.large) });
-        },
-      )
+      .then((result: { defaultCents: number; prices: Array<{ jobType: string; priceCents: number; floorCents?: number; dropCents?: number; dropEveryMinutes?: number }> }) => {
+        const next: Record<string, PriceDraft> = { default: { ...emptyDraft, price: String(result.defaultCents / 100) } };
+        for (const row of result.prices) next[row.jobType] = fromRow(row);
+        setDrafts(next);
+      })
       .catch(() => {});
   }, []);
-  const saveSizes = async () => {
-    setError(null);
-    const d = drafts.default;
-    const num = (raw: string) => (raw.trim() === '' ? null : Number(raw));
-    if (!d || num(d.price) === null) return setError('Set the default start price first.');
-    try {
-      await marketplaceAPI.setPrice('default', num(d.price), {
-        floor: num(d.floor),
-        drop: num(d.drop),
-        dropEveryMinutes: num(d.every),
-        sizeMultipliers: { small: Number(sizes.small), medium: Number(sizes.medium), large: Number(sizes.large) },
-      });
-      setSaved('sizes');
-      setTimeout(() => setSaved((s) => (s === 'sizes' ? null : s)), 1500);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "The multipliers couldn't be saved");
-    }
-  };
   const save = async (jobType: string) => {
     setError(null);
     const d = drafts[jobType] ?? emptyDraft;
@@ -1091,26 +1036,6 @@ function PricesTab({ trades }: { trades: Trade[] }) {
         A lead with a standing bid for its county and trade is sold to the highest bidder the moment it's listed. The rest are listed at the start price ($200 or more) and drop to the floor over the day, where they stay until bought. Trades left blank use the default row.
       </p>
       {error && <p className="text-sm text-red-400 mb-3">{error}</p>}
-      {/* A lead's price scales by its job size: a small repair shouldn't cost what a large remodel does. */}
-      <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 mb-3" aria-label="Job size multipliers">
-        <span className="text-sm text-white mr-1">By job size</span>
-        {SIZES.map((size) => (
-          <React.Fragment key={size}>
-            <span>
-              {SIZE_LABELS[size]} ({SIZE_RANGES[size]}) ×
-            </span>
-            <input
-              inputMode="decimal"
-              aria-label={`${SIZE_LABELS[size]} job multiplier`}
-              value={sizes[size]}
-              onChange={(e) => setSizes({ ...sizes, [size]: e.target.value })}
-              onBlur={saveSizes}
-              className="w-14 bg-[#1A1A1A] border border-[#333] rounded px-2 py-1.5 text-right text-white text-base md:text-sm focus:outline-none focus:border-[#336699]"
-            />
-          </React.Fragment>
-        ))}
-        {saved === 'sizes' && <Check className="w-4 h-4 text-emerald-400" aria-label="Saved" />}
-      </div>
       <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded">
         {row('default', 'Default (every other trade)', '200')}
         {trades.map((t) => row(t.id, t.name, drafts.default?.price ?? ''))}
@@ -1338,7 +1263,6 @@ const LeadMarketPage: React.FC = () => {
                       <span className="inline-flex items-center gap-1">
                         <Tag className="w-3 h-3" />
                         {tradeName(lead.jobType)}
-                        <JobChip size={lead.size} kind={lead.kind} />
                       </span>
                       {(lead.city || lead.county) && (
                         <span className="inline-flex items-center gap-1">

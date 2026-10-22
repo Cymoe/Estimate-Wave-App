@@ -4,28 +4,19 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { nowIso } from "./access";
-import type { Size } from "./auction";
 
-/**
- * Active companies' standing bids that compete for a lead of this county,
- * trade and job size, highest first; ties go to whoever bid first. A bid
- * with no size covers every size; a sized bid only its own. A lead with no
- * size is only for bids with none.
- */
+/** Active companies' standing bids for a county and trade, highest first; ties go to whoever bid first. */
 export async function standingBidsFor(
   ctx: QueryCtx | MutationCtx,
   county: string,
   jobType: string,
-  size?: Size,
 ): Promise<Doc<"standingBids">[]> {
-  const rows = (
-    await ctx.db
-      .query("standingBids")
-      .withIndex("by_county_and_type", (q) =>
-        q.eq("county", county).eq("jobType", jobType),
-      )
-      .collect()
-  ).filter((row) => row.size === undefined || row.size === size);
+  const rows = await ctx.db
+    .query("standingBids")
+    .withIndex("by_county_and_type", (q) =>
+      q.eq("county", county).eq("jobType", jobType),
+    )
+    .collect();
   const active: Doc<"standingBids">[] = [];
   for (const row of rows) {
     const organization = await ctx.db.get(row.organizationId);
@@ -42,10 +33,9 @@ export async function fundedBidsFor(
   ctx: QueryCtx | MutationCtx,
   county: string,
   jobType: string,
-  size?: Size,
 ): Promise<Doc<"standingBids">[]> {
   const funded: Doc<"standingBids">[] = [];
-  for (const bid of await standingBidsFor(ctx, county, jobType, size)) {
+  for (const bid of await standingBidsFor(ctx, county, jobType)) {
     const balance =
       (await ctx.db.get(bid.organizationId))?.walletBalanceCents ?? 0;
     if (balance >= bid.amountCents) funded.push(bid);
@@ -67,6 +57,9 @@ export async function refreshStanding(
   jobType: string,
   actor?: Id<"organizations">,
 ): Promise<void> {
+  const funded = await fundedBidsFor(ctx, county, jobType);
+  const leaderId = funded[0]?._id;
+  const coveredIds = new Set(funded.map((b) => b._id));
   const rows = await ctx.db
     .query("standingBids")
     .withIndex("by_county_and_type", (q) =>
@@ -74,26 +67,17 @@ export async function refreshStanding(
     )
     .collect();
   const now = nowIso();
-  // Each bid is ranked among the bids it competes with for its own size
-  // (a sized bid against bids of that size plus unsized ones; an unsized bid
-  // against the other unsized ones).
-  for (const size of new Set(rows.map((r) => r.size))) {
-    const funded = await fundedBidsFor(ctx, county, jobType, size);
-    const leaderId = funded[0]?._id;
-    const coveredIds = new Set(funded.map((b) => b._id));
-    for (const row of rows) {
-      if (row.size !== size) continue;
-      const leads = row._id === leaderId;
-      if (leads) {
-        if (!row.wasLeading || row.outbidAt)
-          await ctx.db.patch(row._id, { wasLeading: true, outbidAt: undefined });
-      } else if (row.wasLeading) {
-        const outbid = coveredIds.has(row._id) && row.organizationId !== actor;
-        await ctx.db.patch(row._id, {
-          wasLeading: false,
-          ...(outbid ? { outbidAt: now } : {}),
-        });
-      }
+  for (const row of rows) {
+    const leads = row._id === leaderId;
+    if (leads) {
+      if (!row.wasLeading || row.outbidAt)
+        await ctx.db.patch(row._id, { wasLeading: true, outbidAt: undefined });
+    } else if (row.wasLeading) {
+      const outbid = coveredIds.has(row._id) && row.organizationId !== actor;
+      await ctx.db.patch(row._id, {
+        wasLeading: false,
+        ...(outbid ? { outbidAt: now } : {}),
+      });
     }
   }
 }

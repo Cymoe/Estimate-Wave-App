@@ -1,7 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { MapPin, Sparkles } from 'lucide-react';
 import { Confirmed } from '../components/market/Confirmed';
-import { JobChip } from '../components/market/JobChip';
 import { PermitsNearYou } from '../components/market/PermitsNearYou';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { walletAPI } from '../lib/api';
@@ -21,9 +20,6 @@ export interface VaultLead {
   receivedAt: string;
   ageDays: number;
   matchesTrades: boolean;
-  /** How big the job is and what kind, when known. */
-  size?: 'small' | 'medium' | 'large';
-  kind?: 'new' | 'remodel' | 'repair';
   /** When FieldQuote confirmed it with the homeowner, and what they said. */
   verified?: { at: string; note?: string };
 }
@@ -180,7 +176,6 @@ const VaultPage: React.FC = () => {
                         <span className="inline-flex items-center gap-1.5">
                           {lead.matchesTrades && <Sparkles className="w-3.5 h-3.5 text-amber-300" aria-label="Your trade" />}
                           {tradeOf(lead)}
-                          <JobChip size={lead.size} kind={lead.kind} />
                         </span>
                       </td>
                       <td className="px-4 py-3 text-gray-300 whitespace-nowrap">
@@ -203,7 +198,6 @@ const VaultPage: React.FC = () => {
                     <p className="text-sm font-medium text-white flex items-center gap-1.5">
                       {lead.matchesTrades && <Sparkles className="w-3.5 h-3.5 text-amber-300" aria-label="Your trade" />}
                       {tradeOf(lead)}
-                      <JobChip size={lead.size} kind={lead.kind} />
                     </p>
                     <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
                       <MapPin className="w-3 h-3" />

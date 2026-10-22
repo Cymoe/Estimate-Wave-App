@@ -1,9 +1,8 @@
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { fail, nowIso, requireMember } from "./lib/access";
 import { MIN_START_CENTS } from "./lib/auction";
-import { jobSize } from "./schema";
 import { closeLegacyRound } from "./lib/awards";
 import { dropBidsOutsideTrades, fundedBidsFor, outbidUnseen, refreshStanding } from "./lib/standing";
 import { normalizeCounty, TEXAS_COUNTIES } from "./lib/counties";
@@ -43,14 +42,13 @@ export const listStanding = query({
         a.county.localeCompare(b.county) || a.jobType.localeCompare(b.jobType),
     )) {
       // Only bids a balance can cover count: an unfunded bid can't win a lead.
-      const funded = await fundedBidsFor(ctx, row.county, row.jobType, row.size);
+      const funded = await fundedBidsFor(ctx, row.county, row.jobType);
       const mineFunded = funded.some((b) => b._id === row._id);
       const leading = mineFunded && funded[0]._id === row._id;
       out.push({
         id: row._id,
         county: row.county,
         jobType: row.jobType,
-        size: row.size,
         amountCents: row.amountCents,
         updatedAt: row.updatedAt,
         funded: mineFunded,
@@ -71,10 +69,8 @@ export const setStanding = mutation({
     county: v.string(),
     jobType: v.string(),
     amount: v.number(),
-    /** Only for jobs of this size; leave it out to cover every size. */
-    size: v.optional(jobSize),
   },
-  handler: async (ctx, { organizationId, county, jobType, amount, size }) => {
+  handler: async (ctx, { organizationId, county, jobType, amount }) => {
     const { user, organization } = await requireMember(
       ctx,
       organizationId,
@@ -108,9 +104,7 @@ export const setStanding = mutation({
           q.eq("organizationId", organizationId),
         )
         .collect()
-    ).find(
-      (row) => row.county === name && row.jobType === trade && row.size === size,
-    );
+    ).find((row) => row.county === name && row.jobType === trade);
     // A bid is only placed when the balance can pay it. Lowering is always
     // allowed, so a bid the balance fell below (after a win, say) can be
     // brought back under it; that bid stays but is paused until it's covered.
@@ -130,7 +124,6 @@ export const setStanding = mutation({
         organizationId,
         county: name,
         jobType: trade,
-        size,
         amountCents,
         createdBy: user._id,
         createdAt: now,
@@ -189,6 +182,50 @@ export const removeBidsOutsideTrades = internalMutation({
   },
 });
 
+/**
+ * One-off: job size and kind are gone from the product. Drops the bids set
+ * for one size (the plain bid stays), strips size and kind from leads, and
+ * the size multipliers from the price row. Safe to re-run: does nothing
+ * once the old rows are clean.
+ */
+export const removeJobSizes = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const strip = (row: { _id: Id<any>; _creationTime: number }, keys: string[]) => {
+      const { _id, _creationTime, ...rest } = row as Record<string, unknown> & typeof row;
+      for (const key of keys) delete rest[key];
+      return rest;
+    };
+    let bids = 0;
+    const touched = new Set<string>();
+    for (const row of await ctx.db.query("standingBids").take(5000)) {
+      if (row.size === undefined) continue;
+      await ctx.db.delete(row._id);
+      bids++;
+      touched.add(`${row.county}\u0000${row.jobType}`);
+    }
+    for (const key of touched) {
+      const [county, jobType] = key.split("\u0000");
+      await refreshStanding(ctx, county, jobType);
+    }
+    let leads = 0;
+    for (const table of ["marketplaceLeads", "leads"] as const) {
+      for (const row of await ctx.db.query(table).take(5000)) {
+        if (row.size === undefined && row.kind === undefined) continue;
+        await ctx.db.replace(row._id, strip(row, ["size", "kind"]) as any);
+        leads++;
+      }
+    }
+    let prices = 0;
+    for (const row of await ctx.db.query("leadPrices").take(5000)) {
+      if (row.sizeMultipliers === undefined) continue;
+      await ctx.db.replace(row._id, strip(row, ["sizeMultipliers"]) as any);
+      prices++;
+    }
+    return { bids, leads, prices };
+  },
+});
+
 // ---- Results ----
 
 /** The last leads the company's bids were matched to: won at its bid, or lost and why. */
@@ -218,8 +255,6 @@ export const results = query({
         bidId: bid._id,
         leadId: bid.marketplaceLeadId,
         jobType: lead?.jobType,
-        size: lead?.size,
-        kind: lead?.kind,
         county: lead?.county,
         city: lead?.city,
         myBidCents: bid.maxCents,

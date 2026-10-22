@@ -8,45 +8,8 @@ export const MINUTE_MS = 60 * 1000;
 export const DEFAULT_DROPS = 23;
 export const DEFAULT_DROP_EVERY_MS = 60 * MINUTE_MS;
 export const MIN_FLOOR_CENTS = 500;
-/** No lead lists for less than this (before any job-size scaling). */
+/** No lead lists for less than this. */
 export const MIN_START_CENTS = 20000;
-
-/** How big the job is, by what it's likely to cost the homeowner. */
-export const SIZES = ["small", "medium", "large"] as const;
-export type Size = (typeof SIZES)[number];
-/** Dollar ranges the sizes stand for, in words. */
-export const SIZE_RANGES: Record<Size, string> = {
-  small: "under $2,000",
-  medium: "$2,000 to $15,000",
-  large: "$15,000 and up",
-};
-/** What kind of work the lead is. */
-export const KINDS = ["new", "remodel", "repair"] as const;
-export type Kind = (typeof KINDS)[number];
-/** Price multipliers by job size until the admin sets their own. */
-export const DEFAULT_SIZE_MULTIPLIERS: Record<Size, number> = {
-  small: 0.5,
-  medium: 1,
-  large: 2,
-};
-
-/**
- * A trade's schedule scaled for a job size: start, floor and step move
- * together, so a small job's lead is cheaper all the way down. Nothing goes
- * below the $5 floor, and the step stays at least $1.
- */
-export function scalePricing(p: Pricing, multiplier: number): Pricing {
-  if (!(multiplier > 0) || multiplier === 1) return p;
-  const scale = (cents: number) =>
-    Math.max(MIN_FLOOR_CENTS, Math.round(cents * multiplier));
-  const startCents = scale(p.startCents);
-  return {
-    ...p,
-    startCents,
-    floorCents: Math.min(startCents, scale(p.floorCents)),
-    dropCents: Math.max(100, Math.round(p.dropCents * multiplier)),
-  };
-}
 
 /** The schedule a lead was listed with. All amounts are whole cents. */
 export type Auction = {
