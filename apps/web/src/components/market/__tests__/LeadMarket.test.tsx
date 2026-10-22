@@ -204,6 +204,17 @@ describe('Lead Market', () => {
     expect(document.body.textContent).toContain('Jane Cole sent to Peak Roofing');
   });
 
+  it('offers demo companies under the listed leads too, until they exist', async () => {
+    await render(<LeadMarketPage />);
+    await openListed();
+    expect(document.body.textContent).toContain('Jane Cole');
+    await act(async () => byText('Add demo companies and leads')!.click());
+    await flush();
+    expect(addDemoData).toHaveBeenCalled();
+    expect(byText('Add demo companies and leads')).toBeUndefined();
+    expect(byText('Remove demo data')).toBeTruthy();
+  });
+
   it('fills an empty market with demo companies, and removes them in one tap', async () => {
     emptyMarket = true;
     await render(<LeadMarketPage />);

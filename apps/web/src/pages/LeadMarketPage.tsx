@@ -1020,6 +1020,19 @@ const LeadMarketPage: React.FC = () => {
       {demoBusy ? 'Adding…' : 'Add demo bids'}
     </button>
   );
+  // Demo companies are offered whenever there are none, listed leads or not:
+  // sample leads alone leave nobody to bid on them.
+  const demoCompaniesButton = owner && !hasDemoCompanies && (
+    <button
+      type="button"
+      disabled={demoBusy}
+      onClick={addDemo}
+      title="Demo companies with funds and leads, so the Marketplace and bids have both sides. “Remove demo data” takes it all back."
+      className={secondary}
+    >
+      {demoBusy ? 'Adding…' : 'Add demo companies and leads'}
+    </button>
+  );
   const sampleButton = owner && (
     <>
       <button
@@ -1031,6 +1044,7 @@ const LeadMarketPage: React.FC = () => {
       >
         {demoBusy ? 'Adding…' : 'Add 20 sample leads'}
       </button>
+      {demoCompaniesButton}
       {demoBidsButton}
     </>
   );
@@ -1166,11 +1180,6 @@ const LeadMarketPage: React.FC = () => {
               <p className="text-sm text-gray-400">Nothing listed. Leads get here from Intake once a call confirms them.</p>
               <div className="flex justify-center gap-2 mt-4 flex-wrap">
                 {sampleButton}
-                {owner && !hasDemo && (
-                  <button type="button" disabled={demoBusy} onClick={addDemo} className={secondary}>
-                    {demoBusy ? 'Adding…' : 'Add demo companies and leads'}
-                  </button>
-                )}
               </div>
             </div>
           ) : (
@@ -1244,7 +1253,7 @@ const LeadMarketPage: React.FC = () => {
               ))}
             </ul>
           )}
-          {inbox.available.length > 0 && <div className="flex justify-end gap-2">{sampleButton}</div>}
+          {inbox.available.length > 0 && <div className="flex justify-end gap-2 flex-wrap">{sampleButton}</div>}
 
           {(inbox.older?.length ?? 0) > 0 && (
             <section>
