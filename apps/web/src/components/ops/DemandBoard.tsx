@@ -32,9 +32,9 @@ export interface DemandBoardData {
 }
 
 const STATE: Record<DemandSlot['state'], { label: string; cell: string }> = {
-  open: { label: 'Run ads here', cell: 'bg-emerald-500/15 border-emerald-500/40 text-emerald-100' },
-  unfunded: { label: 'Bids, but nobody can pay', cell: 'bg-amber-500/10 border-amber-500/40 text-amber-100' },
-  oversupplied: { label: 'Leads sitting unsold: pause', cell: 'bg-red-500/10 border-red-500/40 text-red-100' },
+  open: { label: 'Run ads here', cell: 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200' },
+  unfunded: { label: 'Bids, but nobody can pay', cell: 'bg-amber-500/10 border-amber-500/40 text-amber-200' },
+  oversupplied: { label: 'Leads sitting unsold: pause', cell: 'bg-red-500/10 border-red-500/40 text-red-200' },
   quiet: { label: 'Nothing here', cell: 'bg-[#161616] border-[#2A2A2A] text-gray-400' },
 };
 
