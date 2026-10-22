@@ -1,7 +1,8 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { isStaff } from './lib/roles';
 import { ScrollRestoration } from './components/ScrollRestoration';
 import Dashboard from './pages/dashboard/Dashboard';
 import { TestAuth } from './components/auth/TestAuth';
@@ -101,6 +102,7 @@ const SimpleExperience = React.lazy(() => import('./pages/SimpleExperience').the
 // Protected route component
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, session, isLoading } = useAuth();
+  const location = useLocation();
 
   if (isLoading) {
     return (
@@ -114,7 +116,22 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/" replace />;
   }
 
+  // Staff have no company of their own: the Ops page is their whole app.
+  if (user.role === 'staff' && !user.organizationId && location.pathname !== '/lead-market') {
+    return <Navigate to="/lead-market" replace />;
+  }
+
   return <>{children}</>;
+}
+
+/** Pages for FieldQuote staff only. Everyone else lands back on their dashboard. */
+function StaffRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  return (
+    <ProtectedRoute>
+      {isStaff(user) ? <>{children}</> : <Navigate to="/profit-tracker" replace />}
+    </ProtectedRoute>
+  );
 }
 
 /** Old edit links open the project page instead. */
@@ -274,11 +291,11 @@ function AppRoutes() {
       <Route
         path="/lead-market"
         element={
-          <ProtectedRoute>
+          <StaffRoute>
             <DashboardLayout fullWidth={true}>
               <LeadMarketPage />
             </DashboardLayout>
-          </ProtectedRoute>
+          </StaffRoute>
         }
       />
       <Route

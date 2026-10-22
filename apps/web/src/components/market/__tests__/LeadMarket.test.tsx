@@ -24,7 +24,16 @@ const removeCompany = jest.fn(async (_id: string) => undefined);
 const setCompanyOwner = jest.fn(async (_id: string, _email: string) => 'invited');
 const setPlan = jest.fn(async () => undefined);
 
+let staffInvites: Array<{ id: string; email: string; createdAt: string }> = [];
+const inviteStaff = jest.fn(async (email: string) => { staffInvites = [...staffInvites, { id: `i${staffInvites.length + 1}`, email, createdAt: '2026-10-22' }]; return { status: 'invited' }; });
+
 jest.mock('../../../lib/api', () => ({
+  staffAPI: {
+    list: async () => ({ staff: [], invites: staffInvites }),
+    invite: (email: string) => inviteStaff(email),
+    removeInvite: async () => undefined,
+    remove: async () => undefined,
+  },
   permitsAPI: { status: async () => ({ source: null, last30Days: 0 }), syncNow: async () => ({ fetched: 0, added: 0, updated: 0 }) },
   marketplaceAPI: {
     inbox: async () => ({
@@ -106,10 +115,43 @@ afterEach(() => {
 });
 
 describe('Lead Market', () => {
-  it('is only for platform admins', async () => {
+  it('is only for FieldQuote staff; staff see leads and companies but not prices, demo data or money', async () => {
     role = 'user';
     await render(<LeadMarketPage />);
-    expect(document.body.textContent).toContain('only for FieldQuote admins');
+    expect(document.body.textContent).toContain('only for FieldQuote staff');
+
+    document.body.innerHTML = '';
+    role = 'staff';
+    await render(<LeadMarketPage />);
+    expect(document.body.textContent).toContain('FieldQuote staff');
+    expect(Array.from(document.body.querySelectorAll('[role="tab"]')).map((t) => t.textContent)).toEqual(['Inbox (1)', 'Companies (3)']);
+    expect(document.body.textContent).not.toContain('Add 20 sample leads');
+    expect(document.body.querySelector('[data-testid="team-card"]')).toBeNull();
+    // The company panel reads only: no funding link, payments or plan.
+    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Companies'))!.click());
+    await flush();
+    await act(async () => Array.from(document.body.querySelectorAll('tr')).find((r) => r.textContent?.includes('Peak Roofing'))!.click());
+    await flush();
+    const panel = document.body.querySelector('[role="dialog"]')!;
+    expect(panel.textContent).toContain('Standing bids');
+    expect(panel.textContent).not.toContain('Send funding link');
+    expect(panel.textContent).not.toContain('Record a payment');
+  });
+
+  it('lets the owner invite staff from the Companies tab', async () => {
+    await render(<LeadMarketPage />);
+    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Companies'))!.click());
+    await flush();
+    const card = document.body.querySelector('[data-testid="team-card"]')!;
+    expect(card.textContent).toContain('Just you so far');
+    const inputEl = card.querySelector('input[type="email"]') as HTMLInputElement;
+    await act(async () => {
+      type(inputEl, 'va@fieldquote.example');
+    });
+    await act(async () => (card.querySelector('button[type="submit"]') as HTMLButtonElement).click());
+    await flush();
+    expect(inviteStaff).toHaveBeenCalledWith('va@fieldquote.example');
+    expect(document.body.querySelector('[data-testid="team-card"]')!.textContent).toContain('invited, not signed up yet');
   });
 
   it('sends a lead to one company, listing ones that buy the trade first and greying out ones that can’t afford it', async () => {
@@ -224,7 +266,7 @@ describe('loading the balance and buying leads', () => {
 
   it('sets an owner, and removes an empty company (only offered for empty ones)', async () => {
     await render(<LeadMarketPage />);
-    expect(document.body.textContent).toContain('Platform owner · only you see this');
+    expect(document.body.textContent).toContain('Platform owner');
     await act(async () => byText('Companies')!.click());
     await flush();
     const row = (name: string) => Array.from(document.body.querySelectorAll('tr')).find((r) => r.textContent?.includes(name))!;

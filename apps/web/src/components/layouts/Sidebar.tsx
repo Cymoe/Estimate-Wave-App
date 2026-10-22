@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { useNavigate, useLocation, NavLink } from 'react-router-dom';
 import { NO_TRADES_LABEL } from '../settings/tradesLabels';
+import { isStaff } from '../../lib/roles';
 import type { ProjectShortcut } from '../projects/useProjectShortcuts';
 import {
   ChevronDown,
@@ -556,7 +557,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   right: isSidebarCollapsed ? '16px' : '16px'
                 }}
               >
-                {user?.role === 'super_admin' && (
+                {isStaff(user) && (
                   <button
                     onClick={() => {
                       navigate('/lead-market');
@@ -564,8 +565,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     }}
                     className="w-full text-left px-4 py-3 text-sm text-white hover:bg-[#3A3A3A] transition-colors duration-200 border-b border-[#404040]"
                   >
-                    <span className="font-['Roboto']">Admin</span>
-                    <span className="block text-xs text-gray-400">Leads, prices, companies</span>
+                    <span className="font-['Roboto']">Ops</span>
+                    <span className="block text-xs text-gray-400">Leads, companies, permits</span>
                   </button>
                 )}
                 <button

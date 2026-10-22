@@ -14,6 +14,8 @@ import { v } from "convex/values";
 export const userRole = v.union(
   v.literal("user"),
   v.literal("admin"),
+  // Runs the Lead Market day to day (intake, confirming, sending): no company of their own.
+  v.literal("staff"),
   v.literal("super_admin"),
 );
 
@@ -596,6 +598,15 @@ export default defineSchema({
   companyInvites: defineTable({
     organizationId: v.id("organizations"),
     email: v.string(),
+    createdAt: v.string(),
+    acceptedAt: v.optional(v.string()),
+  }).index("by_email", ["email"]),
+
+  // People invited to run the Lead Market. Signing up with this email makes
+  // them staff instead of giving them a company.
+  staffInvites: defineTable({
+    email: v.string(),
+    invitedBy: v.id("users"),
     createdAt: v.string(),
     acceptedAt: v.optional(v.string()),
   }).index("by_email", ["email"]),

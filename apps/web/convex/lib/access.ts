@@ -24,10 +24,22 @@ export function isSuperAdmin(user: Doc<"users">): boolean {
   return user.role === "super_admin";
 }
 
-/** Throws unless the signed-in user runs the platform (the Lead Market). */
+/** Throws unless the signed-in user owns the platform (money, prices, companies). */
 export async function requireSuperAdmin(ctx: Ctx): Promise<Doc<"users">> {
   const user = await requireUser(ctx);
   if (!isSuperAdmin(user)) fail("FORBIDDEN", "Only FieldQuote admins can do this");
+  return user;
+}
+
+/** Staff run the Lead Market day to day; the owner is staff too. */
+export function isStaff(user: Doc<"users">): boolean {
+  return user.role === "staff" || isSuperAdmin(user);
+}
+
+/** Throws unless the signed-in user is FieldQuote staff (or the owner). */
+export async function requireStaff(ctx: Ctx): Promise<Doc<"users">> {
+  const user = await requireUser(ctx);
+  if (!isStaff(user)) fail("FORBIDDEN", "Only FieldQuote staff can do this");
   return user;
 }
 

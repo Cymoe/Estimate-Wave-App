@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Building2, FileText, FolderOpen, Inbox, User, UserPlus } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { FEATURES } from '../../config/features';
+import { isStaff, isSuperAdmin } from '../../lib/roles';
 
 interface QuickCreateOption {
   id: string;
@@ -33,13 +34,9 @@ export const QuickCreateMenu: React.FC<Props> = ({ isOpen, onClose }) => {
       ? [{ id: 'project', name: 'Project', icon: FolderOpen, action: () => navigate('/projects?new=1') }]
       : []),
     { id: 'client', name: 'Client', icon: User, action: () => navigate('/clients/new') },
-    // Platform admins also stock the Lead Market from here.
-    ...(user?.role === 'super_admin'
-      ? [
-          { id: 'market-lead', name: 'Market lead', icon: Inbox, action: () => navigate('/lead-market?new=lead') },
-          { id: 'company', name: 'Company', icon: Building2, action: () => navigate('/lead-market?new=company') },
-        ]
-      : []),
+    // Staff stock the Lead Market from here; only the owner adds companies.
+    ...(isStaff(user) ? [{ id: 'market-lead', name: 'Market lead', icon: Inbox, action: () => navigate('/lead-market?new=lead') }] : []),
+    ...(isSuperAdmin(user) ? [{ id: 'company', name: 'Company', icon: Building2, action: () => navigate('/lead-market?new=company') }] : []),
   ];
 
   const choose = (option: QuickCreateOption) => {

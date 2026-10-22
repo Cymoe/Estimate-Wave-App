@@ -478,6 +478,14 @@ export const walletAPI = {
   cancelPlan: (organizationId: string) => run('mutation', api.marketplace.cancelPlan, { organizationId }),
 };
 
+/** Who runs the Lead Market (owner only). */
+export const staffAPI = {
+  list: () => run('query', api.staff.list, {}),
+  invite: (email: string) => run('mutation', api.staff.invite, { email }),
+  removeInvite: (id: string) => run('mutation', api.staff.removeInvite, { id }),
+  remove: (id: string) => run('mutation', api.staff.remove, { id }),
+};
+
 /** Building permits near a company, from the city's public feed (the Vault's second tab). */
 export const permitsAPI = {
   near: (organizationId: string, days?: number) => run('query', api.permits.near, defined({ organizationId, days })),

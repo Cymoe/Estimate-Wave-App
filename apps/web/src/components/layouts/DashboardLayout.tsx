@@ -205,6 +205,9 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
         if (selected) {
           setSelectedOrg(selected);
           localStorage.setItem('selectedOrgId', selected.id);
+        } else if (user.role === 'staff') {
+          // Staff have no company: the Ops page is their whole app.
+          setSelectedOrg({ id: '', name: 'FieldQuote Ops', industry: 'Lead Market', industry_id: '' });
         }
         
         setLoadingOrgs(false);

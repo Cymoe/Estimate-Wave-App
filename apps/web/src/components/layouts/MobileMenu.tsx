@@ -3,6 +3,7 @@ import { X, ChevronRight, User, Building, CreditCard, HelpCircle, LogOut } from 
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { FEATURES } from '../../config/features';
+import { isStaff } from '../../lib/roles';
 import { WalletTile } from '../market/WalletTile';
 import { planLabel, usePlan } from '../market/plan';
 import { NO_TRADES_LABEL } from '../settings/tradesLabels';
@@ -231,7 +232,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
           {/* User Actions */}
           <div className="space-y-1">
             <WalletTile organizationId={selectedOrg.id || undefined} variant="menu" onOpen={onClose} />
-            {user?.role === 'super_admin' && (
+            {isStaff(user) && (
               <button
                 onClick={() => {
                   navigate('/lead-market');
@@ -239,8 +240,8 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
                 }}
                 className="w-full text-left p-3 hover:bg-[#333333] rounded-[4px] transition-colors text-gray-300"
               >
-                <span>Admin</span>
-                <span className="block text-xs text-gray-500">Leads, prices, companies</span>
+                <span>Ops</span>
+                <span className="block text-xs text-gray-500">Leads, companies, permits</span>
               </button>
             )}
             <button

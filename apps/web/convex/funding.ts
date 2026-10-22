@@ -11,6 +11,7 @@ import {
   logActivity,
   nowIso,
   requireMember,
+  requireStaff,
   requireSuperAdmin,
 } from "./lib/access";
 import { FUNDING_TIERS, MIN_FUNDING_CENTS, bonusFor } from "./lib/funding";
@@ -123,7 +124,7 @@ export const submit = mutation({
 export const pending = query({
   args: {},
   handler: async (ctx) => {
-    await requireSuperAdmin(ctx);
+    await requireStaff(ctx);
     const requests = await ctx.db
       .query("fundingRequests")
       .withIndex("by_status", (q) => q.eq("status", "submitted"))

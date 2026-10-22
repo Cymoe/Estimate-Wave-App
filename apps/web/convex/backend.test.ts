@@ -122,6 +122,73 @@ describe("auth and tenancy", () => {
   });
 });
 
+describe("staff", () => {
+  test("staff run the Lead Market but not the money; others are kept out", async () => {
+    const t = setup();
+    const owner = await signUp(t, "owner@fieldquote.example", { role: "super_admin" });
+    const member = await signUp(t, "member@example.com");
+    // Invite someone who already has an account: staff right away.
+    expect(await owner.as.mutation(api.staff.invite, { email: "Member@Example.com " })).toEqual({ status: "staff" });
+    expect(await member.as.query(api.users.me, {})).toMatchObject({ role: "staff", isStaff: true });
+    expect(await owner.as.query(api.users.me, {})).toMatchObject({ role: "super_admin", isStaff: true });
+
+    // Staff see the inbox and can list and confirm leads...
+    expect(await member.as.query(api.marketplace.listInbox, {})).toMatchObject({ available: [] });
+    const lead = await member.as.mutation(api.marketplace.createLead, {
+      data: { name: "Staff Listed", phone: "4325550199", city: "Midland", county: "Midland", jobType: "painting" },
+    });
+    await member.as.mutation(api.marketplace.verifyLead, { id: lead!._id, note: "Wants it next week" });
+    expect(await member.as.query(api.funding.pending, {})).toEqual([]);
+    // ...but money, prices and companies stay with the owner.
+    await expect(member.as.mutation(api.marketplace.setLeadPrice, { jobType: "painting", price: 300 })).rejects.toThrow(/admins/);
+    await expect(member.as.query(api.staff.list, {})).rejects.toThrow(/admins/);
+    await expect(member.as.mutation(api.staff.invite, { email: "x@example.com" })).rejects.toThrow(/admins/);
+
+    // An ordinary user is kept out of all of it.
+    const other = await signUp(t, "other@example.com");
+    await expect(other.as.query(api.marketplace.listInbox, {})).rejects.toThrow(/staff/);
+    await expect(other.as.mutation(api.marketplace.verifyLead, { id: lead!._id })).rejects.toThrow(/staff/);
+
+    // Removing staff turns them back into an ordinary account; the owner can't remove themselves.
+    await owner.as.mutation(api.staff.remove, { id: member.userId });
+    expect(await member.as.query(api.users.me, {})).toMatchObject({ role: "user", isStaff: false });
+    await expect(owner.as.mutation(api.staff.remove, { id: owner.userId })).rejects.toThrow(/yourself/);
+  });
+
+  test("an invited email becomes staff on sign-up, with no company of its own", async () => {
+    const t = setup();
+    const owner = await signUp(t, "owner@fieldquote.example", { role: "super_admin" });
+    expect(await owner.as.mutation(api.staff.invite, { email: "va@fieldquote.example" })).toEqual({ status: "invited" });
+    // Inviting twice doesn't stack invites.
+    expect(await owner.as.mutation(api.staff.invite, { email: "va@fieldquote.example" })).toEqual({ status: "invited" });
+    expect((await owner.as.query(api.staff.list, {})).invites).toHaveLength(1);
+    await expect(owner.as.mutation(api.staff.invite, { email: "nope" })).rejects.toThrow(/email/);
+
+    // What the auth callback does when that email signs up.
+    const { acceptStaffInvite } = await import("./lib/staff");
+    const userId = await t.run(async (ctx) => {
+      const id = await ctx.db.insert("users", { email: "va@fieldquote.example", name: "VA" });
+      expect(await acceptStaffInvite(ctx, id, "va@fieldquote.example")).toBe(true);
+      // A second account with the same email isn't made staff by a used invite.
+      const again = await ctx.db.insert("users", { email: "va@fieldquote.example", name: "dup" });
+      expect(await acceptStaffInvite(ctx, again, "va@fieldquote.example")).toBe(false);
+      return id;
+    });
+    const va = t.withIdentity({ subject: `${userId}|session-${userId}` });
+    expect(await va.query(api.users.me, {})).toMatchObject({ role: "staff", isStaff: true });
+    expect((await va.query(api.users.me, {}))!.organizationId).toBeUndefined();
+    expect(await va.query(api.organizations.list, {})).toEqual([]);
+    expect((await owner.as.query(api.staff.list, {})).staff.map((s) => s.email)).toEqual(["va@fieldquote.example"]);
+    expect((await owner.as.query(api.staff.list, {})).invites).toEqual([]);
+
+    // An open invite can be taken back.
+    await owner.as.mutation(api.staff.invite, { email: "later@fieldquote.example" });
+    const [open] = (await owner.as.query(api.staff.list, {})).invites;
+    await owner.as.mutation(api.staff.removeInvite, { id: open.id });
+    expect((await owner.as.query(api.staff.list, {})).invites).toEqual([]);
+  });
+});
+
 describe("estimates", () => {
   test("totals are derived from items and tax, and recalculated on update", async () => {
     const t = setup();
@@ -1627,17 +1694,17 @@ describe("lead market", () => {
     return { t, admin, roofer, painter, leadId: lead!._id };
   }
 
-  test("only platform admins can run the market", async () => {
+  test("only FieldQuote staff run the market, and only the owner touches money", async () => {
     const { roofer, leadId } = await market();
     await expect(
       roofer.as.query(api.marketplace.listInbox, {}),
-    ).rejects.toThrow(/admins/);
+    ).rejects.toThrow(/staff/);
     await expect(
       roofer.as.mutation(api.marketplace.assign, {
         leadId,
         organizationId: roofer.organizationId,
       }),
-    ).rejects.toThrow(/admins/);
+    ).rejects.toThrow(/staff/);
     await expect(
       roofer.as.mutation(api.marketplace.recordTopUp, {
         organizationId: roofer.organizationId,
@@ -3376,7 +3443,7 @@ describe("standing bids and instant awards", () => {
     });
     await expect(
       mio.as.mutation(api.marketplace.verifyLead, { id: lead!._id, note: "x" }),
-    ).rejects.toThrow(/admin/);
+    ).rejects.toThrow(/staff/);
     const inFeed = async () =>
       (
         await mio.as.query(api.marketplace.feed, { organizationId: mio.organizationId })

@@ -1,6 +1,6 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { query } from "./_generated/server";
-import { organizationIdsFor } from "./lib/access";
+import { isStaff, organizationIdsFor } from "./lib/access";
 
 /**
  * The signed-in user in the shape the React app's AuthContext expects,
@@ -21,6 +21,7 @@ export const me = query({
       picture: user.image,
       organizationId,
       role: user.role ?? "user",
+      isStaff: isStaff(user),
     };
   },
 });

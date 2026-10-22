@@ -12,7 +12,7 @@ export function setup() {
 type T = ReturnType<typeof setup>;
 
 /** Creates a user with their own organization and returns a client acting as them. */
-export async function signUp(t: T, email: string, opts: { role?: "super_admin" } = {}) {
+export async function signUp(t: T, email: string, opts: { role?: "super_admin" | "staff" } = {}) {
   const now = new Date().toISOString();
   const { userId, organizationId } = await t.run(async (ctx) => {
     const userId = await ctx.db.insert("users", { email, name: email.split("@")[0], ...opts });

@@ -13,7 +13,7 @@ import {
   type ActionCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { nowIso, requireMember, requireSuperAdmin, requireUser } from "./lib/access";
+import { nowIso, requireMember, requireStaff, requireUser } from "./lib/access";
 import { planSummary } from "./marketplace";
 import { MIDLAND, PERMIT_FIELDS, monthOf, rowsToPermits } from "./lib/permits";
 
@@ -101,10 +101,10 @@ export const recordSync = internalMutation({
   },
 });
 
-export const assertSuperAdmin = internalQuery({
+export const assertStaff = internalQuery({
   args: {},
   handler: async (ctx) => {
-    await requireSuperAdmin(ctx);
+    await requireStaff(ctx);
     return null;
   },
 });
@@ -188,7 +188,7 @@ export const syncMidland = internalAction({
 export const syncNow = action({
   args: {},
   handler: async (ctx) => {
-    await ctx.runQuery(internal.permits.assertSuperAdmin, {});
+    await ctx.runQuery(internal.permits.assertStaff, {});
     return await pullMidland(ctx);
   },
 });
@@ -276,7 +276,7 @@ export const monthly = query({
 export const status = query({
   args: {},
   handler: async (ctx) => {
-    await requireSuperAdmin(ctx);
+    await requireStaff(ctx);
     const source = await ctx.db
       .query("permitSources")
       .withIndex("by_source", (q) => q.eq("source", MIDLAND.source))

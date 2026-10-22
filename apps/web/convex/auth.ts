@@ -6,6 +6,7 @@ import {
   acceptInvites,
   createOrganizationWithOwner,
 } from "./lib/organizations";
+import { acceptStaffInvite } from "./lib/staff";
 
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   providers: [
@@ -27,6 +28,8 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
       const ctx = genericCtx as unknown as MutationCtx;
       const user = await ctx.db.get(userId);
       const email = user?.email;
+      // Invited to run the Lead Market: staff get no company of their own.
+      if (email && (await acceptStaffInvite(ctx, userId, email))) return;
       // A company set up for them in the Lead Market: join it instead of starting a new one.
       if (email && (await acceptInvites(ctx, userId, email))) return;
       const displayName = user?.name ?? email?.split("@")[0] ?? "My";

@@ -14,6 +14,7 @@ import {
   nowIso,
   pick,
   requireMember,
+  requireStaff,
   requireSuperAdmin,
   requireUser,
 } from "./lib/access";
@@ -108,7 +109,7 @@ function toCents(amount: unknown): number {
 export const listInbox = query({
   args: {},
   handler: async (ctx) => {
-    await requireSuperAdmin(ctx);
+    await requireStaff(ctx);
     const available = await ctx.db
       .query("marketplaceLeads")
       .withIndex("by_status", (q) => q.eq("status", "available"))
@@ -188,7 +189,7 @@ export const listInbox = query({
 export const createLead = mutation({
   args: { data: v.any() },
   handler: async (ctx, { data }) => {
-    const user = await requireSuperAdmin(ctx);
+    const user = await requireStaff(ctx);
     const id = await listLead(ctx, cleanLead(data), user._id);
     return await ctx.db.get(id);
   },
@@ -198,7 +199,7 @@ export const createLead = mutation({
 export const importLeads = mutation({
   args: { leads: v.array(v.any()) },
   handler: async (ctx, { leads }) => {
-    const user = await requireSuperAdmin(ctx);
+    const user = await requireStaff(ctx);
     let inserted = 0;
     let skipped = 0;
     for (const row of leads.slice(0, 1000)) {
@@ -216,7 +217,7 @@ export const importLeads = mutation({
 export const updateLead = mutation({
   args: { id: v.id("marketplaceLeads"), data: v.any() },
   handler: async (ctx, { id, data }) => {
-    await requireSuperAdmin(ctx);
+    await requireStaff(ctx);
     const lead = await ctx.db.get(id);
     if (lead === null) fail("NOT_FOUND", "Lead not found");
     if (lead.status !== "available" && lead.status !== "older")
@@ -232,7 +233,7 @@ export const updateLead = mutation({
 export const removeLead = mutation({
   args: { id: v.id("marketplaceLeads") },
   handler: async (ctx, { id }) => {
-    await requireSuperAdmin(ctx);
+    await requireStaff(ctx);
     const lead = await ctx.db.get(id);
     if (lead === null) fail("NOT_FOUND", "Lead not found");
     if (lead.status === "bidding")
@@ -255,7 +256,7 @@ export const removeLead = mutation({
 export const verifyLead = mutation({
   args: { id: v.id("marketplaceLeads"), note: v.optional(v.string()) },
   handler: async (ctx, { id, note }) => {
-    const user = await requireSuperAdmin(ctx);
+    const user = await requireStaff(ctx);
     const lead = await ctx.db.get(id);
     if (lead === null) fail("NOT_FOUND", "Lead not found");
     if (lead.status !== "available" && lead.status !== "older")
@@ -273,7 +274,7 @@ export const verifyLead = mutation({
 export const clearVerified = mutation({
   args: { id: v.id("marketplaceLeads") },
   handler: async (ctx, { id }) => {
-    await requireSuperAdmin(ctx);
+    await requireStaff(ctx);
     if ((await ctx.db.get(id)) === null) fail("NOT_FOUND", "Lead not found");
     await ctx.db.patch(id, { verified: undefined, updatedAt: nowIso() });
   },
@@ -283,7 +284,7 @@ export const clearVerified = mutation({
 export const archiveLead = mutation({
   args: { id: v.id("marketplaceLeads") },
   handler: async (ctx, { id }) => {
-    await requireSuperAdmin(ctx);
+    await requireStaff(ctx);
     const lead = await ctx.db.get(id);
     if (lead === null) fail("NOT_FOUND", "Lead not found");
     if (lead.status !== "available" && lead.status !== "older")
@@ -359,7 +360,7 @@ export const assign = mutation({
     organizationId: v.id("organizations"),
   },
   handler: async (ctx, { leadId, organizationId }) => {
-    const user = await requireSuperAdmin(ctx);
+    const user = await requireStaff(ctx);
     const lead = await ctx.db.get(leadId);
     if (lead === null) fail("NOT_FOUND", "Lead not found");
     return await sellLead(ctx, user._id, leadId, organizationId, {
@@ -442,7 +443,7 @@ export const reviewCredit = mutation({
 export const listLeadPrices = query({
   args: {},
   handler: async (ctx) => {
-    await requireSuperAdmin(ctx);
+    await requireStaff(ctx);
     const rows = await ctx.db.query("leadPrices").take(500);
     const defaults = await pricingFor(ctx, undefined);
     return {
@@ -505,7 +506,7 @@ export const setLeadPrice = mutation({
 export const companiesOverview = query({
   args: {},
   handler: async (ctx) => {
-    await requireSuperAdmin(ctx);
+    await requireStaff(ctx);
     const since = new Date(Date.now() - 30 * DAY_MS).toISOString();
     const organizations = (
       await ctx.db.query("organizations").order("desc").take(500)
@@ -1509,7 +1510,7 @@ export const requestCredit = mutation({
 export const pendingCredits = query({
   args: {},
   handler: async (ctx) => {
-    await requireSuperAdmin(ctx);
+    await requireStaff(ctx);
     const credited = await ctx.db
       .query("marketplaceLeads")
       .withIndex("by_status", (q) => q.eq("status", "assigned"))

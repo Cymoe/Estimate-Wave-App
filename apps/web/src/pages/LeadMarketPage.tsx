@@ -5,6 +5,8 @@ import { Building2, Check, Inbox, Link2, MapPin, Phone, Send, ShieldCheck, Tag, 
 import { fundingAPI, industriesAPI, leadsAPI, marketplaceAPI, permitsAPI, walletAPI } from '../lib/api';
 import { copyText } from '../components/estimates/estimateActions';
 import { useAuth } from '../contexts/AuthContext';
+import { isStaff, isSuperAdmin } from '../lib/roles';
+import { TeamCard } from '../components/ops/TeamCard';
 import { useConfirm } from '../components/common/ConfirmDialog';
 import { Confirmed } from '../components/market/Confirmed';
 import { STATUSES } from '../components/leads/leadTypes';
@@ -543,6 +545,7 @@ function PlanSection({ company, onChanged }: { company: Company; onChanged: () =
 
 function CompanyPanel({
   company,
+  owner,
   trades,
   credits,
   payments,
@@ -550,6 +553,8 @@ function CompanyPanel({
   onChanged,
 }: {
   company: Company;
+  /** The platform owner sees and changes money and setup; staff only read. */
+  owner: boolean;
   trades: Trade[];
   credits: CreditRequest[];
   payments: PendingPayment[];
@@ -731,15 +736,17 @@ function CompanyPanel({
             </p>
           </section>
 
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={sendFundingLink} className={secondary}>
-              <Link2 className="w-4 h-4" />
-              Send funding link
-            </button>
-            {linkNote && <span className="text-xs text-emerald-300">{linkNote}</span>}
-          </div>
+          {owner && (
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={sendFundingLink} className={secondary}>
+                <Link2 className="w-4 h-4" />
+                Send funding link
+              </button>
+              {linkNote && <span className="text-xs text-emerald-300">{linkNote}</span>}
+            </div>
+          )}
 
-          {myPayments.length > 0 && (
+          {owner && myPayments.length > 0 && (
             <section>
               <h3 className="text-sm font-medium text-white mb-2">Payments to confirm</h3>
               <ul className="space-y-2">
@@ -767,6 +774,7 @@ function CompanyPanel({
             </section>
           )}
 
+          {owner && (
           <form onSubmit={recordPayment} className="border border-[#2A2A2A] rounded p-4">
             <h3 className="text-sm font-medium text-white mb-3">Record a payment</h3>
             <div className="grid grid-cols-2 gap-3">
@@ -792,8 +800,9 @@ function CompanyPanel({
               Add {amount && Number(amount) > 0 ? money(Math.round((Number(amount) + (Number(bonus) || 0)) * 100)) : 'funds'} to balance
             </button>
           </form>
+          )}
 
-          {mine.length > 0 && (
+          {owner && mine.length > 0 && (
             <section>
               <h3 className="text-sm font-medium text-white mb-2">Credit requests</h3>
               <ul className="space-y-2">
@@ -826,6 +835,8 @@ function CompanyPanel({
               <p className="text-sm text-gray-300" data-testid="company-owners">
                 {company.owners.join(', ')}
               </p>
+            ) : !owner ? (
+              <p className="text-sm text-gray-500">No owner yet.</p>
             ) : (
               <form onSubmit={saveOwner} className="flex gap-2">
                 <input
@@ -842,18 +853,22 @@ function CompanyPanel({
               </form>
             )}
             {ownerNote && <p className="text-xs text-gray-400 mt-1">{ownerNote}</p>}
-            {!company.owners?.length && !ownerNote && (
+            {owner && !company.owners?.length && !ownerNote && (
               <p className="text-xs text-gray-500 mt-1">When they sign up with this email, they join this company instead of getting a new one.</p>
             )}
           </section>
 
           <section>
             <h3 className="text-sm font-medium text-white mb-2">Buys leads for</h3>
-            <TradePicker trades={trades} value={leadTrades} onChange={saveTrades} />
+            {owner ? (
+              <TradePicker trades={trades} value={leadTrades} onChange={saveTrades} />
+            ) : (
+              <p className="text-sm text-gray-300">{leadTrades.map((id) => trades.find((t) => t.id === id)?.name ?? id).join(', ') || 'No trades picked yet'}</p>
+            )}
             {confirmDialog}
           </section>
 
-          <PlanSection company={company} onChanged={onChanged} />
+          {owner && <PlanSection company={company} onChanged={onChanged} />}
 
           <section>
             <h3 className="text-sm font-medium text-white mb-2">Standing bids</h3>
@@ -903,7 +918,7 @@ function CompanyPanel({
             <WalletHistory transactions={wallet?.transactions ?? []} />
           </section>
 
-          {company.isEmpty && (
+          {owner && company.isEmpty && (
             <section className="border-t border-[#2A2A2A] pt-5">
               {confirmRemove ? (
                 <div className="border border-red-500/40 bg-red-500/10 rounded p-3">
@@ -1069,7 +1084,9 @@ const LeadMarketPage: React.FC = () => {
     setSearchParams(next, { replace: true });
   };
 
-  const isAdmin = user?.role === 'super_admin';
+  // Staff run the page; only the owner sees money, prices, demo data and companies' setup.
+  const staff = isStaff(user);
+  const owner = isSuperAdmin(user);
   const [demoBusy, setDemoBusy] = useState(false);
   const reload = useCallback(async () => {
     const [i, c, p, f] = await Promise.all([
@@ -1107,7 +1124,7 @@ const LeadMarketPage: React.FC = () => {
       const r = await marketplaceAPI.addDemoBids();
       return `Demo bids added: ${r.standingBids} bids across ${r.companies} companies, ${r.leads} leads, ${r.sold} awarded`;
     }, 'Demo bids added');
-  const demoBidsButton = !hasDemoBids && (
+  const demoBidsButton = owner && !hasDemoBids && (
     <button
       type="button"
       disabled={demoBusy}
@@ -1118,7 +1135,7 @@ const LeadMarketPage: React.FC = () => {
       {demoBusy ? 'Adding…' : 'Add demo bids'}
     </button>
   );
-  const sampleButton = (
+  const sampleButton = owner && (
     <>
       <button
         type="button"
@@ -1134,12 +1151,12 @@ const LeadMarketPage: React.FC = () => {
   );
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!staff) return;
     industriesAPI.list().then(setTrades).catch(() => setTrades([]));
     reload()
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [isAdmin, reload]);
+  }, [staff, reload]);
 
   useEffect(() => {
     if (creating === 'company') setTab('companies');
@@ -1155,8 +1172,8 @@ const LeadMarketPage: React.FC = () => {
   const tradeName = useCallback((id?: string) => trades.find((t) => t.id === id)?.name ?? (id ? id : 'Any trade'), [trades]);
   const openCompany = companies.find((c) => c.id === openCompanyId) ?? null;
 
-  if (!isAdmin) {
-    return <div className="p-8 text-gray-400">The Lead Market is only for FieldQuote admins.</div>;
+  if (!staff) {
+    return <div className="p-8 text-gray-400">The Ops page is only for FieldQuote staff.</div>;
   }
 
   const totals = {
@@ -1169,9 +1186,9 @@ const LeadMarketPage: React.FC = () => {
       <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-xl font-semibold">Admin</h1>
+            <h1 className="text-xl font-semibold">Ops</h1>
             <span className="text-xs px-2 py-0.5 rounded-full border border-[#336699]/60 bg-[#336699]/15 text-[#cfe2f5]">
-              Platform owner · only you see this
+              {owner ? 'Platform owner' : 'FieldQuote staff'}
             </span>
           </div>
           <p className="text-sm text-gray-400">
@@ -1184,7 +1201,7 @@ const LeadMarketPage: React.FC = () => {
             [
               ['inbox', `Inbox (${inbox.available.length})`],
               ['companies', `Companies (${companies.length})`],
-              ['prices', 'Prices'],
+              ...(owner ? ([['prices', 'Prices']] as Array<[Tab, string]>) : []),
             ] as Array<[Tab, string]>
           ).map(([value, label]) => (
             <button
@@ -1200,7 +1217,7 @@ const LeadMarketPage: React.FC = () => {
         </div>
       </div>
 
-      {hasDemo && (
+      {owner && hasDemo && (
         <div className="mb-4 px-4 py-3 rounded border border-[#336699]/50 bg-[#336699]/10 text-sm flex items-center justify-between gap-3">
           <span className="text-gray-300">{hasDemoCompanies ? "You're looking at demo companies and leads." : "You're looking at demo bids, funds and leads."}</span>
           <button type="button" disabled={demoBusy} onClick={removeDemo} className="text-[#7fb0e0] hover:text-white whitespace-nowrap disabled:opacity-50">
@@ -1209,7 +1226,7 @@ const LeadMarketPage: React.FC = () => {
         </div>
       )}
 
-      {payments.length > 0 && tab !== 'prices' && (
+      {owner && payments.length > 0 && tab !== 'prices' && (
         <button
           type="button"
           onClick={() => {
@@ -1223,7 +1240,7 @@ const LeadMarketPage: React.FC = () => {
         </button>
       )}
 
-      {credits.length > 0 && tab !== 'prices' && (
+      {owner && credits.length > 0 && tab !== 'prices' && (
         <button
           type="button"
           onClick={() => {
@@ -1246,7 +1263,7 @@ const LeadMarketPage: React.FC = () => {
               <p className="text-sm text-gray-400">Nothing listed. Add a lead with the yellow + button.</p>
               <div className="flex justify-center gap-2 mt-4 flex-wrap">
                 {sampleButton}
-                {!hasDemo && (
+                {owner && !hasDemo && (
                   <button type="button" disabled={demoBusy} onClick={addDemo} className={secondary}>
                     {demoBusy ? 'Adding…' : 'Add demo companies and leads'}
                   </button>
@@ -1449,14 +1466,15 @@ const LeadMarketPage: React.FC = () => {
               </tbody>
             </table>
           </div>
+          {owner && <TeamCard />}
           </div>
         )
-      ) : (
+      ) : owner ? (
         <PricesTab trades={trades} />
-      )}
+      ) : null}
 
       {creating === 'lead' && <NewLeadDialog trades={trades} onClose={closeCreate} onSaved={() => reload()} />}
-      {creating === 'company' && <NewCompanyDialog trades={trades} onClose={closeCreate} onSaved={() => reload()} />}
+      {owner && creating === 'company' && <NewCompanyDialog trades={trades} onClose={closeCreate} onSaved={() => reload()} />}
       {verifying && <VerifyDialog lead={verifying} onClose={() => setVerifying(null)} onSaved={() => reload()} />}
       {sending && (
         <SendToDialog
@@ -1473,6 +1491,7 @@ const LeadMarketPage: React.FC = () => {
       {openCompany && (
         <CompanyPanel
           company={openCompany}
+          owner={owner}
           trades={trades}
           credits={credits}
           payments={payments}
