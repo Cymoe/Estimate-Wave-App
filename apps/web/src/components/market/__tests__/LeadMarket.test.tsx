@@ -468,7 +468,7 @@ describe('standing bids in Admin', () => {
   });
 
   it('opens on Intake; a new lead goes into the queue, with the county filled in from a town we know', async () => {
-    await render(<MemoryRouter initialEntries={['/lead-market?new=lead']}><LeadMarketPage /></MemoryRouter>, false);
+    await render(<MemoryRouter initialEntries={['/ops?new=lead']}><LeadMarketPage /></MemoryRouter>, false);
     expect(document.body.querySelector('[data-testid="intake-queue"]')).not.toBeNull();
     expect(document.body.textContent).toContain('Nobody to call');
     const dialog = document.body.querySelector('[role="dialog"]')!;

@@ -35,8 +35,8 @@ export const QuickCreateMenu: React.FC<Props> = ({ isOpen, onClose }) => {
       : []),
     { id: 'client', name: 'Client', icon: User, action: () => navigate('/clients/new') },
     // Staff stock the Lead Market from here; only the owner adds companies.
-    ...(isStaff(user) ? [{ id: 'market-lead', name: 'Market lead', icon: Inbox, action: () => navigate('/lead-market?new=lead') }] : []),
-    ...(isSuperAdmin(user) ? [{ id: 'company', name: 'Company', icon: Building2, action: () => navigate('/lead-market?new=company') }] : []),
+    ...(isStaff(user) ? [{ id: 'market-lead', name: 'Market lead', icon: Inbox, action: () => navigate('/ops?new=lead') }] : []),
+    ...(isSuperAdmin(user) ? [{ id: 'company', name: 'Company', icon: Building2, action: () => navigate('/ops?new=company') }] : []),
   ];
 
   const choose = (option: QuickCreateOption) => {

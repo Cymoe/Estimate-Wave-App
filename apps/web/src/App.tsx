@@ -21,6 +21,7 @@ import { PublicProfileView } from './components/settings/PublicProfileView';
 import { Toaster } from 'react-hot-toast';
 import LineItemTestPage from './pages/LineItemTestPage';
 import { DashboardLayout } from './components/layouts/DashboardLayout';
+import { OpsLayout } from './components/layouts/OpsLayout';
 import MarkdownViewer from './components/docs/MarkdownViewer';
 import Templates from './pages/Templates';
 import { FEATURES, HOME_PATH } from './config/features';
@@ -116,9 +117,9 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/" replace />;
   }
 
-  // Staff have no company of their own: the Ops page is their whole app.
-  if (user.role === 'staff' && !user.organizationId && location.pathname !== '/lead-market') {
-    return <Navigate to="/lead-market" replace />;
+  // Staff have no company of their own: Ops is their whole app.
+  if (user.role === 'staff' && !user.organizationId && location.pathname !== '/ops') {
+    return <Navigate to="/ops" replace />;
   }
 
   return <>{children}</>;
@@ -132,6 +133,12 @@ function StaffRoute({ children }: { children: React.ReactNode }) {
       {isStaff(user) ? <>{children}</> : <Navigate to="/profit-tracker" replace />}
     </ProtectedRoute>
   );
+}
+
+/** The old Ops address, with its query string (the yellow + button's ?new=lead). */
+function LeadMarketRedirect() {
+  const location = useLocation();
+  return <Navigate to={`/ops${location.search}`} replace />;
 }
 
 /** Old edit links open the project page instead. */
@@ -288,16 +295,18 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      {/* The platform side: its own frame, nothing of a company's in it. */}
       <Route
-        path="/lead-market"
+        path="/ops"
         element={
           <StaffRoute>
-            <DashboardLayout fullWidth={true}>
+            <OpsLayout>
               <LeadMarketPage />
-            </DashboardLayout>
+            </OpsLayout>
           </StaffRoute>
         }
       />
+      <Route path="/lead-market" element={<LeadMarketRedirect />} />
       <Route
         path="/templates"
         element={
