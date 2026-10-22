@@ -3404,38 +3404,6 @@ describe("standing bids and instant awards", () => {
     ).rejects.toThrow(/listed or older/);
   });
 
-  test("the one-off sweep clears job sizes: size bids go, plain bids and leads keep the rest", async () => {
-    const { t, admin, mio, soco } = await market();
-    const lead = (await admin.as.mutation(api.marketplace.createLead, {
-      data: { name: "Sized Lead", phone: "4325550133", city: "Midland", county: "Midland", jobType: "painting", notes: "Big one" },
-    }))!._id;
-    await mio.as.mutation(api.bids.setStanding, { organizationId: mio.organizationId, county: "Midland", jobType: "painting", amount: 200 });
-    await soco.as.mutation(api.bids.setStanding, { organizationId: soco.organizationId, county: "Midland", jobType: "painting", amount: 300 });
-    // Old rows as the dropped feature left them.
-    await t.run(async (ctx) => {
-      await ctx.db.patch(lead, { size: "large", kind: "remodel" });
-      const mine = await ctx.db.query("standingBids").withIndex("by_organization", (q) => q.eq("organizationId", mio.organizationId)).collect();
-      await ctx.db.patch(mine[0]._id, { size: "large" });
-      const price = await ctx.db.query("leadPrices").withIndex("by_job_type", (q) => q.eq("jobType", "default")).unique();
-      if (price) await ctx.db.patch(price._id, { sizeMultipliers: { small: 0.5, medium: 1, large: 2 } });
-      else await ctx.db.insert("leadPrices", { jobType: "default", priceCents: 5000, sizeMultipliers: { small: 0.5, medium: 1, large: 2 }, updatedAt: new Date().toISOString() });
-    });
-    const first = await t.mutation(internal.bids.removeJobSizes, {});
-    expect(first).toEqual({ bids: 1, leads: 1, prices: 1 });
-    await t.run(async (ctx) => {
-      const row = await ctx.db.get(lead);
-      expect(row?.size).toBeUndefined();
-      expect(row?.kind).toBeUndefined();
-      expect(row?.notes).toBe("Big one");
-      const price = await ctx.db.query("leadPrices").withIndex("by_job_type", (q) => q.eq("jobType", "default")).unique();
-      expect(price?.sizeMultipliers).toBeUndefined();
-      expect(price?.priceCents).toBeGreaterThan(0);
-      const bids = await ctx.db.query("standingBids").collect();
-      expect(bids.filter((b) => b.jobType === "painting").map((b) => b.amountCents)).toEqual([30000]);
-    });
-    expect(await t.mutation(internal.bids.removeJobSizes, {})).toEqual({ bids: 0, leads: 0, prices: 0 });
-  });
-
   test("Midland's permits land in the Vault for companies on the plan, mapped to their trades", async () => {
     const { t, mio } = await market();
     const { rowsToPermits, tradesForPermit } = await import("./lib/permits");

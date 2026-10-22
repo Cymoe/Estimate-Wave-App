@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Doc } from "./_generated/dataModel";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { fail, nowIso, requireMember } from "./lib/access";
 import { MIN_START_CENTS } from "./lib/auction";
@@ -179,50 +179,6 @@ export const removeBidsOutsideTrades = internalMutation({
       }
     }
     return { companies, bids };
-  },
-});
-
-/**
- * One-off: job size and kind are gone from the product. Drops the bids set
- * for one size (the plain bid stays), strips size and kind from leads, and
- * the size multipliers from the price row. Safe to re-run: does nothing
- * once the old rows are clean.
- */
-export const removeJobSizes = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const strip = (row: { _id: Id<any>; _creationTime: number }, keys: string[]) => {
-      const { _id, _creationTime, ...rest } = row as Record<string, unknown> & typeof row;
-      for (const key of keys) delete rest[key];
-      return rest;
-    };
-    let bids = 0;
-    const touched = new Set<string>();
-    for (const row of await ctx.db.query("standingBids").take(5000)) {
-      if (row.size === undefined) continue;
-      await ctx.db.delete(row._id);
-      bids++;
-      touched.add(`${row.county}\u0000${row.jobType}`);
-    }
-    for (const key of touched) {
-      const [county, jobType] = key.split("\u0000");
-      await refreshStanding(ctx, county, jobType);
-    }
-    let leads = 0;
-    for (const table of ["marketplaceLeads", "leads"] as const) {
-      for (const row of await ctx.db.query(table).take(5000)) {
-        if (row.size === undefined && row.kind === undefined) continue;
-        await ctx.db.replace(row._id, strip(row, ["size", "kind"]) as any);
-        leads++;
-      }
-    }
-    let prices = 0;
-    for (const row of await ctx.db.query("leadPrices").take(5000)) {
-      if (row.sizeMultipliers === undefined) continue;
-      await ctx.db.replace(row._id, strip(row, ["sizeMultipliers"]) as any);
-      prices++;
-    }
-    return { bids, leads, prices };
   },
 });
 

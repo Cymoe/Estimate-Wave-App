@@ -2,11 +2,6 @@ import { defineSchema, defineTable } from "convex/server";
 import { authTables } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 
-// Being dropped: job size and kind are gone from the product. These stay
-// optional for one deploy so bids:removeJobSizes can clear the old rows first.
-const jobSize = v.union(v.literal("small"), v.literal("medium"), v.literal("large"));
-const jobKind = v.union(v.literal("new"), v.literal("remodel"), v.literal("repair"));
-
 /**
  * FieldQuote data model.
  *
@@ -412,9 +407,6 @@ export default defineSchema({
     jobType: v.optional(v.string()),
     source: v.optional(v.string()),
     notes: v.optional(v.string()),
-    // Being dropped (see jobSize above).
-    size: v.optional(jobSize),
-    kind: v.optional(jobKind),
     status: marketplaceLeadStatus,
     // Legacy: set while a lead sat in a timed bidding round.
     round: v.optional(v.object({ opensAt: v.string(), closesAt: v.string() })),
@@ -486,8 +478,6 @@ export default defineSchema({
     county: v.string(),
     jobType: v.string(),
     amountCents: v.number(),
-    // Being dropped (see jobSize above).
-    size: v.optional(jobSize),
     createdBy: v.id("users"),
     createdAt: v.string(),
     updatedAt: v.string(),
@@ -573,10 +563,6 @@ export default defineSchema({
     floorCents: v.optional(v.number()),
     dropCents: v.optional(v.number()),
     dropEveryMinutes: v.optional(v.number()),
-    // Being dropped (see jobSize above).
-    sizeMultipliers: v.optional(
-      v.object({ small: v.number(), medium: v.number(), large: v.number() }),
-    ),
     updatedAt: v.string(),
   }).index("by_job_type", ["jobType"]),
 
@@ -708,9 +694,6 @@ export default defineSchema({
     verified: v.optional(
       v.object({ at: v.string(), note: v.optional(v.string()) }),
     ),
-    // Being dropped (see jobSize above).
-    size: v.optional(jobSize),
-    kind: v.optional(jobKind),
     // Bought from the Lead Market (server-set, not in leadFields).
     marketplaceLeadId: v.optional(v.id("marketplaceLeads")),
     pricePaidCents: v.optional(v.number()),

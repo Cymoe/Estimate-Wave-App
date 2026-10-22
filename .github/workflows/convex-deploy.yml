@@ -89,9 +89,6 @@ jobs:
         # Bids are only for listed trades. Safe to re-run: with none outside
         # the lists it does nothing.
         run: npx convex run bids:removeBidsOutsideTrades
-      - name: Clear job sizes from old rows
-        # Job size and kind are gone from the product. Safe to re-run.
-        run: npx convex run bids:removeJobSizes
       - name: Pull Midland's permits
         # The Vault's "Permits near you". Incremental after the first run.
         run: npx convex run permits:syncMidland
