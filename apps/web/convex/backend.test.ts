@@ -304,6 +304,23 @@ describe("intake", () => {
     expect((await va.as.query(api.intake.queue, {})).length).toBe(2);
   });
 
+  test("the owner can fill the queue with demo leads, once, and Remove demo data takes them out again", async () => {
+    const { owner, va } = await ops();
+    await expect(va.as.mutation(api.intake.addDemoLeads, {})).rejects.toThrow(/admins/);
+    const real = await va.as.mutation(api.intake.create, { source: "call", name: "Real Lead", phone: "4325550999" });
+    expect(await owner.as.mutation(api.intake.addDemoLeads, {})).toEqual({ added: 6 });
+    expect(await owner.as.mutation(api.intake.addDemoLeads, {})).toEqual({ added: 0 });
+    const queue = await va.as.query(api.intake.queue, {});
+    expect(queue).toHaveLength(7);
+    expect(queue.filter((r) => r.isSample)).toHaveLength(6);
+    const dup = queue.find((r) => r.label === "D. Reyes")!;
+    expect(dup.duplicateOf).toBe(queue.find((r) => r.label === "Dana Reyes")!.id);
+    expect(queue.find((r) => r.label === "Pat Cole")!.attempts).toHaveLength(2);
+    expect(queue.find((r) => r.label === "Dana Reyes")!.consent?.value).toBe("true");
+    await owner.as.mutation(api.marketplace.removeDemoData, {});
+    expect((await va.as.query(api.intake.queue, {})).map((r) => r.id)).toEqual([real.id]);
+  });
+
   test("nothing is listed until all six checks are ticked; then the auction runs and the lead carries the confirmation", async () => {
     const { t, owner, va } = await ops();
     // A funded painting bidder in Ector County.

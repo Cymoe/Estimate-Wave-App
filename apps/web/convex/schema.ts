@@ -657,6 +657,8 @@ export default defineSchema({
       v.object({ at: v.string(), by: v.id("users"), outcome: v.string(), note: v.optional(v.string()) }),
     ),
     confirmedLeadId: v.optional(v.id("marketplaceLeads")),
+    // Demo rows from "Add demo leads"; "Remove demo data" clears them.
+    isSample: v.optional(v.boolean()),
     createdBy: v.optional(v.id("users")),
     createdAt: v.string(),
     updatedAt: v.string(),

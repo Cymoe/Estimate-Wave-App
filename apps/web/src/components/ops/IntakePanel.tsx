@@ -33,6 +33,7 @@ export interface IntakeRow {
   attempts: Array<{ at: string; by: string; outcome: string; note?: string }>;
   lastAttempt: { at: string; outcome: string; note?: string } | null;
   confirmedLeadId?: string;
+  isSample?: boolean;
   createdAt: string;
   updatedAt: string;
 }

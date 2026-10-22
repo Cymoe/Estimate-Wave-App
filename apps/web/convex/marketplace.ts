@@ -36,6 +36,7 @@ import {
 import { pendingFundingFor } from "./funding";
 import { sellLead } from "./lib/sales";
 import { listLead } from "./lib/awards";
+import { deleteDemoIntake } from "./intake";
 import { dropBidsOutsideTrades, outbidUnseen } from "./lib/standing";
 import { knownTrades } from "./industries";
 import {
@@ -2011,6 +2012,7 @@ export const removeDemoData = mutation({
 });
 
 export async function deleteDemoData(ctx: MutationCtx) {
+  await deleteDemoIntake(ctx);
   const companies = await ctx.db
     .query("organizations")
     .filter((q) => q.eq(q.field("isSample"), true))

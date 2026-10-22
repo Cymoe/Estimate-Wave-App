@@ -85,6 +85,7 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
       {data.slots.length === 0 ? (
         <div className="border border-dashed border-[#333] rounded p-8 text-center">
           <p className="text-sm text-gray-400">No bids or leads yet. The board fills in as companies set standing bids.</p>
+          {owner && <p className="text-xs text-gray-500 mt-2">To try it: Listed → Add demo bids, then Refresh here. The cost-per-lead boxes sit in the column headers once the grid has columns.</p>}
         </div>
       ) : (
         <>

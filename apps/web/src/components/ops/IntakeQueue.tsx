@@ -32,16 +32,29 @@ export const ATTEMPT_LABELS: Record<string, string> = {
  * typed in. Staff call each homeowner from here; nothing is listed until
  * the call confirms it.
  */
-export const IntakeQueue: React.FC<{ trades: Trade[]; openNew: boolean; onCloseNew: () => void; onListed?: (message: string) => void }> = ({
-  trades,
-  openNew,
-  onCloseNew,
-  onListed,
-}) => {
+export const IntakeQueue: React.FC<{
+  trades: Trade[];
+  openNew: boolean;
+  onCloseNew: () => void;
+  onListed?: (message: string) => void;
+  /** The owner can fill the empty queue with demo leads to try the flow. */
+  owner?: boolean;
+}> = ({ trades, openNew, onCloseNew, onListed, owner = false }) => {
   const [filter, setFilter] = useState<'open' | 'closed' | 'confirmed'>('open');
   const [rows, setRows] = useState<IntakeRow[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [demoBusy, setDemoBusy] = useState(false);
+  const addDemo = async () => {
+    setDemoBusy(true);
+    try {
+      await intakeAPI.addDemo();
+      setFilter('open');
+      await load();
+    } finally {
+      setDemoBusy(false);
+    }
+  };
   const closeForm = () => {
     setAdding(false);
     onCloseNew();
@@ -91,6 +104,17 @@ export const IntakeQueue: React.FC<{ trades: Trade[]; openNew: boolean; onCloseN
           <p className="text-sm text-gray-400">
             {filter === 'open' ? 'Nobody to call. Leads from the Facebook forms and calls land here.' : filter === 'closed' ? 'Nothing closed yet.' : 'Nothing listed from intake yet.'}
           </p>
+          {owner && filter === 'open' && (
+            <button
+              type="button"
+              disabled={demoBusy}
+              onClick={addDemo}
+              title="Six demo leads to try the queue and the confirmation call with. “Remove demo data” on the Listed tab takes them out."
+              className={`${secondary} mt-4`}
+            >
+              {demoBusy ? 'Adding…' : 'Add demo leads'}
+            </button>
+          )}
         </div>
       ) : (
         <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Intake">
@@ -107,6 +131,7 @@ export const IntakeQueue: React.FC<{ trades: Trade[]; openNew: boolean; onCloseN
                     <span className="flex items-center gap-2 text-sm text-white">
                       <Source className="w-3.5 h-3.5 text-gray-500" aria-label={SOURCE_LABELS[row.source].label} />
                       {row.label}
+                      {row.isSample && <span className="text-[10px] uppercase tracking-wide text-gray-500 border border-[#333] rounded px-1">demo</span>}
                       {row.duplicateOf && (
                         <span className="inline-flex items-center gap-1 text-xs text-amber-300">
                           <AlertTriangle className="w-3 h-3" /> same number as another lead

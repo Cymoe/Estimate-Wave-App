@@ -29,6 +29,7 @@ const inviteStaff = jest.fn(async (email: string) => { staffInvites = [...staffI
 
 let intakeRows: unknown[] = [];
 const createIntake = jest.fn(async (_source: string, _fields: unknown) => ({ id: 'i1', duplicate: false }));
+const addDemoIntake = jest.fn(async () => { intakeRows = [{ id: 'd1', source: 'meta', status: 'new', label: 'Dana Reyes', isSample: true, attempts: [], lastAttempt: null, createdAt: '2026-10-22T03:00:00Z', updatedAt: '2026-10-22T03:00:00Z' }]; return { added: 6 }; });
 const confirmIntake = jest.fn(async () => ({ leadId: 'm7', outcome: 'sold', companyName: 'Peak Roofing', priceCents: 25000 }));
 
 let demand: unknown = { updatedAt: '2026-10-22T16:00:00Z', vaCostCents: 500, planCpl: { roofing: 6000 }, slots: [] };
@@ -53,6 +54,7 @@ jest.mock('../../../lib/api', () => ({
     logAttempt: async () => null,
     close: async () => null,
     reopen: async () => null,
+    addDemo: () => addDemoIntake(),
   },
   staffAPI: {
     list: async () => ({ staff: [], invites: staffInvites }),
@@ -462,6 +464,21 @@ describe('standing bids in Admin', () => {
     await flush();
     expect(createIntake).toHaveBeenCalledWith('call', expect.objectContaining({ name: 'Pat Cole', city: 'Odessa', county: 'Ector' }));
     expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('lets the owner, and only the owner, fill the empty queue with demo leads', async () => {
+    role = 'staff';
+    await render(<LeadMarketPage />);
+    expect(byText('Add demo leads')).toBeUndefined();
+    document.body.innerHTML = '';
+    role = 'super_admin';
+    await render(<LeadMarketPage />);
+    await act(async () => byText('Add demo leads')!.click());
+    await flush();
+    expect(addDemoIntake).toHaveBeenCalled();
+    const list = document.body.querySelector('[aria-label="Intake"]')!;
+    expect(list.textContent).toContain('Dana Reyes');
+    expect(list.textContent).toContain('demo');
   });
 
   it('lists the queue with source, trade, county and the last try, and flags a repeat number', async () => {

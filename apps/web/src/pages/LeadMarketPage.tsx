@@ -1146,6 +1146,7 @@ const LeadMarketPage: React.FC = () => {
       ) : tab === 'intake' ? (
         <IntakeQueue
           trades={trades}
+          owner={owner}
           openNew={creating === 'lead'}
           onCloseNew={closeCreate}
           onListed={(message) => {

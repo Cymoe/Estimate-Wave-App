@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
-import { fail, nowIso, requireStaff } from "./lib/access";
+import { fail, nowIso, requireStaff, requireSuperAdmin } from "./lib/access";
 import { listLead } from "./lib/awards";
 import { normalizeCounty, TEXAS_COUNTIES } from "./lib/counties";
 import { DUPLICATE_WINDOW_DAYS, fieldsFromPayload, intakeLabel, normalizePhone, parseCampaign, type IntakeFields } from "./lib/intake";
@@ -109,6 +109,7 @@ function summary(row: Doc<"intakeLeads">) {
     attempts: row.attempts,
     lastAttempt: last ?? null,
     confirmedLeadId: row.confirmedLeadId,
+    isSample: row.isSample,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -369,6 +370,144 @@ export const confirm = mutation({
       companyName: company?.name,
       priceCents: lead.status === "assigned" ? lead.priceCents : undefined,
     };
+  },
+});
+
+/** Demo rows out again (called by marketplace.deleteDemoData). */
+export async function deleteDemoIntake(ctx: MutationCtx): Promise<number> {
+  const rows = (await ctx.db.query("intakeLeads").take(5000)).filter((r) => r.isSample);
+  for (const row of rows) await ctx.db.delete(row._id);
+  return rows.length;
+}
+
+/**
+ * Six leads to try the queue with: two from a Facebook campaign, two from
+ * calls, one typed in, and one that repeats a number. Owner only; "Remove
+ * demo data" takes them back out. Does nothing if they're already there.
+ */
+export const addDemoLeads = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireSuperAdmin(ctx);
+    const existing = (await ctx.db.query("intakeLeads").take(5000)).filter((r) => r.isSample);
+    if (existing.length > 0) return { added: 0 };
+    const trades = await tradeSlugs(ctx);
+    const trade = (slug: string) => (trades.includes(slug) ? slug : trades[0]);
+    const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+    const base = (at: string) => ({ attempts: [] as Doc<"intakeLeads">["attempts"], isSample: true, createdAt: at, updatedAt: at });
+    const rows: Array<Omit<Doc<"intakeLeads">, "_id" | "_creationTime">> = [
+      {
+        ...base(ago(12)),
+        source: "meta",
+        status: "new",
+        name: "Dana Reyes",
+        phone: "432-555-0133",
+        phoneNormalized: "4325550133",
+        email: "dana.reyes@example.com",
+        city: "Midland",
+        zip: "79701",
+        county: "Midland",
+        countyFromCampaign: "Midland",
+        jobType: trade("roofing"),
+        timeline: "month",
+        isOwner: true,
+        notes: "Hail damage on the back side, insurance adjuster came Tuesday",
+        externalId: "demo-leadgen-1",
+        campaignName: "TX_MIDLAND_ROOFING_LG_202610",
+        adsetName: "TX_MIDLAND_ROOFING_hail",
+        adName: "video1",
+        formId: "demo-form",
+        consent: { text: "I agree to be contacted by FieldQuote and one contractor", value: "true", at: ago(12) },
+      },
+      {
+        ...base(ago(45)),
+        source: "meta",
+        status: "new",
+        name: "Luis Ortega",
+        phone: "(432) 555-0188",
+        phoneNormalized: "4325550188",
+        city: "Odessa",
+        county: "Ector",
+        countyFromCampaign: "Midland",
+        jobType: trade("painting"),
+        scope: "repair",
+        timeline: "asap",
+        isOwner: true,
+        notes: "Exterior trim peeling, two-story",
+        externalId: "demo-leadgen-2",
+        campaignName: "TX_MIDLAND_PAINTING_LG_202610",
+        formId: "demo-form",
+        consent: { text: "I agree to be contacted by FieldQuote and one contractor", value: "true", at: ago(45) },
+      },
+      {
+        ...base(ago(180)),
+        source: "call",
+        status: "working",
+        name: "Pat Cole",
+        phone: "432-555-0101",
+        phoneNormalized: "4325550101",
+        address: "12 Elm St",
+        city: "Odessa",
+        county: "Ector",
+        jobType: trade("hvac"),
+        scope: "replacement",
+        timeline: "month",
+        isOwner: true,
+        notes: "AC died, wants a quote on a full replacement",
+        attempts: [
+          { at: ago(170), by: user._id, outcome: "voicemail" },
+          { at: ago(60), by: user._id, outcome: "callback", note: "Asked for a call after 5" },
+        ],
+        createdBy: user._id,
+      },
+      {
+        ...base(ago(240)),
+        source: "call",
+        status: "new",
+        name: "Maria Chen",
+        phone: "432-555-0144",
+        phoneNormalized: "4325550144",
+        city: "Big Spring",
+        county: "Howard",
+        jobType: trade("landscaping"),
+        timeline: "quarter",
+        notes: "Sod and a drip system for the front yard",
+        createdBy: user._id,
+      },
+      {
+        ...base(ago(300)),
+        source: "manual",
+        status: "new",
+        name: "Ray Thompson",
+        phone: "432-555-0166",
+        phoneNormalized: "4325550166",
+        city: "Midland",
+        county: "Midland",
+        jobType: trade("plumbing"),
+        scope: "repair",
+        notes: "Water heater leaking in the garage",
+        createdBy: user._id,
+      },
+    ];
+    const ids: Id<"intakeLeads">[] = [];
+    for (const row of rows) ids.push(await ctx.db.insert("intakeLeads", row));
+    // The same homeowner again from the form: flagged as a duplicate of the first row.
+    await ctx.db.insert("intakeLeads", {
+      ...base(ago(3)),
+      source: "meta",
+      status: "new",
+      name: "D. Reyes",
+      phone: "+1 432 555 0133",
+      phoneNormalized: "4325550133",
+      county: "Midland",
+      countyFromCampaign: "Midland",
+      jobType: trade("roofing"),
+      externalId: "demo-leadgen-3",
+      campaignName: "TX_MIDLAND_ROOFING_LG_202610",
+      formId: "demo-form",
+      duplicateOf: ids[0],
+    });
+    return { added: rows.length + 1 };
   },
 });
 
