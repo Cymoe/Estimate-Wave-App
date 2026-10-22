@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Dialog, Field, input, primary, secondary } from '../components/ops/ui';
 import { IntakeQueue } from '../components/ops/IntakeQueue';
 import { Delivered } from '../components/ops/Delivered';
+import { DemandBoard } from '../components/ops/DemandBoard';
 import { isStaff, isSuperAdmin } from '../lib/roles';
 import { TeamCard } from '../components/ops/TeamCard';
 import { useConfirm } from '../components/common/ConfirmDialog';
@@ -96,7 +97,7 @@ interface PendingPayment {
   submittedAt?: string;
 }
 
-type Tab = 'intake' | 'inbox' | 'delivered' | 'companies' | 'prices';
+type Tab = 'demand' | 'intake' | 'inbox' | 'delivered' | 'companies' | 'prices';
 
 
 function TradePicker({ trades, value, onChange }: { trades: Trade[]; value: string[]; onChange: (next: string[]) => void }) {
@@ -1083,6 +1084,7 @@ const LeadMarketPage: React.FC = () => {
         <div className="flex rounded border border-[#333] overflow-hidden" role="tablist">
           {(
             [
+              ['demand', 'Demand'],
               ['intake', 'Intake'],
               ['inbox', `Listed (${inbox.available.length})`],
               ['delivered', 'Delivered'],
@@ -1151,6 +1153,8 @@ const LeadMarketPage: React.FC = () => {
             reload();
           }}
         />
+      ) : tab === 'demand' ? (
+        <DemandBoard owner={owner} />
       ) : tab === 'delivered' ? (
         <Delivered tradeName={tradeName} />
       ) : tab === 'inbox' ? (

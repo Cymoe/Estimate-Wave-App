@@ -23,4 +23,7 @@ crons.daily(
   {},
 );
 
+// The demand board: where funded bids are, rebuilt every ten minutes.
+crons.interval("snapshot demand", { minutes: 10 }, internal.demand.snapshot, {});
+
 export default crons;

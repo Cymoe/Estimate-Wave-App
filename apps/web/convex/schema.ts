@@ -666,6 +666,34 @@ export default defineSchema({
     .index("by_external_id", ["externalId"])
     .index("by_confirmed_lead", ["confirmedLeadId"]),
 
+  // Where the paying demand is: one row per county and trade, rebuilt every
+  // few minutes from standing bids, balances and recent leads. VAs read it
+  // to decide where to run ads.
+  demandSnapshots: defineTable({
+    county: v.string(),
+    jobType: v.string(),
+    bidders: v.number(),
+    fundedBidders: v.number(),
+    topFundedCents: v.optional(v.number()),
+    secondFundedCents: v.optional(v.number()),
+    // How many leads the funded bidders' balances can absorb at their bids.
+    depthLeads: v.number(),
+    listed7: v.number(),
+    listed30: v.number(),
+    soldAtAward30: v.number(),
+    inMarketplace: v.number(),
+    inVault: v.number(),
+    updatedAt: v.string(),
+  }).index("by_slot", ["county", "jobType"]),
+
+  // Planning numbers for the demand board: what a lead in a trade costs us
+  // to generate (ads), set by the owner from the first campaigns' results.
+  demandSettings: defineTable({
+    jobType: v.string(),
+    planCplCents: v.number(),
+    updatedAt: v.string(),
+  }).index("by_job_type", ["jobType"]),
+
   // Every alert sent (or not) when a lead was awarded: the record staff
   // read when a contractor says they never heard about it.
   deliveries: defineTable({

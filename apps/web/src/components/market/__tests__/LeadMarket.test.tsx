@@ -31,11 +31,19 @@ let intakeRows: unknown[] = [];
 const createIntake = jest.fn(async (_source: string, _fields: unknown) => ({ id: 'i1', duplicate: false }));
 const confirmIntake = jest.fn(async () => ({ leadId: 'm7', outcome: 'sold', companyName: 'Peak Roofing', priceCents: 25000 }));
 
+let demand: unknown = { updatedAt: '2026-10-22T16:00:00Z', vaCostCents: 500, planCpl: { roofing: 6000 }, slots: [] };
+const setPlanCpl = jest.fn(async (_jobType: string, _cents: number | null) => null);
 let delivered: unknown[] = [];
 const resendAlerts = jest.fn(async (_id: string) => null);
 
 jest.mock('../../../lib/api', () => ({
   deliveryAPI: { recent: async () => delivered, resend: (id: string) => resendAlerts(id) },
+  demandAPI: {
+    board: async () => demand,
+    slot: async () => ({ bidders: [{ companyName: 'Rich Roofing', amountCents: 30000, balanceCents: 40000, funded: true }, { companyName: 'Poor Roofing', amountCents: 40000, balanceCents: 100, funded: false }], leads: [] }),
+    refresh: async () => ({ slots: 1 }),
+    setPlanCpl: (jobType: string, cents: number | null) => setPlanCpl(jobType, cents),
+  },
   intakeAPI: {
     queue: async () => intakeRows,
     get: async (id: string) => ({ ...(intakeRows as Array<{ id: string }>).find((r) => r.id === id)!, duplicate: null }),
@@ -149,7 +157,7 @@ describe('Lead Market', () => {
     role = 'staff';
     await render(<LeadMarketPage />);
     expect(document.body.textContent).toContain('FieldQuote staff');
-    expect(Array.from(document.body.querySelectorAll('[role="tablist"]:not([aria-label]) [role="tab"]')).map((t) => t.textContent)).toEqual(['Intake', 'Listed (1)', 'Delivered', 'Companies (3)']);
+    expect(Array.from(document.body.querySelectorAll('[role="tablist"]:not([aria-label]) [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand', 'Intake', 'Listed (1)', 'Delivered', 'Companies (3)']);
     expect(document.body.textContent).not.toContain('Add 20 sample leads');
     expect(document.body.querySelector('[data-testid="team-card"]')).toBeNull();
     // The company panel reads only: no funding link, payments or plan.
@@ -470,6 +478,40 @@ describe('standing bids in Admin', () => {
     expect(items[0].querySelector('[aria-label="Facebook"]')).not.toBeNull();
     expect(items[1].textContent).toContain('same number as another lead');
     expect(items[1].textContent).toContain('Trade not set · County not set');
+  });
+
+  it('shows the demand grid: top funded bid, depth and margin per county and trade, and who bids there', async () => {
+    demand = {
+      updatedAt: '2026-10-22T16:00:00Z', vaCostCents: 500, planCpl: { roofing: 6000 },
+      slots: [
+        { county: 'Midland', jobType: 'roofing', tradeName: 'Roofing', bidders: 3, fundedBidders: 2, topFundedCents: 30000, secondFundedCents: 25000, depthLeads: 2, listed7: 2, listed30: 2, soldAtAward30: 2, inMarketplace: 0, inVault: 0, planCplCents: 6000, marginCents: 23500, state: 'open' },
+        { county: 'Ector', jobType: 'painting', tradeName: 'Painting', bidders: 1, fundedBidders: 1, topFundedCents: 20000, depthLeads: 2, listed7: 0, listed30: 2, soldAtAward30: 1, inMarketplace: 1, inVault: 0, marginCents: null, state: 'oversupplied' },
+      ],
+    };
+    await render(<LeadMarketPage />);
+    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent === 'Demand')!.click());
+    await flush();
+    const grid = document.body.querySelector('table[aria-label="Demand"]')!;
+    const cells = Array.from(grid.querySelectorAll('button[data-state]'));
+    expect(cells.map((c) => c.getAttribute('data-state'))).toEqual(['oversupplied', 'open']);
+    const midland = cells.find((c) => c.getAttribute('data-state') === 'open')!;
+    expect(midland.textContent).toContain('$300.00 · 2 leads');
+    expect(midland.textContent).toContain('+$235.00 margin');
+    expect(cells[0].textContent).toContain('1 unsold');
+    // The owner sets the planned cost per lead in the column header.
+    const cpl = grid.querySelector('input[aria-label="Planned cost per roofing lead"]') as HTMLInputElement;
+    expect(cpl.value).toBe('60');
+    await act(async () => type(cpl, '45'));
+    await act(async () => cpl.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
+    await flush();
+    expect(setPlanCpl).toHaveBeenCalledWith('roofing', 4500);
+    // Opening a cell lists the bidders with whether they can pay.
+    await act(async () => (midland as HTMLButtonElement).click());
+    await flush();
+    const panel = document.body.querySelector('[role="dialog"]')!;
+    expect(panel.getAttribute('aria-label')).toBe('Roofing in Midland County');
+    expect(panel.querySelector('[aria-label="Bidders"]')!.textContent).toContain('Rich Roofing$300.00 · 1 leads of balance');
+    expect(panel.querySelector('[aria-label="Bidders"]')!.textContent).toContain('Poor Roofing$400.00 · balance $1.00');
   });
 
   it('shows what was sent for each awarded lead and flags the ones nobody acknowledged', async () => {

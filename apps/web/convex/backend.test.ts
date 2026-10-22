@@ -494,6 +494,74 @@ describe("delivery", () => {
   });
 });
 
+describe("demand board", () => {
+  test("adds up funded bids, depth and leads per county and trade, with a margin against the planned cost", async () => {
+    const t = setup();
+    const owner = await signUp(t, "owner@fieldquote.example", { role: "super_admin" });
+    const va = await signUp(t, "va@fieldquote.example", { role: "staff" });
+    const rich = await signUp(t, "rich@example.com");
+    const poor = await signUp(t, "poor@example.com");
+    const mid = await signUp(t, "mid@example.com");
+    await t.run(async (ctx) => {
+      const now = new Date().toISOString();
+      await ctx.db.insert("industries", { slug: "roofing", name: "Roofing", display_order: 1, is_active: true, created_at: now, updated_at: now });
+      await ctx.db.insert("industries", { slug: "painting", name: "Painting", display_order: 2, is_active: true, created_at: now, updated_at: now });
+      await ctx.db.patch(rich.organizationId, { name: "Rich Roofing", leadTrades: ["roofing", "painting"], walletBalanceCents: 100000 });
+      await ctx.db.patch(mid.organizationId, { name: "Mid Roofing", leadTrades: ["roofing"], walletBalanceCents: 30000 });
+      await ctx.db.patch(poor.organizationId, { name: "Poor Roofing", leadTrades: ["roofing"], walletBalanceCents: 100 });
+    });
+    for (const [who, amount] of [[rich, 300], [mid, 250], [poor, 400]] as const) {
+      await t.run(async (ctx) => { await ctx.db.patch(who.organizationId, { walletBalanceCents: 100000 }); });
+      await who.as.mutation(api.bids.setStanding, { organizationId: who.organizationId, county: "Midland", jobType: "roofing", amount });
+    }
+    await rich.as.mutation(api.bids.setStanding, { organizationId: rich.organizationId, county: "Ector", jobType: "painting", amount: 200 });
+    // Balances as they really are: Poor can't pay its $400 bid.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(mid.organizationId, { walletBalanceCents: 30000 });
+      await ctx.db.patch(poor.organizationId, { walletBalanceCents: 100 });
+    });
+    // Two roofing leads in Midland sold at award, one painting lead sitting in the Marketplace in Ector.
+    for (const name of ["A", "B"]) {
+      await va.as.mutation(api.marketplace.createLead, { data: { name, phone: "4325550100", county: "Midland", jobType: "roofing" } });
+    }
+    await va.as.mutation(api.marketplace.createLead, { data: { name: "C", county: "Ector", jobType: "painting" } });
+    await t.run(async (ctx) => { await ctx.db.patch(rich.organizationId, { walletBalanceCents: 0 }); });
+    await va.as.mutation(api.marketplace.createLead, { data: { name: "D", county: "Ector", jobType: "painting" } });
+    await t.run(async (ctx) => { await ctx.db.patch(rich.organizationId, { walletBalanceCents: 100000 - 60000 }); });
+
+    expect(await t.mutation(internal.demand.snapshot, {})).toEqual({ slots: 2 });
+    await owner.as.mutation(api.demand.setPlanCpl, { jobType: "roofing", cents: 6000 });
+    await expect(va.as.mutation(api.demand.setPlanCpl, { jobType: "roofing", cents: 6000 })).rejects.toThrow(/admins/);
+    const board = await va.as.query(api.demand.board, {});
+    expect(board.vaCostCents).toBe(500);
+    const midland = board.slots.find((s) => s.county === "Midland" && s.jobType === "roofing")!;
+    // Rich ($400 left after two $300 leads? no: balance is $400 now) and Mid can pay; Poor can't.
+    expect(midland).toMatchObject({
+      tradeName: "Roofing", bidders: 3, fundedBidders: 2, topFundedCents: 30000, secondFundedCents: 25000,
+      depthLeads: Math.floor(40000 / 30000) + Math.floor(30000 / 25000), listed7: 2, listed30: 2, soldAtAward30: 2, inMarketplace: 0, inVault: 0,
+      planCplCents: 6000, marginCents: 30000 - 6000 - 500, state: "open",
+    });
+    const ector = board.slots.find((s) => s.county === "Ector" && s.jobType === "painting")!;
+    expect(ector).toMatchObject({ bidders: 1, fundedBidders: 1, topFundedCents: 20000, listed30: 2, soldAtAward30: 1, inMarketplace: 1, state: "oversupplied" });
+    expect(ector.marginCents).toBeNull();
+    expect(board.slots[0]).toBe(midland);
+
+    const detail = await va.as.query(api.demand.slot, { county: "Midland", jobType: "roofing" });
+    expect(detail.bidders.map((b) => [b.companyName, b.amountCents, b.funded])).toEqual([
+      ["Poor Roofing", 40000, false],
+      ["Rich Roofing", 30000, true],
+      ["Mid Roofing", 25000, true],
+    ]);
+    expect(detail.leads.map((l) => [l.name, l.status, l.companyName])).toEqual([
+      ["B", "assigned", "Rich Roofing"],
+      ["A", "assigned", "Rich Roofing"],
+    ]);
+    expect((await va.as.mutation(api.demand.refresh, {})).slots).toBe(2);
+    const other = await signUp(t, "other@example.com");
+    await expect(other.as.query(api.demand.board, {})).rejects.toThrow(/staff/);
+  });
+});
+
 describe("estimates", () => {
   test("totals are derived from items and tax, and recalculated on update", async () => {
     const t = setup();

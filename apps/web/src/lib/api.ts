@@ -507,6 +507,14 @@ export const intakeAPI = {
     run('mutation', api.intake.confirm, defined({ id, checks, note, allowDuplicate, ...fields })),
 };
 
+/** The demand board: where funded bids are, by county and trade (staff). */
+export const demandAPI = {
+  board: () => run('query', api.demand.board, {}),
+  slot: (county: string, jobType: string) => run('query', api.demand.slot, { county, jobType }),
+  refresh: () => run('mutation', api.demand.refresh, {}),
+  setPlanCpl: (jobType: string, cents: number | null) => run('mutation', api.demand.setPlanCpl, { jobType, cents }),
+};
+
 /** Lead alerts: what was sent to whom when a lead was awarded (staff). */
 export const deliveryAPI = {
   recent: () => run('query', api.delivery.recent, {}),
