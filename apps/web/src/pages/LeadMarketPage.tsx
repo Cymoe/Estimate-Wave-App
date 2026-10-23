@@ -7,8 +7,9 @@ import { copyText } from '../components/estimates/estimateActions';
 import { useAuth } from '../contexts/AuthContext';
 import { Dialog, Field, input, primary, secondary } from '../components/ops/ui';
 import { IntakeQueue } from '../components/ops/IntakeQueue';
-import { Delivered } from '../components/ops/Delivered';
-import { DemandBoard } from '../components/ops/DemandBoard';
+import { Delivered, type DeliveredRow } from '../components/ops/Delivered';
+import { DemandBoard, type DemandBoardData } from '../components/ops/DemandBoard';
+import { useDelivered, useDemandBoard, useIntakeQueue } from '../lib/live';
 import { isStaff, isSuperAdmin } from '../lib/roles';
 import { TeamCard } from '../components/ops/TeamCard';
 import { useConfirm } from '../components/common/ConfirmDialog';
@@ -102,6 +103,18 @@ interface CreditRequest {
 }
 
 type Tab = 'demand' | 'intake' | 'inbox' | 'delivered' | 'companies' | 'prices';
+
+const TAB_TITLES: Record<Tab, string> = {
+  demand: 'Demand',
+  intake: 'Intake',
+  inbox: 'Listed',
+  delivered: 'Delivered',
+  companies: 'Companies',
+  prices: 'Prices',
+};
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const isToday = (iso: string) => new Date(iso).toDateString() === new Date().toDateString();
 
 
 function TradePicker({ trades, value, onChange }: { trades: Trade[]; value: string[]; onChange: (next: string[]) => void }) {
@@ -970,6 +983,11 @@ const LeadMarketPage: React.FC = () => {
 
   const tradeName = useCallback((id?: string) => trades.find((t) => t.id === id)?.name ?? (id ? id : 'Any trade'), [trades]);
   const openCompany = companies.find((c) => c.id === openCompanyId) ?? null;
+  // The header's one line of numbers follows the open tab, from the same live
+  // data the tab shows (Convex shares a subscription the tab already holds).
+  const demandData = useDemandBoard<DemandBoardData>();
+  const intakeOpen = useIntakeQueue<Array<{ duplicateOf?: string }>>('open');
+  const deliveredRows = useDelivered<DeliveredRow[]>();
   // The whole book: the header line and the totals row under the companies table.
   const book = useMemo(() => {
     const sum = (pick: (c: Company) => number) => companies.reduce((n, c) => n + pick(c), 0);
@@ -991,20 +1009,55 @@ const LeadMarketPage: React.FC = () => {
     return <div className="p-8 text-gray-400">The Ops page is only for FieldQuote staff.</div>;
   }
 
+  const summary = (() => {
+    switch (tab) {
+      case 'demand': {
+        const slots = demandData?.slots ?? [];
+        const open = slots.filter((s) => s.state === 'open').length;
+        const unsold = slots.filter((s) => s.state === 'oversupplied').length;
+        const nobody = slots.filter((s) => s.state === 'nobuyers').length;
+        const parts = [`${open} of ${slots.length} have a buyer waiting`];
+        if (unsold > 0) parts.push(`${unsold} sitting unsold`);
+        if (nobody > 0) parts.push(`${nobody} nobody buys`);
+        return parts.join(' · ');
+      }
+      case 'intake': {
+        const rows = intakeOpen ?? [];
+        const duplicates = rows.filter((r) => r.duplicateOf).length;
+        return `${rows.length} to confirm${duplicates > 0 ? ` · ${plural(duplicates, 'possible duplicate')}` : ''}`;
+      }
+      case 'inbox':
+        return `${inbox.available.length} listed · ${money(book.spent30dCents)} sold in 30 days`;
+      case 'delivered': {
+        const rows = deliveredRows ?? [];
+        const today = rows.filter((r) => isToday(r.assignedAt)).length;
+        const waiting = rows.filter((r) => !r.acknowledgedAt).length;
+        const overdue = rows.filter((r) => !r.acknowledgedAt && r.overdue).length;
+        return `${today} sent today · ${overdue > 0 ? `${overdue} overdue for “Got it”` : `${waiting} waiting on “Got it”`}`;
+      }
+      case 'companies': {
+        const pro = companies.filter((c) => c.plan?.status === 'active').length;
+        return `${plural(companies.length, 'company').replace('companys', 'companies')} · ${money(book.balanceCents)} in balances · ${pro} Pro`;
+      }
+      case 'prices':
+        return `Start and floor price for ${plural(trades.length, 'trade')}`;
+    }
+  })();
+
   return (
     <div className="px-4 md:px-6 py-5 text-white">
       <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
         <div>
+          <p className="text-xs uppercase tracking-wide text-gray-500">Ops</p>
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-xl font-semibold">Ops</h1>
+            <h1 className="text-xl font-semibold">{TAB_TITLES[tab]}</h1>
             <span className="text-xs px-2 py-0.5 rounded-full border border-[#336699]/60 bg-[#336699]/15 text-[#cfe2f5]">
               {owner ? 'Platform owner' : 'FieldQuote staff'}
             </span>
           </div>
-          <p className="text-sm text-gray-400">
-            {inbox.available.length} listed · {money(book.spent30dCents)} sold in 30 days · {money(book.balanceCents)} in company balances
+          <p className="text-sm text-gray-400" data-testid="ops-summary">
+            {summary}
           </p>
-          <p className="text-xs text-gray-500 mt-0.5">Leads you list here sell on their own in the Marketplace. Sending one by hand is the exception.</p>
         </div>
         <div className="flex rounded border border-[#333] overflow-hidden" role="tablist">
           {(

@@ -183,6 +183,35 @@ describe('Lead Market', () => {
     expect(Array.from(vault.querySelectorAll('button')).map((b) => b.textContent)).toContain('Confirm');
   });
 
+  it('heads the page with the open tab and one line of that tab\'s numbers', async () => {
+    intakeRows = [
+      { id: 'i1', source: 'meta', status: 'working', label: 'Dana Reyes', phone: '432-555-0133', attempts: [], lastAttempt: null, createdAt: '2026-10-22T02:00:00Z', updatedAt: '2026-10-22T03:00:00Z' },
+      { id: 'i2', source: 'call', status: 'new', label: 'P. Cole', phone: '432-555-0101', duplicateOf: 'i0', attempts: [], lastAttempt: null, createdAt: '2026-10-22T03:30:00Z', updatedAt: '2026-10-22T03:30:00Z' },
+    ];
+    await render(<LeadMarketPage />);
+    const heading = () => document.body.querySelector('h1')!.textContent;
+    const summary = () => document.body.querySelector('[data-testid="ops-summary"]')!.textContent;
+    expect(heading()).toBe('Intake');
+    expect(summary()).toBe('2 to confirm · 1 possible duplicate');
+    expect(document.body.textContent).not.toContain('sell on their own');
+    const open = async (name: string) => {
+      await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith(name))!.click());
+      await flush();
+    };
+    await open('Listed');
+    expect(heading()).toBe('Listed');
+    expect(summary()).toBe('1 listed · $170.00 sold in 30 days');
+    await open('Companies');
+    expect(heading()).toBe('Companies');
+    expect(summary()).toBe('3 companies · $510.00 in balances · 1 Pro');
+    await open('Demand');
+    expect(heading()).toBe('Demand');
+    expect(summary()).toBe('0 of 0 have a buyer waiting');
+    await open('Prices');
+    expect(heading()).toBe('Prices');
+    expect(summary()).toBe('Start and floor price for 2 trades');
+  });
+
   it('totals the companies table: cash held, leads and spend this month, plan mix and value won', async () => {
     await render(<LeadMarketPage />);
     await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Companies'))!.click());
