@@ -9,8 +9,6 @@ const requestCredit = jest.fn(async () => undefined);
 let wallet: Record<string, unknown> | null = null;
 let role = 'super_admin';
 let emptyMarket = false;
-let pendingPayments: unknown[] = [];
-const confirmFunding = jest.fn(async (_id: string) => { pendingPayments = []; });
 let feedLeads: unknown[] = [];
 let soldLeads: unknown[] = [];
 const buyLead = jest.fn(async () => ({ orgLeadId: 'ol9' }));
@@ -90,9 +88,6 @@ jest.mock('../../../lib/api', () => ({
     archiveLead: async () => undefined,
   },
   fundingAPI: {
-    pending: async () => pendingPayments,
-    confirm: (id: string) => confirmFunding(id),
-    cancel: async () => undefined,
     createLink: async () => 'tok',
     url: (token: string) => `https://app.example/fund/${token}`,
   },
@@ -143,7 +138,6 @@ afterEach(() => {
   emptyMarket = false;
   demoCompanies = false;
   demoBids = false;
-  pendingPayments = [];
   feedLeads = [];
   soldLeads = [];
   intakeRows = [];
@@ -289,19 +283,6 @@ describe("a company's lead balance", () => {
 });
 
 describe('loading the balance and buying leads', () => {
-  it('shows payments waiting to be confirmed, and confirms one from the company panel', async () => {
-    pendingPayments = [
-      { id: 'f1', organizationId: 'o2', companyName: 'Peak Roofing', amountCents: 1_000_000, bonusCents: 100_000, method: 'apple_pay', payerName: 'Pat' },
-    ];
-    await render(<LeadMarketPage />);
-    await act(async () => byText('1 payment waiting to be confirmed')!.click());
-    await flush();
-    expect(document.body.textContent).toContain('$10,000.00 by Apple Pay · +$1,000.00 bonus');
-    await act(async () => byText('Confirm $11,000.00')!.click());
-    await flush();
-    expect(confirmFunding).toHaveBeenCalledWith('f1');
-  });
-
   it('sets an owner, and removes an empty company (only offered for empty ones)', async () => {
     await render(<LeadMarketPage />);
     expect(document.body.textContent).toContain('Platform owner');
@@ -339,17 +320,6 @@ describe('loading the balance and buying leads', () => {
     expect(removeCompany).toHaveBeenCalledWith('o3');
   });
 
-  it("tells the company their payment is being confirmed, and points them to the Marketplace for new leads", async () => {
-    wallet = {
-      balanceCents: 500000, typicalLeadCents: 8500, spentCents: 0, leadsBought: 0, wonCents: 0, wonCount: 0,
-      pendingFunding: { amountCents: 750000, bonusCents: 37500 }, availableLeads: 1,
-      transactions: [{ id: 't1', type: 'top_up', amountCents: 500000, balanceAfterCents: 500000, createdAt: '2026-10-10' }],
-    };
-    await render(<WalletBar organizationId="o2" />);
-    expect(document.body.textContent).toContain('Your $7,500.00 payment (+$375.00 bonus) is being confirmed');
-    const browse = Array.from(document.body.querySelectorAll('a')).find((a) => a.textContent?.includes('1 new lead in the Marketplace'))!;
-    expect(browse.getAttribute('href')).toBe('/marketplace');
-  });
 });
 
 describe('the bid status line', () => {
@@ -386,8 +356,6 @@ describe('the bid status line', () => {
     expect(line({ balanceCents: 100000, standingBids: 3, pausedBids: 0, outbidBids: 2 })?.text).toContain('outbid on 2 bids');
     // Money problems come first: a paused bid says so before any outbid.
     expect(line({ balanceCents: 0, standingBids: 1, pausedBids: 1, outbidBids: 1 })?.text).toContain('paused');
-    // A payment being confirmed will fix the money side, so there's no nag meanwhile.
-    expect(line({ balanceCents: 0, standingBids: 1, pausedBids: 1, pendingFunding: { amountCents: 50000, bonusCents: 0 } })).toBeNull();
   });
 
   it('shows the paused line on the Leads page with Add funds and a link to the bids', async () => {

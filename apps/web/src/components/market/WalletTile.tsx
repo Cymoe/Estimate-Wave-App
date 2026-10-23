@@ -20,7 +20,7 @@ export const WalletTile: React.FC<{ organizationId?: string; collapsed?: boolean
 
   if (!organizationId || !wallet) return null;
   const covered = leadsCovered(wallet);
-  const low = covered < 2 && !wallet.pendingFunding;
+  const low = covered < 2;
   const show = () => {
     setOpen(true);
     onOpen?.();

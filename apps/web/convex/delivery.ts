@@ -26,7 +26,7 @@ export const HOURS = { open: 8, close: 20 };
 
 export const channel = v.union(v.literal("email"), v.literal("sms"), v.literal("homeowner_sms"));
 
-const siteUrl = () => (process.env.SITE_URL ?? "https://estimate-wave-app-git-fieldquote-convex-cymoes-projects.vercel.app").replace(/\/$/, "");
+export const siteUrl = () => (process.env.SITE_URL ?? "https://estimate-wave-app-git-fieldquote-convex-cymoes-projects.vercel.app").replace(/\/$/, "");
 
 export const leadLink = (orgLeadId: Id<"leads">, base = siteUrl()) => `${base}/leads?lead=${orgLeadId}&ack=1`;
 

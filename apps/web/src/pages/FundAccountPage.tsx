@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { Check, CheckCircle2, CreditCard, Lock, ShieldCheck } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
+import { Check, CheckCircle2, Lock, ShieldCheck } from 'lucide-react';
 import { fundingAPI } from '../lib/api';
+import { useFundingPage } from '../lib/live';
 import { formatCurrency } from '../utils/format';
 import { bonusFor } from '../../convex/lib/funding';
 
@@ -13,87 +14,55 @@ interface FundingPage {
   minimumCents: number;
   tiers: Array<{ amountCents: number; bonusPercent: number; bonusCents: number; popular?: boolean }>;
   typicalLeadCents: number;
+  paid: boolean;
 }
 
-type Step = 'amount' | 'pay' | 'done';
+type Step = 'amount' | 'pay';
 
 const money = (cents: number, whole = true) =>
   whole ? `$${Math.round(cents / 100).toLocaleString()}` : formatCurrency(cents / 100);
-
-/** Groups card digits in fours as they're typed. */
-export const formatCardNumber = (value: string) =>
-  value
-    .replace(/\D/g, '')
-    .slice(0, 16)
-    .replace(/(\d{4})(?=\d)/g, '$1 ');
-
-/** MM/YY as it's typed. */
-export const formatExpiry = (value: string) => {
-  const digits = value.replace(/\D/g, '').slice(0, 4);
-  return digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits;
-};
 
 const field =
   'w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-base text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-900';
 
 /**
  * The page a contractor pays through to load their FieldQuote lead balance
- * (reached from a funding link, no login). Card details stay in this page:
- * only the amount, method and payer's name and email are sent, and the
- * balance loads once FieldQuote confirms the payment.
+ * (reached from a funding link, no login). They pick an amount here and pay
+ * on Stripe's page; when Stripe says it cleared, the balance loads and this
+ * page says so on its own.
  */
 const FundAccountPage: React.FC = () => {
   const { token = '' } = useParams<{ token: string }>();
-  const [page, setPage] = useState<FundingPage | null | undefined>(undefined);
+  const [params] = useSearchParams();
+  // Stripe sends the payer back here with ?paid=1 or ?cancelled=1.
+  const backFromStripe = params.get('paid') === '1';
+  const cancelledOnStripe = params.get('cancelled') === '1';
+  const page = useFundingPage<FundingPage | null>(token);
   const [step, setStep] = useState<Step>('amount');
   const [amountCents, setAmountCents] = useState(1_000_000);
   const [custom, setCustom] = useState('');
-  const [method, setMethod] = useState<'card' | 'apple_pay'>('card');
-  const [card, setCard] = useState({ name: '', email: '', number: '', expiry: '', cvc: '', zip: '' });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // A link that already carries an amount (picked before, or paid) starts from it.
+  const pickedCents = page?.amountCents;
   useEffect(() => {
-    fundingAPI
-      .get(token)
-      .then((result: FundingPage | null) => {
-        setPage(result);
-        if (result && result.status !== 'open') setStep('done');
-      })
-      .catch(() => setPage(null));
-  }, [token]);
+    if (pickedCents) setAmountCents(pickedCents);
+  }, [pickedCents]);
 
   const bonusCents = bonusFor(amountCents);
   const totalCredit = amountCents + bonusCents;
   const leads = page ? Math.floor(totalCredit / Math.max(page.typicalLeadCents, 1)) : 0;
   const customCents = Math.round(Number(custom.replace(/[$,]/g, '')) * 100);
-  const cardReady = useMemo(
-    () =>
-      card.name.trim() !== '' &&
-      /\S+@\S+\.\S+/.test(card.email) &&
-      card.number.replace(/\s/g, '').length >= 15 &&
-      /^\d{2}\/\d{2}$/.test(card.expiry) &&
-      card.cvc.length >= 3 &&
-      card.zip.length >= 5,
-    [card],
-  );
 
-  const pay = async (chosen: 'card' | 'apple_pay') => {
+  const pay = async () => {
     setSubmitting(true);
     setError(null);
     try {
-      // Only what FieldQuote needs to match the payment: never the card itself.
-      await fundingAPI.submit(token, {
-        amountCents,
-        method: chosen,
-        payerName: card.name || undefined,
-        payerEmail: card.email || undefined,
-      });
-      setMethod(chosen);
-      setStep('done');
+      const { url } = await fundingAPI.checkout(token, amountCents);
+      window.location.assign(url);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "The payment couldn't be completed. Please try again.");
-    } finally {
+      setError(err instanceof Error ? err.message : "The payment page couldn't be opened. Please try again.");
       setSubmitting(false);
     }
   };
@@ -112,6 +81,9 @@ const FundAccountPage: React.FC = () => {
     );
   }
 
+  const paid = page.status === 'confirmed';
+  // Back from Stripe before its webhook has landed: a few seconds, usually.
+  const waiting = backFromStripe && !paid;
   const shownAmount = page.amountCents ?? amountCents;
   const shownBonus = page.amountCents !== undefined ? page.bonusCents ?? 0 : bonusCents;
 
@@ -125,10 +97,10 @@ const FundAccountPage: React.FC = () => {
           </span>
         </div>
 
-        {step === 'done' ? (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 text-center" data-testid="funding-done">
-            <CheckCircle2 className="w-14 h-14 text-emerald-500 mx-auto mb-4" />
-            {page.status === 'confirmed' ? (
+        {paid || waiting ? (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 text-center" data-testid="funding-done" data-paid={paid ? 'true' : 'false'}>
+            <CheckCircle2 className={`w-14 h-14 mx-auto mb-4 ${paid ? 'text-emerald-500' : 'text-gray-300'}`} />
+            {paid ? (
               <>
                 <h1 className="text-2xl font-semibold mb-2">Added to your balance</h1>
                 <p className="text-gray-600">
@@ -139,31 +111,27 @@ const FundAccountPage: React.FC = () => {
               <>
                 <h1 className="text-2xl font-semibold mb-2">Payment received</h1>
                 <p className="text-gray-600">
-                  {money(shownAmount)}
-                  {shownBonus > 0 ? ` + ${money(shownBonus)} bonus` : ''} will be added to {page.companyName}'s lead balance shortly.
-                  We'll let you know as soon as it's ready.
+                  We're adding {money(shownAmount)}
+                  {shownBonus > 0 ? ` + ${money(shownBonus)} bonus` : ''} to {page.companyName}'s lead balance now. This page updates on its own.
                 </p>
-                <div className="mt-6 rounded-xl bg-gray-50 border border-gray-200 p-4 text-left text-sm">
-                  <div className="flex justify-between py-1">
-                    <span className="text-gray-500">Paid</span>
-                    <span>{money(shownAmount)}</span>
-                  </div>
-                  {shownBonus > 0 && (
-                    <div className="flex justify-between py-1">
-                      <span className="text-gray-500">Bonus credit</span>
-                      <span className="text-emerald-600">+{money(shownBonus)}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between py-1 font-medium border-t border-gray-200 mt-1 pt-2">
-                    <span>Lead balance</span>
-                    <span>{money(shownAmount + shownBonus)}</span>
-                  </div>
-                  {step === 'done' && page.status === 'open' && (
-                    <p className="text-xs text-gray-500 mt-2">Paid with {method === 'apple_pay' ? 'Apple Pay' : 'card'}</p>
-                  )}
-                </div>
               </>
             )}
+            <div className="mt-6 rounded-xl bg-gray-50 border border-gray-200 p-4 text-left text-sm">
+              <div className="flex justify-between py-1">
+                <span className="text-gray-500">Paid</span>
+                <span>{money(shownAmount)}</span>
+              </div>
+              {shownBonus > 0 && (
+                <div className="flex justify-between py-1">
+                  <span className="text-gray-500">Bonus credit</span>
+                  <span className="text-emerald-600">+{money(shownBonus)}</span>
+                </div>
+              )}
+              <div className="flex justify-between py-1 font-medium border-t border-gray-200 mt-1 pt-2">
+                <span>Lead balance</span>
+                <span>{money(shownAmount + shownBonus)}</span>
+              </div>
+            </div>
           </div>
         ) : (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
@@ -184,6 +152,11 @@ const FundAccountPage: React.FC = () => {
 
             {step === 'amount' ? (
               <div className="p-6">
+                {cancelledOnStripe && (
+                  <p role="status" className="mb-4 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm text-gray-600">
+                    No charge was made. Pick an amount to try again.
+                  </p>
+                )}
                 <h2 className="text-base font-medium mb-1">Choose how much to load</h2>
                 <p className="text-sm text-gray-500 mb-4">Your balance pays for each lead you buy. It never expires.</p>
                 <div className="space-y-3" role="radiogroup" aria-label="Amount">
@@ -286,102 +259,20 @@ const FundAccountPage: React.FC = () => {
                 <button
                   type="button"
                   disabled={submitting}
-                  onClick={() => pay('apple_pay')}
-                  className="w-full rounded-xl bg-black text-white py-3.5 font-medium flex items-center justify-center gap-1.5 disabled:opacity-50"
-                  aria-label="Pay with Apple Pay"
+                  onClick={pay}
+                  className="w-full rounded-xl bg-gray-900 text-white py-3.5 font-medium disabled:opacity-50"
                 >
-                  <svg viewBox="0 0 24 24" className="w-5 h-5 -mt-0.5" fill="currentColor" aria-hidden>
-                    <path d="M16.37 12.6c-.02-2.2 1.8-3.26 1.88-3.31-1.03-1.5-2.62-1.7-3.18-1.73-1.35-.14-2.64.8-3.33.8-.69 0-1.74-.78-2.87-.76-1.47.02-2.83.86-3.59 2.18-1.54 2.66-.39 6.59 1.1 8.75.73 1.05 1.6 2.24 2.73 2.2 1.1-.04 1.51-.71 2.84-.71 1.32 0 1.7.71 2.86.69 1.18-.02 1.93-1.07 2.65-2.13.84-1.22 1.18-2.4 1.2-2.46-.03-.01-2.3-.88-2.33-3.52zM14.2 6.13c.6-.73 1.01-1.75.9-2.76-.87.04-1.92.58-2.54 1.31-.56.64-1.05 1.67-.92 2.66.97.08 1.96-.49 2.56-1.21z" />
-                  </svg>
-                  Pay
+                  {submitting ? 'Opening secure checkout…' : `Pay ${money(amountCents)}`}
                 </button>
-                <div className="flex items-center gap-3 my-5 text-xs text-gray-400">
-                  <span className="flex-1 h-px bg-gray-200" /> or pay with card <span className="flex-1 h-px bg-gray-200" />
-                </div>
-
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (cardReady) pay('card');
-                  }}
-                  className="space-y-3"
-                >
-                  <input
-                    value={card.name}
-                    onChange={(e) => setCard({ ...card, name: e.target.value })}
-                    placeholder="Name on card"
-                    aria-label="Name on card"
-                    autoComplete="cc-name"
-                    className={field}
-                  />
-                  <input
-                    type="email"
-                    value={card.email}
-                    onChange={(e) => setCard({ ...card, email: e.target.value })}
-                    placeholder="Email for the receipt"
-                    aria-label="Email"
-                    autoComplete="email"
-                    className={field}
-                  />
-                  <div className="relative">
-                    <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                    <input
-                      inputMode="numeric"
-                      value={card.number}
-                      onChange={(e) => setCard({ ...card, number: formatCardNumber(e.target.value) })}
-                      placeholder="1234 1234 1234 1234"
-                      aria-label="Card number"
-                      autoComplete="cc-number"
-                      className={`${field} pl-10`}
-                    />
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <input
-                      inputMode="numeric"
-                      value={card.expiry}
-                      onChange={(e) => setCard({ ...card, expiry: formatExpiry(e.target.value) })}
-                      placeholder="MM/YY"
-                      aria-label="Expiry"
-                      autoComplete="cc-exp"
-                      className={field}
-                    />
-                    <input
-                      inputMode="numeric"
-                      value={card.cvc}
-                      onChange={(e) => setCard({ ...card, cvc: e.target.value.replace(/\D/g, '').slice(0, 4) })}
-                      placeholder="CVC"
-                      aria-label="CVC"
-                      autoComplete="cc-csc"
-                      className={field}
-                    />
-                    <input
-                      inputMode="numeric"
-                      value={card.zip}
-                      onChange={(e) => setCard({ ...card, zip: e.target.value.replace(/\D/g, '').slice(0, 5) })}
-                      placeholder="ZIP"
-                      aria-label="ZIP"
-                      autoComplete="postal-code"
-                      className={field}
-                    />
-                  </div>
-                  {error && <p className="text-sm text-red-600">{error}</p>}
-                  <button
-                    type="submit"
-                    disabled={!cardReady || submitting}
-                    className="w-full rounded-xl bg-gray-900 text-white py-3.5 font-medium disabled:opacity-40"
-                  >
-                    {submitting ? 'Processing…' : `Pay ${money(amountCents)}`}
-                  </button>
-                </form>
-                <p className="flex items-center justify-center gap-1.5 text-xs text-gray-500 mt-4">
+                <p className="text-center text-xs text-gray-500 mt-3">You'll finish on Stripe's secure page: card, Apple Pay or Google Pay.</p>
+                {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
+                <p className="flex items-center justify-center gap-1.5 text-xs text-gray-500 mt-5">
                   <ShieldCheck className="w-4 h-4" /> Your balance never expires. Bad leads are credited back.
                 </p>
               </div>
             )}
           </div>
         )}
-
-        <p className="text-center text-xs text-gray-400 mt-6">Payments aren't processed yet — no card is charged.</p>
       </div>
     </div>
   );

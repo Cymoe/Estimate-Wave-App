@@ -548,11 +548,8 @@ export const fundingAPI = {
   createLink: (organizationId: string) => run('mutation', api.funding.createLink, { organizationId }),
   url: (token: string) => `${window.location.origin}/fund/${token}`,
   get: (token: string) => run('query', api.funding.get, { token }),
-  submit: (token: string, payment: { amountCents: number; method: 'card' | 'apple_pay'; payerName?: string; payerEmail?: string }) =>
-    run('mutation', api.funding.submit, defined({ token, ...payment })),
-  pending: () => run('query', api.funding.pending, {}),
-  confirm: (id: string) => run('mutation', api.funding.confirm, { id }),
-  cancel: (id: string) => run('mutation', api.funding.cancel, { id }),
+  /** Opens a Stripe Checkout session for the amount; the caller sends the payer to the URL. */
+  checkout: (token: string, amountCents: number): Promise<{ url: string }> => run('action', api.funding.checkout, { token, amountCents }),
 };
 
 export { APIError };

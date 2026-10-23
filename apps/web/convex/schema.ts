@@ -585,8 +585,8 @@ export default defineSchema({
     updatedAt: v.string(),
   }).index("by_job_type", ["jobType"]),
 
-  // A link a company pays through to load its lead balance. Paying only
-  // records the request; the balance loads when a platform admin confirms it.
+  // A link a company pays through to load its lead balance. The payment
+  // itself happens on Stripe Checkout; Stripe's webhook loads the balance.
   // No card details are ever stored.
   fundingRequests: defineTable({
     organizationId: v.id("organizations"),
@@ -599,9 +599,13 @@ export default defineSchema({
     ),
     amountCents: v.optional(v.number()),
     bonusCents: v.optional(v.number()),
-    method: v.optional(v.union(v.literal("card"), v.literal("apple_pay"))),
+    method: v.optional(v.string()),
     payerName: v.optional(v.string()),
     payerEmail: v.optional(v.string()),
+    // The Stripe Checkout session the payer was sent to, and what it paid with.
+    stripeSessionId: v.optional(v.string()),
+    stripePaymentIntentId: v.optional(v.string()),
+    paidAt: v.optional(v.string()),
     createdBy: v.id("users"),
     createdAt: v.string(),
     submittedAt: v.optional(v.string()),
@@ -609,7 +613,8 @@ export default defineSchema({
   })
     .index("by_token", ["token"])
     .index("by_organization", ["organizationId"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    .index("by_stripe_session", ["stripeSessionId"]),
 
   // A company set up for someone who hasn't signed up yet; they join it on signup.
   companyInvites: defineTable({

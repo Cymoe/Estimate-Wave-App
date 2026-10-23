@@ -5,22 +5,22 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let page: Record<string, unknown> | null = null;
-const submit = jest.fn(async () => undefined);
+const checkout = jest.fn(async (): Promise<{ url: string }> => ({ url: 'https://checkout.stripe.com/c/cs_test_1' }));
+jest.mock('../../lib/live', () => ({ useFundingPage: () => page }));
 jest.mock('../../lib/api', () => ({
   fundingAPI: {
-    get: async () => page,
-    submit: (...args: unknown[]) => submit(...(args as [])),
+    checkout: (token: string, amountCents: number) => checkout(token, amountCents),
   },
 }));
 
-import FundAccountPage, { formatCardNumber, formatExpiry } from '../FundAccountPage';
+import FundAccountPage from '../FundAccountPage';
 
 const tiers = [
   { amountCents: 500000, bonusPercent: 0, bonusCents: 0 },
   { amountCents: 750000, bonusPercent: 5, bonusCents: 37500 },
   { amountCents: 1000000, bonusPercent: 10, bonusCents: 100000, popular: true },
 ];
-const open = { companyName: 'Peak Roofing', status: 'open', minimumCents: 500000, tiers, typicalLeadCents: 8500 };
+const open = { companyName: 'Peak Roofing', status: 'open', minimumCents: 500000, tiers, typicalLeadCents: 8500, paid: false };
 
 const flush = () => act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
 const byText = (text: string) => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes(text));
@@ -29,12 +29,12 @@ function type(label: string, value: string) {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
-async function render() {
+async function render(path = '/fund/tok') {
   const container = document.createElement('div');
   document.body.appendChild(container);
   await act(async () =>
     createRoot(container).render(
-      <MemoryRouter initialEntries={['/fund/tok']}>
+      <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="/fund/:token" element={<FundAccountPage />} />
         </Routes>
@@ -44,17 +44,17 @@ async function render() {
   await flush();
 }
 
+// Stripe's page is reached by a full navigation; catch it instead of leaving jsdom.
+const assign = jest.fn();
+beforeAll(() => {
+  Object.defineProperty(window, 'location', { configurable: true, value: { ...window.location, assign } });
+});
 afterEach(() => {
   document.body.innerHTML = '';
   jest.clearAllMocks();
 });
 
 describe('funding page', () => {
-  it('formats card details as they are typed', () => {
-    expect(formatCardNumber('4242424242424242999')).toBe('4242 4242 4242 4242');
-    expect(formatExpiry('1229')).toBe('12/29');
-  });
-
   it('starts on $10,000 with its bonus, and refuses less than $5,000', async () => {
     page = { ...open };
     await render();
@@ -66,40 +66,57 @@ describe('funding page', () => {
     expect((byText('Continue') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('pays by card without sending the card, then shows the payment received', async () => {
+  it('sends the payer to Stripe for the amount they chose, with no card fields of its own', async () => {
     page = { ...open };
     await render();
     await act(async () => byText('$7,500')!.click());
     await act(async () => byText('Continue · $7,500')!.click());
     expect(document.body.textContent).toContain('+$375');
-    expect((byText('Pay $7,500') as HTMLButtonElement).disabled).toBe(true);
-    await act(async () => {
-      type('Name on card', 'Pat Roofer');
-      type('Email', 'pat@peak.example');
-      type('Card number', '4242424242424242');
-      type('Expiry', '1229');
-      type('CVC', '123');
-      type('ZIP', '79701');
-    });
+    expect(document.body.textContent).toContain("You'll finish on Stripe's secure page");
+    expect(document.body.querySelector('input[aria-label="Card number"]')).toBeNull();
     await act(async () => byText('Pay $7,500')!.click());
     await flush();
-    expect(submit).toHaveBeenCalledWith('tok', { amountCents: 750000, method: 'card', payerName: 'Pat Roofer', payerEmail: 'pat@peak.example' });
-    expect(JSON.stringify(submit.mock.calls)).not.toMatch(/4242|79701|12\/29/);
-    expect(document.body.querySelector('[data-testid="funding-done"]')!.textContent).toContain('Payment received');
+    expect(checkout).toHaveBeenCalledWith('tok', 750000);
+    expect(assign).toHaveBeenCalledWith('https://checkout.stripe.com/c/cs_test_1');
   });
 
-  it('pays with Apple Pay in one tap', async () => {
+  it('says why when Stripe could not be opened, and lets them try again', async () => {
     page = { ...open };
+    checkout.mockRejectedValueOnce(new Error("Payments aren't set up yet (no STRIPE_SECRET_KEY on the deployment)"));
     await render();
     await act(async () => byText('Continue')!.click());
-    await act(async () => (document.body.querySelector('button[aria-label="Pay with Apple Pay"]') as HTMLButtonElement).click());
+    await act(async () => byText('Pay $10,000')!.click());
     await flush();
-    expect(submit).toHaveBeenCalledWith('tok', expect.objectContaining({ amountCents: 1000000, method: 'apple_pay' }));
-    expect(document.body.textContent).toContain('$10,000 + $1,000 bonus will be added to Peak Roofing');
+    expect(document.body.textContent).toContain("Payments aren't set up yet");
+    expect((byText('Pay $10,000') as HTMLButtonElement).disabled).toBe(false);
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('back from Stripe, waits for the balance, then shows it added once the webhook lands', async () => {
+    page = { ...open, status: 'submitted', amountCents: 1000000, bonusCents: 100000 };
+    await render('/fund/tok?paid=1');
+    const done = () => document.body.querySelector('[data-testid="funding-done"]')!;
+    expect(done().textContent).toContain('Payment received');
+    expect(done().textContent).toContain("We're adding $10,000 + $1,000 bonus to Peak Roofing's lead balance now");
+    expect(done().getAttribute('data-paid')).toBe('false');
+
+    document.body.innerHTML = '';
+    page = { ...open, status: 'confirmed', paid: true, amountCents: 1000000, bonusCents: 100000 };
+    await render('/fund/tok?paid=1');
+    expect(done().textContent).toContain('Added to your balance');
+    expect(done().textContent).toContain('$11,000');
+    expect(done().getAttribute('data-paid')).toBe('true');
+  });
+
+  it('comes back to the amount step with no charge when they leave Stripe', async () => {
+    page = { ...open, amountCents: 750000, bonusCents: 37500 };
+    await render('/fund/tok?cancelled=1');
+    expect(document.body.querySelector('[role="status"]')?.textContent).toContain('No charge was made');
+    expect(byText('$7,500')!.getAttribute('aria-checked')).toBe('true');
   });
 
   it('shows a used link as already paid', async () => {
-    page = { ...open, status: 'confirmed', amountCents: 1000000, bonusCents: 100000 };
+    page = { ...open, status: 'confirmed', paid: true, amountCents: 1000000, bonusCents: 100000 };
     await render();
     expect(document.body.textContent).toContain('Added to your balance');
     expect(document.body.textContent).toContain('$11,000');

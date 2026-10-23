@@ -138,7 +138,6 @@ describe("staff", () => {
       data: { name: "Staff Listed", phone: "4325550199", city: "Midland", county: "Midland", jobType: "painting" },
     });
     await member.as.mutation(api.marketplace.verifyLead, { id: lead!._id, note: "Wants it next week" });
-    expect(await member.as.query(api.funding.pending, {})).toEqual([]);
     // ...but money, prices and companies stay with the owner.
     await expect(member.as.mutation(api.marketplace.setLeadPrice, { jobType: "painting", price: 300 })).rejects.toThrow(/admins/);
     await expect(member.as.query(api.staff.list, {})).rejects.toThrow(/admins/);
@@ -2990,8 +2989,8 @@ describe("funding links and the lead feed", () => {
       })
     ).balanceCents;
 
-  test("paying through the link records the payment but loads nothing until it's confirmed", async () => {
-    const { t, admin, roofer, rival, token } = await company();
+  test("Add funds goes to Stripe Checkout; Stripe's webhook loads the balance, once; a dropped session reopens the link", async () => {
+    const { t, roofer, rival, token } = await company();
     expect(
       await roofer.as.mutation(api.funding.createLink, {
         organizationId: roofer.organizationId,
@@ -3004,59 +3003,75 @@ describe("funding links and the lead feed", () => {
     ).rejects.toThrow(/access/);
 
     const page = await t.query(api.funding.get, { token });
-    expect(page).toMatchObject({
-      companyName: "roofer@example.com Co",
-      status: "open",
-      minimumCents: 500000,
-    });
-    expect(page!.tiers.map((tier) => tier.bonusCents)).toEqual([
-      0, 37500, 100000,
-    ]);
+    expect(page).toMatchObject({ companyName: "roofer@example.com Co", status: "open", minimumCents: 500000, paid: false });
+    expect(page!.tiers.map((tier) => tier.bonusCents)).toEqual([0, 37500, 100000]);
 
-    await expect(
-      t.mutation(api.funding.submit, {
-        token,
-        amountCents: 499999,
-        method: "card",
+    // Nothing to pay with until the deployment has a Stripe key.
+    vi.stubEnv("STRIPE_SECRET_KEY", "");
+    await expect(t.action(api.funding.checkout, { token, amountCents: 1_000_000 })).rejects.toThrow(/aren't set up/);
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_x");
+    vi.stubEnv("SITE_URL", "https://app.example/");
+    await expect(t.action(api.funding.checkout, { token, amountCents: 499999 })).rejects.toThrow(/minimum/);
+    const calls: Array<{ url: string; body: string; auth: string | undefined }> = [];
+    let sessions = 1;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: { body: string; headers: Record<string, string> }) => {
+        calls.push({ url, body: init.body, auth: init.headers.authorization });
+        const id = `cs_test_${sessions++}`;
+        return { ok: true, status: 200, json: async () => ({ id, url: `https://checkout.stripe.com/c/${id}` }) };
       }),
-    ).rejects.toThrow(/minimum/);
-    await t.mutation(api.funding.submit, {
-      token,
-      amountCents: 1_000_000,
-      method: "apple_pay",
-      payerName: "Pat Roofer",
-    });
-    await expect(
-      t.mutation(api.funding.submit, {
-        token,
-        amountCents: 1_000_000,
-        method: "card",
-      }),
-    ).rejects.toThrow(/already been used/);
-    expect(await balance(roofer)).toBe(0);
-    expect(
-      (
-        await roofer.as.query(api.marketplace.wallet, {
-          organizationId: roofer.organizationId,
-        })
-      ).pendingFunding,
-    ).toEqual({
-      amountCents: 1_000_000,
-      bonusCents: 100000,
-    });
-
-    const [pending] = await admin.as.query(api.funding.pending, {});
-    await expect(
-      roofer.as.mutation(api.funding.confirm, { id: pending.id }),
-    ).rejects.toThrow(/admins/);
-    await admin.as.mutation(api.funding.confirm, { id: pending.id });
-    await expect(
-      admin.as.mutation(api.funding.confirm, { id: pending.id }),
-    ).rejects.toThrow(/isn't waiting/);
-    expect(await balance(roofer)).toBe(1_100_000);
-    expect((await t.query(api.funding.get, { token }))!.status).toBe(
-      "confirmed",
     );
+    expect(await t.action(api.funding.checkout, { token, amountCents: 1_000_000 })).toEqual({ url: "https://checkout.stripe.com/c/cs_test_1" });
+    expect(calls[0].url).toBe("https://api.stripe.com/v1/checkout/sessions");
+    expect(calls[0].auth).toBe("Bearer sk_test_x");
+    const form = new URLSearchParams(calls[0].body);
+    expect(form.get("mode")).toBe("payment");
+    expect(form.get("line_items[0][price_data][unit_amount]")).toBe("1000000");
+    expect(form.get("success_url")).toBe(`https://app.example/fund/${token}?paid=1`);
+    expect(form.get("cancel_url")).toBe(`https://app.example/fund/${token}?cancelled=1`);
+    expect(form.get("client_reference_id")).toBe(token);
+    expect(form.get("metadata[bonusCents]")).toBe("100000");
+    expect((await t.query(api.funding.get, { token }))!.status).toBe("submitted");
+    expect(await balance(roofer)).toBe(0);
+
+    // Stripe calls back. A bad signature is refused; a good one credits the amount and bonus, once.
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_test");
+    const { signStripePayload, verifyStripeSignature } = await import("./lib/stripe");
+    const event = JSON.stringify({
+      type: "checkout.session.completed",
+      data: { object: { id: "cs_test_1", payment_status: "paid", payment_intent: "pi_1", customer_details: { name: "Pat Roofer", email: "pat@peak.example" } } },
+    });
+    const nowSec = Math.floor(Date.now() / 1000);
+    const post = async (body: string, signature: string) =>
+      t.fetch("/stripe/webhook", { method: "POST", headers: { "stripe-signature": signature }, body });
+    expect((await post(event, `t=${nowSec},v1=deadbeef`)).status).toBe(400);
+    expect((await post(event, await signStripePayload("whsec_other", nowSec, event))).status).toBe(400);
+    expect(await verifyStripeSignature("whsec_test", await signStripePayload("whsec_test", nowSec - 600, event), event)).toBe(false);
+    const good = await signStripePayload("whsec_test", nowSec, event);
+    const first = await post(event, good);
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({ credited: true, amountCents: 1_000_000, bonusCents: 100000 });
+    expect(await balance(roofer)).toBe(1_100_000);
+    expect(await (await post(event, good)).json()).toMatchObject({ credited: false });
+    expect(await balance(roofer)).toBe(1_100_000);
+    expect(await t.query(api.funding.get, { token })).toMatchObject({ status: "confirmed", paid: true });
+    const wallet = await roofer.as.query(api.marketplace.wallet, { organizationId: roofer.organizationId });
+    expect(wallet.transactions.map((x) => [x.type, x.amountCents, x.method])).toEqual(
+      expect.arrayContaining([["top_up", 1_000_000, "Stripe"], ["bonus", 100000, undefined]]),
+    );
+    expect(wallet).not.toHaveProperty("pendingFunding");
+
+    // A payer who closes Stripe's page: the session expires and the link opens again for another try.
+    const second = await rival.as.mutation(api.funding.createLink, { organizationId: rival.organizationId });
+    calls.length = 0;
+    await t.action(api.funding.checkout, { token: second, amountCents: 500_000 });
+    const expired = JSON.stringify({ type: "checkout.session.expired", data: { object: { id: "cs_test_2" } } });
+    expect(await (await post(expired, await signStripePayload("whsec_test", nowSec, expired))).json()).toMatchObject({ reopened: true });
+    expect((await t.query(api.funding.get, { token: second }))!.status).toBe("open");
+    expect(await balance(rival)).toBe(0);
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   test("the feed hides contact details until a company buys the lead, and only one company can", async () => {

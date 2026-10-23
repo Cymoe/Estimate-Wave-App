@@ -53,6 +53,8 @@ export const useDemandSlot = <T,>(county: string, jobType: string) => useLive<T>
 export const useIntakeQueue = <T,>(status: 'open' | 'closed' | 'confirmed') => useLive<T>(q('intake:queue'), { status });
 /** Every awarded lead with what was sent and whether the company has it. */
 export const useDelivered = <T,>() => useLive<T>(q('delivery:recent'), {});
+/** The funding page behind a link: no login, the token is the key. Flips to paid when Stripe's webhook lands. */
+export const useFundingPage = <T,>(token?: string) => useLive<T>(q('funding:get'), token ? { token } : 'skip');
 /** Where a lead for this county and trade would go the moment it is listed. */
 export const useLeadDestination = <T,>(county?: string, jobType?: string) =>
   useLive<T>(q('intake:destination'), county && jobType ? { county, jobType } : 'skip');

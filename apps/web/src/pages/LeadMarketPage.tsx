@@ -85,18 +85,6 @@ interface CreditRequest {
   requestedAt: string;
 }
 
-interface PendingPayment {
-  id: string;
-  organizationId: string;
-  companyName: string;
-  amountCents: number;
-  bonusCents: number;
-  method?: 'card' | 'apple_pay';
-  payerName?: string;
-  payerEmail?: string;
-  submittedAt?: string;
-}
-
 type Tab = 'demand' | 'intake' | 'inbox' | 'delivered' | 'companies' | 'prices';
 
 
@@ -441,7 +429,6 @@ function CompanyPanel({
   owner,
   trades,
   credits,
-  payments,
   onClose,
   onChanged,
 }: {
@@ -450,7 +437,6 @@ function CompanyPanel({
   owner: boolean;
   trades: Trade[];
   credits: CreditRequest[];
-  payments: PendingPayment[];
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -533,7 +519,6 @@ function CompanyPanel({
   };
 
   const mine = credits.filter((c) => c.organizationId === company.id);
-  const myPayments = payments.filter((p) => p.organizationId === company.id);
   const [linkNote, setLinkNote] = useState<string | null>(null);
 
   /** Shares the company's funding page (or copies it where there's no share sheet). */
@@ -552,16 +537,6 @@ function CompanyPanel({
     setTimeout(() => setLinkNote(null), 2500);
   };
 
-  const settlePayment = async (id: string, confirm: boolean) => {
-    setBusy(true);
-    try {
-      await (confirm ? fundingAPI.confirm(id) : fundingAPI.cancel(id));
-      await load();
-      onChanged();
-    } finally {
-      setBusy(false);
-    }
-  };
   const bought = leads.filter((l) => l.marketplaceLeadId);
 
   const [ownerEmail, setOwnerEmail] = useState(company.invitePending ?? '');
@@ -637,34 +612,6 @@ function CompanyPanel({
               </button>
               {linkNote && <span className="text-xs text-emerald-300">{linkNote}</span>}
             </div>
-          )}
-
-          {owner && myPayments.length > 0 && (
-            <section>
-              <h3 className="text-sm font-medium text-white mb-2">Payments to confirm</h3>
-              <ul className="space-y-2">
-                {myPayments.map((p) => (
-                  <li key={p.id} className="border border-[#336699]/50 bg-[#336699]/10 rounded p-3">
-                    <p className="text-sm text-white">
-                      {money(p.amountCents)} by {p.method === 'apple_pay' ? 'Apple Pay' : 'card'}
-                      {p.bonusCents > 0 ? ` · +${money(p.bonusCents)} bonus` : ''}
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      {[p.payerName, p.payerEmail].filter(Boolean).join(' · ') || 'No payer details'}
-                      {p.submittedAt ? ` · ${new Date(p.submittedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : ''}
-                    </p>
-                    <div className="flex gap-2 mt-2">
-                      <button type="button" disabled={busy} onClick={() => settlePayment(p.id, true)} className={primary}>
-                        Confirm {money(p.amountCents + p.bonusCents)}
-                      </button>
-                      <button type="button" disabled={busy} onClick={() => settlePayment(p.id, false)} className={secondary}>
-                        Cancel
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </section>
           )}
 
           {owner && (
@@ -964,7 +911,6 @@ const LeadMarketPage: React.FC = () => {
   });
   const [companies, setCompanies] = useState<Company[]>([]);
   const [credits, setCredits] = useState<CreditRequest[]>([]);
-  const [payments, setPayments] = useState<PendingPayment[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState<MarketLead | null>(null);
   const [verifying, setVerifying] = useState<MarketLead | null>(null);
@@ -981,16 +927,10 @@ const LeadMarketPage: React.FC = () => {
   const staff = isStaff(user);
   const owner = isSuperAdmin(user);
   const reload = useCallback(async () => {
-    const [i, c, p, f] = await Promise.all([
-      marketplaceAPI.inbox(),
-      marketplaceAPI.companies(),
-      marketplaceAPI.pendingCredits(),
-      fundingAPI.pending(),
-    ]);
+    const [i, c, p] = await Promise.all([marketplaceAPI.inbox(), marketplaceAPI.companies(), marketplaceAPI.pendingCredits()]);
     setInbox(i);
     setCompanies(c);
     setCredits(p);
-    setPayments(f);
   }, []);
 
   useEffect(() => {
@@ -1062,20 +1002,6 @@ const LeadMarketPage: React.FC = () => {
           ))}
         </div>
       </div>
-
-      {owner && payments.length > 0 && tab !== 'prices' && (
-        <button
-          type="button"
-          onClick={() => {
-            setTab('companies');
-            setOpenCompanyId(payments[0].organizationId);
-          }}
-          className="w-full mb-4 text-left px-4 py-3 rounded border border-[#336699]/60 bg-[#336699]/15 text-sm text-[#cfe2f5]"
-        >
-          {payments.length} payment{payments.length === 1 ? '' : 's'} waiting to be confirmed ·{' '}
-          {money(payments.reduce((sum, p) => sum + p.amountCents, 0))}
-        </button>
-      )}
 
       {owner && credits.length > 0 && tab !== 'prices' && (
         <button
@@ -1320,7 +1246,6 @@ const LeadMarketPage: React.FC = () => {
           owner={owner}
           trades={trades}
           credits={credits}
-          payments={payments}
           onClose={() => setOpenCompanyId(null)}
           onChanged={() => reload()}
         />

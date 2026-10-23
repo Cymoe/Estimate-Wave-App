@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
-import { Clock, Gavel, X } from 'lucide-react';
+import { Gavel, X } from 'lucide-react';
 import { fundingAPI } from '../../lib/api';
 import { useWallet } from '../../lib/live';
 import { WalletHistory, money, planLabel, type PlanSummary } from './wallet';
@@ -13,7 +13,6 @@ export interface WalletSummary {
   leadsBought: number;
   wonCents: number;
   wonCount: number;
-  pendingFunding?: { amountCents: number; bonusCents: number } | null;
   availableLeads?: number;
   openBids?: number;
   standingBids?: number;
@@ -75,10 +74,8 @@ export function bidStatus(wallet: WalletSummary): {
   const paused = Math.min(wallet.pausedBids ?? 0, bids);
   const balance = wallet.balanceCents;
   const covered = leadsCovered(wallet);
-  // A payment on its way will fix the money side; don't nag about it meanwhile.
-  const funding = Boolean(wallet.pendingFunding);
   if (bids === 0) {
-    if (balance <= 0 && !funding) {
+    if (balance <= 0) {
       return { tone: 'warn', text: 'Two steps to start winning leads: add funds, then set your bids.', action: 'fund', alsoBids: true };
     }
     const covers = balance > 0 && covered > 0 ? ` Your ${money(balance)} covers about ${covered} lead${covered === 1 ? '' : 's'}.` : '';
@@ -95,7 +92,6 @@ export function bidStatus(wallet: WalletSummary): {
           label: 'See bids',
         }
       : null;
-  if (funding) return outbidLine;
   const why = balance <= 0 ? `Your balance is ${money(0)}, so ${bids === 1 ? 'it' : 'they'} can't win leads.` : `${bids === 1 ? "It's" : "They're"} higher than your ${money(balance)} balance, so ${bids === 1 ? 'it' : 'they'} can't win leads.`;
   if (paused === bids) {
     return { tone: 'warn', text: `${bids === 1 ? 'Your bid is' : 'Your bids are'} paused. ${why} Add funds to put ${bids === 1 ? 'it' : 'them'} back in.`, action: 'fund', alsoBids: true };
@@ -118,7 +114,7 @@ export function bidStatus(wallet: WalletSummary): {
 
 /**
  * Lead notices on the Leads page: a link to the Marketplace when leads are
- * waiting, a payment being confirmed, and one line on what the company's bids
+ * waiting, and one line on what the company's bids
  * are doing (see bidStatus). The balance itself lives in the navigation
  * (WalletTile). Hidden for companies that don't buy leads from FieldQuote.
  */
@@ -127,7 +123,7 @@ export const WalletBar: React.FC<{ organizationId?: string }> = ({ organizationI
   const wallet = useWallet<WalletSummary>(organizationId) ?? null;
 
   if (!wallet || !organizationId) return null;
-  const inMarket = wallet.transactions.length > 0 || wallet.leadsBought > 0 || Boolean(wallet.pendingFunding) || (wallet.standingBids ?? 0) > 0;
+  const inMarket = wallet.transactions.length > 0 || wallet.leadsBought > 0 || (wallet.standingBids ?? 0) > 0;
   const status = bidStatus(wallet);
   // A company that hasn't picked its trades hears about it even before it buys leads.
   if (!inMarket && status?.action !== 'trades') return null;
@@ -148,13 +144,6 @@ export const WalletBar: React.FC<{ organizationId?: string }> = ({ organizationI
             </Link>
           )}
         </p>
-      )}
-      {wallet.pendingFunding && (
-        <div role="status" className="mb-4 px-4 py-3 rounded border border-[#336699]/50 bg-[#336699]/10 text-sm text-[#cfe2f5] flex items-center gap-2">
-          <Clock className="w-4 h-4 flex-shrink-0" />
-          Your {money(wallet.pendingFunding.amountCents)} payment
-          {wallet.pendingFunding.bonusCents > 0 ? ` (+${money(wallet.pendingFunding.bonusCents)} bonus)` : ''} is being confirmed. It'll show in your balance shortly.
-        </div>
       )}
       {status && <BidStatusLine wallet={wallet} status={status} onAddFunds={addFunds} />}
     </>

@@ -33,7 +33,6 @@ import {
   priceAt,
   pricingFor as pricingFrom,
 } from "./lib/auction";
-import { pendingFundingFor } from "./funding";
 import { sellLead } from "./lib/sales";
 import { listLead } from "./lib/awards";
 import { deleteDemoIntake } from "./intake";
@@ -1211,7 +1210,6 @@ export const wallet = query({
         .reduce((sum, l) => sum + (l.priceCents ?? 0), 0),
       leadsBought: bought.length,
       ...roi,
-      pendingFunding: await pendingFundingFor(ctx, organizationId),
       plan: organization.plan
         ? planSummary(organization.plan, Date.now())
         : null,
