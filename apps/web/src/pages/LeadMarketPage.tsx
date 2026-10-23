@@ -2,10 +2,10 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { Building2, Check, Inbox, Link2, MapPin, Phone, Send, Tag, Trash2, X } from 'lucide-react';
-import { fundingAPI, industriesAPI, leadsAPI, marketplaceAPI, permitsAPI, walletAPI } from '../lib/api';
+import { applicationsAPI, fundingAPI, industriesAPI, leadsAPI, marketplaceAPI, permitsAPI, walletAPI } from '../lib/api';
 import { copyText } from '../components/estimates/estimateActions';
 import { useAuth } from '../contexts/AuthContext';
-import { Dialog, Field, input, primary, secondary } from '../components/ops/ui';
+import { Dialog, Field, ago, input, primary, secondary } from '../components/ops/ui';
 import { IntakeQueue } from '../components/ops/IntakeQueue';
 import { Delivered, type DeliveredRow } from '../components/ops/Delivered';
 import { DemandBoard, type DemandBoardData } from '../components/ops/DemandBoard';
@@ -21,6 +21,20 @@ import { dropsToFloor, pricingFor } from '../services/auction';
 interface Trade {
   id: string;
   name: string;
+}
+
+/** A company that applied from the landing page and is waiting on the owner. */
+interface Application {
+  id: string;
+  companyName: string;
+  contactName: string;
+  email: string;
+  phone: string;
+  trades: string[];
+  county: string;
+  jobsPerMonth?: string;
+  notes?: string;
+  createdAt: string;
 }
 
 /** The plan mix in the totals row, in the order it reads best. */
@@ -940,6 +954,7 @@ const LeadMarketPage: React.FC = () => {
   });
   const [companies, setCompanies] = useState<Company[]>([]);
   const [credits, setCredits] = useState<CreditRequest[]>([]);
+  const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState<MarketLead | null>(null);
   const [verifying, setVerifying] = useState<MarketLead | null>(null);
@@ -956,11 +971,34 @@ const LeadMarketPage: React.FC = () => {
   const staff = isStaff(user);
   const owner = isSuperAdmin(user);
   const reload = useCallback(async () => {
-    const [i, c, p] = await Promise.all([marketplaceAPI.inbox(), marketplaceAPI.companies(), marketplaceAPI.pendingCredits()]);
+    const [i, c, p, a] = await Promise.all([
+      marketplaceAPI.inbox(),
+      marketplaceAPI.companies(),
+      marketplaceAPI.pendingCredits(),
+      applicationsAPI.list().catch(() => []),
+    ]);
     setInbox(i);
     setCompanies(c);
     setCredits(p);
+    setApplications(a);
   }, []);
+
+  /** Approve sets the company up and opens its panel, so the funding link can go out next. */
+  const decideApplication = async (id: string, approve: boolean) => {
+    try {
+      if (approve) {
+        const { organizationId } = await applicationsAPI.approve(id);
+        await reload();
+        setOpenCompanyId(organizationId);
+        setNotice('Company set up. Send the funding link when you have spoken to them.');
+      } else {
+        await applicationsAPI.decline(id);
+        await reload();
+      }
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'That did not go through.');
+    }
+  };
 
   useEffect(() => {
     if (!staff) return;
@@ -1066,7 +1104,7 @@ const LeadMarketPage: React.FC = () => {
               ['intake', 'Intake'],
               ['inbox', `Listed (${inbox.available.length})`],
               ['delivered', 'Delivered'],
-              ['companies', `Companies (${companies.length})`],
+              ['companies', `Companies (${companies.length})${applications.length > 0 ? ` · ${applications.length} applied` : ''}`],
               ...(owner ? ([['prices', 'Prices']] as Array<[Tab, string]>) : []),
             ] as Array<[Tab, string]>
           ).map(([value, label]) => (
@@ -1261,6 +1299,40 @@ const LeadMarketPage: React.FC = () => {
           </div>
         ) : (
           <div className="space-y-3">
+          {owner && applications.length > 0 && (
+            <section aria-label="Applications" className="border border-emerald-500/40 bg-emerald-500/5 rounded">
+              <h2 className="px-4 pt-3 pb-1 text-sm font-medium text-emerald-200">
+                {applications.length} {applications.length === 1 ? 'company' : 'companies'} applied from the landing page
+              </h2>
+              <ul className="divide-y divide-[#2A2A2A]">
+                {applications.map((a) => (
+                  <li key={a.id} className="px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-white">
+                        {a.companyName} <span className="text-gray-400">· {a.contactName}</span>
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        {a.trades.map(tradeName).join(', ')} · {a.county} County
+                        {a.jobsPerMonth ? ` · ${a.jobsPerMonth} jobs a month` : ''} · {ago(a.createdAt)}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        <a href={`tel:${a.phone}`} className="underline">{a.phone}</a> · <a href={`mailto:${a.email}`} className="underline">{a.email}</a>
+                      </p>
+                      {a.notes && <p className="text-xs text-gray-500 mt-1">{a.notes}</p>}
+                    </div>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => decideApplication(a.id, false)} className={secondary}>
+                        Decline
+                      </button>
+                      <button type="button" onClick={() => decideApplication(a.id, true)} className={primary}>
+                        Approve
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           <div className="border border-[#2A2A2A] rounded overflow-x-auto">
             <table className="w-full text-sm" aria-label="Companies">
               <thead className="text-xs text-gray-500 uppercase tracking-wide">

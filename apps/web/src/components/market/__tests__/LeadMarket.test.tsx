@@ -44,7 +44,15 @@ jest.mock('../../../lib/live', () => ({
   useLeadDestination: (county?: string, jobType?: string) => (county && jobType ? destination : undefined),
 }));
 
+let applications: unknown[] = [];
+const approveApplication = jest.fn(async (): Promise<{ organizationId: string }> => ({ organizationId: 'o2' }));
+const declineApplication = jest.fn(async () => null);
 jest.mock('../../../lib/api', () => ({
+  applicationsAPI: {
+    list: async () => applications,
+    approve: (id: string) => approveApplication(id),
+    decline: (id: string) => declineApplication(id),
+  },
   deliveryAPI: { resend: (id: string) => resendAlerts(id) },
   demandAPI: {
     setPlanCpl: (jobType: string, cents: number | null) => setPlanCpl(jobType, cents),
@@ -142,6 +150,7 @@ afterEach(() => {
   soldLeads = [];
   intakeRows = [];
   delivered = [];
+  applications = [];
 });
 
 describe('Lead Market', () => {
@@ -210,6 +219,34 @@ describe('Lead Market', () => {
     await open('Prices');
     expect(heading()).toBe('Prices');
     expect(summary()).toBe('Start and floor price for 2 trades');
+  });
+
+  it('shows landing-page applications to the owner, and Approve sets the company up and opens its panel', async () => {
+    applications = [
+      { id: 'a1', companyName: 'Basin Paint Co.', contactName: 'Ana Ruiz', email: 'ana@basinpaint.example', phone: '4325550199', trades: ['painting'], county: 'Midland', jobsPerMonth: '6', createdAt: new Date().toISOString() },
+    ];
+    await render(<LeadMarketPage />);
+    expect(Array.from(document.body.querySelectorAll('[role="tab"]')).map((t) => t.textContent)).toContain('Companies (3) · 1 applied');
+    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Companies'))!.click());
+    await flush();
+    const section = document.body.querySelector('[aria-label="Applications"]')!;
+    expect(section.textContent).toContain('1 company applied from the landing page');
+    expect(section.textContent).toContain('Basin Paint Co. · Ana Ruiz');
+    expect(section.textContent).toContain('Painting · Midland County · 6 jobs a month');
+    await act(async () => (Array.from(section.querySelectorAll('button')).find((b) => b.textContent === 'Approve') as HTMLButtonElement).click());
+    await flush();
+    expect(approveApplication).toHaveBeenCalledWith('a1');
+    expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('Peak Roofing');
+    expect(document.body.querySelector('[role="status"]')?.textContent).toContain('Company set up');
+  });
+
+  it('keeps applications from staff', async () => {
+    role = 'staff';
+    applications = [{ id: 'a1', companyName: 'Basin Paint Co.', contactName: 'Ana Ruiz', email: 'a@b.c', phone: '4325550199', trades: ['painting'], county: 'Midland', createdAt: new Date().toISOString() }];
+    await render(<LeadMarketPage />);
+    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Companies'))!.click());
+    await flush();
+    expect(document.body.querySelector('[aria-label="Applications"]')).toBeNull();
   });
 
   it('totals the companies table: cash held, leads and spend this month, plan mix and value won', async () => {

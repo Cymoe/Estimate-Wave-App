@@ -913,4 +913,25 @@ export default defineSchema({
       "organizationId",
       "resourceType",
     ]),
+
+  // Companies that applied from the landing page. The owner approves one
+  // into a company (with an invite for the applicant) or declines it.
+  companyApplications: defineTable({
+    companyName: v.string(),
+    contactName: v.string(),
+    email: v.string(),
+    phone: v.string(),
+    trades: v.array(v.string()),
+    county: v.string(),
+    jobsPerMonth: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    status: v.union(v.literal("new"), v.literal("approved"), v.literal("declined")),
+    createdAt: v.string(),
+    decidedAt: v.optional(v.string()),
+    decidedBy: v.optional(v.id("users")),
+    organizationId: v.optional(v.id("organizations")),
+  })
+    .index("by_status", ["status"])
+    .index("by_email", ["email"])
+    .index("by_phone", ["phone"]),
 });

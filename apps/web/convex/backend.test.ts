@@ -4531,3 +4531,51 @@ describe("working a lead from the card", () => {
     expect(moved!.lastContactAt).toBe(called!.lastContactAt);
   });
 });
+
+describe("landing page applications", () => {
+  test("a company applies once; the owner approves it into a company with an invite, or declines", async () => {
+    const t = setup();
+    const owner = await signUp(t, "owner@fieldquote.example", { role: "super_admin" });
+    const staff = await signUp(t, "va@fieldquote.example", { role: "staff" });
+    await t.run(async (ctx) => {
+      const now = new Date().toISOString();
+      await ctx.db.insert("industries", { slug: "painting", name: "Painting", display_order: 2, is_active: true, created_at: now, updated_at: now });
+      await ctx.db.insert("industries", { slug: "concrete", name: "Concrete", display_order: 3, is_active: true, created_at: now, updated_at: now });
+    });
+    const options = await t.query(api.applications.options, {});
+    expect(options.trades.map((x) => x.slug)).toEqual(["painting", "concrete"]);
+    expect(options.counties.slice(0, 2)).toEqual(["Midland", "Ector"]);
+    expect(options.westTexas).toContain("Howard");
+
+    const form = { companyName: "Basin Paint Co.", contactName: "Ana Ruiz", email: "Ana@BasinPaint.example", phone: "(432) 555-0199", trades: ["painting", "bogus"], county: "Midland County" };
+    await expect(t.mutation(api.applications.submit, { ...form, phone: "555" })).rejects.toThrow(/10-digit/);
+    await expect(t.mutation(api.applications.submit, { ...form, county: "Nowhere" })).rejects.toThrow(/Texas county/);
+    await expect(t.mutation(api.applications.submit, { ...form, trades: ["bogus"] })).rejects.toThrow(/one trade/);
+    const first = await t.mutation(api.applications.submit, form);
+    expect(first.duplicate).toBe(false);
+    // Same phone or email while it waits: no second row.
+    expect(await t.mutation(api.applications.submit, { ...form, email: "other@example.com" })).toEqual({ duplicate: true });
+    expect(await t.mutation(api.applications.submit, { ...form, phone: "432-555-0100" })).toEqual({ duplicate: true });
+
+    const waiting = await staff.as.query(api.applications.list, {});
+    expect(waiting).toHaveLength(1);
+    expect(waiting[0]).toMatchObject({ companyName: "Basin Paint Co.", email: "ana@basinpaint.example", phone: "4325550199", trades: ["painting"], county: "Midland", status: "new" });
+    await expect(t.query(api.applications.list, {})).rejects.toThrow(/signed in/);
+
+    // Only the owner decides.
+    await expect(staff.as.mutation(api.applications.approve, { id: waiting[0].id })).rejects.toThrow(/access|owner|admin/i);
+    const { organizationId } = await owner.as.mutation(api.applications.approve, { id: waiting[0].id });
+    const company = await t.run((ctx) => ctx.db.get(organizationId));
+    expect(company).toMatchObject({ name: "Basin Paint Co.", phone: "4325550199", email: "ana@basinpaint.example", leadTrades: ["painting"] });
+    const invite = await t.run(async (ctx) => (await ctx.db.query("companyInvites").collect()).find((i) => i.organizationId === organizationId));
+    expect(invite?.email).toBe("ana@basinpaint.example");
+    expect(await staff.as.query(api.applications.list, {})).toHaveLength(0);
+    await expect(owner.as.mutation(api.applications.approve, { id: waiting[0].id })).rejects.toThrow(/already decided/);
+
+    // Applying again after a decision is allowed (a declined company can try later).
+    const second = await t.mutation(api.applications.submit, { ...form, companyName: "Basin Paint Two" });
+    expect(second.duplicate).toBe(false);
+    await owner.as.mutation(api.applications.decline, { id: (second as { id: any }).id });
+    expect(await staff.as.query(api.applications.list, {})).toHaveLength(0);
+  });
+});

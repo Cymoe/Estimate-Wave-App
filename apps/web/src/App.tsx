@@ -13,7 +13,7 @@ import { ShareableEstimate } from './components/estimates/ShareableEstimate';
 import { EstimateContractView } from './components/contracts/EstimateContractView';
 import { SharedServiceOption } from './pages/SharedServiceOption';
 // Packages page removed as part of simplification
-import { LandingPage } from './components/LandingPage';
+import LeadsLanding from './pages/LeadsLanding';
 import Projects from './pages/marketing/Projects';
 import { BillsList } from './components/bills/BillsList';
 import { Callback } from './components/auth/Callback';
@@ -155,7 +155,7 @@ function AppRoutes() {
     if (user && session && !isLoading) {
       return <Navigate to={HOME_PATH} replace />;
     }
-    return <LandingPage />;
+    return <LeadsLanding />;
   };
 
   return (
@@ -164,6 +164,7 @@ function AppRoutes() {
       <Routes>
       {/* Public routes */}
       <Route path="/" element={renderLanding()} />
+      <Route path="/apply" element={<LeadsLanding scrollTo="apply" />} />
       <Route path="/auth/callback" element={<Callback />} />
       <Route path="/auth/test" element={<TestAuth />} />
       <Route path="/marketing/projects" element={<Projects />} />

@@ -620,44 +620,62 @@ export const createCompany = mutation({
   args: { data: v.any() },
   handler: async (ctx, { data }) => {
     const user = await requireSuperAdmin(ctx);
-    const name = typeof data?.name === "string" ? data.name.trim() : "";
-    if (!name) fail("INVALID", "Company name is required");
-    const ownerEmail =
-      typeof data?.ownerEmail === "string"
-        ? data.ownerEmail.trim().toLowerCase()
-        : "";
-    if (ownerEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(ownerEmail))
-      fail("INVALID", "Enter a valid owner email");
-    const key = companyNameKey(name);
-    const taken = (
-      await ctx.db.query("organizations").order("desc").take(500)
-    ).find((org) => org.isActive && companyNameKey(org.name) === key);
-    if (taken) fail("INVALID", `A company named ${taken.name} already exists`);
-    const text = (value: unknown) =>
-      typeof value === "string" && value.trim() ? value.trim() : undefined;
-    const organizationId = await createOrganization(ctx, {
-      name,
-      email: text(data.email) ?? (ownerEmail || undefined),
-      phone: text(data.phone),
-      city: text(data.city),
-      state: text(data.state),
-      leadTrades: Array.isArray(data.leadTrades)
-        ? await knownTrades(ctx, data.leadTrades.filter((t: unknown): t is string => typeof t === "string"))
-        : [],
-      walletBalanceCents: 0,
-    });
-    if (ownerEmail) await addOwner(ctx, organizationId, ownerEmail);
-    await logActivity(ctx, {
-      organizationId,
-      userId: user._id,
-      action: "created",
-      resourceType: "organization",
-      resourceId: organizationId,
-      details: { name },
-    });
+    const organizationId = await createCompanyFor(ctx, user, data);
     return await ctx.db.get(organizationId);
   },
 });
+
+/** The company a super admin sets up by hand, or approves from an application. */
+export async function createCompanyFor(
+  ctx: MutationCtx,
+  user: Doc<"users">,
+  data: {
+    name?: unknown;
+    ownerEmail?: unknown;
+    email?: unknown;
+    phone?: unknown;
+    city?: unknown;
+    state?: unknown;
+    leadTrades?: unknown;
+  },
+): Promise<Id<"organizations">> {
+  const name = typeof data?.name === "string" ? data.name.trim() : "";
+  if (!name) fail("INVALID", "Company name is required");
+  const ownerEmail =
+    typeof data?.ownerEmail === "string"
+      ? data.ownerEmail.trim().toLowerCase()
+      : "";
+  if (ownerEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(ownerEmail))
+    fail("INVALID", "Enter a valid owner email");
+  const key = companyNameKey(name);
+  const taken = (
+    await ctx.db.query("organizations").order("desc").take(500)
+  ).find((org) => org.isActive && companyNameKey(org.name) === key);
+  if (taken) fail("INVALID", `A company named ${taken.name} already exists`);
+  const text = (value: unknown) =>
+    typeof value === "string" && value.trim() ? value.trim() : undefined;
+  const organizationId = await createOrganization(ctx, {
+    name,
+    email: text(data.email) ?? (ownerEmail || undefined),
+    phone: text(data.phone),
+    city: text(data.city),
+    state: text(data.state),
+    leadTrades: Array.isArray(data.leadTrades)
+      ? await knownTrades(ctx, data.leadTrades.filter((t: unknown): t is string => typeof t === "string"))
+      : [],
+    walletBalanceCents: 0,
+  });
+  if (ownerEmail) await addOwner(ctx, organizationId, ownerEmail);
+  await logActivity(ctx, {
+    organizationId,
+    userId: user._id,
+    action: "created",
+    resourceType: "organization",
+    resourceId: organizationId,
+    details: { name },
+  });
+  return organizationId;
+}
 
 /**
  * Makes the person with `email` an owner of the company: right away if they

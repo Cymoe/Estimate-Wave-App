@@ -146,7 +146,7 @@ ${r.lead.phone ? `<p style="margin:12px 0"><a href="tel:${digits(r.lead.phone)}"
 
 type Result = { status: "sent" | "failed" | "skipped"; error?: string; providerId?: string };
 
-async function sendEmail(to: string[], body: { subject: string; text: string; html: string }): Promise<Result> {
+export async function sendEmail(to: string[], body: { subject: string; text: string; html: string }): Promise<Result> {
   const key = process.env.RESEND_API_KEY;
   const from = process.env.RESEND_FROM ?? "FieldQuote <leads@fieldquote.app>";
   if (!key) return { status: "skipped", error: "RESEND_API_KEY not set" };

@@ -552,4 +552,23 @@ export const fundingAPI = {
   checkout: (token: string, amountCents: number): Promise<{ url: string }> => run('action', api.funding.checkout, { token, amountCents }),
 };
 
+/** Applications from the landing page: companies that want to buy leads. */
+export const applicationsAPI = {
+  options: (): Promise<{ trades: Array<{ slug: string; name: string }>; counties: string[]; westTexas: string[] }> =>
+    run('query', api.applications.options, {}),
+  submit: (form: {
+    companyName: string;
+    contactName: string;
+    email: string;
+    phone: string;
+    trades: string[];
+    county: string;
+    jobsPerMonth?: string;
+    notes?: string;
+  }): Promise<{ duplicate: boolean; id?: string }> => run('mutation', api.applications.submit, defined(form)),
+  list: () => run('query', api.applications.list, {}),
+  approve: (id: string): Promise<{ organizationId: string }> => run('mutation', api.applications.approve, { id }),
+  decline: (id: string) => run('mutation', api.applications.decline, { id }),
+};
+
 export { APIError };
