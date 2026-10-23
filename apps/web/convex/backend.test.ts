@@ -2523,6 +2523,26 @@ describe("smoke tests and demo data", () => {
     );
   });
 
+  test("seed:demo fills the market from the command line, as the owner, and seed:resetDemo takes it back", async () => {
+    const t = setup();
+    await expect(t.mutation(internal.seed.demo, {})).rejects.toThrow(/No platform owner/);
+    const admin = await signUp(t, "admin@fieldquote.example", { role: "super_admin" });
+    const first = await t.mutation(internal.seed.demo, {});
+    expect(first.companies).not.toBe("already here");
+    expect(first.bids).not.toBe("already here");
+    expect(first.money).toMatchObject({ amountCents: 500000 });
+    const companies = await admin.as.query(api.marketplace.companiesOverview, {});
+    expect(companies.filter((c) => c.isSample).length).toBeGreaterThan(0);
+    expect(companies.every((c) => c.balanceCents >= 500000)).toBe(true);
+    expect((await admin.as.query(api.intake.queue, { status: "open" })).length).toBeGreaterThan(0);
+    // Running it again adds no second set of companies or bids.
+    const again = await t.mutation(internal.seed.demo, {});
+    expect(again).toMatchObject({ companies: "already here", bids: "already here", intake: { added: 0 } });
+    expect((await admin.as.query(api.marketplace.companiesOverview, {})).length).toBe(companies.length);
+    await t.mutation(internal.seed.resetDemo, {});
+    expect((await admin.as.query(api.marketplace.companiesOverview, {})).filter((c) => c.isSample)).toEqual([]);
+  });
+
   test("play money lands on every active company as a top-up, and only the owner can hand it out", async () => {
     const t = setup();
     const admin = await signUp(t, "admin@fieldquote.example", { role: "super_admin" });

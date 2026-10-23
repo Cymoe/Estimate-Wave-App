@@ -1,15 +1,20 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, type MutationCtx } from "./_generated/server";
 import { STARTER_COST_CODES, STARTER_INDUSTRIES, STARTER_ITEMS } from "./catalog/starterCatalog";
 import { nowIso } from "./lib/access";
 import { deleteOrganization, deleteUser } from "./lib/cleanup";
 import { createOrganization } from "./lib/organizations";
+import { seedDemoIntake } from "./intake";
 import {
   companyNameKey,
   deleteDemoData,
   isEmptyCompany,
+  seedDemoBids,
+  seedDemoData,
+  seedPlayMoney,
+  seedSampleLeads,
   switchOffCompany,
 } from "./marketplace";
 
@@ -444,4 +449,54 @@ export const renameTestPicante = internalMutation({
     });
     return { renamed: true, estimates: sizes.map((s) => s.estimates) };
   },
+});
+
+/*
+ * Demo data from the command line, so nobody has to tap buttons in the app:
+ *
+ *   npx convex run seed:demo         companies, bids, awarded leads, intake, play money
+ *   npx convex run seed:sampleLeads  20 more leads in the Marketplace
+ *   npx convex run seed:playMoney    another $5,000 on every active company
+ *   npx convex run seed:resetDemo    every demo company, lead and bid gone
+ *
+ * Rows are stamped with the platform owner as their creator, so the owner
+ * must exist (seed:makeSuperAdmin) before seeding.
+ */
+
+/** The platform owner, for `createdBy` on seeded rows. */
+async function owner(ctx: MutationCtx): Promise<Doc<"users">> {
+  const user = (await ctx.db.query("users").take(5000)).find((u) => u.role === "super_admin");
+  if (!user) throw new Error("No platform owner yet: sign up in the app, then run seed:makeSuperAdmin with that email.");
+  return user;
+}
+
+const anySample = async (ctx: MutationCtx, table: "organizations" | "standingBids") =>
+  (await ctx.db.query(table).filter((q) => q.eq(q.field("isSample"), true)).first()) !== null;
+
+/** Everything the demo buttons used to add, in one go. Skips what is already there. */
+export const demo = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await owner(ctx);
+    const companies = (await anySample(ctx, "organizations")) ? "already here" : await seedDemoData(ctx, user);
+    const bids = (await anySample(ctx, "standingBids")) ? "already here" : await seedDemoBids(ctx, user);
+    const intake = await seedDemoIntake(ctx, user);
+    const money = await seedPlayMoney(ctx, user);
+    return { companies, bids, intake, money };
+  },
+});
+
+export const sampleLeads = internalMutation({
+  args: {},
+  handler: async (ctx) => seedSampleLeads(ctx, await owner(ctx)),
+});
+
+export const playMoney = internalMutation({
+  args: {},
+  handler: async (ctx) => seedPlayMoney(ctx, await owner(ctx)),
+});
+
+export const resetDemo = internalMutation({
+  args: {},
+  handler: async (ctx) => deleteDemoData(ctx),
 });

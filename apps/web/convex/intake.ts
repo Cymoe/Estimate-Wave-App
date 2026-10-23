@@ -389,8 +389,11 @@ export async function deleteDemoIntake(ctx: MutationCtx): Promise<number> {
  */
 export const addDemoLeads = mutation({
   args: {},
-  handler: async (ctx) => {
-    const user = await requireSuperAdmin(ctx);
+  handler: async (ctx) => seedDemoIntake(ctx, await requireSuperAdmin(ctx)),
+});
+
+/** The six demo intake leads, as `addDemoLeads` adds them; also run from the CLI (seed.ts). */
+export async function seedDemoIntake(ctx: MutationCtx, user: Doc<"users">) {
     const existing = (await ctx.db.query("intakeLeads").take(5000)).filter((r) => r.isSample);
     if (existing.length > 0) return { added: 0 };
     const trades = await tradeSlugs(ctx);
@@ -510,8 +513,7 @@ export const addDemoLeads = mutation({
       duplicateOf: ids[0],
     });
     return { added: rows.length + 1 };
-  },
-});
+}
 
 /** Puts a closed lead back in the queue. */
 export const reopen = mutation({

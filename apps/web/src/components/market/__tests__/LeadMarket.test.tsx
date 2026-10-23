@@ -15,12 +15,7 @@ let feedLeads: unknown[] = [];
 let soldLeads: unknown[] = [];
 const buyLead = jest.fn(async () => ({ orgLeadId: 'ol9' }));
 let demoCompanies = false;
-const addDemoData = jest.fn(async () => { demoCompanies = true; });
-const removeDemoData = jest.fn(async () => { demoCompanies = false; });
-const addSampleLeads = jest.fn(async () => ({ added: 20 }));
 let demoBids = false;
-const addDemoBids = jest.fn(async () => { demoBids = true; return { companies: 3, standingBids: 8, leads: 14, sold: 11 }; });
-const fundEveryCompany = jest.fn(async () => ({ companies: 3, amountCents: 500000 }));
 const removeCompany = jest.fn(async (_id: string) => undefined);
 const setCompanyOwner = jest.fn(async (_id: string, _email: string) => 'invited');
 const setPlan = jest.fn(async () => undefined);
@@ -30,14 +25,13 @@ const inviteStaff = jest.fn(async (email: string) => { staffInvites = [...staffI
 
 let intakeRows: unknown[] = [];
 const createIntake = jest.fn(async (_source: string, _fields: unknown) => ({ id: 'i1', duplicate: false }));
-const addDemoIntake = jest.fn(async () => { intakeRows = [{ id: 'd1', source: 'meta', status: 'new', label: 'Dana Reyes', isSample: true, attempts: [], lastAttempt: null, createdAt: '2026-10-22T03:00:00Z', updatedAt: '2026-10-22T03:00:00Z' }]; return { added: 6 }; });
 const confirmIntake = jest.fn(async () => ({ leadId: 'm7', outcome: 'sold', companyName: 'Peak Roofing', priceCents: 25000 }));
 
 let demand: unknown = { vaCostCents: 500, planCpl: { roofing: 6000 }, slots: [] };
 const setPlanCpl = jest.fn(async (_jobType: string, _cents: number | null) => null);
 let delivered: unknown[] = [];
 const resendAlerts = jest.fn(async (_id: string) => null);
-let destination: unknown = { kind: 'sold', companyName: 'Peak Roofing', priceCents: 25000, tradeName: 'Roofing', county: 'Midland' };
+const destination: unknown = { kind: 'sold', companyName: 'Peak Roofing', priceCents: 25000, tradeName: 'Roofing', county: 'Midland' };
 
 // The live subscriptions see the same fixtures the one-shot calls used to return.
 jest.mock('../../../lib/live', () => ({
@@ -65,7 +59,6 @@ jest.mock('../../../lib/api', () => ({
     logAttempt: async () => null,
     close: async () => null,
     reopen: async () => null,
-    addDemo: () => addDemoIntake(),
   },
   staffAPI: {
     list: async () => ({ staff: [], invites: staffInvites }),
@@ -91,11 +84,6 @@ jest.mock('../../../lib/api', () => ({
     pendingCredits: async () => [],
     prices: async () => ({ defaultCents: 20000, prices: [] }),
     assign: (...args: unknown[]) => assign(...(args as [])),
-    addDemoData: () => addDemoData(),
-    removeDemoData: () => removeDemoData(),
-    addSampleLeads: () => addSampleLeads(),
-    addDemoBids: () => addDemoBids(),
-    fundEveryCompany: () => fundEveryCompany(),
     removeCompany: (id: string) => removeCompany(id),
     setCompanyOwner: (id: string, email: string) => setCompanyOwner(id, email),
     setPlan: (id: string, changes: unknown) => setPlan(id, changes),
@@ -234,50 +222,6 @@ describe('Lead Market', () => {
     await flush();
     expect(assign).toHaveBeenCalledWith('m1', 'o2');
     expect(document.body.textContent).toContain('Jane Cole sent to Peak Roofing');
-  });
-
-  it('keeps every demo button in one strip at the top, on every tab, and hides each once its data is there', async () => {
-    await render(<LeadMarketPage />);
-    const strip = () => document.body.querySelector('[data-testid="demo-strip"]')!;
-    const labels = () => Array.from(strip().querySelectorAll('button')).map((b) => b.textContent);
-    // On the Intake tab (the default), with no demo data.
-    expect(labels()).toEqual(['Add demo companies and leads', 'Add 20 sample leads', 'Add demo bids', 'Add demo leads to Intake', 'Give every company $5,000']);
-    await act(async () => byText('Add demo companies and leads')!.click());
-    await flush();
-    expect(addDemoData).toHaveBeenCalled();
-    expect(labels()).toEqual(['Add 20 sample leads', 'Add demo bids', 'Add demo leads to Intake', 'Give every company $5,000', 'Remove demo data']);
-    // Play money is one tap for every company.
-    await act(async () => byText('Give every company $5,000')!.click());
-    await flush();
-    expect(fundEveryCompany).toHaveBeenCalled();
-    expect(document.body.querySelector('[role="status"]')?.textContent).toContain('$5,000.00 of play money added to 3 companies');
-    // Still there on the Companies tab.
-    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Companies'))!.click());
-    await flush();
-    expect(strip()).not.toBeNull();
-    await act(async () => byText('Add demo bids')!.click());
-    await flush();
-    expect(addDemoBids).toHaveBeenCalled();
-    expect(labels()).toEqual(['Add 20 sample leads', 'Add demo leads to Intake', 'Give every company $5,000', 'Remove demo data']);
-  });
-
-  it('fills an empty market with demo companies, and removes them in one tap', async () => {
-    emptyMarket = true;
-    await render(<LeadMarketPage />);
-    await openListed();
-    await act(async () => byText('Add demo companies and leads')!.click());
-    await flush();
-    expect(addDemoData).toHaveBeenCalled();
-    expect(document.body.textContent).toContain("You're looking at demo companies and leads.");
-    expect(byText('Add demo companies and leads')).toBeUndefined();
-    await act(async () => byText('Remove demo data')!.click());
-    await flush();
-    expect(removeDemoData).toHaveBeenCalled();
-    expect(document.body.textContent).not.toContain("You're looking at demo companies");
-    await act(async () => byText('Add 20 sample leads')!.click());
-    await flush();
-    expect(addSampleLeads).toHaveBeenCalled();
-    expect(document.body.textContent).toContain('20 sample leads added');
   });
 
   it('suggests a bonus for bigger payments', () => {
@@ -475,28 +419,6 @@ describe('the bid status line', () => {
 });
 
 describe('standing bids in Admin', () => {
-  it('offers to seed demo bids on the Companies tab even while demo companies are around', async () => {
-    demoCompanies = true;
-    await render(<LeadMarketPage />);
-    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((b) => b.textContent?.startsWith('Companies'))!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-    expect(document.body.textContent).toContain("You're looking at demo companies and leads.");
-    await act(async () => byText('Add demo bids')!.click());
-    await flush();
-    expect(addDemoBids).toHaveBeenCalled();
-  });
-
-  it('seeds demo bids for every company from the inbox, then offers to remove them', async () => {
-    await render(<LeadMarketPage />);
-    await openListed();
-    await act(async () => byText('Add demo bids')!.click());
-    await flush();
-    expect(addDemoBids).toHaveBeenCalled();
-    expect(document.body.textContent).toContain('Demo bids added: 8 bids across 3 companies, 14 leads, 11 awarded');
-    expect(document.body.textContent).toContain("You're looking at demo bids, funds and leads.");
-    expect(byText('Add demo bids')).toBeUndefined();
-    expect(byText('Remove demo data')).toBeDefined();
-  });
-
   it('shows which sold leads went to a standing bid', async () => {
     soldLeads = [{ id: 'm2', name: 'Ray Ortiz', jobType: 'painting', city: 'Odessa', county: 'Ector', status: 'assigned', price: 26000, priceCents: 26000, wonBy: 'bid', companyName: 'Peak Roofing', assignedAt: '2026-10-18T12:00:00Z', createdAt: '2026-10-18' }];
     await render(<LeadMarketPage />);
@@ -522,21 +444,6 @@ describe('standing bids in Admin', () => {
     expect(createIntake).toHaveBeenCalledWith('manual', expect.objectContaining({ name: 'Pat Cole', city: 'Odessa', county: 'Ector' }));
     expect(document.body.querySelector('[role="radiogroup"][aria-label="How it came in"]')).toBeNull();
     expect(document.body.querySelector('[role="dialog"]')).toBeNull();
-  });
-
-  it('lets the owner, and only the owner, fill the empty queue with demo leads', async () => {
-    role = 'staff';
-    await render(<LeadMarketPage />);
-    expect(document.body.querySelector('[data-testid="demo-strip"]')).toBeNull();
-    document.body.innerHTML = '';
-    role = 'super_admin';
-    await render(<LeadMarketPage />);
-    await act(async () => byText('Add demo leads to Intake')!.click());
-    await flush();
-    expect(addDemoIntake).toHaveBeenCalled();
-    const list = document.body.querySelector('[aria-label="Intake"]')!;
-    expect(list.textContent).toContain('Dana Reyes');
-    expect(list.textContent).toContain('demo');
   });
 
   it('lists the queue with source, trade, county and the last try, and flags a repeat number', async () => {

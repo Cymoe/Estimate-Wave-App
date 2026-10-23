@@ -449,11 +449,6 @@ export const marketplaceAPI = {
     run('mutation', api.marketplace.setLeadPrice, { jobType, price, ...(schedule ?? {}) }),
   pendingCredits: () => run('query', api.marketplace.pendingCredits, {}),
   reviewCredit: (orgLeadId: string, approve: boolean) => run('mutation', api.marketplace.reviewCredit, { orgLeadId, approve }),
-  addDemoData: () => run('mutation', api.marketplace.addDemoData, {}),
-  addSampleLeads: () => run('mutation', api.marketplace.addSampleLeads, {}),
-  addDemoBids: () => run('mutation', api.marketplace.addDemoBids, {}),
-  fundEveryCompany: () => run('mutation', api.marketplace.fundEveryCompany, {}),
-  removeDemoData: () => run('mutation', api.marketplace.removeDemoData, {}),
 };
 
 export const walletAPI = {
@@ -499,7 +494,6 @@ export const intakeAPI = {
   logAttempt: (id: string, outcome: string, note?: string) => run('mutation', api.intake.logAttempt, defined({ id, outcome, note })),
   close: (id: string, disposition: string, note?: string) => run('mutation', api.intake.close, defined({ id, disposition, note })),
   reopen: (id: string) => run('mutation', api.intake.reopen, { id }),
-  addDemo: () => run('mutation', api.intake.addDemoLeads, {}),
   confirm: (id: string, checks: Record<string, boolean>, fields: IntakeFields, note?: string, allowDuplicate?: boolean) =>
     run('mutation', api.intake.confirm, defined({ id, checks, note, allowDuplicate, ...fields })),
 };

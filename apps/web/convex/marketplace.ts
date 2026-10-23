@@ -1713,8 +1713,11 @@ const DEMO_SALES: Array<[number, number, Doc<"leads">["status"], number?]> = [
 /** Fills an empty Lead Market with realistic demo companies and leads, all removable. */
 export const addDemoData = mutation({
   args: {},
-  handler: async (ctx) => {
-    const user = await requireSuperAdmin(ctx);
+  handler: async (ctx) => seedDemoData(ctx, await requireSuperAdmin(ctx)),
+});
+
+/** The demo companies and leads, as `addDemoData` adds them; also run from the CLI (seed.ts) with no signed-in user. */
+export async function seedDemoData(ctx: MutationCtx, user: Doc<"users">) {
     if (
       (await ctx.db
         .query("organizations")
@@ -1802,8 +1805,7 @@ export const addDemoData = mutation({
       });
     }
     return { companies: companyIds.length, leads: leadIds.length };
-  },
-});
+}
 
 // [name, phone, address, city, trade, what they need]
 const SAMPLE_LEADS: Array<[string, string, string, string, string, string]> = [
@@ -1979,8 +1981,11 @@ const DEMO_CONFIRM_NOTE = "Wants a quote this month";
  */
 export const addSampleLeads = mutation({
   args: {},
-  handler: async (ctx) => {
-    const user = await requireSuperAdmin(ctx);
+  handler: async (ctx) => seedSampleLeads(ctx, await requireSuperAdmin(ctx)),
+});
+
+/** The 20 sample leads, as `addSampleLeads` adds them; also run from the CLI (seed.ts). */
+export async function seedSampleLeads(ctx: MutationCtx, user: Doc<"users">) {
     const nowMs = Date.now();
     let added = 0;
     for (const [
@@ -2003,8 +2008,7 @@ export const addSampleLeads = mutation({
       added++;
     }
     return { added };
-  },
-});
+}
 
 /** Removes every demo company and demo lead, with their balances and history. */
 export const removeDemoData = mutation({
@@ -2282,8 +2286,11 @@ export const PLAY_MONEY_CENTS = 500_000;
  */
 export const fundEveryCompany = mutation({
   args: {},
-  handler: async (ctx) => {
-    const user = await requireSuperAdmin(ctx);
+  handler: async (ctx) => seedPlayMoney(ctx, await requireSuperAdmin(ctx)),
+});
+
+/** Play money on every active company, as `fundEveryCompany` posts it; also run from the CLI (seed.ts). */
+export async function seedPlayMoney(ctx: MutationCtx, user: Doc<"users">) {
     const companies = (await ctx.db.query("organizations").take(5000)).filter((o) => o.isActive);
     for (const company of companies) {
       await postTransaction(ctx, company._id, {
@@ -2296,13 +2303,15 @@ export const fundEveryCompany = mutation({
       });
     }
     return { companies: companies.length, amountCents: PLAY_MONEY_CENTS };
-  },
-});
+}
 
 export const addDemoBids = mutation({
   args: {},
-  handler: async (ctx) => {
-    const user = await requireSuperAdmin(ctx);
+  handler: async (ctx) => seedDemoBids(ctx, await requireSuperAdmin(ctx)),
+});
+
+/** Demo funds, standing bids and awarded leads, as `addDemoBids` adds them; also run from the CLI (seed.ts). */
+export async function seedDemoBids(ctx: MutationCtx, user: Doc<"users">) {
     if (
       (await ctx.db
         .query("standingBids")
@@ -2409,5 +2418,4 @@ export const addDemoBids = mutation({
       leads: DEMO_BID_LEADS.length,
       sold,
     };
-  },
-});
+}
