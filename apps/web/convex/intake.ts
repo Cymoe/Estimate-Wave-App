@@ -131,7 +131,7 @@ export const receive = internalMutation({
         .query("intakeLeads")
         .withIndex("by_external_id", (q) => q.eq("externalId", fields.externalId))
         .first();
-      if (seen !== null) return { id: seen._id, duplicate: seen.duplicateOf !== undefined, repeat: true };
+      if (seen !== null) return { id: seen._id, duplicate: seen.duplicateOf !== undefined, repeat: true, externalId: fields.externalId, summary: intakeLabel(seen) };
     }
     const trades = await tradeSlugs(ctx);
     const fromCampaign = parseCampaign(fields.campaignName, trades);
@@ -170,9 +170,56 @@ export const receive = internalMutation({
       createdAt: now,
       updatedAt: now,
     });
-    return { id, duplicate: duplicateOf !== undefined, repeat: false };
+    return { id, duplicate: duplicateOf !== undefined, repeat: false, externalId: fields.externalId, summary: intakeSummary(fields, county, jobType) };
   },
 });
+
+/** How many webhook hits the log keeps. */
+export const INTAKE_LOG_KEEP = 500;
+
+/** One row per hit on the webhook. Trims the oldest beyond the keep count. */
+export const log = internalMutation({
+  args: {
+    outcome: v.union(v.literal("accepted"), v.literal("repeat"), v.literal("rejected")),
+    reason: v.optional(v.string()),
+    source: v.optional(v.string()),
+    externalId: v.optional(v.string()),
+    intakeLeadId: v.optional(v.id("intakeLeads")),
+    summary: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("intakeLog", { receivedAt: nowIso(), ...args });
+    const rows = await ctx.db.query("intakeLog").withIndex("by_received").order("desc").take(INTAKE_LOG_KEEP + 50);
+    for (const old of rows.slice(INTAKE_LOG_KEEP)) await ctx.db.delete(old._id);
+    return null;
+  },
+});
+
+/** The last 50 webhook hits, newest first. Staff. */
+export const recentLog = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireStaff(ctx);
+    const rows = await ctx.db.query("intakeLog").withIndex("by_received").order("desc").take(50);
+    return rows.map((r) => ({
+      id: r._id,
+      receivedAt: r.receivedAt,
+      source: r.source,
+      outcome: r.outcome,
+      reason: r.reason,
+      externalId: r.externalId,
+      intakeLeadId: r.intakeLeadId,
+      summary: r.summary,
+    }));
+  },
+});
+
+/** The one-line description of an accepted lead for the log. */
+export function intakeSummary(fields: IntakeFields, county?: string, jobType?: string): string {
+  return [fields.name, fields.phone, county ? `${county} County` : undefined, jobType, fields.campaignName]
+    .filter((x): x is string => Boolean(x))
+    .join(" · ");
+}
 
 /** A lead typed in by staff: a call that came in, or one written down. */
 export const create = mutation({

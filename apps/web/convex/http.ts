@@ -22,24 +22,38 @@ http.route({
   path: "/intake/lead",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
-    const expected = process.env.INTAKE_KEY;
-    if (!expected) return json({ error: "Intake isn't set up yet (no INTAKE_KEY)" }, 503);
     const url = new URL(request.url);
+    const sourceParam = url.searchParams.get("source") ?? undefined;
+    // Every hit leaves a row in the intake log, so a form that "fired and nothing showed up" can be traced.
+    const reject = async (reason: string, status: number, summary?: string) => {
+      await ctx.runMutation(internal.intake.log, { outcome: "rejected", reason, source: sourceParam, summary });
+      return json({ error: reason }, status);
+    };
+    const expected = process.env.INTAKE_KEY;
+    if (!expected) return await reject("Intake isn't set up yet (no INTAKE_KEY)", 503);
     const given = request.headers.get("x-intake-key") ?? url.searchParams.get("key");
-    if (given !== expected) return json({ error: "Wrong key" }, 401);
+    if (given !== expected) return await reject("Wrong key", 401);
+    const text = await request.text();
     let payload: unknown;
     try {
-      payload = await request.json();
+      payload = JSON.parse(text);
     } catch {
-      return json({ error: "Send JSON" }, 400);
+      return await reject("Send JSON", 400, text.slice(0, 300));
     }
-    if (!payload || typeof payload !== "object") return json({ error: "Send a JSON object" }, 400);
-    const source = url.searchParams.get("source");
+    if (!payload || typeof payload !== "object") return await reject("Send a JSON object", 400, text.slice(0, 300));
     const result = await ctx.runMutation(internal.intake.receive, {
       payload,
-      source: source === "meta" || source === "call" || source === "manual" || source === "api" ? source : undefined,
+      source: sourceParam === "meta" || sourceParam === "call" || sourceParam === "manual" || sourceParam === "api" ? sourceParam : undefined,
     });
-    return json(result, result.repeat ? 200 : 201);
+    await ctx.runMutation(internal.intake.log, {
+      outcome: result.repeat ? "repeat" : "accepted",
+      reason: result.repeat ? "Same outside id as a lead already in" : result.duplicate ? "Same phone as another lead: flagged" : undefined,
+      source: sourceParam,
+      externalId: result.externalId,
+      intakeLeadId: result.id,
+      summary: result.summary,
+    });
+    return json({ id: result.id, duplicate: result.duplicate, repeat: result.repeat }, result.repeat ? 200 : 201);
   }),
 });
 

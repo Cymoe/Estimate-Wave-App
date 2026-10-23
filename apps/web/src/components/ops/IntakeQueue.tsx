@@ -5,6 +5,7 @@ import { useIntakeQueue } from '../../lib/live';
 import { COUNTY_CHOICES, countyForTown } from '../../services/counties';
 import { Dialog, Field, ago, input, primary, secondary } from './ui';
 import { IntakePanel, type IntakeRow } from './IntakePanel';
+import { IncomingLog } from './IncomingLog';
 
 export interface Trade {
   id: string;
@@ -129,6 +130,8 @@ export const IntakeQueue: React.FC<{
           })}
         </ul>
       )}
+
+      <IncomingLog />
 
       {(openNew || adding) && (
         <IntakeForm

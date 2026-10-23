@@ -51,6 +51,8 @@ export const useDemandBoard = <T,>() => useLive<T>(q('demand:board'), {});
 export const useDemandSlot = <T,>(county: string, jobType: string) => useLive<T>(q('demand:slot'), { county, jobType });
 /** The intake queue for one filter. */
 export const useIntakeQueue = <T,>(status: 'open' | 'closed' | 'confirmed') => useLive<T>(q('intake:queue'), { status });
+/** The last 50 hits on the intake webhook: accepted, repeat or rejected, and why. */
+export const useIntakeLog = <T,>() => useLive<T>(q('intake:recentLog'), {});
 /** Every awarded lead with what was sent and whether the company has it. */
 export const useDelivered = <T,>() => useLive<T>(q('delivery:recent'), {});
 /** The funding page behind a link: no login, the token is the key. Flips to paid when Stripe's webhook lands. */

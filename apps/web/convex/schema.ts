@@ -673,6 +673,19 @@ export default defineSchema({
     .index("by_external_id", ["externalId"])
     .index("by_confirmed_lead", ["confirmedLeadId"]),
 
+  // Every hit on the intake webhook, accepted or not, so "the form fired and
+  // nothing showed up" has an answer. Kept to the last few hundred rows.
+  intakeLog: defineTable({
+    receivedAt: v.string(),
+    source: v.optional(v.string()),
+    outcome: v.union(v.literal("accepted"), v.literal("repeat"), v.literal("rejected")),
+    reason: v.optional(v.string()),
+    externalId: v.optional(v.string()),
+    intakeLeadId: v.optional(v.id("intakeLeads")),
+    /** What was parsed (name, phone, county, trade) or, when it couldn't be, the start of the body. */
+    summary: v.optional(v.string()),
+  }).index("by_received", ["receivedAt"]),
+
   // Where the paying demand is: one row per county and trade, rebuilt every
   // few minutes from standing bids, balances and recent leads. VAs read it
   // to decide where to run ads.

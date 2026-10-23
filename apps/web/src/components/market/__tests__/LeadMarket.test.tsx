@@ -22,6 +22,7 @@ let staffInvites: Array<{ id: string; email: string; createdAt: string }> = [];
 const inviteStaff = jest.fn(async (email: string) => { staffInvites = [...staffInvites, { id: `i${staffInvites.length + 1}`, email, createdAt: '2026-10-22' }]; return { status: 'invited' }; });
 
 let intakeRows: unknown[] = [];
+let intakeLog: unknown[] = [];
 const createIntake = jest.fn(async (_source: string, _fields: unknown) => ({ id: 'i1', duplicate: false }));
 const confirmIntake = jest.fn(async () => ({ leadId: 'm7', outcome: 'sold', companyName: 'Peak Roofing', priceCents: 25000 }));
 
@@ -40,6 +41,7 @@ jest.mock('../../../lib/live', () => ({
       ? { bidders: [], buyers: [], leads: [] }
       : { bidders: [{ companyName: 'Rich Roofing', amountCents: 30000, balanceCents: 40000, funded: true }, { companyName: 'Poor Roofing', amountCents: 40000, balanceCents: 100, funded: false }], buyers: ['Rich Roofing', 'Poor Roofing'], leads: [] },
   useIntakeQueue: () => intakeRows,
+  useIntakeLog: () => intakeLog,
   useDelivered: () => delivered,
   useLeadDestination: (county?: string, jobType?: string) => (county && jobType ? destination : undefined),
 }));
@@ -149,6 +151,7 @@ afterEach(() => {
   feedLeads = [];
   soldLeads = [];
   intakeRows = [];
+  intakeLog = [];
   delivered = [];
   applications = [];
 });
@@ -190,6 +193,26 @@ describe('Lead Market', () => {
     expect(vault.textContent).toContain('Old Hollis');
     expect(vault.textContent).toContain('Not confirmed yet');
     expect(Array.from(vault.querySelectorAll('button')).map((b) => b.textContent)).toContain('Confirm');
+  });
+
+  it('lists every webhook hit under Intake, accepted or not, with the reason', async () => {
+    intakeLog = [
+      { id: 'g1', receivedAt: new Date().toISOString(), source: 'meta', outcome: 'rejected', reason: 'Wrong key' },
+      { id: 'g2', receivedAt: new Date().toISOString(), source: 'meta', outcome: 'repeat', reason: 'Same outside id as a lead already in', summary: 'Dana Reyes · 432-555-0133', intakeLeadId: 'i1' },
+      { id: 'g3', receivedAt: new Date().toISOString(), outcome: 'accepted', summary: 'Dana Reyes · 432-555-0133 · Midland County · roofing', intakeLeadId: 'i1' },
+    ];
+    await render(<LeadMarketPage />);
+    const section = document.body.querySelector('[data-testid="incoming-log"]')!;
+    expect(section.textContent).toContain('Incoming webhook hits');
+    expect(section.textContent).toContain('last 3 · 1 rejected');
+    expect(section.querySelector('ul')).toBeNull();
+    await act(async () => (section.querySelector('button') as HTMLButtonElement).click());
+    const items = Array.from(section.querySelectorAll('li')).map((li) => li.textContent);
+    expect(items[0]).toContain('Rejected');
+    expect(items[0]).toContain('Wrong key');
+    expect(items[1]).toContain('Repeat');
+    expect(items[2]).toContain('In');
+    expect(items[2]).toContain('Midland County · roofing');
   });
 
   it('heads the page with the open tab and one line of that tab\'s numbers', async () => {

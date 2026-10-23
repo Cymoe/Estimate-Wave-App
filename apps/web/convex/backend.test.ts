@@ -255,6 +255,20 @@ describe("intake", () => {
       expect((await again.json()).id).toBe(id);
       expect((await t.fetch("/intake/lead?key=s3cret", { method: "POST", body: "not json" })).status).toBe(400);
 
+      // Every hit left a row in the log, newest first, so a form that "fired and nothing showed up" can be traced.
+      const log = await va.as.query(api.intake.recentLog, {});
+      expect(log.map((l) => [l.outcome, l.reason ?? null])).toEqual([
+        ["rejected", "Send JSON"],
+        ["repeat", "Same outside id as a lead already in"],
+        ["accepted", null],
+        ["rejected", "Wrong key"],
+        ["rejected", "Wrong key"],
+      ]);
+      expect(log[0].summary).toBe("not json");
+      expect(log[2]).toMatchObject({ intakeLeadId: id, externalId: "L1", summary: "Dana Reyes · 432-555-0133 · Midland County · roofing · TX_MIDLAND_ROOFING_LG_202610" });
+      expect(log[1].intakeLeadId).toBe(id);
+      await expect(t.query(api.intake.recentLog, {})).rejects.toThrow(/signed in/);
+
       const [row] = await va.as.query(api.intake.queue, {});
       expect(row).toMatchObject({
         source: "meta", status: "new", name: "Dana Reyes", phone: "432-555-0133", county: "Midland", countyFromCampaign: "Midland",
