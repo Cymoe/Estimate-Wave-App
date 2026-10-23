@@ -29,11 +29,23 @@ interface Slot {
   listed7: number;
   listed30: number;
   soldAtAward30: number;
+  /** Leads sold in the last 30 days, by a standing bid or in the Marketplace. */
+  sold30: number;
+  /** What those sold for: realised, not promised. Null until something sold. */
+  avgSoldCents: number | null;
+  minSoldCents: number | null;
+  maxSoldCents: number | null;
+  lastSoldCents: number | null;
+  /** sold30 / listed30; null until something was listed. */
+  sellThrough: number | null;
   inMarketplace: number;
   inVault: number;
   /** Active companies that buy this trade anywhere. Zero means nobody can bid or buy here. */
   buyers: number;
 }
+
+/** How many sales it takes before the realised price, not the top bid, drives the margin. */
+export const SOLD_BASIS_MIN = 3;
 
 /** Works the whole board out from the live tables. Small tables, so a full scan is fine for now. */
 export async function computeSlots(ctx: QueryCtx | MutationCtx, now = Date.now()): Promise<Slot[]> {
@@ -42,7 +54,7 @@ export async function computeSlots(ctx: QueryCtx | MutationCtx, now = Date.now()
     const k = key(county, jobType);
     let s = slots.get(k);
     if (!s) {
-      s = { county, jobType, bidders: 0, fundedBidders: 0, depthLeads: 0, listed7: 0, listed30: 0, soldAtAward30: 0, inMarketplace: 0, inVault: 0, buyers: 0 };
+      s = { county, jobType, bidders: 0, fundedBidders: 0, depthLeads: 0, listed7: 0, listed30: 0, soldAtAward30: 0, sold30: 0, avgSoldCents: null, minSoldCents: null, maxSoldCents: null, lastSoldCents: null, sellThrough: null, inMarketplace: 0, inVault: 0, buyers: 0 };
       slots.set(k, s);
     }
     return s;
@@ -82,6 +94,7 @@ export async function computeSlots(ctx: QueryCtx | MutationCtx, now = Date.now()
   const since30 = new Date(now - 30 * DAY_MS).toISOString();
   const leads = await ctx.db.query("marketplaceLeads").order("desc").take(5000);
   const leadSlot = new Map<Id<"marketplaceLeads">, Slot>();
+  const sold = new Map<string, Array<{ at: string; cents: number }>>();
   for (const lead of leads) {
     if (!lead.county || !lead.jobType || lead.isSample) continue;
     const s = slot(lead.county, lead.jobType);
@@ -90,7 +103,26 @@ export async function computeSlots(ctx: QueryCtx | MutationCtx, now = Date.now()
     if (lead.createdAt >= since7) s.listed7++;
     if (lead.status === "available") s.inMarketplace++;
     if (lead.status === "older") s.inVault++;
+    // A sale is a sale whichever way it went: standing bid or Marketplace. A credited lead still sold.
+    if ((lead.status === "assigned" || lead.status === "credited") && lead.assignedAt && lead.assignedAt >= since30) {
+      s.sold30++;
+      if (lead.priceCents !== undefined) {
+        const k = key(lead.county, lead.jobType);
+        const list = sold.get(k) ?? [];
+        list.push({ at: lead.assignedAt, cents: lead.priceCents });
+        sold.set(k, list);
+      }
+    }
   }
+  for (const [k, sales] of sold) {
+    const s = slots.get(k)!;
+    const cents = sales.map((x) => x.cents);
+    s.avgSoldCents = Math.round(cents.reduce((a, b) => a + b, 0) / cents.length);
+    s.minSoldCents = Math.min(...cents);
+    s.maxSoldCents = Math.max(...cents);
+    s.lastSoldCents = sales.sort((a, b) => b.at.localeCompare(a.at))[0].cents;
+  }
+  for (const s of slots.values()) if (s.listed30 > 0) s.sellThrough = s.sold30 / s.listed30;
   const awards = (await ctx.db.query("leadBids").order("desc").take(5000)).filter(
     (b) => b.kind === "award" && b.status === "filled" && b.createdAt >= since30,
   );
@@ -163,7 +195,10 @@ export const board = query({
       slots: rows
         .map((r) => {
           const cpl = plan.get(r.jobType);
-          const marginCents = r.topFundedCents !== undefined && cpl !== undefined ? r.topFundedCents - cpl - VA_COST_CENTS : null;
+          // Realised beats promised: once a slot has sold enough, the margin is on what leads fetched.
+          const marginBasis = r.sold30 >= SOLD_BASIS_MIN && r.avgSoldCents !== null ? ("sold" as const) : ("bid" as const);
+          const priceCents = marginBasis === "sold" ? r.avgSoldCents! : r.topFundedCents;
+          const marginCents = priceCents !== undefined && cpl !== undefined ? priceCents - cpl - VA_COST_CENTS : null;
           return {
             county: r.county,
             jobType: r.jobType,
@@ -176,11 +211,18 @@ export const board = query({
             listed7: r.listed7,
             listed30: r.listed30,
             soldAtAward30: r.soldAtAward30,
+            sold30: r.sold30,
+            avgSoldCents: r.avgSoldCents,
+            minSoldCents: r.minSoldCents,
+            maxSoldCents: r.maxSoldCents,
+            lastSoldCents: r.lastSoldCents,
+            sellThrough: r.sellThrough,
             inMarketplace: r.inMarketplace,
             inVault: r.inVault,
             buyers: r.buyers,
             planCplCents: cpl,
             marginCents,
+            marginBasis,
             // Green: worth running ads. Amber: bids nobody can pay. Red: leads sitting unsold, and a
             // darker red when no company buys the trade at all (a sales call, not a campaign change). Grey: nothing.
             state:

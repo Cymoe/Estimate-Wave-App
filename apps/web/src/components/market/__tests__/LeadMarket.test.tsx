@@ -508,9 +508,9 @@ describe('standing bids in Admin', () => {
     demand = {
       vaCostCents: 500, planCpl: { roofing: 6000 },
       slots: [
-        { county: 'Midland', jobType: 'roofing', tradeName: 'Roofing', bidders: 3, fundedBidders: 2, topFundedCents: 30000, secondFundedCents: 25000, depthLeads: 2, listed7: 2, listed30: 2, soldAtAward30: 2, inMarketplace: 0, inVault: 0, planCplCents: 6000, marginCents: 23500, state: 'open' },
-        { county: 'Ector', jobType: 'painting', tradeName: 'Painting', bidders: 1, fundedBidders: 1, topFundedCents: 20000, depthLeads: 2, listed7: 0, listed30: 2, soldAtAward30: 1, inMarketplace: 1, inVault: 0, buyers: 1, marginCents: null, state: 'oversupplied' },
-        { county: 'Midland', jobType: 'flooring', tradeName: 'Flooring', bidders: 0, fundedBidders: 0, depthLeads: 0, listed7: 1, listed30: 1, soldAtAward30: 0, inMarketplace: 1, inVault: 0, buyers: 0, marginCents: null, state: 'nobuyers' },
+        { county: 'Midland', jobType: 'roofing', tradeName: 'Roofing', bidders: 3, fundedBidders: 2, topFundedCents: 30000, secondFundedCents: 25000, depthLeads: 2, listed7: 2, listed30: 2, soldAtAward30: 2, sold30: 2, avgSoldCents: 30000, minSoldCents: 30000, maxSoldCents: 30000, lastSoldCents: 30000, sellThrough: 1, inMarketplace: 0, inVault: 0, planCplCents: 6000, marginCents: 23500, marginBasis: 'bid', state: 'open' },
+        { county: 'Ector', jobType: 'painting', tradeName: 'Painting', bidders: 1, fundedBidders: 1, topFundedCents: 20000, depthLeads: 2, listed7: 0, listed30: 4, soldAtAward30: 1, sold30: 3, avgSoldCents: 14000, minSoldCents: 9000, maxSoldCents: 20000, lastSoldCents: 9000, sellThrough: 0.75, inMarketplace: 1, inVault: 0, buyers: 1, planCplCents: 5000, marginCents: 8500, marginBasis: 'sold', state: 'oversupplied' },
+        { county: 'Midland', jobType: 'flooring', tradeName: 'Flooring', bidders: 0, fundedBidders: 0, depthLeads: 0, listed7: 1, listed30: 1, soldAtAward30: 0, sold30: 0, avgSoldCents: null, minSoldCents: null, maxSoldCents: null, lastSoldCents: null, sellThrough: 0, inMarketplace: 1, inVault: 0, buyers: 0, marginCents: null, marginBasis: 'bid', state: 'nobuyers' },
       ],
     };
     await render(<LeadMarketPage />);
@@ -528,7 +528,14 @@ describe('standing bids in Admin', () => {
     const midland = cells.find((c) => c.getAttribute('data-state') === 'open')!;
     expect(midland.textContent).toContain('$300.00 · 2 leads');
     expect(midland.textContent).toContain('+$235.00 margin');
-    expect(cells[0].textContent).toContain('1 unsold');
+    expect(midland.textContent).toContain('2 listed · 2 sold · avg $300.00');
+    expect(midland.getAttribute('title')).toBe('Run ads here · margin on the top bid');
+    // Ector has sold enough that its margin is on what leads fetched, not the bid.
+    expect(cells[0].textContent).toContain('4 listed · 3 sold · avg $140.00 · 1 unsold');
+    expect(cells[0].getAttribute('title')).toBe('Leads sitting unsold: pause · margin on what leads sold for');
+    await act(async () => (cells[0] as HTMLButtonElement).click());
+    expect(document.body.querySelector('[data-testid="slot-sales"]')!.textContent).toBe('Last 30 days: 4 listed · 3 sold (75%) · sold for $90.00–$200.00, avg $140.00 · last $90.00 · 1 to standing bids');
+    await act(async () => (document.body.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click());
     // The owner sets the planned cost per lead in the column header.
     const cpl = grid.querySelector('input[aria-label="Planned cost per roofing lead"]') as HTMLInputElement;
     expect(cpl.value).toBe('60');
@@ -543,6 +550,13 @@ describe('standing bids in Admin', () => {
     expect(panel.getAttribute('aria-label')).toBe('Roofing in Midland County');
     expect(panel.querySelector('[aria-label="Bidders"]')!.textContent).toContain('Rich Roofing$300.00 · can pay for 1 more lead');
     expect(panel.querySelector('[aria-label="Bidders"]')!.textContent).toContain("Poor Roofing$400.00 · can't pay: balance $1.00");
+    await act(async () => (panel.querySelector('button[aria-label="Close"]') as HTMLButtonElement).click());
+    // The search box narrows the grid to matching counties and trades.
+    const search = document.body.querySelector('input[aria-label="Search the board"]') as HTMLInputElement;
+    await act(async () => type(search, 'ector'));
+    expect(Array.from(document.body.querySelectorAll('table[aria-label="Demand"] button[data-state]')).map((c) => c.getAttribute('data-state'))).toEqual(['oversupplied']);
+    await act(async () => type(search, ''));
+    expect(document.body.querySelectorAll('table[aria-label="Demand"] button[data-state]')).toHaveLength(3);
   });
 
   it('shows what was sent for each awarded lead and flags the ones nobody acknowledged', async () => {

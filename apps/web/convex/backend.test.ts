@@ -564,10 +564,11 @@ describe("demand board", () => {
     expect(midland).toMatchObject({
       tradeName: "Roofing", bidders: 3, fundedBidders: 2, topFundedCents: 30000, secondFundedCents: 25000,
       depthLeads: Math.floor(40000 / 30000) + Math.floor(30000 / 25000), listed7: 2, listed30: 2, soldAtAward30: 2, inMarketplace: 0, inVault: 0,
-      planCplCents: 6000, marginCents: 30000 - 6000 - 500, state: "open",
+      sold30: 2, avgSoldCents: 30000, minSoldCents: 30000, maxSoldCents: 30000, lastSoldCents: 30000, sellThrough: 1,
+      planCplCents: 6000, marginCents: 30000 - 6000 - 500, marginBasis: "bid", state: "open",
     });
     const ector = board.slots.find((s) => s.county === "Ector" && s.jobType === "painting")!;
-    expect(ector).toMatchObject({ bidders: 1, fundedBidders: 1, topFundedCents: 20000, listed30: 2, soldAtAward30: 1, inMarketplace: 1, state: "oversupplied" });
+    expect(ector).toMatchObject({ bidders: 1, fundedBidders: 1, topFundedCents: 20000, listed30: 2, soldAtAward30: 1, sold30: 1, avgSoldCents: 20000, sellThrough: 0.5, inMarketplace: 1, state: "oversupplied" });
     expect(ector.marginCents).toBeNull();
     expect(ector.buyers).toBe(1);
     expect(board.slots[0]).toBe(midland);
@@ -593,6 +594,11 @@ describe("demand board", () => {
       await ctx.db.patch(bid._id, { amountCents: 35000 });
     });
     expect((await va.as.query(api.demand.board, {})).slots.find((s) => s.county === "Midland" && s.jobType === "roofing")?.topFundedCents).toBe(35000);
+    // A third sale, at the raised bid: from here the margin is on what leads actually fetched, not the top bid.
+    await va.as.mutation(api.marketplace.createLead, { data: { name: "F", phone: "4325550101", county: "Midland", jobType: "roofing" } });
+    const after = (await va.as.query(api.demand.board, {})).slots.find((s) => s.county === "Midland" && s.jobType === "roofing")!;
+    expect(after).toMatchObject({ sold30: 3, minSoldCents: 30000, maxSoldCents: 35000, lastSoldCents: 35000, avgSoldCents: Math.round((30000 + 30000 + 35000) / 3), marginBasis: "sold" });
+    expect(after.marginCents).toBe(Math.round((30000 + 30000 + 35000) / 3) - 6000 - 500);
     const other = await signUp(t, "other@example.com");
     await expect(other.as.query(api.demand.board, {})).rejects.toThrow(/staff/);
   });

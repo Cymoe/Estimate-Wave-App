@@ -18,12 +18,23 @@ export interface DemandSlot {
   listed7: number;
   listed30: number;
   soldAtAward30: number;
+  /** Sold in the last 30 days, by a standing bid or in the Marketplace. */
+  sold30: number;
+  /** What those sold for. Null until something sold. */
+  avgSoldCents: number | null;
+  minSoldCents: number | null;
+  maxSoldCents: number | null;
+  lastSoldCents: number | null;
+  /** sold30 / listed30; null until something was listed. */
+  sellThrough: number | null;
   inMarketplace: number;
   inVault: number;
   /** Active companies that buy this trade anywhere. */
   buyers: number;
   planCplCents?: number;
   marginCents: number | null;
+  /** "sold": margin on what leads fetched. "bid": on the top funded bid, until enough sold. */
+  marginBasis: 'sold' | 'bid';
   state: 'open' | 'unfunded' | 'oversupplied' | 'nobuyers' | 'quiet';
 }
 
@@ -52,19 +63,37 @@ const STATE: Record<DemandSlot['state'], { label: string; cell: string }> = {
 export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
   const data = useDemandBoard<DemandBoardData>();
   const [open, setOpen] = useState<DemandSlot | null>(null);
+  const [search, setSearch] = useState('');
 
   if (data === undefined) return <p className="text-sm text-gray-500">Loading…</p>;
-  const counties = [...new Set(data.slots.map((s) => s.county))].sort();
-  const trades = [...new Map(data.slots.map((s) => [s.jobType, s.tradeName])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
-  const at = (county: string, jobType: string) => data.slots.find((s) => s.county === county && s.jobType === jobType);
+  // The search narrows the grid to the counties and trades that match it.
+  const q = search.trim().toLowerCase();
+  const shown = q ? data.slots.filter((s) => s.county.toLowerCase().includes(q) || s.tradeName.toLowerCase().includes(q)) : data.slots;
+  const counties = [...new Set(shown.map((s) => s.county))].sort();
+  const trades = [...new Map(shown.map((s) => [s.jobType, s.tradeName])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  const at = (county: string, jobType: string) => shown.find((s) => s.county === county && s.jobType === jobType);
   const cell = (s: DemandSlot) =>
     s.topFundedCents !== undefined ? `${money(s.topFundedCents)} · ${s.depthLeads} lead${s.depthLeads === 1 ? '' : 's'}` : s.bidders > 0 ? `${s.bidders} unfunded` : '—';
+  const sales = (s: DemandSlot) => `${s.listed30} listed · ${s.sold30} sold${s.avgSoldCents !== null ? ` · avg ${money(s.avgSoldCents)}` : ''}`;
+  const margin = (s: DemandSlot) => (s.marginCents !== null ? `${s.marginCents >= 0 ? '+' : '−'}${money(Math.abs(s.marginCents))} margin` : null);
+  const tip = (s: DemandSlot) => `${STATE[s.state].label}${s.marginCents !== null ? ` · margin on ${s.marginBasis === 'sold' ? 'what leads sold for' : 'the top bid'}` : ''}`;
 
   return (
     <div className="space-y-4" data-testid="demand-board">
-      <p className="text-xs text-gray-500">
-        Top funded bid · leads the balances absorb. Margin = bid − planned cost per lead − {money(data.vaCostCents)} for the confirmation call. Updates on its own.
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-gray-500">
+          Top funded bid · leads the balances absorb · what sold, and for how much. Margin = price − planned cost per lead − {money(data.vaCostCents)} for the confirmation call; the price is the top bid until a slot has sold enough, then what leads fetched. Updates on its own.
+        </p>
+        {data.slots.length > 0 && (
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="County or trade"
+            aria-label="Search the board"
+            className={`${input} py-1.5 text-sm w-full sm:w-48`}
+          />
+        )}
+      </div>
 
       {data.slots.length === 0 ? (
         <div className="border border-dashed border-[#333] rounded p-8 text-center">
@@ -102,13 +131,16 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
                             <button
                               type="button"
                               onClick={() => setOpen(s)}
-                              title={STATE[s.state].label}
+                              title={tip(s)}
                               data-state={s.state}
                               className={`w-full text-left rounded border px-2 py-1.5 text-xs ${STATE[s.state].cell}`}
                             >
-                              <span className="block">{cell(s)}</span>
+                              <span className="block">
+                                {cell(s)}
+                                {margin(s) ? ` · ${margin(s)}` : ''}
+                              </span>
                               <span className="block opacity-75">
-                                {s.marginCents !== null ? `${s.marginCents >= 0 ? '+' : '−'}${money(Math.abs(s.marginCents))} margin` : `${s.listed30} listed · ${s.soldAtAward30} sold`}
+                                {sales(s)}
                                 {s.inMarketplace + s.inVault > 0 ? ` · ${s.inMarketplace + s.inVault} unsold` : ''}
                               </span>
                             </button>
@@ -124,7 +156,7 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
             </table>
           </div>
           <ul className="md:hidden space-y-2" aria-label="Demand">
-            {data.slots.map((s) => (
+            {shown.map((s) => (
               <li key={`${s.county}|${s.jobType}`}>
                 <button type="button" onClick={() => setOpen(s)} data-state={s.state} className={`w-full text-left rounded border px-3 py-2 ${STATE[s.state].cell}`}>
                   <span className="block text-sm">
@@ -132,11 +164,13 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
                   </span>
                   <span className="block text-xs opacity-80">
                     {cell(s)}
-                    {s.marginCents !== null ? ` · ${s.marginCents >= 0 ? '+' : '−'}${money(Math.abs(s.marginCents))} margin` : ''} · {STATE[s.state].label}
+                    {margin(s) ? ` · ${margin(s)}` : ''} · {STATE[s.state].label}
                   </span>
+                  <span className="block text-xs opacity-70">{sales(s)}</span>
                 </button>
               </li>
             ))}
+            {shown.length === 0 && <li className="text-sm text-gray-500">Nothing matches “{search.trim()}”.</li>}
           </ul>
         </>
       )}
@@ -194,6 +228,15 @@ function SlotPanel({ slot, onClose }: { slot: DemandSlot; onClose: () => void })
           </button>
         </div>
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6 text-sm">
+          <p className="text-gray-300" data-testid="slot-sales">
+            Last 30 days: {slot.listed30} listed · {slot.sold30} sold
+            {slot.sellThrough !== null ? ` (${Math.round(slot.sellThrough * 100)}%)` : ''}
+            {slot.avgSoldCents !== null && slot.minSoldCents !== null && slot.maxSoldCents !== null
+              ? ` · sold for ${slot.minSoldCents === slot.maxSoldCents ? money(slot.minSoldCents) : `${money(slot.minSoldCents)}–${money(slot.maxSoldCents)}`}, avg ${money(slot.avgSoldCents)}`
+              : ''}
+            {slot.lastSoldCents !== null ? ` · last ${money(slot.lastSoldCents)}` : ''}
+            {slot.sold30 > 0 && slot.soldAtAward30 > 0 ? ` · ${slot.soldAtAward30} to standing bids` : ''}
+          </p>
           <section>
             <h3 className="text-sm font-medium text-white mb-2">Bidders</h3>
             {detail === null ? (
