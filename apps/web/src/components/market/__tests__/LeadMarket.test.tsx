@@ -32,7 +32,7 @@ const createIntake = jest.fn(async (_source: string, _fields: unknown) => ({ id:
 const addDemoIntake = jest.fn(async () => { intakeRows = [{ id: 'd1', source: 'meta', status: 'new', label: 'Dana Reyes', isSample: true, attempts: [], lastAttempt: null, createdAt: '2026-10-22T03:00:00Z', updatedAt: '2026-10-22T03:00:00Z' }]; return { added: 6 }; });
 const confirmIntake = jest.fn(async () => ({ leadId: 'm7', outcome: 'sold', companyName: 'Peak Roofing', priceCents: 25000 }));
 
-let demand: unknown = { updatedAt: '2026-10-22T16:00:00Z', vaCostCents: 500, planCpl: { roofing: 6000 }, slots: [] };
+let demand: unknown = { vaCostCents: 500, planCpl: { roofing: 6000 }, slots: [] };
 const setPlanCpl = jest.fn(async (_jobType: string, _cents: number | null) => null);
 let delivered: unknown[] = [];
 const resendAlerts = jest.fn(async (_id: string) => null);
@@ -205,14 +205,18 @@ describe('Lead Market', () => {
     expect(document.body.querySelector('[data-testid="team-card"]')!.textContent).toContain('invited, not signed up yet');
   });
 
-  it('sends a lead to one company, listing ones that buy the trade first and greying out ones that can’t afford it', async () => {
+  it('sends a lead to one company, listing only ones that buy the trade (the rest behind a link) and greying out ones that can’t afford it', async () => {
     await render(<LeadMarketPage />);
     await openListed();
     expect(document.body.textContent).toContain('Jane Cole');
     await act(async () => (document.body.querySelector('button[aria-label^="Send "]') as HTMLButtonElement).click());
     const dialog = document.body.querySelector('[role="dialog"]')!;
+    const names = () => (Array.from(dialog.querySelectorAll('li button')) as HTMLButtonElement[]).map((b) => b.textContent?.split('Buys')[0].split('Other')[0]);
+    expect(names()).toEqual(['Peak Roofing', 'Broke Roofing']);
+    const more = Array.from(dialog.querySelectorAll('button')).find((b) => b.textContent?.startsWith('Show 1 company that don’t buy Roofing'))!;
+    await act(async () => more.click());
+    expect(names()).toEqual(['Peak Roofing', 'Broke Roofing', 'Ace Painting']);
     const options = Array.from(dialog.querySelectorAll('li button')) as HTMLButtonElement[];
-    expect(options.map((b) => b.textContent?.split('Buys')[0].split('Other')[0])).toEqual(['Peak Roofing', 'Broke Roofing', 'Ace Painting']);
     expect(options[1].disabled).toBe(true);
     await act(async () => options[0].click());
     await flush();
@@ -535,7 +539,7 @@ describe('standing bids in Admin', () => {
 
   it('shows the demand grid: top funded bid, depth and margin per county and trade, and who bids there', async () => {
     demand = {
-      updatedAt: '2026-10-22T16:00:00Z', vaCostCents: 500, planCpl: { roofing: 6000 },
+      vaCostCents: 500, planCpl: { roofing: 6000 },
       slots: [
         { county: 'Midland', jobType: 'roofing', tradeName: 'Roofing', bidders: 3, fundedBidders: 2, topFundedCents: 30000, secondFundedCents: 25000, depthLeads: 2, listed7: 2, listed30: 2, soldAtAward30: 2, inMarketplace: 0, inVault: 0, planCplCents: 6000, marginCents: 23500, state: 'open' },
         { county: 'Ector', jobType: 'painting', tradeName: 'Painting', bidders: 1, fundedBidders: 1, topFundedCents: 20000, depthLeads: 2, listed7: 0, listed30: 2, soldAtAward30: 1, inMarketplace: 1, inVault: 0, marginCents: null, state: 'oversupplied' },
@@ -563,7 +567,7 @@ describe('standing bids in Admin', () => {
     await flush();
     const panel = document.body.querySelector('[role="dialog"]')!;
     expect(panel.getAttribute('aria-label')).toBe('Roofing in Midland County');
-    expect(panel.querySelector('[aria-label="Bidders"]')!.textContent).toContain('Rich Roofing$300.00 · 1 leads of balance');
+    expect(panel.querySelector('[aria-label="Bidders"]')!.textContent).toContain('Rich Roofing$300.00 · 1 lead of balance');
     expect(panel.querySelector('[aria-label="Bidders"]')!.textContent).toContain('Poor Roofing$400.00 · balance $1.00');
   });
 

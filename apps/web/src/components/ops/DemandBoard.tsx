@@ -25,7 +25,6 @@ export interface DemandSlot {
 }
 
 export interface DemandBoardData {
-  updatedAt: string | null;
   vaCostCents: number;
   planCpl: Record<string, number>;
   slots: DemandSlot[];
@@ -50,7 +49,7 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
   const [busy, setBusy] = useState(false);
   const load = useCallback(async () => setData(await demandAPI.board()), []);
   useEffect(() => {
-    load().catch(() => setData({ updatedAt: null, vaCostCents: 500, planCpl: {}, slots: [] }));
+    load().catch(() => setData({ vaCostCents: 500, planCpl: {}, slots: [] }));
   }, [load]);
 
   const refresh = async () => {
@@ -74,8 +73,7 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
     <div className="space-y-4" data-testid="demand-board">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-gray-500">
-          Top funded bid · leads the balances absorb. Margin = bid − planned cost per lead − {money(data.vaCostCents)} for the confirmation call.
-          {data.updatedAt ? ` Updated ${ago(data.updatedAt)}.` : ' Not built yet.'}
+          Top funded bid · leads the balances absorb. Margin = bid − planned cost per lead − {money(data.vaCostCents)} for the confirmation call. Live.
         </p>
         <button type="button" disabled={busy} onClick={refresh} className={secondary}>
           <RefreshCw className="w-3.5 h-3.5" /> Refresh
@@ -224,7 +222,10 @@ function SlotPanel({ slot, onClose }: { slot: DemandSlot; onClose: () => void })
                   <li key={b.companyName} className="flex items-center justify-between gap-3 px-3 py-2">
                     <span className="text-white">{b.companyName}</span>
                     <span className={b.funded ? 'text-emerald-300' : 'text-amber-300'}>
-                      {money(b.amountCents)} · {b.funded ? `${Math.floor(b.balanceCents / b.amountCents)} leads of balance` : `balance ${money(b.balanceCents)}`}
+                      {money(b.amountCents)} ·{' '}
+                      {b.funded
+                        ? `${Math.floor(b.balanceCents / b.amountCents)} ${Math.floor(b.balanceCents / b.amountCents) === 1 ? 'lead' : 'leads'} of balance`
+                        : `balance ${money(b.balanceCents)}`}
                     </span>
                   </li>
                 ))}

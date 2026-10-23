@@ -671,6 +671,7 @@ export default defineSchema({
   // Where the paying demand is: one row per county and trade, rebuilt every
   // few minutes from standing bids, balances and recent leads. VAs read it
   // to decide where to run ads.
+  // No longer written: the demand board reads live. Drop once the rows are gone.
   demandSnapshots: defineTable({
     county: v.string(),
     jobType: v.string(),

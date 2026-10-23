@@ -268,7 +268,7 @@ function NewCompanyDialog({ trades, onClose, onSaved }: { trades: Trade[]; onClo
   );
 }
 
-/** Picks the company a lead is sold to. Companies that buy this trade come first; ones that can't afford it are disabled. */
+/** Picks the company a lead is sold to. Only companies that buy this trade are listed; the rest sit behind a link. Ones that can't afford it are disabled. */
 function SendToDialog({
   lead,
   companies,
@@ -284,15 +284,15 @@ function SendToDialog({
 }) {
   const [sending, setSending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const sorted = useMemo(() => {
-    const takes = (c: Company) => Boolean(lead.jobType && c.leadTrades.includes(lead.jobType));
-    return [...companies].sort(
-      (a, b) =>
-        Number(takes(b)) - Number(takes(a)) ||
-        Number(b.balanceCents >= lead.price) - Number(a.balanceCents >= lead.price) ||
-        a.name.localeCompare(b.name),
-    );
+  const [showOthers, setShowOthers] = useState(false);
+  const takes = (c: Company) => Boolean(lead.jobType && c.leadTrades.includes(lead.jobType));
+  const { buyers, others } = useMemo(() => {
+    const byFunds = (a: Company, b: Company) => Number(b.balanceCents >= lead.price) - Number(a.balanceCents >= lead.price) || a.name.localeCompare(b.name);
+    return { buyers: companies.filter(takes).sort(byFunds), others: companies.filter((c) => !takes(c)).sort(byFunds) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companies, lead]);
+  // Nobody buys this trade: show everyone, with a line saying so.
+  const sorted = buyers.length === 0 || showOthers ? [...buyers, ...others] : buyers;
   const send = async (company: Company) => {
     setSending(company.id);
     setError(null);
@@ -341,6 +341,14 @@ function SendToDialog({
         })}
         {sorted.length === 0 && <li className="px-4 py-6 text-sm text-gray-500 text-center">Add a company first.</li>}
       </ul>
+      {buyers.length === 0 && others.length > 0 && (
+        <p className="text-xs text-gray-500 mt-2">No company buys {tradeName(lead.jobType)} yet, so this is everyone.</p>
+      )}
+      {buyers.length > 0 && others.length > 0 && (
+        <button type="button" onClick={() => setShowOthers((v) => !v)} className="mt-3 text-xs text-gray-400 underline underline-offset-2">
+          {showOthers ? `Hide the ${others.length} ${others.length === 1 ? 'company' : 'companies'} that don’t buy ${tradeName(lead.jobType)}` : `Show ${others.length} ${others.length === 1 ? 'company' : 'companies'} that don’t buy ${tradeName(lead.jobType)}`}
+        </button>
+      )}
     </Dialog>
   );
 }

@@ -546,7 +546,7 @@ describe("demand board", () => {
     await va.as.mutation(api.marketplace.createLead, { data: { name: "D", county: "Ector", jobType: "painting" } });
     await t.run(async (ctx) => { await ctx.db.patch(rich.organizationId, { walletBalanceCents: 100000 - 60000 }); });
 
-    expect(await t.mutation(internal.demand.snapshot, {})).toEqual({ slots: 2 });
+    // No snapshot to build: the board reads live.
     await owner.as.mutation(api.demand.setPlanCpl, { jobType: "roofing", cents: 6000 });
     await expect(va.as.mutation(api.demand.setPlanCpl, { jobType: "roofing", cents: 6000 })).rejects.toThrow(/admins/);
     const board = await va.as.query(api.demand.board, {});
@@ -574,6 +574,12 @@ describe("demand board", () => {
       ["A", "assigned", "Rich Roofing"],
     ]);
     expect((await va.as.mutation(api.demand.refresh, {})).slots).toBe(2);
+    // A bid raised just now shows on the board at once, no refresh in between.
+    await t.run(async (ctx) => {
+      const bid = (await ctx.db.query("standingBids").collect()).find((b) => b.organizationId === rich.organizationId && b.jobType === "roofing")!;
+      await ctx.db.patch(bid._id, { amountCents: 35000 });
+    });
+    expect((await va.as.query(api.demand.board, {})).slots.find((s) => s.county === "Midland" && s.jobType === "roofing")?.topFundedCents).toBe(35000);
     const other = await signUp(t, "other@example.com");
     await expect(other.as.query(api.demand.board, {})).rejects.toThrow(/staff/);
   });

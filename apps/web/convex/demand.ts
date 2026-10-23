@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { fail, nowIso, requireStaff, requireSuperAdmin } from "./lib/access";
 
 /**
@@ -100,26 +100,17 @@ export async function computeSlots(ctx: QueryCtx | MutationCtx, now = Date.now()
   return [...slots.values()].filter((s) => s.bidders > 0 || s.listed30 > 0 || s.inMarketplace > 0 || s.inVault > 0);
 }
 
-async function writeSnapshot(ctx: MutationCtx): Promise<number> {
-  const rows = await computeSlots(ctx);
-  for (const old of await ctx.db.query("demandSnapshots").take(5000)) await ctx.db.delete(old._id);
-  const now = nowIso();
-  for (const row of rows) await ctx.db.insert("demandSnapshots", { ...row, updatedAt: now });
-  return rows.length;
-}
-
-/** Every ten minutes (crons.ts). */
-export const snapshot = internalMutation({
-  args: {},
-  handler: async (ctx) => ({ slots: await writeSnapshot(ctx) }),
-});
-
-/** The Refresh button. */
+/**
+ * The Refresh button. The board reads live now, so this only clears the
+ * snapshot rows an earlier version wrote (the table goes once it's empty)
+ * and says how many slots there are.
+ */
 export const refresh = mutation({
   args: {},
   handler: async (ctx) => {
     await requireStaff(ctx);
-    return { slots: await writeSnapshot(ctx) };
+    for (const old of await ctx.db.query("demandSnapshots").take(5000)) await ctx.db.delete(old._id);
+    return { slots: (await computeSlots(ctx)).length };
   },
 });
 
@@ -149,13 +140,13 @@ export const board = query({
   args: {},
   handler: async (ctx) => {
     await requireStaff(ctx);
-    const rows = await ctx.db.query("demandSnapshots").take(5000);
+    // Live, not a snapshot: a bid changed a second ago shows here now.
+    const rows = await computeSlots(ctx);
     const settings = await ctx.db.query("demandSettings").take(500);
     const plan = new Map(settings.map((s) => [s.jobType, s.planCplCents]));
     const trades = await ctx.db.query("industries").take(500);
     const tradeName = new Map(trades.map((t) => [t.slug, t.name]));
     return {
-      updatedAt: rows.reduce<string | null>((latest, r) => (latest === null || r.updatedAt > latest ? r.updatedAt : latest), null),
       vaCostCents: VA_COST_CENTS,
       planCpl: Object.fromEntries(plan),
       slots: rows
