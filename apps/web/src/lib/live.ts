@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useConvex, type ConvexReactClient } from 'convex/react';
 import { getFunctionName, makeFunctionReference, type FunctionReference } from 'convex/server';
-import { withId } from './api';
+import { withId } from './withId';
 
 /**
  * Queries that stay current: Convex pushes a new result whenever the

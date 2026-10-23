@@ -11,6 +11,9 @@ import type { FunctionReference } from "convex/server";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { convex } from "./convex";
+import { withId } from "./withId";
+
+export { withId };
 
 class APIError extends Error {
   constructor(
@@ -55,14 +58,6 @@ function toAPIError(error: unknown): APIError {
   return new APIError(message, status);
 }
 
-/** Adds an `id` alias for `_id`, which older screens read. */
-export function withId<T>(value: T): T {
-  if (Array.isArray(value)) return value.map(withId) as T;
-  if (value && typeof value === 'object' && '_id' in value && !('id' in value)) {
-    return { ...value, id: (value as { _id: string })._id };
-  }
-  return value;
-}
 
 async function run<T = any>(kind: 'query' | 'mutation' | 'action', ref: FunctionReference<any>, args: Record<string, unknown>): Promise<T> {
   try {
