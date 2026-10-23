@@ -3,6 +3,8 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { fail, nowIso, requireStaff, requireSuperAdmin } from "./lib/access";
 import { listLead } from "./lib/awards";
+import { buyersOf, fundedBidsFor } from "./lib/standing";
+import { pricingFor } from "./lib/wallet";
 import { normalizeCounty, TEXAS_COUNTIES } from "./lib/counties";
 import { DUPLICATE_WINDOW_DAYS, fieldsFromPayload, intakeLabel, normalizePhone, parseCampaign, type IntakeFields } from "./lib/intake";
 import { intakeDisposition, intakeSource } from "./schema";
@@ -558,6 +560,31 @@ export const get = query({
         ? { id: duplicate._id, label: intakeLabel(duplicate), status: duplicate.status, createdAt: duplicate.createdAt, confirmedLeadId: duplicate.confirmedLeadId }
         : null,
     };
+  },
+});
+
+/**
+ * Where a lead for this county and trade would go the moment it is listed,
+ * so staff see it before they confirm: sold to a funded bid, into the
+ * Marketplace for the companies that buy the trade, or nowhere, because no
+ * company buys the trade at all (close it, or sign a company first).
+ */
+export const destination = query({
+  args: { county: v.string(), jobType: v.string() },
+  handler: async (ctx, { county: rawCounty, jobType }) => {
+    await requireStaff(ctx);
+    const county = normalizeCounty(rawCounty);
+    const trade = (await ctx.db.query("industries").take(500)).find((t) => t.slug === jobType);
+    const tradeName = trade?.name ?? jobType;
+    if (!county || !jobType) return null;
+    const buyers = await buyersOf(ctx, jobType);
+    if (buyers.length === 0) return { kind: "nobody" as const, tradeName, county };
+    const [top] = await fundedBidsFor(ctx, county, jobType);
+    if (top) {
+      const company = await ctx.db.get(top.organizationId);
+      return { kind: "sold" as const, tradeName, county, companyName: company?.name ?? "a company", priceCents: top.amountCents };
+    }
+    return { kind: "marketplace" as const, tradeName, county, priceCents: (await pricingFor(ctx, jobType)).startCents, buyers: buyers.length };
   },
 });
 

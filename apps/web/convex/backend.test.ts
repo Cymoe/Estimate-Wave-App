@@ -331,6 +331,13 @@ describe("intake", () => {
     await co.as.mutation(api.bids.setStanding, { organizationId: co.organizationId, county: "Ector", jobType: "painting", amount: 250 });
 
     const { id } = await va.as.mutation(api.intake.create, { source: "call", name: "Pat Cole", phone: "432-555-0101", city: "Odessa", jobType: "painting", scope: "repair", timeline: "month", notes: "Two bedrooms" });
+    // Before confirming, staff see where it goes: to the funded bid in Ector; to the Marketplace in Midland
+    // (the painter buys painting but has no bid there); nowhere for roofing, which no company buys.
+    expect(await va.as.query(api.intake.destination, { county: "Ector", jobType: "painting" })).toMatchObject({ kind: "sold", companyName: "painter@example.com Co", priceCents: 25000 });
+    expect(await va.as.query(api.intake.destination, { county: "Midland", jobType: "painting" })).toMatchObject({ kind: "marketplace", buyers: 1, tradeName: "Painting" });
+    expect((await va.as.query(api.intake.destination, { county: "Midland", jobType: "painting" }))).toHaveProperty("priceCents");
+    expect(await va.as.query(api.intake.destination, { county: "Midland", jobType: "roofing" })).toMatchObject({ kind: "nobody", tradeName: "Roofing" });
+    expect(await va.as.query(api.intake.destination, { county: "", jobType: "roofing" })).toBeNull();
     const all = { reached: true, phoneOwner: true, addressInCounty: true, trade: true, owner: true, consent: true };
     await expect(va.as.mutation(api.intake.confirm, { id, checks: { ...all, consent: false } })).rejects.toThrow(/consent read/);
     await expect(va.as.mutation(api.intake.confirm, { id, checks: all })).rejects.toThrow(/county/);
@@ -545,6 +552,8 @@ describe("demand board", () => {
     await t.run(async (ctx) => { await ctx.db.patch(rich.organizationId, { walletBalanceCents: 0 }); });
     await va.as.mutation(api.marketplace.createLead, { data: { name: "D", county: "Ector", jobType: "painting" } });
     await t.run(async (ctx) => { await ctx.db.patch(rich.organizationId, { walletBalanceCents: 100000 - 60000 }); });
+    // A flooring lead in Midland, a trade no company buys: red for a different reason.
+    await va.as.mutation(api.marketplace.createLead, { data: { name: "E", county: "Midland", jobType: "flooring" } });
 
     // No snapshot to build: the board reads live.
     await owner.as.mutation(api.demand.setPlanCpl, { jobType: "roofing", cents: 6000 });
@@ -561,9 +570,14 @@ describe("demand board", () => {
     const ector = board.slots.find((s) => s.county === "Ector" && s.jobType === "painting")!;
     expect(ector).toMatchObject({ bidders: 1, fundedBidders: 1, topFundedCents: 20000, listed30: 2, soldAtAward30: 1, inMarketplace: 1, state: "oversupplied" });
     expect(ector.marginCents).toBeNull();
+    expect(ector.buyers).toBe(1);
     expect(board.slots[0]).toBe(midland);
+    const flooring = board.slots.find((s) => s.county === "Midland" && s.jobType === "flooring")!;
+    expect(flooring).toMatchObject({ bidders: 0, buyers: 0, inMarketplace: 1, state: "nobuyers" });
+    expect((await va.as.query(api.demand.slot, { county: "Midland", jobType: "flooring" })).buyers).toEqual([]);
 
     const detail = await va.as.query(api.demand.slot, { county: "Midland", jobType: "roofing" });
+    expect(detail.buyers.sort()).toEqual(["Mid Roofing", "Poor Roofing", "Rich Roofing"]);
     expect(detail.bidders.map((b) => [b.companyName, b.amountCents, b.funded])).toEqual([
       ["Poor Roofing", 40000, false],
       ["Rich Roofing", 30000, true],
@@ -573,7 +587,7 @@ describe("demand board", () => {
       ["B", "assigned", "Rich Roofing"],
       ["A", "assigned", "Rich Roofing"],
     ]);
-    expect((await va.as.mutation(api.demand.refresh, {})).slots).toBe(2);
+    expect((await va.as.mutation(api.demand.refresh, {})).slots).toBe(3);
     // A bid raised just now shows on the board at once, no refresh in between.
     await t.run(async (ctx) => {
       const bid = (await ctx.db.query("standingBids").collect()).find((b) => b.organizationId === rich.organizationId && b.jobType === "roofing")!;

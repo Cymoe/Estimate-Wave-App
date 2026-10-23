@@ -28,6 +28,15 @@ export async function standingBidsFor(
   );
 }
 
+/** Active companies that list a trade among the ones they buy leads for. */
+export async function buyersOf(
+  ctx: QueryCtx | MutationCtx,
+  jobType: string,
+): Promise<Doc<"organizations">[]> {
+  const rows = await ctx.db.query("organizations").take(5000);
+  return rows.filter((o) => o.isActive && (o.leadTrades ?? []).includes(jobType));
+}
+
 /** The bids a balance can cover, in winning order: only these can win a lead. */
 export async function fundedBidsFor(
   ctx: QueryCtx | MutationCtx,

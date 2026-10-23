@@ -20,9 +20,11 @@ export interface DemandSlot {
   soldAtAward30: number;
   inMarketplace: number;
   inVault: number;
+  /** Active companies that buy this trade anywhere. */
+  buyers: number;
   planCplCents?: number;
   marginCents: number | null;
-  state: 'open' | 'unfunded' | 'oversupplied' | 'quiet';
+  state: 'open' | 'unfunded' | 'oversupplied' | 'nobuyers' | 'quiet';
 }
 
 export interface DemandBoardData {
@@ -35,6 +37,7 @@ const STATE: Record<DemandSlot['state'], { label: string; cell: string }> = {
   open: { label: 'Run ads here', cell: 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200' },
   unfunded: { label: 'Bids, but nobody can pay', cell: 'bg-amber-500/10 border-amber-500/40 text-amber-200' },
   oversupplied: { label: 'Leads sitting unsold: pause', cell: 'bg-red-500/10 border-red-500/40 text-red-200' },
+  nobuyers: { label: 'Nobody buys this trade: sign a company', cell: 'bg-red-500/20 border-red-500/60 text-red-200' },
   quiet: { label: 'Nothing here', cell: 'bg-[#161616] border-[#2A2A2A] text-gray-400' },
 };
 
@@ -42,8 +45,9 @@ const STATE: Record<DemandSlot['state'], { label: string; cell: string }> = {
  * Where to run ads: for each county and trade, the top bid a funded
  * company will pay and how many leads their balances absorb, against what
  * a lead costs to generate. Green means go, amber means the bids can't
- * pay, red means leads are already sitting unsold. Live: a bid changed
- * anywhere shows here on its own.
+ * pay, red means leads are already sitting unsold, and the darker red
+ * means no company buys the trade at all (a sales call, not a campaign
+ * change). Live: a bid changed anywhere shows here on its own.
  */
 export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
   const data = useDemandBoard<DemandBoardData>();
@@ -171,6 +175,7 @@ function SlotPanel({ slot, onClose }: { slot: DemandSlot; onClose: () => void })
   const detail =
     useDemandSlot<{
       bidders: Array<{ companyName: string; amountCents: number; balanceCents: number; funded: boolean }>;
+      buyers: string[];
       leads: Array<{ id: string; name: string; status: string; createdAt: string; priceCents?: number; companyName?: string }>;
     }>(slot.county, slot.jobType) ?? null;
   return createPortal(
@@ -193,8 +198,12 @@ function SlotPanel({ slot, onClose }: { slot: DemandSlot; onClose: () => void })
             <h3 className="text-sm font-medium text-white mb-2">Bidders</h3>
             {detail === null ? (
               <p className="text-gray-500">Loading…</p>
+            ) : detail.bidders.length === 0 && detail.buyers.length === 0 ? (
+              <p className="text-red-200">No company lists {slot.tradeName} as a trade it buys, so nobody can bid or buy here. Sign one before sending leads.</p>
             ) : detail.bidders.length === 0 ? (
-              <p className="text-gray-500">No standing bids here.</p>
+              <p className="text-gray-500">
+                No standing bids here. {detail.buyers.length === 1 ? `${detail.buyers[0]} buys` : `${detail.buyers.length} companies buy`} {slot.tradeName} elsewhere; a lead here goes to the Marketplace.
+              </p>
             ) : (
               <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Bidders">
                 {detail.bidders.map((b) => (

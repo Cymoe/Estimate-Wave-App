@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { fail, nowIso, requireStaff, requireSuperAdmin } from "./lib/access";
+import { buyersOf } from "./lib/standing";
 
 /**
  * The demand board: for every county and trade, how many companies have a
@@ -30,6 +31,8 @@ interface Slot {
   soldAtAward30: number;
   inMarketplace: number;
   inVault: number;
+  /** Active companies that buy this trade anywhere. Zero means nobody can bid or buy here. */
+  buyers: number;
 }
 
 /** Works the whole board out from the live tables. Small tables, so a full scan is fine for now. */
@@ -39,7 +42,7 @@ export async function computeSlots(ctx: QueryCtx | MutationCtx, now = Date.now()
     const k = key(county, jobType);
     let s = slots.get(k);
     if (!s) {
-      s = { county, jobType, bidders: 0, fundedBidders: 0, depthLeads: 0, listed7: 0, listed30: 0, soldAtAward30: 0, inMarketplace: 0, inVault: 0 };
+      s = { county, jobType, bidders: 0, fundedBidders: 0, depthLeads: 0, listed7: 0, listed30: 0, soldAtAward30: 0, inMarketplace: 0, inVault: 0, buyers: 0 };
       slots.set(k, s);
     }
     return s;
@@ -95,6 +98,14 @@ export async function computeSlots(ctx: QueryCtx | MutationCtx, now = Date.now()
     const s = leadSlot.get(award.marketplaceLeadId);
     if (s) s.soldAtAward30++;
   }
+
+  // How many companies buy each trade at all: a red cell with none is a sales problem, not a pricing one.
+  const buyers = new Map<string, number>();
+  for (const o of await ctx.db.query("organizations").take(5000)) {
+    if (!o.isActive) continue;
+    for (const trade of o.leadTrades ?? []) buyers.set(trade, (buyers.get(trade) ?? 0) + 1);
+  }
+  for (const s of slots.values()) s.buyers = buyers.get(s.jobType) ?? 0;
 
   // Only slots with something in them: a bid, or a lead this month, or one waiting.
   return [...slots.values()].filter((s) => s.bidders > 0 || s.listed30 > 0 || s.inMarketplace > 0 || s.inVault > 0);
@@ -167,12 +178,16 @@ export const board = query({
             soldAtAward30: r.soldAtAward30,
             inMarketplace: r.inMarketplace,
             inVault: r.inVault,
+            buyers: r.buyers,
             planCplCents: cpl,
             marginCents,
-            // Green: worth running ads. Amber: bids nobody can pay. Red: leads sitting unsold. Grey: nothing.
+            // Green: worth running ads. Amber: bids nobody can pay. Red: leads sitting unsold, and a
+            // darker red when no company buys the trade at all (a sales call, not a campaign change). Grey: nothing.
             state:
-              r.inMarketplace + r.inVault > 0
-                ? ("oversupplied" as const)
+              r.inMarketplace + r.inVault > 0 && r.buyers === 0
+                ? ("nobuyers" as const)
+                : r.inMarketplace + r.inVault > 0
+                  ? ("oversupplied" as const)
                 : r.fundedBidders > 0 && (marginCents === null || marginCents > 0)
                   ? ("open" as const)
                   : r.bidders > 0
@@ -201,6 +216,7 @@ export const slot = query({
       const balance = company.walletBalanceCents ?? 0;
       bidders.push({ companyName: company.name, amountCents: bid.amountCents, balanceCents: balance, funded: balance >= bid.amountCents });
     }
+    const buyers = (await buyersOf(ctx, jobType)).map((o) => o.name);
     const since30 = new Date(Date.now() - 30 * DAY_MS).toISOString();
     const leads = (await ctx.db.query("marketplaceLeads").order("desc").take(2000)).filter(
       (l) => l.county === county && l.jobType === jobType && !l.isSample && (l.createdAt >= since30 || l.status === "available" || l.status === "older"),
@@ -210,6 +226,6 @@ export const slot = query({
       const company = lead.assignedOrganizationId ? await ctx.db.get(lead.assignedOrganizationId) : null;
       recent.push({ id: lead._id, name: lead.name, status: lead.status, createdAt: lead.createdAt, priceCents: lead.priceCents, companyName: company?.name });
     }
-    return { bidders, leads: recent };
+    return { bidders, buyers, leads: recent };
   },
 });

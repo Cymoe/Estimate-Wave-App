@@ -1,8 +1,41 @@
 import React, { useState } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import { intakeAPI, type IntakeFields } from '../../lib/api';
+import { useLeadDestination } from '../../lib/live';
+import { money } from '../market/wallet';
 import type { IntakeDetail } from './IntakePanel';
 import { input, primary } from './ui';
+
+/** Where the lead goes the moment it is listed (intake.destination). */
+export type Destination =
+  | { kind: 'sold'; companyName: string; priceCents: number; tradeName: string; county: string }
+  | { kind: 'marketplace'; priceCents: number; buyers: number; tradeName: string; county: string }
+  | { kind: 'nobody'; tradeName: string; county: string };
+
+/** One line, before the call ends, on who gets this lead. Red means listing it helps nobody. */
+export function WhereItGoes({ county, jobType }: { county?: string; jobType?: string }) {
+  const to = useLeadDestination<Destination | null>(county, jobType);
+  if (!county || !jobType) return <p className="text-xs text-gray-500 mb-3">Set the county and trade to see who gets this lead.</p>;
+  if (to === undefined) return null;
+  if (to === null) return null;
+  if (to.kind === 'sold')
+    return (
+      <p className="text-xs text-emerald-200 mb-3" data-destination="sold">
+        Sells to {to.companyName} at {money(to.priceCents)} the moment it's listed.
+      </p>
+    );
+  if (to.kind === 'marketplace')
+    return (
+      <p className="text-xs text-amber-200 mb-3" data-destination="marketplace">
+        No funded bid for {to.tradeName} in {to.county} County. It goes to the Marketplace at {money(to.priceCents)}, where {to.buyers === 1 ? '1 company' : `${to.buyers} companies`} buying {to.tradeName} can take it.
+      </p>
+    );
+  return (
+    <p className="text-xs text-red-300 mb-3" data-destination="nobody">
+      No company buys {to.tradeName} yet. Listing it helps nobody: close it as out of trade, or sign a {to.tradeName} company first.
+    </p>
+  );
+}
 
 /** The six things a person confirms on the phone before a lead is listed. Same order as the backend. */
 export const CHECKS: Array<[string, string]> = [
@@ -64,6 +97,7 @@ export const ConfirmChecklist: React.FC<{ row: IntakeDetail; draft: IntakeFields
         ))}
       </ul>
       <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="What they said (shows to the company as the confirmation note)" className={`${input} mb-3`} aria-label="What they said" />
+      <WhereItGoes county={draft.county || undefined} jobType={draft.jobType || undefined} />
       {row.duplicateOf && (
         <label className="flex items-center gap-2 text-sm text-amber-200 mb-3">
           <input type="checkbox" checked={allowDuplicate} onChange={(e) => setAllowDuplicate(e.target.checked)} />

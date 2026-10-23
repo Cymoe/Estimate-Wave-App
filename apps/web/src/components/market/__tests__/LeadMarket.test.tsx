@@ -36,14 +36,19 @@ let demand: unknown = { vaCostCents: 500, planCpl: { roofing: 6000 }, slots: [] 
 const setPlanCpl = jest.fn(async (_jobType: string, _cents: number | null) => null);
 let delivered: unknown[] = [];
 const resendAlerts = jest.fn(async (_id: string) => null);
+let destination: unknown = { kind: 'sold', companyName: 'Peak Roofing', priceCents: 25000, tradeName: 'Roofing', county: 'Midland' };
 
 // The live subscriptions see the same fixtures the one-shot calls used to return.
 jest.mock('../../../lib/live', () => ({
   useWallet: () => wallet,
   useDemandBoard: () => demand,
-  useDemandSlot: () => ({ bidders: [{ companyName: 'Rich Roofing', amountCents: 30000, balanceCents: 40000, funded: true }, { companyName: 'Poor Roofing', amountCents: 40000, balanceCents: 100, funded: false }], leads: [] }),
+  useDemandSlot: (_county: string, jobType: string) =>
+    jobType === 'flooring'
+      ? { bidders: [], buyers: [], leads: [] }
+      : { bidders: [{ companyName: 'Rich Roofing', amountCents: 30000, balanceCents: 40000, funded: true }, { companyName: 'Poor Roofing', amountCents: 40000, balanceCents: 100, funded: false }], buyers: ['Rich Roofing', 'Poor Roofing'], leads: [] },
   useIntakeQueue: () => intakeRows,
   useDelivered: () => delivered,
+  useLeadDestination: (county?: string, jobType?: string) => (county && jobType ? destination : undefined),
 }));
 
 jest.mock('../../../lib/api', () => ({
@@ -547,7 +552,8 @@ describe('standing bids in Admin', () => {
       vaCostCents: 500, planCpl: { roofing: 6000 },
       slots: [
         { county: 'Midland', jobType: 'roofing', tradeName: 'Roofing', bidders: 3, fundedBidders: 2, topFundedCents: 30000, secondFundedCents: 25000, depthLeads: 2, listed7: 2, listed30: 2, soldAtAward30: 2, inMarketplace: 0, inVault: 0, planCplCents: 6000, marginCents: 23500, state: 'open' },
-        { county: 'Ector', jobType: 'painting', tradeName: 'Painting', bidders: 1, fundedBidders: 1, topFundedCents: 20000, depthLeads: 2, listed7: 0, listed30: 2, soldAtAward30: 1, inMarketplace: 1, inVault: 0, marginCents: null, state: 'oversupplied' },
+        { county: 'Ector', jobType: 'painting', tradeName: 'Painting', bidders: 1, fundedBidders: 1, topFundedCents: 20000, depthLeads: 2, listed7: 0, listed30: 2, soldAtAward30: 1, inMarketplace: 1, inVault: 0, buyers: 1, marginCents: null, state: 'oversupplied' },
+        { county: 'Midland', jobType: 'flooring', tradeName: 'Flooring', bidders: 0, fundedBidders: 0, depthLeads: 0, listed7: 1, listed30: 1, soldAtAward30: 0, inMarketplace: 1, inVault: 0, buyers: 0, marginCents: null, state: 'nobuyers' },
       ],
     };
     await render(<LeadMarketPage />);
@@ -555,7 +561,13 @@ describe('standing bids in Admin', () => {
     await flush();
     const grid = document.body.querySelector('table[aria-label="Demand"]')!;
     const cells = Array.from(grid.querySelectorAll('button[data-state]'));
-    expect(cells.map((c) => c.getAttribute('data-state'))).toEqual(['oversupplied', 'open']);
+    expect(cells.map((c) => c.getAttribute('data-state'))).toEqual(['oversupplied', 'nobuyers', 'open']);
+    // A red cell with no company buying the trade says so: that is a sales call, not a campaign change.
+    const nobody = cells.find((c) => c.getAttribute('data-state') === 'nobuyers')!;
+    expect(nobody.getAttribute('title')).toBe('Nobody buys this trade: sign a company');
+    await act(async () => (nobody as HTMLButtonElement).click());
+    expect(document.body.querySelector('[role="dialog"]')!.textContent).toContain('No company lists Flooring as a trade it buys');
+    await act(async () => (document.body.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click());
     const midland = cells.find((c) => c.getAttribute('data-state') === 'open')!;
     expect(midland.textContent).toContain('$300.00 · 2 leads');
     expect(midland.textContent).toContain('+$235.00 margin');
@@ -608,6 +620,8 @@ describe('standing bids in Admin', () => {
     const panel = document.body.querySelector('[data-testid="confirm-checklist"]')!;
     const confirmButton = Array.from(panel.querySelectorAll('button')).find((b) => b.textContent === 'Confirm & list') as HTMLButtonElement;
     expect(confirmButton.disabled).toBe(true);
+    // Before a single box is ticked, staff see who gets the lead.
+    expect(panel.querySelector('[data-destination="sold"]')?.textContent).toBe("Sells to Peak Roofing at $250.00 the moment it's listed.");
     const boxes = Array.from(panel.querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
     expect(boxes).toHaveLength(6);
     for (const box of boxes.slice(0, 5)) await act(async () => box.click());
