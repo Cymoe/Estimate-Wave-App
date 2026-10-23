@@ -457,6 +457,7 @@ export const marketplaceAPI = {
   addDemoData: () => run('mutation', api.marketplace.addDemoData, {}),
   addSampleLeads: () => run('mutation', api.marketplace.addSampleLeads, {}),
   addDemoBids: () => run('mutation', api.marketplace.addDemoBids, {}),
+  fundEveryCompany: () => run('mutation', api.marketplace.fundEveryCompany, {}),
   removeDemoData: () => run('mutation', api.marketplace.removeDemoData, {}),
 };
 

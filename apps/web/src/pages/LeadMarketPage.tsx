@@ -1019,6 +1019,11 @@ const LeadMarketPage: React.FC = () => {
       const r = await marketplaceAPI.addDemoBids();
       return `Demo bids added: ${r.standingBids} bids across ${r.companies} companies, ${r.leads} leads, ${r.sold} awarded`;
     }, 'Demo bids added');
+  const fundEveryone = () =>
+    runDemo(async () => {
+      const r = await marketplaceAPI.fundEveryCompany();
+      return `${money(r.amountCents)} of play money added to ${r.companies} ${r.companies === 1 ? 'company' : 'companies'}`;
+    }, 'Play money added');
   const addDemoIntake = () =>
     runDemo(async () => {
       const r = await intakeAPI.addDemo();
@@ -1041,6 +1046,7 @@ const LeadMarketPage: React.FC = () => {
       {demoButton('Add 20 sample leads', addSamples, 'Sample leads for trying the Marketplace.')}
       {!hasDemoBids && demoButton('Add demo bids', addDemoBids, 'Gives every company demo funds and standing bids, then lists leads that get awarded on the spot.')}
       {demoButton('Add demo leads to Intake', addDemoIntake, 'Six leads to try the queue and the confirmation call with.')}
+      {demoButton('Give every company $5,000', fundEveryone, 'Play money on every active company, so you can buy, bid and claim without recording payments.')}
       {hasDemo && (
         <button type="button" disabled={demoBusy} onClick={removeDemo} className="text-[#7fb0e0] hover:text-white whitespace-nowrap disabled:opacity-50">
           Remove demo data

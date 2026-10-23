@@ -20,6 +20,7 @@ const removeDemoData = jest.fn(async () => { demoCompanies = false; });
 const addSampleLeads = jest.fn(async () => ({ added: 20 }));
 let demoBids = false;
 const addDemoBids = jest.fn(async () => { demoBids = true; return { companies: 3, standingBids: 8, leads: 14, sold: 11 }; });
+const fundEveryCompany = jest.fn(async () => ({ companies: 3, amountCents: 500000 }));
 const removeCompany = jest.fn(async (_id: string) => undefined);
 const setCompanyOwner = jest.fn(async (_id: string, _email: string) => 'invited');
 const setPlan = jest.fn(async () => undefined);
@@ -94,6 +95,7 @@ jest.mock('../../../lib/api', () => ({
     removeDemoData: () => removeDemoData(),
     addSampleLeads: () => addSampleLeads(),
     addDemoBids: () => addDemoBids(),
+    fundEveryCompany: () => fundEveryCompany(),
     removeCompany: (id: string) => removeCompany(id),
     setCompanyOwner: (id: string, email: string) => setCompanyOwner(id, email),
     setPlan: (id: string, changes: unknown) => setPlan(id, changes),
@@ -239,11 +241,16 @@ describe('Lead Market', () => {
     const strip = () => document.body.querySelector('[data-testid="demo-strip"]')!;
     const labels = () => Array.from(strip().querySelectorAll('button')).map((b) => b.textContent);
     // On the Intake tab (the default), with no demo data.
-    expect(labels()).toEqual(['Add demo companies and leads', 'Add 20 sample leads', 'Add demo bids', 'Add demo leads to Intake']);
+    expect(labels()).toEqual(['Add demo companies and leads', 'Add 20 sample leads', 'Add demo bids', 'Add demo leads to Intake', 'Give every company $5,000']);
     await act(async () => byText('Add demo companies and leads')!.click());
     await flush();
     expect(addDemoData).toHaveBeenCalled();
-    expect(labels()).toEqual(['Add 20 sample leads', 'Add demo bids', 'Add demo leads to Intake', 'Remove demo data']);
+    expect(labels()).toEqual(['Add 20 sample leads', 'Add demo bids', 'Add demo leads to Intake', 'Give every company $5,000', 'Remove demo data']);
+    // Play money is one tap for every company.
+    await act(async () => byText('Give every company $5,000')!.click());
+    await flush();
+    expect(fundEveryCompany).toHaveBeenCalled();
+    expect(document.body.querySelector('[role="status"]')?.textContent).toContain('$5,000.00 of play money added to 3 companies');
     // Still there on the Companies tab.
     await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Companies'))!.click());
     await flush();
@@ -251,7 +258,7 @@ describe('Lead Market', () => {
     await act(async () => byText('Add demo bids')!.click());
     await flush();
     expect(addDemoBids).toHaveBeenCalled();
-    expect(labels()).toEqual(['Add 20 sample leads', 'Add demo leads to Intake', 'Remove demo data']);
+    expect(labels()).toEqual(['Add 20 sample leads', 'Add demo leads to Intake', 'Give every company $5,000', 'Remove demo data']);
   });
 
   it('fills an empty market with demo companies, and removes them in one tap', async () => {

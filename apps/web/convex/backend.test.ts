@@ -2523,6 +2523,22 @@ describe("smoke tests and demo data", () => {
     );
   });
 
+  test("play money lands on every active company as a top-up, and only the owner can hand it out", async () => {
+    const t = setup();
+    const admin = await signUp(t, "admin@fieldquote.example", { role: "super_admin" });
+    const mio = await signUp(t, "mio@example.com");
+    const soco = await signUp(t, "soco@example.com");
+    await admin.as.mutation(api.marketplace.recordTopUp, { organizationId: mio.organizationId, amount: 300 });
+    await t.run(async (ctx) => { await ctx.db.patch(soco.organizationId, { isActive: false }); });
+    await expect(mio.as.mutation(api.marketplace.fundEveryCompany, {})).rejects.toThrow(/admins/);
+    // Admin's own company and Mio are active; Soco is not.
+    expect(await admin.as.mutation(api.marketplace.fundEveryCompany, {})).toEqual({ companies: 2, amountCents: 500000 });
+    const wallet = await mio.as.query(api.marketplace.wallet, { organizationId: mio.organizationId });
+    expect(wallet.balanceCents).toBe(30000 + 500000);
+    expect(wallet.transactions[0]).toMatchObject({ type: "top_up", amountCents: 500000, note: "Play money", method: "Demo" });
+    expect((await t.run(async (ctx) => ctx.db.get(soco.organizationId)))?.walletBalanceCents ?? 0).toBe(0);
+  });
+
   test("demo bids give every company funds, standing bids and awarded leads, and come back out cleanly", async () => {
     const t = setup();
     const admin = await signUp(t, "admin@fieldquote.example", {

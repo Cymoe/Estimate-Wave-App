@@ -2270,6 +2270,35 @@ const DEMO_BID_LEADS: Array<[string, string, string, string, string, string]> =
  * and Ector so some are highest and some outbid; one bid is more than its
  * company's funds. "Remove demo data" takes all of it back out.
  */
+/** Play money for the owner to test with: every active company's balance goes up by this much. */
+export const PLAY_MONEY_CENTS = 500_000;
+
+/**
+ * Loads every active company with play money so the owner can try buying,
+ * bidding and claiming without recording payments one by one. Posted as
+ * an ordinary top-up marked "Play money", so it shows in each company's
+ * history; demo companies carry it out with "Remove demo data", real ones
+ * keep it until it's spent.
+ */
+export const fundEveryCompany = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireSuperAdmin(ctx);
+    const companies = (await ctx.db.query("organizations").take(5000)).filter((o) => o.isActive);
+    for (const company of companies) {
+      await postTransaction(ctx, company._id, {
+        type: "top_up",
+        amountCents: PLAY_MONEY_CENTS,
+        createdBy: user._id,
+        method: "Demo",
+        note: "Play money",
+        isSample: company.isSample || undefined,
+      });
+    }
+    return { companies: companies.length, amountCents: PLAY_MONEY_CENTS };
+  },
+});
+
 export const addDemoBids = mutation({
   args: {},
   handler: async (ctx) => {
