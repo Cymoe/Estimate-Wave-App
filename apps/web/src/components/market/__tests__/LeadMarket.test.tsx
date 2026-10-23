@@ -499,8 +499,8 @@ describe('standing bids in Admin', () => {
     await flush();
     const panel = document.body.querySelector('[role="dialog"]')!;
     expect(panel.getAttribute('aria-label')).toBe('Roofing in Midland County');
-    expect(panel.querySelector('[aria-label="Bidders"]')!.textContent).toContain('Rich Roofing$300.00 · 1 lead of balance');
-    expect(panel.querySelector('[aria-label="Bidders"]')!.textContent).toContain('Poor Roofing$400.00 · balance $1.00');
+    expect(panel.querySelector('[aria-label="Bidders"]')!.textContent).toContain('Rich Roofing$300.00 · can pay for 1 more lead');
+    expect(panel.querySelector('[aria-label="Bidders"]')!.textContent).toContain("Poor Roofing$400.00 · can't pay: balance $1.00");
   });
 
   it('shows what was sent for each awarded lead and flags the ones nobody acknowledged', async () => {

@@ -212,8 +212,8 @@ function SlotPanel({ slot, onClose }: { slot: DemandSlot; onClose: () => void })
                     <span className={b.funded ? 'text-emerald-300' : 'text-amber-300'}>
                       {money(b.amountCents)} ·{' '}
                       {b.funded
-                        ? `${Math.floor(b.balanceCents / b.amountCents)} ${Math.floor(b.balanceCents / b.amountCents) === 1 ? 'lead' : 'leads'} of balance`
-                        : `balance ${money(b.balanceCents)}`}
+                        ? `can pay for ${Math.floor(b.balanceCents / b.amountCents)} more ${Math.floor(b.balanceCents / b.amountCents) === 1 ? 'lead' : 'leads'}`
+                        : `can't pay: balance ${money(b.balanceCents)}`}
                     </span>
                   </li>
                 ))}
