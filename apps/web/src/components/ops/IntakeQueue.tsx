@@ -160,9 +160,8 @@ export const IntakeQueue: React.FC<{
   );
 };
 
-/** A call that came in, or a lead written down: straight into the queue. */
+/** A lead staff type in, from a call or a note: straight into the queue as "Typed in". */
 export function IntakeForm({ trades, onClose, onSaved }: { trades: Trade[]; onClose: () => void; onSaved: () => void }) {
-  const [source, setSource] = useState<'call' | 'manual'>('call');
   const [draft, setDraft] = useState<Required<Omit<IntakeFields, 'isOwner'>> & { isOwner: boolean }>({
     name: '',
     phone: '',
@@ -192,7 +191,7 @@ export function IntakeForm({ trades, onClose, onSaved }: { trades: Trade[]; onCl
     setSaving(true);
     setError(null);
     try {
-      await intakeAPI.create(source, { ...draft, isOwner: draft.isOwner || undefined });
+      await intakeAPI.create('manual', { ...draft, isOwner: draft.isOwner || undefined });
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : "The lead couldn't be saved");
@@ -203,25 +202,6 @@ export function IntakeForm({ trades, onClose, onSaved }: { trades: Trade[]; onCl
   return (
     <Dialog title="New lead" onClose={onClose}>
       <form onSubmit={save}>
-        <div className="flex gap-2 mb-3" role="radiogroup" aria-label="How it came in">
-          {(
-            [
-              ['call', 'They called'],
-              ['manual', 'Typed in'],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              role="radio"
-              aria-checked={source === value}
-              onClick={() => setSource(value)}
-              className={`px-3 py-1.5 rounded-full text-xs border ${source === value ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333] text-gray-400'}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
         <Field label="Name">
           <input value={draft.name} onChange={set('name')} className={input} autoFocus />
         </Field>

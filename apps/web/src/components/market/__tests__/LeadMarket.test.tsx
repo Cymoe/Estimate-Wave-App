@@ -512,7 +512,8 @@ describe('standing bids in Admin', () => {
     expect(county.value).toBe('Ector');
     await act(async () => (dialog.querySelector('button[type="submit"]') as HTMLButtonElement).click());
     await flush();
-    expect(createIntake).toHaveBeenCalledWith('call', expect.objectContaining({ name: 'Pat Cole', city: 'Odessa', county: 'Ector' }));
+    expect(createIntake).toHaveBeenCalledWith('manual', expect.objectContaining({ name: 'Pat Cole', city: 'Odessa', county: 'Ector' }));
+    expect(document.body.querySelector('[role="radiogroup"][aria-label="How it came in"]')).toBeNull();
     expect(document.body.querySelector('[role="dialog"]')).toBeNull();
   });
 
