@@ -15,6 +15,8 @@ interface FundingPage {
   tiers: Array<{ amountCents: number; bonusPercent: number; bonusCents: number; popular?: boolean }>;
   typicalLeadCents: number;
   paid: boolean;
+  /** No Stripe key on the deployment: Pay loads play money on the spot. */
+  playMoney: boolean;
 }
 
 type Step = 'amount' | 'pay';
@@ -262,9 +264,17 @@ const FundAccountPage: React.FC = () => {
                   onClick={pay}
                   className="w-full rounded-xl bg-gray-900 text-white py-3.5 font-medium disabled:opacity-50"
                 >
-                  {submitting ? 'Opening secure checkout…' : `Pay ${money(amountCents)}`}
+                  {submitting
+                    ? page.playMoney ? 'Adding…' : 'Opening secure checkout…'
+                    : page.playMoney ? `Add ${money(amountCents)} in play money` : `Pay ${money(amountCents)}`}
                 </button>
-                <p className="text-center text-xs text-gray-500 mt-3">You'll finish on Stripe's secure page: card, Apple Pay or Google Pay.</p>
+                {page.playMoney ? (
+                  <p role="note" className="text-center text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3">
+                    Test mode: no card is charged. Real payments switch on once Stripe is connected to the deployment.
+                  </p>
+                ) : (
+                  <p className="text-center text-xs text-gray-500 mt-3">You'll finish on Stripe's secure page: card, Apple Pay or Google Pay.</p>
+                )}
                 {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
                 <p className="flex items-center justify-center gap-1.5 text-xs text-gray-500 mt-5">
                   <ShieldCheck className="w-4 h-4" /> Your balance never expires. Bad leads are credited back.

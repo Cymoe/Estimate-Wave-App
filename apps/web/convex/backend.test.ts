@@ -3006,10 +3006,20 @@ describe("funding links and the lead feed", () => {
     expect(page).toMatchObject({ companyName: "roofer@example.com Co", status: "open", minimumCents: 500000, paid: false });
     expect(page!.tiers.map((tier) => tier.bonusCents)).toEqual([0, 37500, 100000]);
 
-    // Nothing to pay with until the deployment has a Stripe key.
+    // No Stripe key on the deployment: Pay loads play money on the spot, labelled as such.
     vi.stubEnv("STRIPE_SECRET_KEY", "");
-    await expect(t.action(api.funding.checkout, { token, amountCents: 1_000_000 })).rejects.toThrow(/aren't set up/);
+    expect(page!.playMoney).toBe(true);
+    const rivalToken = await rival.as.mutation(api.funding.createLink, { organizationId: rival.organizationId });
+    const rivalBefore = await balance(rival);
+    expect(await t.action(api.funding.checkout, { token: rivalToken, amountCents: 1_000_000 })).toEqual({ url: `/fund/${rivalToken}?paid=1` });
+    expect(await balance(rival)).toBe(rivalBefore + 1_100_000);
+    expect(await t.query(api.funding.get, { token: rivalToken })).toMatchObject({ status: "confirmed", paid: true, amountCents: 1_000_000, bonusCents: 100_000 });
+    const rivalWallet = await rival.as.query(api.marketplace.wallet, { organizationId: rival.organizationId });
+    expect(rivalWallet.transactions.find((tx: { type: string }) => tx.type === "top_up")).toMatchObject({ method: "Play money", amountCents: 1_000_000 });
+    // A used link can't pay twice.
+    await expect(t.action(api.funding.checkout, { token: rivalToken, amountCents: 1_000_000 })).rejects.toThrow(/already been used/);
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_x");
+    expect((await t.query(api.funding.get, { token }))!.playMoney).toBe(false);
     vi.stubEnv("SITE_URL", "https://app.example/");
     await expect(t.action(api.funding.checkout, { token, amountCents: 499999 })).rejects.toThrow(/minimum/);
     const calls: Array<{ url: string; body: string; auth: string | undefined }> = [];
@@ -3069,7 +3079,8 @@ describe("funding links and the lead feed", () => {
     const expired = JSON.stringify({ type: "checkout.session.expired", data: { object: { id: "cs_test_2" } } });
     expect(await (await post(expired, await signStripePayload("whsec_test", nowSec, expired))).json()).toMatchObject({ reopened: true });
     expect((await t.query(api.funding.get, { token: second }))!.status).toBe("open");
-    expect(await balance(rival)).toBe(0);
+    // The roofer's Stripe payments never touched the rival, who only has the play money from above.
+    expect(await balance(rival)).toBe(rivalBefore + 1_100_000);
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   });

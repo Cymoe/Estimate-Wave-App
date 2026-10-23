@@ -22,6 +22,12 @@ import { dollars, pricingFor, postTransaction } from "./lib/wallet";
 //
 //   STRIPE_SECRET_KEY       set on the deployment (test mode first)
 //   STRIPE_WEBHOOK_SECRET   from the Stripe endpoint pointing at /stripe/webhook
+//
+// With no STRIPE_SECRET_KEY the page pays with play money: the amount lands
+// on the balance the moment Pay is tapped, marked as such, so the owner can
+// walk the whole flow before Stripe is connected. Setting the key turns it off.
+
+const playMoney = () => !process.env.STRIPE_SECRET_KEY;
 
 async function byToken(
   ctx: QueryCtx | MutationCtx,
@@ -78,6 +84,7 @@ export const get = query({
       })),
       typicalLeadCents: (await pricingFor(ctx, undefined)).startCents,
       paid: request.status === "confirmed",
+      playMoney: playMoney(),
     };
   },
 });
@@ -123,7 +130,11 @@ export const checkout = action({
   handler: async (ctx, { token, amountCents }): Promise<{ url: string }> => {
     const prepared = await ctx.runMutation(internal.funding.prepare, { token, amountCents });
     const secretKey = process.env.STRIPE_SECRET_KEY;
-    if (!secretKey) fail("INVALID", "Payments aren't set up yet (no STRIPE_SECRET_KEY on the deployment)");
+    if (!secretKey) {
+      // Test mode: no Stripe. Credit now and send the page where Stripe would have.
+      await ctx.runMutation(internal.funding.playMoneyPay, { requestId: prepared.requestId });
+      return { url: `/fund/${token}?paid=1` };
+    }
     const site = siteUrl();
     const session = await createCheckoutSession(secretKey, {
       amountCents,
@@ -139,6 +150,52 @@ export const checkout = action({
     return { url: session.url };
   },
 });
+
+/** Loads the request's amount and bonus on the balance and closes the link. Once: a confirmed link credits nothing. */
+async function credit(
+  ctx: MutationCtx,
+  request: Doc<"fundingRequests">,
+  paid: { method: string; paymentIntentId?: string; payerName?: string; payerEmail?: string; reference: string },
+) {
+  if (request.status === "confirmed") return { credited: false as const, reason: "already credited" };
+  const amountCents = request.amountCents ?? 0;
+  const bonusCents = request.bonusCents ?? 0;
+  const payerName = paid.payerName?.trim().slice(0, 120) || undefined;
+  await postTransaction(ctx, request.organizationId, {
+    type: "top_up",
+    amountCents,
+    createdBy: request.createdBy,
+    method: paid.method,
+    note: payerName,
+  });
+  if (bonusCents > 0) {
+    await postTransaction(ctx, request.organizationId, {
+      type: "bonus",
+      amountCents: bonusCents,
+      createdBy: request.createdBy,
+      note: "Bonus",
+    });
+  }
+  const now = nowIso();
+  await ctx.db.patch(request._id, {
+    status: "confirmed",
+    method: paid.method,
+    stripePaymentIntentId: paid.paymentIntentId,
+    payerName,
+    payerEmail: paid.payerEmail?.trim().slice(0, 200) || undefined,
+    paidAt: now,
+    confirmedAt: now,
+  });
+  await logActivity(ctx, {
+    organizationId: request.organizationId,
+    userId: request.createdBy,
+    action: "funding_paid",
+    resourceType: "organization",
+    resourceId: request.organizationId,
+    details: { amountCents, bonusCents, method: paid.method, reference: paid.reference },
+  });
+  return { credited: true as const, amountCents, bonusCents };
+}
 
 /**
  * Stripe says the session was paid: load the amount and its bonus, once.
@@ -158,43 +215,18 @@ export const fulfill = internalMutation({
       .withIndex("by_stripe_session", (q) => q.eq("stripeSessionId", sessionId))
       .first();
     if (request === null) return { credited: false, reason: "unknown session" };
-    if (request.status === "confirmed") return { credited: false, reason: "already credited" };
-    const amountCents = request.amountCents ?? 0;
-    const bonusCents = request.bonusCents ?? 0;
-    await postTransaction(ctx, request.organizationId, {
-      type: "top_up",
-      amountCents,
-      createdBy: request.createdBy,
-      method: "Stripe",
-      note: payerName?.trim().slice(0, 120) || undefined,
-    });
-    if (bonusCents > 0) {
-      await postTransaction(ctx, request.organizationId, {
-        type: "bonus",
-        amountCents: bonusCents,
-        createdBy: request.createdBy,
-        note: "Bonus",
-      });
-    }
-    const now = nowIso();
-    await ctx.db.patch(request._id, {
-      status: "confirmed",
-      method: "Stripe",
-      stripePaymentIntentId: paymentIntentId,
-      payerName: payerName?.trim().slice(0, 120) || undefined,
-      payerEmail: payerEmail?.trim().slice(0, 200) || undefined,
-      paidAt: now,
-      confirmedAt: now,
-    });
-    await logActivity(ctx, {
-      organizationId: request.organizationId,
-      userId: request.createdBy,
-      action: "funding_paid",
-      resourceType: "organization",
-      resourceId: request.organizationId,
-      details: { amountCents, bonusCents, sessionId },
-    });
-    return { credited: true, amountCents, bonusCents };
+    return await credit(ctx, request, { method: "Stripe", paymentIntentId, payerName, payerEmail, reference: sessionId });
+  },
+});
+
+/** Test mode, no Stripe key: the amount lands as play money the moment Pay is tapped. */
+export const playMoneyPay = internalMutation({
+  args: { requestId: v.id("fundingRequests") },
+  handler: async (ctx, { requestId }) => {
+    if (!playMoney()) fail("INVALID", "Play money is off: this deployment takes real payments");
+    const request = await ctx.db.get(requestId);
+    if (request === null) fail("NOT_FOUND", "This payment link isn't valid");
+    return await credit(ctx, request, { method: "Play money", reference: "play-money" });
   },
 });
 

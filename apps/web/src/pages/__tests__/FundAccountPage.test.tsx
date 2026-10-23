@@ -20,7 +20,7 @@ const tiers = [
   { amountCents: 750000, bonusPercent: 5, bonusCents: 37500 },
   { amountCents: 1000000, bonusPercent: 10, bonusCents: 100000, popular: true },
 ];
-const open = { companyName: 'Peak Roofing', status: 'open', minimumCents: 500000, tiers, typicalLeadCents: 8500, paid: false };
+const open = { companyName: 'Peak Roofing', status: 'open', minimumCents: 500000, tiers, typicalLeadCents: 8500, paid: false, playMoney: false };
 
 const flush = () => act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
 const byText = (text: string) => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes(text));
@@ -106,6 +106,19 @@ describe('funding page', () => {
     expect(done().textContent).toContain('Added to your balance');
     expect(done().textContent).toContain('$11,000');
     expect(done().getAttribute('data-paid')).toBe('true');
+  });
+
+  it('with no Stripe key, says it is play money and adds it on the spot', async () => {
+    page = { ...open, playMoney: true };
+    checkout.mockResolvedValueOnce({ url: '/fund/tok?paid=1' });
+    await render();
+    await act(async () => byText('Continue')!.click());
+    expect(document.body.querySelector('[role="note"]')?.textContent).toContain('Test mode: no card is charged');
+    expect(document.body.textContent).not.toContain("Stripe's secure page");
+    await act(async () => byText('Add $10,000 in play money')!.click());
+    await flush();
+    expect(checkout).toHaveBeenCalledWith('tok', 1000000);
+    expect(assign).toHaveBeenCalledWith('/fund/tok?paid=1');
   });
 
   it('comes back to the amount step with no charge when they leave Stripe', async () => {
