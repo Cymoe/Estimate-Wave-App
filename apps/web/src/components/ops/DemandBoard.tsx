@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { RefreshCw, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { demandAPI } from '../../lib/api';
+import { useDemandBoard, useDemandSlot } from '../../lib/live';
 import { money } from '../market/wallet';
-import { ago, input, secondary } from './ui';
+import { ago, input } from './ui';
 
 export interface DemandSlot {
   county: string;
@@ -41,28 +42,14 @@ const STATE: Record<DemandSlot['state'], { label: string; cell: string }> = {
  * Where to run ads: for each county and trade, the top bid a funded
  * company will pay and how many leads their balances absorb, against what
  * a lead costs to generate. Green means go, amber means the bids can't
- * pay, red means leads are already sitting unsold.
+ * pay, red means leads are already sitting unsold. Live: a bid changed
+ * anywhere shows here on its own.
  */
 export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
-  const [data, setData] = useState<DemandBoardData | null>(null);
+  const data = useDemandBoard<DemandBoardData>();
   const [open, setOpen] = useState<DemandSlot | null>(null);
-  const [busy, setBusy] = useState(false);
-  const load = useCallback(async () => setData(await demandAPI.board()), []);
-  useEffect(() => {
-    load().catch(() => setData({ vaCostCents: 500, planCpl: {}, slots: [] }));
-  }, [load]);
 
-  const refresh = async () => {
-    setBusy(true);
-    try {
-      await demandAPI.refresh();
-      await load();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (data === null) return <p className="text-sm text-gray-500">Loading…</p>;
+  if (data === undefined) return <p className="text-sm text-gray-500">Loading…</p>;
   const counties = [...new Set(data.slots.map((s) => s.county))].sort();
   const trades = [...new Map(data.slots.map((s) => [s.jobType, s.tradeName])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
   const at = (county: string, jobType: string) => data.slots.find((s) => s.county === county && s.jobType === jobType);
@@ -71,19 +58,14 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
 
   return (
     <div className="space-y-4" data-testid="demand-board">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-gray-500">
-          Top funded bid · leads the balances absorb. Margin = bid − planned cost per lead − {money(data.vaCostCents)} for the confirmation call. Live.
-        </p>
-        <button type="button" disabled={busy} onClick={refresh} className={secondary}>
-          <RefreshCw className="w-3.5 h-3.5" /> Refresh
-        </button>
-      </div>
+      <p className="text-xs text-gray-500">
+        Top funded bid · leads the balances absorb. Margin = bid − planned cost per lead − {money(data.vaCostCents)} for the confirmation call. Updates on its own.
+      </p>
 
       {data.slots.length === 0 ? (
         <div className="border border-dashed border-[#333] rounded p-8 text-center">
           <p className="text-sm text-gray-400">No bids or leads yet. The board fills in as companies set standing bids.</p>
-          {owner && <p className="text-xs text-gray-500 mt-2">To try it: Listed → Add demo bids, then Refresh here. The cost-per-lead boxes sit in the column headers once the grid has columns.</p>}
+          {owner && <p className="text-xs text-gray-500 mt-2">To try it: Add demo bids in the strip above. The cost-per-lead boxes sit in the column headers once the grid has columns.</p>}
         </div>
       ) : (
         <>
@@ -96,7 +78,7 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
                     <th key={slug} className="text-left px-3 py-2">
                       {name}
                       {owner ? (
-                        <PlanCpl jobType={slug} cents={data.planCpl[slug]} onSaved={load} />
+                        <PlanCpl jobType={slug} cents={data.planCpl[slug]} />
                       ) : data.planCpl[slug] !== undefined ? (
                         <span className="block text-[10px] normal-case text-gray-500">costs {money(data.planCpl[slug])}</span>
                       ) : null}
@@ -160,15 +142,14 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
   );
 };
 
-/** The planned cost per lead for a trade, typed in by the owner. */
-function PlanCpl({ jobType, cents, onSaved }: { jobType: string; cents?: number; onSaved: () => Promise<void> }) {
+/** The planned cost per lead for a trade, typed in by the owner. The board picks the change up on its own. */
+function PlanCpl({ jobType, cents }: { jobType: string; cents?: number }) {
   const [value, setValue] = useState(cents !== undefined ? String(cents / 100) : '');
   useEffect(() => setValue(cents !== undefined ? String(cents / 100) : ''), [cents]);
   const save = async () => {
     const n = Number(value);
     if (value.trim() === '') await demandAPI.setPlanCpl(jobType, null);
     else if (Number.isFinite(n) && n >= 0) await demandAPI.setPlanCpl(jobType, Math.round(n * 100));
-    await onSaved();
   };
   return (
     <span className="block mt-1 normal-case font-normal">
@@ -187,13 +168,11 @@ function PlanCpl({ jobType, cents, onSaved }: { jobType: string; cents?: number;
 }
 
 function SlotPanel({ slot, onClose }: { slot: DemandSlot; onClose: () => void }) {
-  const [detail, setDetail] = useState<{
-    bidders: Array<{ companyName: string; amountCents: number; balanceCents: number; funded: boolean }>;
-    leads: Array<{ id: string; name: string; status: string; createdAt: string; priceCents?: number; companyName?: string }>;
-  } | null>(null);
-  useEffect(() => {
-    demandAPI.slot(slot.county, slot.jobType).then(setDetail).catch(() => setDetail({ bidders: [], leads: [] }));
-  }, [slot]);
+  const detail =
+    useDemandSlot<{
+      bidders: Array<{ companyName: string; amountCents: number; balanceCents: number; funded: boolean }>;
+      leads: Array<{ id: string; name: string; status: string; createdAt: string; priceCents?: number; companyName?: string }>;
+    }>(slot.county, slot.jobType) ?? null;
   return createPortal(
     <>
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[10000]" onClick={onClose} />

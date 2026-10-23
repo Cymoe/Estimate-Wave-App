@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { AlertCircle, Check, Mail, MessageSquare, RefreshCw } from 'lucide-react';
 import { deliveryAPI } from '../../lib/api';
+import { useDelivered } from '../../lib/live';
 import { money } from '../market/wallet';
 import { ago, secondary } from './ui';
 
@@ -40,29 +41,23 @@ const CHANNEL: Record<Delivery['channel'], { label: string; icon: React.Componen
  * Every awarded lead and whether the company has it: what went out, and
  * who hasn't tapped "Got it" within 15 minutes during the day. Red rows
  * get a phone call from staff; "Send by hand" and credits live on the
- * Listed and Companies tabs.
+ * Listed and Companies tabs. Live: a "Got it" or a new award shows on
+ * its own.
  */
 export const Delivered: React.FC<{ tradeName: (id?: string) => string }> = ({ tradeName }) => {
-  const [rows, setRows] = useState<DeliveredRow[] | null>(null);
+  const rows = useDelivered<DeliveredRow[]>();
   const [busy, setBusy] = useState<string | null>(null);
-  const load = useCallback(async () => setRows(await deliveryAPI.recent()), []);
-  useEffect(() => {
-    load().catch(() => setRows([]));
-    const timer = setInterval(() => load().catch(() => {}), 30_000);
-    return () => clearInterval(timer);
-  }, [load]);
 
   const resend = async (row: DeliveredRow) => {
     setBusy(row.id);
     try {
       await deliveryAPI.resend(row.orgLeadId);
-      setTimeout(() => load().catch(() => {}), 1500);
     } finally {
       setBusy(null);
     }
   };
 
-  if (rows === null) return <p className="text-sm text-gray-500">Loading…</p>;
+  if (rows === undefined) return <p className="text-sm text-gray-500">Loading…</p>;
   if (rows.length === 0) {
     return (
       <div className="border border-dashed border-[#333] rounded p-8 text-center" data-testid="delivered">

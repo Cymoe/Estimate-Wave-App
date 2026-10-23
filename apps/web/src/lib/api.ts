@@ -56,7 +56,7 @@ function toAPIError(error: unknown): APIError {
 }
 
 /** Adds an `id` alias for `_id`, which older screens read. */
-function withId<T>(value: T): T {
+export function withId<T>(value: T): T {
   if (Array.isArray(value)) return value.map(withId) as T;
   if (value && typeof value === 'object' && '_id' in value && !('id' in value)) {
     return { ...value, id: (value as { _id: string })._id };
@@ -512,7 +512,6 @@ export const intakeAPI = {
 export const demandAPI = {
   board: () => run('query', api.demand.board, {}),
   slot: (county: string, jobType: string) => run('query', api.demand.slot, { county, jobType }),
-  refresh: () => run('mutation', api.demand.refresh, {}),
   setPlanCpl: (jobType: string, cents: number | null) => run('mutation', api.demand.setPlanCpl, { jobType, cents }),
 };
 

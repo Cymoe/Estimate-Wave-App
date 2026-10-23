@@ -37,16 +37,20 @@ const setPlanCpl = jest.fn(async (_jobType: string, _cents: number | null) => nu
 let delivered: unknown[] = [];
 const resendAlerts = jest.fn(async (_id: string) => null);
 
+// The live subscriptions see the same fixtures the one-shot calls used to return.
+jest.mock('../../../lib/live', () => ({
+  useDemandBoard: () => demand,
+  useDemandSlot: () => ({ bidders: [{ companyName: 'Rich Roofing', amountCents: 30000, balanceCents: 40000, funded: true }, { companyName: 'Poor Roofing', amountCents: 40000, balanceCents: 100, funded: false }], leads: [] }),
+  useIntakeQueue: () => intakeRows,
+  useDelivered: () => delivered,
+}));
+
 jest.mock('../../../lib/api', () => ({
-  deliveryAPI: { recent: async () => delivered, resend: (id: string) => resendAlerts(id) },
+  deliveryAPI: { resend: (id: string) => resendAlerts(id) },
   demandAPI: {
-    board: async () => demand,
-    slot: async () => ({ bidders: [{ companyName: 'Rich Roofing', amountCents: 30000, balanceCents: 40000, funded: true }, { companyName: 'Poor Roofing', amountCents: 40000, balanceCents: 100, funded: false }], leads: [] }),
-    refresh: async () => ({ slots: 1 }),
     setPlanCpl: (jobType: string, cents: number | null) => setPlanCpl(jobType, cents),
   },
   intakeAPI: {
-    queue: async () => intakeRows,
     get: async (id: string) => ({ ...(intakeRows as Array<{ id: string }>).find((r) => r.id === id)!, duplicate: null }),
     create: (source: string, fields: unknown) => createIntake(source, fields),
     confirm: (...args: unknown[]) => confirmIntake(...(args as [])),

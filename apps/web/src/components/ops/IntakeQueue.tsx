@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { AlertTriangle, Facebook, Keyboard, Phone, PhoneCall, Plus, Webhook } from 'lucide-react';
 import { intakeAPI, type IntakeFields } from '../../lib/api';
+import { useIntakeQueue } from '../../lib/live';
 import { COUNTY_CHOICES, countyForTown } from '../../services/counties';
 import { Dialog, Field, ago, input, primary, secondary } from './ui';
 import { IntakePanel, type IntakeRow } from './IntakePanel';
@@ -30,7 +31,8 @@ export const ATTEMPT_LABELS: Record<string, string> = {
 /**
  * Leads on their way in: from Facebook through the webhook, from calls, or
  * typed in. Staff call each homeowner from here; nothing is listed until
- * the call confirms it.
+ * the call confirms it. Live: a lead landing from the webhook appears on
+ * its own.
  */
 export const IntakeQueue: React.FC<{
   trades: Trade[];
@@ -39,7 +41,7 @@ export const IntakeQueue: React.FC<{
   onListed?: (message: string) => void;
 }> = ({ trades, openNew, onCloseNew, onListed }) => {
   const [filter, setFilter] = useState<'open' | 'closed' | 'confirmed'>('open');
-  const [rows, setRows] = useState<IntakeRow[] | null>(null);
+  const rows = useIntakeQueue<IntakeRow[]>(filter);
   const [selected, setSelected] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const closeForm = () => {
@@ -47,13 +49,6 @@ export const IntakeQueue: React.FC<{
     onCloseNew();
   };
   const tradeName = (id?: string) => trades.find((t) => t.id === id)?.name ?? id;
-
-  const load = useCallback(async () => setRows(await intakeAPI.queue(filter)), [filter]);
-  useEffect(() => {
-    load().catch(() => setRows([]));
-    const timer = setInterval(() => load().catch(() => {}), 30_000);
-    return () => clearInterval(timer);
-  }, [load]);
 
   return (
     <div className="space-y-4" data-testid="intake-queue">
@@ -83,7 +78,7 @@ export const IntakeQueue: React.FC<{
         </button>
       </div>
 
-      {rows === null ? (
+      {rows === undefined ? (
         <p className="text-sm text-gray-500">Loading…</p>
       ) : rows.length === 0 ? (
         <div className="border border-dashed border-[#333] rounded p-8 text-center">
@@ -142,7 +137,6 @@ export const IntakeQueue: React.FC<{
           onSaved={() => {
             closeForm();
             setFilter('open');
-            load().catch(() => {});
           }}
         />
       )}
@@ -151,10 +145,9 @@ export const IntakeQueue: React.FC<{
           id={selected}
           trades={trades}
           onClose={() => setSelected(null)}
-          onChanged={() => load().catch(() => {})}
+          onChanged={() => {}}
           onListed={(result) => {
             setSelected(null);
-            load().catch(() => {});
             onListed?.(
               result.outcome === 'sold'
                 ? `Listed and sold to ${result.companyName} for $${((result.priceCents ?? 0) / 100).toFixed(2)}`
