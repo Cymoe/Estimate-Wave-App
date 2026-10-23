@@ -183,6 +183,14 @@ describe('Lead Market', () => {
     expect(Array.from(vault.querySelectorAll('button')).map((b) => b.textContent)).toContain('Confirm');
   });
 
+  it('totals the companies table: cash held, leads and spend this month, plan mix and value won', async () => {
+    await render(<LeadMarketPage />);
+    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Companies'))!.click());
+    await flush();
+    const cells = Array.from(document.body.querySelectorAll('[data-testid="companies-totals"] td')).map((td) => td.textContent);
+    expect(cells).toEqual(['Total3 companies', '$510.00', '2', '$170.00', '1 Pro · 2 free', '$12,000.00']);
+  });
+
   it('lets the owner invite staff from the Companies tab', async () => {
     await render(<LeadMarketPage />);
     await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Companies'))!.click());

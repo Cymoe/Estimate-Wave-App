@@ -22,6 +22,22 @@ interface Trade {
   name: string;
 }
 
+/** The plan mix in the totals row, in the order it reads best. */
+const PLAN_STATES = ['Pro', 'trial', 'free', 'paused', 'ending', 'ended'] as const;
+function planState(plan: PlanSummary | null | undefined): (typeof PLAN_STATES)[number] {
+  if (!plan) return 'free';
+  switch (plan.status) {
+    case 'active':
+      return 'Pro';
+    case 'trial':
+      return plan.active ? 'trial' : 'ended';
+    case 'past_due':
+      return 'paused';
+    case 'cancelled':
+      return plan.active ? 'ending' : 'ended';
+  }
+}
+
 interface MarketLead {
   id: string;
   name: string;
@@ -954,15 +970,26 @@ const LeadMarketPage: React.FC = () => {
 
   const tradeName = useCallback((id?: string) => trades.find((t) => t.id === id)?.name ?? (id ? id : 'Any trade'), [trades]);
   const openCompany = companies.find((c) => c.id === openCompanyId) ?? null;
+  // The whole book: the header line and the totals row under the companies table.
+  const book = useMemo(() => {
+    const sum = (pick: (c: Company) => number) => companies.reduce((n, c) => n + pick(c), 0);
+    const mix: Record<string, number> = {};
+    for (const c of companies) {
+      const key = planState(c.plan);
+      mix[key] = (mix[key] ?? 0) + 1;
+    }
+    return {
+      balanceCents: sum((c) => c.balanceCents),
+      leads30d: sum((c) => c.leads30d),
+      spent30dCents: sum((c) => c.spent30dCents),
+      wonCents: sum((c) => c.wonCents),
+      plans: PLAN_STATES.filter((state) => mix[state]).map((state) => `${mix[state]} ${state}`).join(' · '),
+    };
+  }, [companies]);
 
   if (!staff) {
     return <div className="p-8 text-gray-400">The Ops page is only for FieldQuote staff.</div>;
   }
-
-  const totals = {
-    balance: companies.reduce((sum, c) => sum + c.balanceCents, 0),
-    spent: companies.reduce((sum, c) => sum + c.spent30dCents, 0),
-  };
 
   return (
     <div className="px-4 md:px-6 py-5 text-white">
@@ -975,7 +1002,7 @@ const LeadMarketPage: React.FC = () => {
             </span>
           </div>
           <p className="text-sm text-gray-400">
-            {inbox.available.length} listed · {money(totals.spent)} sold in 30 days · {money(totals.balance)} in company balances
+            {inbox.available.length} listed · {money(book.spent30dCents)} sold in 30 days · {money(book.balanceCents)} in company balances
           </p>
           <p className="text-xs text-gray-500 mt-0.5">Leads you list here sell on their own in the Marketplace. Sending one by hand is the exception.</p>
         </div>
@@ -1217,6 +1244,19 @@ const LeadMarketPage: React.FC = () => {
                   </tr>
                 ))}
               </tbody>
+              <tfoot className="border-t border-[#2A2A2A] bg-[#151515] text-white">
+                <tr data-testid="companies-totals">
+                  <td className="px-4 py-3">
+                    <span className="block">Total</span>
+                    <span className="block text-xs text-gray-500">{companies.length} companies</span>
+                  </td>
+                  <td className={`px-4 py-3 text-right ${book.balanceCents > 0 ? 'text-emerald-300' : 'text-gray-500'}`}>{money(book.balanceCents)}</td>
+                  <td className="px-4 py-3 text-right hidden sm:table-cell">{book.leads30d}</td>
+                  <td className="px-4 py-3 text-right hidden sm:table-cell">{money(book.spent30dCents)}</td>
+                  <td className="px-4 py-3 text-gray-300 text-xs sm:text-sm whitespace-nowrap">{book.plans}</td>
+                  <td className="px-4 py-3 text-right">{money(book.wonCents)}</td>
+                </tr>
+              </tfoot>
             </table>
           </div>
           {owner && <TeamCard />}
