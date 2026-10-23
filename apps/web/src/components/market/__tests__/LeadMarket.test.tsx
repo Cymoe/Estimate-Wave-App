@@ -39,6 +39,7 @@ const resendAlerts = jest.fn(async (_id: string) => null);
 
 // The live subscriptions see the same fixtures the one-shot calls used to return.
 jest.mock('../../../lib/live', () => ({
+  useWallet: () => wallet,
   useDemandBoard: () => demand,
   useDemandSlot: () => ({ bidders: [{ companyName: 'Rich Roofing', amountCents: 30000, balanceCents: 40000, funded: true }, { companyName: 'Poor Roofing', amountCents: 40000, balanceCents: 100, funded: false }], leads: [] }),
   useIntakeQueue: () => intakeRows,

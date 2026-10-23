@@ -1,9 +1,10 @@
-import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { useContext, useMemo, useState } from 'react';
 import { MapPin, Sparkles } from 'lucide-react';
 import { Confirmed } from '../components/market/Confirmed';
 import { PermitsNearYou } from '../components/market/PermitsNearYou';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { walletAPI } from '../lib/api';
+import { useOlderLeads } from '../lib/live';
 import { money } from '../components/market/wallet';
 import { notifyWalletChanged } from '../components/market/WalletBar';
 import { PlanPanel, type PlanSummary } from '../components/market/plan';
@@ -46,23 +47,14 @@ const primary =
 const VaultPage: React.FC = () => {
   const { selectedOrg } = useContext(OrganizationContext);
   const organizationId = selectedOrg?.id || undefined;
-  const [pool, setPool] = useState<VaultPool | null>(null);
+  // Live: a lead another company claims leaves the list as it happens.
+  const pool = useOlderLeads<VaultPool>(organizationId) ?? null;
   const [mineOnly, setMineOnly] = useState(true);
   // Two views: leads nobody bought, and public permits for work going on nearby.
   const [tab, setTab] = useState<'leads' | 'permits'>('leads');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { toast, show } = useToast();
-
-  const load = useCallback(async () => {
-    if (!organizationId) return;
-    setPool(await walletAPI.olderLeads(organizationId));
-  }, [organizationId]);
-  useEffect(() => {
-    load().catch(() => setPool({ locked: true, count: 0, plan: null, leads: [] }));
-    const refresh = setInterval(() => load().catch(() => {}), 90_000);
-    return () => clearInterval(refresh);
-  }, [load]);
 
   const claim = async (lead: VaultLead) => {
     setBusy(true);
@@ -74,7 +66,6 @@ const VaultPage: React.FC = () => {
       setError(err instanceof Error ? err.message : 'That didn’t work');
     } finally {
       setBusy(false);
-      await load().catch(() => {});
       notifyWalletChanged();
     }
   };
@@ -123,7 +114,7 @@ const VaultPage: React.FC = () => {
               ? `${pool.count} lead${pool.count === 1 ? '' : 's'} in your trades ${pool.count === 1 ? 'is' : 'are'} waiting in the Vault. It's part of the plan.`
               : 'Leads land here a week after listing. The Vault is part of the plan.'}
           </p>
-          <PlanPanel organizationId={organizationId} plan={plan} onChanged={() => load().catch(() => {})} />
+          <PlanPanel organizationId={organizationId} plan={plan} onChanged={() => {}} />
         </div>
       ) : (
         <>

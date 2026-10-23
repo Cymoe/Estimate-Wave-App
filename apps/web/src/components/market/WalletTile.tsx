@@ -1,15 +1,13 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import React, { useState } from 'react';
 import { Wallet } from 'lucide-react';
-import { walletAPI } from '../../lib/api';
+import { useWallet } from '../../lib/live';
 import { money } from './wallet';
-import { WALLET_CHANGED, WalletDrawer, leadsCovered, openFundingPage, type WalletSummary } from './WalletBar';
+import { WalletDrawer, leadsCovered, openFundingPage, type WalletSummary } from './WalletBar';
 
 /**
  * The company's lead balance, pinned in the navigation so it's always in
- * view. Tapping it opens the Lead balance panel on the right. Refreshes
- * when the page changes, every minute, and whenever a page says the wallet
- * moved (see `notifyWalletChanged`).
+ * view. Tapping it opens the Lead balance panel on the right. Live: a lead
+ * won by a bid or a payment confirmed moves it as it happens.
  */
 export const WalletTile: React.FC<{ organizationId?: string; collapsed?: boolean; onOpen?: () => void; variant?: 'sidebar' | 'menu' }> = ({
   organizationId,
@@ -17,33 +15,8 @@ export const WalletTile: React.FC<{ organizationId?: string; collapsed?: boolean
   onOpen,
   variant = 'sidebar',
 }) => {
-  const [wallet, setWallet] = useState<WalletSummary | null>(null);
+  const wallet = useWallet<WalletSummary>(organizationId);
   const [open, setOpen] = useState(false);
-  const { pathname } = useLocation();
-
-  const load = useCallback(() => {
-    if (!organizationId) return;
-    walletAPI
-      .get(organizationId)
-      .then((w: WalletSummary) => setWallet(w))
-      .catch(() => {});
-  }, [organizationId]);
-
-  useEffect(() => {
-    setWallet(null);
-    load();
-  }, [load]);
-  useEffect(() => {
-    load();
-  }, [pathname, load]);
-  useEffect(() => {
-    const timer = setInterval(load, 60_000);
-    window.addEventListener(WALLET_CHANGED, load);
-    return () => {
-      clearInterval(timer);
-      window.removeEventListener(WALLET_CHANGED, load);
-    };
-  }, [load]);
 
   if (!organizationId || !wallet) return null;
   const covered = leadsCovered(wallet);

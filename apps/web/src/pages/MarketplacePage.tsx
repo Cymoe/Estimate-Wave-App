@@ -1,9 +1,10 @@
-import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { MapPin, Sparkles } from 'lucide-react';
 import { Confirmed } from '../components/market/Confirmed';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { walletAPI } from '../lib/api';
+import { useMarketFeed, useMyBuyOrders, useWallet } from '../lib/live';
 import { money } from '../components/market/wallet';
 import { notifyWalletChanged, openFundingPage, type WalletSummary } from '../components/market/WalletBar';
 import { fillTimeMs, priceAt, type Auction } from '../services/auction';
@@ -59,14 +60,15 @@ const input =
  * Where a company buys leads. Each lead's price drops on a schedule until
  * someone buys it: buy now at the current price, or place a buy order at
  * the price you'd pay and it fills on its own when the price gets there.
+ * Live: a lead another company takes leaves the list as it happens.
  */
 const MarketplacePage: React.FC = () => {
   const { selectedOrg } = useContext(OrganizationContext);
   const organizationId = selectedOrg?.id;
   const [params] = useSearchParams();
-  const [wallet, setWallet] = useState<WalletSummary | null>(null);
-  const [leads, setLeads] = useState<FeedLead[] | null>(null);
-  const [bids, setBids] = useState<Bid[]>([]);
+  const wallet = useWallet<WalletSummary>(organizationId) ?? null;
+  const leads = useMarketFeed<FeedLead[]>(organizationId) ?? null;
+  const bids = useMyBuyOrders<Bid[]>(organizationId) ?? [];
   const [now, setNow] = useState(() => Date.now());
   const [mineOnly, setMineOnly] = useState(true);
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -75,25 +77,11 @@ const MarketplacePage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const { toast, show } = useToast();
 
-  const load = useCallback(async () => {
-    if (!organizationId) return;
-    const [w, l, b] = await Promise.all([walletAPI.get(organizationId), walletAPI.feed(organizationId), walletAPI.bids(organizationId)]);
-    setWallet(w);
-    setLeads(l);
-    setBids(b);
-    setNow(Date.now());
-  }, [organizationId]);
-
   useEffect(() => {
-    load().catch(() => setLeads([]));
-    // Prices move on their own: tick the countdowns, and check for fills now and then.
+    // Prices move on their own: tick the countdowns. Fills and sales arrive on their own.
     const tick = setInterval(() => setNow(Date.now()), 30_000);
-    const refresh = setInterval(() => load().catch(() => {}), 90_000);
-    return () => {
-      clearInterval(tick);
-      clearInterval(refresh);
-    };
-  }, [load]);
+    return () => clearInterval(tick);
+  }, []);
 
   if (params.get('tab') === 'older') return <Navigate to="/vault" replace />;
 
@@ -112,7 +100,6 @@ const MarketplacePage: React.FC = () => {
       setBusy(false);
       setConfirming(null);
       setOrdering(null);
-      await load().catch(() => {});
       notifyWalletChanged();
     }
   };

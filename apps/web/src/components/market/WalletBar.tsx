@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { Clock, Gavel, X } from 'lucide-react';
-import { fundingAPI, walletAPI } from '../../lib/api';
+import { fundingAPI } from '../../lib/api';
+import { useWallet } from '../../lib/live';
 import { WalletHistory, money, planLabel, type PlanSummary } from './wallet';
 
 export interface WalletSummary {
@@ -121,20 +122,9 @@ export function bidStatus(wallet: WalletSummary): {
  * are doing (see bidStatus). The balance itself lives in the navigation
  * (WalletTile). Hidden for companies that don't buy leads from FieldQuote.
  */
-export const WalletBar: React.FC<{ organizationId?: string; refreshKey?: unknown }> = ({ organizationId, refreshKey }) => {
-  const [wallet, setWallet] = useState<WalletSummary | null>(null);
-
-  useEffect(() => {
-    if (!organizationId) return;
-    let cancelled = false;
-    walletAPI
-      .get(organizationId)
-      .then((w: WalletSummary) => !cancelled && setWallet(w))
-      .catch(() => !cancelled && setWallet(null));
-    return () => {
-      cancelled = true;
-    };
-  }, [organizationId, refreshKey]);
+export const WalletBar: React.FC<{ organizationId?: string }> = ({ organizationId }) => {
+  // Live: the line changes as bids win, funds land or a bid gets outbid.
+  const wallet = useWallet<WalletSummary>(organizationId) ?? null;
 
   if (!wallet || !organizationId) return null;
   const inMarket = wallet.transactions.length > 0 || wallet.leadsBought > 0 || Boolean(wallet.pendingFunding) || (wallet.standingBids ?? 0) > 0;

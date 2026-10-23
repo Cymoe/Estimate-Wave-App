@@ -13,18 +13,16 @@ const removeStanding = jest.fn(async (_id: string) => undefined);
 const markOutbidSeen = jest.fn(async (_org: string) => undefined);
 const createLink = jest.fn(async (_id: string) => 'tok');
 
+jest.mock('../../lib/live', () => ({
+  useWallet: () => ({ balanceCents, typicalLeadCents: 20000, spentCents: 0, leadsBought: 0, wonCents: 0, wonCount: 0, leadTrades: ['landscaping', 'roofing'], transactions: [], ...walletExtra }),
+  useStandingBids: () => standing,
+  useBidResults: () => results,
+}));
 jest.mock('../../lib/api', () => ({
-  walletAPI: {
-    get: async () => ({ balanceCents, typicalLeadCents: 20000, spentCents: 0, leadsBought: 0, wonCents: 0, wonCount: 0, leadTrades: ['landscaping', 'roofing'], transactions: [], ...walletExtra }),
-    feed: async () => [],
-    bids: async () => [],
-  },
   bidsAPI: {
-    listStanding: async () => standing,
     setStanding: (...a: unknown[]) => setStanding(...(a as [string, string, string, number])),
     removeStanding: (id: string) => removeStanding(id),
     markOutbidSeen: (org: string) => markOutbidSeen(org),
-    results: async () => results,
   },
   industriesAPI: { list: async () => [{ id: 'landscaping', name: 'Landscaping' }, { id: 'roofing', name: 'Roofing' }, { id: 'hvac', name: 'HVAC' }] },
   fundingAPI: { createLink: (id: string) => createLink(id), url: (t: string) => `/fund/${t}` },

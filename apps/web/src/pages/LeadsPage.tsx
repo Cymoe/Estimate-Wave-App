@@ -431,7 +431,7 @@ const LeadsPage: React.FC = () => {
       <Toast text={toast} />
       {confirmDialog}
       <div className="p-6">
-        <WalletBar organizationId={organizationId} refreshKey={leads.length} />
+        <WalletBar organizationId={organizationId} />
         {hasSamples && (
           <div className="mb-4 px-4 py-3 border border-[#336699]/50 bg-[#336699]/10 text-sm flex items-center justify-between gap-3">
             <span className="text-gray-300">You're looking at sample leads. Add your own any time.</span>

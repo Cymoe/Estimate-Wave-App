@@ -1,11 +1,12 @@
-import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { ArrowDownCircle, CheckCircle2, Gavel, PauseCircle, Plus, Trash2, Wallet, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { Modal } from '../components/common/Modal';
-import { bidsAPI, industriesAPI, walletAPI } from '../lib/api';
+import { bidsAPI, industriesAPI } from '../lib/api';
+import { useBidResults, useStandingBids, useWallet } from '../lib/live';
 import { money } from '../components/market/wallet';
-import { BidStatusLine, WALLET_CHANGED, openFundingPage, type WalletSummary } from '../components/market/WalletBar';
+import { BidStatusLine, openFundingPage, type WalletSummary } from '../components/market/WalletBar';
 import { TEXAS_COUNTIES, countyForTown } from '../services/counties';
 import { InlineNotice, Toast, useToast } from '../components/common/Notice';
 import { useConfirm } from '../components/common/ConfirmDialog';
@@ -112,9 +113,10 @@ const BidsPage: React.FC = () => {
   const { selectedOrg } = useContext(OrganizationContext);
   const organizationId = selectedOrg?.id;
   const [params] = useSearchParams();
-  const [wallet, setWallet] = useState<WalletSummary | null>(null);
-  const [results, setResults] = useState<BidResult[] | null>(null);
-  const [standing, setStanding] = useState<StandingBid[] | null>(null);
+  // Live: an outbid or a balance change shows without a reload.
+  const wallet = useWallet<WalletSummary>(organizationId) ?? null;
+  const results = useBidResults<BidResult[]>(organizationId) ?? null;
+  const standing = useStandingBids<StandingBid[]>(organizationId) ?? null;
   const [trades, setTrades] = useState<Trade[]>([]);
   const [adding, setAdding] = useState(false);
   const noTrades = Boolean(wallet && Array.isArray(wallet.leadTrades) && wallet.leadTrades.length === 0);
@@ -123,45 +125,19 @@ const BidsPage: React.FC = () => {
   const [message, setMessage] = useState<{ text: string; good: boolean } | null>(null);
   const { toast, show } = useToast();
 
-  const load = useCallback(async () => {
-    if (!organizationId) return;
-    const [w, r, s, t] = await Promise.all([
-      walletAPI.get(organizationId),
-      bidsAPI.results(organizationId),
-      bidsAPI.listStanding(organizationId),
-      industriesAPI.list().catch(() => []),
-    ]);
-    setWallet(w);
-    setResults(r);
-    setStanding(s);
-    setTrades(t);
-    // Looking at the page is seeing the news: the outbid notice elsewhere goes, and these rows keep a "new" mark this visit.
-    const fresh = (s as StandingBid[]).filter((b) => b.outbidNew).map((b) => b.id);
-    if (fresh.length) {
-      setNewlyOutbid((prev) => new Set([...prev, ...fresh]));
-      bidsAPI.markOutbidSeen(organizationId).catch(() => {});
-    }
-  }, [organizationId]);
-
   useEffect(() => {
-    const onWallet = () => load().catch(() => {});
-    // Funds are added in another tab; coming back here picks up the new balance at once.
-    const onVisible = () => document.visibilityState === 'visible' && onWallet();
-    window.addEventListener(WALLET_CHANGED, onWallet);
-    document.addEventListener('visibilitychange', onVisible);
-    return () => {
-      window.removeEventListener(WALLET_CHANGED, onWallet);
-      document.removeEventListener('visibilitychange', onVisible);
-    };
-  }, [load]);
+    industriesAPI.list().then(setTrades).catch(() => setTrades([]));
+  }, []);
+  // Looking at the page is seeing the news: the outbid notice elsewhere goes, and these rows keep a "new" mark this visit.
   useEffect(() => {
-    load().catch(() => {
-      setResults([]);
-      setStanding([]);
-    });
-    const refresh = setInterval(() => load().catch(() => {}), 60_000);
-    return () => clearInterval(refresh);
-  }, [load]);
+    if (!organizationId || !standing) return;
+    const fresh = standing.filter((b) => b.outbidNew).map((b) => b.id);
+    if (fresh.length === 0) return;
+    setNewlyOutbid((prev) => (fresh.every((id) => prev.has(id)) ? prev : new Set([...prev, ...fresh])));
+    bidsAPI.markOutbidSeen(organizationId).catch(() => {});
+  }, [organizationId, standing]);
+  // Saves and removals come back through the subscription; nothing to reload.
+  const nothing = async () => {};
 
   // The Marketplace used to be a tab here; old links still land on it.
   if (params.get('tab') === 'marketplace') return <Navigate to="/marketplace" replace />;
@@ -222,7 +198,7 @@ const BidsPage: React.FC = () => {
             standing={standing}
             balance={balance}
             tradeName={tradeName}
-            onChanged={load}
+            onChanged={nothing}
             onNotify={notify}
             onAdd={() => setAdding(true)}
             onAddFunds={addFunds}
@@ -255,7 +231,7 @@ const BidsPage: React.FC = () => {
           standing={standing ?? []}
           firstTime={standing?.length === 0}
           onClose={() => setAdding(false)}
-          onSaved={load}
+          onSaved={nothing}
           onNotify={notify}
           onAddFunds={addFunds}
         />

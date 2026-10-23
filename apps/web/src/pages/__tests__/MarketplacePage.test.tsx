@@ -16,11 +16,13 @@ const cancelBid = jest.fn(async () => undefined);
 const createLink = jest.fn(async (_id: string) => 'tok');
 let olderLeads = 0;
 
+jest.mock('../../lib/live', () => ({
+  useWallet: () => ({ balanceCents, typicalLeadCents: 5000, spentCents: 0, leadsBought: 0, wonCents: 0, wonCount: 0, openBids: 0, olderLeads, transactions: [] }),
+  useMarketFeed: () => feed,
+  useMyBuyOrders: () => bids,
+}));
 jest.mock('../../lib/api', () => ({
   walletAPI: {
-    get: async () => ({ balanceCents, typicalLeadCents: 5000, spentCents: 0, leadsBought: 0, wonCents: 0, wonCount: 0, openBids: 0, olderLeads, transactions: [] }),
-    feed: async () => feed,
-    bids: async () => bids,
     buy: (...a: unknown[]) => buy(...(a as [])),
     placeBid: (...a: unknown[]) => placeBid(...(a as [])),
     cancelBid: (...a: unknown[]) => cancelBid(...(a as [])),
