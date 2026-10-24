@@ -1,9 +1,20 @@
 /**
- * API Client for MongoDB Backend
- * Replaces Supabase client calls
+ * Data API backed by Convex.
+ *
+ * Keeps the same functions and call signatures the screens used with the old
+ * Express/MongoDB backend, so callers don't change. Every call runs as the
+ * signed-in user and Convex checks organization membership on the server.
  */
 
-const API_BASE_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api`;
+import { ConvexError } from "convex/values";
+import type { FunctionReference } from "convex/server";
+import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
+import type { PlanSummary } from "../components/market/wallet";
+import { convex } from "./convex";
+import { withId } from "./withId";
+
+export { withId };
 
 class APIError extends Error {
   constructor(
@@ -16,334 +27,556 @@ class APIError extends Error {
   }
 }
 
-async function fetchAPI(endpoint: string, options: RequestInit = {}) {
-  const url = `${API_BASE_URL}${endpoint}`;
-  
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
+const STATUS_BY_CODE: Record<string, number> = {
+  UNAUTHENTICATED: 401,
+  FORBIDDEN: 403,
+  NOT_FOUND: 404,
+  INVALID: 400,
+};
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new APIError(
-      errorData.error || 'API request failed',
-      response.status,
-      errorData
-    );
+interface ConvexCaller {
+  query(ref: FunctionReference<"query">, args: any): Promise<any>;
+  mutation(ref: FunctionReference<"mutation">, args: any): Promise<any>;
+}
+
+let client: ConvexCaller = convex;
+
+/** Points the API at another Convex client (used by tests). */
+export function setConvexClient(next: ConvexCaller) {
+  client = next;
+}
+
+function toAPIError(error: unknown): APIError {
+  if (error instanceof ConvexError) {
+    const data = error.data as { code?: string; message?: string } | string;
+    const message = typeof data === 'string' ? data : data?.message ?? 'Request failed';
+    const code = typeof data === 'string' ? undefined : data?.code;
+    return new APIError(message, (code && STATUS_BY_CODE[code]) || 400, data);
   }
+  const message = error instanceof Error ? error.message : String(error);
+  // Argument validation failures (e.g. a malformed id) are client errors.
+  const status = /ArgumentValidationError|Value does not match validator/.test(message) ? 400 : 500;
+  return new APIError(message, status);
+}
 
-  return response.json();
+
+async function run<T = any>(kind: 'query' | 'mutation' | 'action', ref: FunctionReference<any>, args: Record<string, unknown>): Promise<T> {
+  try {
+    const result =
+      kind === 'query' ? await client.query(ref, args) : kind === 'mutation' ? await client.mutation(ref, args) : await client.action(ref, args);
+    return withId(result);
+  } catch (error) {
+    throw toAPIError(error);
+  }
+}
+
+/** Drops keys whose value is undefined so Convex validators accept them. */
+function defined<T extends Record<string, unknown>>(args: T): T {
+  return Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined)) as T;
+}
+
+function requireOrganizationId(data: any): string {
+  const organizationId = data?.organizationId ?? data?.organization_id;
+  if (!organizationId) throw new APIError('organizationId is required', 400);
+  return organizationId;
 }
 
 // Organizations API
 export const organizationsAPI = {
   async list() {
-    return fetchAPI('/organizations');
+    return run('query', api.organizations.list, {});
   },
-  
+
   async getById(id: string) {
-    return fetchAPI(`/organizations/${id}`);
+    return run('query', api.organizations.get, { id });
   },
-  
+
+  /** 'owner' | 'admin' | 'member' for the signed-in user. */
+  async myRole(id: string): Promise<'owner' | 'admin' | 'member'> {
+    return run('query', api.organizations.myRole, { id });
+  },
+
   async create(data: any) {
-    return fetchAPI('/organizations', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.organizations.create, { data });
   },
-  
+
   async update(id: string, data: any) {
-    return fetchAPI(`/organizations/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.organizations.update, { id, data });
   },
-  
+
   async delete(id: string) {
-    return fetchAPI(`/organizations/${id}`, {
-      method: 'DELETE',
-    });
+    return run('mutation', api.organizations.remove, { id });
   },
 };
 
 // Clients API
 export const clientsAPI = {
   async list(organizationId: string) {
-    return fetchAPI(`/clients?organizationId=${organizationId}`);
+    return run('query', api.clients.list, { organizationId });
   },
-  
+
   async getById(id: string) {
-    return fetchAPI(`/clients/${id}`);
+    return run('query', api.clients.get, { id });
   },
-  
+
   async create(data: any) {
-    return fetchAPI('/clients', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.clients.create, { organizationId: requireOrganizationId(data), data });
   },
-  
+
   async update(id: string, data: any) {
-    return fetchAPI(`/clients/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.clients.update, { id, data });
   },
-  
+
   async delete(id: string) {
-    return fetchAPI(`/clients/${id}`, {
-      method: 'DELETE',
-    });
+    return run('mutation', api.clients.remove, { id });
   },
 };
 
 // Estimates API
 export const estimatesAPI = {
   async list(organizationId: string, filters?: { clientId?: string; status?: string }) {
-    let query = `organizationId=${organizationId}`;
-    if (filters?.clientId) query += `&clientId=${filters.clientId}`;
-    if (filters?.status) query += `&status=${filters.status}`;
-    
-    return fetchAPI(`/estimates?${query}`);
+    return run('query', api.estimates.list, defined({ organizationId, clientId: filters?.clientId, status: filters?.status }));
   },
-  
+
   async getById(id: string) {
-    return fetchAPI(`/estimates/${id}`);
+    return run('query', api.estimates.get, { id });
   },
-  
+
   async create(data: any) {
-    return fetchAPI('/estimates', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.estimates.create, { organizationId: requireOrganizationId(data), data });
   },
-  
+
   async update(id: string, data: any) {
-    return fetchAPI(`/estimates/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.estimates.update, { id, data });
   },
-  
+
   async delete(id: string) {
-    return fetchAPI(`/estimates/${id}`, {
-      method: 'DELETE',
-    });
+    return run('mutation', api.estimates.remove, { id });
   },
-  
+
   async sign(id: string, signature: string) {
-    return fetchAPI(`/estimates/${id}/sign`, {
-      method: 'POST',
-      body: JSON.stringify({ signature }),
-    });
+    return run('mutation', api.estimates.sign, { id, signature });
+  },
+
+  /** A one-time URL to upload a design file to. */
+  async designUploadUrl(id: string): Promise<string> {
+    return run('mutation', api.estimates.designUploadUrl, { id });
+  },
+
+  async setDesign(id: string, storageId: string, name: string) {
+    return run('mutation', api.estimates.setDesign, { id, storageId, name });
+  },
+
+  async removeDesign(id: string) {
+    return run('mutation', api.estimates.removeDesign, { id });
+  },
+
+  /** The secret token in the estimate's client link. */
+  async shareLink(id: string): Promise<string> {
+    return run('mutation', api.estimates.shareLink, { id });
   },
 };
 
-// Invoices API
-export const invoicesAPI = {
-  async list(organizationId: string, filters?: { clientId?: string; status?: string }) {
-    let query = `organizationId=${organizationId}`;
-    if (filters?.clientId) query += `&clientId=${filters.clientId}`;
-    if (filters?.status) query += `&status=${filters.status}`;
-    
-    return fetchAPI(`/invoices?${query}`);
+/** The client's side of an estimate, through its link. No login needed. */
+export const publicEstimatesAPI = {
+  async get(token: string) {
+    return run('query', api.publicEstimates.get, { token });
   },
-  
-  async getById(id: string) {
-    return fetchAPI(`/invoices/${id}`);
+
+  async markOpened(token: string) {
+    return run('mutation', api.publicEstimates.markOpened, { token });
   },
-  
-  async create(data: any) {
-    return fetchAPI('/invoices', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+
+  async accept(token: string, signature: string) {
+    return run('mutation', api.publicEstimates.accept, { token, signature });
   },
-  
-  async update(id: string, data: any) {
-    return fetchAPI(`/invoices/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
-  },
-  
-  async delete(id: string) {
-    return fetchAPI(`/invoices/${id}`, {
-      method: 'DELETE',
-    });
-  },
-  
-  async markAsPaid(id: string, amountPaid: number) {
-    return fetchAPI(`/invoices/${id}/pay`, {
-      method: 'POST',
-      body: JSON.stringify({ amountPaid }),
-    });
+
+  async decline(token: string) {
+    return run('mutation', api.publicEstimates.decline, { token });
   },
 };
 
 // Projects API
 export const projectsAPI = {
   async list(organizationId: string, filters?: { clientId?: string; status?: string }) {
-    let query = `organizationId=${organizationId}`;
-    if (filters?.clientId) query += `&clientId=${filters.clientId}`;
-    if (filters?.status) query += `&status=${filters.status}`;
-    
-    return fetchAPI(`/projects?${query}`);
+    return run('query', api.projects.list, defined({ organizationId, clientId: filters?.clientId, status: filters?.status }));
   },
-  
+
   async getById(id: string) {
-    return fetchAPI(`/projects/${id}`);
+    return run('query', api.projects.get, { id });
   },
-  
+
   async create(data: any) {
-    return fetchAPI('/projects', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.projects.create, { organizationId: requireOrganizationId(data), data });
   },
-  
+
   async update(id: string, data: any) {
-    return fetchAPI(`/projects/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.projects.update, { id, data });
   },
-  
+
   async delete(id: string) {
-    return fetchAPI(`/projects/${id}`, {
-      method: 'DELETE',
-    });
+    return run('mutation', api.projects.remove, { id });
   },
 };
 
 // Activity Logs API
 export const activityLogsAPI = {
   async list(organizationId: string, filters?: { userId?: string; resourceType?: string; limit?: number }) {
-    let query = `organizationId=${organizationId}`;
-    if (filters?.userId) query += `&userId=${filters.userId}`;
-    if (filters?.resourceType) query += `&resourceType=${filters.resourceType}`;
-    if (filters?.limit) query += `&limit=${filters.limit}`;
-    
-    return fetchAPI(`/activity-logs?${query}`);
+    return run('query', api.activityLogs.list, defined({
+      organizationId,
+      userId: filters?.userId,
+      resourceType: filters?.resourceType,
+      limit: filters?.limit,
+    }));
   },
-  
+
   async getById(id: string) {
-    return fetchAPI(`/activity-logs/${id}`);
+    return run('query', api.activityLogs.get, { id });
   },
-  
+
   async create(data: any) {
-    return fetchAPI('/activity-logs', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.activityLogs.create, { organizationId: requireOrganizationId(data), data });
   },
 };
 
 // Line Items (Price Book) API 🎯
 export const lineItemsAPI = {
-  async list(organizationId: string, filters?: { 
-    costCodeId?: string; 
+  async list(organizationId: string, filters?: {
+    costCodeId?: string;
     category?: string;
     search?: string;
     isActive?: boolean;
     includeShared?: boolean;
   }) {
-    let query = `organizationId=${organizationId}`;
-    if (filters?.costCodeId) query += `&costCodeId=${filters.costCodeId}`;
-    if (filters?.category) query += `&category=${filters.category}`;
-    if (filters?.search) query += `&search=${filters.search}`;
-    if (filters?.isActive !== undefined) query += `&isActive=${filters.isActive}`;
-    if (filters?.includeShared !== undefined) query += `&includeShared=${filters.includeShared}`;
-    
-    return fetchAPI(`/line-items?${query}`);
+    return run('query', api.lineItems.list, defined({
+      organizationId,
+      costCodeId: filters?.costCodeId,
+      category: filters?.category,
+      search: filters?.search,
+      isActive: filters?.isActive,
+      includeShared: filters?.includeShared,
+    }));
   },
-  
+
   async getById(id: string) {
-    return fetchAPI(`/line-items/${id}`);
+    return run('query', api.lineItems.get, { id });
   },
-  
+
   async create(data: any) {
-    return fetchAPI('/line-items', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.lineItems.create, { data });
   },
-  
+
   async update(id: string, data: any) {
-    return fetchAPI(`/line-items/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.lineItems.update, { id, data });
   },
-  
+
   async delete(id: string) {
-    return fetchAPI(`/line-items/${id}`, {
-      method: 'DELETE',
-    });
+    return run('mutation', api.lineItems.remove, { id });
   },
-  
+
   async bulkCreate(items: any[]) {
-    return fetchAPI('/line-items/bulk', {
-      method: 'POST',
-      body: JSON.stringify({ items }),
-    });
+    return run('mutation', api.lineItems.bulkCreate, { items });
   },
 };
 
 // Cost Codes API
 export const costCodesAPI = {
-  async list(filters?: { 
-    industryId?: string; 
-    category?: string; 
+  async list(filters?: {
+    industryId?: string;
+    category?: string;
     isActive?: boolean;
   }) {
-    let query = '';
-    const params: string[] = [];
-    
-    if (filters?.industryId) params.push(`industryId=${filters.industryId}`);
-    if (filters?.category) params.push(`category=${filters.category}`);
-    if (filters?.isActive !== undefined) params.push(`isActive=${filters.isActive}`);
-    
-    if (params.length > 0) query = `?${params.join('&')}`;
-    
-    return fetchAPI(`/cost-codes${query}`);
+    return run('query', api.costCodes.list, defined({
+      industryId: filters?.industryId,
+      category: filters?.category,
+      isActive: filters?.isActive,
+    }));
   },
-  
+
   async getById(id: string) {
-    return fetchAPI(`/cost-codes/${id}`);
+    return run('query', api.costCodes.get, { id });
   },
-  
+
   async create(data: any) {
-    return fetchAPI('/cost-codes', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.costCodes.create, { data });
   },
-  
+
   async update(id: string, data: any) {
-    return fetchAPI(`/cost-codes/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
+    return run('mutation', api.costCodes.update, { id, data });
   },
-  
+
   async delete(id: string) {
-    return fetchAPI(`/cost-codes/${id}`, {
-      method: 'DELETE',
-    });
+    return run('mutation', api.costCodes.remove, { id });
   },
-  
+
   async bulkCreate(items: any[]) {
-    return fetchAPI('/cost-codes/bulk', {
-      method: 'POST',
-      body: JSON.stringify({ items }),
-    });
+    return run('mutation', api.costCodes.bulkCreate, { items });
   },
 };
 
-export { APIError };
+// Pricing Modes API
+export const pricingModesAPI = {
+  async list(organizationId?: string) {
+    return run('query', api.pricingModes.list, defined({ organizationId }));
+  },
 
+  async presets() {
+    return run('query', api.pricingModes.presets, {});
+  },
+
+  async create(organizationId: string, data: any) {
+    return run('mutation', api.pricingModes.create, { organizationId, data });
+  },
+};
+
+// Industries (trades). An industry's `id` is its slug.
+export const industriesAPI = {
+  async list() {
+    return run('query', api.industries.list, {});
+  },
+
+  async forOrganization(organizationId: string) {
+    return run('query', api.industries.forOrganization, { organizationId });
+  },
+
+  async setForOrganization(organizationId: string, industryIds: string[]) {
+    return run('mutation', api.industries.setForOrganization, { organizationId, industryIds });
+  },
+};
+
+// Expenses: money spent on a job (or on the business).
+export const expensesAPI = {
+  async list(organizationId: string, projectId?: string) {
+    return run('query', api.expenses.list, defined({ organizationId, projectId }));
+  },
+
+  async create(organizationId: string, data: any) {
+    return run('mutation', api.expenses.create, { organizationId, data });
+  },
+
+  async update(id: string, data: any) {
+    return run('mutation', api.expenses.update, { id, data });
+  },
+
+  async delete(id: string) {
+    return run('mutation', api.expenses.remove, { id });
+  },
+};
+
+// Leads: quote requests, from first call to won or lost.
+export const leadsAPI = {
+  async list(organizationId: string) {
+    return run('query', api.leads.list, { organizationId });
+  },
+
+  /** A call or text (counted), or a note typed on the card (stamped with the day). */
+  logContact: (id: string, kind: 'call' | 'text' | 'note', note?: string) =>
+    run('mutation', api.leads.logContact, defined({ id, kind, note })),
+  /** "Got it, calling now" on a lead FieldQuote sent. Returns when it was acknowledged. */
+  acknowledge: (id: string): Promise<string> => run('mutation', api.leads.acknowledge, { id }),
+  /** Which of your companies a lead is in (for an alert link opened under another company), or null. */
+  companyOf: (id: string): Promise<{ organizationId: string; name: string } | null> => run('query', api.leads.companyOf, { id }),
+
+  /** Calls onUpdate with the org's leads now and after every change. Returns a stop function. */
+  watch(organizationId: string, onUpdate: (leads: any[]) => void): () => void {
+    const watch = convex.watchQuery(api.leads.list, { organizationId: organizationId as Id<'organizations'> });
+    const emit = () => {
+      try {
+        const result = watch.localQueryResult();
+        if (result !== undefined) onUpdate(withId(result));
+      } catch (error) {
+        console.error('Error watching leads:', error);
+      }
+    };
+    emit();
+    return watch.onUpdate(emit);
+  },
+
+  async create(organizationId: string, data: any) {
+    return run('mutation', api.leads.create, { organizationId, data });
+  },
+
+  /** Works out the city for leads that don't have one yet. */
+  async fillMissingCities(organizationId: string) {
+    return run('mutation', api.leadCity.fillMissing, { organizationId });
+  },
+
+  async update(id: string, data: any) {
+    return run('mutation', api.leads.update, { id, data });
+  },
+
+  async delete(id: string) {
+    return run('mutation', api.leads.remove, { id });
+  },
+
+  async addSamples(organizationId: string): Promise<number> {
+    return run('mutation', api.leads.addSamples, { organizationId });
+  },
+
+  async removeSamples(organizationId: string): Promise<number> {
+    return run('mutation', api.leads.removeSamples, { organizationId });
+  },
+
+  /** Returns the lead's client id, creating the client the first time. */
+  async ensureClient(id: string): Promise<string> {
+    return run('mutation', api.leads.ensureClient, { id });
+  },
+};
+
+/** The Lead Market (platform admins), plus each company's wallet. */
+export const marketplaceAPI = {
+  inbox: () => run('query', api.marketplace.listInbox, {}),
+  createLead: (data: any) => run('mutation', api.marketplace.createLead, { data }),
+  importLeads: (leads: any[]) => run('mutation', api.marketplace.importLeads, { leads }),
+  updateLead: (id: string, data: any) => run('mutation', api.marketplace.updateLead, { id, data }),
+  removeLead: (id: string) => run('mutation', api.marketplace.removeLead, { id }),
+  assign: (leadId: string, organizationId: string) => run('mutation', api.marketplace.assign, { leadId, organizationId }),
+  companies: () => run('query', api.marketplace.companiesOverview, {}),
+  createCompany: (data: any) => run('mutation', api.marketplace.createCompany, { data }),
+  removeCompany: (organizationId: string) => run('mutation', api.marketplace.removeCompany, { organizationId }),
+  setCompanyOwner: (organizationId: string, email: string) =>
+    run('mutation', api.marketplace.setCompanyOwner, { organizationId, email }),
+  setCompanyTrades: (organizationId: string, leadTrades: string[]) =>
+    run('mutation', api.marketplace.setCompanyTrades, { organizationId, leadTrades }),
+  setPlan: (
+    organizationId: string,
+    changes: { status?: 'trial' | 'active' | 'past_due' | 'cancelled'; monthlyCents?: number; claimsIncluded?: number; extraClaimCents?: number },
+  ) => run('mutation', api.marketplace.setPlan, defined({ organizationId, ...changes })),
+  archiveLead: (id: string) => run('mutation', api.marketplace.archiveLead, { id }),
+  verifyLead: (id: string, note?: string) => run('mutation', api.marketplace.verifyLead, { id, note }),
+  clearVerified: (id: string) => run('mutation', api.marketplace.clearVerified, { id }),
+  recordTopUp: (organizationId: string, payment: { amount: number; bonus?: number; method?: string; note?: string }) =>
+    run('mutation', api.marketplace.recordTopUp, defined({ organizationId, ...payment })),
+  prices: () => run('query', api.marketplace.listLeadPrices, {}),
+  setPrice: (jobType: string, price: number | null, schedule?: { floor?: number | null; drop?: number | null; dropEveryMinutes?: number | null }) =>
+    run('mutation', api.marketplace.setLeadPrice, { jobType, price, ...(schedule ?? {}) }),
+  pendingCredits: () => run('query', api.marketplace.pendingCredits, {}),
+  reviewCredit: (orgLeadId: string, approve: boolean) => run('mutation', api.marketplace.reviewCredit, { orgLeadId, approve }),
+  /** The owner credits a bought lead back without a request: the company told FieldQuote by phone. */
+  creditLead: (orgLeadId: string, reason: string, note?: string): Promise<{ amountCents: number }> =>
+    run('mutation', api.marketplace.creditLead, defined({ orgLeadId, reason, note })),
+};
+
+export const walletAPI = {
+  get: (organizationId: string) => run('query', api.marketplace.wallet, { organizationId }),
+  feed: (organizationId: string) => run('query', api.marketplace.feed, { organizationId }),
+  buy: (leadId: string, organizationId: string) => run('mutation', api.marketplace.buy, { leadId, organizationId }),
+  /** A standing offer: buys the lead on its own once its price drops to `max` dollars. */
+  placeBid: (leadId: string, organizationId: string, max: number) =>
+    run('mutation', api.marketplace.placeBid, { leadId, organizationId, max }),
+  cancelBid: (bidId: string) => run('mutation', api.marketplace.cancelBid, { bidId }),
+  bids: (organizationId: string) => run('query', api.marketplace.bids, { organizationId }),
+  requestCredit: (leadId: string, reason: string, note?: string) =>
+    run('mutation', api.marketplace.requestCredit, defined({ leadId, reason, note })),
+  /** Older leads: Marketplace leads nobody bought in a week, for companies on the plan. */
+  olderLeads: (organizationId: string) => run('query', api.marketplace.olderLeads, { organizationId }),
+  claim: (leadId: string, organizationId: string) => run('mutation', api.marketplace.claim, { leadId, organizationId }),
+  /** The monthly plan, paid from the lead balance. */
+  ensurePlan: (organizationId: string) => run('mutation', api.marketplace.ensurePlan, { organizationId }),
+  startPlan: (organizationId: string): Promise<PlanSummary & { chargedCents: number }> => run('mutation', api.marketplace.startPlan, { organizationId }),
+  cancelPlan: (organizationId: string) => run('mutation', api.marketplace.cancelPlan, { organizationId }),
+};
+
+/** The intake queue: leads on their way in, before staff confirm and list them. */
+export interface IntakeFields {
+  name?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  city?: string;
+  zip?: string;
+  county?: string;
+  jobType?: string;
+  scope?: string;
+  timeline?: string;
+  isOwner?: boolean;
+  notes?: string;
+}
+export const intakeAPI = {
+  queue: (status?: 'open' | 'closed' | 'confirmed') => run('query', api.intake.queue, defined({ status })),
+  get: (id: string) => run('query', api.intake.get, { id }),
+  create: (source: 'call' | 'manual', fields: IntakeFields) => run('mutation', api.intake.create, defined({ source, ...fields })),
+  update: (id: string, fields: IntakeFields) => run('mutation', api.intake.update, defined({ id, ...fields })),
+  logAttempt: (id: string, outcome: string, note?: string) => run('mutation', api.intake.logAttempt, defined({ id, outcome, note })),
+  close: (id: string, disposition: string, note?: string) => run('mutation', api.intake.close, defined({ id, disposition, note })),
+  reopen: (id: string) => run('mutation', api.intake.reopen, { id }),
+  confirm: (id: string, checks: Record<string, boolean>, fields: IntakeFields, note?: string, allowDuplicate?: boolean) =>
+    run('mutation', api.intake.confirm, defined({ id, checks, note, allowDuplicate, ...fields })),
+};
+
+/** The demand board: where funded bids are, by county and trade (staff). */
+export const demandAPI = {
+  board: () => run('query', api.demand.board, {}),
+  slot: (county: string, jobType: string) => run('query', api.demand.slot, { county, jobType }),
+  setPlanCpl: (jobType: string, cents: number | null) => run('mutation', api.demand.setPlanCpl, { jobType, cents }),
+};
+
+/** Lead alerts: what was sent to whom when a lead was awarded (staff). */
+export const deliveryAPI = {
+  recent: () => run('query', api.delivery.recent, {}),
+  resend: (orgLeadId: string) => run('mutation', api.delivery.resend, { orgLeadId }),
+  /** "Called, they have it": stops the red and the chase. */
+  markHandled: (leadId: string): Promise<string> => run('mutation', api.delivery.markHandled, { leadId }),
+};
+
+/** The signed-in person's own settings. */
+export const usersAPI = {
+  setMobile: (mobile: string): Promise<string | null> => run('mutation', api.users.setMobile, { mobile }),
+};
+
+/** Who runs the Lead Market (owner only). */
+export const staffAPI = {
+  list: () => run('query', api.staff.list, {}),
+  invite: (email: string) => run('mutation', api.staff.invite, { email }),
+  removeInvite: (id: string) => run('mutation', api.staff.removeInvite, { id }),
+  remove: (id: string) => run('mutation', api.staff.remove, { id }),
+};
+
+/** Building permits near a company, from the city's public feed (the Vault's second tab). */
+export const permitsAPI = {
+  near: (organizationId: string, days?: number) => run('query', api.permits.near, defined({ organizationId, days })),
+  monthly: () => run('query', api.permits.monthly, {}),
+  status: () => run('query', api.permits.status, {}),
+  syncNow: () => run('action', api.permits.syncNow, {}),
+};
+
+/** Standing bids by county and service type, and the leads they won or missed. */
+export const bidsAPI = {
+  listStanding: (organizationId: string) => run('query', api.bids.listStanding, { organizationId }),
+  setStanding: (organizationId: string, county: string, jobType: string, amount: number) =>
+    run('mutation', api.bids.setStanding, { organizationId, county, jobType, amount }),
+  removeStanding: (id: string) => run('mutation', api.bids.removeStanding, { id }),
+  /** The company has seen its bids: outbids so far stop being news. */
+  markOutbidSeen: (organizationId: string) => run('mutation', api.bids.markOutbidSeen, { organizationId }),
+  results: (organizationId: string) => run('query', api.bids.results, { organizationId }),
+};
+
+/** Funding links: the page a company pays through to load its lead balance. */
+export const fundingAPI = {
+  createLink: (organizationId: string) => run('mutation', api.funding.createLink, { organizationId }),
+  url: (token: string) => `${window.location.origin}/fund/${token}`,
+  get: (token: string) => run('query', api.funding.get, { token }),
+  /** Opens a Stripe Checkout session for the amount; the caller sends the payer to the URL. */
+  checkout: (token: string, amountCents: number): Promise<{ url: string }> => run('action', api.funding.checkout, { token, amountCents }),
+};
+
+/** Applications from the landing page: companies that want to buy leads. */
+export const applicationsAPI = {
+  options: (): Promise<{ trades: Array<{ slug: string; name: string }>; counties: string[]; westTexas: string[] }> =>
+    run('query', api.applications.options, {}),
+  submit: (form: {
+    companyName: string;
+    contactName: string;
+    email: string;
+    phone: string;
+    trades: string[];
+    county: string;
+    jobsPerMonth?: string;
+    notes?: string;
+  }): Promise<{ duplicate: boolean; id?: string }> => run('mutation', api.applications.submit, defined(form)),
+  list: () => run('query', api.applications.list, {}),
+  approve: (id: string): Promise<{ organizationId: string }> => run('mutation', api.applications.approve, { id }),
+  decline: (id: string) => run('mutation', api.applications.decline, { id }),
+};
+
+export { APIError };

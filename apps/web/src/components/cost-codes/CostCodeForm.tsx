@@ -99,7 +99,8 @@ export const CostCodeForm: React.FC<CostCodeFormProps> = ({
     
     try {
       const orgIndustries = await IndustryService.getOrganizationIndustries(selectedOrg.id);
-      setIndustries(orgIndustries);
+      // A company that hasn't picked its trades yet can still file a cost code under any.
+      setIndustries(orgIndustries.length ? orgIndustries : await IndustryService.listAll());
     } catch (error) {
       console.error('Error fetching industries:', error);
     }

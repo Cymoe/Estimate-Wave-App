@@ -1,33 +1,17 @@
 import React from 'react';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface GoogleSignInButtonProps {
   onSignIn?: () => void;
 }
 
 export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({ onSignIn }) => {
+  const { signInWithGoogle } = useAuth();
+
   const handleSignIn = async () => {
-    try {
-      const apiUrl = import.meta.env.VITE_API_URL;
-      
-      if (!apiUrl) {
-        console.error('VITE_API_URL is not configured');
-        return;
-      }
-
-      // Get the OAuth URL from backend
-      const response = await fetch(`${apiUrl}/api/auth/google`);
-      const data = await response.json();
-
-      if (data.url) {
-        // Redirect to Google OAuth
-        window.location.href = data.url;
-        
-        if (onSignIn) {
-          onSignIn();
-        }
-      }
-    } catch (error) {
-      console.error('Error initiating Google sign-in:', error);
+    await signInWithGoogle();
+    if (onSignIn) {
+      onSignIn();
     }
   };
 

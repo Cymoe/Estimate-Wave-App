@@ -2,6 +2,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Building2, Menu, X } from 'lucide-react';
 import { AuthButtons } from '../auth/AuthButtons';
 import { useState, useEffect } from 'react';
+import { APP_NAME } from '@/config/brand';
 
 interface MarketingHeaderProps {
   showSignIn?: boolean;
@@ -84,7 +85,7 @@ export const MarketingHeader = ({ showSignIn = true, useAuthButtons = false }: M
         onClick={() => navigate('/')}
       >
         <Building2 className="h-6 w-6" style={{ color: '#336699' }} />
-        <span className="text-xl font-bold text-gray-900">BillBreeze</span>
+        <span className="text-xl font-bold text-gray-900">{APP_NAME}</span>
       </div>
       
       {/* Mobile menu button */}

@@ -70,7 +70,7 @@ export function useEstimates(organizationId: string, filters?: {
 
   const createEstimate = async (estimateData: Partial<Estimate>) => {
     try {
-      const newEstimate = await estimatesAPI.create(estimateData);
+      const newEstimate = await estimatesAPI.create({ organizationId, ...estimateData });
       setEstimates(prev => [newEstimate, ...prev]);
       return newEstimate;
     } catch (err: any) {

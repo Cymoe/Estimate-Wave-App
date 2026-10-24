@@ -1,9 +1,10 @@
 /**
- * Real-time updates using Server-Sent Events (SSE)
- * Replaces Supabase Realtime
+ * Real-time activity updates using a Convex live query.
+ * Same interface as the old Server-Sent Events client.
  */
 
-const REALTIME_BASE_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3001';
+import { api } from "../../convex/_generated/api";
+import { convex } from "./convex";
 
 export interface ActivityLogEvent {
   _id: string;
@@ -19,62 +20,57 @@ export interface ActivityLogEvent {
 
 export type RealtimeEventCallback = (event: ActivityLogEvent) => void;
 
+const WATCH_LIMIT = 25;
+
 export class RealtimeClient {
-  private eventSource: EventSource | null = null;
+  private unwatch: (() => void) | null = null;
+  private organizationId: string | null = null;
+  private seen = new Set<string>();
   private callbacks: RealtimeEventCallback[] = [];
 
   /**
-   * Connect to real-time activity logs stream
+   * Subscribe to the organization's activity log. Entries that exist at
+   * connect time are treated as history; later ones are broadcast.
    */
   connect(organizationId: string) {
-    if (this.eventSource) {
-      console.warn('Already connected to realtime stream');
-      return;
-    }
+    if (this.unwatch && this.organizationId === organizationId) return;
+    this.close();
+    this.organizationId = organizationId;
 
-    const url = `${REALTIME_BASE_URL}/api/realtime/activity-logs?organizationId=${organizationId}`;
-    console.log('🔗 Connecting to realtime stream:', url);
+    const watch = convex.watchQuery(api.activityLogs.list, {
+      organizationId: organizationId as any,
+      limit: WATCH_LIMIT,
+    });
+    let initialized = false;
 
-    this.eventSource = new EventSource(url);
-
-    this.eventSource.onopen = () => {
-      console.log('✅ Realtime connection established');
-    };
-
-    this.eventSource.onmessage = (event) => {
+    this.unwatch = watch.onUpdate(() => {
+      let logs: ActivityLogEvent[] | undefined;
       try {
-        const data = JSON.parse(event.data);
-        
-        // Skip heartbeat and connection messages
-        if (data.type === 'heartbeat' || data.type === 'connected') {
-          return;
-        }
+        logs = watch.localQueryResult() as ActivityLogEvent[] | undefined;
+      } catch (error) {
+        console.error('❌ Realtime subscription error:', error);
+        return;
+      }
+      if (!logs) return;
 
-        // Broadcast to all callbacks
+      const fresh = logs.filter((log) => !this.seen.has(log._id));
+      fresh.forEach((log) => this.seen.add(log._id));
+      if (!initialized) {
+        initialized = true;
+        return;
+      }
+
+      // Oldest first, matching the order events happened.
+      for (const event of fresh.reverse()) {
         this.callbacks.forEach((callback) => {
           try {
-            callback(data);
+            callback(event);
           } catch (error) {
             console.error('Error in realtime callback:', error);
           }
         });
-      } catch (error) {
-        console.error('Error parsing realtime event:', error);
       }
-    };
-
-    this.eventSource.onerror = (error) => {
-      console.error('❌ Realtime connection error:', error);
-      
-      // Automatically reconnect after 5 seconds
-      setTimeout(() => {
-        if (this.eventSource?.readyState === EventSource.CLOSED) {
-          console.log('🔄 Attempting to reconnect...');
-          this.disconnect();
-          this.connect(organizationId);
-        }
-      }, 5000);
-    };
+    });
   }
 
   /**
@@ -93,14 +89,10 @@ export class RealtimeClient {
   }
 
   /**
-   * Disconnect from real-time stream
+   * Disconnect from real-time updates
    */
   disconnect() {
-    if (this.eventSource) {
-      console.log('🔌 Disconnecting from realtime stream');
-      this.eventSource.close();
-      this.eventSource = null;
-    }
+    this.close();
     this.callbacks = [];
   }
 
@@ -108,10 +100,16 @@ export class RealtimeClient {
    * Check if connected
    */
   isConnected(): boolean {
-    return this.eventSource?.readyState === EventSource.OPEN;
+    return this.unwatch !== null && convex.connectionState().isWebSocketConnected;
+  }
+
+  private close() {
+    this.unwatch?.();
+    this.unwatch = null;
+    this.organizationId = null;
+    this.seen.clear();
   }
 }
 
 // Export singleton instance
 export const realtimeClient = new RealtimeClient();
-

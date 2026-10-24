@@ -20,6 +20,13 @@ import { PricingModeSelector } from './PricingModeSelector';
 import { PricingModePreviewModal } from './PricingModePreviewModal';
 import { PricingModesService, PricingMode } from '../../services/PricingModesService';
 import { PriceRangeCompact } from './PriceRangeDisplay';
+import { priceRange } from '../../utils/priceRange';
+import { IndustryService } from '../../services/IndustryService';
+import { TRADES_CHANGED } from '../settings/TradesEditor';
+import { allOutsideMyTrades, inMyTrades } from './tradeScope';
+
+/** Price-book items are priced at their red line. */
+const withRedLinePrice = (item: LineItem): LineItem => ({ ...item, price: priceRange(item).redLine });
 
 // Using LineItem interface from types instead of local Product interface
 
@@ -52,7 +59,11 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
   const [priceSort, setPriceSort] = useState<'asc' | 'desc'>('desc');
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const optionsMenuRef = useRef<HTMLDivElement>(null);
-  const [trades, setTrades] = useState<{ id: string; name: string; code: string; industry?: { id: string; name: string; icon?: string; color?: string } }[]>([]);
+  const [trades, setTrades] = useState<{ id: string; name: string; code: string; industry_id?: string; industry?: { id: string; name: string; icon?: string; color?: string } | null }[]>([]);
+  // The company's trades: the Price Book opens on their items, with "All trades" one tap away.
+  const [myTrades, setMyTrades] = useState<Set<string>>(new Set());
+  const [myTradeNames, setMyTradeNames] = useState('');
+  const [tradeScope, setTradeScope] = useState<'mine' | 'all'>('mine');
   const [selectedTradeId, setSelectedTradeId] = useState<string>('all');
   const [groupedTrades, setGroupedTrades] = useState<Map<string, typeof trades>>(new Map());
   const [selectedStatus, setSelectedStatus] = useState('all');
@@ -147,69 +158,35 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
   };
 
   const handleSaveEdit = async (data: any) => {
+    if (!editingLineItem?.id || !selectedOrg?.id) return;
+    const editedId = editingLineItem.id;
+
+    // Show the change right away, then save it.
+    setLineItems(prevItems =>
+      prevItems.map(item =>
+        item.id === editedId
+          ? withRedLinePrice({
+              ...item,
+              name: data.name || item.name,
+              description: data.description !== undefined ? data.description : item.description,
+              unit: data.unit || item.unit,
+              ...(data.red_line_price !== undefined ? { red_line_price: data.red_line_price, base_price: data.red_line_price } : {}),
+              ...(data.cap_price !== undefined ? { cap_price: data.cap_price } : {})
+            })
+          : item
+      )
+    );
+    setRecentlyUpdatedId(editedId);
+    setTimeout(() => setRecentlyUpdatedId(null), 1500);
+    setShowEditLineItemModal(false);
+    setEditingLineItem(null);
+
     try {
-      if (!editingLineItem?.id || !selectedOrg?.id) return;
-      
-      // Optimistically update the UI immediately
-      setLineItems(prevItems => 
-        prevItems.map(item => 
-          item.id === editingLineItem.id 
-            ? {
-                ...item,
-                price: data.price,
-                name: data.name || item.name,
-                description: data.description !== undefined ? data.description : item.description,
-                unit: data.unit || item.unit,
-                has_override: !editingLineItem.organization_id && data.price !== editingLineItem.base_price,
-                markup_percentage: data.markup_percentage,
-                base_price: item.base_price // Keep base_price for strategy calculation
-              }
-            : item
-        )
-      );
-      
-      // Trigger animation for the updated item
-      setRecentlyUpdatedId(editingLineItem.id);
-      setTimeout(() => setRecentlyUpdatedId(null), 1500); // Clear after animation
-      
-      // Close modal immediately for better UX
-      setShowEditLineItemModal(false);
-      setEditingLineItem(null);
-      
-      // Then update the backend
-      try {
-        // Check if this is a shared item (no organization_id)
-        if (!editingLineItem.organization_id) {
-          // For shared items, handle markup or custom price
-          if (data.markup_percentage !== undefined) {
-            // Set markup percentage
-            await LineItemService.setMarkupPercentage(editingLineItem.id, selectedOrg.id, data.markup_percentage);
-          } else if (data.price && data.price !== editingLineItem.base_price) {
-            // Set custom price
-            await LineItemService.setOverridePrice(editingLineItem.id, selectedOrg.id, data.price);
-          } else if (data.price === editingLineItem.base_price) {
-            // Reset to base price
-            await LineItemService.removeOverridePrice(editingLineItem.id, selectedOrg.id);
-          }
-        } else {
-          // For organization-owned items, update normally
-          await LineItemService.update(editingLineItem.id, {
-            name: data.name,
-            description: data.description,
-            price: data.price,
-            unit: data.unit,
-            cost_code_id: data.cost_code_id
-          }, selectedOrg.id);
-        }
-      } catch (error) {
-        // If backend update fails, revert the optimistic update
-        console.error('Error updating line item:', error);
-        alert(error instanceof Error ? error.message : 'Failed to update line item');
-        await fetchLineItems(); // Reload to get correct state
-      }
+      await LineItemService.update(editedId, data, selectedOrg.id);
     } catch (error) {
-      console.error('Error in handleSaveEdit:', error);
-      alert('Failed to update line item');
+      console.error('Error updating line item:', error);
+      alert(error instanceof Error ? error.message : 'Failed to update line item');
+      await fetchLineItems(); // Back to what's saved
     }
   };
 
@@ -245,7 +222,8 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
       await LineItemService.create({
         name: `${lineItem.name} (Copy)`,
         description: lineItem.description,
-        price: lineItem.price,
+        red_line_price: priceRange(lineItem).redLine,
+        cap_price: priceRange(lineItem).cap,
         unit: lineItem.unit,
         user_id: user?.id || '',
         organization_id: selectedOrg?.id || '',
@@ -456,8 +434,9 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
       console.log('Fetching line items for organization:', selectedOrg.id);
       
       // Fetch only line items for smart merge
+      // The price book shows each item at its red line, the fixed price.
       const lineItemsResult = await LineItemService.list(selectedOrg.id)
-        .then(data => ({ status: 'fulfilled' as const, value: data }))
+        .then(data => ({ status: 'fulfilled' as const, value: data.map(item => withRedLinePrice(item)) }))
         .catch(error => ({ status: 'rejected' as const, reason: error }));
       
       // Handle line items result
@@ -537,8 +516,29 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
   }, []);
 
 
+  useEffect(() => {
+    const orgId = selectedOrg?.id;
+    if (!orgId) return;
+    const load = () =>
+      IndustryService.getOrganizationIndustries(orgId)
+        .then((rows: Array<{ id: string; name?: string }>) => {
+          setMyTrades(new Set(rows.map((r) => r.id)));
+          setMyTradeNames(rows.map((r) => r.name ?? r.id).join(', '));
+        })
+        .catch(() => {
+          setMyTrades(new Set());
+          setMyTradeNames('');
+        });
+    load();
+    window.addEventListener(TRADES_CHANGED, load);
+    return () => window.removeEventListener(TRADES_CHANGED, load);
+  }, [selectedOrg?.id]);
+
   const filteredLineItems = useMemo(() => {
     let filtered = [...lineItems];
+
+    // My trades: items under a cost code for one of the company's trades (and any without a cost code).
+    if (tradeScope === 'mine') filtered = inMyTrades(filtered, trades, myTrades);
 
     // Status filter
     if (selectedStatus !== 'all') {
@@ -627,7 +627,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
         return b.price - a.price;
       }
     });
-  }, [lineItems, selectedStatus, showFavoritesOnly, selectedDateRange, selectedVendorId, selectedTradeId, searchTerm, minPrice, maxPrice, selectedUnit, priceSort, quickFilter, trades]);
+  }, [lineItems, selectedStatus, showFavoritesOnly, selectedDateRange, selectedVendorId, selectedTradeId, searchTerm, minPrice, maxPrice, selectedUnit, priceSort, quickFilter, trades, tradeScope, myTrades]);
   
   // Create grouped items by category for sidebar
   const groupedLineItemsByCategory = useMemo(() => {
@@ -859,20 +859,6 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
             age: Math.floor(jobAge / 1000) + 's',
             processed: mostRecentJob.processed_items
           });
-          
-          // Mark as failed to clean up
-          try {
-            await supabase
-              .from('pricing_jobs')
-              .update({
-                status: 'failed',
-                error_message: 'Job timed out or stuck',
-                completed_at: new Date().toISOString()
-              })
-              .eq('id', mostRecentJob.id);
-          } catch (error) {
-            console.error('Error cleaning up stuck job:', error);
-          }
           
           // Don't show any UI, just clean up silently
           return;
@@ -1529,6 +1515,22 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
         <div className="flex items-center justify-between gap-4">
           {/* Left side - Filters */}
           <div className="flex items-center gap-3">
+            {myTrades.size > 0 && (
+              <div role="group" aria-label="Which trades" className="inline-flex border border-[#333333]">
+                {(['mine', 'all'] as const).map((scope) => (
+                  <button
+                    key={scope}
+                    type="button"
+                    aria-pressed={tradeScope === scope}
+                    title={scope === 'mine' ? myTradeNames : undefined}
+                    onClick={() => setTradeScope(scope)}
+                    className={`px-3 py-2 text-sm whitespace-nowrap ${tradeScope === scope ? 'bg-[#336699] text-white' : 'text-gray-400 hover:text-white'}`}
+                  >
+                    {scope === 'mine' ? 'My trades' : 'All trades'}
+                  </button>
+                ))}
+              </div>
+            )}
             <select
               className="bg-[#1D1F25] border border-[#333333] px-3 py-2 text-sm text-white focus:outline-none focus:border-[#336699]"
               value={selectedTradeId}
@@ -1765,6 +1767,21 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
               Try Again
             </button>
           </div>
+        ) : displayedItems.length === 0 && tradeScope === 'mine' && allOutsideMyTrades(lineItems, trades, myTrades) ? (
+        // The book has items, just none in this company's trades: say so, and offer the rest.
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <h3 className="text-lg font-medium text-white mb-2">None of your items are in your trades yet</h3>
+          <p className="text-gray-400 mb-6 max-w-md">
+            Your trades are {myTradeNames}. You can change them in Company settings → Trades.
+          </p>
+          <button
+            type="button"
+            onClick={() => setTradeScope('all')}
+            className="bg-white hover:bg-gray-100 text-[#121212] px-6 py-3 rounded-[4px] font-medium transition-colors"
+          >
+            Show all trades ({lineItems.length})
+          </button>
+        </div>
         ) : displayedItems.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <div className="w-16 h-16 bg-[#333333] rounded-full flex items-center justify-center mb-4">
@@ -1837,95 +1854,6 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
                     <div className={`flex items-center justify-end gap-2 w-full ${condensed ? 'text-sm' : 'text-base'} ${
                       recentlyUpdatedId === lineItem.id ? 'price-updated' : ''
                     }`}>
-                      {/* Price strategy tag */}
-                      {(() => {
-                        const basePrice = lineItem.base_price || lineItem.price;
-                        const redLine = lineItem.red_line_price;
-                        const cap = lineItem.cap_price;
-                        const currentPrice = lineItem.price;
-                        
-                        // Check if price matches specific boundaries
-                        if (redLine && Math.abs(currentPrice - redLine) < 0.01) {
-                          return (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-red-500/20 text-red-400">
-                              RED
-                            </span>
-                          );
-                        }
-                        if (cap && Math.abs(currentPrice - cap) < 0.01) {
-                          return (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400">
-                              CAP
-                            </span>
-                          );
-                        }
-                        if (Math.abs(currentPrice - basePrice) < 0.01) {
-                          return (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-green-500/20 text-green-400">
-                              BASE
-                            </span>
-                          );
-                        }
-                        
-                        // Check ratio for strategy tags (only if basePrice is valid)
-                        const ratio = basePrice > 0 ? currentPrice / basePrice : 1;
-                        if (basePrice > 0 && ratio < 0.88) {
-                          return (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-green-500/20 text-green-400">
-                              NEED
-                            </span>
-                          );
-                        }
-                        if (ratio >= 0.88 && ratio < 0.92) {
-                          return (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400">
-                              SLOW
-                            </span>
-                          );
-                        }
-                        if (ratio >= 0.93 && ratio < 0.97) {
-                          return (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">
-                              COMP
-                            </span>
-                          );
-                        }
-                        if (ratio >= 1.18 && ratio < 1.25) {
-                          return (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400">
-                              BUSY
-                            </span>
-                          );
-                        }
-                        if (ratio >= 1.45 && ratio < 1.55) {
-                          return (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400">
-                              PREM
-                            </span>
-                          );
-                        }
-                        if (ratio >= 1.75) {
-                          return (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400">
-                              RUSH
-                            </span>
-                          );
-                        }
-                        
-                        // Custom price (only show if basePrice is valid and ratio is not 1)
-                        if (basePrice > 0 && ratio !== 1 && !isNaN(ratio)) {
-                          const percent = Math.round((ratio - 1) * 100);
-                          const text = percent > 0 ? `+${percent}%` : `${percent}%`;
-                          return (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-gray-500/20 text-gray-400">
-                              {text}
-                            </span>
-                          );
-                        }
-                        
-                        return null;
-                      })()}
-                      
                       <PriceRangeCompact
                         price={lineItem.price}
                         redLinePrice={lineItem.red_line_price}
@@ -1961,7 +1889,8 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
             await LineItemService.create({
               name: data.name,
               description: data.description,
-              price: data.price,
+              red_line_price: data.red_line_price,
+              cap_price: data.cap_price,
               unit: data.unit,
               cost_code_id: data.cost_code_id || undefined,
               user_id: user?.id || '',
@@ -2003,9 +1932,10 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
               await handleSaveEdit({
                 name: data.name,
                 description: data.description,
-                price: data.price,
                 unit: data.unit,
-                cost_code_id: data.cost_code_id || editingLineItem.cost_code_id
+                cost_code_id: data.cost_code_id || editingLineItem.cost_code_id,
+                red_line_price: data.red_line_price,
+                cap_price: data.cap_price
               });
             }}
             onCancel={() => {

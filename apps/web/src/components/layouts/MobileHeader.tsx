@@ -1,19 +1,15 @@
 import React from 'react';
-import { Menu, MessageSquare, Plus } from 'lucide-react';
+import { Menu, Plus } from 'lucide-react';
 
 interface MobileHeaderProps {
   onMenuClick: () => void;
-  onChatClick: () => void;
   onCreateClick: () => void;
-  isChatOpen: boolean;
   title?: string;
 }
 
 export const MobileHeader: React.FC<MobileHeaderProps> = ({
   onMenuClick,
-  onChatClick,
   onCreateClick,
-  isChatOpen,
   title = 'Dashboard'
 }) => {
   const [isEstimateCartOpen, setIsEstimateCartOpen] = React.useState(false);
@@ -35,8 +31,10 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
       <div className="flex items-center justify-between px-4 py-3">
         {/* Menu Button */}
         <button
+          type="button"
           onClick={onMenuClick}
-          className="p-2 hover:bg-[#1E1E1E] rounded-[4px] transition-colors"
+          aria-label="Open menu"
+          className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] -ml-2 hover:bg-[#1E1E1E] rounded-[4px] transition-colors"
         >
           <Menu className="h-5 w-5 text-white" />
         </button>
@@ -49,23 +47,15 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
           {/* Create Button - Hide when EstimateCart is open */}
           {!isEstimateCartOpen && (
             <button
+              type="button"
               onClick={onCreateClick}
-              className="p-2 bg-[#F9D71C] hover:bg-[#e9c91c] rounded-[4px] transition-colors"
+              aria-label="Create"
+              className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] bg-[#F9D71C] hover:bg-[#e9c91c] rounded-[4px] transition-colors"
             >
               <Plus className="h-4 w-4 text-[#121212]" />
             </button>
           )}
 
-          {/* Chat Button */}
-          <button
-            onClick={onChatClick}
-            className={`relative p-2 ${isChatOpen ? 'bg-[#336699]' : 'bg-[#2A2A2A]'} hover:bg-[#336699] rounded-[4px] transition-colors`}
-          >
-            <MessageSquare className={`h-4 w-4 ${isChatOpen ? 'text-white' : 'text-gray-400'}`} />
-            {!isChatOpen && (
-              <div className="absolute top-0.5 right-0.5 w-2 h-2 bg-[#F9D71C] rounded-full animate-pulse"></div>
-            )}
-          </button>
         </div>
       </div>
     </div>

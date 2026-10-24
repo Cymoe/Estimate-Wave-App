@@ -87,11 +87,13 @@ export const CreateServiceDrawer: React.FC<CreateServiceDrawerProps> = ({
       
       setLineItems(itemsData || []);
       setCostCodes(codesData || []);
-      setIndustries(industriesData || []);
+      // A company that hasn't picked its trades yet can still file a service under any.
+      const industryList = industriesData?.length ? industriesData : await IndustryService.listAll();
+      setIndustries(industryList || []);
       
       // Set first industry as default
-      if (industriesData && industriesData.length > 0 && !industryId) {
-        setIndustryId(industriesData[0].id);
+      if (industryList && industryList.length > 0 && !industryId) {
+        setIndustryId(industryList[0].id);
       }
     } catch (error) {
       // Error loading data

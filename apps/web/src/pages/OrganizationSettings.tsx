@@ -1,16 +1,21 @@
 import React, { useContext, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Building2, Package, Users, Bell, Shield } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, Building2, Hammer, Users, Bell, Shield } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
+import { BusinessDetailsForm } from '../components/settings/BusinessDetailsForm';
+import { TradesEditor } from '../components/settings/TradesEditor';
+import { NotificationsSettings } from '../components/settings/NotificationsSettings';
 
 export default function OrganizationSettings() {
   const navigate = useNavigate();
-  const { selectedOrg } = useContext(OrganizationContext);
-  const [activeTab, setActiveTab] = useState('general');
+  const { selectedOrg, setSelectedOrg } = useContext(OrganizationContext);
+  const [params] = useSearchParams();
+  // ?tab=trades opens straight on Trades (the "Pick your trades first" links and old links use it).
+  const [activeTab, setActiveTab] = useState(params.get('tab') ?? 'general');
 
   const tabs = [
     { id: 'general', label: 'General', icon: Building2 },
-    { id: 'industries', label: 'Industries', icon: Package },
+    { id: 'trades', label: 'Trades', icon: Hammer },
     { id: 'team', label: 'Team & Permissions', icon: Users },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'security', label: 'Security', icon: Shield },
@@ -37,16 +42,37 @@ export default function OrganizationSettings() {
               <ArrowLeft className="w-5 h-5 text-gray-400" />
             </button>
             <div>
-              <h1 className="text-xl font-semibold text-white">Organization Settings</h1>
+              <h1 className="text-xl font-semibold text-white">Company settings</h1>
               <p className="text-sm text-gray-500">{selectedOrg.name}</p>
             </div>
           </div>
         </div>
       </div>
 
+      {/* Phone and small iPad: the same tabs as a strip that scrolls sideways. */}
+      <nav aria-label="Settings sections" className="md:hidden flex gap-1 overflow-x-auto border-b border-[#333333] px-3 py-2">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              aria-current={activeTab === tab.id ? 'page' : undefined}
+              className={`flex items-center gap-2 px-3 min-h-[44px] rounded-lg whitespace-nowrap text-sm ${
+                activeTab === tab.id ? 'bg-[#252525] text-white' : 'text-gray-400'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          );
+        })}
+      </nav>
+
       <div className="flex">
         {/* Sidebar */}
-        <div className="w-64 border-r border-[#333333] min-h-screen bg-[#0A0A0A]">
+        <div className="hidden md:block w-64 border-r border-[#333333] min-h-screen bg-[#0A0A0A]">
           <nav className="p-4 space-y-1">
             {tabs.map((tab) => {
               const Icon = tab.icon;
@@ -69,28 +95,23 @@ export default function OrganizationSettings() {
         </div>
 
         {/* Content */}
-        <div className="flex-1 p-6">
+        <div className="flex-1 min-w-0 p-4 md:p-6">
           <div className="max-w-4xl">
             {activeTab === 'general' && (
               <div className="bg-[#1A1A1A] rounded-lg p-6">
-                <h2 className="text-lg font-semibold text-white mb-4">General Settings</h2>
-                <p className="text-gray-400">Organization general settings coming soon...</p>
+                <h2 className="text-lg font-semibold text-white mb-4">Business Details</h2>
+                <BusinessDetailsForm
+                  organizationId={selectedOrg.id}
+                  onSaved={(org) => org.name && setSelectedOrg({ ...selectedOrg, name: org.name })}
+                />
               </div>
             )}
 
 
-            {activeTab === 'industries' && (
+            {activeTab === 'trades' && (
               <div className="bg-[#1A1A1A] rounded-lg p-6">
-                <h2 className="text-lg font-semibold text-white mb-4">Industry Configuration</h2>
-                <p className="text-gray-400 mb-4">
-                  Manage your selected industries and customize services for each.
-                </p>
-                <button
-                  onClick={() => navigate('/settings/industries')}
-                  className="px-4 py-2 bg-[#F59E0B] text-black font-medium rounded-lg hover:bg-[#D97706] transition-colors"
-                >
-                  Manage Industries
-                </button>
+                <h2 className="text-lg font-semibold text-white mb-1">What work do you do?</h2>
+                <TradesEditor organizationId={selectedOrg.id} />
               </div>
             )}
 
@@ -103,8 +124,8 @@ export default function OrganizationSettings() {
 
             {activeTab === 'notifications' && (
               <div className="bg-[#1A1A1A] rounded-lg p-6">
-                <h2 className="text-lg font-semibold text-white mb-4">Notification Settings</h2>
-                <p className="text-gray-400">Notification preferences coming soon...</p>
+                <h2 className="text-lg font-semibold text-white mb-4">Lead alerts</h2>
+                <NotificationsSettings organizationId={selectedOrg.id} />
               </div>
             )}
 
