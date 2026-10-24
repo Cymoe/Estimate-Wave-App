@@ -25,6 +25,10 @@ export interface DeliveredRow {
   /** Who to call when the row turns red. */
   companyPhone?: string;
   priceCents: number;
+  /** How it went: a standing bid, a buy order, Buy now, a Vault claim, or sent by hand. */
+  wonVia?: 'bid' | 'order' | 'buy' | 'claim' | 'sent';
+  /** Credited back since, so the money came off again. */
+  credited?: boolean;
   assignedAt: string;
   acknowledgedAt?: string;
   minutesOpen: number;
@@ -32,6 +36,14 @@ export interface DeliveredRow {
   overdue: boolean;
   deliveries: Delivery[];
 }
+
+const HOW: Record<NonNullable<DeliveredRow['wonVia']>, string> = {
+  bid: 'won by bid',
+  order: 'buy order',
+  buy: 'bought',
+  claim: 'claimed from the Vault',
+  sent: 'sent by hand',
+};
 
 const CHANNEL: Record<Delivery['channel'], { label: string; icon: React.ComponentType<{ className?: string }> }> = {
   email: { label: 'Email', icon: Mail },
@@ -68,7 +80,7 @@ export const Delivered: React.FC<{ tradeName: (id?: string) => string }> = ({ tr
     return (
       <div className="border border-dashed border-[#333] rounded p-8 text-center" data-testid="delivered">
         <Check className="w-8 h-8 mx-auto text-gray-500 mb-2" />
-        <p className="text-sm text-gray-400">Nothing awarded yet. Each lead a company wins shows up here with what we sent them.</p>
+        <p className="text-sm text-gray-400">Nothing sold yet. Each lead a company gets shows up here with what we sent them.</p>
       </div>
     );
   }
@@ -83,7 +95,7 @@ export const Delivered: React.FC<{ tradeName: (id?: string) => string }> = ({ tr
           'Companies tap “Got it” on the alert. A row turns red after 15 minutes without it, during the day.'
         )}
       </p>
-      <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Delivered">
+      <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Sold">
         {rows.map((row) => (
           <li key={row.id} className={`px-4 py-3 ${row.overdue ? 'bg-red-500/10' : ''}`} data-overdue={row.overdue ? 'true' : undefined}>
             <div className="flex flex-wrap items-center gap-3">
@@ -94,7 +106,9 @@ export const Delivered: React.FC<{ tradeName: (id?: string) => string }> = ({ tr
                   <span className="text-gray-500">· {tradeName(row.jobType)}</span>
                 </span>
                 <span className="block text-xs text-gray-500">
-                  to {row.companyName} · {money(row.priceCents)} · {ago(row.assignedAt)}
+                  to {row.companyName} · <span className={row.credited ? 'line-through' : ''}>{money(row.priceCents)}</span>
+                  {row.credited ? ' credited back' : ''}
+                  {row.wonVia ? ` · ${HOW[row.wonVia]}` : ''} · {ago(row.assignedAt)}
                   {row.afterHours ? ' · after hours' : ''}
                 </span>
                 {row.overdue && (

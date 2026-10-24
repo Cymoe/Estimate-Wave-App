@@ -70,8 +70,6 @@ interface MarketLead {
   floorCents?: number;
   floorAt?: string;
   openBids?: number;
-  /** How a sold lead went: to a standing bid or a buy order; absent when sent by hand or bought outright. */
-  wonBy?: 'bid' | 'order';
   assignedAt?: string;
   companyName?: string;
   /** A person confirmed it with the homeowner: when, and what they said. */
@@ -116,15 +114,17 @@ interface CreditRequest {
   requestedAt: string;
 }
 
-type Tab = 'demand' | 'intake' | 'inbox' | 'delivered' | 'companies' | 'prices';
-const TABS: Tab[] = ['demand', 'intake', 'inbox', 'delivered', 'companies', 'prices'];
+type Tab = 'demand' | 'intake' | 'inbox' | 'sold' | 'companies' | 'prices';
+const TABS: Tab[] = ['demand', 'intake', 'inbox', 'sold', 'companies', 'prices'];
+/** Old names in links that were already sent (emails, bookmarks) still open the right tab. */
+const OLD_TAB_NAMES: Record<string, Tab> = { delivered: 'sold' };
 const isTab = (value: string | null): value is Tab => TABS.includes(value as Tab);
 
 const TAB_TITLES: Record<Tab, string> = {
   demand: 'Demand',
   intake: 'Intake',
   inbox: 'Listed',
-  delivered: 'Delivered',
+  sold: 'Sold',
   companies: 'Companies',
   prices: 'Prices',
 };
@@ -334,7 +334,7 @@ function SendToDialog({
     try {
       // The price can have dropped since the list loaded: say what was really charged.
       const { priceCents } = await marketplaceAPI.assign(lead.id, company.id);
-      onSent(`${lead.name} sent to ${company.name} · ${money(priceCents)} charged`);
+      onSent(`Sold to ${company.name} by hand · ${money(priceCents)} charged`);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "The lead couldn't be sent");
@@ -1058,7 +1058,7 @@ const LeadMarketPage: React.FC = () => {
   // Where you are lives in the address (?tab=…&company=…), so Back works, a
   // refresh keeps the tab, and a link in an email opens the right panel.
   const creating = searchParams.get('new');
-  const tabParam = searchParams.get('tab');
+  const tabParam = OLD_TAB_NAMES[searchParams.get('tab') ?? ''] ?? searchParams.get('tab');
   const tab: Tab =
     isTab(tabParam) && (tabParam !== 'prices' || owner) ? tabParam : creating === 'company' ? 'companies' : 'intake';
   const openCompanyId = searchParams.get('company');
@@ -1197,12 +1197,12 @@ const LeadMarketPage: React.FC = () => {
       }
       case 'inbox':
         return `${inbox.available.length} listed · ${money(book.spent30dCents)} sold in 30 days`;
-      case 'delivered': {
+      case 'sold': {
         const rows = deliveredRows ?? [];
         const today = rows.filter((r) => isToday(r.assignedAt)).length;
         const waiting = rows.filter((r) => !r.acknowledgedAt).length;
         const overdue = rows.filter((r) => !r.acknowledgedAt && r.overdue).length;
-        return `${today} sent today · ${overdue > 0 ? `${overdue} overdue for “Got it”` : `${waiting} waiting on “Got it”`}`;
+        return `${today} sold today · ${overdue > 0 ? `${overdue} overdue for “Got it”` : `${waiting} waiting on “Got it”`}`;
       }
       case 'companies': {
         const pro = companies.filter((c) => c.plan?.status === 'active').length;
@@ -1234,7 +1234,7 @@ const LeadMarketPage: React.FC = () => {
               ['demand', 'Demand', counts.demandOpen !== null ? `${counts.demandOpen}/${counts.demandTotal}` : ''],
               ['intake', 'Intake', counts.intake !== null ? `${counts.intake}` : ''],
               ['inbox', 'Listed', `${inbox.available.length}`],
-              ['delivered', 'Delivered', counts.overdue > 0 ? `${counts.overdue}` : ''],
+              ['sold', 'Sold', counts.overdue > 0 ? `${counts.overdue}` : ''],
               ['companies', 'Companies', `${companies.length}`, applications.length > 0 ? `${applications.length} applied` : ''],
               ...(owner ? ([['prices', 'Prices', '']] as Array<[Tab, string, string]>) : []),
             ] as Array<[Tab, string, string, string?]>
@@ -1250,9 +1250,9 @@ const LeadMarketPage: React.FC = () => {
               {count && (
                 <>
                   {' '}
-                  {/* Delivered's number is the overdue count: red, because each one is a phone call to make. */}
-                  <span className={value === 'delivered' ? 'px-1.5 rounded-full bg-red-500/90 text-white text-xs' : 'text-xs opacity-80'}>
-                    {value === 'delivered' ? count : `(${count})`}
+                  {/* Sold's number is the overdue count: red, because each one is a phone call to make. */}
+                  <span className={value === 'sold' ? 'px-1.5 rounded-full bg-red-500/90 text-white text-xs' : 'text-xs opacity-80'}>
+                    {value === 'sold' ? count : `(${count})`}
                   </span>
                 </>
               )}
@@ -1285,7 +1285,7 @@ const LeadMarketPage: React.FC = () => {
         />
       ) : tab === 'demand' ? (
         <DemandBoard owner={owner} />
-      ) : tab === 'delivered' ? (
+      ) : tab === 'sold' ? (
         <Delivered tradeName={tradeName} />
       ) : tab === 'inbox' ? (
         <div className="space-y-6">
@@ -1400,29 +1400,6 @@ const LeadMarketPage: React.FC = () => {
             <p className="text-xs text-gray-500">{inbox.archivedCount} archived lead{inbox.archivedCount === 1 ? '' : 's'}.</p>
           )}
           <PermitsCard />
-
-          {inbox.sold.length > 0 && (
-            <section>
-              <h2 className="text-sm font-medium text-gray-300 mb-2">Sent</h2>
-              <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded">
-                {inbox.sold.map((lead) => (
-                  <li key={lead.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
-                    <span className="min-w-0">
-                      <span className="block text-sm text-white truncate">{lead.name}</span>
-                      <span className="block text-xs text-gray-500">
-                        {tradeName(lead.jobType)} · to {lead.companyName}
-                        {lead.wonBy === 'bid' ? ' · won by bid' : lead.wonBy === 'order' ? ' · buy order' : ''}
-                        {lead.assignedAt ? ` · ${new Date(lead.assignedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : ''}
-                      </span>
-                    </span>
-                    <span className={`text-sm whitespace-nowrap ${lead.status === 'credited' ? 'text-gray-500 line-through' : 'text-emerald-300'}`}>
-                      {money(lead.priceCents ?? 0)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
         </div>
       ) : tab === 'companies' ? (
         <div className="space-y-3">

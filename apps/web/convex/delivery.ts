@@ -118,9 +118,9 @@ export const record = internalMutation({
         [
           `${lead?.name ?? "A lead"} was sold to ${who}, but ${failed.length === 1 ? "an alert" : `${failed.length} alerts`} did not go out:`,
           ...failed.map((r) => `${r.channel === "email" ? "Email" : r.channel === "sms" ? "Text" : "Homeowner text"} to ${r.to || "nobody"}: ${r.error ?? "failed"}`),
-          `Call them${company?.phone ? ` on ${company.phone}` : ""} so they know they have it, then Resend alerts from Delivered.`,
+          `Call them${company?.phone ? ` on ${company.phone}` : ""} so they know they have it, then Resend alerts from the Sold tab.`,
         ],
-        "/ops?tab=delivered",
+        "/ops?tab=sold",
       );
     }
     return null;
@@ -265,7 +265,7 @@ export const escalateOverdue = internalMutation({
           `${lead.name} was sold to ${who} ${minutesOpen} minutes ago and nobody there has tapped "Got it".`,
           `Call them${company?.phone ? ` on ${company.phone}` : ""} and make sure they have the lead.`,
         ],
-        "/ops?tab=delivered",
+        "/ops?tab=sold",
       );
       escalated += 1;
     }
@@ -285,18 +285,22 @@ export const resend = mutation({
   },
 });
 
-/** The last awarded leads with what was sent and whether the company has tapped "Got it". */
+/**
+ * The last sold leads: how each went (bid, buy order, Buy now, Vault claim or
+ * by hand), what was sent, whether the company has tapped "Got it", and
+ * whether it was credited back since. The Sold tab.
+ */
 export const recent = query({
   args: {},
   handler: async (ctx) => {
     await requireStaff(ctx);
-    const sold = (
-      await ctx.db
+    const byStatus = (status: "assigned" | "credited", n: number) =>
+      ctx.db
         .query("marketplaceLeads")
-        .withIndex("by_status", (q) => q.eq("status", "assigned"))
+        .withIndex("by_status", (q) => q.eq("status", status))
         .order("desc")
-        .take(300)
-    )
+        .take(n);
+    const sold = [...(await byStatus("assigned", 300)), ...(await byStatus("credited", 50))]
       .filter((l) => l.orgLeadId && l.assignedAt)
       .sort((a, b) => (b.assignedAt ?? "").localeCompare(a.assignedAt ?? ""))
       .slice(0, 100);
@@ -304,6 +308,7 @@ export const recent = query({
     return await Promise.all(
       sold.map(async (lead) => {
         const company = lead.assignedOrganizationId ? await ctx.db.get(lead.assignedOrganizationId) : null;
+        const orgLead = await ctx.db.get(lead.orgLeadId!);
         const deliveries = await ctx.db
           .query("deliveries")
           .withIndex("by_lead", (q) => q.eq("marketplaceLeadId", lead._id))
@@ -323,6 +328,8 @@ export const recent = query({
           companyName: company?.name ?? "Unknown company",
           companyPhone: company?.phone,
           priceCents: lead.priceCents ?? 0,
+          wonVia: orgLead?.wonVia,
+          credited: lead.status === "credited",
           assignedAt,
           acknowledgedAt: lead.acknowledgedAt,
           minutesOpen,

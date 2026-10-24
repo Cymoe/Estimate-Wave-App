@@ -493,7 +493,7 @@ describe("delivery", () => {
     const first = await list();
     expect(first.outcome).toBe("sold");
     let rows = await va.as.query(api.delivery.recent, {});
-    expect(rows[0]).toMatchObject({ name: "Dana Reyes", companyName: "Peak Roofing", priceCents: 25000 });
+    expect(rows[0]).toMatchObject({ name: "Dana Reyes", companyName: "Peak Roofing", priceCents: 25000, wonVia: "bid", credited: false });
     expect(rows[0].acknowledgedAt).toBeUndefined();
     expect(rows[0].deliveries.map((d) => [d.channel, d.status])).toEqual([
       ["email", "skipped"],
@@ -542,7 +542,7 @@ describe("delivery", () => {
     expect(toStaff.subject).toBe("FieldQuote Ops: The alert to Peak Roofing failed: Unverified number");
     expect(toStaff.text).toContain("Text to +14325550177: Unverified number");
     expect(toStaff.text).toContain("Call them on 432-555-0100");
-    expect(toStaff.text).toContain("https://app.example/ops?tab=delivered");
+    expect(toStaff.text).toContain("https://app.example/ops?tab=sold");
 
     // "Got it" from the company stamps both rows; the Delivered tab shows it.
     const leads = await co.as.query(api.leads.list, { organizationId: co.organizationId });
@@ -606,7 +606,7 @@ describe("delivery", () => {
       expect(emails[0].to).toEqual(["va@fieldquote.example"]);
       expect(emails[0].subject).toBe('FieldQuote Ops: No "Got it" from Cole Roofing after 20 min: X');
       expect(emails[0].text).toContain("Call them on 432-555-0100");
-      expect(emails[0].text).toContain("https://app.example/ops?tab=delivered");
+      expect(emails[0].text).toContain("https://app.example/ops?tab=sold");
       expect(await t.mutation(internal.delivery.escalateOverdue, {})).toEqual({ escalated: 0 });
       // Ten minutes on, the fresh one is overdue too and gets its own email; the late one stays at one.
       vi.setSystemTime(new Date("2026-10-22T16:30:00Z"));

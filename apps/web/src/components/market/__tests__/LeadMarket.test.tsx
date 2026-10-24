@@ -179,7 +179,7 @@ describe('Lead Market', () => {
     role = 'staff';
     await render(<LeadMarketPage />);
     expect(document.body.textContent).toContain('FieldQuote staff');
-    expect(Array.from(document.body.querySelectorAll('[role="tablist"]:not([aria-label]) [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand (0/0)', 'Intake (0)', 'Listed (1)', 'Delivered', 'Companies (3)']);
+    expect(Array.from(document.body.querySelectorAll('[role="tablist"]:not([aria-label]) [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand (0/0)', 'Intake (0)', 'Listed (1)', 'Sold', 'Companies (3)']);
     expect(document.body.textContent).not.toContain('Add 20 sample leads');
     expect(document.body.querySelector('[data-testid="team-card"]')).toBeNull();
     // The company panel reads only: no funding link, payments or plan.
@@ -239,7 +239,7 @@ describe('Lead Market', () => {
     expect(heading()).toBe('Intake');
     expect(summary()).toBe('2 to confirm · 1 possible duplicate');
     expect(document.title).toBe('Intake · Ops · FieldQuote');
-    expect(Array.from(document.body.querySelectorAll('[role="tablist"]:not([aria-label]) [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand (0/0)', 'Intake (2)', 'Listed (1)', 'Delivered', 'Companies (3)', 'Prices']);
+    expect(Array.from(document.body.querySelectorAll('[role="tablist"]:not([aria-label]) [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand (0/0)', 'Intake (2)', 'Listed (1)', 'Sold', 'Companies (3)', 'Prices']);
     expect(document.body.textContent).not.toContain('sell on their own');
     const open = async (name: string) => {
       await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith(name))!.click());
@@ -506,7 +506,7 @@ describe('Lead Market', () => {
     await act(async () => confirm().click());
     await flush();
     expect(assign).toHaveBeenCalledWith('m1', 'o2');
-    expect(document.body.textContent).toContain('Jane Cole sent to Peak Roofing · $70.00 charged');
+    expect(document.body.textContent).toContain('Sold to Peak Roofing by hand · $70.00 charged');
   });
 
   it('suggests a bonus for bigger payments', () => {
@@ -678,11 +678,22 @@ describe('the bid status line', () => {
 });
 
 describe('standing bids in Admin', () => {
-  it('shows which sold leads went to a standing bid', async () => {
-    soldLeads = [{ id: 'm2', name: 'Ray Ortiz', jobType: 'painting', city: 'Odessa', county: 'Ector', status: 'assigned', price: 26000, priceCents: 26000, wonBy: 'bid', companyName: 'Peak Roofing', assignedAt: '2026-10-18T12:00:00Z', createdAt: '2026-10-18' }];
+  it('shows how each sold lead went, and strikes through the ones credited back', async () => {
+    delivered = [
+      { id: 'm2', orgLeadId: 'ol2', name: 'Ray Ortiz', jobType: 'painting', companyName: 'Peak Roofing', priceCents: 26000, assignedAt: '2026-10-18T12:00:00Z', acknowledgedAt: '2026-10-18T12:03:00Z', minutesOpen: 3, afterHours: false, overdue: false, wonVia: 'bid', deliveries: [] },
+      { id: 'm3', orgLeadId: 'ol3', name: 'Lee Park', jobType: 'roofing', companyName: 'Broke Roofing', priceCents: 8500, assignedAt: '2026-10-17T12:00:00Z', acknowledgedAt: '2026-10-17T12:30:00Z', minutesOpen: 30, afterHours: false, overdue: false, wonVia: 'sent', credited: true, deliveries: [] },
+    ];
     await render(<LeadMarketPage />);
-    await openListed();
-    expect(document.body.textContent).toContain('Painting · to Peak Roofing · won by bid');
+    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Sold'))!.click());
+    await flush();
+    const items = Array.from(document.body.querySelectorAll('[aria-label="Sold"] > li'));
+    expect(items[0].textContent).toContain('to Peak Roofing · $260.00 · won by bid');
+    expect(items[1].textContent).toContain('to Broke Roofing · $85.00 credited back · sent by hand');
+    expect(items[1].querySelector('.line-through')!.textContent).toBe('$85.00');
+    // The old address still opens it: emails sent before the rename say ?tab=delivered.
+    document.body.innerHTML = '';
+    await render(<MemoryRouter initialEntries={['/ops?tab=delivered']}><LeadMarketPage /></MemoryRouter>, false);
+    expect(document.body.querySelector('h1')!.textContent).toBe('Sold');
   });
 
   it('opens on Intake; a new lead goes into the queue, with the county filled in from a town we know', async () => {
@@ -789,7 +800,7 @@ describe('standing bids in Admin', () => {
     expect(document.body.querySelectorAll('table[aria-label="Demand"] button[data-state]')).toHaveLength(3);
   });
 
-  it('shows what was sent for each awarded lead and flags the ones nobody acknowledged', async () => {
+  it('shows what was sent for each sold lead and flags the ones nobody acknowledged', async () => {
     delivered = [
       { id: 'm1', orgLeadId: 'ol1', name: 'Dana Reyes', jobType: 'roofing', companyName: 'Peak Roofing', companyPhone: '(432) 555-0100', priceCents: 25000, assignedAt: '2026-10-22T16:00:00Z', minutesOpen: 22, afterHours: false, overdue: true,
         deliveries: [{ id: 'd1', channel: 'email', to: 'office@peak.example', status: 'sent', at: '2026-10-22T16:00:01Z' }, { id: 'd2', channel: 'sms', to: '', status: 'skipped', error: 'Nobody at the company has a mobile for alerts', at: '2026-10-22T16:00:01Z' }] },
@@ -797,14 +808,14 @@ describe('standing bids in Admin', () => {
     ];
     await render(<LeadMarketPage />);
     // The tab carries the overdue count in red, so a call to make is visible from any tab; the browser tab leads with it too.
-    const tab = Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Delivered'))!;
-    expect(tab.textContent).toBe('Delivered 1');
+    const tab = Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Sold'))!;
+    expect(tab.textContent).toBe('Sold 1');
     expect(tab.querySelector('span')!.className).toContain('bg-red-500');
     expect(document.title).toBe('(1) Intake · Ops · FieldQuote');
     await act(async () => tab.click());
     await flush();
-    expect(document.title).toBe('(1) Delivered · Ops · FieldQuote');
-    const list = document.body.querySelector('[aria-label="Delivered"]')!;
+    expect(document.title).toBe('(1) Sold · Ops · FieldQuote');
+    const list = document.body.querySelector('[aria-label="Sold"]')!;
     expect(document.body.textContent).toContain('1 not acknowledged after 15 minutes: call the company.');
     const items = Array.from(list.querySelectorAll(':scope > li'));
     expect(items[0].getAttribute('data-overdue')).toBe('true');
