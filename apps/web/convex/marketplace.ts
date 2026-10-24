@@ -1022,8 +1022,11 @@ export const ensurePlan = mutation({
 });
 
 /**
- * A company starts (or restarts) the plan: this month's fee comes off the
- * balance now, and a fresh period with the full claim allowance opens.
+ * A company starts (or restarts) the plan. A period that is already paid
+ * for, or a trial still running, is not charged again: the plan turns on
+ * and the next fee stays on the date it already had. Otherwise this
+ * month's fee comes off the balance now and a fresh period opens with the
+ * full claim allowance. Returns the plan with what was charged.
  */
 export const startPlan = mutation({
   args: { organizationId: v.id("organizations") },
@@ -1033,24 +1036,40 @@ export const startPlan = mutation({
       organizationId,
       "admin",
     );
-    const plan = organization.plan ?? trialPlan(nowIso());
-    if (plan.status === "active") return planSummary(plan, Date.now());
-    if (plan.monthlyCents > 0)
-      // Fails with "Balance too low" when the balance can't cover it.
-      await postTransaction(ctx, organizationId, {
-        type: "plan",
-        amountCents: -plan.monthlyCents,
-        createdBy: user._id,
-        note: "Pro plan",
-      });
+    const nowMs = Date.now();
     const now = nowIso();
-    const started: Plan = {
-      ...plan,
-      status: "active",
-      periodStart: now,
-      nextChargeAt: nextMonth(now),
-      claimsThisPeriod: 0,
-    };
+    const plan = organization.plan ?? trialPlan(now);
+    if (plan.status === "active")
+      return { ...planSummary(plan, nowMs), chargedCents: 0 };
+    // A company with no plan yet pays now, as the button says; one on a
+    // running trial or a paid month does not pay twice.
+    const paidUp =
+      organization.plan !== undefined &&
+      (plan.status === "cancelled" || plan.status === "trial") &&
+      Date.parse(plan.nextChargeAt) > nowMs;
+    let started: Plan;
+    let chargedCents = 0;
+    if (paidUp) {
+      started = { ...plan, status: "active" };
+    } else {
+      if (plan.monthlyCents > 0) {
+        // Fails with "Balance too low" when the balance can't cover it.
+        await postTransaction(ctx, organizationId, {
+          type: "plan",
+          amountCents: -plan.monthlyCents,
+          createdBy: user._id,
+          note: "Pro plan",
+        });
+        chargedCents = plan.monthlyCents;
+      }
+      started = {
+        ...plan,
+        status: "active",
+        periodStart: now,
+        nextChargeAt: nextMonth(now),
+        claimsThisPeriod: 0,
+      };
+    }
     await ctx.db.patch(organizationId, { plan: started, updatedAt: now });
     await logActivity(ctx, {
       organizationId,
@@ -1058,9 +1077,9 @@ export const startPlan = mutation({
       action: "plan_started",
       resourceType: "organization",
       resourceId: organizationId,
-      details: { monthlyCents: plan.monthlyCents },
+      details: { monthlyCents: plan.monthlyCents, chargedCents },
     });
-    return planSummary(started, Date.now());
+    return { ...planSummary(started, nowMs), chargedCents };
   },
 });
 

@@ -8,6 +8,7 @@ import {
 import { setup, signUp } from "./test.setup";
 import { cityFromSearch, cityFromText } from "./lib/leadCity";
 import { fillTimeMs, priceAt, pricingFor } from "./lib/auction";
+import { nextMonth } from "./lib/plan";
 import { TEXAS_COUNTIES, countyForTown, normalizeCounty } from "./lib/counties";
 
 describe("auth and tenancy", () => {
@@ -4638,14 +4639,69 @@ describe("older leads and the monthly plan", () => {
     }
   });
 
+  test("starting the plan from a running trial or a paid month charges nothing until that period ends", async () => {
+    try {
+      const { admin, roofer } = await market();
+      const trial = await roofer.as.mutation(api.marketplace.ensurePlan, { organizationId: roofer.organizationId });
+      expect(trial).toMatchObject({ status: "trial", active: true });
+      const before = (await wallet(roofer)).balanceCents;
+      const planCharges = async () => ((await wallet(roofer)).transactions as { type: string }[]).filter((x) => x.type === "plan").length;
+
+      // On the trial: the plan turns on now, the first fee waits for the trial's end.
+      expect(await roofer.as.mutation(api.marketplace.startPlan, { organizationId: roofer.organizationId })).toMatchObject({
+        status: "active",
+        active: true,
+        nextChargeAt: trial.nextChargeAt,
+        chargedCents: 0,
+      });
+      expect((await wallet(roofer)).balanceCents).toBe(before);
+      expect(await planCharges()).toBe(0);
+
+      // Cancel and come back inside the paid period: nothing to pay, the date stands.
+      await roofer.as.mutation(api.marketplace.cancelPlan, { organizationId: roofer.organizationId });
+      expect(await roofer.as.mutation(api.marketplace.startPlan, { organizationId: roofer.organizationId })).toMatchObject({
+        status: "active",
+        nextChargeAt: trial.nextChargeAt,
+        chargedCents: 0,
+      });
+      expect((await wallet(roofer)).balanceCents).toBe(before);
+      expect(await planCharges()).toBe(0);
+      // Starting an active plan again is a no-op too.
+      expect(await roofer.as.mutation(api.marketplace.startPlan, { organizationId: roofer.organizationId })).toMatchObject({ chargedCents: 0 });
+      expect(await planCharges()).toBe(0);
+
+      // Once the period is over, starting charges the month and opens a fresh one.
+      await roofer.as.mutation(api.marketplace.cancelPlan, { organizationId: roofer.organizationId });
+      vi.setSystemTime(new Date(Date.parse(trial.nextChargeAt) + 24 * 60 * 60 * 1000));
+      const now = new Date().toISOString();
+      expect(await roofer.as.mutation(api.marketplace.startPlan, { organizationId: roofer.organizationId })).toMatchObject({
+        status: "active",
+        chargedCents: 9900,
+        nextChargeAt: nextMonth(now),
+      });
+      expect((await wallet(roofer)).balanceCents).toBe(before - 9900);
+      expect(await planCharges()).toBe(1);
+      void admin;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("starting the plan charges the month from the balance, and the fee recurs until the balance runs dry", async () => {
     try {
       const { t, admin, roofer, rival } = await market();
+      // Both trials have run out, so starting pays for the month now.
+      const endTrial = (organizationId: any) =>
+        t.run(async (ctx) => {
+          const org = (await ctx.db.get(organizationId)) as any;
+          await ctx.db.patch(organizationId, { plan: { ...org.plan, nextChargeAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() } });
+        });
       // $300 covers a $120 fee twice; a company that can't cover it can't start.
       await admin.as.mutation(api.marketplace.setPlan, {
         organizationId: roofer.organizationId,
         monthlyCents: 12000,
       });
+      await endTrial(roofer.organizationId);
       expect(
         await roofer.as.mutation(api.marketplace.startPlan, {
           organizationId: roofer.organizationId,
@@ -4666,6 +4722,7 @@ describe("older leads and the monthly plan", () => {
         organizationId: rival.organizationId,
         monthlyCents: 40000,
       });
+      await endTrial(rival.organizationId);
       await expect(
         rival.as.mutation(api.marketplace.startPlan, {
           organizationId: rival.organizationId,

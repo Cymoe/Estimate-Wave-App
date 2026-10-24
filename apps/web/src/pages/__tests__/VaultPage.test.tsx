@@ -8,6 +8,7 @@ const trial = { status: 'trial', active: true, monthlyCents: 9900, claimsInclude
 let pool: unknown = { locked: true, count: 2, plan: null, leads: [] };
 const claim = jest.fn(async () => ({ orgLeadId: 'ol2', priceCents: 0, claimsLeft: 6 }));
 const startPlan = jest.fn(async () => ({ ...trial, status: 'active' }));
+const ensurePlan = jest.fn(async () => trial);
 const createLink = jest.fn(async (_id: string) => 'tok');
 let permitsNear: unknown = {
   county: 'Midland',
@@ -27,6 +28,7 @@ jest.mock('../../lib/api', () => ({
     claim: (...a: unknown[]) => claim(...(a as [])),
     startPlan: (...a: unknown[]) => startPlan(...(a as [])),
     cancelPlan: async () => undefined,
+    ensurePlan: (...a: unknown[]) => ensurePlan(...(a as [])),
   },
   fundingAPI: { createLink: (id: string) => createLink(id), url: (t: string) => `/fund/${t}` },
   permitsAPI: { near: async () => permitsNear },
@@ -61,7 +63,9 @@ describe('The Vault', () => {
     expect(document.body.textContent).toContain('2 leads in your trades are waiting in the Vault');
     expect(document.body.querySelector('[data-testid="plan-panel"]')?.textContent).toContain('$99.00');
     expect(document.body.querySelector('[data-testid="vault-table"]')).toBeNull();
-    await act(async () => byText('Start the plan')!.click());
+    // Opening the Vault starts the trial for a company that never had one, like every page the plan covers.
+    expect(ensurePlan).toHaveBeenCalledWith('o2');
+    await act(async () => byText('Start the Pro plan · $99.00 now')!.click());
     await flush();
     expect(startPlan).toHaveBeenCalledWith('o2');
     expect(document.body.textContent).toContain("You're on the Pro plan");

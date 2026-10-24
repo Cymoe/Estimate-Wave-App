@@ -53,12 +53,12 @@ export const PlanPanel: React.FC<{ organizationId?: string; plan: PlanSummary | 
   const included = plan?.claimsIncluded ?? 10;
   const extra = plan?.extraClaimCents ?? 1500;
 
-  const run = async (work: () => Promise<unknown>, done: string) => {
+  const run = async <T,>(work: () => Promise<T>, done: string | ((result: T) => string)) => {
     setBusy(true);
     setMessage(null);
     try {
-      await work();
-      show(done);
+      const result = await work();
+      show(typeof done === 'function' ? done(result) : done);
       notifyWalletChanged();
       onChanged?.();
     } catch (err) {
@@ -68,7 +68,16 @@ export const PlanPanel: React.FC<{ organizationId?: string; plan: PlanSummary | 
       setBusy(false);
     }
   };
-  const start = () => organizationId && run(() => walletAPI.startPlan(organizationId), `You're on the Pro plan. ${money(monthly)} came off your lead balance.`);
+  // Nothing is charged while a paid month or the trial is still running: the toast says when the fee comes.
+  const start = () =>
+    organizationId &&
+    run(
+      () => walletAPI.startPlan(organizationId),
+      (started) =>
+        started.chargedCents > 0
+          ? `You're on the Pro plan. ${money(started.chargedCents)} came off your lead balance.`
+          : `You're on the Pro plan. The next ${money(started.monthlyCents)} comes off your lead balance on ${shortDate(started.nextChargeAt)}.`,
+    );
   const cancel = () => organizationId && run(() => walletAPI.cancelPlan(organizationId), 'Plan cancelled. Everything stays open to the end of the month you paid for.');
   const addFunds = () => organizationId && openFundingPage(organizationId).catch(() => {});
 
@@ -122,7 +131,13 @@ export const PlanPanel: React.FC<{ organizationId?: string; plan: PlanSummary | 
           </button>
         ) : (
           <button type="button" onClick={start} disabled={busy || !organizationId} className={primary}>
-            {plan?.status === 'past_due' ? 'Pay and resume' : plan?.active ? 'Start the plan now' : 'Start the plan'}
+            {plan?.status === 'past_due'
+              ? `Pay and resume · ${money(monthly)} now`
+              : plan?.status === 'cancelled' && plan.active
+                ? `Resume the Pro plan · paid through ${shortDate(plan.nextChargeAt)}`
+                : plan?.status === 'trial' && plan.active
+                  ? `Continue after the trial · first ${money(monthly)} on ${shortDate(plan.nextChargeAt)}`
+                  : `Start the Pro plan · ${money(monthly)} now`}
           </button>
         )}
         {(message?.short || plan?.status === 'past_due') && (

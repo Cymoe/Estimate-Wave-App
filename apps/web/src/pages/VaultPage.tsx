@@ -7,7 +7,7 @@ import { walletAPI } from '../lib/api';
 import { useOlderLeads } from '../lib/live';
 import { money } from '../components/market/wallet';
 import { notifyWalletChanged } from '../components/market/WalletBar';
-import { PlanPanel, type PlanSummary } from '../components/market/plan';
+import { PlanPanel, usePlan, type PlanSummary } from '../components/market/plan';
 import { InlineNotice, Toast, useToast } from '../components/common/Notice';
 
 /** A lead in the Vault: a week or more old, no price countdown. */
@@ -49,6 +49,8 @@ const VaultPage: React.FC = () => {
   const organizationId = selectedOrg?.id || undefined;
   // Live: a lead another company claims leaves the list as it happens.
   const pool = useOlderLeads<VaultPool>(organizationId) ?? null;
+  // A company that has never opened anything on the plan gets its 30-day trial here too.
+  usePlan(organizationId, { ensure: true });
   const [mineOnly, setMineOnly] = useState(true);
   // Two views: leads nobody bought, and public permits for work going on nearby.
   const [tab, setTab] = useState<'leads' | 'permits'>('leads');

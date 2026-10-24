@@ -10,6 +10,7 @@ import { ConvexError } from "convex/values";
 import type { FunctionReference } from "convex/server";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
+import type { PlanSummary } from "../components/market/wallet";
 import { convex } from "./convex";
 import { withId } from "./withId";
 
@@ -470,7 +471,7 @@ export const walletAPI = {
   claim: (leadId: string, organizationId: string) => run('mutation', api.marketplace.claim, { leadId, organizationId }),
   /** The monthly plan, paid from the lead balance. */
   ensurePlan: (organizationId: string) => run('mutation', api.marketplace.ensurePlan, { organizationId }),
-  startPlan: (organizationId: string) => run('mutation', api.marketplace.startPlan, { organizationId }),
+  startPlan: (organizationId: string): Promise<PlanSummary & { chargedCents: number }> => run('mutation', api.marketplace.startPlan, { organizationId }),
   cancelPlan: (organizationId: string) => run('mutation', api.marketplace.cancelPlan, { organizationId }),
 };
 
