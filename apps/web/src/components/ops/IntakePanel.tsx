@@ -84,9 +84,11 @@ export const IntakePanel: React.FC<{
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  // Reloads the row; the draft follows only when asked, so logging a call never wipes typed edits.
+  const load = useCallback(async (resetDraft = true) => {
     const next = (await intakeAPI.get(id)) as IntakeDetail;
     setRow(next);
+    if (!resetDraft) return;
     setDraft({
       name: next.name ?? '',
       phone: next.phone ?? '',
@@ -106,12 +108,13 @@ export const IntakePanel: React.FC<{
     load().catch(() => {});
   }, [load]);
 
-  const act = async (fn: () => Promise<unknown>) => {
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const act = async (fn: () => Promise<unknown>, { keepDraft = false } = {}) => {
     setBusy(true);
     setError(null);
     try {
       await fn();
-      await load();
+      await load(!keepDraft);
       onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'That didn’t work');
@@ -119,12 +122,21 @@ export const IntakePanel: React.FC<{
       setBusy(false);
     }
   };
-  const save = () => draft && act(() => intakeAPI.update(id, draft));
-  const logAttempt = (outcome: string) =>
+  const save = () =>
+    draft &&
     act(async () => {
-      await intakeAPI.logAttempt(id, outcome, note || undefined);
-      setNote('');
+      await intakeAPI.update(id, draft);
+      setSavedAt(Date.now());
+      setTimeout(() => setSavedAt(null), 1500);
     });
+  const logAttempt = (outcome: string) =>
+    act(
+      async () => {
+        await intakeAPI.logAttempt(id, outcome, note || undefined);
+        setNote('');
+      },
+      { keepDraft: true },
+    );
 
   if (!row || !draft) return null;
   const set = (key: keyof IntakeFields) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
@@ -219,7 +231,7 @@ export const IntakePanel: React.FC<{
               </Field>
             </div>
             <Field label="Address">
-              <input value={draft.address} onChange={set('address')} className={input} disabled={!open} />
+              <input value={draft.address} onChange={set('address')} aria-label="Address" className={input} disabled={!open} />
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="What kind of work">
@@ -252,9 +264,16 @@ export const IntakePanel: React.FC<{
               <input type="email" value={draft.email} onChange={set('email')} className={input} disabled={!open} />
             </Field>
             {open && (
-              <button type="button" onClick={save} disabled={busy} className={secondary}>
-                Save changes
-              </button>
+              <span className="inline-flex items-center gap-3">
+                <button type="button" onClick={save} disabled={busy} className={secondary}>
+                  Save changes
+                </button>
+                {savedAt && (
+                  <span role="status" className="text-xs text-emerald-300">
+                    Saved
+                  </span>
+                )}
+              </span>
             )}
           </section>
 
@@ -301,7 +320,7 @@ export const IntakePanel: React.FC<{
                     </option>
                   ))}
                 </select>
-                <button type="button" disabled={busy || !closing} onClick={() => act(() => intakeAPI.close(id, closing, note || undefined))} className={secondary}>
+                <button type="button" disabled={busy || !closing} onClick={() => act(() => intakeAPI.close(id, closing, note || undefined), { keepDraft: true })} className={secondary}>
                   Close
                 </button>
               </div>

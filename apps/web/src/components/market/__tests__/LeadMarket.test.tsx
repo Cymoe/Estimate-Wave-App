@@ -283,6 +283,24 @@ describe('Lead Market', () => {
     expect(document.body.querySelector('[role="dialog"]')!.getAttribute('aria-label')).toBe('New company');
   });
 
+  it('logging a call keeps the edits typed into the lead, and Save says Saved', async () => {
+    intakeRows = [
+      { id: 'i1', source: 'meta', status: 'working', label: 'Dana Reyes', name: 'Dana Reyes', phone: '432-555-0133', address: '1 Oak St', county: 'Midland', jobType: 'roofing', tradeName: 'Roofing', attempts: [], lastAttempt: null, createdAt: '2026-10-22T02:00:00Z', updatedAt: '2026-10-22T03:00:00Z' },
+    ];
+    await render(<LeadMarketPage />);
+    await act(async () => (document.body.querySelector('[aria-label="Intake"] button') as HTMLButtonElement).click());
+    await flush();
+    const address = document.body.querySelector('input[aria-label="Address"]') as HTMLInputElement;
+    await act(async () => type(address, '12 Elm St'));
+    await act(async () => byText('Voicemail')!.click());
+    await flush();
+    // The row reloaded (the attempt shows), but the typed address is still there.
+    expect((document.body.querySelector('input[aria-label="Address"]') as HTMLInputElement).value).toBe('12 Elm St');
+    await act(async () => byText('Save changes')!.click());
+    await flush();
+    expect(document.body.querySelector('[role="status"]')?.textContent).toBe('Saved');
+  });
+
   it('keeps applications from staff', async () => {
     role = 'staff';
     applications = [{ id: 'a1', companyName: 'Basin Paint Co.', contactName: 'Ana Ruiz', email: 'a@b.c', phone: '4325550199', trades: ['painting'], county: 'Midland', createdAt: new Date().toISOString() }];
