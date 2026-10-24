@@ -10,7 +10,7 @@ interface State {
  * a blank screen with nothing to tap. This catches it, says what broke, and
  * offers to try the tab again or reload the page.
  */
-export class OpsErrorBoundary extends Component<{ children: ReactNode }, State> {
+export class OpsErrorBoundary extends Component<{ children: ReactNode; onHome?: () => void }, State> {
   state: State = { error: null };
 
   static getDerivedStateFromError(error: Error): State {
@@ -31,6 +31,18 @@ export class OpsErrorBoundary extends Component<{ children: ReactNode }, State> 
           <button type="button" className={secondary} onClick={() => this.setState({ error: null })}>
             Try again
           </button>
+          {this.props.onHome && (
+            <button
+              type="button"
+              className={secondary}
+              onClick={() => {
+                this.setState({ error: null });
+                this.props.onHome?.();
+              }}
+            >
+              Go to Intake
+            </button>
+          )}
           <button type="button" className={secondary} onClick={() => window.location.reload()}>
             Reload the page
           </button>

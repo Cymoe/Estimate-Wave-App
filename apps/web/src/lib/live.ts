@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useConvex, type ConvexReactClient } from 'convex/react';
 import { getFunctionName, makeFunctionReference, type FunctionReference } from 'convex/server';
 import { withId } from './withId';
@@ -13,6 +13,30 @@ import { withId } from './withId';
  * navigation) they stay at `undefined` instead of throwing.
  */
 type Args = Record<string, unknown> | 'skip';
+
+// The last error each live query hit, by function name, so a screen can say
+// "Couldn't load …" instead of waiting on "Loading…" forever.
+let liveErrors: Record<string, string> = {};
+const listeners = new Set<() => void>();
+function setLiveError(name: string, message: string | null) {
+  if ((liveErrors[name] ?? null) === message) return;
+  const next = { ...liveErrors };
+  if (message === null) delete next[name];
+  else next[name] = message;
+  liveErrors = next;
+  listeners.forEach((l) => l());
+}
+/** Live queries that are failing right now, as { "intake:queue": "message" }. */
+export function useLiveErrors(): Record<string, string> {
+  return useSyncExternalStore(
+    (onChange) => {
+      listeners.add(onChange);
+      return () => listeners.delete(onChange);
+    },
+    () => liveErrors,
+    () => liveErrors,
+  );
+}
 
 function useLive<T>(ref: FunctionReference<'query'>, args: Args): T | undefined {
   const client = useConvex() as ConvexReactClient | undefined;
@@ -29,8 +53,11 @@ function useLive<T>(ref: FunctionReference<'query'>, args: Args): T | undefined 
       try {
         const next = watch.localQueryResult();
         setValue(next === undefined ? undefined : withId(next as T));
-      } catch {
-        // The query threw (signed out, no access): keep what we had.
+        if (next !== undefined) setLiveError(name, null);
+      } catch (err) {
+        // The query threw (signed out, no access): keep what we had, and say what broke.
+        const raw = err instanceof Error ? err.message : String(err);
+        setLiveError(name, raw.replace(/^\[CONVEX[^\]]*\]\s*(\[Request ID:[^\]]*\]\s*)?/, '').replace(/^(Server Error\s*)?(Uncaught (Convex)?Error:\s*)?/, '').split('\n')[0] || 'server error');
       }
     };
     read();

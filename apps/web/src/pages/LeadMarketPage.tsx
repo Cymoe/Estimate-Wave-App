@@ -9,7 +9,8 @@ import { Dialog, ErrorLine, Field, ago, describeError, input, primary, secondary
 import { IntakeQueue } from '../components/ops/IntakeQueue';
 import { Delivered, type DeliveredRow } from '../components/ops/Delivered';
 import { DemandBoard, type DemandBoardData } from '../components/ops/DemandBoard';
-import { useApplications, useCompanies, useCompanyLeads, useDelivered, useDemandBoard, useInbox, useIntakeQueue, usePaymentsMode, usePendingCredits, useWallet } from '../lib/live';
+import { useApplications, useCompanies, useCompanyLeads, useDelivered, useDemandBoard, useInbox, useIntakeQueue, useLiveErrors, usePaymentsMode, usePendingCredits, useWallet } from '../lib/live';
+import { OpsErrorBoundary } from '../components/ops/OpsErrorBoundary';
 import { isStaff, isSuperAdmin } from '../lib/roles';
 import { TeamCard } from '../components/ops/TeamCard';
 import { useConfirm } from '../components/common/ConfirmDialog';
@@ -120,6 +121,23 @@ const TABS: Tab[] = ['demand', 'intake', 'forsale', 'sold', 'companies', 'prices
 /** Old names in links that were already sent (emails, bookmarks) still open the right tab. */
 const OLD_TAB_NAMES: Record<string, Tab> = { delivered: 'sold', inbox: 'forsale', listed: 'forsale' };
 const isTab = (value: string | null): value is Tab => TABS.includes(value as Tab);
+
+/** What each live query on the Ops page is, for "Couldn't load …". */
+const LIVE_LABELS: Record<string, string> = {
+  'demand:board': 'the demand board',
+  'demand:slot': 'this county and trade',
+  'intake:queue': 'the intake queue',
+  'intake:recentLog': 'the webhook log',
+  'marketplace:listInbox': 'the leads for sale',
+  'delivery:recent': 'the sold leads',
+  'marketplace:companiesOverview': 'the companies',
+  'marketplace:pendingCredits': 'the credit requests',
+  'applications:list': 'the applications',
+  'funding:mode': 'the payments setting',
+  'intake:destination': 'the lead webhook address',
+  'marketplace:wallet': "a company's balance",
+  'leads:list': "a company's leads",
+};
 
 const TAB_TITLES: Record<Tab, string> = {
   demand: 'Demand',
@@ -1076,6 +1094,7 @@ const LeadMarketPage: React.FC = () => {
   const tab: Tab =
     isTab(tabParam) && (tabParam !== 'prices' || owner) ? tabParam : creating === 'company' ? 'companies' : 'intake';
   const openCompanyId = searchParams.get('company');
+  const liveProblems = Object.entries(useLiveErrors());
   const go = (changes: { tab?: Tab; company?: string | null }, { replace = false } = {}) => {
     const next = new URLSearchParams(searchParams);
     if (changes.tab) next.set('tab', changes.tab);
@@ -1277,6 +1296,11 @@ const LeadMarketPage: React.FC = () => {
       </div>
 
       <ErrorLine error={error} onDismiss={() => setError(null)} className="mb-4" />
+      {liveProblems.map(([name, message]) => (
+        <p key={name} role="alert" className="mb-2 px-3 py-2 rounded border border-red-500/40 bg-red-500/10 text-sm text-red-200 break-words">
+          Couldn't load {LIVE_LABELS[name] ?? name}: {message}
+        </p>
+      ))}
 
       {owner && credits.length > 0 && tab !== 'prices' && (
         <button
@@ -1288,6 +1312,8 @@ const LeadMarketPage: React.FC = () => {
         </button>
       )}
 
+      {/* A tab that crashes stays inside this box: the tabs above keep working. */}
+      <OpsErrorBoundary key={tab} onHome={() => go({ tab: 'intake' })}>
       {loading ? (
         <p className="text-sm text-gray-500">Loading…</p>
       ) : tab === 'intake' ? (
@@ -1527,6 +1553,7 @@ const LeadMarketPage: React.FC = () => {
       ) : owner ? (
         <PricesTab trades={trades} />
       ) : null}
+      </OpsErrorBoundary>
 
       {owner && creating === 'company' && <NewCompanyDialog trades={trades} onClose={closeCreate} onSaved={() => setNotice('Company added.')} />}
       {verifying && <VerifyDialog lead={verifying} onClose={() => setVerifying(null)} onSaved={() => setNotice(`${verifying.name} confirmed.`)} />}

@@ -7,6 +7,7 @@ import { MemoryRouter, useLocation } from 'react-router-dom';
 const assign = jest.fn(async () => ({ orgLeadId: 'ol1', priceCents: 8500 }));
 const requestCredit = jest.fn(async () => undefined);
 let wallet: Record<string, unknown> | null = null;
+let liveErrors: Record<string, string> = {};
 let role = 'super_admin';
 let emptyMarket = false;
 let feedLeads: unknown[] = [];
@@ -38,6 +39,7 @@ const destination: unknown = { kind: 'sold', companyName: 'Peak Roofing', priceC
 // The live subscriptions see the same fixtures the one-shot calls used to return.
 jest.mock('../../../lib/live', () => ({
   useWallet: () => wallet,
+  useLiveErrors: () => liveErrors,
   // The company panel's leads come from the one-shot read in these tests.
   useCompanyLeads: () => undefined,
   useDemandBoard: () => demand,
@@ -157,6 +159,7 @@ afterEach(() => {
   jest.clearAllMocks();
   role = 'super_admin';
   wallet = null;
+  liveErrors = {};
   emptyMarket = false;
   demoCompanies = false;
   noCompanies = false;
@@ -706,6 +709,32 @@ describe('standing bids in Admin', () => {
     document.body.innerHTML = '';
     await render(<MemoryRouter initialEntries={['/ops?tab=delivered']}><LeadMarketPage /></MemoryRouter>, false);
     expect(document.body.querySelector('h1')!.textContent).toBe('Sold');
+  });
+
+  it("says which part of Ops couldn't load instead of loading forever", async () => {
+    liveErrors = { 'intake:queue': 'Only FieldQuote staff can do this' };
+    await render(<MemoryRouter initialEntries={['/ops']}><LeadMarketPage /></MemoryRouter>, false);
+    const alerts = Array.from(document.body.querySelectorAll('[role="alert"]')).map((a) => a.textContent);
+    expect(alerts).toContain("Couldn't load the intake queue: Only FieldQuote staff can do this");
+  });
+
+  it('opens a lead whose details fail to load with the reason and a Close button', async () => {
+    const { intakeAPI } = jest.requireMock('../../../lib/api') as { intakeAPI: { get: (id: string) => Promise<unknown> } };
+    const get = intakeAPI.get;
+    intakeAPI.get = async () => {
+      throw new Error('Lead not found');
+    };
+    try {
+      const { IntakePanel } = await import('../../ops/IntakePanel');
+      const onClose = jest.fn();
+      await render(<IntakePanel id="i9" trades={[]} onClose={onClose} onChanged={() => {}} onListed={() => {}} />);
+      const dialog = document.body.querySelector('[role="dialog"]')!;
+      expect(dialog.querySelector('[role="alert"]')?.textContent).toContain("The lead couldn't be loaded: Lead not found");
+      await act(async () => (Array.from(dialog.querySelectorAll('button')).find((b) => b.textContent === 'Close') as HTMLButtonElement).click());
+      expect(onClose).toHaveBeenCalled();
+    } finally {
+      intakeAPI.get = get;
+    }
   });
 
   it('opens on Intake; a new lead goes into the queue, with the county filled in from a town we know', async () => {

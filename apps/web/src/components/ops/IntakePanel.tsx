@@ -138,7 +138,22 @@ export const IntakePanel: React.FC<{
       { keepDraft: true },
     );
 
-  if (!row || !draft) return null;
+  if (!row || !draft) {
+    // Still loading: nothing yet. Failed: the panel opens anyway, says why, and closes.
+    if (!error) return null;
+    return createPortal(
+      <>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[10000]" onClick={onClose} />
+        <aside role="dialog" aria-modal="true" aria-label="Intake lead" className="fixed right-0 top-0 h-[100dvh] w-full md:w-[520px] bg-[#121212] border-l border-[#2A2A2A] z-[10001] flex flex-col p-6 gap-4">
+          <p role="alert" className="text-sm text-red-300 break-words">{error}</p>
+          <button type="button" onClick={onClose} className="self-start min-h-[44px] px-4 rounded border border-[#333] text-gray-200 text-sm">
+            Close
+          </button>
+        </aside>
+      </>,
+      document.body,
+    );
+  }
   const set = (key: keyof IntakeFields) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setDraft({ ...draft, [key]: e.target.value });
   const open = row.status === 'new' || row.status === 'working';
