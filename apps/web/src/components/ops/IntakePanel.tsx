@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, MessageSquare, Phone, X } from 'lucide-react';
@@ -6,7 +6,7 @@ import { money } from '../market/wallet';
 import { useConfirm } from '../common/ConfirmDialog';
 import { intakeAPI, type IntakeFields } from '../../lib/api';
 import { COUNTY_CHOICES } from '../../services/counties';
-import { Field, ago, input, primary, secondary } from './ui';
+import { Field, ago, input, primary, secondary, tap, usePanel } from './ui';
 import { ConfirmChecklist, type ConfirmResult } from './ConfirmChecklist';
 
 export interface IntakeRow {
@@ -91,6 +91,9 @@ export const IntakePanel: React.FC<{
   // Which buttons the error belongs to, so it shows next to them.
   const [errorAt, setErrorAt] = useState<'save' | 'calls' | 'close' | null>(null);
   const [confirmLeave, leaveDialog] = useConfirm();
+  // Escape goes through the same check as tapping outside (unsaved edits ask first).
+  const closeRequest = useRef<() => void>(onClose);
+  const panelRef = usePanel<HTMLElement>(() => closeRequest.current());
 
   // Reloads the row; the draft follows only when asked, so logging a call never wipes typed edits.
   const load = useCallback(async (resetDraft = true) => {
@@ -175,6 +178,7 @@ export const IntakePanel: React.FC<{
     }
     onClose();
   };
+  closeRequest.current = closeFromBackdrop;
   const errorLine = (here: 'save' | 'calls' | 'close' | null) =>
     error && errorAt === here ? (
       <p role="alert" className="text-sm text-red-400 mt-2">
@@ -190,7 +194,7 @@ export const IntakePanel: React.FC<{
     <>
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[10000]" onClick={closeFromBackdrop} />
       {leaveDialog}
-      <aside role="dialog" aria-modal="true" aria-label={row.label} className="fixed right-0 top-0 h-[100dvh] w-full md:w-[520px] bg-[#121212] border-l border-[#2A2A2A] z-[10001] flex flex-col">
+      <aside ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={row.label} className="fixed right-0 top-0 h-[100dvh] w-full md:w-[520px] bg-[#121212] border-l border-[#2A2A2A] z-[10001] flex flex-col outline-none">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#2A2A2A]">
           <div className="min-w-0">
             <h2 className="text-lg font-semibold text-white truncate">{row.label}</h2>
@@ -203,15 +207,15 @@ export const IntakePanel: React.FC<{
           <div className="flex items-center gap-1">
             {tel && (
               <>
-                <a href={`tel:${tel}`} aria-label="Call" className="p-2 text-emerald-300 hover:text-white">
+                <a href={`tel:${tel}`} aria-label="Call" className={`${tap} text-emerald-300 hover:text-white`}>
                   <Phone className="w-5 h-5" />
                 </a>
-                <a href={`sms:${tel}`} aria-label="Text" className="p-2 text-emerald-300 hover:text-white">
+                <a href={`sms:${tel}`} aria-label="Text" className={`${tap} text-emerald-300 hover:text-white`}>
                   <MessageSquare className="w-5 h-5" />
                 </a>
               </>
             )}
-            <button type="button" onClick={onClose} aria-label="Close" className="p-1 text-gray-400 hover:text-white">
+            <button type="button" onClick={onClose} aria-label="Close" className={`${tap} -m-3 text-gray-400 hover:text-white`}>
               <X className="w-5 h-5" />
             </button>
           </div>

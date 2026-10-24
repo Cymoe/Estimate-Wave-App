@@ -44,8 +44,10 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
         <div className="flex items-center justify-between p-4 border-b border-[#333333]">
           <h2 className="text-white font-medium text-lg">Menu</h2>
           <button
+            type="button"
             onClick={onClose}
-            className="p-2 hover:bg-[#333333] rounded-[4px] transition-colors"
+            aria-label="Close menu"
+            className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] -mr-2 hover:bg-[#333333] rounded-[4px] transition-colors"
           >
             <X className="h-5 w-5 text-white" />
           </button>

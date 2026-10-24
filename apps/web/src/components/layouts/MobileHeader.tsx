@@ -31,8 +31,10 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
       <div className="flex items-center justify-between px-4 py-3">
         {/* Menu Button */}
         <button
+          type="button"
           onClick={onMenuClick}
-          className="p-2 hover:bg-[#1E1E1E] rounded-[4px] transition-colors"
+          aria-label="Open menu"
+          className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] -ml-2 hover:bg-[#1E1E1E] rounded-[4px] transition-colors"
         >
           <Menu className="h-5 w-5 text-white" />
         </button>
@@ -45,8 +47,10 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
           {/* Create Button - Hide when EstimateCart is open */}
           {!isEstimateCartOpen && (
             <button
+              type="button"
               onClick={onCreateClick}
-              className="p-2 bg-[#F9D71C] hover:bg-[#e9c91c] rounded-[4px] transition-colors"
+              aria-label="Create"
+              className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] bg-[#F9D71C] hover:bg-[#e9c91c] rounded-[4px] transition-colors"
             >
               <Plus className="h-4 w-4 text-[#121212]" />
             </button>

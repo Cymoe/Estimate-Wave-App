@@ -5,7 +5,7 @@ import { Building2, Check, Inbox, Link2, MapPin, Phone, Plus, Send, Tag, Trash2,
 import { applicationsAPI, fundingAPI, industriesAPI, leadsAPI, marketplaceAPI, permitsAPI, walletAPI } from '../lib/api';
 import { copyText } from '../components/estimates/estimateActions';
 import { useAuth } from '../contexts/AuthContext';
-import { Dialog, ErrorLine, Field, ago, describeError, input, primary, secondary } from '../components/ops/ui';
+import { Dialog, ErrorLine, Field, ago, describeError, input, primary, secondary, tap, usePanel } from '../components/ops/ui';
 import { IntakeQueue } from '../components/ops/IntakeQueue';
 import { Delivered, type DeliveredRow } from '../components/ops/Delivered';
 import { DemandBoard, type DemandBoardData } from '../components/ops/DemandBoard';
@@ -524,6 +524,7 @@ function CompanyPanel({
   // fills in until the live answer arrives (and is what tests without a backend see).
   const walletLive = useWallet<CompanyWallet>(company.id);
   const leadsLive = useCompanyLeads<CompanyLead[]>(company.id);
+  const panelRef = usePanel<HTMLElement>(onClose);
   const [walletOnce, setWallet] = useState<CompanyWallet | null>(null);
   const [leadsOnce, setLeads] = useState<CompanyLead[]>([]);
   const wallet = walletLive ?? walletOnce;
@@ -719,9 +720,12 @@ function CompanyPanel({
     <>
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[10000]" onClick={onClose} />
       <aside
+        ref={panelRef}
+        tabIndex={-1}
         role="dialog"
+        aria-modal="true"
         aria-label={company.name}
-        className="fixed right-0 top-0 h-[100dvh] w-full md:w-[480px] bg-[#121212] border-l border-[#2A2A2A] z-[10001] flex flex-col"
+        className="fixed right-0 top-0 h-[100dvh] w-full md:w-[480px] bg-[#121212] border-l border-[#2A2A2A] z-[10001] flex flex-col outline-none"
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#2A2A2A]">
           <div className="min-w-0">
@@ -731,7 +735,7 @@ function CompanyPanel({
               {company.invitePending ? ` · invite waiting for ${company.invitePending}` : ''}
             </p>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" className="p-1 text-gray-400 hover:text-white">
+          <button type="button" onClick={onClose} aria-label="Close" className={`${tap} -m-3 text-gray-400 hover:text-white`}>
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -908,7 +912,7 @@ function CompanyPanel({
                             <button
                               type="button"
                               onClick={() => setCrediting(crediting === lead.id ? null : lead.id)}
-                              className="text-xs text-[#cfe2f5] underline underline-offset-2 whitespace-nowrap"
+                              className="min-h-[44px] px-2 -mx-2 text-xs text-[#cfe2f5] underline underline-offset-2 whitespace-nowrap"
                             >
                               {crediting === lead.id ? 'Cancel' : 'Credit it back'}
                             </button>
@@ -1451,7 +1455,7 @@ const LeadMarketPage: React.FC = () => {
                     onClick={() => setSending(lead)}
                     title="Send to a company by hand (the exception: the Marketplace sells leads on its own)"
                     aria-label={`Send ${lead.name} to a company`}
-                    className="p-2 text-gray-400 hover:text-white"
+                    className={`${tap} text-gray-400 hover:text-white`}
                   >
                     <Send className="w-4 h-4" />
                   </button>
@@ -1470,7 +1474,7 @@ const LeadMarketPage: React.FC = () => {
                         setNotice(`${lead.name} deleted.`);
                       });
                     }}
-                    className="p-2 text-gray-500 hover:text-red-400"
+                    className={`${tap} text-gray-500 hover:text-red-400`}
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -1601,7 +1605,17 @@ const LeadMarketPage: React.FC = () => {
                     className="cursor-pointer [@media(hover:hover)]:hover:bg-[#1A1A1A] active:bg-[#1A1A1A]"
                   >
                     <td className="px-4 py-3">
-                      <span className="block text-white">{company.name}</span>
+                      {/* A real button, so the row opens from the keyboard too. */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenCompanyId(company.id);
+                        }}
+                        className="block text-left text-white [@media(hover:hover)]:hover:underline underline-offset-2"
+                      >
+                        {company.name}
+                      </button>
                       <span className="block text-xs text-gray-500 truncate max-w-[16rem]">
                         {company.leadTrades.length ? company.leadTrades.map(tradeName).join(', ') : 'No trades set'}
                         {company.pendingCredits > 0 ? ` · ${company.pendingCredits} credit request` : ''}

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
@@ -11,24 +11,47 @@ export const primary =
 export const secondary =
   'inline-flex items-center justify-center gap-2 px-3 py-2 rounded border border-[#333] text-gray-200 text-sm [@media(hover:hover)]:hover:bg-[#222] active:bg-[#222] disabled:opacity-50';
 
+/** A tap target at least 44px square, for icon buttons. */
+export const tap = 'inline-flex items-center justify-center min-w-[44px] min-h-[44px]';
+
+/**
+ * For a panel or dialog: Escape closes it, focus moves into it when it
+ * opens and back to what was focused before when it closes.
+ */
+export function usePanel<T extends HTMLElement>(onClose: () => void) {
+  const ref = useRef<T>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const before = document.activeElement as HTMLElement | null;
+    ref.current?.focus();
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close.current();
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      before?.focus?.();
+    };
+  }, []);
+  return ref;
+}
+
 /** A centred dialog over a dimmed page. */
 export function Dialog({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  const panel = usePanel<HTMLDivElement>(onClose);
   return createPortal(
     <div className="fixed inset-0 z-[10050] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
+        ref={panel}
+        tabIndex={-1}
         role="dialog"
+        aria-modal="true"
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
-        className={`w-full ${wide ? 'sm:max-w-2xl' : 'sm:max-w-md'} max-h-[90dvh] overflow-y-auto bg-[#121212] border border-[#2A2A2A] rounded-t-lg sm:rounded-lg shadow-2xl`}
+        className={`w-full ${wide ? 'sm:max-w-2xl' : 'sm:max-w-md'} max-h-[90dvh] overflow-y-auto outline-none bg-[#121212] border border-[#2A2A2A] rounded-t-lg sm:rounded-lg shadow-2xl`}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-[#2A2A2A]">
           <h2 className="text-base font-semibold text-white">{title}</h2>
-          <button type="button" onClick={onClose} aria-label="Close" className="p-1 -mr-1 text-gray-400 hover:text-white">
+          <button type="button" onClick={onClose} aria-label="Close" className={`${tap} -m-3 text-gray-400 hover:text-white`}>
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -68,7 +91,7 @@ export function ErrorLine({ error, onDismiss, className = '' }: { error: string 
   return (
     <p role="alert" className={`flex items-start justify-between gap-3 px-3 py-2 rounded border border-red-500/40 bg-red-500/10 text-sm text-red-200 ${className}`}>
       <span className="break-words">{error}</span>
-      <button type="button" onClick={onDismiss} aria-label="Dismiss" className="p-0.5 -mr-1 text-red-200/70 hover:text-white">
+      <button type="button" onClick={onDismiss} aria-label="Dismiss" className={`${tap} -my-3 -mr-3 text-red-200/70 hover:text-white`}>
         <X className="w-4 h-4" />
       </button>
     </p>

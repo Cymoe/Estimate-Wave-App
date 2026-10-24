@@ -4,7 +4,7 @@ import { X } from 'lucide-react';
 import { demandAPI } from '../../lib/api';
 import { useDemandBoard, useDemandSlot } from '../../lib/live';
 import { money } from '../market/wallet';
-import { ago, input } from './ui';
+import { ago, input, tap, usePanel } from './ui';
 
 export interface DemandSlot {
   county: string;
@@ -267,6 +267,7 @@ function worthIt(slot: DemandSlot, vaCostCents: number): string {
 }
 
 function SlotPanel({ slot, vaCostCents, demo, onClose }: { slot: DemandSlot; vaCostCents: number; demo: boolean; onClose: () => void }) {
+  const panelRef = usePanel<HTMLElement>(onClose);
   const detail =
     useDemandSlot<{
       bidders: Array<{ companyName: string; amountCents: number; balanceCents: number; funded: boolean }>;
@@ -276,7 +277,7 @@ function SlotPanel({ slot, vaCostCents, demo, onClose }: { slot: DemandSlot; vaC
   return createPortal(
     <>
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[10000]" onClick={onClose} />
-      <aside role="dialog" aria-label={`${slot.tradeName} in ${slot.county} County`} className="fixed right-0 top-0 h-[100dvh] w-full md:w-[440px] bg-[#121212] border-l border-[#2A2A2A] z-[10001] flex flex-col">
+      <aside ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={`${slot.tradeName} in ${slot.county} County`} className="fixed right-0 top-0 h-[100dvh] w-full md:w-[440px] bg-[#121212] border-l border-[#2A2A2A] z-[10001] flex flex-col outline-none">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#2A2A2A]">
           <div>
             <h2 className="text-lg font-semibold text-white">
@@ -284,7 +285,7 @@ function SlotPanel({ slot, vaCostCents, demo, onClose }: { slot: DemandSlot; vaC
             </h2>
             <p className="text-xs text-gray-500">{STATE[slot.state].label}</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" className="p-1 text-gray-400 hover:text-white">
+          <button type="button" onClick={onClose} aria-label="Close" className={`${tap} -m-3 text-gray-400 hover:text-white`}>
             <X className="w-5 h-5" />
           </button>
         </div>
