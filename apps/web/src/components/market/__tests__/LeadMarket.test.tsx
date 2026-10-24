@@ -549,15 +549,19 @@ describe('standing bids in Admin', () => {
     expect(document.body.querySelector('[role="dialog"]')!.textContent).toContain('No company lists Flooring as a trade it buys');
     await act(async () => (document.body.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click());
     const midland = cells.find((c) => c.getAttribute('data-state') === 'open')!;
-    expect(midland.textContent).toContain('$300.00 · 2 leads');
-    expect(midland.textContent).toContain('+$235.00 margin');
-    expect(midland.textContent).toContain('2 listed · 2 sold · avg $300.00');
-    expect(midland.getAttribute('title')).toBe('Run ads here · margin on the top bid');
-    // Ector has sold enough that its margin is on what leads fetched, not the bid.
-    expect(cells[0].textContent).toContain('4 listed · 3 sold · avg $140.00 · 1 unsold');
-    expect(cells[0].getAttribute('title')).toBe('Leads sitting unsold: pause · margin on what leads sold for');
+    // Every square reads as a sentence: no key needed.
+    expect(midland.textContent).toContain('Biggest cash bid $300.00 · covers 2 more');
+    expect(midland.textContent).toContain('Last month: 2 brought, 2 sold, about $300.00 each');
+    expect(midland.textContent).toContain('About +$235.00 profit a lead');
+    expect(midland.getAttribute('title')).toBe('Run ads here · Profit is figured on the biggest bid; switches to real sales after 3');
+    // Ector has sold enough that its profit is on what leads really went for, not the bid.
+    expect(cells[0].textContent).toContain('Last month: 4 brought, 3 sold, about $140.00 each · 1 still unsold');
+    expect(cells[0].textContent).toContain('About +$85.00 profit a lead (on real sales)');
+    expect(cells[0].getAttribute('title')).toBe('Leads sitting unsold: pause · Profit is figured on real sales');
+    expect(nobody.textContent).toContain('No bids yet');
+    expect(nobody.textContent).toContain('Last month: 1 brought, none sold · 1 still unsold');
     await act(async () => (cells[0] as HTMLButtonElement).click());
-    expect(document.body.querySelector('[data-testid="slot-sales"]')!.textContent).toBe('Last 30 days: 4 listed · 3 sold (75%) · sold for $90.00–$200.00, avg $140.00 · last $90.00 · 1 to standing bids');
+    expect(document.body.querySelector('[data-testid="slot-sales"]')!.textContent).toBe('Last 30 days: brought 4, sold 3 (75%). They went for $90.00 to $200.00, about $140.00 each, the latest for $90.00. 1 went straight to a standing bid.');
     await act(async () => (document.body.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click());
     // The owner sets the planned cost per lead in the column header.
     const cpl = grid.querySelector('input[aria-label="Planned cost per roofing lead"]') as HTMLInputElement;
