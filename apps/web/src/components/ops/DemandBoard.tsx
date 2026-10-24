@@ -109,7 +109,8 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
     ]
       .filter(Boolean)
       .join('\n');
-  const CARD = 'h-[4.75rem] w-full text-left rounded border px-2 py-1.5 text-xs overflow-hidden';
+  // Narrow enough to fit six or seven trades across an iPad; each line may wrap to two.
+  const CARD = 'h-[6.75rem] w-full text-left rounded border px-2 py-1.5 text-[11px] leading-snug overflow-hidden';
 
   return (
     <div className="space-y-4" data-testid="demand-board">
@@ -142,7 +143,7 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
                 <tr>
                   <th className="text-left px-3 py-2">County</th>
                   {trades.map(([slug, name]) => (
-                    <th key={slug} className="text-left px-3 py-2">
+                    <th key={slug} className="text-left px-1.5 py-2">
                       {name}
                       {owner ? (
                         <PlanCpl jobType={slug} cents={data.planCpl[slug]} />
@@ -160,15 +161,15 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
                     {trades.map(([slug]) => {
                       const s = at(county, slug);
                       return (
-                        <td key={slug} className="px-2 py-1.5 w-64 min-w-[16rem]">
+                        <td key={slug} className="px-1.5 py-1.5 w-44 min-w-[11rem] align-top">
                           {s ? (
                             <button type="button" onClick={() => setOpen(s)} title={tip(s)} data-state={s.state} className={`${CARD} ${STATE[s.state].cell}`}>
-                              <span className="block truncate">{cell(s)}</span>
-                              <span className="block truncate opacity-75">{sales(s)}</span>
+                              <span className="block line-clamp-2">{cell(s)}</span>
+                              <span className="block line-clamp-2 opacity-75">{sales(s)}</span>
                               <span className="block truncate font-medium">{margin(s) ?? '\u00a0'}</span>
                             </button>
                           ) : (
-                            <span className="flex h-[4.75rem] items-center justify-center text-gray-700">·</span>
+                            <span className="flex h-[6.75rem] items-center justify-center text-gray-700">·</span>
                           )}
                         </td>
                       );
