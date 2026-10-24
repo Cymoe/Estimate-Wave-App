@@ -690,7 +690,7 @@ function CompanyPanel({
             <h3 className="text-sm font-medium text-white mb-3">Record a payment</h3>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Amount received ($)">
-                <input inputMode="decimal" value={amount} onChange={(e) => changeAmount(e.target.value)} className={input} placeholder="500" />
+                <input inputMode="decimal" value={amount} onChange={(e) => changeAmount(e.target.value)} className={input} placeholder="5000" />
               </Field>
               <Field label="Bonus ($)">
                 <input inputMode="decimal" value={bonus} onChange={(e) => setBonus(e.target.value)} className={input} placeholder="0" />

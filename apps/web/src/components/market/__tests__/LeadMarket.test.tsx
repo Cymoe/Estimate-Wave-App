@@ -509,8 +509,8 @@ describe('Lead Market', () => {
     expect(document.body.textContent).toContain('Sold to Peak Roofing by hand · $70.00 charged');
   });
 
-  it('suggests a bonus for bigger payments', () => {
-    expect([suggestedBonus(250), suggestedBonus(500), suggestedBonus(1000)]).toEqual([0, 25, 100]);
+  it('suggests the same bonus the payment page gives: nothing under $7,500, 5% from there, 10% from $10,000', () => {
+    expect([suggestedBonus(500), suggestedBonus(5000), suggestedBonus(7500), suggestedBonus(10000), suggestedBonus(12000)]).toEqual([0, 0, 375, 1000, 1200]);
   });
 });
 

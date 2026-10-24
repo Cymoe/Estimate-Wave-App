@@ -13,6 +13,16 @@ type TransactionType = Doc<"walletTransactions">["type"];
 
 export const DEFAULT_LEAD_PRICE_CENTS = 20000;
 
+/**
+ * What a typical lead costs a company, for "about N leads": halfway between
+ * start and floor, averaged over its trades. The wallet and the payment page
+ * both use this, so they agree.
+ */
+export function typicalLeadCents(pricings: Array<{ startCents: number; floorCents: number }>): number {
+  if (pricings.length === 0) return DEFAULT_LEAD_PRICE_CENTS;
+  return Math.round(pricings.reduce((sum, p) => sum + (p.startCents + p.floorCents) / 2, 0) / pricings.length);
+}
+
 /** "$5,000.00": the same shape the screens use, so a server message reads like the page. */
 export const dollars = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 

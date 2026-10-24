@@ -26,6 +26,7 @@ import {
   pricingFor,
   postTransaction,
   dollars,
+  typicalLeadCents,
 } from "./lib/wallet";
 import {
   MIN_START_CENTS,
@@ -1245,14 +1246,8 @@ export const wallet = query({
     return {
       balanceCents: organization.walletBalanceCents ?? 0,
       leadTrades: trades,
-      // What a typical lead costs this company, for "about N leads":
-      // halfway between start and floor across its trades.
-      typicalLeadCents: Math.round(
-        pricings.reduce(
-          (sum, p) => sum + (p.startCents + p.floorCents) / 2,
-          0,
-        ) / pricings.length,
-      ),
+      // What a typical lead costs this company, for "about N leads".
+      typicalLeadCents: typicalLeadCents(pricings),
       openBids,
       standingBids: standingBids.length,
       // Bids another company took the lead from since this one last looked.

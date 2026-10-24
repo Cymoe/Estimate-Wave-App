@@ -13,7 +13,7 @@ import { fail, logActivity, nowIso, requireMember, requireStaff } from "./lib/ac
 import { siteUrl } from "./delivery";
 import { FUNDING_TIERS, MIN_FUNDING_CENTS, bonusFor } from "./lib/funding";
 import { createCheckoutSession } from "./lib/stripe";
-import { dollars, pricingFor, postTransaction } from "./lib/wallet";
+import { dollars, pricingFor, postTransaction, typicalLeadCents } from "./lib/wallet";
 
 // Funding links: the page a company pays through to load its lead balance.
 // The page picks an amount and hands the payer to Stripe Checkout; when
@@ -91,7 +91,10 @@ export const get = query({
         ...tier,
         bonusCents: bonusFor(tier.amountCents),
       })),
-      typicalLeadCents: (await pricingFor(ctx, undefined)).startCents,
+      // The same "about N leads" the wallet shows: midpoint of start and floor over the company's trades.
+      typicalLeadCents: typicalLeadCents(
+        await Promise.all((organization?.leadTrades?.length ? organization.leadTrades : [undefined]).map((t) => pricingFor(ctx, t))),
+      ),
       paid: request.status === "confirmed",
       playMoney: playMoney(),
     };

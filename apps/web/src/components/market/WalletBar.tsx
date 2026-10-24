@@ -5,6 +5,10 @@ import { Gavel, X } from 'lucide-react';
 import { fundingAPI } from '../../lib/api';
 import { useWallet } from '../../lib/live';
 import { WalletHistory, money, planLabel, type PlanSummary } from './wallet';
+import { FUNDING_TIERS, MIN_FUNDING_CENTS } from '../../../convex/lib/funding';
+
+/** "$5,000": whole dollars, for the offer line. */
+const whole = (cents: number) => `$${(cents / 100).toLocaleString('en-US')}`;
 
 export interface WalletSummary {
   balanceCents: number;
@@ -269,7 +273,13 @@ export function WalletDrawer({ wallet, onClose: closeNow, onAddFunds }: { wallet
               {wallet.playMoney ? 'Add play money' : 'Add funds'}
             </button>
             {wallet.playMoney && <p className="mb-2 text-xs text-amber-300">Test mode: no card is charged and no real money moves.</p>}
-            <p>Load from $5,000 by card or Apple Pay. Larger loads get a bonus: +5% at $7,500, +10% at $10,000.</p>
+            <p>
+              Load from {whole(MIN_FUNDING_CENTS)} by card or Apple Pay. Larger loads get a bonus:{' '}
+              {FUNDING_TIERS.filter((t) => t.bonusPercent > 0)
+                .map((t) => `+${t.bonusPercent}% at ${whole(t.amountCents)}`)
+                .join(', ')}
+              .
+            </p>
             <p className="mt-2 text-gray-400">A bad lead? Tell us within 3 days and we credit it back to your balance.</p>
           </section>
           <section>

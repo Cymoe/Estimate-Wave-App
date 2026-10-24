@@ -1,4 +1,5 @@
 import { formatCurrency } from '../../utils/format';
+import { bonusFor } from '../../../convex/lib/funding';
 
 // Shared by the Lead Market (admins) and a company's wallet.
 
@@ -16,11 +17,13 @@ export const CREDIT_REASON_LABELS: Record<string, string> = {
   other: 'Other',
 };
 
-/** Suggested bonus for a payment: +5% from $500, +10% from $1,000. */
+/**
+ * Suggested bonus for a payment recorded by hand, in dollars: the same offer
+ * the payment page makes (+5% from $7,500, +10% from $10,000), so a Zelle
+ * payment earns what a card payment would.
+ */
 export function suggestedBonus(amount: number): number {
-  if (amount >= 1000) return Math.round(amount * 0.1);
-  if (amount >= 500) return Math.round(amount * 0.05);
-  return 0;
+  return Math.round(bonusFor(Math.round(amount * 100)) / 100);
 }
 
 const TRANSACTION_LABELS: Record<string, string> = {
