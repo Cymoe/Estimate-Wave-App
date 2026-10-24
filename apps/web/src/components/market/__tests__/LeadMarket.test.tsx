@@ -515,10 +515,13 @@ describe('Lead Market', () => {
 });
 
 describe("a company's lead balance", () => {
-  it('stays hidden for companies that don’t buy leads', async () => {
-    wallet = { balanceCents: 0, typicalLeadCents: 4500, spentCents: 0, leadsBought: 0, wonCents: 0, wonCount: 0, transactions: [] };
+  it('tells a brand-new company its first two steps before it has bought anything', async () => {
+    wallet = { balanceCents: 0, typicalLeadCents: 4500, spentCents: 0, leadsBought: 0, wonCents: 0, wonCount: 0, transactions: [], leadTrades: ['roofing'] };
     const container = await render(<WalletBar organizationId="o1" />);
-    expect(container.textContent).toBe('');
+    const alert = container.querySelector('[role="alert"]')!;
+    expect(alert.textContent).toContain('Two steps to start winning leads: add funds, then set your bids.');
+    expect(Array.from(alert.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Add funds']);
+    expect(alert.querySelector('a[href="/bids"]')?.textContent).toBe('Set bids');
   });
 
   it('warns when the balance is low and never shows a won-from-leads figure; the navigation tile shows the balance and opens the panel', async () => {
@@ -645,6 +648,13 @@ describe('the bid status line', () => {
       label: 'See bids',
     });
     expect(line({ balanceCents: 100000, standingBids: 3, pausedBids: 0, outbidBids: 2 })?.text).toContain('outbid on 2 bids');
+    // All set but nobody has a mobile: the last step is a phone for the alert texts.
+    expect(line({ balanceCents: 100000, standingBids: 2, pausedBids: 0, hasMobile: false })).toEqual({
+      tone: 'warn',
+      text: 'Your bids are live. Add your mobile so lead alerts reach you by text the moment you win one.',
+      action: 'mobile',
+      label: 'Add your mobile',
+    });
     // Money problems come first: a paused bid says so before any outbid.
     expect(line({ balanceCents: 0, standingBids: 1, pausedBids: 1, outbidBids: 1 })?.text).toContain('paused');
   });

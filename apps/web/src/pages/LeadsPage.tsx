@@ -11,7 +11,8 @@ import { formatCurrency } from '../utils/format';
 import { LeadsCalendar } from '../components/leads/LeadsCalendar';
 import { AppointmentField } from '../components/leads/AppointmentField';
 import { LeadDrawer } from '../components/leads/LeadDrawer';
-import { WalletBar } from '../components/market/WalletBar';
+import { WalletBar, openFundingPage, type WalletSummary } from '../components/market/WalletBar';
+import { useWallet } from '../lib/live';
 import { isWonLead } from '../components/market/wallet';
 import { STATUSES, type Lead, type LeadStatus, type Trade } from '../components/leads/leadTypes';
 import { appointmentDay, formatAppointmentShort, toLocalInput } from '../utils/appointments';
@@ -198,6 +199,9 @@ const LeadsPage: React.FC = () => {
   const { user } = useAuth();
   const { selectedOrg } = useContext(OrganizationContext);
   const organizationId = selectedOrg?.id;
+  // A company in the Lead Market that hasn't set bids yet is told where its leads will come from.
+  const wallet = useWallet<WalletSummary>(organizationId);
+  const buysLeads = (wallet?.leadTrades?.length ?? 0) > 0 && (wallet?.standingBids ?? 0) === 0;
   const [leads, setLeads] = useState<Lead[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
@@ -446,8 +450,26 @@ const LeadsPage: React.FC = () => {
           <div className="flex flex-col items-center justify-center py-24 text-center">
             <UserPlus className="w-12 h-12 mb-4 text-gray-600" />
             <h2 className="text-lg font-semibold mb-2">No leads yet</h2>
+            {buysLeads && (
+              <>
+                <p className="text-sm text-gray-300 max-w-md mb-4">
+                  Leads you buy from FieldQuote land here. Add funds, then set your bids.
+                </p>
+                <div className="flex flex-wrap justify-center gap-2 mb-6">
+                  <button
+                    onClick={() => organizationId && openFundingPage(organizationId).catch((err) => showToast(err instanceof Error ? err.message : 'The payment page could not open'))}
+                    className="px-4 py-2 text-sm bg-[#336699] hover:bg-[#2a5580]"
+                  >
+                    Add funds
+                  </button>
+                  <button onClick={() => navigate('/bids')} className="px-4 py-2 text-sm border border-[#336699] text-[#cfe2f5] hover:bg-[#336699]/10">
+                    Set your bids
+                  </button>
+                </div>
+              </>
+            )}
             <p className="text-sm text-gray-400 max-w-md mb-6">
-              Log every call or message asking for a quote, then turn it into an estimate in one click.
+              {buysLeads ? 'Your own calls go here too: log ' : 'Log '}every call or message asking for a quote, then turn it into an estimate in one click.
             </p>
             <div className="flex flex-wrap justify-center gap-2">
                 <button onClick={() => setEditing('new')} className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-[#336699] hover:bg-[#2a5580]">

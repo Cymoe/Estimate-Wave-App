@@ -548,6 +548,25 @@ describe("delivery", () => {
     expect(email.html).toContain("Got it, calling now");
   });
 
+  test("with no mobile added yet, the text goes to the company's own phone, and the wallet says a mobile is missing", async () => {
+    const t = setup();
+    const co = await signUp(t, "owner@basin.example");
+    await t.run(async (ctx) => {
+      await ctx.db.patch(co.organizationId, { name: "Basin Paint", phone: "(432) 555-0188" });
+    });
+    const orgLeadId = await t.run(async (ctx) => {
+      const now = new Date().toISOString();
+      const marketplaceLeadId = await ctx.db.insert("marketplaceLeads", { name: "Ana", status: "assigned", createdBy: co.userId, createdAt: now, updatedAt: now } as any);
+      return await ctx.db.insert("leads", { name: "Ana", organizationId: co.organizationId, userId: co.userId, marketplaceLeadId, status: "new", createdAt: now, updatedAt: now } as any);
+    });
+    expect((await t.query(internal.delivery.recipients, { orgLeadId }))!.mobiles).toEqual(["+14325550188"]);
+    expect((await co.as.query(api.marketplace.wallet, { organizationId: co.organizationId })).hasMobile).toBe(false);
+    // Once the owner adds a mobile, that is where the text goes.
+    await co.as.mutation(api.users.setMobile, { mobile: "432-555-0177" });
+    expect((await t.query(internal.delivery.recipients, { orgLeadId }))!.mobiles).toEqual(["+14325550177"]);
+    expect((await co.as.query(api.marketplace.wallet, { organizationId: co.organizationId })).hasMobile).toBe(true);
+  });
+
   test("a sale alerts the company: skipped without keys, sent with them, and Got it stamps the lead", async () => {
     const t = setup();
     const va = await signUp(t, "va@fieldquote.example", { role: "staff" });

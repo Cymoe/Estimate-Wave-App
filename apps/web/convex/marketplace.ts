@@ -1276,9 +1276,20 @@ export const wallet = query({
       .collect();
     // The trades the company does, plus any it has a standing bid for.
     const wanted = new Set([...trades, ...standingBids.map((b) => b.jobType)]);
+    // Whether a lead alert can reach someone by text: an owner's or admin's
+    // mobile, else the company's own phone (see delivery.recipients).
+    const alertPeople = (
+      await ctx.db
+        .query("memberships")
+        .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
+        .take(50)
+    ).filter((m) => m.role !== "member");
+    const hasMobile =
+      (await Promise.all(alertPeople.map((m) => ctx.db.get(m.userId)))).some((u) => Boolean(u?.mobile));
     return {
       balanceCents: organization.walletBalanceCents ?? 0,
       leadTrades: trades,
+      hasMobile,
       // What a typical lead costs this company, for "about N leads".
       typicalLeadCents: typicalLeadCents(pricings),
       openBids,

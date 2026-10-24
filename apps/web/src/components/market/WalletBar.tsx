@@ -25,6 +25,8 @@ export interface WalletSummary {
   /** Bids another company took the lead from since the company last looked at its bids. */
   outbidBids?: number;
   leadTrades?: string[];
+  /** Whether an owner or admin has a mobile for lead alerts. */
+  hasMobile?: boolean;
   plan?: PlanSummary | null;
   olderLeads?: number;
   /** No Stripe key on the deployment: Add funds loads play money. */
@@ -66,7 +68,7 @@ export const leadsCovered = (wallet: WalletSummary) =>
 export function bidStatus(wallet: WalletSummary): {
   tone: 'good' | 'warn';
   text: string;
-  action: 'fund' | 'bids' | 'trades';
+  action: 'fund' | 'bids' | 'trades' | 'mobile';
   /** The Bids link's words when it isn't "Set bids". */
   label?: string;
   /** A second, quieter link to the Bids page. */
@@ -115,6 +117,10 @@ export function bidStatus(wallet: WalletSummary): {
     const left = covered >= 1 ? `covers about ${covered} more lead` : `is down to ${money(balance)}`;
     return { tone: 'warn', text: `Your bids are live. Your balance ${left}. Add funds so you don't miss any.`, action: 'fund' };
   }
+  // Bids are live and funded: the last thing is making sure the alert reaches a phone.
+  if (wallet.hasMobile === false) {
+    return { tone: 'warn', text: 'Your bids are live. Add your mobile so lead alerts reach you by text the moment you win one.', action: 'mobile', label: 'Add your mobile' };
+  }
   return null;
 }
 
@@ -122,17 +128,15 @@ export function bidStatus(wallet: WalletSummary): {
  * Lead notices on the Leads page: a link to the Marketplace when leads are
  * waiting, and one line on what the company's bids
  * are doing (see bidStatus). The balance itself lives in the navigation
- * (WalletTile). Hidden for companies that don't buy leads from FieldQuote.
+ * (WalletTile). Shown from a company's first visit, so a new company sees
+ * its next step (pick trades, add funds, set bids) before anything else.
  */
 export const WalletBar: React.FC<{ organizationId?: string }> = ({ organizationId }) => {
   // Live: the line changes as bids win, funds land or a bid gets outbid.
   const wallet = useWallet<WalletSummary>(organizationId) ?? null;
 
   if (!wallet || !organizationId) return null;
-  const inMarket = wallet.transactions.length > 0 || wallet.leadsBought > 0 || (wallet.standingBids ?? 0) > 0;
   const status = bidStatus(wallet);
-  // A company that hasn't picked its trades hears about it even before it buys leads.
-  if (!inMarket && status?.action !== 'trades') return null;
   const addFunds = () => openFundingPage(organizationId).catch(() => {});
 
   return (
@@ -191,6 +195,10 @@ export function BidStatusLine({
         </button>
       ) : status.action === 'trades' ? (
         <Link to="/settings/organization?tab=trades" className="underline underline-offset-2 text-amber-100">
+          {status.label}
+        </Link>
+      ) : status.action === 'mobile' ? (
+        <Link to="/settings/organization?tab=notifications" className="underline underline-offset-2 text-amber-100">
           {status.label}
         </Link>
       ) : (

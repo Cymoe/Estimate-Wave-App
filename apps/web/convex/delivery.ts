@@ -44,6 +44,13 @@ export function withinHours(iso: string): boolean {
 }
 
 /** Everyone and everything an alert needs, in one read. */
+/** A US number as +1 and ten digits, or undefined when it isn't one. */
+function usMobile(raw: string | undefined): string | undefined {
+  let digits = (raw ?? "").replace(/\D/g, "");
+  if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1);
+  return digits.length === 10 ? `+1${digits}` : undefined;
+}
+
 export const recipients = internalQuery({
   args: { orgLeadId: v.id("leads") },
   handler: async (ctx, { orgLeadId }) => {
@@ -85,7 +92,13 @@ export const recipients = internalQuery({
       tradeName: trade?.name ?? lead.jobType ?? "Lead",
       company: { id: company._id, name: company.name, email: company.email, phone: company.phone },
       emails: [...new Set([company.email, ...people.map((p) => p.email)].filter((e): e is string => Boolean(e)))],
-      mobiles: [...new Set(people.map((p) => p.mobile).filter((m): m is string => Boolean(m)))],
+      // Nobody has added a mobile yet: the company's own phone (from its
+      // application) gets the text, so the promised text still arrives.
+      mobiles: (() => {
+        const own = [...new Set(people.map((p) => p.mobile).filter((m): m is string => Boolean(m)))];
+        const fallback = usMobile(company.phone);
+        return own.length > 0 ? own : fallback ? [fallback] : [];
+      })(),
       homeownerConsent: Boolean(intake?.consent?.value && /^(1|true|yes|on|checked)$/i.test(intake.consent.value)),
     };
   },
