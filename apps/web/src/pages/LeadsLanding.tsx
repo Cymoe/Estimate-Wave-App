@@ -63,6 +63,8 @@ const LeadsLanding: React.FC<{ scrollTo?: 'apply' }> = ({ scrollTo: target }) =>
   useEffect(() => {
     if (target) document.getElementById(target)?.scrollIntoView();
   }, [target]);
+  // Sign-in sent back an error (Google refused, a link expired): say it instead of a blank page.
+  const authError = searchParams.get('error') ?? searchParams.get('error_description');
   const signInTitle = !next ? 'Sign in' : /^\/leads\?(.*&)?lead=/.test(next) ? 'Sign in to see your lead' : 'Sign in to get back where you were';
 
   return (
@@ -216,6 +218,11 @@ const LeadsLanding: React.FC<{ scrollTo?: 'apply' }> = ({ scrollTo: target }) =>
         </div>
       </footer>
 
+      {authError && (
+        <p role="alert" className="fixed top-3 left-1/2 -translate-x-1/2 z-[10050] max-w-[calc(100%-2rem)] px-4 py-2 rounded bg-red-600 text-white text-sm shadow-lg">
+          Sign-in didn't work: {authError.replace(/[_+]/g, ' ')}. Try again, or continue with Google.
+        </p>
+      )}
       {signIn && (
         <Dialog title={signInTitle} onClose={() => setSignIn(false)}>
           <p className="text-sm text-gray-400 mb-4">For companies FieldQuote has set up. Use the email we approved: continue with Google, or create an account with it. New here? Apply below instead.</p>

@@ -86,6 +86,12 @@ describe('Marketplace', () => {
     expect(document.body.textContent).not.toContain('Missed');
   });
 
+  it("doesn't show My trades as on when no lead is in the company's trades", async () => {
+    feed = [{ ...(feed[1] as object) }];
+    await render();
+    expect(byText('My trades')!.getAttribute('aria-pressed')).toBe('false');
+  });
+
   it('formats countdowns', () => {
     expect(span(30_000)).toBe('now');
     expect(span(59 * 60_000)).toBe('59m');

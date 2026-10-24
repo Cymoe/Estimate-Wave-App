@@ -61,37 +61,9 @@ export class IndustryService {
   }
 
   /**
-   * Get organization's subscription plan and industry limit. There are no
-   * paid plans yet, so every organization can choose any number of trades.
-   */
-  static async getOrganizationPlan(organizationId: string): Promise<{
-    planName: string;
-    industryLimit: number | null;
-    currentCount: number;
-    canAddMore: boolean;
-  }> {
-    const currentCount = await this.getOrganizationIndustryCount(organizationId);
-    return { planName: 'Free', industryLimit: null, currentCount, canAddMore: true };
-  }
-
-  /**
-   * Get organization's industry limit (number or null for unlimited)
-   */
-  static async getOrganizationIndustryLimit(organizationId: string): Promise<number | null> {
-    return (await this.getOrganizationPlan(organizationId)).industryLimit;
-  }
-
-  /**
    * Count organization's industries
    */
   static async getOrganizationIndustryCount(organizationId: string): Promise<number> {
     return (await this.getOrganizationIndustryIds(organizationId)).length;
-  }
-
-  /**
-   * Check if organization can add more industries
-   */
-  static async canAddMoreIndustries(organizationId: string): Promise<boolean> {
-    return (await this.getOrganizationPlan(organizationId)).canAddMore;
   }
 }

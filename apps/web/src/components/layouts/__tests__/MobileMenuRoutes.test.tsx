@@ -38,11 +38,11 @@ afterEach(() => {
 });
 
 describe('the phone menu', () => {
-  it('reaches Company Settings and the plan page, not routes that no longer exist', async () => {
+  it('reaches Company settings and the Pro plan page, not routes that no longer exist', async () => {
     await open();
-    await act(async () => tap('Company Settings').click());
+    await act(async () => tap('Company settings').click());
     expect(path).toBe('/settings/organization');
-    await act(async () => tap('Billing & Plan').click());
+    await act(async () => tap('Pro plan').click());
     expect(path).toBe('/plan');
   });
 });

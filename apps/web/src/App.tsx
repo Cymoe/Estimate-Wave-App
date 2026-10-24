@@ -173,7 +173,7 @@ function AppRoutes() {
       <Routes>
       {/* Public routes */}
       <Route path="/" element={renderLanding()} />
-      <Route path="/apply" element={<LeadsLanding scrollTo="apply" />} />
+      <Route path="/apply" element={user && session && !isLoading ? <HomeRedirect /> : <LeadsLanding scrollTo="apply" />} />
       <Route path="/auth/callback" element={<Callback />} />
       <Route path="/auth/test" element={<TestAuth />} />
       <Route path="/marketing/projects" element={<Projects />} />

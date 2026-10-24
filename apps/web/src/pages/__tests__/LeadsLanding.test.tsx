@@ -107,6 +107,11 @@ describe('lead-buyer landing page', () => {
     expect(document.body.querySelector('[role="dialog"]')).toBeNull();
   });
 
+  it('says so when sign-in came back with an error', async () => {
+    await render(undefined, '/?error=OAuthAccountNotLinked');
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toContain("Sign-in didn't work: OAuthAccountNotLinked. Try again, or continue with Google.");
+  });
+
   it('opens on the form from /apply, and Sign in opens the sign-in dialog', async () => {
     await render('apply');
     expect(document.getElementById('apply')!.scrollIntoView).toHaveBeenCalled();

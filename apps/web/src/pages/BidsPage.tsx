@@ -70,7 +70,7 @@ export const PLACING = {
   down: ['Easing off…', 'Lowering the paddle…', 'Pulling back…', 'Trimming the bid…', 'Settling lower…'],
 };
 export const PLACED = {
-  up: ["Bid's in.", 'Locked in.', "Paddle's up.", 'On the books.', 'Sold on that.'],
+  up: ["Bid's in.", 'Locked in.', "Paddle's up.", 'On the books.'],
   down: ["Bid's in.", 'Eased off.', "Paddle's down.", 'On the books.', 'Trimmed.'],
 };
 const anyOf = (words: string[]) => words[Math.floor(Math.random() * words.length)];

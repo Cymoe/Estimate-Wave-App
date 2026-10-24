@@ -27,9 +27,20 @@ export const NotificationsSettings: React.FC<{ organizationId: string }> = ({ or
       .catch(() => {});
   }, [organizationId]);
   const userMobile = (user as { mobile?: string } | null)?.mobile;
+  // Stored as +14325550177; shown the way people write it.
+  const pretty = (stored?: string | null) => {
+    const d = (stored ?? '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
+    return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : stored ?? '';
+  };
   useEffect(() => {
-    setMobile(userMobile ?? '');
+    setMobile(pretty(userMobile));
   }, [userMobile]);
+  // "Saved" shows for a moment, then goes.
+  useEffect(() => {
+    if (!saved) return;
+    const timer = setTimeout(() => setSaved(null), 2500);
+    return () => clearTimeout(timer);
+  }, [saved]);
 
   const saveEmail = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,7 +61,7 @@ export const NotificationsSettings: React.FC<{ organizationId: string }> = ({ or
     setError(null);
     try {
       const stored = await usersAPI.setMobile(mobile);
-      setMobile(stored ?? '');
+      setMobile(pretty(stored));
       setSaved('mobile');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'That didn’t save');

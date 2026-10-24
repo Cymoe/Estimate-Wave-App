@@ -195,7 +195,8 @@ describe('Leads board', () => {
     await act(async () => (credit().querySelector('button') as HTMLButtonElement).click());
     await flush();
     expect(acknowledge).toHaveBeenCalledWith('l2');
-    expect(credit().querySelector('[data-testid="acknowledged"]')?.textContent).toContain('You acknowledged it at');
+    // Not today, so the date is in it too.
+    expect(credit().querySelector('[data-testid="acknowledged"]')?.textContent).toMatch(/You acknowledged it (at \d|[A-Z][a-z]{2} \d)/);
     rows = [own];
   });
 

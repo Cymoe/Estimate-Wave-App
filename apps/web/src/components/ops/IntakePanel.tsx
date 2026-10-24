@@ -223,7 +223,7 @@ export const IntakePanel: React.FC<{
               <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <span>
                 Same number as <strong>{row.duplicate.label}</strong>, {ago(row.duplicate.createdAt)}
-                {row.duplicate.confirmedLeadId ? ', already confirmed and sold' : row.duplicate.status === 'closed' ? ', closed' : ', still in the queue'}. Angi-style rule: one lead per homeowner in 45 days.
+                {row.duplicate.confirmedLeadId ? ', already confirmed and sold' : row.duplicate.status === 'closed' ? ', closed' : ', still in the queue'}. One lead per homeowner in 45 days.
               </span>
             </div>
           )}

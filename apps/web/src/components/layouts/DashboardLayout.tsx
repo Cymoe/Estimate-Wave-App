@@ -300,6 +300,13 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
     if (path.startsWith('/cost-codes')) return 'Price Book';
     if (path.startsWith('/leads')) return 'Leads';
     if (path.startsWith('/ops')) return 'Ops';
+    if (path.startsWith('/bids')) return 'Bids';
+    if (path.startsWith('/marketplace')) return 'Marketplace';
+    if (path.startsWith('/vault')) return 'The Vault';
+    if (path.startsWith('/plan')) return 'Pro plan';
+    if (path.startsWith('/settings')) return 'Company settings';
+    if (path.startsWith('/work')) return 'Work';
+    if (path.startsWith('/estimates')) return 'Estimates';
     return 'Dashboard';
   };
 

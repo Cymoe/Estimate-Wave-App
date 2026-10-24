@@ -218,11 +218,11 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
           <div className="mb-4">
             <div className="flex items-center gap-3 mb-3">
               <div className="w-10 h-10 bg-[#336699] rounded-full flex items-center justify-center text-white font-medium">
-                {(user?.user_metadata?.full_name || 'User').charAt(0).toUpperCase()}
+                {(user?.name || user?.email || 'You').charAt(0).toUpperCase()}
               </div>
               <div>
                 <div className="text-white font-medium">
-                  {user?.user_metadata?.full_name || 'User'}
+                  {user?.name || user?.email || 'You'}
                 </div>
                 <div className="text-gray-400 text-sm">{planLabel(plan)}</div>
               </div>
@@ -251,7 +251,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
               }}
               className="w-full text-left p-3 hover:bg-[#333333] rounded-[4px] transition-colors text-gray-300"
             >
-              <span>Company Settings</span>
+              <span>Company settings</span>
             </button>
 
             <button
@@ -261,7 +261,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
               }}
               className="w-full text-left p-3 hover:bg-[#333333] rounded-[4px] transition-colors text-gray-300"
             >
-              <span>Billing & Plan</span>
+              <span>Pro plan</span>
             </button>
 
             <button

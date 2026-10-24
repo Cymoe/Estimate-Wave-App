@@ -116,6 +116,8 @@ const MarketplacePage: React.FC = () => {
     const filtered = mineOnly && all.some((l) => l.matchesTrades) ? all.filter((l) => l.matchesTrades) : all;
     return filtered.map((lead) => ({ lead, price: priceAt(lead.auction, now) }));
   }, [leads, mineOnly, now]);
+  // "My trades" only reads as on when it is actually narrowing the list.
+  const filtering = mineOnly && (leads ?? []).some((l) => l.matchesTrades);
   const vaultCount = wallet?.olderLeads ?? 0;
   const openOrders = bids.filter((b) => b.status === 'open');
   const settled = bids.filter((b) => b.status === 'filled' || b.status === 'lost' || (b.status === 'cancelled' && b.outcome)).slice(0, 5);
@@ -246,8 +248,8 @@ const MarketplacePage: React.FC = () => {
         <button
           type="button"
           onClick={() => setMineOnly((m) => !m)}
-          aria-pressed={mineOnly}
-          className={`px-3 py-1.5 rounded-full text-xs border ${mineOnly ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333] text-gray-400'}`}
+          aria-pressed={filtering}
+          className={`px-3 py-1.5 rounded-full text-xs border ${filtering ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333] text-gray-400'}`}
         >
           My trades
         </button>

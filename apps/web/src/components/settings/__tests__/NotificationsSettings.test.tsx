@@ -46,7 +46,8 @@ describe('lead alert settings', () => {
     await act(async () => mobile.form!.requestSubmit());
     await flush();
     expect(setMobile).toHaveBeenCalledWith('(432) 555-0177');
-    expect(mobile.value).toBe('+14325550177');
+    // Stored as +14325550177, shown the way people write it.
+    expect(mobile.value).toBe('(432) 555-0177');
     expect(container.textContent).toContain('Saved');
   });
 });

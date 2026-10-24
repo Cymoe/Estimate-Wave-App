@@ -31,7 +31,10 @@ export const LeadCredit: React.FC<{ lead: Lead; onAcknowledged?: (at: string) =>
       <span className="text-emerald-300">{leadOrigin(lead)}</span>
       {lead.acknowledgedAt ? (
         <span className="inline-flex items-center gap-1 text-gray-400" data-testid="acknowledged">
-          <Check className="w-3.5 h-3.5" /> You acknowledged it at {new Date(lead.acknowledgedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+          <Check className="w-3.5 h-3.5" /> You acknowledged it{' '}
+          {new Date(lead.acknowledgedAt).toDateString() === new Date().toDateString()
+            ? `at ${new Date(lead.acknowledgedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
+            : new Date(lead.acknowledgedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
         </span>
       ) : (
         <button

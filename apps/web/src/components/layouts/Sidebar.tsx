@@ -576,7 +576,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }}
                   className="w-full text-left px-4 py-3 text-sm text-white hover:bg-[#3A3A3A] transition-colors duration-200"
                 >
-                  <span className="font-['Roboto']">Company Settings</span>
+                  <span className="font-['Roboto']">Company settings</span>
                 </button>
                 
                 <button
@@ -586,7 +586,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }}
                   className="w-full text-left px-4 py-3 text-sm text-white hover:bg-[#3A3A3A] transition-colors duration-200"
                 >
-                  <span className="font-['Roboto']">Billing & Plan</span>
+                  <span className="font-['Roboto']">Pro plan</span>
                 </button>
                 
                 <div className="border-t border-[#404040]" />
@@ -643,7 +643,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div className="flex items-center flex-1 min-w-0">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-white truncate group-hover:text-[#EAB308] transition-colors">
-                      {user?.user_metadata?.full_name || 'User'}
+                      {user?.name || user?.email || 'You'}
                     </p>
                     <p className="text-xs text-gray-400 truncate">
                       {planLabel(plan)}
@@ -655,7 +655,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {/* Avatar */}
               <div className={`${isSidebarCollapsed ? 'w-full' : 'ml-3'} flex items-center justify-center w-8 h-8 rounded-full bg-[#336699] text-white group-hover:bg-[#2A5580] transition-all`}>
                 <span className="text-sm font-medium">
-                  {(user?.user_metadata?.full_name || 'User').charAt(0).toUpperCase()}
+                  {(user?.name || user?.email || 'You').charAt(0).toUpperCase()}
                 </span>
               </div>
             </button>

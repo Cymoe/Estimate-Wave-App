@@ -90,6 +90,8 @@ const VaultPage: React.FC = () => {
     const all = pool?.leads ?? [];
     return mineOnly && all.some((l) => l.matchesTrades) ? all.filter((l) => l.matchesTrades) : all;
   }, [pool, mineOnly]);
+  // "My trades" only reads as on when it is actually narrowing the list.
+  const filtering = mineOnly && (pool?.leads ?? []).some((l) => l.matchesTrades);
   const tradeOf = (lead: VaultLead) => lead.tradeName ?? titleFromSlug(lead.jobType);
   const plan = pool?.plan ?? null;
   const price = plan?.nextClaimCents ?? 0;
@@ -108,8 +110,9 @@ const VaultPage: React.FC = () => {
         <h1 className="text-xl font-semibold">🔐 The Vault</h1>
         <p className="text-sm text-gray-400">
           {pool === null ? 'Loading…' : `${pool.count} lead${pool.count === 1 ? '' : 's'} in your trades`}
-          {plan ? ` · ${plan.claimsLeft} of ${plan.claimsIncluded} claims left this month` : ''}
-          {plan && plan.claimsLeft === 0 ? ` · ${money(plan.extraClaimCents)} each after that` : ''}
+          {/* Claims only mean something once the Vault is open. */}
+          {plan && !pool?.locked ? ` · ${plan.claimsLeft} of ${plan.claimsIncluded} claims left this month` : ''}
+          {plan && !pool?.locked && plan.claimsLeft === 0 ? ` · ${money(plan.extraClaimCents)} each after that` : ''}
         </p>
       </div>
       <p className="text-xs text-gray-500 mb-4">
@@ -131,8 +134,8 @@ const VaultPage: React.FC = () => {
           <h2 className="text-lg font-semibold text-white mb-1">Unlock the Vault</h2>
           <p className="text-sm text-gray-400 mb-4">
             {pool.count > 0
-              ? `${pool.count} lead${pool.count === 1 ? '' : 's'} in your trades ${pool.count === 1 ? 'is' : 'are'} waiting in the Vault. It's part of the plan.`
-              : 'Leads land here a week after going up for sale. The Vault is part of the plan.'}
+              ? `${pool.count} lead${pool.count === 1 ? '' : 's'} in your trades ${pool.count === 1 ? 'is' : 'are'} waiting in the Vault. It comes with the Pro plan.`
+              : 'Leads land here a week after going up for sale. The Vault comes with the Pro plan.'}
           </p>
           <PlanPanel organizationId={organizationId} plan={plan} onChanged={() => {}} />
         </div>
@@ -160,8 +163,8 @@ const VaultPage: React.FC = () => {
             <button
               type="button"
               onClick={() => setMineOnly((m) => !m)}
-              aria-pressed={mineOnly}
-              className={`px-3 py-1.5 rounded-full text-xs border ${mineOnly ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333] text-gray-400'}`}
+              aria-pressed={filtering}
+              className={`px-3 py-1.5 rounded-full text-xs border ${filtering ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333] text-gray-400'}`}
             >
               My trades
             </button>
@@ -197,7 +200,7 @@ const VaultPage: React.FC = () => {
                         {lead.summary || '—'}
                         <Confirmed verified={lead.verified} className="mt-0.5" />
                       </td>
-                      <td className="px-4 py-3 text-gray-400 whitespace-nowrap">{lead.ageDays} days</td>
+                      <td className="px-4 py-3 text-gray-400 whitespace-nowrap">{lead.ageDays} day{lead.ageDays === 1 ? '' : 's'}</td>
                       <td className="px-4 py-3 text-right">{claimButton(lead)}</td>
                     </tr>
                   ))}
@@ -212,7 +215,7 @@ const VaultPage: React.FC = () => {
                     </p>
                     <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
                       <MapPin className="w-3 h-3" />
-                      {lead.city || 'Area not given'} · {lead.ageDays} days old
+                      {lead.city || 'Area not given'} · {lead.ageDays} day{lead.ageDays === 1 ? '' : 's'} old
                     </p>
                     {lead.summary && <p className="text-sm text-gray-300 mt-2">{lead.summary}</p>}
                     <Confirmed verified={lead.verified} className="mt-1" />
