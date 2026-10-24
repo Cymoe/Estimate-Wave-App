@@ -403,6 +403,21 @@ export const recordTopUp = mutation({
   },
 });
 
+/** Puts what the company paid for a lead back on its balance and marks the lead credited. */
+async function applyCredit(ctx: MutationCtx, lead: Doc<"leads"> & { marketplaceLeadId: Id<"marketplaceLeads"> }, user: Doc<"users">, now: string) {
+  await postTransaction(ctx, lead.organizationId, {
+    type: "credit",
+    amountCents: lead.pricePaidCents ?? 0,
+    createdBy: user._id,
+    marketplaceLeadId: lead.marketplaceLeadId,
+    note: `Credit: ${lead.name}`,
+  });
+  await ctx.db.patch(lead.marketplaceLeadId, {
+    status: "credited",
+    updatedAt: now,
+  });
+}
+
 /** Approves or denies a company's request to credit a bad lead. Approval refunds what they paid. */
 export const reviewCredit = mutation({
   args: { orgLeadId: v.id("leads"), approve: v.boolean() },
@@ -414,19 +429,7 @@ export const reviewCredit = mutation({
     if (lead.creditRequest?.status !== "pending")
       fail("INVALID", "There's no open credit request for this lead");
     const now = nowIso();
-    if (approve) {
-      await postTransaction(ctx, lead.organizationId, {
-        type: "credit",
-        amountCents: lead.pricePaidCents ?? 0,
-        createdBy: user._id,
-        marketplaceLeadId: lead.marketplaceLeadId,
-        note: `Credit: ${lead.name}`,
-      });
-      await ctx.db.patch(lead.marketplaceLeadId, {
-        status: "credited",
-        updatedAt: now,
-      });
-    }
+    if (approve) await applyCredit(ctx, { ...lead, marketplaceLeadId: lead.marketplaceLeadId }, user, now);
     await ctx.db.patch(orgLeadId, {
       creditRequest: {
         ...lead.creditRequest,
@@ -435,6 +438,43 @@ export const reviewCredit = mutation({
       },
       updatedAt: now,
     });
+  },
+});
+
+/**
+ * The owner credits a bad lead without waiting for a request: companies
+ * tell FieldQuote by phone, and this is where it lands. Refunds what they
+ * paid, once, and shows on the company's lead as "Credited".
+ */
+export const creditLead = mutation({
+  args: { orgLeadId: v.id("leads"), reason: v.string(), note: v.optional(v.string()) },
+  handler: async (ctx, { orgLeadId, reason, note }) => {
+    const user = await requireSuperAdmin(ctx);
+    const lead = await ctx.db.get(orgLeadId);
+    if (lead === null || !lead.marketplaceLeadId) fail("NOT_FOUND", "Lead not found");
+    if (lead.creditRequest?.status === "approved") fail("INVALID", "This lead was already credited");
+    if (!(CREDIT_REASONS as readonly string[]).includes(reason)) fail("INVALID", "Pick a reason");
+    const now = nowIso();
+    await applyCredit(ctx, { ...lead, marketplaceLeadId: lead.marketplaceLeadId }, user, now);
+    await ctx.db.patch(orgLeadId, {
+      creditRequest: {
+        reason,
+        note: note?.trim() || undefined,
+        requestedAt: lead.creditRequest?.requestedAt ?? now,
+        status: "approved",
+        reviewedAt: now,
+      },
+      updatedAt: now,
+    });
+    await logActivity(ctx, {
+      organizationId: lead.organizationId,
+      userId: user._id,
+      action: "credit_given",
+      resourceType: "lead",
+      resourceId: orgLeadId,
+      details: { name: lead.name, reason, amountCents: lead.pricePaidCents ?? 0 },
+    });
+    return { amountCents: lead.pricePaidCents ?? 0 };
   },
 });
 

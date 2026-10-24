@@ -449,6 +449,9 @@ export const marketplaceAPI = {
     run('mutation', api.marketplace.setLeadPrice, { jobType, price, ...(schedule ?? {}) }),
   pendingCredits: () => run('query', api.marketplace.pendingCredits, {}),
   reviewCredit: (orgLeadId: string, approve: boolean) => run('mutation', api.marketplace.reviewCredit, { orgLeadId, approve }),
+  /** The owner credits a bought lead back without a request: the company told FieldQuote by phone. */
+  creditLead: (orgLeadId: string, reason: string, note?: string): Promise<{ amountCents: number }> =>
+    run('mutation', api.marketplace.creditLead, defined({ orgLeadId, reason, note })),
 };
 
 export const walletAPI = {

@@ -47,6 +47,8 @@ jest.mock('../../../lib/live', () => ({
 }));
 
 let applications: unknown[] = [];
+let companyLeads: unknown[] = [];
+const creditLead = jest.fn(async (): Promise<{ amountCents: number }> => ({ amountCents: 28500 }));
 const approveApplication = jest.fn(async (): Promise<{ organizationId: string }> => ({ organizationId: 'o2' }));
 const declineApplication = jest.fn(async () => null);
 jest.mock('../../../lib/api', () => ({
@@ -96,6 +98,7 @@ jest.mock('../../../lib/api', () => ({
     setCompanyOwner: (id: string, email: string) => setCompanyOwner(id, email),
     setPlan: (id: string, changes: unknown) => setPlan(id, changes),
     archiveLead: async () => undefined,
+    creditLead: (id: string, reason: string, note?: string) => creditLead(id, reason, note),
   },
   fundingAPI: {
     createLink: async () => 'tok',
@@ -108,7 +111,7 @@ jest.mock('../../../lib/api', () => ({
     requestCredit: (...args: unknown[]) => requestCredit(...(args as [])),
   },
   industriesAPI: { list: async () => [{ id: 'roofing', name: 'Roofing' }, { id: 'painting', name: 'Painting' }] },
-  leadsAPI: { list: async () => [] },
+  leadsAPI: { list: async () => companyLeads },
 }));
 jest.mock('../../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1', role } }) }));
 
@@ -154,6 +157,7 @@ afterEach(() => {
   intakeLog = [];
   delivered = [];
   applications = [];
+  companyLeads = [];
 });
 
 describe('Lead Market', () => {
@@ -294,6 +298,38 @@ describe('Lead Market', () => {
     await act(async () => (document.body.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click());
     await act(async () => (cells[0] as HTMLButtonElement).click());
     expect(document.body.querySelector('[data-testid="slot-sales"]')!.textContent).toContain('These are demo leads.');
+  });
+
+  it('lets the owner credit a bought lead back from the company panel', async () => {
+    companyLeads = [
+      { id: 'l1', name: 'Dana Reyes', status: 'new', marketplaceLeadId: 'm1', pricePaidCents: 28500 },
+      { id: 'l2', name: 'Own Lead', status: 'new' },
+      { id: 'l3', name: 'Already Done', status: 'new', marketplaceLeadId: 'm3', pricePaidCents: 20000, creditRequest: { reason: 'duplicate', requestedAt: '2026-10-01T00:00:00Z', status: 'approved' } },
+    ];
+    await render(<LeadMarketPage />);
+    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Companies'))!.click());
+    await flush();
+    await act(async () => Array.from(document.body.querySelectorAll('tr')).find((r) => r.textContent?.includes('Peak Roofing'))!.click());
+    await flush();
+    const panel = document.body.querySelector('[role="dialog"]')!;
+    const creditButtons = Array.from(panel.querySelectorAll('button')).filter((b) => b.textContent === 'Credit it back');
+    // Only the bought lead that isn't credited yet offers it.
+    expect(creditButtons).toHaveLength(1);
+    expect(panel.textContent).toContain('Already Done');
+    expect(panel.textContent).toContain('credited back');
+    await act(async () => creditButtons[0].click());
+    const form = panel.querySelector('[data-testid="credit-form"]')!;
+    expect(form.textContent).toContain('Puts $285.00 back on their balance');
+    const why = form.querySelector('select[aria-label="Why"]') as HTMLSelectElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(why, 'out_of_area');
+      why.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => type(form.querySelector('input[aria-label="Credit note"]') as HTMLInputElement, 'Odessa, not Midland'));
+    await act(async () => (Array.from(form.querySelectorAll('button')).find((b) => b.textContent === 'Credit $285.00 back') as HTMLButtonElement).click());
+    await flush();
+    expect(creditLead).toHaveBeenCalledWith('l1', 'out_of_area', 'Odessa, not Midland');
+    expect(panel.querySelector('[role="status"]')!.textContent).toBe('Credited $285.00 back to Peak Roofing for Dana Reyes.');
   });
 
   it('totals the companies table: cash held, leads and spend this month, plan mix and value won', async () => {

@@ -267,7 +267,7 @@ export function WalletDrawer({ wallet, onClose: closeNow, onAddFunds }: { wallet
               Add funds
             </button>
             <p>Load from $5,000 by card or Apple Pay. Larger loads get a bonus: +5% at $7,500, +10% at $10,000.</p>
-            <p className="mt-2 text-gray-400">A bad lead? Open it within 3 days and tap “Request credit”.</p>
+            <p className="mt-2 text-gray-400">A bad lead? Tell us within 3 days and we credit it back to your balance.</p>
           </section>
           <section>
             <h3 className="text-sm font-medium text-white mb-2">History</h3>

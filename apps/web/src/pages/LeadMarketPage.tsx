@@ -542,6 +542,28 @@ function CompanyPanel({
     }
   };
 
+  // Crediting a bad lead: the company told us by phone, so the owner does it from here.
+  const [crediting, setCrediting] = useState<string | null>(null);
+  const [creditReason, setCreditReason] = useState('wrong_number');
+  const [creditNote, setCreditNote] = useState('');
+  const [credited, setCredited] = useState<string | null>(null);
+  const creditLead = async (lead: { id: string; name: string; pricePaidCents?: number }) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const { amountCents } = await marketplaceAPI.creditLead(lead.id, creditReason, creditNote || undefined);
+      setCrediting(null);
+      setCreditNote('');
+      setCredited(`Credited ${money(amountCents)} back to ${company.name} for ${lead.name}.`);
+      await load();
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "The credit didn't go through");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // Bids are only for listed trades, so dropping one drops the company's bids in it: say so first.
   const [confirm, confirmDialog] = useConfirm();
   const saveTrades = async (next: string[]) => {
@@ -779,19 +801,58 @@ function CompanyPanel({
               <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded">
                 {leads.slice(0, 50).map((lead) => {
                   const status = STATUSES.find((s) => s.value === lead.status);
+                  const bought = Boolean(lead.marketplaceLeadId);
+                  const creditState = lead.creditRequest?.status as 'pending' | 'approved' | 'denied' | undefined;
                   return (
-                    <li key={lead.id} className="flex items-center justify-between gap-3 px-3 py-2">
-                      <span className="min-w-0">
-                        <span className="block text-sm text-white truncate">{lead.name}</span>
-                        <span className="block text-xs text-gray-500">
-                          {leadOrigin(lead) ?? lead.source ?? 'Their own lead'}
+                    <li key={lead.id} className="px-3 py-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="min-w-0">
+                          <span className="block text-sm text-white truncate">{lead.name}</span>
+                          <span className="block text-xs text-gray-500">
+                            {leadOrigin(lead) ?? lead.source ?? 'Their own lead'}
+                            {creditState === 'approved' ? ' · credited back' : creditState === 'denied' ? ' · credit declined' : creditState === 'pending' ? ' · credit requested' : ''}
+                          </span>
                         </span>
-                      </span>
-                      <span className={`text-xs whitespace-nowrap ${status?.color ?? 'text-gray-400'}`}>{status?.label ?? lead.status}</span>
+                        <span className="flex items-center gap-2">
+                          <span className={`text-xs whitespace-nowrap ${status?.color ?? 'text-gray-400'}`}>{status?.label ?? lead.status}</span>
+                          {owner && bought && creditState !== 'approved' && (
+                            <button
+                              type="button"
+                              onClick={() => setCrediting(crediting === lead.id ? null : lead.id)}
+                              className="text-xs text-[#cfe2f5] underline underline-offset-2 whitespace-nowrap"
+                            >
+                              {crediting === lead.id ? 'Cancel' : 'Credit it back'}
+                            </button>
+                          )}
+                        </span>
+                      </div>
+                      {crediting === lead.id && (
+                        <div className="mt-2 rounded border border-[#2A2A2A] bg-[#161616] p-3 space-y-2" data-testid="credit-form">
+                          <p className="text-xs text-gray-400">Puts {money(lead.pricePaidCents ?? 0)} back on their balance. The lead stays with them, marked credited.</p>
+                          <div className="flex flex-wrap gap-2">
+                            <select value={creditReason} onChange={(e) => setCreditReason(e.target.value)} aria-label="Why" className={`${input} py-1.5 text-sm w-auto`}>
+                              {Object.entries(CREDIT_REASON_LABELS).map(([value, label]) => (
+                                <option key={value} value={value}>
+                                  {label}
+                                </option>
+                              ))}
+                            </select>
+                            <input value={creditNote} onChange={(e) => setCreditNote(e.target.value)} placeholder="Note (optional)" aria-label="Credit note" className={`${input} py-1.5 text-sm flex-1 min-w-[10rem]`} />
+                          </div>
+                          <button type="button" disabled={busy} onClick={() => creditLead(lead)} className={primary}>
+                            Credit {money(lead.pricePaidCents ?? 0)} back
+                          </button>
+                        </div>
+                      )}
                     </li>
                   );
                 })}
               </ul>
+            )}
+            {credited && (
+              <p role="status" className="mt-2 text-xs text-emerald-300">
+                {credited}
+              </p>
             )}
             {bought.length > 0 && <p className="text-xs text-gray-500 mt-1">{bought.length} bought from FieldQuote</p>}
           </section>

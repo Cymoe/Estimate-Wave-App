@@ -2336,6 +2336,19 @@ describe("lead market", () => {
         reason: "duplicate",
       }),
     ).rejects.toThrow(/3 days/);
+
+    // The owner can credit it anyway: the company told FieldQuote by phone. Once.
+    await expect(roofer.as.mutation(api.marketplace.creditLead, { orgLeadId: oldLead, reason: "duplicate" })).rejects.toThrow(/admins/);
+    const before = (await roofer.as.query(api.marketplace.wallet, { organizationId: roofer.organizationId })).balanceCents;
+    // "Old lead" has no trade, so it sold at the default $240: that is what comes back.
+    expect(await admin.as.mutation(api.marketplace.creditLead, { orgLeadId: oldLead, reason: "wrong_number", note: "Called, number dead" })).toEqual({ amountCents: 24000 });
+    const after = await roofer.as.query(api.marketplace.wallet, { organizationId: roofer.organizationId });
+    expect(after.balanceCents).toBe(before + 24000);
+    expect(after.transactions[0]).toMatchObject({ type: "credit", amountCents: 24000 });
+    const creditedLead = (await t.run((ctx) => ctx.db.get(oldLead)))!;
+    expect(creditedLead.creditRequest).toMatchObject({ reason: "wrong_number", note: "Called, number dead", status: "approved" });
+    expect((await t.run((ctx) => ctx.db.get(old!._id)))?.status).toBe("credited");
+    await expect(admin.as.mutation(api.marketplace.creditLead, { orgLeadId: oldLead, reason: "duplicate" })).rejects.toThrow(/already credited/);
   });
 
   test("a company set up for a new contractor becomes theirs when they sign up", async () => {
