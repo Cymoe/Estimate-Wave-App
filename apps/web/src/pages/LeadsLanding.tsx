@@ -20,7 +20,7 @@ const WAYS = [
     id: 'bids',
     n: '01',
     name: 'Standing bids',
-    short: 'Name your price per lead. The next confirmed lead in your county is yours the second it lands.',
+    short: 'Set your bid per lead. The next confirmed lead in your county is yours the second it lands.',
     long:
       'Tell us the most you will pay for a lead in each county and trade. When our team confirms a homeowner there, the highest funded bid wins it on the spot and the lead is texted and emailed to you. No auction to watch, no refresh. Lose a bid and you keep your money.',
   },

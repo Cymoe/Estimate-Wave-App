@@ -48,8 +48,8 @@ export interface DemandBoardData {
 
 const STATE: Record<DemandSlot['state'], { label: string; cell: string }> = {
   open: { label: 'Run ads here', cell: 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200' },
-  unknown: { label: 'Has buyers · type your cost per lead to check profit', cell: 'bg-sky-500/10 border-sky-500/40 text-sky-200' },
-  loss: { label: "Bids don't cover your ad cost", cell: 'bg-amber-500/15 border-amber-500/60 text-amber-100' },
+  unknown: { label: 'Has buyers · type your ad cost per lead to check profit', cell: 'bg-sky-500/10 border-sky-500/40 text-sky-200' },
+  loss: { label: "Bids don't cover your ad cost per lead", cell: 'bg-amber-500/15 border-amber-500/60 text-amber-100' },
   unfunded: { label: 'Bids, but nobody can pay', cell: 'bg-amber-500/10 border-amber-500/40 text-amber-200' },
   oversupplied: { label: 'Leads sitting unsold: pause', cell: 'bg-red-500/10 border-red-500/40 text-red-200' },
   nobuyers: { label: 'Nobody buys this trade: sign a company', cell: 'bg-red-500/20 border-red-500/60 text-red-200' },
@@ -79,7 +79,7 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
   // Every string on the board reads as a sentence: the owner shouldn't need a key.
   const cell = (s: DemandSlot) =>
     s.topFundedCents !== undefined
-      ? `${s.bidders} ${s.bidders === 1 ? 'bidder' : 'bidders'} · biggest cash bid ${money(s.topFundedCents)} · covers ${s.depthLeads} more`
+      ? `${s.bidders} ${s.bidders === 1 ? 'bidder' : 'bidders'} · highest funded bid ${money(s.topFundedCents)} · covers ${s.depthLeads} more`
       : s.bidders > 0
         ? `${s.bidders} ${s.bidders === 1 ? 'bidder' : 'bidders'}, nobody can pay`
         : 'No bids yet';
@@ -102,7 +102,7 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
         s.marginCents !== null
           ? s.marginBasis === 'sold'
             ? ' · Profit is figured on real sales'
-            : ' · Profit is figured on the biggest bid; switches to real sales after 3'
+            : ' · Profit is figured on the highest funded bid; switches to real sales after 3'
           : ''
       }`,
       cell(s),
@@ -118,7 +118,7 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
     <div className="space-y-4" data-testid="demand-board">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-gray-500">
-          Each square is one county and one trade. Top line: the biggest bid from a company that can pay, and how many more leads the money behind the bids covers. Bottom line: the leads that came in for that county and trade in the last 30 days, whenever the bid was placed. Profit a lead = price − the cost-per-lead you type in the column header − {money(data.vaCostCents)} for the confirmation call. Updates on its own.
+          Each square is one county and one trade. Top line: the highest funded bid (the most a company that can pay has bid), and how many more leads the money behind the bids covers. Bottom line: the leads that came in for that county and trade in the last 30 days, whenever the bid was placed. Profit a lead = price − the ad cost per lead you type in the column header − {money(data.vaCostCents)} for the confirmation call. Updates on its own.
           {data.demoLeads && <span className="block mt-1 text-amber-300/80">No real lead yet, so the lead numbers are demo data. They switch to real the moment the first real lead is confirmed.</span>}
         </p>
         {data.slots.length > 0 && (
@@ -135,7 +135,7 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
       {data.slots.length === 0 ? (
         <div className="border border-dashed border-[#333] rounded p-8 text-center">
           <p className="text-sm text-gray-400">No bids or leads yet. The board fills in as companies set standing bids.</p>
-          {owner && <p className="text-xs text-gray-500 mt-2">The cost-per-lead boxes sit in the column headers once the grid has columns.</p>}
+          {owner && <p className="text-xs text-gray-500 mt-2">The ad cost per lead boxes sit in the column headers once the grid has columns.</p>}
         </div>
       ) : (
         <>
@@ -207,7 +207,7 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
   );
 };
 
-/** The planned cost per lead for a trade, typed in by the owner. The board picks the change up on its own. */
+/** The ad cost per lead for a trade, typed in by the owner. The board picks the change up on its own. */
 function PlanCpl({ jobType, cents }: { jobType: string; cents?: number }) {
   const [value, setValue] = useState(cents !== undefined ? String(cents / 100) : '');
   useEffect(() => setValue(cents !== undefined ? String(cents / 100) : ''), [cents]);
@@ -224,8 +224,8 @@ function PlanCpl({ jobType, cents }: { jobType: string; cents?: number }) {
         onBlur={save}
         onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
         inputMode="decimal"
-        placeholder="cost/lead $"
-        aria-label={`Planned cost per ${jobType} lead`}
+        placeholder="ad cost/lead $"
+        aria-label={`Ad cost per ${jobType} lead`}
         className={`${input} py-1 text-xs w-24`}
       />
     </span>
@@ -236,9 +236,9 @@ function PlanCpl({ jobType, cents }: { jobType: string; cents?: number }) {
 function worthIt(slot: DemandSlot, vaCostCents: number): string {
   const price = slot.marginBasis === 'sold' && slot.avgSoldCents !== null ? slot.avgSoldCents : slot.topFundedCents;
   if (price === undefined) return 'No price to figure profit from yet: nobody with money has bid here, and nothing has sold.';
-  if (slot.planCplCents === undefined) return `Type a cost per lead in the ${slot.tradeName} column header to see profit here.`;
+  if (slot.planCplCents === undefined) return `Type an ad cost per lead in the ${slot.tradeName} column header to see profit here.`;
   const profit = price - slot.planCplCents - vaCostCents;
-  const basis = slot.marginBasis === 'sold' ? 'real average' : 'bid';
+  const basis = slot.marginBasis === 'sold' ? 'real average' : 'highest funded bid';
   return `Worth it? ${money(price)} ${basis} − ${money(slot.planCplCents)} ad cost − ${money(vaCostCents)} call = about ${profit < 0 ? '−' : ''}${money(Math.abs(profit))} ${profit < 0 ? 'lost' : 'profit'} a lead.`;
 }
 

@@ -1184,7 +1184,7 @@ const LeadMarketPage: React.FC = () => {
         const unsold = slots.filter((s) => s.state === 'oversupplied').length;
         const nobody = slots.filter((s) => s.state === 'nobuyers').length;
         const parts = [`${open} of ${slots.length} worth running ads`];
-        if (unknown > 0) parts.push(`${unknown} need a cost per lead`);
+        if (unknown > 0) parts.push(`${unknown} need an ad cost per lead`);
         if (loss > 0) parts.push(`${loss} would lose money`);
         if (unsold > 0) parts.push(`${unsold} sitting unsold`);
         if (nobody > 0) parts.push(`${nobody} nobody buys`);

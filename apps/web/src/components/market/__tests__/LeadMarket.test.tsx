@@ -411,14 +411,14 @@ describe('Lead Market', () => {
     const midlandPainting = cells.find((c) => c.getAttribute('data-state') === 'unknown')!;
     expect(midlandPainting.textContent).toContain('No Painting leads in Midland County, last 30 days');
     // No cost typed: blue, never green. A cost above the bids: a loss, not "nobody can pay".
-    expect(midlandPainting.getAttribute('title')!.split('\n')[0]).toBe('Has buyers · type your cost per lead to check profit');
+    expect(midlandPainting.getAttribute('title')!.split('\n')[0]).toBe('Has buyers · type your ad cost per lead to check profit');
     const howard = cells.find((c) => c.getAttribute('data-state') === 'loss')!;
-    expect(howard.getAttribute('title')!.split('\n')[0]).toContain("Bids don't cover your ad cost");
+    expect(howard.getAttribute('title')!.split('\n')[0]).toContain("Bids don't cover your ad cost per lead");
     expect(howard.textContent).toContain('About −$15.00 a lead');
-    expect(document.body.querySelector('[data-testid="ops-summary"]')!.textContent).toBe('0 of 3 worth running ads · 1 need a cost per lead · 1 would lose money · 1 sitting unsold');
+    expect(document.body.querySelector('[data-testid="ops-summary"]')!.textContent).toBe('0 of 3 worth running ads · 1 need an ad cost per lead · 1 would lose money · 1 sitting unsold');
     await act(async () => (midlandPainting as HTMLButtonElement).click());
     expect(document.body.querySelector('[data-testid="slot-sales"]')!.textContent).toBe('No Painting leads came in for Midland County in the last 30 days, whenever the bids here were placed.');
-    expect(document.body.querySelector('[data-testid="slot-profit"]')!.textContent).toBe('Type a cost per lead in the Painting column header to see profit here.');
+    expect(document.body.querySelector('[data-testid="slot-profit"]')!.textContent).toBe('Type an ad cost per lead in the Painting column header to see profit here.');
     await act(async () => (document.body.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click());
     await act(async () => (cells[0] as HTMLButtonElement).click());
     expect(document.body.querySelector('[data-testid="slot-sales"]')!.textContent).toContain('These are demo leads.');
@@ -755,16 +755,16 @@ describe('standing bids in Admin', () => {
     await act(async () => (document.body.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click());
     const midland = cells.find((c) => c.getAttribute('data-state') === 'open')!;
     // Every square reads as a sentence: no key needed.
-    expect(midland.textContent).toContain('3 bidders · biggest cash bid $300.00 · covers 2 more');
+    expect(midland.textContent).toContain('3 bidders · highest funded bid $300.00 · covers 2 more');
     expect(midland.textContent).toContain('Last 30 days: 2 Roofing leads in Midland County, 2 sold, about $300.00 each');
     expect(midland.textContent).toContain('About +$235.00 profit a lead');
-    expect(midland.getAttribute('title')!.split('\n')[0]).toBe('Run ads here · Profit is figured on the biggest bid; switches to real sales after 3');
-    expect(midland.getAttribute('title')).toContain('3 bidders · biggest cash bid $300.00');
+    expect(midland.getAttribute('title')!.split('\n')[0]).toBe('Run ads here · Profit is figured on the highest funded bid; switches to real sales after 3');
+    expect(midland.getAttribute('title')).toContain('3 bidders · highest funded bid $300.00');
     // Ector has sold enough that its profit is on what leads really went for, not the bid.
     expect(cells[0].textContent).toContain('Last 30 days: 4 Painting leads in Ector County, 3 sold, about $140.00 each · 1 still unsold');
     expect(cells[0].textContent).toContain('About +$85.00 profit a lead (on real sales)');
     expect(cells[0].getAttribute('title')!.split('\n')[0]).toBe('Leads sitting unsold: pause · Profit is figured on real sales');
-    expect(cells[0].textContent).toContain('1 bidder · biggest cash bid $200.00 · covers 2 more');
+    expect(cells[0].textContent).toContain('1 bidder · highest funded bid $200.00 · covers 2 more');
     expect(nobody.textContent).toContain('No bids yet');
     expect(nobody.textContent).toContain('Last 30 days: 1 Flooring lead in Midland County, none sold · 1 still unsold');
     // The flooring drawer has no price and no cost: it says so instead of showing nothing.
@@ -776,8 +776,8 @@ describe('standing bids in Admin', () => {
     expect(document.body.querySelector('[data-testid="slot-profit"]')!.textContent).toBe('Worth it? $140.00 real average − $50.00 ad cost − $5.00 call = about $85.00 profit a lead.');
     expect(document.body.querySelector('[data-testid="slot-sales"]')!.textContent).toBe('Last 30 days: 4 Painting leads came in for Ector County, 3 sold (75%). They went for $90.00 to $200.00, about $140.00 each, the latest for $90.00. 1 went straight to a standing bid.');
     await act(async () => (document.body.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click());
-    // The owner sets the planned cost per lead in the column header.
-    const cpl = grid.querySelector('input[aria-label="Planned cost per roofing lead"]') as HTMLInputElement;
+    // The owner sets the ad cost per lead in the column header.
+    const cpl = grid.querySelector('input[aria-label="Ad cost per roofing lead"]') as HTMLInputElement;
     expect(cpl.value).toBe('60');
     await act(async () => type(cpl, '45'));
     await act(async () => cpl.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
@@ -788,7 +788,7 @@ describe('standing bids in Admin', () => {
     await flush();
     const panel = document.body.querySelector('[role="dialog"]')!;
     expect(panel.getAttribute('aria-label')).toBe('Roofing in Midland County');
-    expect(panel.querySelector('[data-testid="slot-profit"]')!.textContent).toBe('Worth it? $300.00 bid − $60.00 ad cost − $5.00 call = about $235.00 profit a lead.');
+    expect(panel.querySelector('[data-testid="slot-profit"]')!.textContent).toBe('Worth it? $300.00 highest funded bid − $60.00 ad cost − $5.00 call = about $235.00 profit a lead.');
     expect(panel.querySelector('[aria-label="Bidders"]')!.textContent).toContain('Rich Roofing$300.00 · can pay for 1 more lead');
     expect(panel.querySelector('[aria-label="Bidders"]')!.textContent).toContain("Poor Roofing$400.00 · can't pay: balance $1.00");
     await act(async () => (panel.querySelector('button[aria-label="Close"]') as HTMLButtonElement).click());
