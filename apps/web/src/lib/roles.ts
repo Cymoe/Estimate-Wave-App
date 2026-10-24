@@ -16,3 +16,11 @@ export const isStaff = (user: RoleUser | null | undefined) =>
 
 /** Where someone lands after signing in: staff and the owner on Ops, everyone else on their company. */
 export const homeFor = (user: RoleUser | null | undefined) => (isStaff(user) ? '/ops' : HOME_PATH);
+
+/**
+ * Where to land after signing in when the address asked for somewhere
+ * (`/?next=/ops?tab=companies`): that place if it is a path on this site,
+ * otherwise home. Anything that could leave the site is ignored.
+ */
+export const landingFor = (user: RoleUser | null | undefined, next: string | null | undefined) =>
+  next && next.startsWith('/') && !next.startsWith('//') && !/[\s\\]/.test(next) ? next : homeFor(user);

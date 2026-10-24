@@ -1,8 +1,8 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { homeFor, isStaff } from './lib/roles';
+import { landingFor, isStaff } from './lib/roles';
 import { ScrollRestoration } from './components/ScrollRestoration';
 import Dashboard from './pages/dashboard/Dashboard';
 import { TestAuth } from './components/auth/TestAuth';
@@ -114,7 +114,9 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!session || !user) {
-    return <Navigate to="/" replace />;
+    // Remember where they were going, so sign-in brings them back to it.
+    const here = `${location.pathname}${location.search}`;
+    return <Navigate to={here === '/' ? '/' : `/?next=${encodeURIComponent(here)}`} replace />;
   }
 
   // Staff have no company of their own: Ops is their whole app.
@@ -135,10 +137,11 @@ function StaffRoute({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** The signed-in home: staff and the owner on Ops, everyone else on their company. */
+/** The signed-in home: the place they were headed (?next=), else Ops for staff and the owner, the company for everyone else. */
 function HomeRedirect() {
   const { user } = useAuth();
-  return <Navigate to={homeFor(user)} replace />;
+  const [params] = useSearchParams();
+  return <Navigate to={landingFor(user, params.get('next'))} replace />;
 }
 
 /** The old Ops address, with its query string (the yellow + button's ?new=lead). */

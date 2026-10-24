@@ -117,6 +117,8 @@ interface CreditRequest {
 }
 
 type Tab = 'demand' | 'intake' | 'inbox' | 'delivered' | 'companies' | 'prices';
+const TABS: Tab[] = ['demand', 'intake', 'inbox', 'delivered', 'companies', 'prices'];
+const isTab = (value: string | null): value is Tab => TABS.includes(value as Tab);
 
 const TAB_TITLES: Record<Tab, string> = {
   demand: 'Demand',
@@ -1046,12 +1048,31 @@ function PricesTab({ trades }: { trades: Trade[] }) {
 const LeadMarketPage: React.FC = () => {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [tab, setTab] = useState<Tab>(() => (searchParams.get('new') === 'company' ? 'companies' : 'intake'));
   const [trades, setTrades] = useState<Trade[]>([]);
   const [sending, setSending] = useState<MarketLead | null>(null);
   const [verifying, setVerifying] = useState<MarketLead | null>(null);
-  const [openCompanyId, setOpenCompanyId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Staff run the page; only the owner sees money, prices, demo data and companies' setup.
+  const staff = isStaff(user);
+  const owner = isSuperAdmin(user);
+  // Where you are lives in the address (?tab=…&company=…), so Back works, a
+  // refresh keeps the tab, and a link in an email opens the right panel.
+  const creating = searchParams.get('new');
+  const tabParam = searchParams.get('tab');
+  const tab: Tab =
+    isTab(tabParam) && (tabParam !== 'prices' || owner) ? tabParam : creating === 'company' ? 'companies' : 'intake';
+  const openCompanyId = searchParams.get('company');
+  const go = (changes: { tab?: Tab; company?: string | null }, { replace = false } = {}) => {
+    const next = new URLSearchParams(searchParams);
+    if (changes.tab) next.set('tab', changes.tab);
+    if (changes.company !== undefined) {
+      if (changes.company) next.set('company', changes.company);
+      else next.delete('company');
+    }
+    setSearchParams(next, { replace });
+  };
+  const setTab = (value: Tab) => go({ tab: value, company: null });
+  const setOpenCompanyId = (id: string | null) => go({ company: id }, { replace: id === null });
   // A failed action says so here and stays until dismissed; the notice below is for things that worked.
   const [error, setError] = useState<string | null>(null);
   const attempt = async (what: string, fn: () => Promise<unknown>) => {
@@ -1061,7 +1082,6 @@ const LeadMarketPage: React.FC = () => {
       setError(`${what}: ${describeError(err, 'something went wrong on the server')}`);
     }
   };
-  const creating = searchParams.get('new');
   const openNewCompany = () => {
     const next = new URLSearchParams(searchParams);
     next.set('new', 'company');
@@ -1073,9 +1093,6 @@ const LeadMarketPage: React.FC = () => {
     setSearchParams(next, { replace: true });
   };
 
-  // Staff run the page; only the owner sees money, prices, demo data and companies' setup.
-  const staff = isStaff(user);
-  const owner = isSuperAdmin(user);
   // Everything on the page is a live subscription: a sale, a payment, an
   // application or a credit shows the moment it lands, from any device.
   const inboxLive = useInbox<{ available: MarketLead[]; older?: MarketLead[]; archivedCount?: number; sold: MarketLead[] }>(staff);
@@ -1083,7 +1100,7 @@ const LeadMarketPage: React.FC = () => {
   const creditsLive = usePendingCredits<CreditRequest[]>(staff);
   const applicationsLive = useApplications<Application[]>(staff);
   const inbox = inboxLive ?? { available: [], sold: [] };
-  const companies = companiesLive ?? [];
+  const companies = useMemo(() => companiesLive ?? [], [companiesLive]);
   const credits = creditsLive ?? [];
   const applications = applicationsLive ?? [];
   const loading = inboxLive === undefined || companiesLive === undefined;
@@ -1104,11 +1121,6 @@ const LeadMarketPage: React.FC = () => {
     if (!staff) return;
     industriesAPI.list().then(setTrades).catch(() => setTrades([]));
   }, [staff]);
-
-  useEffect(() => {
-    if (creating === 'company') setTab('companies');
-    if (creating === 'lead') setTab('intake');
-  }, [creating]);
 
   useEffect(() => {
     if (!notice) return;
@@ -1255,10 +1267,7 @@ const LeadMarketPage: React.FC = () => {
       {owner && credits.length > 0 && tab !== 'prices' && (
         <button
           type="button"
-          onClick={() => {
-            setTab('companies');
-            setOpenCompanyId(credits[0].organizationId);
-          }}
+          onClick={() => go({ tab: 'companies', company: credits[0].organizationId })}
           className="w-full mb-4 text-left px-4 py-3 rounded border border-amber-500/40 bg-amber-500/10 text-sm text-amber-200"
         >
           {credits.length} credit request{credits.length === 1 ? '' : 's'} waiting for review

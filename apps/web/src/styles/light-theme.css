@@ -258,6 +258,8 @@ html.light .text-pink-400 { color: #be185d; }
 html.light .text-purple-300 { color: #7e22ce; }
 html.light .text-purple-400 { color: #7e22ce; }
 html.light .text-red-200 { color: #b91c1c; }
+html.light .text-red-200\/70 { color: rgba(185, 28, 28, 0.7); }
+html.light .text-red-200\/80 { color: rgba(185, 28, 28, 0.8); }
 html.light .text-red-300 { color: #b91c1c; }
 html.light .text-red-400 { color: #b91c1c; }
 html.light .text-red-400\/70 { color: rgba(185, 28, 28, 0.7); }

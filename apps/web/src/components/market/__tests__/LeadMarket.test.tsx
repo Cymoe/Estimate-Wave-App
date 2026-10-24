@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -258,6 +258,30 @@ describe('Lead Market', () => {
     expect(heading()).toBe('Prices');
     expect(summary()).toBe('Start and floor price for 2 trades');
     expect(document.title).toBe('Prices · Ops · FieldQuote');
+  });
+
+  it('keeps the tab and the open company in the address, so Back works and a link opens the right panel', async () => {
+    const Address = () => {
+      const location = useLocation();
+      return <span data-testid="address">{location.pathname + location.search}</span>;
+    };
+    const address = () => document.body.querySelector('[data-testid="address"]')!.textContent;
+    await render(<MemoryRouter initialEntries={['/ops?tab=companies&company=o2']}><LeadMarketPage /><Address /></MemoryRouter>, false);
+    expect(document.body.querySelector('h1')!.textContent).toBe('Companies');
+    expect(document.body.querySelector('[role="dialog"]')!.textContent).toContain('Peak Roofing');
+    await act(async () => (document.body.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click());
+    await flush();
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+    expect(address()).toBe('/ops?tab=companies');
+    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Demand'))!.click());
+    await flush();
+    expect(document.body.querySelector('h1')!.textContent).toBe('Demand');
+    expect(address()).toBe('/ops?tab=demand');
+    // Staff never see Prices, so a link to it lands them on Intake instead of a blank tab.
+    document.body.innerHTML = '';
+    role = 'staff';
+    await render(<MemoryRouter initialEntries={['/ops?tab=prices']}><LeadMarketPage /></MemoryRouter>, false);
+    expect(document.body.querySelector('h1')!.textContent).toBe('Intake');
   });
 
   it('says what failed and why, and keeps saying it until dismissed', async () => {

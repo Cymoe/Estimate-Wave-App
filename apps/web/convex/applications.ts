@@ -4,7 +4,7 @@ import type { Doc } from "./_generated/dataModel";
 import { internalAction, internalQuery, mutation, query, type QueryCtx } from "./_generated/server";
 import { fail, nowIso, requireStaff, requireSuperAdmin } from "./lib/access";
 import { COUNTY_CHOICES, WEST_TEXAS_COUNTIES, normalizeCounty } from "./lib/counties";
-import { sendEmail } from "./delivery";
+import { sendEmail, siteUrl } from "./delivery";
 import { knownTrades } from "./industries";
 import { createCompanyFor } from "./marketplace";
 
@@ -132,7 +132,7 @@ export const notifyOwner = internalAction({
       a.jobsPerMonth ? `Jobs a month: ${a.jobsPerMonth}` : "",
       a.notes ? `Notes: ${a.notes}` : "",
       "",
-      "Approve or decline it on Ops → Companies.",
+      `Approve or decline it: ${siteUrl()}/ops?tab=companies`,
     ].filter((l) => l !== "");
     return await sendEmail([notice.to], {
       subject: `New lead buyer: ${a.companyName} · ${a.county}`,

@@ -46,7 +46,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const signInWithGoogle = async () => {
     try {
-      await signIn('google', { redirectTo: AFTER_SIGN_IN });
+      // Keep ?next= through the round trip so they land where they were headed.
+      const next = new URLSearchParams(window.location.search).get('next');
+      await signIn('google', { redirectTo: next ? `${AFTER_SIGN_IN}?next=${encodeURIComponent(next)}` : AFTER_SIGN_IN });
     } catch (error) {
       console.error('Error initiating Google sign-in:', error);
     }
