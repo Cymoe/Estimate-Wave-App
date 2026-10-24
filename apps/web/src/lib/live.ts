@@ -55,6 +55,14 @@ export const useIntakeQueue = <T,>(status: 'open' | 'closed' | 'confirmed') => u
 export const useIntakeLog = <T,>() => useLive<T>(q('intake:recentLog'), {});
 /** Every awarded lead with what was sent and whether the company has it. */
 export const useDelivered = <T,>() => useLive<T>(q('delivery:recent'), {});
+/** Leads for sale, the Vault and the last ones sold: the Listed tab. */
+export const useInbox = <T,>(on = true) => useLive<T>(q('marketplace:listInbox'), on ? {} : 'skip');
+/** Every company with its balance, this month's leads and spend, and its plan. */
+export const useCompanies = <T,>(on = true) => useLive<T>(q('marketplace:companiesOverview'), on ? {} : 'skip');
+/** Credit requests waiting on the owner. */
+export const usePendingCredits = <T,>(on = true) => useLive<T>(q('marketplace:pendingCredits'), on ? {} : 'skip');
+/** Companies that applied from the landing page and wait on a decision. */
+export const useApplications = <T,>(on = true) => useLive<T>(q('applications:list'), on ? {} : 'skip');
 /** Whether payments are in test mode (play money). Staff only; undefined while loading or signed out. */
 export const usePaymentsMode = <T,>() => useLive<T>(q('funding:mode'), {});
 /** The funding page behind a link: no login, the token is the key. Flips to paid when Stripe's webhook lands. */

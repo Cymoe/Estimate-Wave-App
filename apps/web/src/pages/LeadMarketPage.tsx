@@ -9,7 +9,7 @@ import { Dialog, Field, ago, input, primary, secondary } from '../components/ops
 import { IntakeQueue } from '../components/ops/IntakeQueue';
 import { Delivered, type DeliveredRow } from '../components/ops/Delivered';
 import { DemandBoard, type DemandBoardData } from '../components/ops/DemandBoard';
-import { useDelivered, useDemandBoard, useIntakeQueue, usePaymentsMode } from '../lib/live';
+import { useApplications, useCompanies, useDelivered, useDemandBoard, useInbox, useIntakeQueue, usePaymentsMode, usePendingCredits } from '../lib/live';
 import { isStaff, isSuperAdmin } from '../lib/roles';
 import { TeamCard } from '../components/ops/TeamCard';
 import { useConfirm } from '../components/common/ConfirmDialog';
@@ -399,7 +399,7 @@ function SendToDialog({
 
 /** One company: its balance, payments, credit requests, leads and history. */
 /** The company's monthly plan: status, price and claims, and a one-tap comp. */
-function PlanSection({ company, onChanged }: { company: Company; onChanged: () => void }) {
+function PlanSection({ company }: { company: Company }) {
   const plan = company.plan ?? null;
   const [monthly, setMonthly] = useState(String((plan?.monthlyCents ?? 9900) / 100));
   const [claims, setClaims] = useState(String(plan?.claimsIncluded ?? 10));
@@ -416,7 +416,6 @@ function PlanSection({ company, onChanged }: { company: Company; onChanged: () =
     setError(null);
     try {
       await marketplaceAPI.setPlan(company.id, changes);
-      onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "The plan couldn't be saved");
     } finally {
@@ -486,7 +485,6 @@ function CompanyPanel({
   trades,
   credits,
   onClose,
-  onChanged,
 }: {
   company: Company;
   /** The platform owner sees and changes money and setup; staff only read. */
@@ -494,7 +492,6 @@ function CompanyPanel({
   trades: Trade[];
   credits: CreditRequest[];
   onClose: () => void;
-  onChanged: () => void;
 }) {
   const [wallet, setWallet] = useState<any>(null);
   const [leads, setLeads] = useState<any[]>([]);
@@ -536,7 +533,6 @@ function CompanyPanel({
       setBonus('');
       setNote('');
       await load();
-      onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "The payment couldn't be recorded");
     } finally {
@@ -549,7 +545,6 @@ function CompanyPanel({
     try {
       await marketplaceAPI.reviewCredit(orgLeadId, approve);
       await load();
-      onChanged();
     } finally {
       setBusy(false);
     }
@@ -569,7 +564,6 @@ function CompanyPanel({
       setCreditNote('');
       setCredited(`Credited ${money(amountCents)} back to ${company.name} for ${lead.name}.`);
       await load();
-      onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "The credit didn't go through");
     } finally {
@@ -593,7 +587,6 @@ function CompanyPanel({
     }
     setLeadTrades(next);
     await marketplaceAPI.setCompanyTrades(company.id, next);
-    onChanged();
   };
 
   const mine = credits.filter((c) => c.organizationId === company.id);
@@ -626,7 +619,6 @@ function CompanyPanel({
     try {
       const result = await marketplaceAPI.setCompanyOwner(company.id, ownerEmail);
       setOwnerNote(result === 'added' ? 'Added as owner' : "Saved. They'll join this company when they sign up.");
-      onChanged();
     } catch (err) {
       setOwnerNote(err instanceof Error ? err.message : "The owner couldn't be saved");
     } finally {
@@ -641,7 +633,6 @@ function CompanyPanel({
     setRemoveError(null);
     try {
       await marketplaceAPI.removeCompany(company.id);
-      onChanged();
       onClose();
     } catch (err) {
       setRemoveError(err instanceof Error ? err.message : "The company couldn't be removed");
@@ -786,7 +777,7 @@ function CompanyPanel({
             {confirmDialog}
           </section>
 
-          {owner && <PlanSection company={company} onChanged={onChanged} />}
+          {owner && <PlanSection company={company} />}
 
           <section>
             <h3 className="text-sm font-medium text-white mb-2">Standing bids</h3>
@@ -1057,14 +1048,6 @@ const LeadMarketPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState<Tab>(() => (searchParams.get('new') === 'company' ? 'companies' : 'intake'));
   const [trades, setTrades] = useState<Trade[]>([]);
-  const [inbox, setInbox] = useState<{ available: MarketLead[]; older?: MarketLead[]; archivedCount?: number; sold: MarketLead[] }>({
-    available: [],
-    sold: [],
-  });
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [credits, setCredits] = useState<CreditRequest[]>([]);
-  const [applications, setApplications] = useState<Application[]>([]);
-  const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState<MarketLead | null>(null);
   const [verifying, setVerifying] = useState<MarketLead | null>(null);
   const [openCompanyId, setOpenCompanyId] = useState<string | null>(null);
@@ -1084,30 +1067,27 @@ const LeadMarketPage: React.FC = () => {
   // Staff run the page; only the owner sees money, prices, demo data and companies' setup.
   const staff = isStaff(user);
   const owner = isSuperAdmin(user);
-  const reload = useCallback(async () => {
-    const [i, c, p, a] = await Promise.all([
-      marketplaceAPI.inbox(),
-      marketplaceAPI.companies(),
-      marketplaceAPI.pendingCredits(),
-      applicationsAPI.list().catch(() => []),
-    ]);
-    setInbox(i);
-    setCompanies(c);
-    setCredits(p);
-    setApplications(a);
-  }, []);
+  // Everything on the page is a live subscription: a sale, a payment, an
+  // application or a credit shows the moment it lands, from any device.
+  const inboxLive = useInbox<{ available: MarketLead[]; older?: MarketLead[]; archivedCount?: number; sold: MarketLead[] }>(staff);
+  const companiesLive = useCompanies<Company[]>(staff);
+  const creditsLive = usePendingCredits<CreditRequest[]>(staff);
+  const applicationsLive = useApplications<Application[]>(staff);
+  const inbox = inboxLive ?? { available: [], sold: [] };
+  const companies = companiesLive ?? [];
+  const credits = creditsLive ?? [];
+  const applications = applicationsLive ?? [];
+  const loading = inboxLive === undefined || companiesLive === undefined;
 
   /** Approve sets the company up and opens its panel, so the funding link can go out next. */
   const decideApplication = async (id: string, approve: boolean) => {
     try {
       if (approve) {
         const { organizationId } = await applicationsAPI.approve(id);
-        await reload();
         setOpenCompanyId(organizationId);
         setNotice('Company set up. Send the funding link when you have spoken to them.');
       } else {
         await applicationsAPI.decline(id);
-        await reload();
       }
     } catch (err) {
       setNotice(err instanceof Error ? err.message : 'That did not go through.');
@@ -1117,10 +1097,7 @@ const LeadMarketPage: React.FC = () => {
   useEffect(() => {
     if (!staff) return;
     industriesAPI.list().then(setTrades).catch(() => setTrades([]));
-    reload()
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [staff, reload]);
+  }, [staff]);
 
   useEffect(() => {
     if (creating === 'company') setTab('companies');
@@ -1287,10 +1264,7 @@ const LeadMarketPage: React.FC = () => {
           trades={trades}
           openNew={creating === 'lead'}
           onCloseNew={closeCreate}
-          onListed={(message) => {
-            setNotice(message);
-            reload();
-          }}
+          onListed={setNotice}
         />
       ) : tab === 'demand' ? (
         <DemandBoard owner={owner} />
@@ -1355,7 +1329,6 @@ const LeadMarketPage: React.FC = () => {
                     onClick={async () => {
                       if (!window.confirm(`Delete ${lead.name}?`)) return;
                       await marketplaceAPI.removeLead(lead.id);
-                      await reload();
                     }}
                     className="p-2 text-gray-500 hover:text-red-400"
                   >
@@ -1398,7 +1371,6 @@ const LeadMarketPage: React.FC = () => {
                         className={secondary}
                         onClick={async () => {
                           await marketplaceAPI.archiveLead(lead.id);
-                          reload();
                         }}
                       >
                         Archive
@@ -1550,18 +1522,15 @@ const LeadMarketPage: React.FC = () => {
         <PricesTab trades={trades} />
       ) : null}
 
-      {owner && creating === 'company' && <NewCompanyDialog trades={trades} onClose={closeCreate} onSaved={() => reload()} />}
-      {verifying && <VerifyDialog lead={verifying} onClose={() => setVerifying(null)} onSaved={() => reload()} />}
+      {owner && creating === 'company' && <NewCompanyDialog trades={trades} onClose={closeCreate} onSaved={() => setNotice('Company added.')} />}
+      {verifying && <VerifyDialog lead={verifying} onClose={() => setVerifying(null)} onSaved={() => setNotice(`${verifying.name} confirmed.`)} />}
       {sending && (
         <SendToDialog
           lead={sending}
           companies={companies}
           tradeName={tradeName}
           onClose={() => setSending(null)}
-          onSent={(message) => {
-            setNotice(message);
-            reload();
-          }}
+          onSent={setNotice}
         />
       )}
       {openCompany && (
@@ -1571,7 +1540,6 @@ const LeadMarketPage: React.FC = () => {
           trades={trades}
           credits={credits}
           onClose={() => setOpenCompanyId(null)}
-          onChanged={() => reload()}
         />
       )}
       {notice && (
