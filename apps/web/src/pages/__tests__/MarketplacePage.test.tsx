@@ -118,6 +118,7 @@ describe('Marketplace', () => {
     await flush();
     expect(buy).toHaveBeenCalledWith('m1', 'o2');
     expect(document.body.textContent).toContain('Lead bought');
+    expect(document.body.querySelector('[role="status"] a')?.getAttribute('href')).toBe('/leads?lead=ol1');
   });
 
   it('places a buy order at the next drop price, then cancels it', async () => {

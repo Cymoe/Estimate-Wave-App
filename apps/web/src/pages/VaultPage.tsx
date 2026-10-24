@@ -59,7 +59,7 @@ const VaultPage: React.FC = () => {
   const [tab, setTab] = useState<'leads' | 'permits'>('leads');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { toast, show } = useToast();
+  const { toast, link, show } = useToast();
   const [confirm, confirmDialog] = useConfirm();
 
   const claim = async (lead: VaultLead) => {
@@ -76,8 +76,8 @@ const VaultPage: React.FC = () => {
     setBusy(true);
     setError(null);
     try {
-      await walletAPI.claim(lead.id, organizationId!);
-      show('Lead claimed: it’s in your Leads with the homeowner’s details.');
+      const result = (await walletAPI.claim(lead.id, organizationId!)) as { orgLeadId?: string } | null;
+      show('Lead claimed: it’s in your Leads with the homeowner’s details.', result?.orgLeadId ? { to: `/leads?lead=${result.orgLeadId}`, label: 'Open it' } : undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'That didn’t work');
     } finally {
@@ -124,7 +124,7 @@ const VaultPage: React.FC = () => {
           {error}
         </InlineNotice>
       )}
-      <Toast text={toast} />
+      <Toast text={toast} link={link} />
       {confirmDialog}
 
       {pool === null ? (

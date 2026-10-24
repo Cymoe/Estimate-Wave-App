@@ -77,7 +77,7 @@ const MarketplacePage: React.FC = () => {
   const [ordering, setOrdering] = useState<{ id: string; value: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { toast, show } = useToast();
+  const { toast, link, show } = useToast();
 
   useEffect(() => {
     // Prices move on their own: tick the countdowns. Fills and sales arrive on their own.
@@ -94,8 +94,10 @@ const MarketplacePage: React.FC = () => {
     setBusy(true);
     setError(null);
     try {
-      await work();
-      show(done);
+      const result = await work();
+      // A bought lead is now in Leads: the confirmation opens it.
+      const orgLeadId = (result as { orgLeadId?: string } | null | undefined)?.orgLeadId;
+      show(done, orgLeadId ? { to: `/leads?lead=${orgLeadId}`, label: 'Open it' } : undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'That didn’t work');
     } finally {
@@ -242,7 +244,7 @@ const MarketplacePage: React.FC = () => {
           {error}
         </InlineNotice>
       )}
-      <Toast text={toast} />
+      <Toast text={toast} link={link} />
 
       <div className="flex items-center gap-2 mb-3">
         <button

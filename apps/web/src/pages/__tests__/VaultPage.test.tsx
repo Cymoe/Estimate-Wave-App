@@ -88,6 +88,7 @@ describe('The Vault', () => {
     await flush();
     expect(claim).toHaveBeenCalledWith('m9', 'o2');
     expect(document.body.querySelector('[role="status"]')?.textContent).toContain('Lead claimed');
+    expect(document.body.querySelector('[role="status"] a')?.getAttribute('href')).toBe('/leads?lead=ol2');
 
     // Past the allowance the button carries the price.
     pool = { ...(pool as object), plan: { ...trial, claimsLeft: 0, nextClaimCents: 1500 } };

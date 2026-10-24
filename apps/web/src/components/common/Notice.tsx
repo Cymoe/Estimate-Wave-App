@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 /**
  * One quiet way to confirm things across the app.
@@ -17,23 +18,36 @@ import { X } from 'lucide-react';
 
 const toastMs = (text: string) => Math.min(6000, Math.max(2500, text.length * 50));
 
-export function useToast() {
-  const [toast, setToast] = useState<string | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout>>();
-  useEffect(() => () => clearTimeout(timer.current), []);
-  const show = useCallback((text: string) => {
-    clearTimeout(timer.current);
-    setToast(text);
-    timer.current = setTimeout(() => setToast((current) => (current === text ? null : current)), toastMs(text));
-  }, []);
-  return { toast, show };
+/** A place the confirmation can take you, such as the lead just bought. */
+export interface ToastLink {
+  to: string;
+  label: string;
 }
 
-export const Toast: React.FC<{ text: string | null }> = ({ text }) =>
+export function useToast() {
+  const [state, setState] = useState<{ text: string; link?: ToastLink } | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const show = useCallback((text: string, link?: ToastLink) => {
+    clearTimeout(timer.current);
+    setState({ text, link });
+    // A toast with a link stays the longest, so there is time to tap it.
+    const ms = link ? 8000 : toastMs(text);
+    timer.current = setTimeout(() => setState((current) => (current?.text === text ? null : current)), ms);
+  }, []);
+  return { toast: state?.text ?? null, link: state?.link, show };
+}
+
+export const Toast: React.FC<{ text: string | null; link?: ToastLink }> = ({ text, link }) =>
   text
     ? createPortal(
-        <div role="status" className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[10030] px-4 py-2 rounded-lg bg-[#1E1E1E] border border-[#333333] text-sm text-white shadow-xl">
-          {text}
+        <div role="status" className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[10030] max-w-[calc(100vw-32px)] px-4 py-2 rounded-lg bg-[#1E1E1E] border border-[#333333] text-sm text-white shadow-xl flex items-center gap-3">
+          <span>{text}</span>
+          {link && (
+            <Link to={link.to} className="shrink-0 inline-flex items-center min-h-[44px] font-medium text-[#6aa3d9] hover:text-white">
+              {link.label}
+            </Link>
+          )}
         </div>,
         document.body,
       )
