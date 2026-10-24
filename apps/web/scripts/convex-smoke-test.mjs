@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 /**
- * End-to-end check against a deployed Convex backend: signs up a throwaway
- * email/password user, then exercises the main functions as that user.
+ * End-to-end check against a deployed Convex backend: checks that an email
+ * sign-up gets no session before its code, makes a throwaway verified
+ * account (through `npx convex run`, so CONVEX_DEPLOY_KEY must be set),
+ * signs in with its password and exercises the main functions as that user.
  *
- *   CONVEX_URL=https://<deployment>.convex.cloud node scripts/convex-smoke-test.mjs
+ *   CONVEX_URL=https://<deployment>.convex.cloud CONVEX_DEPLOY_KEY=… node scripts/convex-smoke-test.mjs
  */
+import { execFileSync } from "node:child_process";
 import { ConvexHttpClient } from "convex/browser";
 import { anyApi } from "convex/server";
 
@@ -31,11 +34,30 @@ try {
 }
 check(refused, "signed-out callers are rejected");
 
+// An email sign-up waits for its code: no session yet (or, without
+// RESEND_API_KEY on the deployment, a clear error saying so).
+let unproven;
+try {
+  unproven = await client.action(api.auth.signIn, {
+    provider: "password",
+    params: { email: `unproven-${email}`, password, flow: "signUp", name: "Smoke Test" },
+  });
+} catch (err) {
+  unproven = { error: String(err?.message ?? err) };
+}
+check(
+  !unproven?.tokens && (unproven?.error === undefined || /RESEND_API_KEY|could not be sent/.test(unproven.error)),
+  "an email sign-up gets no session until its code is typed",
+);
+
+execFileSync("npx", ["convex", "run", "seed:prepareSmokeAccount", JSON.stringify({ email, password, name: "Smoke Test" })], {
+  stdio: ["ignore", "ignore", "inherit"],
+});
 const result = await client.action(api.auth.signIn, {
   provider: "password",
-  params: { email, password, flow: "signUp", name: "Smoke Test" },
+  params: { email, password, flow: "signIn" },
 });
-check(result?.tokens?.token, "email/password sign-up returns a session token");
+check(result?.tokens?.token, "a verified email account signs in with its password");
 client.setAuth(result.tokens.token);
 
 const me = await client.query(api.users.me, {});

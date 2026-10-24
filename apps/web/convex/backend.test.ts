@@ -53,6 +53,59 @@ describe("auth and tenancy", () => {
     });
   });
 
+  test("the smoke test's account is made verified with a company, and only for @fieldquote.test", async () => {
+    const t = setup();
+    await expect(
+      t.action(internal.seed.prepareSmokeAccount, { email: "someone@example.com", password: "long enough pw" }),
+    ).rejects.toThrow(/@fieldquote.test/);
+    const userId = await t.action(internal.seed.prepareSmokeAccount, {
+      email: "smoke-test+1@fieldquote.test",
+      password: "long enough pw",
+      name: "Smoke Test",
+    });
+    await t.run(async (ctx) => {
+      const account = await ctx.db
+        .query("authAccounts")
+        .withIndex("providerAndAccountId", (q) => q.eq("provider", "password").eq("providerAccountId", "smoke-test+1@fieldquote.test"))
+        .unique();
+      expect(account?.userId).toBe(userId);
+      expect(account?.emailVerified).toBe("smoke-test+1@fieldquote.test");
+      expect(account?.secret).not.toBe("long enough pw");
+      expect(await ctx.db.query("memberships").withIndex("by_user", (q) => q.eq("userId", userId as never)).collect()).toHaveLength(1);
+    });
+  });
+
+  test("password accounts made before email codes are kept working; later ones still need the code", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = setup();
+      vi.setSystemTime(new Date("2026-10-24T17:00:00.000Z"));
+      const ids = await t.run(async (ctx) => {
+        const userId = await ctx.db.insert("users", { email: "old@example.com" });
+        return {
+          old: await ctx.db.insert("authAccounts", { userId, provider: "password", providerAccountId: "old@example.com", secret: "x" }),
+          google: await ctx.db.insert("authAccounts", { userId, provider: "google", providerAccountId: "123" }),
+        };
+      });
+      vi.setSystemTime(new Date("2026-10-24T18:00:00.000Z"));
+      const late = await t.run(async (ctx) => {
+        const userId = await ctx.db.insert("users", { email: "late@example.com" });
+        return await ctx.db.insert("authAccounts", { userId, provider: "password", providerAccountId: "late@example.com", secret: "x" });
+      });
+      const before = Date.parse("2026-10-24T17:51:00.000Z");
+      expect(await t.mutation(internal.users.keepEarlierPasswordAccounts, { before })).toEqual({ marked: 1 });
+      await t.run(async (ctx) => {
+        expect((await ctx.db.get(ids.old))!.emailVerified).toBe("old@example.com");
+        expect((await ctx.db.get(late))!.emailVerified).toBeUndefined();
+        expect((await ctx.db.get(ids.google))!.emailVerified).toBeUndefined();
+      });
+      // Running again changes nothing.
+      expect(await t.mutation(internal.users.keepEarlierPasswordAccounts, { before })).toEqual({ marked: 0 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("me returns the user with their organization", async () => {
     const t = setup();
     const { as, userId, organizationId } = await signUp(t, "a@example.com");

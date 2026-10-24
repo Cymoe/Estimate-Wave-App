@@ -89,6 +89,10 @@ jobs:
         # Bids are only for listed trades. Safe to re-run: with none outside
         # the lists it does nothing.
         run: npx convex run bids:removeBidsOutsideTrades
+      - name: Keep password accounts made before email codes
+        # They got their invites when they signed up; mark them proven so they
+        # aren't asked for a code. Safe to re-run: marked accounts are skipped.
+        run: npx convex run users:keepEarlierPasswordAccounts
       - name: Pull Midland's permits
         # The Vault's "Permits near you". Incremental after the first run.
         run: npx convex run permits:syncMidland
@@ -97,7 +101,7 @@ jobs:
         run: node scripts/convex-smoke-test.mjs
 
       - name: Remove smoke-test data
-        # The smoke test signs up a throwaway @fieldquote.test account (with a
-        # company); delete it so test companies don't pile up.
+        # The smoke test makes throwaway @fieldquote.test accounts (one with a
+        # company); delete them so test companies don't pile up.
         if: always()
         run: npx convex run seed:removeSmokeTests

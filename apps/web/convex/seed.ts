@@ -1,3 +1,4 @@
+import { createAccount } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -5,7 +6,7 @@ import { internalAction, internalMutation, type MutationCtx } from "./_generated
 import { STARTER_COST_CODES, STARTER_INDUSTRIES, STARTER_ITEMS } from "./catalog/starterCatalog";
 import { nowIso } from "./lib/access";
 import { deleteOrganization, deleteUser } from "./lib/cleanup";
-import { createOrganization } from "./lib/organizations";
+import { claimInvites, createOrganization } from "./lib/organizations";
 import { seedDemoIntake } from "./intake";
 import {
   companyNameKey,
@@ -228,6 +229,38 @@ export const makeSuperAdmin = internalMutation({
     if (user === null) throw new Error(`No user with email ${email}`);
     await ctx.db.patch(user._id, { role: "super_admin" });
     return user._id;
+  },
+});
+
+/**
+ * The deploy smoke test's throwaway account, made already verified so it can
+ * sign in with its password without a code (no inbox reads the code). Only
+ * for `@fieldquote.test` addresses, which removeSmokeTests deletes after.
+ * The new account gets its company the way a verified sign-up does.
+ *
+ *   npx convex run seed:prepareSmokeAccount '{"email":"smoke-test+1@fieldquote.test","password":"…"}'
+ */
+export const prepareSmokeAccount = internalAction({
+  args: { email: v.string(), password: v.string(), name: v.optional(v.string()) },
+  handler: async (ctx, { email, password, name }): Promise<string> => {
+    if (!email.endsWith("@fieldquote.test")) throw new Error("Smoke accounts must use an @fieldquote.test email");
+    const { user } = await createAccount(ctx, {
+      provider: "password",
+      account: { id: email, secret: password },
+      // emailVerified marks the password account proven, so sign-in skips the code.
+      profile: { email, ...(name ? { name } : {}), emailVerified: true } as never,
+    });
+    await ctx.runMutation(internal.seed.claimSmokeInvites, { userId: user._id });
+    return user._id;
+  },
+});
+
+export const claimSmokeInvites = internalMutation({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => {
+    const user = await ctx.db.get(userId);
+    if (!user?.email?.endsWith("@fieldquote.test")) throw new Error("Not a smoke account");
+    return await claimInvites(ctx, userId);
   },
 });
 
