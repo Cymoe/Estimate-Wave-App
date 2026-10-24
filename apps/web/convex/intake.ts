@@ -281,7 +281,7 @@ export const create = mutation({
 async function openRow(ctx: MutationCtx, id: Id<"intakeLeads">): Promise<Doc<"intakeLeads">> {
   const row = await ctx.db.get(id);
   if (row === null) fail("NOT_FOUND", "Lead not found");
-  if (row.status === "confirmed") fail("INVALID", "This lead is already listed");
+  if (row.status === "confirmed") fail("INVALID", "This lead is already confirmed");
   return row;
 }
 
@@ -404,7 +404,7 @@ export const confirm = mutation({
     for (const [key, label] of Object.entries(CHECKS) as Array<[keyof typeof CHECKS, string]>) {
       if (!checks[key]) fail("INVALID", `Not confirmed yet: ${label.toLowerCase()}`);
     }
-    if (row.duplicateOf && !allowDuplicate) fail("INVALID", "Same number as another lead. Close it as a duplicate, or list it anyway.");
+    if (row.duplicateOf && !allowDuplicate) fail("INVALID", "Same number as another lead. Close it as a duplicate, or confirm it anyway.");
     const clean = await cleanFields(ctx, fields);
     const merged = { ...row, ...clean };
     if (!merged.name) fail("INVALID", "The homeowner's name is needed");
@@ -440,7 +440,7 @@ export const confirm = mutation({
       phoneNormalized: normalizePhone(merged.phone),
       status: "confirmed",
       confirmedLeadId: leadId,
-      attempts: [...row.attempts, { at: now, by: user._id, outcome: "reached", note: note?.trim() || "Confirmed and listed" }],
+      attempts: [...row.attempts, { at: now, by: user._id, outcome: "reached", note: note?.trim() || "Confirmed" }],
       updatedAt: now,
     });
     const lead = (await ctx.db.get(leadId))!;

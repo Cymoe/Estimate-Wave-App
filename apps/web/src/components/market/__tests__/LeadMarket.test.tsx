@@ -136,9 +136,9 @@ function type(el: HTMLInputElement, value: string) {
   el.dispatchEvent(new Event('input', { bubbles: true }));
 }
 const byText = (text: string) => buttons().find((b) => b.textContent?.includes(text));
-/** The Ops page opens on Intake; the listed leads sit behind the Listed tab. */
+/** The Ops page opens on Intake; the leads for sale sit behind the For sale tab. */
 const openListed = async () => {
-  await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Listed'))!.click());
+  await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('For sale'))!.click());
   await flush();
 };
 
@@ -179,7 +179,7 @@ describe('Lead Market', () => {
     role = 'staff';
     await render(<LeadMarketPage />);
     expect(document.body.textContent).toContain('FieldQuote staff');
-    expect(Array.from(document.body.querySelectorAll('[role="tablist"]:not([aria-label]) [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand (0/0)', 'Intake (0)', 'Listed (1)', 'Sold', 'Companies (3)']);
+    expect(Array.from(document.body.querySelectorAll('[role="tablist"]:not([aria-label]) [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand (0/0)', 'Intake (0)', 'For sale (1)', 'Sold', 'Companies (3)']);
     expect(document.body.textContent).not.toContain('Add 20 sample leads');
     expect(document.body.querySelector('[data-testid="team-card"]')).toBeNull();
     // The company panel reads only: no funding link, payments or plan.
@@ -193,11 +193,11 @@ describe('Lead Market', () => {
     expect(panel.textContent).not.toContain('Record a payment');
   });
 
-  it('confirms a lead once, in Intake: Listed shows the stamp with no second Confirm, and only a Vault lead offers Re-confirm', async () => {
+  it('confirms a lead once, in Intake: For sale shows the stamp with no second Confirm, and only a Vault lead offers Re-confirm', async () => {
     role = 'super_admin';
     await render(<LeadMarketPage />);
     await openListed();
-    const listed = document.body.querySelector('ul[aria-label="Listed"]')!;
+    const listed = document.body.querySelector('ul[aria-label="For sale"]')!;
     expect(listed.textContent).toContain('Jane Cole');
     expect(listed.textContent).toContain('Confirmed');
     expect(listed.querySelector('[aria-label^="Confirm"], [aria-label^="Re-confirm"]')).toBeNull();
@@ -239,15 +239,15 @@ describe('Lead Market', () => {
     expect(heading()).toBe('Intake');
     expect(summary()).toBe('2 to confirm · 1 possible duplicate');
     expect(document.title).toBe('Intake · Ops · FieldQuote');
-    expect(Array.from(document.body.querySelectorAll('[role="tablist"]:not([aria-label]) [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand (0/0)', 'Intake (2)', 'Listed (1)', 'Sold', 'Companies (3)', 'Prices']);
+    expect(Array.from(document.body.querySelectorAll('[role="tablist"]:not([aria-label]) [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand (0/0)', 'Intake (2)', 'For sale (1)', 'Sold', 'Companies (3)', 'Prices']);
     expect(document.body.textContent).not.toContain('sell on their own');
     const open = async (name: string) => {
       await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith(name))!.click());
       await flush();
     };
-    await open('Listed');
-    expect(heading()).toBe('Listed');
-    expect(summary()).toBe('1 listed · $170.00 sold in 30 days');
+    await open('For sale');
+    expect(heading()).toBe('For sale');
+    expect(summary()).toBe('1 for sale · $170.00 sold in 30 days');
     await open('Companies');
     expect(heading()).toBe('Companies');
     expect(summary()).toBe('3 companies · $510.00 in balances · 1 Pro');
@@ -840,10 +840,10 @@ describe('standing bids in Admin', () => {
     await act(async () => (document.body.querySelector('[aria-label="Intake"] button') as HTMLButtonElement).click());
     await flush();
     const panel = document.body.querySelector('[data-testid="confirm-checklist"]')!;
-    const confirmButton = Array.from(panel.querySelectorAll('button')).find((b) => b.textContent === 'Confirm & list') as HTMLButtonElement;
+    const confirmButton = Array.from(panel.querySelectorAll('button')).find((b) => b.textContent === 'Confirm & sell') as HTMLButtonElement;
     expect(confirmButton.disabled).toBe(true);
     // Before a single box is ticked, staff see who gets the lead.
-    expect(panel.querySelector('[data-destination="sold"]')?.textContent).toBe("Sells to Peak Roofing at $250.00 the moment it's listed.");
+    expect(panel.querySelector('[data-destination="sold"]')?.textContent).toBe("Sells to Peak Roofing at $250.00 the moment it's confirmed.");
     const boxes = Array.from(panel.querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
     expect(boxes).toHaveLength(6);
     for (const box of boxes.slice(0, 5)) await act(async () => box.click());
@@ -860,6 +860,6 @@ describe('standing bids in Admin', () => {
       'Hail damage, wants it this month',
       undefined,
     );
-    expect(document.body.querySelector('[role="status"]')?.textContent).toContain('Listed and sold to Peak Roofing for $250.00');
+    expect(document.body.querySelector('[role="status"]')?.textContent).toContain('Confirmed and sold to Peak Roofing for $250.00');
   });
 });

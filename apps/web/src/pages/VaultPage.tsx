@@ -112,7 +112,7 @@ const VaultPage: React.FC = () => {
           <p className="text-sm text-gray-400 mb-4">
             {pool.count > 0
               ? `${pool.count} lead${pool.count === 1 ? '' : 's'} in your trades ${pool.count === 1 ? 'is' : 'are'} waiting in the Vault. It's part of the plan.`
-              : 'Leads land here a week after listing. The Vault is part of the plan.'}
+              : 'Leads land here a week after going up for sale. The Vault is part of the plan.'}
           </p>
           <PlanPanel organizationId={organizationId} plan={plan} onChanged={() => {}} />
         </div>
@@ -147,7 +147,7 @@ const VaultPage: React.FC = () => {
             </button>
           </div>
           {shown.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-12 border border-[#2A2A2A] rounded">Nothing in the Vault right now. Leads land here a week after listing.</p>
+            <p className="text-sm text-gray-400 text-center py-12 border border-[#2A2A2A] rounded">Nothing in the Vault right now. Leads land here a week after going up for sale.</p>
           ) : (
             <>
               <table className="hidden md:table w-full text-sm border border-[#2A2A2A] rounded" data-testid="vault-table">

@@ -114,16 +114,16 @@ interface CreditRequest {
   requestedAt: string;
 }
 
-type Tab = 'demand' | 'intake' | 'inbox' | 'sold' | 'companies' | 'prices';
-const TABS: Tab[] = ['demand', 'intake', 'inbox', 'sold', 'companies', 'prices'];
+type Tab = 'demand' | 'intake' | 'forsale' | 'sold' | 'companies' | 'prices';
+const TABS: Tab[] = ['demand', 'intake', 'forsale', 'sold', 'companies', 'prices'];
 /** Old names in links that were already sent (emails, bookmarks) still open the right tab. */
-const OLD_TAB_NAMES: Record<string, Tab> = { delivered: 'sold' };
+const OLD_TAB_NAMES: Record<string, Tab> = { delivered: 'sold', inbox: 'forsale', listed: 'forsale' };
 const isTab = (value: string | null): value is Tab => TABS.includes(value as Tab);
 
 const TAB_TITLES: Record<Tab, string> = {
   demand: 'Demand',
   intake: 'Intake',
-  inbox: 'Listed',
+  forsale: 'For sale',
   sold: 'Sold',
   companies: 'Companies',
   prices: 'Prices',
@@ -1023,7 +1023,7 @@ function PricesTab({ trades }: { trades: Trade[] }) {
   return (
     <div className="max-w-3xl">
       <p className="text-sm text-gray-400 mb-3">
-        A lead with a standing bid for its county and trade is sold to the highest bidder the moment it's listed. The rest are listed at the start price ($200 or more) and drop to the floor over the day, where they stay until bought. Trades left blank use the default row.
+        A lead with a standing bid for its county and trade is sold to the highest bidder the moment it's confirmed. The rest go up for sale at the start price ($200 or more) and drop to the floor over the day, where they stay until bought. Trades left blank use the default row.
       </p>
       {error && <p className="text-sm text-red-400 mb-3">{error}</p>}
       {loadError ? (
@@ -1195,8 +1195,8 @@ const LeadMarketPage: React.FC = () => {
         const duplicates = rows.filter((r) => r.duplicateOf).length;
         return `${rows.length} to confirm${duplicates > 0 ? ` · ${plural(duplicates, 'possible duplicate')}` : ''}`;
       }
-      case 'inbox':
-        return `${inbox.available.length} listed · ${money(book.spent30dCents)} sold in 30 days`;
+      case 'forsale':
+        return `${inbox.available.length} for sale · ${money(book.spent30dCents)} sold in 30 days`;
       case 'sold': {
         const rows = deliveredRows ?? [];
         const today = rows.filter((r) => isToday(r.assignedAt)).length;
@@ -1233,7 +1233,7 @@ const LeadMarketPage: React.FC = () => {
             [
               ['demand', 'Demand', counts.demandOpen !== null ? `${counts.demandOpen}/${counts.demandTotal}` : ''],
               ['intake', 'Intake', counts.intake !== null ? `${counts.intake}` : ''],
-              ['inbox', 'Listed', `${inbox.available.length}`],
+              ['forsale', 'For sale', `${inbox.available.length}`],
               ['sold', 'Sold', counts.overdue > 0 ? `${counts.overdue}` : ''],
               ['companies', 'Companies', `${companies.length}`, applications.length > 0 ? `${applications.length} applied` : ''],
               ...(owner ? ([['prices', 'Prices', '']] as Array<[Tab, string, string]>) : []),
@@ -1287,15 +1287,15 @@ const LeadMarketPage: React.FC = () => {
         <DemandBoard owner={owner} />
       ) : tab === 'sold' ? (
         <Delivered tradeName={tradeName} />
-      ) : tab === 'inbox' ? (
+      ) : tab === 'forsale' ? (
         <div className="space-y-6">
           {inbox.available.length === 0 ? (
             <div className="border border-dashed border-[#333] rounded p-8 text-center">
               <Inbox className="w-8 h-8 mx-auto text-gray-500 mb-2" />
-              <p className="text-sm text-gray-400">Nothing listed. Leads get here from Intake once a call confirms them.</p>
+              <p className="text-sm text-gray-400">Nothing for sale. Leads get here from Intake once a call confirms them.</p>
             </div>
           ) : (
-            <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Listed">
+            <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="For sale">
               {inbox.available.map((lead) => (
                 <li key={lead.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
                   <div className="flex-1 min-w-[12rem]">
@@ -1369,7 +1369,7 @@ const LeadMarketPage: React.FC = () => {
                       <span className="block text-sm text-white truncate">{lead.name}</span>
                       <span className="block text-xs text-gray-500">
                         {tradeName(lead.jobType)}
-                        {lead.county ? ` · ${lead.county} County` : lead.city ? ` · ${lead.city}` : ''} · listed{' '}
+                        {lead.county ? ` · ${lead.county} County` : lead.city ? ` · ${lead.city}` : ''} · for sale since{' '}
                         {new Date(lead.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                       </span>
                       {/* Older leads are re-confirmed before they're worth claiming; say which still need the call. */}

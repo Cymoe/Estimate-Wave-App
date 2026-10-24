@@ -59,7 +59,7 @@ export const IntakeQueue: React.FC<{
             [
               ['open', 'To call'],
               ['closed', 'Closed'],
-              ['confirmed', 'Listed'],
+              ['confirmed', 'Confirmed'],
             ] as const
           ).map(([value, label]) => (
             <button
@@ -85,7 +85,7 @@ export const IntakeQueue: React.FC<{
         <div className="border border-dashed border-[#333] rounded p-8 text-center">
           <PhoneCall className="w-8 h-8 mx-auto text-gray-500 mb-2" />
           <p className="text-sm text-gray-400">
-            {filter === 'open' ? 'Nobody to call. Leads from the Facebook forms and calls land here.' : filter === 'closed' ? 'Nothing closed yet.' : 'Nothing listed from intake yet.'}
+            {filter === 'open' ? 'Nobody to call. Leads from the Facebook forms and calls land here.' : filter === 'closed' ? 'Nothing closed yet.' : 'Nothing confirmed yet.'}
           </p>
         </div>
       ) : (
@@ -153,8 +153,8 @@ export const IntakeQueue: React.FC<{
             setSelected(null);
             onListed?.(
               result.outcome === 'sold'
-                ? `Listed and sold to ${result.companyName} for $${((result.priceCents ?? 0) / 100).toFixed(2)}`
-                : 'Listed. No funded bid for this county and trade, so it’s in the Marketplace.',
+                ? `Confirmed and sold to ${result.companyName} for $${((result.priceCents ?? 0) / 100).toFixed(2)}`
+                : 'Confirmed. No funded bid for this county and trade, so it’s for sale in the Marketplace.',
             );
           }}
         />

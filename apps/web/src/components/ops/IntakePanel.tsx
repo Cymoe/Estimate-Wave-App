@@ -154,7 +154,7 @@ export const IntakePanel: React.FC<{
             <p className="text-xs text-gray-500 truncate">
               {SOURCE[row.source]} · in {ago(row.createdAt)}
               {row.campaignName ? ` · ${row.campaignName}` : ''}
-              {row.status === 'closed' ? ` · closed: ${row.disposition?.replace(/_/g, ' ')}` : row.status === 'confirmed' ? ' · listed' : ''}
+              {row.status === 'closed' ? ` · closed: ${row.disposition?.replace(/_/g, ' ')}` : row.status === 'confirmed' ? ' · confirmed' : ''}
             </p>
           </div>
           <div className="flex items-center gap-1">
@@ -180,7 +180,7 @@ export const IntakePanel: React.FC<{
               <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <span>
                 Same number as <strong>{row.duplicate.label}</strong>, {ago(row.duplicate.createdAt)}
-                {row.duplicate.confirmedLeadId ? ', already listed and sold' : row.duplicate.status === 'closed' ? ', closed' : ', still in the queue'}. Angi-style rule: one lead per homeowner in 45 days.
+                {row.duplicate.confirmedLeadId ? ', already confirmed and sold' : row.duplicate.status === 'closed' ? ', closed' : ', still in the queue'}. Angi-style rule: one lead per homeowner in 45 days.
               </span>
             </div>
           )}

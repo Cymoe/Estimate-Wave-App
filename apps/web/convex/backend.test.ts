@@ -414,7 +414,7 @@ describe("intake", () => {
     expect(row).toMatchObject({ status: "confirmed", confirmedLeadId: result.leadId, county: "Ector", address: "12 Elm St" });
     expect(row.attempts[row.attempts.length - 1]).toMatchObject({ outcome: "reached", note: "Wants it done before Thanksgiving" });
     expect((await va.as.query(api.intake.queue, { status: "confirmed" })).map((r) => r.id)).toEqual([id]);
-    await expect(va.as.mutation(api.intake.confirm, { id, checks: all })).rejects.toThrow(/already listed/);
+    await expect(va.as.mutation(api.intake.confirm, { id, checks: all })).rejects.toThrow(/already confirmed/);
 
     // The company got it with the confirmation and the answers on the card.
     const [lead] = await co.as.query(api.leads.list, { organizationId: co.organizationId });
@@ -4106,7 +4106,7 @@ describe("standing bids and instant awards", () => {
     // Once sold it can't be confirmed again.
     await expect(
       admin.as.mutation(api.marketplace.verifyLead, { id: lead!._id }),
-    ).rejects.toThrow(/listed or older/);
+    ).rejects.toThrow(/for sale or in the Vault/);
   });
 
   test("Midland's permits land in the Vault for companies on the plan, mapped to their trades", async () => {

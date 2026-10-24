@@ -260,7 +260,7 @@ export const verifyLead = mutation({
     const lead = await ctx.db.get(id);
     if (lead === null) fail("NOT_FOUND", "Lead not found");
     if (lead.status !== "available" && lead.status !== "older")
-      fail("INVALID", "Only a listed or older lead can be confirmed");
+      fail("INVALID", "Only a lead for sale or in the Vault can be confirmed");
     const now = nowIso();
     await ctx.db.patch(id, {
       verified: { at: now, note: note?.trim() || undefined, by: user._id },
@@ -288,7 +288,7 @@ export const archiveLead = mutation({
     const lead = await ctx.db.get(id);
     if (lead === null) fail("NOT_FOUND", "Lead not found");
     if (lead.status !== "available" && lead.status !== "older")
-      fail("INVALID", "Only a listed or older lead can be archived");
+      fail("INVALID", "Only a lead for sale or in the Vault can be archived");
     await loseOpenOrders(ctx, id, "Lead archived");
     await ctx.db.patch(id, { status: "archived", updatedAt: nowIso() });
   },

@@ -21,7 +21,7 @@ export function WhereItGoes({ county, jobType }: { county?: string; jobType?: st
   if (to.kind === 'sold')
     return (
       <p className="text-xs text-emerald-200 mb-3" data-destination="sold">
-        Sells to {to.companyName} at {money(to.priceCents)} the moment it's listed.
+        Sells to {to.companyName} at {money(to.priceCents)} the moment it's confirmed.
       </p>
     );
   if (to.kind === 'marketplace')
@@ -32,7 +32,7 @@ export function WhereItGoes({ county, jobType }: { county?: string; jobType?: st
     );
   return (
     <p className="text-xs text-red-300 mb-3" data-destination="nobody">
-      No company buys {to.tradeName} yet. Listing it helps nobody: close it as out of trade, or sign a {to.tradeName} company first.
+      No company buys {to.tradeName} yet. Confirming it helps nobody: close it as out of trade, or sign a {to.tradeName} company first.
     </p>
   );
 }
@@ -85,7 +85,7 @@ export const ConfirmChecklist: React.FC<{ row: IntakeDetail; draft: IntakeFields
       <h3 className="text-sm font-medium text-white flex items-center gap-2 mb-1">
         <ShieldCheck className="w-4 h-4 text-emerald-300" /> Confirm with the homeowner
       </h3>
-      <p className="text-xs text-gray-500 mb-3">Tick each one as they confirm it on the call. The lead is listed and sold the moment all six are ticked.</p>
+      <p className="text-xs text-gray-500 mb-3">Tick each one as they confirm it on the call. The lead is confirmed and sold the moment all six are ticked.</p>
       <ul className="space-y-2 mb-3">
         {CHECKS.map(([key, label]) => (
           <li key={key}>
@@ -101,11 +101,11 @@ export const ConfirmChecklist: React.FC<{ row: IntakeDetail; draft: IntakeFields
       {row.duplicateOf && (
         <label className="flex items-center gap-2 text-sm text-amber-200 mb-3">
           <input type="checkbox" checked={allowDuplicate} onChange={(e) => setAllowDuplicate(e.target.checked)} />
-          List it anyway: it's a different job from the other lead
+          Confirm it anyway: it's a different job from the other lead
         </label>
       )}
       <button type="button" disabled={busy || !allTicked || blocked} onClick={confirm} className={`${primary} w-full`}>
-        {busy ? 'Listing…' : 'Confirm & list'}
+        {busy ? 'Confirming…' : 'Confirm & sell'}
       </button>
       {error && <p className="text-sm text-red-400 mt-2">{error}</p>}
     </section>
