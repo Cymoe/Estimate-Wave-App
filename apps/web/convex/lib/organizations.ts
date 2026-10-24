@@ -1,6 +1,7 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { nowIso } from "./access";
+import { acceptStaffInvite } from "./staff";
 
 export function slugify(value: string): string {
   const slug = value
@@ -65,6 +66,34 @@ export async function createOrganizationWithOwner(
     createdAt: now,
   });
   return organizationId;
+}
+
+/**
+ * What a proven email address gets: a staff invite makes the account staff,
+ * company invites make it an owner, and an account with neither gets a
+ * company of its own. Runs only once the address is verified (Google, or
+ * the emailed code), and is safe to run again: used invites stay used and
+ * an account that already belongs somewhere gets no second company.
+ */
+export async function claimInvites(ctx: MutationCtx, userId: Id<"users">): Promise<"staff" | "owner" | "new-company" | "nothing"> {
+  const user = await ctx.db.get(userId);
+  const email = user?.email;
+  if (!email) return "nothing";
+  if (await acceptStaffInvite(ctx, userId, email)) return "staff";
+  if (await acceptInvites(ctx, userId, email)) return "owner";
+  if (user?.role === "staff" || user?.role === "super_admin") return "nothing";
+  const member = await ctx.db
+    .query("memberships")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .first();
+  if (member !== null) return "nothing";
+  const displayName = user?.name ?? email.split("@")[0];
+  await createOrganizationWithOwner(ctx, userId, {
+    name: `${displayName}'s Company`,
+    slug: email.split("@")[0],
+    email,
+  });
+  return "new-company";
 }
 
 /** Makes the user owner of every company waiting for their email. Returns whether there were any. */

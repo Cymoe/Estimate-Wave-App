@@ -20,6 +20,39 @@ describe("auth and tenancy", () => {
     expect(await t.query(api.users.me, {})).toBeNull();
   });
 
+  test("an address gets its invites, or a first company, only once it is proven", async () => {
+    const t = setup();
+    const owner = await signUp(t, "owner@fieldquote.example", { role: "super_admin" });
+    await owner.as.mutation(api.staff.invite, { email: "va@fieldquote.example" });
+    const company = await owner.as.mutation(api.marketplace.createCompany, { data: { name: "Basin Paint", ownerEmail: "ana@basinpaint.example", leadTrades: ["painting"] } });
+    const companyId = company!._id;
+    const { claimInvites } = await import("./lib/organizations");
+    await t.run(async (ctx) => {
+      // The auth callback does nothing for an unproven password sign-up, so these only run on a verified address.
+      const va = await ctx.db.insert("users", { email: "va@fieldquote.example", name: "VA" });
+      expect(await claimInvites(ctx, va)).toBe("staff");
+      expect((await ctx.db.get(va))!.role).toBe("staff");
+      // Running again hands over nothing more: the invite is used and staff get no company.
+      expect(await claimInvites(ctx, va)).toBe("nothing");
+      expect(await ctx.db.query("memberships").withIndex("by_user", (q) => q.eq("userId", va)).collect()).toHaveLength(0);
+
+      // The approved applicant joins the company made for them and gets no empty company of their own.
+      const ana = await ctx.db.insert("users", { email: "ana@basinpaint.example", name: "Ana" });
+      expect(await claimInvites(ctx, ana)).toBe("owner");
+      const anaMemberships = await ctx.db.query("memberships").withIndex("by_user", (q) => q.eq("userId", ana)).collect();
+      expect(anaMemberships.map((m) => [m.organizationId, m.role])).toEqual([[companyId, "owner"]]);
+      expect(await claimInvites(ctx, ana)).toBe("nothing");
+
+      // Someone with no invite gets a company of their own, once.
+      const pat = await ctx.db.insert("users", { email: "pat@example.com", name: "Pat" });
+      expect(await claimInvites(ctx, pat)).toBe("new-company");
+      expect(await claimInvites(ctx, pat)).toBe("nothing");
+      const pats = await ctx.db.query("memberships").withIndex("by_user", (q) => q.eq("userId", pat)).collect();
+      expect(pats).toHaveLength(1);
+      expect((await ctx.db.get(pats[0].organizationId))!.name).toBe("Pat's Company");
+    });
+  });
+
   test("me returns the user with their organization", async () => {
     const t = setup();
     const { as, userId, organizationId } = await signUp(t, "a@example.com");
@@ -4822,7 +4855,7 @@ describe("landing page applications", () => {
     const toAna = emails.find((e) => e.subject.startsWith("Basin Paint Co. is approved"))!;
     expect(toAna.to).toEqual(["ana@basinpaint.example"]);
     expect(toAna.text).toContain("Ana, Basin Paint Co. is approved to buy painting leads in Midland County.");
-    expect(toAna.text).toContain("Sign in with this email (ana@basinpaint.example) at https://app.example");
+    expect(toAna.text).toContain("Go to https://app.example and sign in with this address (ana@basinpaint.example): Continue with Google, or Create an account with it and type the code we email you.");
     const company = await t.run((ctx) => ctx.db.get(organizationId));
     expect(company).toMatchObject({ name: "Basin Paint Co.", phone: "4325550199", email: "ana@basinpaint.example", leadTrades: ["painting"] });
     const invite = await t.run(async (ctx) => (await ctx.db.query("companyInvites").collect()).find((i) => i.organizationId === organizationId));

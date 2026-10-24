@@ -5,6 +5,10 @@ import { internalAction, internalMutation, internalQuery, mutation, query } from
 import { fail, nowIso, requireStaff } from "./lib/access";
 import { dollars } from "./lib/wallet";
 import { tellStaff } from "./notify";
+import { sendEmail, type SendResult } from "./lib/email";
+
+// Other modules import sendEmail from here; it lives in lib/email.ts.
+export { sendEmail };
 
 /**
  * Getting an awarded lead to the company in a way a roofer on a roof will
@@ -162,25 +166,7 @@ ${r.lead.phone ? `<p style="margin:12px 0"><a href="tel:${digits(r.lead.phone)}"
   return { subject, text, html };
 }
 
-type Result = { status: "sent" | "failed" | "skipped"; error?: string; providerId?: string };
-
-export async function sendEmail(to: string[], body: { subject: string; text: string; html: string }): Promise<Result> {
-  const key = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM ?? "FieldQuote <leads@fieldquote.app>";
-  if (!key) return { status: "skipped", error: "RESEND_API_KEY not set" };
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
-      body: JSON.stringify({ from, to, ...body }),
-    });
-    const data = (await res.json().catch(() => ({}))) as { id?: string; message?: string };
-    if (!res.ok) return { status: "failed", error: data.message ?? `Resend ${res.status}` };
-    return { status: "sent", providerId: data.id };
-  } catch (err) {
-    return { status: "failed", error: err instanceof Error ? err.message : String(err) };
-  }
-}
+type Result = SendResult;
 
 async function sendSms(to: string, text: string): Promise<Result> {
   const sid = process.env.TWILIO_ACCOUNT_SID;

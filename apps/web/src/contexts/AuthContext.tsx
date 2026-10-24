@@ -20,12 +20,14 @@ interface AuthContextType {
   session: { user: User; access_token: string } | null;
   isLoading: boolean;
   signInWithGoogle: () => Promise<void>;
+  /** Resolves to whether the session is open. False means a code was emailed and must come back through flow 'email-verification'. */
   signInWithPassword: (params: {
     email: string;
-    password: string;
-    flow: 'signIn' | 'signUp';
+    password?: string;
+    flow: 'signIn' | 'signUp' | 'email-verification';
     name?: string;
-  }) => Promise<void>;
+    code?: string;
+  }) => Promise<{ signingIn: boolean }>;
   signOut: () => Promise<void>;
 }
 
@@ -54,8 +56,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const signInWithPassword: AuthContextType['signInWithPassword'] = async ({ email, password, flow, name }) => {
-    await signIn('password', { email, password, flow, ...(name ? { name } : {}) });
+  const signInWithPassword: AuthContextType['signInWithPassword'] = async ({ email, password, flow, name, code }) => {
+    const result = await signIn('password', {
+      email,
+      flow,
+      ...(password !== undefined ? { password } : {}),
+      ...(name ? { name } : {}),
+      ...(code ? { code } : {}),
+    });
+    return { signingIn: result.signingIn };
   };
 
   const signOut = async () => {

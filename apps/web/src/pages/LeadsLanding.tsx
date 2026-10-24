@@ -213,7 +213,7 @@ const LeadsLanding: React.FC<{ scrollTo?: 'apply' }> = ({ scrollTo: target }) =>
 
       {signIn && (
         <Dialog title="Sign in" onClose={() => setSignIn(false)}>
-          <p className="text-sm text-gray-400 mb-4">For companies FieldQuote has already set up. New here? Apply below instead.</p>
+          <p className="text-sm text-gray-400 mb-4">For companies FieldQuote has set up. Use the email we approved: continue with Google, or create an account with it. New here? Apply below instead.</p>
           <div className="bg-white rounded-lg p-4">
             <AuthButtons />
           </div>

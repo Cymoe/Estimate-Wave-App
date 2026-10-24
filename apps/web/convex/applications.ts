@@ -155,7 +155,7 @@ export const notifyApplicant = internalAction({
     const site = siteUrl();
     const lines = [
       `${a.contactName.trim().split(/\s+/)[0]}, ${a.companyName} is approved to buy ${notice.tradeNames.join(" and ").toLowerCase()} leads in ${a.county} County.`,
-      `Sign in with this email (${a.email}) at ${site} and your company is set up and waiting.`,
+      `Go to ${site} and sign in with this address (${a.email}): Continue with Google, or Create an account with it and type the code we email you. Your company is set up and waiting.`,
       "We'll call you about loading your lead balance, so the next confirmed lead in your county can be yours.",
     ];
     return await sendEmail([a.email], {
