@@ -932,29 +932,48 @@ const fromRow = (row: { priceCents: number; floorCents?: number; dropCents?: num
  */
 function PricesTab({ trades }: { trades: Trade[] }) {
   const [drafts, setDrafts] = useState<Record<string, PriceDraft>>({});
+  // What the server has, so tapping away from an unchanged field saves nothing.
+  const [stored, setStored] = useState<Record<string, PriceDraft> | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    marketplaceAPI
-      .prices()
-      .then((result: { defaultCents: number; prices: Array<{ jobType: string; priceCents: number; floorCents?: number; dropCents?: number; dropEveryMinutes?: number }> }) => {
-        const next: Record<string, PriceDraft> = { default: { ...emptyDraft, price: String(result.defaultCents / 100) } };
-        for (const row of result.prices) next[row.jobType] = fromRow(row);
-        setDrafts(next);
-      })
-      .catch(() => {});
+  const load = useCallback(async () => {
+    setLoadError(null);
+    try {
+      const result = (await marketplaceAPI.prices()) as { defaultCents: number; prices: Array<{ jobType: string; priceCents: number; floorCents?: number; dropCents?: number; dropEveryMinutes?: number }> };
+      const next: Record<string, PriceDraft> = { default: { ...emptyDraft, price: String(result.defaultCents / 100) } };
+      for (const row of result.prices) next[row.jobType] = fromRow(row);
+      setDrafts(next);
+      setStored(next);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Prices couldn't be loaded");
+    }
   }, []);
+  useEffect(() => {
+    load();
+  }, [load]);
+  const same = (a: PriceDraft, b: PriceDraft) => (['price', 'floor', 'drop', 'every'] as const).every((k) => a[k].trim() === b[k].trim());
   const save = async (jobType: string) => {
+    if (stored === null) return;
     setError(null);
     const d = drafts[jobType] ?? emptyDraft;
+    const was = stored[jobType] ?? emptyDraft;
+    if (same(d, was)) return;
+    // A blank start price would delete the trade's row (floor, drop and interval with it): never do that by accident.
+    if (d.price.trim() === '' && jobType !== 'default' && (d.floor.trim() || d.drop.trim() || d.every.trim())) return;
     const num = (raw: string) => (raw.trim() === '' ? null : Number(raw));
     try {
       await marketplaceAPI.setPrice(jobType, num(d.price), { floor: num(d.floor), drop: num(d.drop), dropEveryMinutes: num(d.every) });
+      setStored({ ...stored, [jobType]: d });
       setSaved(jobType);
       setTimeout(() => setSaved((s) => (s === jobType ? null : s)), 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : "The price couldn't be saved");
     }
+  };
+  const needsStart = (jobType: string) => {
+    const d = drafts[jobType];
+    return Boolean(d && jobType !== 'default' && d.price.trim() === '' && (d.floor.trim() || d.drop.trim() || d.every.trim()));
   };
   const field = (jobType: string, key: keyof PriceDraft, label: string, placeholder: string, width = 'w-20') => (
     <input
@@ -964,7 +983,8 @@ function PricesTab({ trades }: { trades: Trade[] }) {
       placeholder={placeholder}
       onChange={(e) => setDrafts({ ...drafts, [jobType]: { ...(drafts[jobType] ?? emptyDraft), [key]: e.target.value } })}
       onBlur={() => save(jobType)}
-      className={`${width} bg-[#1A1A1A] border border-[#333] rounded px-2 py-1.5 text-right text-white text-base md:text-sm focus:outline-none focus:border-[#336699]`}
+      disabled={stored === null}
+      className={`${width} bg-[#1A1A1A] border border-[#333] rounded px-2 py-1.5 text-right text-white text-base md:text-sm focus:outline-none focus:border-[#336699] disabled:opacity-50`}
     />
   );
   const preview = (jobType: string) => {
@@ -1000,6 +1020,11 @@ function PricesTab({ trades }: { trades: Trade[] }) {
         </span>
       </div>
       {preview(jobType) && <p className="text-xs text-gray-500 mt-1 text-right">{preview(jobType)}</p>}
+      {needsStart(jobType) && (
+        <p className="text-xs text-amber-300 mt-1 text-right" role="alert">
+          Start price needed: with it blank, nothing is saved. Clear the other boxes too to go back to the default.
+        </p>
+      )}
     </li>
   );
   return (
@@ -1008,6 +1033,16 @@ function PricesTab({ trades }: { trades: Trade[] }) {
         A lead with a standing bid for its county and trade is sold to the highest bidder the moment it's listed. The rest are listed at the start price ($200 or more) and drop to the floor over the day, where they stay until bought. Trades left blank use the default row.
       </p>
       {error && <p className="text-sm text-red-400 mb-3">{error}</p>}
+      {loadError ? (
+        <p className="text-sm text-red-400 mb-3">
+          Couldn't load prices: {loadError}{' '}
+          <button type="button" onClick={load} className="underline underline-offset-2">
+            Try again
+          </button>
+        </p>
+      ) : stored === null ? (
+        <p className="text-sm text-gray-500 mb-3">Loading prices…</p>
+      ) : null}
       <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded">
         {row('default', 'Default (every other trade)', '200')}
         {trades.map((t) => row(t.id, t.name, drafts.default?.price ?? ''))}

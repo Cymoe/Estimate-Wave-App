@@ -49,6 +49,7 @@ jest.mock('../../../lib/live', () => ({
 
 let applications: unknown[] = [];
 let companyLeads: unknown[] = [];
+const setPrice = jest.fn(async () => null);
 const creditLead = jest.fn(async (): Promise<{ amountCents: number }> => ({ amountCents: 28500 }));
 const approveApplication = jest.fn(async (): Promise<{ organizationId: string }> => ({ organizationId: 'o2' }));
 const declineApplication = jest.fn(async () => null);
@@ -93,7 +94,8 @@ jest.mock('../../../lib/api', () => ({
       { id: 'o3', name: 'Ace Painting', leadTrades: [], balanceCents: 0, isEmpty: true, leads30d: 0, spent30dCents: 0, leadsTotal: 0, wonCents: 0, wonCount: 0, pendingCredits: 0 },
     ],
     pendingCredits: async () => [],
-    prices: async () => ({ defaultCents: 20000, prices: [] }),
+    prices: async () => ({ defaultCents: 20000, prices: [{ jobType: 'roofing', priceCents: 28500, floorCents: 6000, dropCents: 1000, dropEveryMinutes: 60 }] }),
+    setPrice: (...args: unknown[]) => setPrice(...(args as [])),
     assign: (...args: unknown[]) => assign(...(args as [])),
     removeCompany: (id: string) => removeCompany(id),
     setCompanyOwner: (id: string, email: string) => setCompanyOwner(id, email),
@@ -299,6 +301,26 @@ describe('Lead Market', () => {
     await act(async () => byText('Save changes')!.click());
     await flush();
     expect(document.body.querySelector('[role="status"]')?.textContent).toBe('Saved');
+  });
+
+  it('Prices: tapping away from an unchanged field saves nothing, and a blank start price never wipes a trade', async () => {
+    await render(<LeadMarketPage />);
+    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent === 'Prices')!.click());
+    await flush();
+    const start = document.body.querySelector('input[aria-label="Roofing start price"]') as HTMLInputElement;
+    expect(start.value).toBe('285');
+    const blur = () => act(async () => start.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
+    await blur();
+    expect(setPrice).not.toHaveBeenCalled();
+    // Clearing the start price to retype it, then tapping away, must not delete the trade's row.
+    await act(async () => type(start, ''));
+    await blur();
+    expect(setPrice).not.toHaveBeenCalled();
+    expect(document.body.querySelector('[role="alert"]')!.textContent).toContain('Start price needed');
+    await act(async () => type(start, '300'));
+    await blur();
+    expect(setPrice).toHaveBeenCalledWith('roofing', 300, { floor: 60, drop: 10, dropEveryMinutes: 60 });
+    expect(document.body.querySelector('[role="alert"]')).toBeNull();
   });
 
   it('keeps applications from staff', async () => {
