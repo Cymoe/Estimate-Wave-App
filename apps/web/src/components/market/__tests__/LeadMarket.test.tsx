@@ -13,6 +13,7 @@ let feedLeads: unknown[] = [];
 let soldLeads: unknown[] = [];
 const buyLead = jest.fn(async () => ({ orgLeadId: 'ol9' }));
 let demoCompanies = false;
+let noCompanies = false;
 let demoBids = false;
 const removeCompany = jest.fn(async (_id: string) => undefined);
 const setCompanyOwner = jest.fn(async (_id: string, _email: string) => 'invited');
@@ -83,7 +84,7 @@ jest.mock('../../../lib/api', () => ({
       older: emptyMarket ? [] : [{ id: 'm2', name: 'Old Hollis', jobType: 'painting', city: 'Odessa', status: 'older', price: 4000, createdAt: '2026-10-01' }],
       sold: soldLeads,
     }),
-    companies: async () => demoCompanies
+    companies: async () => noCompanies ? [] : demoCompanies
       ? [{ id: 'd1', name: 'Permian Roofing & Exteriors', leadTrades: ['roofing'], balanceCents: 101500, leads30d: 1, spent30dCents: 8500, leadsTotal: 1, wonCents: 1850000, wonCount: 1, pendingCredits: 0, isSample: true, sampleBids: demoBids ? 3 : 0 }]
       : [
       { id: 'o1', name: 'Broke Roofing', leadTrades: ['roofing'], balanceCents: 1000, leads30d: 0, spent30dCents: 0, leadsTotal: 0, wonCents: 0, wonCount: 0, pendingCredits: 0, sampleBids: demoBids ? 3 : 0 },
@@ -150,6 +151,7 @@ afterEach(() => {
   wallet = null;
   emptyMarket = false;
   demoCompanies = false;
+  noCompanies = false;
   demoBids = false;
   feedLeads = [];
   soldLeads = [];
@@ -265,6 +267,20 @@ describe('Lead Market', () => {
     expect(approveApplication).toHaveBeenCalledWith('a1');
     expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('Peak Roofing');
     expect(document.body.querySelector('[role="status"]')?.textContent).toContain('Company set up');
+  });
+
+  it('with no companies yet, still shows applications and a New company button that opens the dialog', async () => {
+    noCompanies = true;
+    applications = [{ id: 'a1', companyName: 'Basin Paint Co.', contactName: 'Ana Ruiz', email: 'a@b.c', phone: '4325550199', trades: ['painting'], county: 'Midland', createdAt: new Date().toISOString() }];
+    await render(<LeadMarketPage />);
+    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Companies'))!.click());
+    await flush();
+    expect(document.body.textContent).toContain('No companies yet. Tap New company, or approve an application above');
+    expect(document.body.querySelector('[aria-label="Applications"]')!.textContent).toContain('Basin Paint Co.');
+    expect(document.body.querySelector('[data-testid="team-card"]')).not.toBeNull();
+    await act(async () => byText('New company')!.click());
+    await flush();
+    expect(document.body.querySelector('[role="dialog"]')!.getAttribute('aria-label')).toBe('New company');
   });
 
   it('keeps applications from staff', async () => {

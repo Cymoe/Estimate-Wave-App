@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
-import { Building2, Check, Inbox, Link2, MapPin, Phone, Send, Tag, Trash2, X } from 'lucide-react';
+import { Building2, Check, Inbox, Link2, MapPin, Phone, Plus, Send, Tag, Trash2, X } from 'lucide-react';
 import { applicationsAPI, fundingAPI, industriesAPI, leadsAPI, marketplaceAPI, permitsAPI, walletAPI } from '../lib/api';
 import { copyText } from '../components/estimates/estimateActions';
 import { useAuth } from '../contexts/AuthContext';
@@ -1022,6 +1022,11 @@ const LeadMarketPage: React.FC = () => {
   const [openCompanyId, setOpenCompanyId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const creating = searchParams.get('new');
+  const openNewCompany = () => {
+    const next = new URLSearchParams(searchParams);
+    next.set('new', 'company');
+    setSearchParams(next, { replace: true });
+  };
   const closeCreate = () => {
     const next = new URLSearchParams(searchParams);
     next.delete('new');
@@ -1353,13 +1358,15 @@ const LeadMarketPage: React.FC = () => {
           )}
         </div>
       ) : tab === 'companies' ? (
-        companies.length === 0 ? (
-          <div className="border border-dashed border-[#333] rounded p-8 text-center">
-            <Building2 className="w-8 h-8 mx-auto text-gray-500 mb-2" />
-            <p className="text-sm text-gray-400">No companies yet. Add one with the yellow + button.</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
+        <div className="space-y-3">
+          {owner && (
+            <div className="flex justify-end">
+              <button type="button" onClick={openNewCompany} className={secondary}>
+                <Plus className="w-4 h-4" />
+                New company
+              </button>
+            </div>
+          )}
           {owner && applications.length > 0 && (
             <section aria-label="Applications" className="border border-emerald-500/40 bg-emerald-500/5 rounded">
               <h2 className="px-4 pt-3 pb-1 text-sm font-medium text-emerald-200">
@@ -1394,6 +1401,14 @@ const LeadMarketPage: React.FC = () => {
               </ul>
             </section>
           )}
+          {companies.length === 0 ? (
+            <div className="border border-dashed border-[#333] rounded p-8 text-center">
+              <Building2 className="w-8 h-8 mx-auto text-gray-500 mb-2" />
+              <p className="text-sm text-gray-400">
+                {owner ? 'No companies yet. Tap New company, or approve an application above when one comes in.' : 'No companies yet.'}
+              </p>
+            </div>
+          ) : (
           <div className="border border-[#2A2A2A] rounded overflow-x-auto">
             <table className="w-full text-sm" aria-label="Companies">
               <thead className="text-xs text-gray-500 uppercase tracking-wide">
@@ -1445,9 +1460,9 @@ const LeadMarketPage: React.FC = () => {
               </tfoot>
             </table>
           </div>
+          )}
           {owner && <TeamCard />}
-          </div>
-        )
+        </div>
       ) : owner ? (
         <PricesTab trades={trades} />
       ) : null}
