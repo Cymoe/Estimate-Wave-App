@@ -77,9 +77,9 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
   // Every string on the board reads as a sentence: the owner shouldn't need a key.
   const cell = (s: DemandSlot) =>
     s.topFundedCents !== undefined
-      ? `Biggest cash bid ${money(s.topFundedCents)} · covers ${s.depthLeads} more`
+      ? `${s.bidders} ${s.bidders === 1 ? 'bidder' : 'bidders'} · biggest cash bid ${money(s.topFundedCents)} · covers ${s.depthLeads} more`
       : s.bidders > 0
-        ? `${s.bidders} ${s.bidders === 1 ? 'bid' : 'bids'}, nobody can pay`
+        ? `${s.bidders} ${s.bidders === 1 ? 'bidder' : 'bidders'}, nobody can pay`
         : 'No bids yet';
   // The 30-day window is about the county and trade, not about when a bid was placed: say which.
   const sales = (s: DemandSlot) => {
@@ -93,14 +93,23 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
     s.marginCents === null
       ? null
       : `About ${s.marginCents >= 0 ? '+' : '−'}${money(Math.abs(s.marginCents))} ${s.marginCents >= 0 ? 'profit ' : ''}a lead${s.marginBasis === 'sold' ? ' (on real sales)' : ''}`;
+  // Cards are one fixed size, so a long line may clip: the hover text carries all of it.
   const tip = (s: DemandSlot) =>
-    `${STATE[s.state].label}${
-      s.marginCents !== null
-        ? s.marginBasis === 'sold'
-          ? ' · Profit is figured on real sales'
-          : ' · Profit is figured on the biggest bid; switches to real sales after 3'
-        : ''
-    }`;
+    [
+      `${STATE[s.state].label}${
+        s.marginCents !== null
+          ? s.marginBasis === 'sold'
+            ? ' · Profit is figured on real sales'
+            : ' · Profit is figured on the biggest bid; switches to real sales after 3'
+          : ''
+      }`,
+      cell(s),
+      sales(s),
+      margin(s) ?? '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  const CARD = 'h-[4.75rem] w-full text-left rounded border px-2 py-1.5 text-xs overflow-hidden';
 
   return (
     <div className="space-y-4" data-testid="demand-board">
@@ -151,21 +160,15 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
                     {trades.map(([slug]) => {
                       const s = at(county, slug);
                       return (
-                        <td key={slug} className="px-2 py-1.5">
+                        <td key={slug} className="px-2 py-1.5 w-64 min-w-[16rem]">
                           {s ? (
-                            <button
-                              type="button"
-                              onClick={() => setOpen(s)}
-                              title={tip(s)}
-                              data-state={s.state}
-                              className={`w-full text-left rounded border px-2 py-1.5 text-xs ${STATE[s.state].cell}`}
-                            >
-                              <span className="block">{cell(s)}</span>
-                              <span className="block opacity-75">{sales(s)}</span>
-                              {margin(s) && <span className="block font-medium">{margin(s)}</span>}
+                            <button type="button" onClick={() => setOpen(s)} title={tip(s)} data-state={s.state} className={`${CARD} ${STATE[s.state].cell}`}>
+                              <span className="block truncate">{cell(s)}</span>
+                              <span className="block truncate opacity-75">{sales(s)}</span>
+                              <span className="block truncate font-medium">{margin(s) ?? '\u00a0'}</span>
                             </button>
                           ) : (
-                            <span className="block text-center text-gray-700">·</span>
+                            <span className="flex h-[4.75rem] items-center justify-center text-gray-700">·</span>
                           )}
                         </td>
                       );
@@ -178,13 +181,13 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
           <ul className="md:hidden space-y-2" aria-label="Demand">
             {shown.map((s) => (
               <li key={`${s.county}|${s.jobType}`}>
-                <button type="button" onClick={() => setOpen(s)} data-state={s.state} className={`w-full text-left rounded border px-3 py-2 ${STATE[s.state].cell}`}>
-                  <span className="block text-sm">
+                <button type="button" onClick={() => setOpen(s)} title={tip(s)} data-state={s.state} className={`h-24 w-full text-left rounded border px-3 py-2 overflow-hidden ${STATE[s.state].cell}`}>
+                  <span className="block truncate text-sm">
                     {s.tradeName} · {s.county} County
                   </span>
-                  <span className="block text-xs opacity-80">{cell(s)}</span>
-                  <span className="block text-xs opacity-70">{sales(s)}</span>
-                  <span className="block text-xs">
+                  <span className="block truncate text-xs opacity-80">{cell(s)}</span>
+                  <span className="block truncate text-xs opacity-70">{sales(s)}</span>
+                  <span className="block truncate text-xs">
                     {margin(s) ? `${margin(s)} · ` : ''}
                     {STATE[s.state].label}
                   </span>
