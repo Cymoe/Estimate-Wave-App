@@ -580,9 +580,9 @@ function CompanyPanel({
     if (dropped.length > 0) {
       const names = [...new Set(dropped.map((b) => trades.find((t) => t.id === b.jobType)?.name ?? b.jobType))].join(', ');
       const yes = await confirm({
-        title: `Drop ${names}?`,
+        title: `Remove ${names}?`,
         message: `${company.name} has ${dropped.length} bid${dropped.length === 1 ? '' : 's'} there. ${dropped.length === 1 ? 'It goes' : 'They go'} too.`,
-        confirmLabel: 'Drop trade',
+        confirmLabel: 'Remove trade',
         cancelLabel: 'Keep it',
       });
       if (!yes) return;
@@ -606,7 +606,7 @@ function CompanyPanel({
       }
     }
     await copyText(url);
-    setLinkNote('Funding link copied');
+    setLinkNote('Payment link copied');
     setTimeout(() => setLinkNote(null), 2500);
   };
 
@@ -679,7 +679,7 @@ function CompanyPanel({
             <div className="flex items-center gap-2">
               <button type="button" onClick={sendFundingLink} className={secondary}>
                 <Link2 className="w-4 h-4" />
-                Send funding link
+                Send payment link
               </button>
               {linkNote && <span className="text-xs text-emerald-300">{linkNote}</span>}
             </div>
@@ -1105,13 +1105,13 @@ const LeadMarketPage: React.FC = () => {
   const applications = applicationsLive ?? [];
   const loading = inboxLive === undefined || companiesLive === undefined;
 
-  /** Approve sets the company up and opens its panel, so the funding link can go out next. */
+  /** Approve sets the company up and opens its panel, so the payment link can go out next. */
   const decideApplication = (id: string, approve: boolean) =>
     attempt(approve ? "The application couldn't be approved" : "The application couldn't be declined", async () => {
       if (approve) {
         const { organizationId } = await applicationsAPI.approve(id);
         setOpenCompanyId(organizationId);
-        setNotice('Company set up. Send the funding link when you have spoken to them.');
+        setNotice('Company set up. Send the payment link when you have spoken to them.');
       } else {
         await applicationsAPI.decline(id);
       }
@@ -1206,7 +1206,7 @@ const LeadMarketPage: React.FC = () => {
       }
       case 'companies': {
         const pro = companies.filter((c) => c.plan?.status === 'active').length;
-        return `${plural(companies.length, 'company').replace('companys', 'companies')} · ${money(book.balanceCents)} in balances${playMoney ? ' (play money)' : ''} · ${pro} Pro`;
+        return `${plural(companies.length, 'company').replace('companys', 'companies')} · ${money(book.balanceCents)} in lead balances${playMoney ? ' (play money)' : ''} · ${pro} Pro`;
       }
       case 'prices':
         return `Start and floor price for ${plural(trades.length, 'trade')}`;

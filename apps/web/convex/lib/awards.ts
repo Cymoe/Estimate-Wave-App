@@ -148,7 +148,7 @@ export async function closeLegacyRound(
       await ctx.db.patch(bid._id, {
         status: "lost",
         outcome: !organization?.isActive
-          ? "Company closed"
+          ? "Company shut down"
           : `Balance too low: ${dollars(bid.maxCents)} needed, ${dollars(balance)} available`,
         resolvedAt: now,
       });

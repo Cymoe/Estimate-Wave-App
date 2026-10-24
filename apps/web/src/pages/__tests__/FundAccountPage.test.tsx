@@ -60,7 +60,7 @@ describe('funding page', () => {
     await render();
     expect(document.body.textContent).toContain('Peak Roofing');
     expect(byText('$10,000')!.getAttribute('aria-checked')).toBe('true');
-    expect(document.body.textContent).toContain('+$1,000 bonus credit');
+    expect(document.body.textContent).toContain('+$1,000 bonus');
     await act(async () => type('Other amount', '4000'));
     expect(document.body.textContent).toContain('The minimum is $5,000.');
     expect((byText('Continue') as HTMLButtonElement).disabled).toBe(true);

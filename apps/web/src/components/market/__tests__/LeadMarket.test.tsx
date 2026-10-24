@@ -182,14 +182,14 @@ describe('Lead Market', () => {
     expect(Array.from(document.body.querySelectorAll('[role="tablist"]:not([aria-label]) [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand (0/0)', 'Intake (0)', 'For sale (1)', 'Sold', 'Companies (3)']);
     expect(document.body.textContent).not.toContain('Add 20 sample leads');
     expect(document.body.querySelector('[data-testid="team-card"]')).toBeNull();
-    // The company panel reads only: no funding link, payments or plan.
+    // The company panel reads only: no payment link, payments or plan.
     await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Companies'))!.click());
     await flush();
     await act(async () => Array.from(document.body.querySelectorAll('tr')).find((r) => r.textContent?.includes('Peak Roofing'))!.click());
     await flush();
     const panel = document.body.querySelector('[role="dialog"]')!;
     expect(panel.textContent).toContain('Standing bids');
-    expect(panel.textContent).not.toContain('Send funding link');
+    expect(panel.textContent).not.toContain('Send payment link');
     expect(panel.textContent).not.toContain('Record a payment');
   });
 
@@ -250,7 +250,7 @@ describe('Lead Market', () => {
     expect(summary()).toBe('1 for sale · $170.00 sold in 30 days');
     await open('Companies');
     expect(heading()).toBe('Companies');
-    expect(summary()).toBe('3 companies · $510.00 in balances · 1 Pro');
+    expect(summary()).toBe('3 companies · $510.00 in lead balances · 1 Pro');
     await open('Demand');
     expect(heading()).toBe('Demand');
     expect(summary()).toBe('0 of 0 worth running ads');
@@ -379,7 +379,7 @@ describe('Lead Market', () => {
     await render(<LeadMarketPage />);
     await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Companies'))!.click());
     await flush();
-    expect(document.body.querySelector('[data-testid="ops-summary"]')!.textContent).toBe('3 companies · $510.00 in balances (play money) · 1 Pro');
+    expect(document.body.querySelector('[data-testid="ops-summary"]')!.textContent).toBe('3 companies · $510.00 in lead balances (play money) · 1 Pro');
     expect(document.body.querySelector('[data-testid="companies-totals"]')!.textContent).toContain('play money');
   });
 

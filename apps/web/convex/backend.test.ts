@@ -3583,7 +3583,7 @@ describe("dropping prices and buy orders", () => {
       await roofer.as.mutation(api.marketplace.cancelBid, { bidId });
       await expect(
         roofer.as.mutation(api.marketplace.cancelBid, { bidId }),
-      ).rejects.toThrow(/already closed/);
+      ).rejects.toThrow(/already ended/);
 
       await roofer.as.mutation(api.marketplace.placeBid, {
         leadId,
@@ -3987,7 +3987,7 @@ describe("standing bids and instant awards", () => {
     });
     // Raise past the $1,000 balance: refused, the bid is unchanged.
     await expect(standing(mio, "Midland", "landscaping", 1200)).rejects.toThrow(
-      "Your balance is $1000.00. Add funds to bid $1200.00.",
+      "Your balance is $1,000.00. Add funds to bid $1,200.00.",
     );
     expect((await mine()).find((b) => b.id === id)?.amountCents).toBe(90000);
     // Spending drops the balance to $800, under the $900 bid: it's kept but paused.

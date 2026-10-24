@@ -30,7 +30,7 @@ export async function createCheckoutSession(
   if (input.bonusCents > 0) {
     params.set(
       "line_items[0][price_data][product_data][description]",
-      `${dollars(input.amountCents)} loaded plus a ${dollars(input.bonusCents)} bonus credit`,
+      `${dollars(input.amountCents)} loaded plus a ${dollars(input.bonusCents)} bonus`,
     );
   }
   params.set("success_url", input.successUrl);

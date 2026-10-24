@@ -13,7 +13,8 @@ type TransactionType = Doc<"walletTransactions">["type"];
 
 export const DEFAULT_LEAD_PRICE_CENTS = 20000;
 
-export const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+/** "$5,000.00": the same shape the screens use, so a server message reads like the page. */
+export const dollars = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /** A trade's price row: its own, else the "default" row, else nothing. */
 export async function leadPriceRow(

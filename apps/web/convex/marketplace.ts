@@ -1439,7 +1439,7 @@ export const cancelBid = mutation({
     if (bid === null) fail("NOT_FOUND", "Buy order not found");
     await requireMember(ctx, bid.organizationId, "admin");
     if (bid.status !== "open")
-      fail("INVALID", "This buy order is already closed");
+      fail("INVALID", "This buy order has already ended");
     await ctx.db.patch(bidId, { status: "cancelled", resolvedAt: nowIso() });
   },
 });
@@ -1466,7 +1466,7 @@ export const fillBid = internalMutation({
       return;
     }
     const organization = await ctx.db.get(bid.organizationId);
-    if (!organization?.isActive) return await lose("Company closed");
+    if (!organization?.isActive) return await lose("Company shut down");
     if ((organization.walletBalanceCents ?? 0) < priceCents)
       return await lose(
         `Balance too low: ${dollars(priceCents)} needed, ${dollars(organization.walletBalanceCents ?? 0)} available`,

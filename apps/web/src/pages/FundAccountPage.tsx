@@ -125,7 +125,7 @@ const FundAccountPage: React.FC = () => {
               </div>
               {shownBonus > 0 && (
                 <div className="flex justify-between py-1">
-                  <span className="text-gray-500">Bonus credit</span>
+                  <span className="text-gray-500">Bonus</span>
                   <span className="text-emerald-600">+{money(shownBonus)}</span>
                 </div>
               )}
@@ -189,7 +189,7 @@ const FundAccountPage: React.FC = () => {
                           </span>
                           <span className="block text-sm text-gray-500">
                             {tier.bonusCents > 0 ? (
-                              <span className="text-emerald-600 font-medium">+{money(tier.bonusCents)} bonus credit</span>
+                              <span className="text-emerald-600 font-medium">+{money(tier.bonusCents)} bonus</span>
                             ) : (
                               'Starter'
                             )}
@@ -244,7 +244,7 @@ const FundAccountPage: React.FC = () => {
                   </div>
                   {bonusCents > 0 && (
                     <div className="flex justify-between py-0.5">
-                      <span className="text-gray-500">Bonus credit</span>
+                      <span className="text-gray-500">Bonus</span>
                       <span className="text-emerald-600">+{money(bonusCents)}</span>
                     </div>
                   )}
