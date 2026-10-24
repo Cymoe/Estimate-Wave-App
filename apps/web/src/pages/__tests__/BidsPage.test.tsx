@@ -180,6 +180,28 @@ describe('Bids', () => {
     expect(document.body.textContent).not.toContain("You're set");
   });
 
+  it('keeps the dialog open with the entries when a save fails, and says why', async () => {
+    setStanding.mockRejectedValueOnce(new Error('Your balance is $0.00. Add funds to bid $200.00.'));
+    await render();
+    await act(async () => byText('Set your bids')!.click());
+    await act(async () => type(input('Search counties'), 'Odessa'));
+    await act(async () => input('Search counties').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    await act(async () => byText('Start bidding')!.click());
+    await flush();
+    expect(dialog()).not.toBeNull();
+    expect(dialog()!.querySelector('[role="alert"]')?.textContent).toBe('Your balance is $0.00. Add funds to bid $200.00.');
+    expect(dialog()!.querySelector('[aria-label="Where"]')?.textContent).toContain('Ector County');
+    expect(input('Landscaping bid').value).toBe('200');
+  });
+
+  it('scrolls the bids table sideways on a narrow screen instead of squeezing it', async () => {
+    standing = [{ id: 'sb1', county: 'Midland', jobType: 'landscaping', amountCents: 25000, funded: true, leading: true, contested: false }];
+    await render();
+    const table = document.body.querySelector('table[aria-label="My standing bids"]')!;
+    expect(table.parentElement!.className).toContain('overflow-x-auto');
+    expect(table.className).not.toContain('table-fixed');
+  });
+
   it('shows where each standing bid stands, lets the company edit or remove it, and opens the dialog to add more', async () => {
     standing = [
       { id: 'sb1', county: 'Midland', jobType: 'landscaping', amountCents: 25000, funded: true, leading: true, contested: false },

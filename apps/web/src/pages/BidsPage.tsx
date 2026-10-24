@@ -461,14 +461,16 @@ function StandingTab({
 
   return (
     <div className="space-y-4">
-      {/* Fixed column widths and one-line cells, so a row never jumps as its standing changes. */}
-      <table className="w-full table-fixed text-sm border border-[#2A2A2A] rounded" aria-label="My standing bids">
+      {/* Minimum column widths and one-line cells, so a row never jumps as its standing changes;
+          on a narrow screen the table scrolls sideways instead of squeezing. */}
+      <div className="overflow-x-auto">
+      <table className="w-full min-w-[44rem] text-sm border border-[#2A2A2A] rounded" aria-label="My standing bids">
         <thead>
           <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
-            <th className="font-medium px-4 py-2">County</th>
-            <th className="font-medium px-4 py-2">Service</th>
-            <th className="font-medium px-4 py-2 text-right w-44">Your bid</th>
-            <th className="font-medium px-4 py-2 w-[21rem]">Standing</th>
+            <th className="font-medium px-4 py-2 min-w-[8rem]">County</th>
+            <th className="font-medium px-4 py-2 min-w-[8rem]">Service</th>
+            <th className="font-medium px-4 py-2 text-right min-w-[9rem]">Your bid</th>
+            <th className="font-medium px-4 py-2 min-w-[14rem]">Standing</th>
             <th className="px-4 py-2 w-16" />
           </tr>
         </thead>
@@ -578,6 +580,7 @@ function StandingTab({
           })}
         </tbody>
       </table>
+      </div>
       {/* Bids don't each hold money: every win comes out of one balance. Say how far it goes. */}
       {(() => {
         const covered = standing.filter((b) => b.amountCents <= balance);
@@ -751,6 +754,7 @@ function AddBidDialog({
     setBids((b) => ({ ...b, [id]: value }));
   };
   const [busy, setBusy] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Bids are only for the trades the company lists (the server refuses others),
   // so those are the rows, plus any bid already placed here.
@@ -845,6 +849,7 @@ function AddBidDialog({
 
   const save = async () => {
     setBusy(true);
+    setSaveError(null);
     try {
       // Each row is a new bid, a change to one already placed here, or unchanged (not sent again).
       const cents = (t: Trade) => Math.round(Number(bids[t.id]) * 100);
@@ -872,8 +877,8 @@ function AddBidDialog({
       await onSaved();
       onClose();
     } catch (err) {
-      onNotify(err instanceof Error ? err.message : "The bid couldn't be saved", false);
-      onClose();
+      // Stay open with everything still filled in, so one fix and Save tries again.
+      setSaveError(err instanceof Error ? err.message : "The bid couldn't be saved");
     } finally {
       setBusy(false);
     }
@@ -882,6 +887,11 @@ function AddBidDialog({
   // Pinned under the trade list so Save stays in reach however many trades are on.
   const footer = (
     <div className="flex flex-wrap items-center justify-between gap-3">
+      {saveError && (
+        <p role="alert" className="w-full text-sm text-red-300">
+          {saveError}
+        </p>
+      )}
       <p className={`text-xs ${ready && !affordable ? 'text-amber-200' : 'text-gray-500'}`}>
         {!county
           ? 'Pick a county to start. You pay your bid only when you win a lead.'

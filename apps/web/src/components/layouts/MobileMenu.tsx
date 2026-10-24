@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { X, ChevronRight, User, Building, CreditCard, HelpCircle, LogOut } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -27,7 +27,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
 }) => {
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
-  const [orgDropdownOpen, setOrgDropdownOpen] = React.useState(false);
+  const [orgDropdownOpen, setOrgDropdownOpen] = useState(false);
   const { plan, active: planActive } = usePlan(selectedOrg.id || undefined);
   const dim = planActive ? '' : ' opacity-40 grayscale';
 
@@ -246,7 +246,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
             )}
             <button
               onClick={() => {
-                navigate('/company-settings');
+                navigate('/settings/organization');
                 onClose();
               }}
               className="w-full text-left p-3 hover:bg-[#333333] rounded-[4px] transition-colors text-gray-300"
@@ -256,7 +256,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
 
             <button
               onClick={() => {
-                navigate('/billing');
+                navigate('/plan');
                 onClose();
               }}
               className="w-full text-left p-3 hover:bg-[#333333] rounded-[4px] transition-colors text-gray-300"
