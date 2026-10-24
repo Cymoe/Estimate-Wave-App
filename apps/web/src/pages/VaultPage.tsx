@@ -128,7 +128,7 @@ const VaultPage: React.FC = () => {
                 onClick={() => setTab(id)}
                 className={`px-3 py-2 text-sm -mb-px border-b-2 ${tab === id ? 'border-[#336699] text-white' : 'border-transparent text-gray-400 hover:text-white'}`}
               >
-                {id === 'leads' ? 'Older leads' : 'Permits near you'}
+                {id === 'leads' ? 'Leads' : 'Permits near you'}
               </button>
             ))}
           </div>

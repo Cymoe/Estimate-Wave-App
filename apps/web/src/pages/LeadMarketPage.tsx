@@ -38,9 +38,9 @@ interface Application {
 }
 
 /** The plan mix in the totals row, in the order it reads best. */
-const PLAN_STATES = ['Pro', 'trial', 'free', 'paused', 'ending', 'ended'] as const;
+const PLAN_STATES = ['Pro', 'trial', 'no plan', 'paused', 'ending', 'ended'] as const;
 function planState(plan: PlanSummary | null | undefined): (typeof PLAN_STATES)[number] {
-  if (!plan) return 'free';
+  if (!plan) return 'no plan';
   switch (plan.status) {
     case 'active':
       return 'Pro';
@@ -446,10 +446,10 @@ function PlanSection({ company }: { company: Company }) {
           className="bg-[#1A1A1A] border border-[#333] rounded px-2 py-1.5 text-sm text-white"
         >
           <option value="" disabled>
-            No plan yet
+            No plan
           </option>
           <option value="trial">Trial</option>
-          <option value="active">Active</option>
+          <option value="active">Pro</option>
           <option value="past_due">Paused (past due)</option>
           <option value="cancelled">Cancelled</option>
         </select>
@@ -473,7 +473,7 @@ function PlanSection({ company }: { company: Company }) {
           <input aria-label="Extra claim price" value={extra} onChange={(e) => setExtra(e.target.value)} inputMode="decimal" className="block w-20 bg-[#1A1A1A] border border-[#333] rounded px-2 py-1.5 text-sm text-white" />
         </label>
         <button type="button" disabled={busy} onClick={savePrices} className={secondary}>
-          Save prices
+          Save plan
         </button>
       </div>
       {error && <p className="mt-2 text-xs text-red-400">{error}</p>}

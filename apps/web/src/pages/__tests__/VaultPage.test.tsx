@@ -64,7 +64,7 @@ describe('The Vault', () => {
     await act(async () => byText('Start the plan')!.click());
     await flush();
     expect(startPlan).toHaveBeenCalledWith('o2');
-    expect(document.body.textContent).toContain("You're on the plan");
+    expect(document.body.textContent).toContain("You're on the Pro plan");
   });
 
   it('lists the leads for a company on the plan and claims one', async () => {
@@ -110,7 +110,7 @@ describe('The Vault', () => {
     await act(async () => Array.from(panel.querySelectorAll('button')).find((b) => b.textContent === 'My trades')!.click());
     expect(table().textContent).toContain('301 SHARP LN');
     // Back to the leads.
-    await act(async () => byText('Older leads')!.click());
+    await act(async () => byText('Leads')!.click());
     expect(document.body.querySelector('[data-testid="permits-near-you"]')).toBeNull();
   });
 });

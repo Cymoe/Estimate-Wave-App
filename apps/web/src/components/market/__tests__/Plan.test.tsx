@@ -47,10 +47,11 @@ afterEach(() => {
 describe('the monthly plan', () => {
   it('labels every state', () => {
     const now = Date.parse('2026-10-20T00:00:00Z');
-    expect(planLabel(null)).toBe('Free');
+    expect(planLabel(null)).toBe('No plan');
     expect(planLabel({ ...active, status: 'trial', nextChargeAt: '2026-10-31T00:00:00Z' }, now)).toBe('Trial · 11 days left');
     expect(planLabel({ ...active, status: 'trial', active: false }, now)).toBe('Trial ended');
     expect(planLabel(active, now)).toBe('Pro plan');
+    expect(planLabel({ ...active, monthlyCents: 0 }, now)).toBe('Pro plan · comped');
     expect(planLabel({ ...active, status: 'past_due', active: false }, now)).toBe('Plan paused');
     expect(planLabel({ ...active, status: 'cancelled', active: false }, now)).toBe('Plan ended');
   });

@@ -68,18 +68,18 @@ export const PlanPanel: React.FC<{ organizationId?: string; plan: PlanSummary | 
       setBusy(false);
     }
   };
-  const start = () => organizationId && run(() => walletAPI.startPlan(organizationId), `You're on the plan. ${money(monthly)} came off your lead balance.`);
+  const start = () => organizationId && run(() => walletAPI.startPlan(organizationId), `You're on the Pro plan. ${money(monthly)} came off your lead balance.`);
   const cancel = () => organizationId && run(() => walletAPI.cancelPlan(organizationId), 'Plan cancelled. Everything stays open to the end of the month you paid for.');
   const addFunds = () => organizationId && openFundingPage(organizationId).catch(() => {});
 
   const heading = !plan
-    ? 'The FieldQuote plan'
+    ? 'The Pro plan'
     : plan.status === 'trial'
       ? plan.active
         ? `You're on the free trial · ${planLabel(plan).replace('Trial · ', '')}`
         : 'Your trial has ended'
       : plan.status === 'active'
-        ? "You're on the plan"
+        ? "You're on the Pro plan"
         : plan.status === 'past_due'
           ? 'Your plan is paused'
           : plan.active

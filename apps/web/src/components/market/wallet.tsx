@@ -29,7 +29,7 @@ const TRANSACTION_LABELS: Record<string, string> = {
   lead_charge: 'Lead',
   credit: 'Lead credited',
   adjustment: 'Adjustment',
-  plan: 'Monthly plan',
+  plan: 'Pro plan',
 };
 
 export function WalletHistory({ transactions }: { transactions: any[] }) {
@@ -83,15 +83,15 @@ export interface PlanSummary {
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const shortDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
-/** "Trial · 12 days left", "Pro plan", "Plan paused", "Plan ends Nov 8", "Free". */
+/** "Trial · 12 days left", "Pro plan", "Pro plan · comped", "Plan paused", "Plan ends Nov 8", "No plan". */
 export function planLabel(plan: PlanSummary | null | undefined, now = Date.now()): string {
-  if (!plan) return 'Free';
+  if (!plan) return 'No plan';
   const days = Math.max(0, Math.ceil((Date.parse(plan.nextChargeAt) - now) / DAY_MS));
   switch (plan.status) {
     case 'trial':
       return plan.active ? `Trial · ${days} day${days === 1 ? '' : 's'} left` : 'Trial ended';
     case 'active':
-      return 'Pro plan';
+      return plan.monthlyCents === 0 ? 'Pro plan · comped' : 'Pro plan';
     case 'past_due':
       return 'Plan paused';
     case 'cancelled':

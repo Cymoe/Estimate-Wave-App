@@ -461,7 +461,7 @@ describe('Lead Market', () => {
     await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Companies'))!.click());
     await flush();
     const cells = Array.from(document.body.querySelectorAll('[data-testid="companies-totals"] td')).map((td) => td.textContent);
-    expect(cells).toEqual(['Total3 companies', '$510.00', '2', '$170.00', '1 Pro · 2 free', '$12,000.00']);
+    expect(cells).toEqual(['Total3 companies', '$510.00', '2', '$170.00', '1 Pro · 2 no plan', '$12,000.00']);
   });
 
   it('lets the owner invite staff from the Companies tab', async () => {
@@ -581,7 +581,7 @@ describe('loading the balance and buying leads', () => {
     await flush();
     const row = (name: string) => Array.from(document.body.querySelectorAll('tr')).find((r) => r.textContent?.includes(name))!;
     expect(row('Peak Roofing').textContent).toContain('Pro plan');
-    expect(row('Ace Painting').textContent).toContain('Free');
+    expect(row('Ace Painting').textContent).toContain('No plan');
     await act(async () => row('Peak Roofing').click());
     await flush();
     expect(byText('Remove this empty company')).toBeUndefined();

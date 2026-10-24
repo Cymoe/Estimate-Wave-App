@@ -4402,7 +4402,7 @@ describe("older leads and the monthly plan", () => {
           leadId,
           organizationId: roofer.organizationId,
         }),
-      ).rejects.toThrow(/monthly plan/);
+      ).rejects.toThrow(/Pro plan/);
 
       // Opening a plan area starts the 30-day trial.
       expect(
@@ -4508,7 +4508,7 @@ describe("older leads and the monthly plan", () => {
       expect((await wallet(roofer)).transactions[0]).toMatchObject({
         type: "plan",
         amountCents: -12000,
-        note: "Monthly plan",
+        note: "Pro plan",
       });
       await admin.as.mutation(api.marketplace.setPlan, {
         organizationId: rival.organizationId,

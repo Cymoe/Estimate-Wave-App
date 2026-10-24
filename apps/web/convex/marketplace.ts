@@ -963,7 +963,7 @@ async function chargePlan(
       type: "plan",
       amountCents: -plan.monthlyCents,
       createdBy,
-      note: "Monthly plan",
+      note: "Pro plan",
       isSample: org.isSample || undefined,
     });
   }
@@ -1040,7 +1040,7 @@ export const startPlan = mutation({
         type: "plan",
         amountCents: -plan.monthlyCents,
         createdBy: user._id,
-        note: "Monthly plan",
+        note: "Pro plan",
       });
     const now = nowIso();
     const started: Plan = {
@@ -1184,7 +1184,7 @@ export const claim = mutation({
     );
     const plan = organization.plan;
     if (!plan || !planIsActive(plan, Date.now()))
-      fail("FORBIDDEN", "The Vault is part of the monthly plan");
+      fail("FORBIDDEN", "The Vault is part of the Pro plan");
     const lead = await ctx.db.get(leadId);
     if (lead === null || lead.status !== "older")
       fail("INVALID", "Someone just claimed this lead");

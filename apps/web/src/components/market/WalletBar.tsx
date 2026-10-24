@@ -257,7 +257,7 @@ export function WalletDrawer({ wallet, onClose: closeNow, onAddFunds }: { wallet
               <p className="text-xs text-gray-500">{wallet.leadsBought} leads</p>
             </div>
             <Link to="/plan" onClick={close} className="border border-[#2A2A2A] rounded p-3 hover:bg-[#1A1A1A]">
-              <p className="text-xs text-gray-500">Monthly plan</p>
+              <p className="text-xs text-gray-500">Pro plan</p>
               <p className="text-lg text-white">{planLabel(wallet.plan)}</p>
               <p className="text-xs text-gray-500">
                 {wallet.plan?.status === 'active' ? `${money(wallet.plan.monthlyCents)} on ${new Date(wallet.plan.nextChargeAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : 'Tap for details'}
