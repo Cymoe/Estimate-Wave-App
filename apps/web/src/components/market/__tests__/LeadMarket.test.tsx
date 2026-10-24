@@ -791,7 +791,7 @@ describe('standing bids in Admin', () => {
 
   it('shows what was sent for each awarded lead and flags the ones nobody acknowledged', async () => {
     delivered = [
-      { id: 'm1', orgLeadId: 'ol1', name: 'Dana Reyes', jobType: 'roofing', companyName: 'Peak Roofing', priceCents: 25000, assignedAt: '2026-10-22T16:00:00Z', minutesOpen: 22, afterHours: false, overdue: true,
+      { id: 'm1', orgLeadId: 'ol1', name: 'Dana Reyes', jobType: 'roofing', companyName: 'Peak Roofing', companyPhone: '(432) 555-0100', priceCents: 25000, assignedAt: '2026-10-22T16:00:00Z', minutesOpen: 22, afterHours: false, overdue: true,
         deliveries: [{ id: 'd1', channel: 'email', to: 'office@peak.example', status: 'sent', at: '2026-10-22T16:00:01Z' }, { id: 'd2', channel: 'sms', to: '', status: 'skipped', error: 'Nobody at the company has a mobile for alerts', at: '2026-10-22T16:00:01Z' }] },
       { id: 'm2', orgLeadId: 'ol2', name: 'Ray Ortiz', jobType: 'painting', companyName: 'Broke Roofing', priceCents: 20000, assignedAt: '2026-10-22T15:00:00Z', acknowledgedAt: '2026-10-22T15:04:00Z', minutesOpen: 4, afterHours: false, overdue: false, deliveries: [] },
     ];
@@ -809,6 +809,10 @@ describe('standing bids in Admin', () => {
     const items = Array.from(list.querySelectorAll(':scope > li'));
     expect(items[0].getAttribute('data-overdue')).toBe('true');
     expect(items[0].textContent).toContain('No “Got it” yet · 22 min');
+    // The red row carries the number to call, as a tap-to-dial link.
+    expect(items[0].textContent).toContain('Call Peak Roofing: (432) 555-0100');
+    expect(items[0].querySelector('a[href="tel:4325550100"]')).not.toBeNull();
+    expect(items[1].querySelector('a[href^="tel:"]')).toBeNull();
     expect(items[0].textContent).toContain('Email sent to office@peak.example');
     expect(items[0].textContent).toContain('Text skipped: Nobody at the company has a mobile for alerts');
     expect(items[1].getAttribute('data-overdue')).toBeNull();

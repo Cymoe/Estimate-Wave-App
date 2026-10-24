@@ -4726,9 +4726,37 @@ describe("landing page applications", () => {
     expect(waiting[0]).toMatchObject({ companyName: "Basin Paint Co.", email: "ana@basinpaint.example", phone: "4325550199", trades: ["painting"], county: "Midland", status: "new" });
     await expect(t.query(api.applications.list, {})).rejects.toThrow(/signed in/);
 
-    // Only the owner decides.
+    // Only the owner decides. Approving emails the applicant: sign in with that email and the company is waiting.
     await expect(staff.as.mutation(api.applications.approve, { id: waiting[0].id })).rejects.toThrow(/access|owner|admin/i);
-    const { organizationId } = await owner.as.mutation(api.applications.approve, { id: waiting[0].id });
+    const emails: Array<{ to: string[]; subject: string; text: string }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        emails.push(JSON.parse(init.body as string));
+        return { ok: true, status: 200, json: async () => ({ id: "em_1" }) };
+      }),
+    );
+    vi.stubEnv("RESEND_API_KEY", "re_test");
+    vi.stubEnv("SITE_URL", "https://app.example");
+    vi.useFakeTimers();
+    let organizationId: Id<"organizations">;
+    try {
+      ({ organizationId } = await owner.as.mutation(api.applications.approve, { id: waiting[0].id }));
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+    // Two emails went out: the owner's "someone applied" from the submit, and the applicant's approval.
+    expect(emails.map((e) => e.subject).sort()).toEqual(["Basin Paint Co. is approved on FieldQuote", "New lead buyer: Basin Paint Co. · Midland"]);
+    const toOwner = emails.find((e) => e.subject.startsWith("New lead buyer"))!;
+    expect(toOwner.to).toEqual(["owner@fieldquote.example"]);
+    expect(toOwner.text).toContain("Approve or decline it: https://app.example/ops?tab=companies");
+    const toAna = emails.find((e) => e.subject.startsWith("Basin Paint Co. is approved"))!;
+    expect(toAna.to).toEqual(["ana@basinpaint.example"]);
+    expect(toAna.text).toContain("Ana, Basin Paint Co. is approved to buy painting leads in Midland County.");
+    expect(toAna.text).toContain("Sign in with this email (ana@basinpaint.example) at https://app.example");
     const company = await t.run((ctx) => ctx.db.get(organizationId));
     expect(company).toMatchObject({ name: "Basin Paint Co.", phone: "4325550199", email: "ana@basinpaint.example", leadTrades: ["painting"] });
     const invite = await t.run(async (ctx) => (await ctx.db.query("companyInvites").collect()).find((i) => i.organizationId === organizationId));

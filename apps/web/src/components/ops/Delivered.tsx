@@ -22,6 +22,8 @@ export interface DeliveredRow {
   county?: string;
   city?: string;
   companyName: string;
+  /** Who to call when the row turns red. */
+  companyPhone?: string;
   priceCents: number;
   assignedAt: string;
   acknowledgedAt?: string;
@@ -95,6 +97,20 @@ export const Delivered: React.FC<{ tradeName: (id?: string) => string }> = ({ tr
                   to {row.companyName} · {money(row.priceCents)} · {ago(row.assignedAt)}
                   {row.afterHours ? ' · after hours' : ''}
                 </span>
+                {row.overdue && (
+                  <span className="block text-xs mt-0.5 text-red-200">
+                    {row.companyPhone ? (
+                      <>
+                        Call {row.companyName}:{' '}
+                        <a href={`tel:${row.companyPhone.replace(/[^\d+]/g, '')}`} className="underline font-medium">
+                          {row.companyPhone}
+                        </a>
+                      </>
+                    ) : (
+                      `${row.companyName} has no phone on file: open the company on the Companies tab.`
+                    )}
+                  </span>
+                )}
               </span>
               <span className={`text-xs whitespace-nowrap ${row.acknowledgedAt ? 'text-emerald-300' : row.overdue ? 'text-red-300' : 'text-gray-400'}`}>
                 {row.acknowledgedAt ? `Got it in ${row.minutesOpen} min` : `No “Got it” yet · ${row.minutesOpen} min`}

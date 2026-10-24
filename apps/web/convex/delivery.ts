@@ -321,6 +321,7 @@ export const recent = query({
           county: lead.county,
           city: lead.city,
           companyName: company?.name ?? "Unknown company",
+          companyPhone: company?.phone,
           priceCents: lead.priceCents ?? 0,
           assignedAt,
           acknowledgedAt: lead.acknowledgedAt,

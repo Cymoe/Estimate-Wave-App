@@ -142,6 +142,30 @@ export const notifyOwner = internalAction({
   },
 });
 
+/**
+ * The applicant hears they are in: sign in with the email they applied with
+ * and the company is waiting. Skipped quietly without Resend keys.
+ */
+export const notifyApplicant = internalAction({
+  args: { id: v.id("companyApplications") },
+  handler: async (ctx, { id }) => {
+    const notice = await ctx.runQuery(internal.applications.forNotice, { id });
+    if (!notice || notice.application.status !== "approved") return { status: "skipped" as const };
+    const a = notice.application;
+    const site = siteUrl();
+    const lines = [
+      `${a.contactName.trim().split(/\s+/)[0]}, ${a.companyName} is approved to buy ${notice.tradeNames.join(" and ").toLowerCase()} leads in ${a.county} County.`,
+      `Sign in with this email (${a.email}) at ${site} and your company is set up and waiting.`,
+      "We'll call you about loading your lead balance, so the next confirmed lead in your county can be yours.",
+    ];
+    return await sendEmail([a.email], {
+      subject: `${a.companyName} is approved on FieldQuote`,
+      text: lines.join("\n\n"),
+      html: `<div style="font-family:sans-serif;font-size:15px;line-height:1.5">${lines.map((l) => `<p style="margin:0 0 10px">${l}</p>`).join("")}<p style="margin:12px 0"><a href="${site}" style="display:inline-block;padding:10px 16px;background:#336699;color:#fff;text-decoration:none;border-radius:4px">Sign in</a></p></div>`,
+    });
+  },
+});
+
 /** Applications waiting on a decision, newest first. Staff. */
 export const list = query({
   args: {},
@@ -173,6 +197,7 @@ export const approve = mutation({
       leadTrades: row.trades,
     });
     await ctx.db.patch(id, { status: "approved", decidedAt: nowIso(), decidedBy: user._id, organizationId });
+    await ctx.scheduler.runAfter(0, internal.applications.notifyApplicant, { id });
     return { organizationId };
   },
 });
