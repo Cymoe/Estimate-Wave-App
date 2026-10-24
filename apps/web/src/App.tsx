@@ -2,7 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { isStaff } from './lib/roles';
+import { homeFor, isStaff } from './lib/roles';
 import { ScrollRestoration } from './components/ScrollRestoration';
 import Dashboard from './pages/dashboard/Dashboard';
 import { TestAuth } from './components/auth/TestAuth';
@@ -24,7 +24,7 @@ import { DashboardLayout } from './components/layouts/DashboardLayout';
 import { OpsLayout } from './components/layouts/OpsLayout';
 import MarkdownViewer from './components/docs/MarkdownViewer';
 import Templates from './pages/Templates';
-import { FEATURES, HOME_PATH } from './config/features';
+import { FEATURES } from './config/features';
 import LeadsPage from './pages/LeadsPage';
 import LeadMarketPage from './pages/LeadMarketPage';
 import BidsPage from './pages/BidsPage';
@@ -135,6 +135,12 @@ function StaffRoute({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** The signed-in home: staff and the owner on Ops, everyone else on their company. */
+function HomeRedirect() {
+  const { user } = useAuth();
+  return <Navigate to={homeFor(user)} replace />;
+}
+
 /** The old Ops address, with its query string (the yellow + button's ?new=lead). */
 function LeadMarketRedirect() {
   const location = useLocation();
@@ -153,7 +159,7 @@ function AppRoutes() {
   // If we have a user and session, redirect to dashboard from root
   const renderLanding = () => {
     if (user && session && !isLoading) {
-      return <Navigate to={HOME_PATH} replace />;
+      return <HomeRedirect />;
     }
     return <LeadsLanding />;
   };
@@ -195,10 +201,18 @@ function AppRoutes() {
 
       {/* Protected routes */}
       <Route
+        path="/home"
+        element={
+          <ProtectedRoute>
+            <HomeRedirect />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/dashboard"
         element={
           <ProtectedRoute>
-            <Navigate to={HOME_PATH} replace />
+            <HomeRedirect />
           </ProtectedRoute>
         }
       />
@@ -211,7 +225,7 @@ function AppRoutes() {
                 <Dashboard />
               </DashboardLayout>
             ) : (
-              <Navigate to={HOME_PATH} replace />
+              <HomeRedirect />
             )}
           </ProtectedRoute>
         }
@@ -363,7 +377,7 @@ function AppRoutes() {
                 <PlanGate><ProjectsPage /></PlanGate>
               </DashboardLayout>
             ) : (
-              <Navigate to={HOME_PATH} replace />
+              <HomeRedirect />
             )}
           </ProtectedRoute>
         }
@@ -457,7 +471,7 @@ function AppRoutes() {
                 <PlanGate><ProjectDetails /></PlanGate>
               </DashboardLayout>
             ) : (
-              <Navigate to={HOME_PATH} replace />
+              <HomeRedirect />
             )}
           </ProtectedRoute>
         }

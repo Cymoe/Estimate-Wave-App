@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
+import { homeFor } from "../../lib/roles";
 
 /**
  * Legacy sign-in landing route. Convex Auth finishes OAuth on its own, so this
@@ -21,7 +22,7 @@ export const Callback = () => {
     }
 
     if (isLoading) return;
-    navigate(user ? '/profit-tracker' : '/');
+    navigate(user ? homeFor(user) : '/');
   }, [searchParams, navigate, user, isLoading]);
 
   return (

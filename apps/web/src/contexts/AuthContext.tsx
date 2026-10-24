@@ -31,7 +31,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const AFTER_SIGN_IN = '/profit-tracker';
+// A protected route that forwards staff to Ops and everyone else to their company.
+const AFTER_SIGN_IN = '/home';
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const { isLoading: authLoading, isAuthenticated } = useConvexAuth();

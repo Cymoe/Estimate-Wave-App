@@ -46,7 +46,7 @@ export const EmailSignInForm = ({ onDone }: { onDone?: () => void }) => {
     try {
       await signInWithPassword({ email, password, flow, name: flow === 'signUp' ? name : undefined });
       onDone?.();
-      navigate('/profit-tracker');
+      navigate('/home');
     } catch (err) {
       console.error('Email sign-in failed:', err);
       setError(describeAuthError(err));
