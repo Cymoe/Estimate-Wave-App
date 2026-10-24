@@ -47,6 +47,12 @@ interface Slot {
 /** How many sales it takes before the realised price, not the top bid, drives the margin. */
 export const SOLD_BASIS_MIN = 3;
 
+/** True while no real lead exists yet: the board then counts demo leads, and says so, so the numbers aren't all zero. */
+export async function onlyDemoLeads(ctx: QueryCtx | MutationCtx): Promise<boolean> {
+  const leads = await ctx.db.query("marketplaceLeads").take(5000);
+  return !leads.some((l) => l.county && l.jobType && !l.isSample);
+}
+
 /** Works the whole board out from the live tables. Small tables, so a full scan is fine for now. */
 export async function computeSlots(ctx: QueryCtx | MutationCtx, now = Date.now()): Promise<Slot[]> {
   const slots = new Map<string, Slot>();
@@ -93,10 +99,13 @@ export async function computeSlots(ctx: QueryCtx | MutationCtx, now = Date.now()
   const since7 = new Date(now - 7 * DAY_MS).toISOString();
   const since30 = new Date(now - 30 * DAY_MS).toISOString();
   const leads = await ctx.db.query("marketplaceLeads").order("desc").take(5000);
+  // Demo leads stay out of the numbers once a single real lead exists; before that they stand in.
+  const countDemo = !leads.some((l) => l.county && l.jobType && !l.isSample);
   const leadSlot = new Map<Id<"marketplaceLeads">, Slot>();
   const sold = new Map<string, Array<{ at: string; cents: number }>>();
   for (const lead of leads) {
-    if (!lead.county || !lead.jobType || lead.isSample) continue;
+    if (!lead.county || !lead.jobType) continue;
+    if (lead.isSample && !countDemo) continue;
     const s = slot(lead.county, lead.jobType);
     leadSlot.set(lead._id, s);
     if (lead.createdAt >= since30) s.listed30++;
@@ -191,6 +200,7 @@ export const board = query({
     const tradeName = new Map(trades.map((t) => [t.slug, t.name]));
     return {
       vaCostCents: VA_COST_CENTS,
+      demoLeads: await onlyDemoLeads(ctx),
       planCpl: Object.fromEntries(plan),
       slots: rows
         .map((r) => {

@@ -573,6 +573,7 @@ describe("demand board", () => {
     await expect(va.as.mutation(api.demand.setPlanCpl, { jobType: "roofing", cents: 6000 })).rejects.toThrow(/admins/);
     const board = await va.as.query(api.demand.board, {});
     expect(board.vaCostCents).toBe(500);
+    expect(board.demoLeads).toBe(false);
     const midland = board.slots.find((s) => s.county === "Midland" && s.jobType === "roofing")!;
     // Rich ($400 left after two $300 leads? no: balance is $400 now) and Mid can pay; Poor can't.
     expect(midland).toMatchObject({
@@ -615,6 +616,24 @@ describe("demand board", () => {
     expect(after.marginCents).toBe(Math.round((30000 + 30000 + 35000) / 3) - 6000 - 500);
     const other = await signUp(t, "other@example.com");
     await expect(other.as.query(api.demand.board, {})).rejects.toThrow(/staff/);
+  });
+
+  test("demo leads fill the board only until the first real lead exists", async () => {
+    const t = setup();
+    const va = await signUp(t, "va@fieldquote.example", { role: "staff" });
+    await t.run(async (ctx) => {
+      const now = new Date().toISOString();
+      await ctx.db.insert("industries", { slug: "painting", name: "Painting", display_order: 1, is_active: true, created_at: now, updated_at: now });
+      await ctx.db.insert("marketplaceLeads", { name: "Demo A", county: "Ector", jobType: "painting", status: "available", isSample: true, createdBy: va.userId, createdAt: now, updatedAt: now } as any);
+    });
+    const demo = await va.as.query(api.demand.board, {});
+    expect(demo.demoLeads).toBe(true);
+    expect(demo.slots.find((s) => s.county === "Ector" && s.jobType === "painting")).toMatchObject({ listed30: 1, inMarketplace: 1 });
+    await va.as.mutation(api.marketplace.createLead, { data: { name: "Real", county: "Midland", jobType: "painting" } });
+    const real = await va.as.query(api.demand.board, {});
+    expect(real.demoLeads).toBe(false);
+    expect(real.slots.find((s) => s.county === "Ector" && s.jobType === "painting")).toBeUndefined();
+    expect(real.slots.find((s) => s.county === "Midland" && s.jobType === "painting")).toMatchObject({ listed30: 1 });
   });
 });
 

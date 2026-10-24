@@ -40,6 +40,8 @@ export interface DemandSlot {
 
 export interface DemandBoardData {
   vaCostCents: number;
+  /** No real lead yet: the lead numbers are demo data, and the board says so. */
+  demoLeads: boolean;
   planCpl: Record<string, number>;
   slots: DemandSlot[];
 }
@@ -79,11 +81,13 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
       : s.bidders > 0
         ? `${s.bidders} ${s.bidders === 1 ? 'bid' : 'bids'}, nobody can pay`
         : 'No bids yet';
+  // The 30-day window is about the county and trade, not about when a bid was placed: say which.
   const sales = (s: DemandSlot) => {
     const unsold = s.inMarketplace + s.inVault > 0 ? ` · ${s.inMarketplace + s.inVault} still unsold` : '';
-    if (s.listed30 === 0) return `Nothing brought in last month${unsold}`;
-    if (s.sold30 === 0) return `Last month: ${s.listed30} brought, none sold${unsold}`;
-    return `Last month: ${s.listed30} brought, ${s.sold30} sold${s.avgSoldCents !== null ? `, about ${money(s.avgSoldCents)} each` : ''}${unsold}`;
+    const demo = data.demoLeads && s.listed30 > 0 ? ' (demo)' : '';
+    if (s.listed30 === 0) return `No ${s.tradeName} leads in ${s.county} County, last 30 days${unsold}`;
+    if (s.sold30 === 0) return `Last 30 days: ${s.listed30} ${s.tradeName} ${s.listed30 === 1 ? 'lead' : 'leads'} in ${s.county} County, none sold${unsold}${demo}`;
+    return `Last 30 days: ${s.listed30} ${s.tradeName} ${s.listed30 === 1 ? 'lead' : 'leads'} in ${s.county} County, ${s.sold30} sold${s.avgSoldCents !== null ? `, about ${money(s.avgSoldCents)} each` : ''}${unsold}${demo}`;
   };
   const margin = (s: DemandSlot) =>
     s.marginCents === null
@@ -102,7 +106,8 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
     <div className="space-y-4" data-testid="demand-board">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-gray-500">
-          Each square is one county and one trade. Top line: the biggest bid from a company that can pay, and how many more leads the money behind the bids covers. Bottom line: what really happened in the last 30 days. Profit a lead = price − the cost-per-lead you type in the column header − {money(data.vaCostCents)} for the confirmation call. Updates on its own.
+          Each square is one county and one trade. Top line: the biggest bid from a company that can pay, and how many more leads the money behind the bids covers. Bottom line: the leads that came in for that county and trade in the last 30 days, whenever the bid was placed. Profit a lead = price − the cost-per-lead you type in the column header − {money(data.vaCostCents)} for the confirmation call. Updates on its own.
+          {data.demoLeads && <span className="block mt-1 text-amber-300/80">No real lead yet, so the lead numbers are demo data. They switch to real the moment the first real lead is confirmed.</span>}
         </p>
         {data.slots.length > 0 && (
           <input
@@ -191,7 +196,7 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
         </>
       )}
 
-      {open && <SlotPanel slot={open} vaCostCents={data.vaCostCents} onClose={() => setOpen(null)} />}
+      {open && <SlotPanel slot={open} vaCostCents={data.vaCostCents} demo={data.demoLeads} onClose={() => setOpen(null)} />}
     </div>
   );
 };
@@ -231,7 +236,7 @@ function worthIt(slot: DemandSlot, vaCostCents: number): string {
   return `Worth it? ${money(price)} ${basis} − ${money(slot.planCplCents)} ad cost − ${money(vaCostCents)} call = about ${profit < 0 ? '−' : ''}${money(Math.abs(profit))} ${profit < 0 ? 'lost' : 'profit'} a lead.`;
 }
 
-function SlotPanel({ slot, vaCostCents, onClose }: { slot: DemandSlot; vaCostCents: number; onClose: () => void }) {
+function SlotPanel({ slot, vaCostCents, demo, onClose }: { slot: DemandSlot; vaCostCents: number; demo: boolean; onClose: () => void }) {
   const detail =
     useDemandSlot<{
       bidders: Array<{ companyName: string; amountCents: number; balanceCents: number; funded: boolean }>;
@@ -257,17 +262,22 @@ function SlotPanel({ slot, vaCostCents, onClose }: { slot: DemandSlot; vaCostCen
           <p className="text-white font-medium" data-testid="slot-profit">
             {worthIt(slot, vaCostCents)}
           </p>
-          {slot.listed30 > 0 && (
-            <p className="text-gray-300" data-testid="slot-sales">
-              {`Last 30 days: brought ${slot.listed30}, sold ${slot.sold30}${slot.sellThrough !== null ? ` (${Math.round(slot.sellThrough * 100)}%)` : ''}.`}
+          <p className="text-gray-300" data-testid="slot-sales">
+            {slot.listed30 === 0
+              ? `No ${slot.tradeName} leads came in for ${slot.county} County in the last 30 days, whenever the bids here were placed.`
+              : `Last 30 days: ${slot.listed30} ${slot.tradeName} ${slot.listed30 === 1 ? 'lead' : 'leads'} came in for ${slot.county} County, ${slot.sold30} sold${slot.sellThrough !== null ? ` (${Math.round(slot.sellThrough * 100)}%)` : ''}.`}
+            {slot.listed30 > 0 && (
+              <>
               {slot.avgSoldCents !== null && slot.minSoldCents !== null && slot.maxSoldCents !== null
                 ? ` ${slot.sold30 === 1 ? 'It' : 'They'} went for ${
                     slot.minSoldCents === slot.maxSoldCents ? money(slot.minSoldCents) : `${money(slot.minSoldCents)} to ${money(slot.maxSoldCents)}, about ${money(slot.avgSoldCents)} each`
                   }${slot.lastSoldCents !== null && slot.sold30 > 1 ? `, the latest for ${money(slot.lastSoldCents)}` : ''}.`
                 : ''}
               {slot.sold30 > 0 && slot.soldAtAward30 > 0 ? ` ${slot.soldAtAward30} went straight to a standing bid.` : ''}
-            </p>
-          )}
+              {demo ? ' These are demo leads.' : ''}
+              </>
+            )}
+          </p>
           <section>
             <h3 className="text-sm font-medium text-white mb-2">Bidders</h3>
             {detail === null ? (

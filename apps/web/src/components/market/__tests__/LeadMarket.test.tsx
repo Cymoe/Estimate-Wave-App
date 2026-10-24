@@ -26,7 +26,7 @@ let intakeLog: unknown[] = [];
 const createIntake = jest.fn(async (_source: string, _fields: unknown) => ({ id: 'i1', duplicate: false }));
 const confirmIntake = jest.fn(async () => ({ leadId: 'm7', outcome: 'sold', companyName: 'Peak Roofing', priceCents: 25000 }));
 
-let demand: unknown = { vaCostCents: 500, planCpl: { roofing: 6000 }, slots: [] };
+let demand: unknown = { vaCostCents: 500, demoLeads: false, planCpl: { roofing: 6000 }, slots: [] };
 const setPlanCpl = jest.fn(async (_jobType: string, _cents: number | null) => null);
 let delivered: unknown[] = [];
 const resendAlerts = jest.fn(async (_id: string) => null);
@@ -270,6 +270,30 @@ describe('Lead Market', () => {
     await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Companies'))!.click());
     await flush();
     expect(document.body.querySelector('[aria-label="Applications"]')).toBeNull();
+  });
+
+  it('says when the lead numbers are demo data, and names the county and trade when there are none', async () => {
+    demand = {
+      vaCostCents: 500, demoLeads: true, planCpl: {},
+      slots: [
+        { county: 'Ector', jobType: 'painting', tradeName: 'Painting', bidders: 1, fundedBidders: 1, topFundedCents: 22000, depthLeads: 49, listed7: 0, listed30: 2, soldAtAward30: 1, sold30: 1, avgSoldCents: 20000, minSoldCents: 20000, maxSoldCents: 20000, lastSoldCents: 20000, sellThrough: 0.5, inMarketplace: 1, inVault: 0, buyers: 1, marginCents: null, marginBasis: 'bid', state: 'oversupplied' },
+        { county: 'Midland', jobType: 'painting', tradeName: 'Painting', bidders: 1, fundedBidders: 1, topFundedCents: 20000, depthLeads: 3, listed7: 0, listed30: 0, soldAtAward30: 0, sold30: 0, avgSoldCents: null, minSoldCents: null, maxSoldCents: null, lastSoldCents: null, sellThrough: null, inMarketplace: 0, inVault: 0, buyers: 1, marginCents: null, marginBasis: 'bid', state: 'open' },
+      ],
+    };
+    await render(<LeadMarketPage />);
+    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent === 'Demand')!.click());
+    await flush();
+    const board = document.body.querySelector('[data-testid="demand-board"]')!;
+    expect(board.textContent).toContain('No real lead yet, so the lead numbers are demo data.');
+    const cells = Array.from(board.querySelectorAll('table[aria-label="Demand"] button[data-state]'));
+    expect(cells[0].textContent).toContain('Last 30 days: 2 Painting leads in Ector County, 1 sold, about $200.00 each · 1 still unsold (demo)');
+    expect(cells[1].textContent).toContain('No Painting leads in Midland County, last 30 days');
+    await act(async () => (cells[1] as HTMLButtonElement).click());
+    expect(document.body.querySelector('[data-testid="slot-sales"]')!.textContent).toBe('No Painting leads came in for Midland County in the last 30 days, whenever the bids here were placed.');
+    expect(document.body.querySelector('[data-testid="slot-profit"]')!.textContent).toBe('Type a cost per lead in the Painting column header to see profit here.');
+    await act(async () => (document.body.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click());
+    await act(async () => (cells[0] as HTMLButtonElement).click());
+    expect(document.body.querySelector('[data-testid="slot-sales"]')!.textContent).toContain('These are demo leads.');
   });
 
   it('totals the companies table: cash held, leads and spend this month, plan mix and value won', async () => {
@@ -529,7 +553,7 @@ describe('standing bids in Admin', () => {
 
   it('shows the demand grid: top funded bid, depth and margin per county and trade, and who bids there', async () => {
     demand = {
-      vaCostCents: 500, planCpl: { roofing: 6000 },
+      vaCostCents: 500, demoLeads: false, planCpl: { roofing: 6000 },
       slots: [
         { county: 'Midland', jobType: 'roofing', tradeName: 'Roofing', bidders: 3, fundedBidders: 2, topFundedCents: 30000, secondFundedCents: 25000, depthLeads: 2, listed7: 2, listed30: 2, soldAtAward30: 2, sold30: 2, avgSoldCents: 30000, minSoldCents: 30000, maxSoldCents: 30000, lastSoldCents: 30000, sellThrough: 1, inMarketplace: 0, inVault: 0, planCplCents: 6000, marginCents: 23500, marginBasis: 'bid', state: 'open' },
         { county: 'Ector', jobType: 'painting', tradeName: 'Painting', bidders: 1, fundedBidders: 1, topFundedCents: 20000, depthLeads: 2, listed7: 0, listed30: 4, soldAtAward30: 1, sold30: 3, avgSoldCents: 14000, minSoldCents: 9000, maxSoldCents: 20000, lastSoldCents: 9000, sellThrough: 0.75, inMarketplace: 1, inVault: 0, buyers: 1, planCplCents: 5000, marginCents: 8500, marginBasis: 'sold', state: 'oversupplied' },
@@ -551,15 +575,15 @@ describe('standing bids in Admin', () => {
     const midland = cells.find((c) => c.getAttribute('data-state') === 'open')!;
     // Every square reads as a sentence: no key needed.
     expect(midland.textContent).toContain('Biggest cash bid $300.00 · covers 2 more');
-    expect(midland.textContent).toContain('Last month: 2 brought, 2 sold, about $300.00 each');
+    expect(midland.textContent).toContain('Last 30 days: 2 Roofing leads in Midland County, 2 sold, about $300.00 each');
     expect(midland.textContent).toContain('About +$235.00 profit a lead');
     expect(midland.getAttribute('title')).toBe('Run ads here · Profit is figured on the biggest bid; switches to real sales after 3');
     // Ector has sold enough that its profit is on what leads really went for, not the bid.
-    expect(cells[0].textContent).toContain('Last month: 4 brought, 3 sold, about $140.00 each · 1 still unsold');
+    expect(cells[0].textContent).toContain('Last 30 days: 4 Painting leads in Ector County, 3 sold, about $140.00 each · 1 still unsold');
     expect(cells[0].textContent).toContain('About +$85.00 profit a lead (on real sales)');
     expect(cells[0].getAttribute('title')).toBe('Leads sitting unsold: pause · Profit is figured on real sales');
     expect(nobody.textContent).toContain('No bids yet');
-    expect(nobody.textContent).toContain('Last month: 1 brought, none sold · 1 still unsold');
+    expect(nobody.textContent).toContain('Last 30 days: 1 Flooring lead in Midland County, none sold · 1 still unsold');
     // The flooring drawer has no price and no cost: it says so instead of showing nothing.
     await act(async () => (nobody as HTMLButtonElement).click());
     expect(document.body.querySelector('[data-testid="slot-profit"]')!.textContent).toBe('No price to figure profit from yet: nobody with money has bid here, and nothing has sold.');
@@ -567,7 +591,7 @@ describe('standing bids in Admin', () => {
     await act(async () => (cells[0] as HTMLButtonElement).click());
     // The drawer shows the profit arithmetic, on the real average once a square has sold enough.
     expect(document.body.querySelector('[data-testid="slot-profit"]')!.textContent).toBe('Worth it? $140.00 real average − $50.00 ad cost − $5.00 call = about $85.00 profit a lead.');
-    expect(document.body.querySelector('[data-testid="slot-sales"]')!.textContent).toBe('Last 30 days: brought 4, sold 3 (75%). They went for $90.00 to $200.00, about $140.00 each, the latest for $90.00. 1 went straight to a standing bid.');
+    expect(document.body.querySelector('[data-testid="slot-sales"]')!.textContent).toBe('Last 30 days: 4 Painting leads came in for Ector County, 3 sold (75%). They went for $90.00 to $200.00, about $140.00 each, the latest for $90.00. 1 went straight to a standing bid.');
     await act(async () => (document.body.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click());
     // The owner sets the planned cost per lead in the column header.
     const cpl = grid.querySelector('input[aria-label="Planned cost per roofing lead"]') as HTMLInputElement;
