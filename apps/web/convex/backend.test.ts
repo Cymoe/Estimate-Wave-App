@@ -282,6 +282,58 @@ describe("intake", () => {
     expect((await t.fetch("/intake/lead?key=s3cret", { method: "POST", body: "{}" })).status).toBe(503);
   });
 
+  test("staff get an email for a new lead, and for a rejected webhook hit at most once an hour", async () => {
+    const { t } = await ops();
+    const emails: Array<{ to: string[]; subject: string; text: string }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        emails.push(JSON.parse(init.body as string));
+        return { ok: true, status: 200, json: async () => ({ id: `em_${emails.length}` }) };
+      }),
+    );
+    vi.stubEnv("INTAKE_KEY", "s3cret");
+    vi.stubEnv("RESEND_API_KEY", "re_test");
+    vi.stubEnv("SITE_URL", "https://app.example");
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-10-22T16:00:00Z"));
+      const post = async (path: string, body: string) => {
+        const res = await t.fetch(path, { method: "POST", body });
+        await t.finishAllScheduledFunctions(vi.runAllTimers);
+        return res.status;
+      };
+      // A new lead: one email to the owner and staff, pointing at Intake.
+      expect(await post("/intake/lead?key=s3cret&source=meta", JSON.stringify({ full_name: "Dana Reyes", phone_number: "432-555-0133", campaign_name: "TX_MIDLAND_ROOFING_LG_202610", id: "L1" }))).toBe(201);
+      expect(emails).toHaveLength(1);
+      expect(emails[0].to.sort()).toEqual(["owner@fieldquote.example", "va@fieldquote.example"]);
+      expect(emails[0].subject).toBe("FieldQuote Ops: New lead to confirm: Dana Reyes · 432-555-0133 · Midland County · roofing · TX_MIDLAND_ROOFING_LG_202610");
+      expect(emails[0].text).toContain("A lead just came in from meta");
+      expect(emails[0].text).toContain("https://app.example/ops?tab=intake");
+      // Zapier retrying the same lead is not news.
+      expect(await post("/intake/lead?key=s3cret", JSON.stringify({ full_name: "Dana Reyes", phone_number: "432-555-0133", id: "L1" }))).toBe(200);
+      expect(emails).toHaveLength(1);
+      // A rejected hit: one email, and the retries in the next hour stay quiet.
+      expect(await post("/intake/lead?key=wrong", "{}")).toBe(401);
+      expect(emails).toHaveLength(2);
+      expect(emails[1].subject).toBe("FieldQuote Ops: The intake webhook turned a lead away: Wrong key");
+      expect(emails[1].text).toContain("check the key and that the body is JSON");
+      expect(await post("/intake/lead?key=wrong", "{}")).toBe(401);
+      expect(await post("/intake/lead?key=s3cret", "not json")).toBe(400);
+      expect(emails).toHaveLength(2);
+      // An hour on, the next rejection is worth a word again.
+      vi.setSystemTime(new Date("2026-10-22T17:01:00Z"));
+      expect(await post("/intake/lead?key=s3cret", "still not json")).toBe(400);
+      expect(emails).toHaveLength(3);
+      expect(emails[2].subject).toBe("FieldQuote Ops: The intake webhook turned a lead away: Send JSON");
+      expect(emails[2].text).toContain("What it sent: still not json");
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
   test("staff add, correct, log attempts on and close leads; a repeat phone within 45 days is flagged", async () => {
     const { t, va } = await ops();
     const other = await signUp(t, "other@example.com");
@@ -483,6 +535,14 @@ describe("delivery", () => {
     expect(email.text).toContain(`https://app.example/leads?lead=${rows[0].orgLeadId}&ack=1`);
     expect(calls[1].url).toBe("https://api.twilio.com/2010-04-01/Accounts/AC1/Messages.json");
     expect(String(calls[1].init.body)).toContain("To=%2B14325550177");
+    // The failed text is a person's problem now: staff hear about it, with the company's number to call.
+    expect(calls).toHaveLength(3);
+    const toStaff = JSON.parse(calls[2].init.body as string);
+    expect(toStaff.to).toEqual(["va@fieldquote.example"]);
+    expect(toStaff.subject).toBe("FieldQuote Ops: The alert to Peak Roofing failed: Unverified number");
+    expect(toStaff.text).toContain("Text to +14325550177: Unverified number");
+    expect(toStaff.text).toContain("Call them on 432-555-0100");
+    expect(toStaff.text).toContain("https://app.example/ops?tab=delivered");
 
     // "Got it" from the company stamps both rows; the Delivered tab shows it.
     const leads = await co.as.query(api.leads.list, { organizationId: co.organizationId });
@@ -525,8 +585,45 @@ describe("delivery", () => {
       expect(byId.get(late)).toMatchObject({ overdue: true, minutesOpen: 20, afterHours: false });
       expect(byId.get(fresh)).toMatchObject({ overdue: false, minutesOpen: 10 });
       expect(byId.get(early)).toMatchObject({ overdue: false, afterHours: true });
+
+      // The five-minute chase emails staff about the late one, once; the others are left alone.
+      const emails: Array<{ to: string[]; subject: string; text: string }> = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_url: string, init: RequestInit) => {
+          emails.push(JSON.parse(init.body as string));
+          return { ok: true, status: 200, json: async () => ({ id: "em_1" }) };
+        }),
+      );
+      vi.stubEnv("RESEND_API_KEY", "re_test");
+      vi.stubEnv("SITE_URL", "https://app.example");
+      await t.run(async (ctx) => {
+        await ctx.db.patch(co.organizationId, { name: "Cole Roofing", phone: "432-555-0100" });
+      });
+      expect(await t.mutation(internal.delivery.escalateOverdue, {})).toEqual({ escalated: 1 });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      expect(emails).toHaveLength(1);
+      expect(emails[0].to).toEqual(["va@fieldquote.example"]);
+      expect(emails[0].subject).toBe('FieldQuote Ops: No "Got it" from Cole Roofing after 20 min: X');
+      expect(emails[0].text).toContain("Call them on 432-555-0100");
+      expect(emails[0].text).toContain("https://app.example/ops?tab=delivered");
+      expect(await t.mutation(internal.delivery.escalateOverdue, {})).toEqual({ escalated: 0 });
+      // Ten minutes on, the fresh one is overdue too and gets its own email; the late one stays at one.
+      vi.setSystemTime(new Date("2026-10-22T16:30:00Z"));
+      expect(await t.mutation(internal.delivery.escalateOverdue, {})).toEqual({ escalated: 1 });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      expect(emails).toHaveLength(2);
+      expect(emails[1].subject).toContain("after 20 min");
+      // A "Got it" ends the chase: an acknowledged lead that has not been chased yet never is.
+      const quiet = await make("2026-10-22T16:00:00Z");
+      await t.run(async (ctx) => {
+        await ctx.db.patch(quiet, { acknowledgedAt: "2026-10-22T16:03:00Z" });
+      });
+      expect(await t.mutation(internal.delivery.escalateOverdue, {})).toEqual({ escalated: 0 });
     } finally {
       vi.useRealTimers();
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
     }
   });
 });

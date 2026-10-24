@@ -15,6 +15,9 @@ crons.daily(
   {},
 );
 
+// A sold lead with no "Got it" after 15 minutes during hours gets staff an email, once.
+crons.interval("chase Got it", { minutes: 5 }, internal.delivery.escalateOverdue, {});
+
 // Midland's permit feed, once a day (lib/permits.ts).
 crons.daily(
   "sync Midland permits",

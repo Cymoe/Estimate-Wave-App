@@ -432,6 +432,8 @@ export default defineSchema({
     assignedOrganizationId: v.optional(v.id("organizations")),
     assignedAt: v.optional(v.string()),
     acknowledgedAt: v.optional(v.string()),
+    /** When staff were emailed that nobody had tapped "Got it" (once per lead). */
+    escalatedAt: v.optional(v.string()),
     orgLeadId: v.optional(v.id("leads")),
     isSample: v.optional(v.boolean()),
     // A person confirmed the lead with the homeowner (server-set by

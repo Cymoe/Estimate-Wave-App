@@ -4,6 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { fail, nowIso, requireStaff } from "./lib/access";
 import { dollars } from "./lib/wallet";
+import { tellStaff } from "./notify";
 
 /**
  * Getting an awarded lead to the company in a way a roofer on a roof will
@@ -105,6 +106,23 @@ export const record = internalMutation({
   handler: async (ctx, { rows }) => {
     const now = nowIso();
     for (const row of rows) await ctx.db.insert("deliveries", { ...row, createdAt: now });
+    // A failed send means the company may never see the lead: a person needs to call.
+    const failed = rows.filter((r) => r.status === "failed");
+    if (failed.length > 0) {
+      const lead = await ctx.db.get(failed[0].marketplaceLeadId);
+      const company = await ctx.db.get(failed[0].organizationId);
+      const who = company?.name ?? "the company";
+      await tellStaff(
+        ctx,
+        `The alert to ${who} failed: ${failed[0].error ?? "unknown error"}`,
+        [
+          `${lead?.name ?? "A lead"} was sold to ${who}, but ${failed.length === 1 ? "an alert" : `${failed.length} alerts`} did not go out:`,
+          ...failed.map((r) => `${r.channel === "email" ? "Email" : r.channel === "sms" ? "Text" : "Homeowner text"} to ${r.to || "nobody"}: ${r.error ?? "failed"}`),
+          `Call them${company?.phone ? ` on ${company.phone}` : ""} so they know they have it, then Resend alerts from Delivered.`,
+        ],
+        "/ops?tab=delivered",
+      );
+    }
     return null;
   },
 });
@@ -213,6 +231,45 @@ export const sendLeadAlerts = internalAction({
     }
     await ctx.runMutation(internal.delivery.record, { rows });
     return null;
+  },
+});
+
+/**
+ * Every five minutes: a lead sold during hours with no "Got it" after
+ * ACK_MINUTES gets one email to staff, once, so someone calls the company.
+ * Demo leads and anything older than a day are left alone.
+ */
+export const escalateOverdue = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const dayAgo = new Date(now - 24 * 60 * 60_000).toISOString();
+    const sold = await ctx.db
+      .query("marketplaceLeads")
+      .withIndex("by_status", (q) => q.eq("status", "assigned"))
+      .order("desc")
+      .take(300);
+    let escalated = 0;
+    for (const lead of sold) {
+      if (!lead.assignedAt || lead.acknowledgedAt || lead.escalatedAt || lead.isSample || lead.assignedAt < dayAgo) continue;
+      if (!withinHours(lead.assignedAt)) continue;
+      const minutesOpen = Math.round((now - Date.parse(lead.assignedAt)) / 60_000);
+      if (minutesOpen < ACK_MINUTES) continue;
+      const company = lead.assignedOrganizationId ? await ctx.db.get(lead.assignedOrganizationId) : null;
+      const who = company?.name ?? "the company";
+      await ctx.db.patch(lead._id, { escalatedAt: nowIso() });
+      await tellStaff(
+        ctx,
+        `No "Got it" from ${who} after ${minutesOpen} min: ${lead.name}`,
+        [
+          `${lead.name} was sold to ${who} ${minutesOpen} minutes ago and nobody there has tapped "Got it".`,
+          `Call them${company?.phone ? ` on ${company.phone}` : ""} and make sure they have the lead.`,
+        ],
+        "/ops?tab=delivered",
+      );
+      escalated += 1;
+    }
+    return { escalated };
   },
 });
 

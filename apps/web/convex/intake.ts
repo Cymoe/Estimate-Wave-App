@@ -8,6 +8,7 @@ import { pricingFor } from "./lib/wallet";
 import { normalizeCounty, TEXAS_COUNTIES } from "./lib/counties";
 import { DUPLICATE_WINDOW_DAYS, fieldsFromPayload, intakeLabel, normalizePhone, parseCampaign, type IntakeFields } from "./lib/intake";
 import { intakeDisposition, intakeSource } from "./schema";
+import { tellStaff } from "./notify";
 
 /**
  * The intake queue: every lead on its way in, from a Facebook form through
@@ -176,8 +177,15 @@ export const receive = internalMutation({
 
 /** How many webhook hits the log keeps. */
 export const INTAKE_LOG_KEEP = 500;
+/** A misconfigured Zapier retries for hours: staff hear about rejected hits at most this often. */
+export const REJECTED_NOTICE_MS = 60 * 60_000;
 
-/** One row per hit on the webhook. Trims the oldest beyond the keep count. */
+/**
+ * One row per hit on the webhook, trimming the oldest beyond the keep count.
+ * The hits that need a person send an email: a new lead ("go call them"),
+ * or a rejected hit ("the form is not reaching us"), the latter at most
+ * once an hour.
+ */
 export const log = internalMutation({
   args: {
     outcome: v.union(v.literal("accepted"), v.literal("repeat"), v.literal("rejected")),
@@ -188,9 +196,33 @@ export const log = internalMutation({
     summary: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await ctx.db.insert("intakeLog", { receivedAt: nowIso(), ...args });
-    const rows = await ctx.db.query("intakeLog").withIndex("by_received").order("desc").take(INTAKE_LOG_KEEP + 50);
-    for (const old of rows.slice(INTAKE_LOG_KEEP)) await ctx.db.delete(old._id);
+    const now = nowIso();
+    const before = await ctx.db.query("intakeLog").withIndex("by_received").order("desc").take(INTAKE_LOG_KEEP + 50);
+    await ctx.db.insert("intakeLog", { receivedAt: now, ...args });
+    for (const old of before.slice(INTAKE_LOG_KEEP - 1)) await ctx.db.delete(old._id);
+    if (args.outcome === "accepted") {
+      await tellStaff(
+        ctx,
+        `New lead to confirm: ${args.summary ?? "a lead"}`,
+        [`A lead just came in${args.source ? ` from ${args.source}` : ""}: ${args.summary ?? "no details parsed"}.`, "It is in Intake waiting for a call."],
+        "/ops?tab=intake",
+      );
+    } else if (args.outcome === "rejected") {
+      const since = new Date(Date.parse(now) - REJECTED_NOTICE_MS).toISOString();
+      const toldLately = before.some((r) => r.outcome === "rejected" && r.receivedAt >= since);
+      if (!toldLately) {
+        await tellStaff(
+          ctx,
+          `The intake webhook turned a lead away: ${args.reason ?? "unknown reason"}`,
+          [
+            `Something posted to the intake webhook and was turned away: ${args.reason ?? "unknown reason"}.`,
+            ...(args.summary ? [`What it sent: ${args.summary}`] : []),
+            "If this is Zapier or Make, check the key and that the body is JSON. More rejections in the next hour are logged under Intake but not emailed.",
+          ],
+          "/ops?tab=intake",
+        );
+      }
+    }
     return null;
   },
 });
