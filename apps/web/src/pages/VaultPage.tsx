@@ -23,6 +23,8 @@ export interface VaultLead {
   matchesTrades: boolean;
   /** When FieldQuote confirmed it with the homeowner, and what they said. */
   verified?: { at: string; note?: string };
+  /** A demo lead shown to a real company: there to see, not to claim. */
+  demo?: boolean;
 }
 
 export interface VaultPool {
@@ -79,7 +81,10 @@ const VaultPage: React.FC = () => {
   const tradeOf = (lead: VaultLead) => lead.tradeName ?? titleFromSlug(lead.jobType);
   const plan = pool?.plan ?? null;
   const price = plan?.nextClaimCents ?? 0;
-  const claimButton = (lead: VaultLead) => (
+  const claimButton = (lead: VaultLead) =>
+    lead.demo ? (
+      <span className="text-xs text-gray-500 whitespace-nowrap" title="A demo lead shows how the Vault works. Only demo companies can claim it.">Demo lead · not for sale</span>
+    ) : (
     <button type="button" onClick={() => claim(lead)} disabled={busy} className={primary}>
       {price > 0 ? `Claim · ${money(price)}` : 'Claim · included'}
     </button>

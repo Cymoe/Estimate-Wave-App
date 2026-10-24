@@ -487,7 +487,8 @@ export const renameTestPicante = internalMutation({
 /*
  * Demo data from the command line, so nobody has to tap buttons in the app:
  *
- *   npx convex run seed:demo         companies, bids, awarded leads, intake, play money
+ *   npx convex run seed:demo         demo companies, bids, awarded leads, intake, play money
+ *                                    (real companies are never touched)
  *   npx convex run seed:sampleLeads  20 more leads in the Marketplace
  *   npx convex run seed:playMoney    another $5,000 on every active company
  *   npx convex run seed:resetDemo    every demo company, lead and bid gone
@@ -514,7 +515,7 @@ export const demo = internalMutation({
     const companies = (await anySample(ctx, "organizations")) ? "already here" : await seedDemoData(ctx, user);
     const bids = (await anySample(ctx, "standingBids")) ? "already here" : await seedDemoBids(ctx, user);
     const intake = await seedDemoIntake(ctx, user);
-    const money = await seedPlayMoney(ctx, user);
+    const money = await seedPlayMoney(ctx, user, { demoOnly: true });
     return { companies, bids, intake, money };
   },
 });

@@ -21,6 +21,8 @@ export interface FeedLead {
   matchesTrades: boolean;
   /** When FieldQuote confirmed it with the homeowner, and what they said. */
   verified?: { at: string; note?: string };
+  /** A demo lead shown to a real company: there to see, not to buy. */
+  demo?: boolean;
   myBid?: { id: string; maxCents: number };
 }
 
@@ -120,6 +122,7 @@ const MarketplacePage: React.FC = () => {
 
   /** The buttons for one lead, shared by the table and the cards. */
   const actions = (lead: FeedLead, price: ReturnType<typeof priceAt>) => {
+    if (lead.demo) return <span className="text-xs text-gray-500 whitespace-nowrap" title="A demo lead shows how the market works. Only demo companies can buy it.">Demo lead · not for sale</span>;
     if (lead.myBid) {
       const fillsIn = span(fillTimeMs(lead.auction, lead.myBid.maxCents) - now);
       return (

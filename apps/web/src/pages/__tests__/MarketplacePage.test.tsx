@@ -71,6 +71,14 @@ describe('Marketplace', () => {
     expect(marks[0].textContent).toContain('Wants a quote this month');
   });
 
+  it('shows a demo lead as not for sale, with no Buy or order buttons', async () => {
+    feed = [{ ...(feed[0] as object), demo: true }];
+    await render();
+    const table = document.body.querySelector('[data-testid="marketplace-table"]')!;
+    expect(table.textContent).toContain('Demo lead · not for sale');
+    expect(buttons().some((b) => b.textContent === 'Buy now')).toBe(false);
+  });
+
   it('formats countdowns', () => {
     expect(span(30_000)).toBe('now');
     expect(span(59 * 60_000)).toBe('59m');

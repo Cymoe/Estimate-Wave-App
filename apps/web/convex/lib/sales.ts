@@ -15,6 +15,30 @@ export type SaleVia = "bid" | "order" | "buy" | "sent" | "claim";
  * order this sale fills, which is left for the caller to mark. `sale.via`
  * records how the company got it, shown on their Leads board.
  */
+/**
+ * Demo leads and demo companies stay among themselves: a real company never
+ * pays for a demo lead, and a demo company never gets a real one.
+ */
+export function sameWorld(
+  organization: { isSample?: boolean } | null | undefined,
+  lead: { isSample?: boolean } | null | undefined,
+): boolean {
+  return Boolean(organization?.isSample) === Boolean(lead?.isSample);
+}
+
+export function requireSameWorld(
+  organization: { isSample?: boolean } | null | undefined,
+  lead: { isSample?: boolean } | null | undefined,
+) {
+  if (!sameWorld(organization, lead))
+    fail(
+      "INVALID",
+      lead?.isSample
+        ? "This is a demo lead: it's there to show how the market works and can't be bought"
+        : "Demo companies only get demo leads",
+    );
+}
+
 export async function sellLead(
   ctx: MutationCtx,
   userId: Id<"users">,
@@ -35,6 +59,7 @@ export async function sellLead(
     const organization = await ctx.db.get(organizationId);
     if (organization === null || !organization.isActive)
       fail("NOT_FOUND", "Company not found");
+    requireSameWorld(organization, lead);
 
     const priceCents = sale.priceCents;
     // A claim included in the plan costs nothing, so there's nothing to post.

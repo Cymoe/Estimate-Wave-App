@@ -8,7 +8,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { nowIso } from "./access";
 import { countyForTown, normalizeCounty } from "./counties";
-import { sellLead } from "./sales";
+import { sameWorld, sellLead } from "./sales";
 import { dollars, pricingFor } from "./wallet";
 import { standingBidsFor } from "./standing";
 
@@ -63,6 +63,8 @@ export async function awardLead(
   let winner: Doc<"standingBids"> | undefined;
   for (const bid of bids) {
     const organization = (await ctx.db.get(bid.organizationId))!;
+    // Demo bids only meet demo leads, and real bids real ones.
+    if (!sameWorld(organization, lead)) continue;
     const balance = organization.walletBalanceCents ?? 0;
     if (winner) {
       await ctx.db.insert("leadBids", {

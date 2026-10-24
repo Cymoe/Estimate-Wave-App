@@ -34,7 +34,7 @@ import {
   priceAt,
   pricingFor as pricingFrom,
 } from "./lib/auction";
-import { sellLead } from "./lib/sales";
+import { requireSameWorld, sameWorld, sellLead } from "./lib/sales";
 import { listLead } from "./lib/awards";
 import { deleteDemoIntake } from "./intake";
 import { dropBidsOutsideTrades, outbidUnseen } from "./lib/standing";
@@ -1172,6 +1172,7 @@ export const olderLeads = query({
         ),
         matchesTrades: matches(lead),
         verified: verifiedFor(lead),
+        demo: !sameWorld(organization, lead) || undefined,
       })),
     );
     return {
@@ -1208,6 +1209,7 @@ export const claim = mutation({
     const lead = await ctx.db.get(leadId);
     if (lead === null || lead.status !== "older")
       fail("INVALID", "Someone just claimed this lead");
+    requireSameWorld(organization, lead);
     const sale = await sellLead(ctx, user._id, leadId, organizationId, {
       priceCents: claimPrice(plan),
       via: "claim",
@@ -1355,6 +1357,8 @@ export const feed = query({
           auction: await auctionFor(ctx, lead),
           matchesTrades: Boolean(lead.jobType && trades.includes(lead.jobType)),
           verified: verifiedFor(lead),
+          // Shown so the market isn't empty, but a real company can't buy it.
+          demo: !sameWorld(organization, lead) || undefined,
           myBid: bid ? { id: bid._id, maxCents: bid.maxCents } : undefined,
         };
       }),
@@ -1408,6 +1412,7 @@ export const placeBid = mutation({
     const lead = await ctx.db.get(leadId);
     if (lead === null || lead.status !== "available")
       fail("INVALID", "Someone just bought this lead");
+    requireSameWorld(organization, lead);
     const maxCents = toCents(max);
     const auction = await auctionFor(ctx, lead);
     const now = priceAt(auction, Date.now());
@@ -2118,8 +2123,9 @@ export async function deleteDemoData(ctx: MutationCtx) {
     .filter((q) => q.eq(q.field("isSample"), true))
     .collect();
   for (const bid of standingBids) await ctx.db.delete(bid._id);
-  // Demo funds and what sample leads cost a real company come back out, so
-  // the balance returns to what it was.
+  // Demo data no longer reaches real companies, but older demo runs put
+  // demo funds and demo leads on them: those come back out, so the balance
+  // returns to what it was.
   const real = (await ctx.db.query("organizations").take(1000)).filter(
     (org) => !org.isSample,
   );
@@ -2194,6 +2200,12 @@ const DEMO_BID_PATTERNS: Record<string, Array<Array<[string, number]>>> = {
     ],
   ],
 };
+/** Demo companies "Add demo bids" brings with it, so the bids have somebody to belong to. */
+const DEMO_BIDDERS = [
+  { name: "Caprock Landscapes", phone: "(432) 555-0181", email: "bids@caprock.example", city: "Midland", leadTrades: ["landscaping"] },
+  { name: "Tall City Lawn & Stone", phone: "(432) 555-0182", email: "office@tallcitylawn.example", city: "Midland", leadTrades: ["landscaping"] },
+  { name: "Big Spring Builders", phone: "(432) 555-0183", email: "jobs@bigspringbuilders.example", city: "Big Spring", leadTrades: ["general-construction"] },
+];
 const DEMO_FUNDS_CENTS = 150000;
 /** The second landscaper's funds, so its Andrews bid shows as unfunded. */
 const DEMO_SHORT_FUNDS_CENTS = 60000;
@@ -2362,8 +2374,14 @@ export const fundEveryCompany = mutation({
 });
 
 /** Play money on every active company, as `fundEveryCompany` posts it; also run from the CLI (seed.ts). */
-export async function seedPlayMoney(ctx: MutationCtx, user: Doc<"users">) {
-    const companies = (await ctx.db.query("organizations").take(5000)).filter((o) => o.isActive);
+export async function seedPlayMoney(
+  ctx: MutationCtx,
+  user: Doc<"users">,
+  { demoOnly = false }: { demoOnly?: boolean } = {},
+) {
+    const companies = (await ctx.db.query("organizations").take(5000)).filter(
+      (o) => o.isActive && (!demoOnly || o.isSample),
+    );
     for (const company of companies) {
       await postTransaction(ctx, company._id, {
         type: "top_up",
@@ -2391,16 +2409,21 @@ export async function seedDemoBids(ctx: MutationCtx, user: Doc<"users">) {
         .first()) !== null
     )
       fail("INVALID", "Demo bids are already here");
+    // Demo bids belong to demo companies only: the bidders below are added
+    // when missing, and any other demo company bids in its own trades. Real
+    // companies get no funds, bids or leads from this.
+    const existing = (await ctx.db.query("organizations").take(1000)).filter((org) => org.isSample);
+    for (const bidder of DEMO_BIDDERS) {
+      if (existing.some((org) => org.name === bidder.name)) continue;
+      await createOrganization(ctx, { ...bidder, state: "TX", walletBalanceCents: 0, isSample: true });
+    }
     const companies = (await ctx.db.query("organizations").take(1000))
-      .filter((org) => org.isActive && !org.isSample)
+      .filter((org) => org.isActive && org.isSample)
       .sort((a, b) => a.name.localeCompare(b.name));
     const seen: Record<string, number> = {};
     const base = Date.now() - 4 * 24 * 60 * 60 * 1000;
     let standingBids = 0;
     for (const org of companies) {
-      // Bids are only for listed trades: a company with none lists the one its demo bids are in.
-      if (!org.leadTrades?.length)
-        await ctx.db.patch(org._id, { leadTrades: ["general-construction"], updatedAt: nowIso() });
       const trades = org.leadTrades?.length
         ? org.leadTrades
         : ["general-construction"];
