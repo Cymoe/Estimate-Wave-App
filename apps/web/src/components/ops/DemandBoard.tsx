@@ -148,7 +148,7 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
                     <th key={slug} className="text-left px-1.5 py-2">
                       {name}
                       {owner ? (
-                        <PlanCpl jobType={slug} cents={data.planCpl[slug]} />
+                        <PlanCpl jobType={slug} tradeName={name} cents={data.planCpl[slug]} />
                       ) : data.planCpl[slug] !== undefined ? (
                         <span className="block text-[10px] normal-case text-gray-500">costs {money(data.planCpl[slug])}</span>
                       ) : null}
@@ -208,26 +208,50 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
 };
 
 /** The ad cost per lead for a trade, typed in by the owner. The board picks the change up on its own. */
-function PlanCpl({ jobType, cents }: { jobType: string; cents?: number }) {
-  const [value, setValue] = useState(cents !== undefined ? String(cents / 100) : '');
-  useEffect(() => setValue(cents !== undefined ? String(cents / 100) : ''), [cents]);
+function PlanCpl({ jobType, tradeName, cents }: { jobType: string; tradeName: string; cents?: number }) {
+  const shown = (c?: number) => (c !== undefined ? String(c / 100) : '');
+  const [value, setValue] = useState(shown(cents));
+  const [state, setState] = useState<{ kind: 'saved' } | { kind: 'error'; text: string } | null>(null);
+  useEffect(() => setValue(shown(cents)), [cents]);
   const save = async () => {
-    const n = Number(value);
-    if (value.trim() === '') await demandAPI.setPlanCpl(jobType, null);
-    else if (Number.isFinite(n) && n >= 0) await demandAPI.setPlanCpl(jobType, Math.round(n * 100));
+    if (value === shown(cents)) return;
+    const n = Number(value.replace(/[$,]/g, ''));
+    if (value.trim() !== '' && !(Number.isFinite(n) && n >= 0)) {
+      setState({ kind: 'error', text: 'Enter an ad cost per lead in dollars' });
+      setValue(shown(cents));
+      return;
+    }
+    try {
+      await demandAPI.setPlanCpl(jobType, value.trim() === '' ? null : Math.round(n * 100));
+      setState({ kind: 'saved' });
+      window.setTimeout(() => setState((s) => (s?.kind === 'saved' ? null : s)), 1500);
+    } catch (err) {
+      // Put back what is stored, and say why.
+      setValue(shown(cents));
+      setState({ kind: 'error', text: err instanceof Error && err.message ? err.message.replace(/^.*Uncaught (Convex)?Error:\s*/, '') : "Didn't save" });
+    }
   };
   return (
     <span className="block mt-1 normal-case font-normal">
       <input
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => {
+          setValue(e.target.value);
+          setState(null);
+        }}
         onBlur={save}
         onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
         inputMode="decimal"
         placeholder="ad cost/lead $"
-        aria-label={`Ad cost per ${jobType} lead`}
+        aria-label={`Ad cost per ${tradeName} lead`}
         className={`${input} py-1 text-xs w-24`}
       />
+      {state?.kind === 'saved' && <span className="block text-[11px] text-emerald-300 mt-0.5">✓ Saved</span>}
+      {state?.kind === 'error' && (
+        <span role="alert" className="block text-[11px] text-red-300 mt-0.5">
+          {state.text}
+        </span>
+      )}
     </span>
   );
 }

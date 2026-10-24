@@ -33,6 +33,7 @@ let demand: unknown = { vaCostCents: 500, demoLeads: false, planCpl: { roofing: 
 const setPlanCpl = jest.fn(async (_jobType: string, _cents: number | null) => null);
 let delivered: unknown[] = [];
 const resendAlerts = jest.fn(async (_id: string) => null);
+const markHandled = jest.fn<Promise<string>, [string]>(async () => '2026-10-24T15:00:00Z');
 const removeLead = jest.fn(async (): Promise<void> => undefined);
 const destination: unknown = { kind: 'sold', companyName: 'Peak Roofing', priceCents: 25000, tradeName: 'Roofing', county: 'Midland' };
 
@@ -80,7 +81,7 @@ jest.mock('../../../lib/api', () => ({
     approve: (id: string) => approveApplication(id),
     decline: (id: string) => declineApplication(id),
   },
-  deliveryAPI: { resend: (id: string) => resendAlerts(id) },
+  deliveryAPI: { resend: (id: string) => resendAlerts(id), markHandled: (id: string) => markHandled(id) },
   demandAPI: {
     setPlanCpl: (jobType: string, cents: number | null) => setPlanCpl(jobType, cents),
   },
@@ -184,7 +185,7 @@ describe('Lead Market', () => {
     role = 'staff';
     await render(<LeadMarketPage />);
     expect(document.body.textContent).toContain('FieldQuote staff');
-    expect(Array.from(document.body.querySelectorAll('[role="tablist"]:not([aria-label]) [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand (0/0)', 'Intake (0)', 'For sale (1)', 'Sold', 'Companies (3)']);
+    expect(Array.from(document.body.querySelectorAll('[role="tablist"][aria-label="Ops tabs"] [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand (0/0)', 'Intake (0)', 'For sale (1)', 'Sold', 'Companies (3)']);
     expect(document.body.textContent).not.toContain('Add 20 sample leads');
     expect(document.body.querySelector('[data-testid="team-card"]')).toBeNull();
     // The company panel reads only: no payment link, payments or plan.
@@ -244,7 +245,7 @@ describe('Lead Market', () => {
     expect(heading()).toBe('Intake');
     expect(summary()).toBe('2 to confirm · 1 possible duplicate');
     expect(document.title).toBe('Intake · Ops · FieldQuote');
-    expect(Array.from(document.body.querySelectorAll('[role="tablist"]:not([aria-label]) [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand (0/0)', 'Intake (2)', 'For sale (1)', 'Sold', 'Companies (3)', 'Prices']);
+    expect(Array.from(document.body.querySelectorAll('[role="tablist"][aria-label="Ops tabs"] [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand (0/0)', 'Intake (2)', 'For sale (1)', 'Sold', 'Companies (3)', 'Prices']);
     expect(document.body.textContent).not.toContain('sell on their own');
     const open = async (name: string) => {
       await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith(name))!.click());
@@ -702,7 +703,7 @@ describe('standing bids in Admin', () => {
     await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Sold'))!.click());
     await flush();
     const items = Array.from(document.body.querySelectorAll('[aria-label="Sold"] > li'));
-    expect(items[0].textContent).toContain('to Peak Roofing · $260.00 · won by bid');
+    expect(items[0].textContent).toContain('to Peak Roofing · $260.00 · sold by bid');
     expect(items[1].textContent).toContain('to Broke Roofing · $85.00 credited back · sent by hand');
     expect(items[1].querySelector('.line-through')!.textContent).toBe('$85.00');
     // The old address still opens it: emails sent before the rename say ?tab=delivered.
@@ -818,12 +819,21 @@ describe('standing bids in Admin', () => {
     expect(document.body.querySelector('[data-testid="slot-sales"]')!.textContent).toBe('Last 30 days: 4 Painting leads came in for Ector County, 3 sold (75%). They went for $90.00 to $200.00, about $140.00 each, the latest for $90.00. 1 went straight to a standing bid.');
     await act(async () => (document.body.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click());
     // The owner sets the ad cost per lead in the column header.
-    const cpl = grid.querySelector('input[aria-label="Ad cost per roofing lead"]') as HTMLInputElement;
+    const cpl = grid.querySelector('input[aria-label="Ad cost per Roofing lead"]') as HTMLInputElement;
     expect(cpl.value).toBe('60');
     await act(async () => type(cpl, '45'));
     await act(async () => cpl.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
     await flush();
     expect(setPlanCpl).toHaveBeenCalledWith('roofing', 4500);
+    expect(cpl.parentElement!.textContent).toContain('✓ Saved');
+    // Not a number: nothing is sent, the box goes back and says why.
+    setPlanCpl.mockClear();
+    await act(async () => type(cpl, 'lots'));
+    await act(async () => cpl.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
+    await flush();
+    expect(setPlanCpl).not.toHaveBeenCalled();
+    expect(cpl.value).toBe('60');
+    expect(cpl.parentElement!.querySelector('[role="alert"]')?.textContent).toBe('Enter an ad cost per lead in dollars');
     // Opening a cell lists the bidders with whether they can pay.
     await act(async () => (midland as HTMLButtonElement).click());
     await flush();
@@ -843,7 +853,7 @@ describe('standing bids in Admin', () => {
 
   it('shows what was sent for each sold lead and flags the ones nobody acknowledged', async () => {
     delivered = [
-      { id: 'm1', orgLeadId: 'ol1', name: 'Dana Reyes', jobType: 'roofing', companyName: 'Peak Roofing', companyPhone: '(432) 555-0100', priceCents: 25000, assignedAt: '2026-10-22T16:00:00Z', minutesOpen: 22, afterHours: false, overdue: true,
+      { id: 'm1', orgLeadId: 'ol1', name: 'Dana Reyes', jobType: 'roofing', organizationId: 'o2', companyName: 'Peak Roofing', companyPhone: '(432) 555-0100', priceCents: 25000, assignedAt: '2026-10-22T16:00:00Z', minutesOpen: 22, afterHours: false, overdue: true,
         deliveries: [{ id: 'd1', channel: 'email', to: 'office@peak.example', status: 'sent', at: '2026-10-22T16:00:01Z' }, { id: 'd2', channel: 'sms', to: '', status: 'skipped', error: 'Nobody at the company has a mobile for alerts', at: '2026-10-22T16:00:01Z' }] },
       { id: 'm2', orgLeadId: 'ol2', name: 'Ray Ortiz', jobType: 'painting', companyName: 'Broke Roofing', priceCents: 20000, assignedAt: '2026-10-22T15:00:00Z', acknowledgedAt: '2026-10-22T15:04:00Z', minutesOpen: 4, afterHours: false, overdue: false, deliveries: [] },
     ];
@@ -869,8 +879,15 @@ describe('standing bids in Admin', () => {
     expect(items[0].textContent).toContain('Text skipped: Nobody at the company has a mobile for alerts');
     expect(items[1].getAttribute('data-overdue')).toBeNull();
     expect(items[1].textContent).toContain('Got it in 4 min');
-    await act(async () => (items[0].querySelector('button') as HTMLButtonElement).click());
+    const button = (li: Element, label: string) => Array.from(li.querySelectorAll('button')).find((b) => b.textContent?.includes(label)) as HTMLButtonElement;
+    await act(async () => button(items[0], 'Resend alerts').click());
     expect(resendAlerts).toHaveBeenCalledWith('ol1');
+    // After a phone call: "Called, they have it" stops the red; the acknowledged row has no such button.
+    expect(button(items[1], 'Called, they have it')).toBeUndefined();
+    await act(async () => button(items[0], 'Called, they have it').click());
+    expect(markHandled).toHaveBeenCalledWith('m1');
+    // The company's name opens its panel on the Companies tab.
+    expect(items[0].querySelector('a[href^="/ops?tab=companies&company="]')?.textContent).toBe('Peak Roofing');
   });
 
   it('lists a lead only once all six checks are ticked, then says who got it', async () => {

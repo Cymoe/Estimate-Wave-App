@@ -841,9 +841,13 @@ describe("delivery", () => {
       expect(tonight.get(evening)).toMatchObject({ overdue: true, minutesOpen: 15 });
       expect(tonight.get(night)).toMatchObject({ overdue: false, minutesOpen: 10 });
       expect(await t.mutation(internal.delivery.escalateOverdue, {})).toEqual({ escalated: 1 });
-      // 8:15am: now the 9pm one.
+      // A call that confirms they have it stops the red and the chase: the 9pm one, marked handled at 8:12, is never chased.
+      vi.setSystemTime(new Date("2026-10-23T13:12:00Z"));
+      await expect(co.as.mutation(api.delivery.markHandled, { leadId: night })).rejects.toThrow(/staff/);
+      await va.as.mutation(api.delivery.markHandled, { leadId: night });
       vi.setSystemTime(new Date("2026-10-23T13:15:00Z"));
-      expect(await t.mutation(internal.delivery.escalateOverdue, {})).toEqual({ escalated: 1 });
+      expect((await va.as.query(api.delivery.recent, {})).find((r) => r.id === night)).toMatchObject({ overdue: false, handledAt: "2026-10-23T13:12:00.000Z" });
+      expect(await t.mutation(internal.delivery.escalateOverdue, {})).toEqual({ escalated: 0 });
     } finally {
       vi.useRealTimers();
       vi.unstubAllEnvs();

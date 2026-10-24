@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { AlertCircle, Check, Mail, MessageSquare, RefreshCw } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { AlertCircle, Check, Mail, MessageSquare, PhoneCall, RefreshCw } from 'lucide-react';
 import { deliveryAPI } from '../../lib/api';
 import { useDelivered } from '../../lib/live';
 import { money } from '../market/wallet';
@@ -22,6 +23,10 @@ export interface DeliveredRow {
   county?: string;
   city?: string;
   companyName: string;
+  /** The company's id, for the link to its panel on the Companies tab. */
+  organizationId?: string;
+  /** When staff called and the company said it has the lead. */
+  handledAt?: string;
   /** Who to call when the row turns red. */
   companyPhone?: string;
   priceCents: number;
@@ -38,7 +43,7 @@ export interface DeliveredRow {
 }
 
 const HOW: Record<NonNullable<DeliveredRow['wonVia']>, string> = {
-  bid: 'won by bid',
+  bid: 'sold by bid',
   order: 'buy order',
   buy: 'bought',
   claim: 'claimed from the Vault',
@@ -62,6 +67,18 @@ export const Delivered: React.FC<{ tradeName: (id?: string) => string }> = ({ tr
   const rows = useDelivered<DeliveredRow[]>();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const handled = async (row: DeliveredRow) => {
+    setBusy(row.id);
+    setError(null);
+    try {
+      await deliveryAPI.markHandled(row.id);
+    } catch (err) {
+      setError(`${row.name} couldn't be marked as handled: ${describeError(err, 'server error')}`);
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const resend = async (row: DeliveredRow) => {
     setBusy(row.id);
@@ -106,7 +123,15 @@ export const Delivered: React.FC<{ tradeName: (id?: string) => string }> = ({ tr
                   <span className="text-gray-500">· {tradeName(row.jobType)}</span>
                 </span>
                 <span className="block text-xs text-gray-500">
-                  to {row.companyName} · <span className={row.credited ? 'line-through' : ''}>{money(row.priceCents)}</span>
+                  to{' '}
+                  {row.organizationId ? (
+                    <Link to={`/ops?tab=companies&company=${row.organizationId}`} className="underline underline-offset-2 hover:text-white">
+                      {row.companyName}
+                    </Link>
+                  ) : (
+                    row.companyName
+                  )}{' '}
+                  · <span className={row.credited ? 'line-through' : ''}>{money(row.priceCents)}</span>
                   {row.credited ? ' credited back' : ''}
                   {row.wonVia ? ` · ${HOW[row.wonVia]}` : ''} · {ago(row.assignedAt)}
                   {row.afterHours ? (row.acknowledgedAt || row.minutesOpen > 0 ? ' · sold after hours' : ' · after hours, clock starts at 8am') : ''}
@@ -126,9 +151,18 @@ export const Delivered: React.FC<{ tradeName: (id?: string) => string }> = ({ tr
                   </span>
                 )}
               </span>
-              <span className={`text-xs whitespace-nowrap ${row.acknowledgedAt ? 'text-emerald-300' : row.overdue ? 'text-red-300' : 'text-gray-400'}`}>
-                {row.acknowledgedAt ? `Got it in ${row.minutesOpen} min` : `No “Got it” yet · ${row.minutesOpen} min`}
+              <span className={`text-xs whitespace-nowrap ${row.acknowledgedAt || row.handledAt ? 'text-emerald-300' : row.overdue ? 'text-red-300' : 'text-gray-400'}`}>
+                {row.acknowledgedAt
+                  ? `Got it in ${row.minutesOpen} min`
+                  : row.handledAt
+                    ? 'Called · they have it'
+                    : `No “Got it” yet · ${row.minutesOpen} min`}
               </span>
+              {!row.acknowledgedAt && !row.handledAt && (
+                <button type="button" disabled={busy === row.id} onClick={() => handled(row)} className={secondary} title="You called and they have the lead: stop the red and the chase">
+                  <PhoneCall className="w-3.5 h-3.5" /> Called, they have it
+                </button>
+              )}
               <button type="button" disabled={busy === row.id} onClick={() => resend(row)} className={secondary} title="Send the email and text again">
                 <RefreshCw className="w-3.5 h-3.5" /> Resend alerts
               </button>

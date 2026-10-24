@@ -1216,11 +1216,16 @@ const LeadMarketPage: React.FC = () => {
         const loss = slots.filter((s) => s.state === 'loss').length;
         const unsold = slots.filter((s) => s.state === 'oversupplied').length;
         const nobody = slots.filter((s) => s.state === 'nobuyers').length;
+        const unfunded = slots.filter((s) => s.state === 'unfunded').length;
+        const quiet = slots.filter((s) => s.state === 'quiet').length;
         const parts = [`${open} of ${slots.length} worth running ads`];
         if (unknown > 0) parts.push(`${unknown} need an ad cost per lead`);
         if (loss > 0) parts.push(`${loss} would lose money`);
         if (unsold > 0) parts.push(`${unsold} sitting unsold`);
         if (nobody > 0) parts.push(`${nobody} nobody buys`);
+        // Every state is counted, so the parts add up to the total.
+        if (unfunded > 0) parts.push(`${unfunded} with bids nobody can pay`);
+        if (quiet > 0) parts.push(`${quiet} quiet`);
         return parts.join(' · ');
       }
       case 'intake': {
@@ -1261,7 +1266,7 @@ const LeadMarketPage: React.FC = () => {
             {summary}
           </p>
         </div>
-        <div className="flex rounded border border-[#333] overflow-hidden" role="tablist">
+        <div className="flex max-w-full rounded border border-[#333] overflow-x-auto" role="tablist" aria-label="Ops tabs">
           {(
             [
               ['demand', 'Demand', counts.demandOpen !== null ? `${counts.demandOpen}/${counts.demandTotal}` : ''],
@@ -1277,7 +1282,7 @@ const LeadMarketPage: React.FC = () => {
               role="tab"
               aria-selected={tab === value}
               onClick={() => setTab(value)}
-              className={`px-4 py-2 text-sm ${tab === value ? 'bg-[#336699] text-white' : 'text-gray-300 [@media(hover:hover)]:hover:bg-[#222]'}`}
+              className={`shrink-0 whitespace-nowrap px-4 py-2 text-sm ${tab === value ? 'bg-[#336699] text-white' : 'text-gray-300 [@media(hover:hover)]:hover:bg-[#222]'}`}
             >
               {label}
               {count && (

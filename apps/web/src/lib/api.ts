@@ -515,6 +515,8 @@ export const demandAPI = {
 export const deliveryAPI = {
   recent: () => run('query', api.delivery.recent, {}),
   resend: (orgLeadId: string) => run('mutation', api.delivery.resend, { orgLeadId }),
+  /** "Called, they have it": stops the red and the chase. */
+  markHandled: (leadId: string): Promise<string> => run('mutation', api.delivery.markHandled, { leadId }),
 };
 
 /** The signed-in person's own settings. */

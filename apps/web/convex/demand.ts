@@ -179,7 +179,7 @@ export const setPlanCpl = mutation({
       if (existing) await ctx.db.delete(existing._id);
       return null;
     }
-    if (!Number.isFinite(cents) || cents < 0) fail("INVALID", "Enter a cost per lead");
+    if (!Number.isFinite(cents) || cents < 0) fail("INVALID", "Enter an ad cost per lead");
     const planCplCents = Math.round(cents);
     if (existing) await ctx.db.patch(existing._id, { planCplCents, updatedAt: nowIso() });
     else await ctx.db.insert("demandSettings", { jobType, planCplCents, updatedAt: nowIso() });

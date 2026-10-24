@@ -298,7 +298,7 @@ export const escalateOverdue = internalMutation({
       .take(300);
     let escalated = 0;
     for (const lead of sold) {
-      if (!lead.assignedAt || lead.acknowledgedAt || lead.escalatedAt || lead.isSample || lead.assignedAt < dayAgo) continue;
+      if (!lead.assignedAt || lead.acknowledgedAt || lead.handledAt || lead.escalatedAt || lead.isSample || lead.assignedAt < dayAgo) continue;
       // Only business minutes count, and staff are only chased while the clock runs:
       // an evening sale gets its remaining minutes from 8am.
       if (!withinHours(new Date(now).toISOString())) continue;
@@ -319,6 +319,20 @@ export const escalateOverdue = internalMutation({
       escalated += 1;
     }
     return { escalated };
+  },
+});
+
+/** Staff called the company and it has the lead: the row stops being red and nobody is chased. */
+export const markHandled = mutation({
+  args: { leadId: v.id("marketplaceLeads") },
+  handler: async (ctx, { leadId }) => {
+    const user = await requireStaff(ctx);
+    const lead = await ctx.db.get(leadId);
+    if (lead === null || !lead.assignedAt) fail("NOT_FOUND", "Lead not found");
+    if (lead.handledAt) return lead.handledAt;
+    const now = nowIso();
+    await ctx.db.patch(leadId, { handledAt: now, handledBy: user._id, updatedAt: now });
+    return now;
   },
 });
 
@@ -373,6 +387,7 @@ export const recent = query({
           jobType: lead.jobType,
           county: lead.county,
           city: lead.city,
+          organizationId: company?._id,
           companyName: company?.name ?? "Unknown company",
           companyPhone: company?.phone,
           priceCents: lead.priceCents ?? 0,
@@ -382,8 +397,10 @@ export const recent = query({
           acknowledgedAt: lead.acknowledgedAt,
           minutesOpen,
           afterHours,
-          // Red: nobody has tapped "Got it" within 15 business minutes. Demo leads are never chased, so never red.
-          overdue: !lead.acknowledgedAt && !lead.isSample && minutesOpen >= ACK_MINUTES,
+          handledAt: lead.handledAt,
+          // Red: nobody has tapped "Got it" within 15 business minutes, and staff haven't
+          // called and heard they have it. Demo leads are never chased, so never red.
+          overdue: !lead.acknowledgedAt && !lead.handledAt && !lead.isSample && minutesOpen >= ACK_MINUTES,
           deliveries: deliveries
             .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
             .map((d) => ({ id: d._id, channel: d.channel, to: d.to, status: d.status, error: d.error, at: d.createdAt })),
