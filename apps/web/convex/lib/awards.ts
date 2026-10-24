@@ -6,6 +6,7 @@
 // pay for, goes to the Marketplace.
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { internal } from "../_generated/api";
 import { nowIso } from "./access";
 import { countyForTown, normalizeCounty } from "./counties";
 import { sameWorld, sellLead } from "./sales";
@@ -60,6 +61,22 @@ export async function awardLead(
   if (bids.length === 0) return "available";
 
   const now = nowIso();
+  // A company told once per lead that its balance cost it the lead.
+  const toldBefore = new Set(
+    (
+      await ctx.db
+        .query("leadBids")
+        .withIndex("by_lead", (q) => q.eq("marketplaceLeadId", leadId))
+        .collect()
+    )
+      .filter((b) => b.outcome?.startsWith("Balance too low"))
+      .map((b) => b.organizationId as string),
+  );
+  const tradeName =
+    (await ctx.db
+      .query("industries")
+      .withIndex("by_slug", (q) => q.eq("slug", lead.jobType!))
+      .first())?.name ?? lead.jobType;
   let winner: Doc<"standingBids"> | undefined;
   for (const bid of bids) {
     const organization = (await ctx.db.get(bid.organizationId))!;
@@ -90,6 +107,19 @@ export async function awardLead(
         createdAt: now,
         resolvedAt: now,
       });
+      if (!organization.isSample && !toldBefore.has(bid.organizationId)) {
+        toldBefore.add(bid.organizationId);
+        await ctx.scheduler.runAfter(0, internal.notify.company, {
+          organizationId: bid.organizationId,
+          subject: `You missed a ${tradeName} lead in ${lead.county} County`,
+          lines: [
+            `A ${tradeName} lead in ${lead.county} County just came in and your ${dollars(bid.amountCents)} bid was the one to win it, but your balance was ${dollars(balance)}.`,
+            "Add funds and your bids win the next one.",
+          ],
+          path: "/bids",
+          button: "Add funds",
+        });
+      }
     } else {
       winner = bid;
       const bidId = await ctx.db.insert("leadBids", {

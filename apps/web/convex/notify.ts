@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { internalAction, internalQuery, type MutationCtx } from "./_generated/server";
 import { sendEmail, siteUrl } from "./delivery";
 
@@ -40,4 +41,44 @@ ${lines.map((l) => `<p style="margin:0 0 8px">${esc(l)}</p>`).join("\n")}
 /** Queues one email to staff from inside a mutation; the send happens after the write commits. */
 export async function tellStaff(ctx: MutationCtx, subject: string, lines: string[], path: string): Promise<void> {
   await ctx.scheduler.runAfter(0, internal.notify.send, { subject, lines, path });
+}
+
+/** Who hears about money at a company: its own email and its owners' and admins'. */
+export const companyEmails = internalQuery({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    const organization = await ctx.db.get(organizationId);
+    if (!organization || organization.isSample) return [];
+    const memberships = await ctx.db
+      .query("memberships")
+      .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
+      .take(50);
+    const people = await Promise.all(memberships.filter((m) => m.role !== "member").map((m) => ctx.db.get(m.userId)));
+    return [...new Set([organization.email, ...people.map((p) => p?.email)].filter((e): e is string => Boolean(e)))];
+  },
+});
+
+/** One short email to a company (not to staff), with a button to the page that fixes it. */
+export const company = internalAction({
+  args: { organizationId: v.id("organizations"), subject: v.string(), lines: v.array(v.string()), path: v.string(), button: v.string() },
+  handler: async (ctx, { organizationId, subject, lines, path, button }) => {
+    const to = await ctx.runQuery(internal.notify.companyEmails, { organizationId });
+    if (to.length === 0) return { status: "skipped" as const, error: "The company has no email" };
+    const link = `${siteUrl()}${path}`;
+    const text = [...lines, "", `${button}: ${link}`].join("\n");
+    const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.5;color:#111">
+${lines.map((l) => `<p style="margin:0 0 8px">${esc(l)}</p>`).join("\n")}
+<p style="margin:12px 0"><a href="${link}" style="display:inline-block;padding:10px 16px;background:#336699;color:#fff;text-decoration:none;border-radius:4px">${esc(button)}</a></p>
+</div>`;
+    return await sendEmail(to, { subject: `FieldQuote: ${subject}`, text, html });
+  },
+});
+
+/** Queues one email to a company from inside a mutation. */
+export async function tellCompany(
+  ctx: MutationCtx,
+  organizationId: Id<"organizations">,
+  message: { subject: string; lines: string[]; path: string; button: string },
+): Promise<void> {
+  await ctx.scheduler.runAfter(0, internal.notify.company, { organizationId, ...message });
 }

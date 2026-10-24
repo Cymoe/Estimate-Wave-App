@@ -5,6 +5,7 @@ import { internalAction, internalMutation, internalQuery, mutation, query } from
 import { fail, nowIso, requireStaff } from "./lib/access";
 import { dollars } from "./lib/wallet";
 import { tellStaff } from "./notify";
+import { badLeadLine } from "./lib/support";
 import { sendEmail, type SendResult } from "./lib/email";
 
 // Other modules import sendEmail from here; it lives in lib/email.ts.
@@ -166,8 +167,9 @@ export function emailBody(r: Recipients, link: string): { subject: string; text:
     r.lead.verified ? `Confirmed with the homeowner by FieldQuote${r.lead.verified.note ? `: ${r.lead.verified.note}` : ""}` : undefined,
     r.lead.pricePaidCents > 0 ? `Yours exclusively for ${dollars(r.lead.pricePaidCents)}.` : "Yours exclusively.",
   ].filter((l): l is string => Boolean(l));
+  const support = badLeadLine();
   const subject = `New ${r.tradeName.toLowerCase()} lead: ${r.lead.name}${r.lead.city ? ` in ${r.lead.city}` : ""}`;
-  const text = `${lines.join("\n")}\n\nTap to open it and tell us you're on it: ${link}`;
+  const text = `${lines.join("\n")}\n\nTap to open it and tell us you're on it: ${link}\n\n${support}`;
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.5;color:#111">
 <p style="font-size:18px;margin:0 0 12px"><strong>New ${esc(r.tradeName.toLowerCase())} lead</strong></p>
@@ -175,6 +177,7 @@ ${lines.map((l) => `<p style="margin:0 0 6px">${esc(l).replace(/\n/g, "<br>")}</
 ${r.lead.phone ? `<p style="margin:12px 0"><a href="tel:${digits(r.lead.phone)}" style="display:inline-block;padding:10px 16px;background:#336699;color:#fff;text-decoration:none;border-radius:4px">Call ${esc(firstName(r.lead.name))}</a></p>` : ""}
 <p style="margin:12px 0"><a href="${link}" style="display:inline-block;padding:10px 16px;border:1px solid #336699;color:#336699;text-decoration:none;border-radius:4px">Got it, calling now</a></p>
 <p style="color:#666;font-size:13px">FieldQuote sends each lead to one company only. Tapping the button tells our team you have it.</p>
+<p style="color:#666;font-size:13px">${esc(support)}</p>
 </div>`;
   return { subject, text, html };
 }

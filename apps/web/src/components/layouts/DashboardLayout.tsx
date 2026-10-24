@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, createContext, useCallback, useMemo } from 'react';
+import { SUPPORT_EMAIL } from '../../../convex/lib/support';
 import { Outlet, useNavigate, useLocation, NavLink } from 'react-router-dom';
 import { QuickCreateButton } from '../common/QuickCreateButton';
 import { QuickCreateMenu } from '../common/QuickCreateMenu';
@@ -1027,9 +1028,9 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                                 <p className="text-gray-300 text-sm mb-3">
                                   Get help from our construction industry experts via chat or phone.
                                 </p>
-                                <button className="text-[#336699] text-sm font-medium hover:text-white transition-colors">
+                                <a href={`mailto:${SUPPORT_EMAIL}`} className="text-[#336699] text-sm font-medium hover:text-white transition-colors">
                                   Contact Support →
-                                </button>
+                                </a>
                               </div>
                               
                             </div>

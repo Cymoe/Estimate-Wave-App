@@ -277,7 +277,7 @@ const FundAccountPage: React.FC = () => {
                 )}
                 {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
                 <p className="flex items-center justify-center gap-1.5 text-xs text-gray-500 mt-5">
-                  <ShieldCheck className="w-4 h-4" /> Your balance never expires. Bad leads are credited back.
+                  <ShieldCheck className="w-4 h-4" /> Your balance never expires. A bad lead reported within 3 days is credited back.
                 </p>
               </div>
             )}

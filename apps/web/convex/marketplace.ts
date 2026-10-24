@@ -34,6 +34,7 @@ import {
   priceAt,
   pricingFor as pricingFrom,
 } from "./lib/auction";
+import { tellCompany } from "./notify";
 import { requireSameWorld, sameWorld, sellLead } from "./lib/sales";
 import { listLead } from "./lib/awards";
 import { deleteDemoIntake } from "./intake";
@@ -970,6 +971,17 @@ async function chargePlan(
         plan: { ...plan, status: "past_due" },
         updatedAt: now,
       });
+      // Said once, when it pauses; the daily retry stays quiet.
+      if (plan.status !== "past_due" && !org.isSample)
+        await tellCompany(ctx, org._id, {
+          subject: "Your Pro plan is paused",
+          lines: [
+            `Your Pro plan is paused: ${dollars(plan.monthlyCents)} could not come off your lead balance (${dollars(org.walletBalanceCents ?? 0)}).`,
+            "Estimates, the Price Book, Projects and the Vault are locked until it's paid. Add funds and it resumes on its own.",
+          ],
+          path: "/plan",
+          button: "Add funds",
+        });
       return false;
     }
     await postTransaction(ctx, org._id, {

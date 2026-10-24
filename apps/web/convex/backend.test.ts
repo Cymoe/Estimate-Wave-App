@@ -560,6 +560,62 @@ describe("delivery", () => {
     expect(email.text).toContain("Yours exclusively for $250.00.");
     expect(email.html).toContain('href="tel:4325550133"');
     expect(email.html).toContain("Got it, calling now");
+    // Where to report a bad lead, in the email too.
+    expect(email.text).toContain("Wrong number or not a real job? Tell FieldQuote within 3 days: leads@fieldquote.app");
+  });
+
+  test("a company hears by email when its balance cost it a lead (once per lead) and when its plan pauses", async () => {
+    vi.useFakeTimers();
+    const sent: Array<{ to: string[]; subject: string; text: string }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        sent.push(JSON.parse(init.body as string));
+        return { ok: true, status: 200, json: async () => ({ id: "em" }) };
+      }),
+    );
+    vi.stubEnv("RESEND_API_KEY", "re_test");
+    vi.stubEnv("SITE_URL", "https://app.example");
+    try {
+      const t = setup();
+      const admin = await signUp(t, "admin@fieldquote.example", { role: "super_admin" });
+      const co = await signUp(t, "owner@peak.example");
+      await t.run(async (ctx) => {
+        const now = new Date().toISOString();
+        await ctx.db.insert("industries", { slug: "roofing", name: "Roofing", display_order: 1, is_active: true, created_at: now, updated_at: now });
+        await ctx.db.patch(co.organizationId, { name: "Peak Roofing", leadTrades: ["roofing"], walletBalanceCents: 30000 });
+      });
+      await co.as.mutation(api.bids.setStanding, { organizationId: co.organizationId, county: "Midland", jobType: "roofing", amount: 250 });
+      // The balance drops below the bid; the next lead goes by.
+      await t.run(async (ctx) => ctx.db.patch(co.organizationId, { walletBalanceCents: 10000 }));
+      await admin.as.mutation(api.marketplace.createLead, { data: { name: "Hail Roof", phone: "4325550142", city: "Midland", jobType: "roofing" } });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      const missed = sent.filter((m) => m.subject === "FieldQuote: You missed a Roofing lead in Midland County");
+      expect(missed).toHaveLength(1);
+      expect(missed[0].to).toEqual(["owner@peak.example"]);
+      expect(missed[0].text).toContain("your $250.00 bid was the one to win it, but your balance was $100.00");
+      expect(missed[0].text).toContain("Add funds: https://app.example/bids");
+
+      // The plan can't be paid: one email when it pauses, none on the daily retries.
+      await t.run(async (ctx) => {
+        const org = (await ctx.db.get(co.organizationId))!;
+        await ctx.db.patch(co.organizationId, {
+          plan: { monthlyCents: 9900, claimsIncluded: 10, extraClaimCents: 1500, status: "active", periodStart: "2026-09-01T00:00:00.000Z", nextChargeAt: new Date(Date.now() - 1000).toISOString(), claimsThisPeriod: 0 },
+          walletBalanceCents: 5000,
+          updatedAt: org.updatedAt,
+        });
+      });
+      await t.mutation(internal.marketplace.chargePlans, {});
+      await t.mutation(internal.marketplace.chargePlans, {});
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      const paused = sent.filter((m) => m.subject === "FieldQuote: Your Pro plan is paused");
+      expect(paused).toHaveLength(1);
+      expect(paused[0].text).toContain("$99.00 could not come off your lead balance ($50.00)");
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
   });
 
   test("with no mobile added yet, the text goes to the company's own phone, and the wallet says a mobile is missing", async () => {

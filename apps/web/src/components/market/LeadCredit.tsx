@@ -3,6 +3,7 @@ import { Check } from 'lucide-react';
 import type { Lead } from '../leads/leadTypes';
 import { leadsAPI } from '../../lib/api';
 import { leadOrigin } from './wallet';
+import { SupportLine } from './SupportLine';
 
 /**
  * On a lead bought from FieldQuote: what it cost, and the state of a credit
@@ -43,6 +44,7 @@ export const LeadCredit: React.FC<{ lead: Lead; onAcknowledged?: (at: string) =>
           {request.status === 'approved' ? 'Credited' : request.status === 'denied' ? 'Credit declined' : 'Credit requested'}
         </span>
       )}
+      {!request && <SupportLine className="w-full" />}
     </div>
   );
 };

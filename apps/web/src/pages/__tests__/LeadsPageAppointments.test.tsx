@@ -212,6 +212,10 @@ describe('Leads board', () => {
     expect(acknowledge).toHaveBeenCalledWith('l2');
     expect(document.body.querySelector('[data-testid="lead-credit"]')?.textContent).toContain('From FieldQuote · $250.00');
     expect(document.body.querySelector('[data-testid="acknowledged"]')).not.toBeNull();
+    // Where a bad lead gets reported, with a link that opens an email.
+    const support = document.body.querySelector('[data-testid="support-line"]')!;
+    expect(support.textContent).toBe('Wrong number or not a real job? Tell FieldQuote within 3 days: leads@fieldquote.app');
+    expect(support.querySelector('a')?.getAttribute('href')).toBe('mailto:leads@fieldquote.app');
     rows = [own];
   });
 

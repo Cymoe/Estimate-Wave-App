@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { SupportLine } from './SupportLine';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { Gavel, X } from 'lucide-react';
@@ -288,7 +289,8 @@ export function WalletDrawer({ wallet, onClose: closeNow, onAddFunds }: { wallet
                 .join(', ')}
               .
             </p>
-            <p className="mt-2 text-gray-400">A bad lead? Tell us within 3 days and we credit it back to your balance.</p>
+            <p className="mt-2 text-gray-400">A bad lead is credited back to your balance.</p>
+            <SupportLine className="mt-1" />
           </section>
           <section>
             <h3 className="text-sm font-medium text-white mb-2">History</h3>

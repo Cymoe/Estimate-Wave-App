@@ -157,7 +157,7 @@ const LeadsLanding: React.FC<{ scrollTo?: 'apply' }> = ({ scrollTo: target }) =>
             <ol className="grid md:grid-cols-3 gap-6">
               {[
                 { icon: Megaphone, title: 'We run the ads', text: 'Homeowners in your county see our ads and ask for a quote on the work they need done.' },
-                { icon: PhoneCall, title: 'Our team calls first', text: 'A real person confirms the homeowner, the job and the address before anything is sent. Bad leads are credited back.' },
+                { icon: PhoneCall, title: 'Our team calls first', text: 'A real person confirms the homeowner, the job and the address before anything is sent. A bad lead reported within 3 days is credited back.' },
                 { icon: Smartphone, title: 'You get a text and an email', text: 'Name, phone, address and what they asked for, the moment it is yours. Tap "Got it" and go quote the job.' },
               ].map((step, i) => (
                 <li key={step.title} className="rounded-2xl border border-white/10 p-5">
@@ -191,7 +191,7 @@ const LeadsLanding: React.FC<{ scrollTo?: 'apply' }> = ({ scrollTo: target }) =>
                     {[
                       `Load a balance of ${money(MIN_FUNDING_CENTS)} or more. It never expires.`,
                       ...FUNDING_TIERS.filter((t) => t.bonusPercent > 0).map((t) => `Load ${money(t.amountCents)} and we add ${money(bonusFor(t.amountCents))} (${t.bonusPercent}% bonus).`),
-                      'A lead that turns out wrong is credited back to your balance.',
+                      'A lead that turns out wrong is credited back to your balance when you tell us within 3 days.',
                     ].map((line) => (
                       <li key={line} className="flex items-start gap-2">
                         <Check className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" /> {line}
