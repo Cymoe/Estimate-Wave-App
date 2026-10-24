@@ -618,6 +618,22 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_stripe_session", ["stripeSessionId"]),
 
+  // One row per payment that landed on a balance, keyed by the Stripe
+  // session (or a play-money marker). The webhook credits a session once,
+  // for the amount Stripe says was paid, however many sessions a link saw.
+  fundingPayments: defineTable({
+    requestId: v.id("fundingRequests"),
+    organizationId: v.id("organizations"),
+    sessionId: v.string(),
+    paymentIntentId: v.optional(v.string()),
+    amountCents: v.number(),
+    bonusCents: v.number(),
+    method: v.string(),
+    createdAt: v.string(),
+  })
+    .index("by_session", ["sessionId"])
+    .index("by_request", ["requestId"]),
+
   // A company set up for someone who hasn't signed up yet; they join it on signup.
   companyInvites: defineTable({
     organizationId: v.id("organizations"),

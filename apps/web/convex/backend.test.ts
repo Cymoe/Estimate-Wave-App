@@ -3214,7 +3214,7 @@ describe("funding links and the lead feed", () => {
     const { signStripePayload, verifyStripeSignature } = await import("./lib/stripe");
     const event = JSON.stringify({
       type: "checkout.session.completed",
-      data: { object: { id: "cs_test_1", payment_status: "paid", payment_intent: "pi_1", customer_details: { name: "Pat Roofer", email: "pat@peak.example" } } },
+      data: { object: { id: "cs_test_1", payment_status: "paid", amount_total: 1_000_000, payment_intent: "pi_1", customer_details: { name: "Pat Roofer", email: "pat@peak.example" } } },
     });
     const nowSec = Math.floor(Date.now() / 1000);
     const post = async (body: string, signature: string) =>
@@ -3247,6 +3247,72 @@ describe("funding links and the lead feed", () => {
     expect(await balance(rival)).toBe(rivalBefore + 1_100_000);
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
+  });
+
+  test("the balance gets what Stripe charged, once per session, and a payment with no link reaches staff", async () => {
+    const { t, rival } = await company();
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_x");
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_test");
+    vi.stubEnv("SITE_URL", "https://app.example");
+    vi.stubEnv("RESEND_API_KEY", "re_test");
+    const emails: Array<{ to: string[]; subject: string; text: string }> = [];
+    let sessions = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: { body: string }) => {
+        if (url.includes("resend")) {
+          emails.push(JSON.parse(init.body));
+          return { ok: true, status: 200, json: async () => ({ id: "em_1" }) };
+        }
+        const id = `cs_two_${++sessions}`;
+        return { ok: true, status: 200, json: async () => ({ id, url: `https://checkout.stripe.com/c/${id}` }) };
+      }),
+    );
+    const { signStripePayload } = await import("./lib/stripe");
+    const nowSec = Math.floor(Date.now() / 1000);
+    const paid = async (object: Record<string, unknown>) => {
+      const body = JSON.stringify({ type: "checkout.session.completed", data: { object: { payment_status: "paid", ...object } } });
+      const res = await t.fetch("/stripe/webhook", { method: "POST", headers: { "stripe-signature": await signStripePayload("whsec_test", nowSec, body) }, body });
+      return await res.json();
+    };
+    try {
+      const token = await rival.as.mutation(api.funding.createLink, { organizationId: rival.organizationId });
+      const requestId = (await t.run(async (ctx) => (await ctx.db.query("fundingRequests").collect()).find((r) => r.token === token)!))._id;
+      const before = await balance(rival);
+      // The payer opens checkout at $5,000, then again at $10,000, so the link now shows $10,000.
+      await t.action(api.funding.checkout, { token, amountCents: 500_000 });
+      await t.action(api.funding.checkout, { token, amountCents: 1_000_000 });
+      expect(await t.query(api.funding.get, { token })).toMatchObject({ status: "submitted", amountCents: 1_000_000 });
+      // They pay the first session. The balance gets the $5,000 Stripe charged, not the $10,000 the page shows, and no bonus.
+      expect(await paid({ id: "cs_two_1", amount_total: 500_000, metadata: { fundingRequestId: requestId } })).toMatchObject({ credited: true, amountCents: 500_000, bonusCents: 0 });
+      expect(await balance(rival)).toBe(before + 500_000);
+      // Stripe retries: nothing more.
+      expect(await paid({ id: "cs_two_1", amount_total: 500_000, metadata: { fundingRequestId: requestId } })).toMatchObject({ credited: false, reason: "already credited" });
+      expect(await balance(rival)).toBe(before + 500_000);
+      // They pay the second session too (it was open in another tab): that money is theirs as well, with its bonus.
+      expect(await paid({ id: "cs_two_2", amount_total: 1_000_000, metadata: { fundingRequestId: requestId } })).toMatchObject({ credited: true, amountCents: 1_000_000, bonusCents: 100_000 });
+      expect(await balance(rival)).toBe(before + 500_000 + 1_000_000 + 100_000);
+      // A session the link never knew about, found by the token Stripe carries as client_reference_id.
+      expect(await paid({ id: "cs_two_9", amount_total: 750_000, client_reference_id: token })).toMatchObject({ credited: true, amountCents: 750_000, bonusCents: 37_500 });
+      // A paid session that matches nothing is not swallowed: staff hear about it and credit it by hand.
+      vi.useFakeTimers();
+      try {
+        expect(await paid({ id: "cs_lost", amount_total: 500_000 })).toMatchObject({ credited: false, reason: "unknown session" });
+        await t.finishAllScheduledFunctions(vi.runAllTimers);
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(emails).toHaveLength(1);
+      expect(emails[0].subject).toBe("FieldQuote Ops: A Stripe payment matched no payment link: cs_lost");
+      expect(emails[0].text).toContain("$5,000.00");
+      expect(emails[0].text).toContain("Record a payment");
+      // Every payment is on record, once.
+      const payments = await t.run(async (ctx) => (await ctx.db.query("fundingPayments").collect()).filter((p) => p.requestId === requestId));
+      expect(payments.map((p) => [p.sessionId, p.amountCents, p.bonusCents]).sort()).toEqual([["cs_two_1", 500_000, 0], ["cs_two_2", 1_000_000, 100_000], ["cs_two_9", 750_000, 37_500]]);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
   });
 
   test("the feed hides contact details until a company buys the lead, and only one company can", async () => {

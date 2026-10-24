@@ -11,6 +11,7 @@ import {
 } from "./_generated/server";
 import { fail, logActivity, nowIso, requireMember, requireStaff } from "./lib/access";
 import { siteUrl } from "./delivery";
+import { tellStaff } from "./notify";
 import { FUNDING_TIERS, MIN_FUNDING_CENTS, bonusFor } from "./lib/funding";
 import { createCheckoutSession } from "./lib/stripe";
 import { dollars, pricingFor, postTransaction, typicalLeadCents } from "./lib/wallet";
@@ -163,15 +164,26 @@ export const checkout = action({
   },
 });
 
-/** Loads the request's amount and bonus on the balance and closes the link. Once: a confirmed link credits nothing. */
+/**
+ * Loads a payment on the balance and closes the link. Once per payment: the
+ * session id is the key, so a retried webhook credits nothing, while a link
+ * that saw two sessions both paid credits both. The amount is the one Stripe
+ * reports, with the bonus worked out from it, never the amount the page last
+ * showed.
+ */
 async function credit(
   ctx: MutationCtx,
   request: Doc<"fundingRequests">,
-  paid: { method: string; paymentIntentId?: string; payerName?: string; payerEmail?: string; reference: string },
+  paid: { sessionId: string; amountCents: number; method: string; paymentIntentId?: string; payerName?: string; payerEmail?: string },
 ) {
-  if (request.status === "confirmed") return { credited: false as const, reason: "already credited" };
-  const amountCents = request.amountCents ?? 0;
-  const bonusCents = request.bonusCents ?? 0;
+  const seen = await ctx.db
+    .query("fundingPayments")
+    .withIndex("by_session", (q) => q.eq("sessionId", paid.sessionId))
+    .unique();
+  if (seen !== null) return { credited: false as const, reason: "already credited" };
+  if (!Number.isInteger(paid.amountCents) || paid.amountCents <= 0) return { credited: false as const, reason: "no amount" };
+  const amountCents = paid.amountCents;
+  const bonusCents = bonusFor(amountCents);
   const payerName = paid.payerName?.trim().slice(0, 120) || undefined;
   await postTransaction(ctx, request.organizationId, {
     type: "top_up",
@@ -189,8 +201,20 @@ async function credit(
     });
   }
   const now = nowIso();
+  await ctx.db.insert("fundingPayments", {
+    requestId: request._id,
+    organizationId: request.organizationId,
+    sessionId: paid.sessionId,
+    paymentIntentId: paid.paymentIntentId,
+    amountCents,
+    bonusCents,
+    method: paid.method,
+    createdAt: now,
+  });
   await ctx.db.patch(request._id, {
     status: "confirmed",
+    amountCents,
+    bonusCents,
     method: paid.method,
     stripePaymentIntentId: paid.paymentIntentId,
     payerName,
@@ -204,30 +228,52 @@ async function credit(
     action: "funding_paid",
     resourceType: "organization",
     resourceId: request.organizationId,
-    details: { amountCents, bonusCents, method: paid.method, reference: paid.reference },
+    details: { amountCents, bonusCents, method: paid.method, reference: paid.sessionId },
   });
   return { credited: true as const, amountCents, bonusCents };
 }
 
 /**
- * Stripe says the session was paid: load the amount and its bonus, once.
- * Stripe retries webhooks, so a second call for the same session credits
- * nothing.
+ * Stripe says a session was paid: load what it charged, plus the bonus that
+ * amount earns, once per session. The link is found by the request id Stripe
+ * carried in the session's metadata, else by the session the link currently
+ * points at, else by the link token in client_reference_id. A payment that
+ * matches no link is not lost quietly: staff get an email with the session.
  */
 export const fulfill = internalMutation({
   args: {
     sessionId: v.string(),
+    amountTotal: v.optional(v.number()),
+    requestId: v.optional(v.string()),
+    clientReference: v.optional(v.string()),
     paymentIntentId: v.optional(v.string()),
     payerName: v.optional(v.string()),
     payerEmail: v.optional(v.string()),
   },
-  handler: async (ctx, { sessionId, paymentIntentId, payerName, payerEmail }) => {
-    const request = await ctx.db
-      .query("fundingRequests")
-      .withIndex("by_stripe_session", (q) => q.eq("stripeSessionId", sessionId))
-      .first();
-    if (request === null) return { credited: false, reason: "unknown session" };
-    return await credit(ctx, request, { method: "Stripe", paymentIntentId, payerName, payerEmail, reference: sessionId });
+  handler: async (ctx, { sessionId, amountTotal, requestId, clientReference, paymentIntentId, payerName, payerEmail }) => {
+    const byId = requestId ? ctx.db.normalizeId("fundingRequests", requestId) : null;
+    const request =
+      (byId ? await ctx.db.get(byId) : null) ??
+      (await ctx.db
+        .query("fundingRequests")
+        .withIndex("by_stripe_session", (q) => q.eq("stripeSessionId", sessionId))
+        .first()) ??
+      (clientReference ? await byToken(ctx, clientReference) : null);
+    if (request === null) {
+      await tellStaff(
+        ctx,
+        `A Stripe payment matched no payment link: ${sessionId}`,
+        [
+          `Stripe reports a paid Checkout session (${sessionId}${amountTotal ? `, ${dollars(amountTotal)}` : ""}) that matches no payment link, so nothing was credited.`,
+          "Find the payment in the Stripe dashboard, then record it on the company's panel with Record a payment.",
+        ],
+        "/ops?tab=companies",
+      );
+      return { credited: false, reason: "unknown session" };
+    }
+    // Stripe always sends amount_total; the stored amount is only a last resort.
+    const amountCents = amountTotal ?? request.amountCents ?? 0;
+    return await credit(ctx, request, { sessionId, amountCents, method: "Stripe", paymentIntentId, payerName, payerEmail });
   },
 });
 
@@ -238,7 +284,7 @@ export const playMoneyPay = internalMutation({
     if (!playMoney()) fail("INVALID", "Play money is off: this deployment takes real payments");
     const request = await ctx.db.get(requestId);
     if (request === null) fail("NOT_FOUND", "This payment link isn't valid");
-    return await credit(ctx, request, { method: "Play money", reference: "play-money" });
+    return await credit(ctx, request, { sessionId: `play-money:${requestId}`, amountCents: request.amountCents ?? 0, method: "Play money" });
   },
 });
 

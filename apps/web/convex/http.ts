@@ -85,8 +85,13 @@ http.route({
     if (!type || !sessionId) return json({ ok: true, ignored: true });
     if ((type === "checkout.session.completed" || type === "checkout.session.async_payment_succeeded") && session!.payment_status === "paid") {
       const details = (session!.customer_details ?? {}) as { name?: string | null; email?: string | null };
+      const metadata = (session!.metadata ?? {}) as { fundingRequestId?: string };
+      // What Stripe says was paid is what lands on the balance: never the amount the page last showed.
       const result = await ctx.runMutation(internal.funding.fulfill, {
         sessionId,
+        amountTotal: typeof session!.amount_total === "number" ? session!.amount_total : undefined,
+        requestId: typeof metadata.fundingRequestId === "string" ? metadata.fundingRequestId : undefined,
+        clientReference: typeof session!.client_reference_id === "string" ? session!.client_reference_id : undefined,
         paymentIntentId: typeof session!.payment_intent === "string" ? session!.payment_intent : undefined,
         payerName: details.name ?? undefined,
         payerEmail: details.email ?? undefined,
