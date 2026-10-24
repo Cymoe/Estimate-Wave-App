@@ -5,7 +5,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { nowIso } from "./access";
 
-/** Active companies' standing bids for a county and trade, highest first; ties go to whoever bid first. */
+/** Active companies' standing bids for a county and trade, highest first; a tie goes to whoever reached that amount first. */
 export async function standingBidsFor(
   ctx: QueryCtx | MutationCtx,
   county: string,
@@ -24,7 +24,8 @@ export async function standingBidsFor(
   }
   return active.sort(
     (a, b) =>
-      b.amountCents - a.amountCents || a.createdAt.localeCompare(b.createdAt),
+      b.amountCents - a.amountCents ||
+      (a.amountSetAt ?? a.createdAt).localeCompare(b.amountSetAt ?? b.createdAt),
   );
 }
 

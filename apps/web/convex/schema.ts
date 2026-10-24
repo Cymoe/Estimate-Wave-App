@@ -499,6 +499,8 @@ export default defineSchema({
     county: v.string(),
     jobType: v.string(),
     amountCents: v.number(),
+    /** When the amount last changed: a tie at one amount goes to whoever got there first. */
+    amountSetAt: v.optional(v.string()),
     createdBy: v.id("users"),
     createdAt: v.string(),
     updatedAt: v.string(),

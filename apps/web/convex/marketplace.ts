@@ -406,13 +406,25 @@ export const recordTopUp = mutation({
 
 /** Puts what the company paid for a lead back on its balance and marks the lead credited. */
 async function applyCredit(ctx: MutationCtx, lead: Doc<"leads"> & { marketplaceLeadId: Id<"marketplaceLeads"> }, user: Doc<"users">, now: string) {
-  await postTransaction(ctx, lead.organizationId, {
-    type: "credit",
-    amountCents: lead.pricePaidCents ?? 0,
-    createdBy: user._id,
-    marketplaceLeadId: lead.marketplaceLeadId,
-    note: `Credit: ${lead.name}`,
-  });
+  // A claim included in the plan cost nothing, so there's no money to give back.
+  if ((lead.pricePaidCents ?? 0) > 0)
+    await postTransaction(ctx, lead.organizationId, {
+      type: "credit",
+      amountCents: lead.pricePaidCents!,
+      createdBy: user._id,
+      marketplaceLeadId: lead.marketplaceLeadId,
+      note: `Credit: ${lead.name}`,
+    });
+  // A bad Vault lead gives its claim back to this month's allowance.
+  if (lead.wonVia === "claim") {
+    const organization = await ctx.db.get(lead.organizationId);
+    const plan = organization?.plan;
+    if (plan && lead.createdAt >= plan.periodStart && plan.claimsThisPeriod > 0)
+      await ctx.db.patch(lead.organizationId, {
+        plan: { ...plan, claimsThisPeriod: plan.claimsThisPeriod - 1 },
+        updatedAt: now,
+      });
+  }
   await ctx.db.patch(lead.marketplaceLeadId, {
     status: "credited",
     updatedAt: now,

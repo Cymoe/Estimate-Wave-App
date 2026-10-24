@@ -4449,6 +4449,38 @@ describe("older leads and the monthly plan", () => {
     }
   });
 
+  test("a bid raised to a tie stands behind the one that was there first", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = setup();
+      const admin = await signUp(t, "admin@fieldquote.example", { role: "super_admin" });
+      const early = await signUp(t, "early@example.com");
+      const late = await signUp(t, "late@example.com");
+      for (const who of [early, late]) {
+        await admin.as.mutation(api.marketplace.setCompanyTrades, { organizationId: who.organizationId, leadTrades: ["roofing"] });
+        await admin.as.mutation(api.marketplace.recordTopUp, { organizationId: who.organizationId, amount: 1000 });
+      }
+      const bid = (who: typeof early, amount: number) =>
+        who.as.mutation(api.bids.setStanding, { organizationId: who.organizationId, county: "Midland", jobType: "roofing", amount });
+      vi.setSystemTime(new Date("2026-10-20T10:00:00.000Z"));
+      await bid(late, 250);
+      vi.setSystemTime(new Date("2026-10-20T11:00:00.000Z"));
+      await bid(early, 300);
+      // The older bid is raised to $300 after the other got there: it doesn't take the lead.
+      vi.setSystemTime(new Date("2026-10-20T12:00:00.000Z"));
+      await bid(late, 300);
+      const order = await t.run(async (ctx) => {
+        const { standingBidsFor } = await import("./lib/standing");
+        return (await standingBidsFor(ctx, "Midland", "roofing")).map((b) => b.organizationId);
+      });
+      expect(order).toEqual([early.organizationId, late.organizationId]);
+      const listed = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Hail Roof", phone: "4325550142", city: "Midland", jobType: "roofing" } });
+      expect((await t.run(async (ctx) => ctx.db.get(listed!._id)))?.assignedOrganizationId).toBe(early.organizationId);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("the pool is locked without the plan; the trial opens it; claims are exclusive, included, then $15", async () => {
     try {
       const { t, admin, roofer, rival, leadId } = await market();
@@ -4507,6 +4539,14 @@ describe("older leads and the monthly plan", () => {
         pricePaidCents: 0,
         wonVia: "claim",
       });
+      // Crediting a bad claimed lead: nothing to refund, but the claim goes back to the allowance.
+      const before = (await wallet(roofer)).transactions.length;
+      expect(
+        await admin.as.mutation(api.marketplace.creditLead, { orgLeadId: (mine[0] as any)._id ?? (mine[0] as any).id, reason: "wrong_number" }),
+      ).toEqual({ amountCents: 0 });
+      expect((await wallet(roofer)).transactions.length).toBe(before);
+      expect((await wallet(roofer)).balanceCents).toBe(30000);
+      expect((await older(roofer)).plan).toMatchObject({ claimsLeft: 10 });
       await rival.as.mutation(api.marketplace.ensurePlan, {
         organizationId: rival.organizationId,
       });
@@ -4517,10 +4557,10 @@ describe("older leads and the monthly plan", () => {
         }),
       ).rejects.toThrow(/just claimed/);
 
-      // Past the allowance each claim costs the extra price.
+      // Past the allowance each claim costs the extra price (the credited claim was given back, so none are used).
       await admin.as.mutation(api.marketplace.setPlan, {
         organizationId: roofer.organizationId,
-        claimsIncluded: 1,
+        claimsIncluded: 0,
       });
       const another = await admin.as.mutation(api.marketplace.createLead, {
         data: { name: "Omar Haddad", city: "Odessa", jobType: "roofing" },

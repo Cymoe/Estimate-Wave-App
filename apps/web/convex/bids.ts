@@ -117,7 +117,12 @@ export const setStanding = mutation({
       );
     let id;
     if (existing) {
-      await ctx.db.patch(existing._id, { amountCents, updatedAt: now });
+      await ctx.db.patch(existing._id, {
+        amountCents,
+        updatedAt: now,
+        // Moving to an amount puts the bid behind anyone already there.
+        ...(amountCents !== existing.amountCents ? { amountSetAt: now } : {}),
+      });
       id = existing._id;
     } else {
       id = await ctx.db.insert("standingBids", {
