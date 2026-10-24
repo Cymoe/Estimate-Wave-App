@@ -735,7 +735,24 @@ describe("delivery", () => {
     await expect(other.as.query(api.delivery.recent, {})).rejects.toThrow(/staff/);
   });
 
-  test("an unacknowledged lead turns overdue after 15 minutes during hours, never after hours", async () => {
+  test("the Got it clock counts business minutes only: 8am to 8pm Central", async () => {
+    const { businessMinutesBetween } = await import("./delivery");
+    const at = (iso: string) => Date.parse(iso);
+    // 11:00 to 11:20 Central (CDT, UTC-5).
+    expect(businessMinutesBetween(at("2026-10-22T16:00:00Z"), at("2026-10-22T16:20:00Z"))).toBe(20);
+    // Sold 7:55pm: five minutes that night, ten more by 8:10am.
+    expect(businessMinutesBetween(at("2026-10-23T00:55:00Z"), at("2026-10-23T13:10:00Z"))).toBe(15);
+    // Sold 9pm: nothing until 8am, fifteen by 8:15.
+    expect(businessMinutesBetween(at("2026-10-23T02:00:00Z"), at("2026-10-23T13:15:00Z"))).toBe(15);
+    // Sold 7:30am: the clock starts at 8.
+    expect(businessMinutesBetween(at("2026-10-22T12:30:00Z"), at("2026-10-22T13:20:00Z"))).toBe(20);
+    // Winter time (CST, UTC-6): 8am is 14:00 UTC.
+    expect(businessMinutesBetween(at("2026-12-01T13:00:00Z"), at("2026-12-01T14:10:00Z"))).toBe(10);
+    // Across the November clock change: Friday 7:50pm CDT, all of Saturday, then Sunday 8:05am CST.
+    expect(businessMinutesBetween(at("2026-10-31T00:50:00Z"), at("2026-11-01T14:05:00Z"))).toBe(10 + 12 * 60 + 5);
+  });
+
+  test("an unacknowledged lead turns overdue after 15 business minutes; an evening sale is chased the next morning", async () => {
     const t = setup();
     const va = await signUp(t, "va@fieldquote.example", { role: "staff" });
     const co = await signUp(t, "co@example.com");
@@ -751,16 +768,14 @@ describe("delivery", () => {
       });
     vi.useFakeTimers();
     try {
-      // 11:20 Central: a lead from 11:00 is overdue, one from 11:10 is not, one from 7:30 (before hours) is not.
+      // 11:20 Central: a lead from 11:00 is overdue, one from 11:10 is not.
       vi.setSystemTime(new Date("2026-10-22T16:20:00Z"));
       const late = await make("2026-10-22T16:00:00Z");
       const fresh = await make("2026-10-22T16:10:00Z");
-      const early = await make("2026-10-22T12:30:00Z");
       const rows = await va.as.query(api.delivery.recent, {});
       const byId = new Map(rows.map((r) => [r.id, r]));
       expect(byId.get(late)).toMatchObject({ overdue: true, minutesOpen: 20, afterHours: false });
       expect(byId.get(fresh)).toMatchObject({ overdue: false, minutesOpen: 10 });
-      expect(byId.get(early)).toMatchObject({ overdue: false, afterHours: true });
 
       // The five-minute chase emails staff about the late one, once; the others are left alone.
       const emails: Array<{ to: string[]; subject: string; text: string }> = [];
@@ -796,6 +811,25 @@ describe("delivery", () => {
         await ctx.db.patch(quiet, { acknowledgedAt: "2026-10-22T16:03:00Z" });
       });
       expect(await t.mutation(internal.delivery.escalateOverdue, {})).toEqual({ escalated: 0 });
+
+      // Evening: one sold at 7:55pm, one at 9pm. At 8:30pm neither is red or chased.
+      vi.setSystemTime(new Date("2026-10-23T01:30:00Z"));
+      const evening = await make("2026-10-23T00:55:00Z");
+      const night = await make("2026-10-23T02:00:00Z");
+      vi.setSystemTime(new Date("2026-10-23T02:30:00Z"));
+      let tonight = new Map((await va.as.query(api.delivery.recent, {})).map((r) => [r.id, r]));
+      expect(tonight.get(evening)).toMatchObject({ overdue: false, minutesOpen: 5, afterHours: false });
+      expect(tonight.get(night)).toMatchObject({ overdue: false, minutesOpen: 0, afterHours: true });
+      expect(await t.mutation(internal.delivery.escalateOverdue, {})).toEqual({ escalated: 0 });
+      // 8:10am: the 7:55pm sale has its 15 minutes and is chased; the 9pm one has 10.
+      vi.setSystemTime(new Date("2026-10-23T13:10:00Z"));
+      tonight = new Map((await va.as.query(api.delivery.recent, {})).map((r) => [r.id, r]));
+      expect(tonight.get(evening)).toMatchObject({ overdue: true, minutesOpen: 15 });
+      expect(tonight.get(night)).toMatchObject({ overdue: false, minutesOpen: 10 });
+      expect(await t.mutation(internal.delivery.escalateOverdue, {})).toEqual({ escalated: 1 });
+      // 8:15am: now the 9pm one.
+      vi.setSystemTime(new Date("2026-10-23T13:15:00Z"));
+      expect(await t.mutation(internal.delivery.escalateOverdue, {})).toEqual({ escalated: 1 });
     } finally {
       vi.useRealTimers();
       vi.unstubAllEnvs();

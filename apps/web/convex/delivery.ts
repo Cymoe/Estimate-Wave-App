@@ -36,6 +36,51 @@ export const siteUrl = () => (process.env.SITE_URL ?? "https://estimate-wave-app
 
 export const leadLink = (orgLeadId: Id<"leads">, base = siteUrl()) => `${base}/leads?lead=${orgLeadId}&ack=1`;
 
+/** How far Central time is from UTC at a moment, in ms (negative: -5h or -6h). */
+function centralOffsetMs(ms: number): number {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Chicago",
+      hourCycle: "h23",
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+      second: "numeric",
+    })
+      .formatToParts(new Date(ms))
+      .filter((p) => p.type !== "literal")
+      .map((p) => [p.type, Number(p.value)]),
+  );
+  const asUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+  return asUtc - Math.floor(ms / 1000) * 1000;
+}
+
+/**
+ * Minutes of business hours (8am to 8pm Central) between two moments: the
+ * "Got it" clock. A sale at 7:55pm has five minutes on the clock at
+ * closing and the rest from 8am; a sale at 9pm starts at 8am.
+ */
+export function businessMinutesBetween(startMs: number, endMs: number): number {
+  if (!(endMs > startMs)) return 0;
+  let total = 0;
+  // Walk the Central calendar days from the start's day, adding each day's open window.
+  const startLocal = new Date(startMs + centralOffsetMs(startMs));
+  let day = Date.UTC(startLocal.getUTCFullYear(), startLocal.getUTCMonth(), startLocal.getUTCDate());
+  for (let i = 0; i < 400; i++) {
+    // DST changes at 2am, outside the window, so midday's offset holds for the whole window
+    // (18:00 UTC is midday or 1pm in Central).
+    const offset = centralOffsetMs(day + 18 * 3_600_000);
+    const open = day + HOURS.open * 3_600_000 - offset;
+    const close = day + HOURS.close * 3_600_000 - offset;
+    if (open >= endMs) break;
+    total += Math.max(0, Math.min(close, endMs) - Math.max(open, startMs));
+    day += 24 * 3_600_000;
+  }
+  return Math.floor(total / 60_000);
+}
+
 /** Whether a Central-time moment is inside the hours the clock runs. */
 export function withinHours(iso: string): boolean {
   const hour = Number(
@@ -254,8 +299,10 @@ export const escalateOverdue = internalMutation({
     let escalated = 0;
     for (const lead of sold) {
       if (!lead.assignedAt || lead.acknowledgedAt || lead.escalatedAt || lead.isSample || lead.assignedAt < dayAgo) continue;
-      if (!withinHours(lead.assignedAt)) continue;
-      const minutesOpen = Math.round((now - Date.parse(lead.assignedAt)) / 60_000);
+      // Only business minutes count, and staff are only chased while the clock runs:
+      // an evening sale gets its remaining minutes from 8am.
+      if (!withinHours(new Date(now).toISOString())) continue;
+      const minutesOpen = businessMinutesBetween(Date.parse(lead.assignedAt), now);
       if (minutesOpen < ACK_MINUTES) continue;
       const company = lead.assignedOrganizationId ? await ctx.db.get(lead.assignedOrganizationId) : null;
       const who = company?.name ?? "the company";
@@ -264,7 +311,7 @@ export const escalateOverdue = internalMutation({
         ctx,
         `No "Got it" from ${who} after ${minutesOpen} min: ${lead.name}`,
         [
-          `${lead.name} was sold to ${who} ${minutesOpen} minutes ago and nobody there has tapped "Got it".`,
+          `${lead.name} was sold to ${who} and nobody there has tapped "Got it" after ${minutesOpen} minutes of business hours (8am to 8pm).`,
           `Call them${company?.phone ? ` on ${company.phone}` : ""} and make sure they have the lead.`,
         ],
         "/ops?tab=sold",
@@ -316,9 +363,8 @@ export const recent = query({
           .withIndex("by_lead", (q) => q.eq("marketplaceLeadId", lead._id))
           .collect();
         const assignedAt = lead.assignedAt!;
-        const minutesOpen = lead.acknowledgedAt
-          ? Math.round((Date.parse(lead.acknowledgedAt) - Date.parse(assignedAt)) / 60_000)
-          : Math.round((now - Date.parse(assignedAt)) / 60_000);
+        // Business minutes, the same clock the chase uses: an evening sale isn't late overnight.
+        const minutesOpen = businessMinutesBetween(Date.parse(assignedAt), lead.acknowledgedAt ? Date.parse(lead.acknowledgedAt) : now);
         const afterHours = !withinHours(assignedAt);
         return {
           id: lead._id,
@@ -336,8 +382,8 @@ export const recent = query({
           acknowledgedAt: lead.acknowledgedAt,
           minutesOpen,
           afterHours,
-          // Red: nobody has tapped "Got it" inside the window, during hours.
-          overdue: !lead.acknowledgedAt && !afterHours && minutesOpen >= ACK_MINUTES,
+          // Red: nobody has tapped "Got it" within 15 business minutes. Demo leads are never chased, so never red.
+          overdue: !lead.acknowledgedAt && !lead.isSample && minutesOpen >= ACK_MINUTES,
           deliveries: deliveries
             .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
             .map((d) => ({ id: d._id, channel: d.channel, to: d.to, status: d.status, error: d.error, at: d.createdAt })),

@@ -109,7 +109,7 @@ export const Delivered: React.FC<{ tradeName: (id?: string) => string }> = ({ tr
                   to {row.companyName} · <span className={row.credited ? 'line-through' : ''}>{money(row.priceCents)}</span>
                   {row.credited ? ' credited back' : ''}
                   {row.wonVia ? ` · ${HOW[row.wonVia]}` : ''} · {ago(row.assignedAt)}
-                  {row.afterHours ? ' · after hours' : ''}
+                  {row.afterHours ? (row.acknowledgedAt || row.minutesOpen > 0 ? ' · sold after hours' : ' · after hours, clock starts at 8am') : ''}
                 </span>
                 {row.overdue && (
                   <span className="block text-xs mt-0.5 text-red-200">
