@@ -38,6 +38,8 @@ const destination: unknown = { kind: 'sold', companyName: 'Peak Roofing', priceC
 // The live subscriptions see the same fixtures the one-shot calls used to return.
 jest.mock('../../../lib/live', () => ({
   useWallet: () => wallet,
+  // The company panel's leads come from the one-shot read in these tests.
+  useCompanyLeads: () => undefined,
   useDemandBoard: () => demand,
   useDemandSlot: (_county: string, jobType: string) =>
     jobType === 'flooring'

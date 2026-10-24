@@ -74,6 +74,8 @@ export const useLeadDestination = <T,>(county?: string, jobType?: string) =>
 // Companies
 /** The company's lead balance, bids and plan. */
 export const useWallet = <T,>(organizationId?: string) => useLive<T>(q('marketplace:wallet'), forOrg(organizationId));
+/** A company's leads, for its panel in Ops. */
+export const useCompanyLeads = <T,>(organizationId?: string) => useLive<T>(q('leads:list'), forOrg(organizationId));
 /** Leads for sale right now, with their price schedules. */
 export const useMarketFeed = <T,>(organizationId?: string) => useLive<T>(q('marketplace:feed'), forOrg(organizationId));
 /** The company's buy orders, open and settled. */

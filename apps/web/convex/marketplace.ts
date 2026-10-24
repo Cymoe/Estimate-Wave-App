@@ -14,6 +14,7 @@ import {
   nowIso,
   pick,
   requireMember,
+  requireMemberOrStaff,
   requireStaff,
   requireSuperAdmin,
   requireUser,
@@ -1248,7 +1249,8 @@ export const claim = mutation({
 export const wallet = query({
   args: { organizationId: v.id("organizations") },
   handler: async (ctx, { organizationId }) => {
-    const { organization } = await requireMember(ctx, organizationId);
+    // Staff read it too: the company panel in Ops shows the same wallet.
+    const { organization } = await requireMemberOrStaff(ctx, organizationId);
     const transactions = await ctx.db
       .query("walletTransactions")
       .withIndex("by_organization", (q) =>

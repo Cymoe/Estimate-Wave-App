@@ -121,6 +121,20 @@ describe("auth and tenancy", () => {
     expect(await ana.as.query(api.leads.companyOf, { id: lead._id })).toEqual({ organizationId: other.organizationId, name: expect.any(String) });
   });
 
+  test("staff read any company's wallet and leads for its Ops panel; nobody else outside the company can", async () => {
+    const t = setup();
+    const va = await signUp(t, "va@fieldquote.example", { role: "staff" });
+    const co = await signUp(t, "owner@peak.example");
+    const stranger = await signUp(t, "someone@else.example");
+    await co.as.mutation(api.leads.create, { organizationId: co.organizationId, data: { name: "Their lead" } });
+    expect((await va.as.query(api.marketplace.wallet, { organizationId: co.organizationId })).balanceCents).toBe(0);
+    expect((await va.as.query(api.leads.list, { organizationId: co.organizationId })).map((l: { name: string }) => l.name)).toEqual(["Their lead"]);
+    await expect(stranger.as.query(api.marketplace.wallet, { organizationId: co.organizationId })).rejects.toThrow(/access/);
+    await expect(stranger.as.query(api.leads.list, { organizationId: co.organizationId })).rejects.toThrow(/access/);
+    // Reading is all: staff still can't add a lead to the company.
+    await expect(va.as.mutation(api.leads.create, { organizationId: co.organizationId, data: { name: "No" } })).rejects.toThrow(/access/);
+  });
+
   test("me returns the user with their organization", async () => {
     const t = setup();
     const { as, userId, organizationId } = await signUp(t, "a@example.com");

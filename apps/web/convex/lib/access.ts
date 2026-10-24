@@ -69,6 +69,24 @@ export async function requireMember(
   return { user, organization };
 }
 
+/**
+ * For reads only: a member of the company, or FieldQuote staff, who look
+ * after every company from Ops (its balance, its leads). Changing anything
+ * still goes through requireMember or the owner-only guards.
+ */
+export async function requireMemberOrStaff(
+  ctx: Ctx,
+  organizationId: Id<"organizations">,
+): Promise<{ user: Doc<"users">; organization: Doc<"organizations"> }> {
+  const user = await requireUser(ctx);
+  if (isStaff(user)) {
+    const organization = await ctx.db.get(organizationId);
+    if (organization === null) fail("NOT_FOUND", "Organization not found");
+    return { user, organization };
+  }
+  return await requireMember(ctx, organizationId);
+}
+
 export async function organizationIdsFor(ctx: Ctx, userId: Id<"users">): Promise<Id<"organizations">[]> {
   const memberships = await ctx.db
     .query("memberships")

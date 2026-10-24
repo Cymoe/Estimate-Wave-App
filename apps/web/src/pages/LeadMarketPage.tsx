@@ -9,12 +9,13 @@ import { Dialog, ErrorLine, Field, ago, describeError, input, primary, secondary
 import { IntakeQueue } from '../components/ops/IntakeQueue';
 import { Delivered, type DeliveredRow } from '../components/ops/Delivered';
 import { DemandBoard, type DemandBoardData } from '../components/ops/DemandBoard';
-import { useApplications, useCompanies, useDelivered, useDemandBoard, useInbox, useIntakeQueue, usePaymentsMode, usePendingCredits } from '../lib/live';
+import { useApplications, useCompanies, useCompanyLeads, useDelivered, useDemandBoard, useInbox, useIntakeQueue, usePaymentsMode, usePendingCredits, useWallet } from '../lib/live';
 import { isStaff, isSuperAdmin } from '../lib/roles';
 import { TeamCard } from '../components/ops/TeamCard';
 import { useConfirm } from '../components/common/ConfirmDialog';
 import { Confirmed } from '../components/market/Confirmed';
-import { STATUSES } from '../components/leads/leadTypes';
+import { STATUSES, type Lead } from '../components/leads/leadTypes';
+import type { WalletSummary } from '../components/market/WalletBar';
 import { CREDIT_REASON_LABELS, WalletHistory, leadOrigin, money, planLabel, suggestedBonus, type PlanSummary } from '../components/market/wallet';
 import { dropsToFloor, pricingFor } from '../services/auction';
 
@@ -481,6 +482,10 @@ function PlanSection({ company }: { company: Company }) {
   );
 }
 
+/** What the company panel reads from a company's wallet and leads. */
+type CompanyWallet = WalletSummary;
+type CompanyLead = Lead;
+
 function CompanyPanel({
   company,
   owner,
@@ -495,8 +500,15 @@ function CompanyPanel({
   credits: CreditRequest[];
   onClose: () => void;
 }) {
-  const [wallet, setWallet] = useState<any>(null);
-  const [leads, setLeads] = useState<any[]>([]);
+  // Live: a payment, a credit or a sale shows here as it happens. The one-shot read below
+  // fills in until the live answer arrives (and is what tests without a backend see).
+  const walletLive = useWallet<CompanyWallet>(company.id);
+  const leadsLive = useCompanyLeads<CompanyLead[]>(company.id);
+  const [walletOnce, setWallet] = useState<CompanyWallet | null>(null);
+  const [leadsOnce, setLeads] = useState<CompanyLead[]>([]);
+  const wallet = walletLive ?? walletOnce;
+  const leads = leadsLive ?? leadsOnce;
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [amount, setAmount] = useState('');
   const [bonus, setBonus] = useState('');
   const [method, setMethod] = useState('Zelle');
@@ -511,7 +523,7 @@ function CompanyPanel({
     setLeads(l);
   }, [company.id]);
   useEffect(() => {
-    load().catch(() => {});
+    load().catch((err) => setLoadError(`Couldn't load this company's balance and leads: ${describeError(err, 'server error')}`));
   }, [load]);
 
   const changeAmount = (value: string) => {
@@ -665,6 +677,8 @@ function CompanyPanel({
           </button>
         </div>
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+          {/* A live answer arriving later replaces a failed first read, so the line goes when the data comes. */}
+          <ErrorLine error={walletLive || leadsLive ? null : loadError} onDismiss={() => setLoadError(null)} />
           <section>
             <p className="text-xs uppercase tracking-wide text-gray-500">Balance</p>
             <p className="text-3xl font-semibold text-white" data-testid="company-balance">

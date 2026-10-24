@@ -8,6 +8,7 @@ import {
   nowIso,
   pick,
   requireMember,
+  requireMemberOrStaff,
   requireUser,
 } from "./lib/access";
 import { assertLinksInOrg } from "./lib/documents";
@@ -42,7 +43,8 @@ function byPriority(a: Doc<"leads">, b: Doc<"leads">) {
 export const list = query({
   args: { organizationId: v.id("organizations") },
   handler: async (ctx, { organizationId }) => {
-    await requireMember(ctx, organizationId);
+    // Staff read a company's leads from its panel in Ops.
+    await requireMemberOrStaff(ctx, organizationId);
     const leads = await ctx.db
       .query("leads")
       .withIndex("by_organization", (q) =>
