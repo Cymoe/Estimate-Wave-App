@@ -347,7 +347,7 @@ const MarketplacePage: React.FC = () => {
                       ? `Open at ${money(bid.maxCents)}`
                       : bid.status === 'filled'
                         ? `Bought for ${money(bid.pricePaidCents ?? bid.maxCents)}`
-                        : `Lost · ${bid.outcome ?? ''}`}
+                        : `Missed · ${bid.outcome ?? ''}`}
                   </span>
                 </span>
                 {bid.status === 'open' && (

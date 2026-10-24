@@ -39,7 +39,7 @@ describe('LeadExportService', () => {
       Calls: 2,
       Texts: 1,
       'Came in': '2026-10-18',
-      Origin: 'Won · $250.00',
+      Origin: 'From FieldQuote · $250.00',
     });
     const [bare] = leadRows([{ id: 'l2', name: 'Dan', status: 'new', estimate: null }], () => '');
     expect(bare).toMatchObject({ Stage: 'New', Value: '', Calls: 0, Texts: 0, Origin: '', Notes: '' });

@@ -589,7 +589,7 @@ const LeadsPage: React.FC = () => {
                             <div className="flex items-center gap-1 flex-shrink-0">
                               {isWonLead(lead) && (
                                 <span className="text-[10px] uppercase tracking-wide px-1 border text-emerald-300 border-emerald-500/40 bg-emerald-500/10">
-                                  Won
+                                  FieldQuote
                                 </span>
                               )}
                               {lead.isSample && (

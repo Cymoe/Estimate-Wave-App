@@ -671,7 +671,7 @@ function CompanyPanel({
               {money(wallet?.balanceCents ?? company.balanceCents)}
             </p>
             <p className="text-sm text-gray-400 mt-1">
-              {company.leadsTotal} leads bought · {money(company.wonCents)} won from them
+              {company.leadsTotal} leads from FieldQuote · {money(company.wonCents)} of jobs from them
             </p>
           </section>
 
@@ -1462,7 +1462,7 @@ const LeadMarketPage: React.FC = () => {
                   <th className="text-right font-medium px-4 py-2 hidden sm:table-cell">Leads (30d)</th>
                   <th className="text-right font-medium px-4 py-2 hidden sm:table-cell">Spent (30d)</th>
                   <th className="text-left font-medium px-4 py-2">Plan</th>
-                  <th className="text-right font-medium px-4 py-2">Won</th>
+                  <th className="text-right font-medium px-4 py-2">Job value</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#2A2A2A]">

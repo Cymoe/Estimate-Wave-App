@@ -562,7 +562,7 @@ describe("a company's lead balance", () => {
       assignedAt: new Date().toISOString(),
     };
     await render(<LeadCredit lead={lead} />);
-    expect(document.body.textContent).toContain('Won · $85.00');
+    expect(document.body.textContent).toContain('From FieldQuote · $85.00');
     expect(byText('Request credit')).toBeUndefined();
     expect(requestCredit).not.toHaveBeenCalled();
 
