@@ -197,7 +197,7 @@ const LeadsPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
-  const { selectedOrg } = useContext(OrganizationContext);
+  const { selectedOrg, setSelectedOrg } = useContext(OrganizationContext);
   const organizationId = selectedOrg?.id;
   // A company in the Lead Market that hasn't set bids yet is told where its leads will come from.
   const wallet = useWallet<WalletSummary>(organizationId);
@@ -214,17 +214,41 @@ const LeadsPage: React.FC = () => {
     setSearchParams({}, { replace: true });
   }, [searchParams, setSearchParams]);
   // The alert's link: /leads?lead=<id>&ack=1 opens that lead and tells FieldQuote "got it".
+  // A lead in another of the user's companies switches to that company first.
+  const [elsewhere, setElsewhere] = useState<string | null>(null);
+  const looked = useRef<string | null>(null);
   useEffect(() => {
     const id = searchParams.get('lead');
     if (!id || loading) return;
     const lead = leads.find((row) => row.id === id);
-    if (!lead) return;
+    if (!lead) {
+      if (looked.current === id) return;
+      looked.current = id;
+      leadsAPI
+        .companyOf(id)
+        .then((owner) => {
+          if (owner && owner.organizationId !== organizationId) {
+            try {
+              localStorage.setItem('selectedOrgId', owner.organizationId);
+            } catch {
+              // Private mode: the switch still holds for this visit.
+            }
+            setSelectedOrg({ id: owner.organizationId, name: owner.name, industry: '' });
+          } else {
+            setElsewhere("That lead isn't in any company you belong to. Ask the company's owner to add you.");
+            setSearchParams({}, { replace: true });
+          }
+        })
+        .catch(() => setSearchParams({}, { replace: true }));
+      return;
+    }
+    setElsewhere(null);
     setEditing(lead);
     if (searchParams.get('ack') === '1' && !lead.acknowledgedAt) {
       leadsAPI.acknowledge(lead.id).then((at) => setLeads((rows) => rows.map((row) => (row.id === lead.id ? { ...row, acknowledgedAt: at } : row)))).catch(() => {});
     }
     setSearchParams({}, { replace: true });
-  }, [searchParams, setSearchParams, leads, loading]);
+  }, [searchParams, setSearchParams, leads, loading, organizationId, setSelectedOrg]);
   const [quoting, setQuoting] = useState<{ lead: Lead; clientId: string } | null>(null);
 
   const load = async () => {
@@ -436,6 +460,11 @@ const LeadsPage: React.FC = () => {
       {confirmDialog}
       <div className="p-6">
         <WalletBar organizationId={organizationId} />
+        {elsewhere && (
+          <p role="alert" className="mb-4 px-4 py-3 border border-amber-500/40 bg-amber-500/10 text-sm text-amber-200">
+            {elsewhere}
+          </p>
+        )}
         {hasSamples && (
           <div className="mb-4 px-4 py-3 border border-[#336699]/50 bg-[#336699]/10 text-sm flex items-center justify-between gap-3">
             <span className="text-gray-300">You're looking at sample leads. Add your own any time.</span>

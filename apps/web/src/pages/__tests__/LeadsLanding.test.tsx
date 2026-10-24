@@ -24,12 +24,12 @@ function type(selector: string, value: string) {
   Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, value);
   el.dispatchEvent(new Event(el instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));
 }
-async function render(scrollTo?: 'apply') {
+async function render(scrollTo?: 'apply', path = '/') {
   const container = document.createElement('div');
   document.body.appendChild(container);
   await act(async () =>
     createRoot(container).render(
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[path]}>
         <LeadsLanding scrollTo={scrollTo} />
       </MemoryRouter>,
     ),
@@ -92,6 +92,19 @@ describe('lead-buyer landing page', () => {
     await act(async () => (document.body.querySelector('form[aria-label="Apply"]') as HTMLFormElement).requestSubmit());
     await flush();
     expect(document.body.querySelector('[role="status"]')!.textContent).toContain("You're already on the list");
+  });
+
+  it('opens sign-in straight away when an alert link sent a signed-out person here', async () => {
+    await render(undefined, `/?next=${encodeURIComponent('/leads?lead=abc&ack=1')}`);
+    const dialog = document.body.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain('Sign in to see your lead');
+    expect(dialog.textContent).toContain('Sign in with Google');
+    document.body.innerHTML = '';
+    await render(undefined, `/?next=${encodeURIComponent('/bids')}`);
+    expect(document.body.querySelector('[role="dialog"]')!.textContent).toContain('Sign in to get back where you were');
+    document.body.innerHTML = '';
+    await render();
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
   });
 
   it('opens on the form from /apply, and Sign in opens the sign-in dialog', async () => {

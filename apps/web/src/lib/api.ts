@@ -374,6 +374,8 @@ export const leadsAPI = {
     run('mutation', api.leads.logContact, defined({ id, kind, note })),
   /** "Got it, calling now" on a lead FieldQuote sent. Returns when it was acknowledged. */
   acknowledge: (id: string): Promise<string> => run('mutation', api.leads.acknowledge, { id }),
+  /** Which of your companies a lead is in (for an alert link opened under another company), or null. */
+  companyOf: (id: string): Promise<{ organizationId: string; name: string } | null> => run('query', api.leads.companyOf, { id }),
 
   /** Calls onUpdate with the org's leads now and after every change. Returns a stop function. */
   watch(organizationId: string, onUpdate: (leads: any[]) => void): () => void {

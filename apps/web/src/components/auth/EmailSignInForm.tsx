@@ -10,7 +10,8 @@ function describeAuthError(err: unknown): string {
   }
   const raw = err instanceof Error ? err.message : String(err);
   if (/already exists/i.test(raw)) return 'An account with this email already exists. Use "Sign in" instead.';
-  if (/InvalidAccountId/.test(raw)) return 'No account with this email yet. Use "Create an account" first.';
+  if (/InvalidAccountId/.test(raw)) return 'No account for that email yet. Create an account with it.';
+  if (/RESEND_API_KEY|could not be sent/i.test(raw)) return "We can't email a sign-up code right now. Continue with Google instead, or try again later.";
   if (/InvalidSecret|Invalid credentials/.test(raw)) return 'Incorrect email or password.';
   if (/TooManyFailedAttempts/.test(raw)) return 'Too many attempts. Wait a few minutes and try again.';
   if (/Invalid password/.test(raw)) return 'Password must be at least 8 characters.';
@@ -150,7 +151,19 @@ export const EmailSignInForm = ({ onDone }: { onDone?: () => void }) => {
         value={password}
         onChange={(e) => setPassword(e.target.value)}
       />
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && (
+        <p className="text-sm text-red-600">
+          {error}
+          {flow === 'signIn' && error.startsWith('No account for that email') && (
+            <>
+              {' '}
+              <button type="button" onClick={() => { setFlow('signUp'); setError(null); }} className="underline font-medium">
+                Create an account with it
+              </button>
+            </>
+          )}
+        </p>
+      )}
       <button
         type="submit"
         disabled={isSubmitting}

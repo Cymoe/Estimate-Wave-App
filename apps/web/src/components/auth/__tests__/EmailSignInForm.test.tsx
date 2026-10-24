@@ -48,6 +48,22 @@ describe('email sign-in', () => {
     expect(onDone).toHaveBeenCalled();
   });
 
+  it('offers to create an account when the email has none', async () => {
+    signInWithPassword.mockRejectedValueOnce(new Error('[CONVEX A(auth:signIn)] Uncaught Error: InvalidAccountId'));
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () => createRoot(container).render(<MemoryRouter><EmailSignInForm /></MemoryRouter>));
+    await act(async () => type(input('input[type="email"]'), 'new@roofer.example'));
+    await act(async () => type(input('input[type="password"]'), 'correct horse'));
+    await submit('[data-testid="email-signin-form"]');
+    expect(document.body.textContent).toContain('No account for that email yet. Create an account with it.');
+    const create = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent === 'Create an account with it')!;
+    await act(async () => create.click());
+    signInWithPassword.mockResolvedValueOnce({ signingIn: false });
+    await submit('[data-testid="email-signin-form"]');
+    expect(signInWithPassword).toHaveBeenLastCalledWith(expect.objectContaining({ email: 'new@roofer.example', flow: 'signUp' }));
+  });
+
   it('says plainly when the code is wrong, and can send a new one', async () => {
     signInWithPassword
       .mockResolvedValueOnce({ signingIn: false })

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ArrowDown, ArrowRight, Check, PhoneCall, Megaphone, Smartphone } from 'lucide-react';
 import { applicationsAPI } from '../lib/api';
 import { AuthButtons } from '../components/auth/AuthButtons';
@@ -55,10 +56,14 @@ const field =
 const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
 const LeadsLanding: React.FC<{ scrollTo?: 'apply' }> = ({ scrollTo: target }) => {
-  const [signIn, setSignIn] = useState(false);
+  // A signed-out tap on an alert link lands here with ?next=: open sign-in straight away.
+  const [searchParams] = useSearchParams();
+  const next = searchParams.get('next');
+  const [signIn, setSignIn] = useState(Boolean(next));
   useEffect(() => {
     if (target) document.getElementById(target)?.scrollIntoView();
   }, [target]);
+  const signInTitle = !next ? 'Sign in' : /^\/leads\?(.*&)?lead=/.test(next) ? 'Sign in to see your lead' : 'Sign in to get back where you were';
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white">
@@ -212,7 +217,7 @@ const LeadsLanding: React.FC<{ scrollTo?: 'apply' }> = ({ scrollTo: target }) =>
       </footer>
 
       {signIn && (
-        <Dialog title="Sign in" onClose={() => setSignIn(false)}>
+        <Dialog title={signInTitle} onClose={() => setSignIn(false)}>
           <p className="text-sm text-gray-400 mb-4">For companies FieldQuote has set up. Use the email we approved: continue with Google, or create an account with it. New here? Apply below instead.</p>
           <div className="bg-white rounded-lg p-4">
             <AuthButtons />

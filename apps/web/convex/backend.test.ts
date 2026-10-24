@@ -107,6 +107,20 @@ describe("auth and tenancy", () => {
     }
   });
 
+  test("an alert link finds which of your companies a lead is in, and nothing about anyone else's", async () => {
+    const t = setup();
+    const ana = await signUp(t, "ana@basin.example");
+    const other = await signUp(t, "other@peak.example");
+    const lead = await other.as.mutation(api.leads.create, { organizationId: other.organizationId, data: { name: "Their lead" } });
+    expect(await ana.as.query(api.leads.companyOf, { id: lead._id })).toBeNull();
+    expect(await ana.as.query(api.leads.companyOf, { id: "not-an-id" })).toBeNull();
+    // Ana joins Peak too: now the link can switch her to it.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("memberships", { organizationId: other.organizationId, userId: ana.userId, role: "admin", createdAt: new Date().toISOString() });
+    });
+    expect(await ana.as.query(api.leads.companyOf, { id: lead._id })).toEqual({ organizationId: other.organizationId, name: expect.any(String) });
+  });
+
   test("me returns the user with their organization", async () => {
     const t = setup();
     const { as, userId, organizationId } = await signUp(t, "a@example.com");

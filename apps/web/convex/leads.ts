@@ -8,6 +8,7 @@ import {
   nowIso,
   pick,
   requireMember,
+  requireUser,
 } from "./lib/access";
 import { assertLinksInOrg } from "./lib/documents";
 import { leadFields } from "./schema";
@@ -112,6 +113,29 @@ const TOUCHED_STATUSES: Doc<"leads">["status"][] = [
 ];
 
 /** "Got it, calling now": the company saw the alert. Shown to staff on the Delivered tab. */
+/**
+ * Which of the caller's companies a lead belongs to, for an alert link
+ * opened while another company is selected. Null when it isn't one of
+ * theirs (or doesn't exist), so nothing about other companies leaks.
+ */
+export const companyOf = query({
+  args: { id: v.string() },
+  handler: async (ctx, { id }) => {
+    const user = await requireUser(ctx);
+    const leadId = ctx.db.normalizeId("leads", id);
+    const lead = leadId ? await ctx.db.get(leadId) : null;
+    if (!lead) return null;
+    const membership = await ctx.db
+      .query("memberships")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .filter((q) => q.eq(q.field("organizationId"), lead.organizationId))
+      .first();
+    if (!membership) return null;
+    const organization = await ctx.db.get(lead.organizationId);
+    return organization ? { organizationId: organization._id, name: organization.name } : null;
+  },
+});
+
 export const acknowledge = mutation({
   args: { id: v.id("leads") },
   handler: async (ctx, { id }) => {
