@@ -9,6 +9,8 @@ const signOut = jest.fn(async () => undefined);
 const toggleTheme = jest.fn();
 jest.mock('../../../contexts/AuthContext', () => ({ useAuth: () => ({ user, signOut }) }));
 jest.mock('../../../contexts/ThemeContext', () => ({ useTheme: () => ({ theme: 'dark', toggleTheme }) }));
+let payments: { playMoney: boolean } | undefined = { playMoney: false };
+jest.mock('../../../lib/live', () => ({ usePaymentsMode: () => payments }));
 
 import { OpsLayout } from '../OpsLayout';
 
@@ -37,6 +39,16 @@ afterEach(() => {
 });
 
 describe('the Ops frame', () => {
+  it('says plainly when balances are play money, and says nothing once Stripe is connected', async () => {
+    payments = { playMoney: true };
+    await render();
+    expect(document.body.querySelector('[data-testid="test-mode"]')!.textContent).toContain('Payments are in test mode: every balance is play money');
+    document.body.innerHTML = '';
+    payments = { playMoney: false };
+    await render();
+    expect(document.body.querySelector('[data-testid="test-mode"]')).toBeNull();
+  });
+
   it('shows nothing of a company: just the name, the page and a menu with sign out', async () => {
     await render();
     expect(document.body.textContent).toContain('FieldQuote');

@@ -3049,7 +3049,7 @@ describe("funding links and the lead feed", () => {
     ).balanceCents;
 
   test("Add funds goes to Stripe Checkout; Stripe's webhook loads the balance, once; a dropped session reopens the link", async () => {
-    const { t, roofer, rival, token } = await company();
+    const { t, admin, roofer, rival, token } = await company();
     expect(
       await roofer.as.mutation(api.funding.createLink, {
         organizationId: roofer.organizationId,
@@ -3079,6 +3079,14 @@ describe("funding links and the lead feed", () => {
     await expect(t.action(api.funding.checkout, { token: rivalToken, amountCents: 1_000_000 })).rejects.toThrow(/already been used/);
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_x");
     expect((await t.query(api.funding.get, { token }))!.playMoney).toBe(false);
+    // Ops reads the same switch (staff only), and the company's wallet carries it so Add funds can say "play money".
+    expect(await admin.as.query(api.funding.mode, {})).toEqual({ playMoney: false });
+    await expect(rival.as.query(api.funding.mode, {})).rejects.toThrow(/staff/);
+    expect((await rival.as.query(api.marketplace.wallet, { organizationId: rival.organizationId })).playMoney).toBe(false);
+    vi.stubEnv("STRIPE_SECRET_KEY", "");
+    expect(await admin.as.query(api.funding.mode, {})).toEqual({ playMoney: true });
+    expect((await rival.as.query(api.marketplace.wallet, { organizationId: rival.organizationId })).playMoney).toBe(true);
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_x");
     vi.stubEnv("SITE_URL", "https://app.example/");
     await expect(t.action(api.funding.checkout, { token, amountCents: 499999 })).rejects.toThrow(/minimum/);
     const calls: Array<{ url: string; body: string; auth: string | undefined }> = [];

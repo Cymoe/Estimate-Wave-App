@@ -4,6 +4,7 @@ import { Building2, ChevronDown, LogOut, Moon, Sun } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { isSuperAdmin } from '../../lib/roles';
+import { usePaymentsMode } from '../../lib/live';
 
 /**
  * The frame for the platform side. Nothing of a company's in it: no
@@ -27,6 +28,7 @@ export const OpsLayout: React.FC<{ children: React.ReactNode }> = ({ children })
   }, [open]);
 
   const hasCompany = Boolean(user?.organizationId);
+  const payments = usePaymentsMode<{ playMoney: boolean }>();
   const name = user?.name || user?.email || 'You';
 
   return (
@@ -92,6 +94,11 @@ export const OpsLayout: React.FC<{ children: React.ReactNode }> = ({ children })
           </div>
         </div>
       </header>
+      {payments?.playMoney && (
+        <p role="status" data-testid="test-mode" className="px-4 md:px-6 py-1.5 text-xs text-amber-200 bg-amber-500/10 border-b border-amber-500/30">
+          Payments are in test mode: every balance is play money until Stripe is connected. No real money has moved.
+        </p>
+      )}
       <main>{children}</main>
     </div>
   );

@@ -9,7 +9,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { fail, logActivity, nowIso, requireMember } from "./lib/access";
+import { fail, logActivity, nowIso, requireMember, requireStaff } from "./lib/access";
 import { siteUrl } from "./delivery";
 import { FUNDING_TIERS, MIN_FUNDING_CENTS, bonusFor } from "./lib/funding";
 import { createCheckoutSession } from "./lib/stripe";
@@ -62,6 +62,15 @@ export const createLink = mutation({
       createdAt: nowIso(),
     });
     return token;
+  },
+});
+
+/** Whether payments are in test mode (no Stripe key: balances are play money). Staff. */
+export const mode = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireStaff(ctx);
+    return { playMoney: playMoney() };
   },
 });
 

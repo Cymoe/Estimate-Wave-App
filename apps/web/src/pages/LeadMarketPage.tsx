@@ -9,7 +9,7 @@ import { Dialog, Field, ago, input, primary, secondary } from '../components/ops
 import { IntakeQueue } from '../components/ops/IntakeQueue';
 import { Delivered, type DeliveredRow } from '../components/ops/Delivered';
 import { DemandBoard, type DemandBoardData } from '../components/ops/DemandBoard';
-import { useDelivered, useDemandBoard, useIntakeQueue } from '../lib/live';
+import { useDelivered, useDemandBoard, useIntakeQueue, usePaymentsMode } from '../lib/live';
 import { isStaff, isSuperAdmin } from '../lib/roles';
 import { TeamCard } from '../components/ops/TeamCard';
 import { useConfirm } from '../components/common/ConfirmDialog';
@@ -1138,6 +1138,7 @@ const LeadMarketPage: React.FC = () => {
   // The header's one line of numbers follows the open tab, from the same live
   // data the tab shows (Convex shares a subscription the tab already holds).
   const demandData = useDemandBoard<DemandBoardData>();
+  const playMoney = usePaymentsMode<{ playMoney: boolean }>()?.playMoney === true;
   const intakeOpen = useIntakeQueue<Array<{ duplicateOf?: string }>>('open');
   const deliveredRows = useDelivered<DeliveredRow[]>();
   // The whole book: the header line and the totals row under the companies table.
@@ -1193,7 +1194,7 @@ const LeadMarketPage: React.FC = () => {
       }
       case 'companies': {
         const pro = companies.filter((c) => c.plan?.status === 'active').length;
-        return `${plural(companies.length, 'company').replace('companys', 'companies')} · ${money(book.balanceCents)} in balances · ${pro} Pro`;
+        return `${plural(companies.length, 'company').replace('companys', 'companies')} · ${money(book.balanceCents)} in balances${playMoney ? ' (play money)' : ''} · ${pro} Pro`;
       }
       case 'prices':
         return `Start and floor price for ${plural(trades.length, 'trade')}`;
@@ -1503,7 +1504,10 @@ const LeadMarketPage: React.FC = () => {
                     <span className="block">Total</span>
                     <span className="block text-xs text-gray-500">{companies.length} companies</span>
                   </td>
-                  <td className={`px-4 py-3 text-right ${book.balanceCents > 0 ? 'text-emerald-300' : 'text-gray-500'}`}>{money(book.balanceCents)}</td>
+                  <td className={`px-4 py-3 text-right ${book.balanceCents > 0 ? 'text-emerald-300' : 'text-gray-500'}`}>
+                    {money(book.balanceCents)}
+                    {playMoney && <span className="block text-[10px] text-amber-300">play money</span>}
+                  </td>
                   <td className="px-4 py-3 text-right hidden sm:table-cell">{book.leads30d}</td>
                   <td className="px-4 py-3 text-right hidden sm:table-cell">{money(book.spent30dCents)}</td>
                   <td className="px-4 py-3 text-gray-300 text-xs sm:text-sm whitespace-nowrap">{book.plans}</td>

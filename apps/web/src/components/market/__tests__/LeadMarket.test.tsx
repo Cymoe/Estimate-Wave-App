@@ -24,6 +24,7 @@ const inviteStaff = jest.fn(async (email: string) => { staffInvites = [...staffI
 
 let intakeRows: unknown[] = [];
 let intakeLog: unknown[] = [];
+let payments: { playMoney: boolean } | undefined = { playMoney: false };
 const createIntake = jest.fn(async (_source: string, _fields: unknown) => ({ id: 'i1', duplicate: false }));
 const confirmIntake = jest.fn(async () => ({ leadId: 'm7', outcome: 'sold', companyName: 'Peak Roofing', priceCents: 25000 }));
 
@@ -43,6 +44,7 @@ jest.mock('../../../lib/live', () => ({
       : { bidders: [{ companyName: 'Rich Roofing', amountCents: 30000, balanceCents: 40000, funded: true }, { companyName: 'Poor Roofing', amountCents: 40000, balanceCents: 100, funded: false }], buyers: ['Rich Roofing', 'Poor Roofing'], leads: [] },
   useIntakeQueue: () => intakeRows,
   useIntakeLog: () => intakeLog,
+  usePaymentsMode: () => payments,
   useDelivered: () => delivered,
   useLeadDestination: (county?: string, jobType?: string) => (county && jobType ? destination : undefined),
 }));
@@ -162,6 +164,7 @@ afterEach(() => {
   delivered = [];
   applications = [];
   companyLeads = [];
+  payments = { playMoney: false };
 });
 
 describe('Lead Market', () => {
@@ -321,6 +324,15 @@ describe('Lead Market', () => {
     await blur();
     expect(setPrice).toHaveBeenCalledWith('roofing', 300, { floor: 60, drop: 10, dropEveryMinutes: 60 });
     expect(document.body.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('labels balances as play money on Ops while payments are in test mode', async () => {
+    payments = { playMoney: true };
+    await render(<LeadMarketPage />);
+    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Companies'))!.click());
+    await flush();
+    expect(document.body.querySelector('[data-testid="ops-summary"]')!.textContent).toBe('3 companies · $510.00 in balances (play money) · 1 Pro');
+    expect(document.body.querySelector('[data-testid="companies-totals"]')!.textContent).toContain('play money');
   });
 
   it('keeps applications from staff', async () => {

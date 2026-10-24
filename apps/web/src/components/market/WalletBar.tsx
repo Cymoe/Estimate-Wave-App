@@ -23,6 +23,8 @@ export interface WalletSummary {
   leadTrades?: string[];
   plan?: PlanSummary | null;
   olderLeads?: number;
+  /** No Stripe key on the deployment: Add funds loads play money. */
+  playMoney?: boolean;
   transactions: Array<{ id: string; type: string; amountCents: number; balanceAfterCents: number; method?: string; note?: string; createdAt: string }>;
 }
 
@@ -264,8 +266,9 @@ export function WalletDrawer({ wallet, onClose: closeNow, onAddFunds }: { wallet
           </section>
           <section className="border border-[#2A2A2A] rounded p-4 text-sm text-gray-300">
             <button type="button" onClick={onAddFunds} className="w-full mb-3 px-4 py-2.5 rounded bg-[#336699] text-white font-medium">
-              Add funds
+              {wallet.playMoney ? 'Add play money' : 'Add funds'}
             </button>
+            {wallet.playMoney && <p className="mb-2 text-xs text-amber-300">Test mode: no card is charged and no real money moves.</p>}
             <p>Load from $5,000 by card or Apple Pay. Larger loads get a bonus: +5% at $7,500, +10% at $10,000.</p>
             <p className="mt-2 text-gray-400">A bad lead? Tell us within 3 days and we credit it back to your balance.</p>
           </section>

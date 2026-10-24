@@ -55,6 +55,8 @@ export const useIntakeQueue = <T,>(status: 'open' | 'closed' | 'confirmed') => u
 export const useIntakeLog = <T,>() => useLive<T>(q('intake:recentLog'), {});
 /** Every awarded lead with what was sent and whether the company has it. */
 export const useDelivered = <T,>() => useLive<T>(q('delivery:recent'), {});
+/** Whether payments are in test mode (play money). Staff only; undefined while loading or signed out. */
+export const usePaymentsMode = <T,>() => useLive<T>(q('funding:mode'), {});
 /** The funding page behind a link: no login, the token is the key. Flips to paid when Stripe's webhook lands. */
 export const useFundingPage = <T,>(token?: string) => useLive<T>(q('funding:get'), token ? { token } : 'skip');
 /** Where a lead for this county and trade would go the moment it is listed. */

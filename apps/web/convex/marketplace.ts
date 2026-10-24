@@ -1267,6 +1267,8 @@ export const wallet = query({
         .filter((l) => l.status === "assigned")
         .reduce((sum, l) => sum + (l.priceCents ?? 0), 0),
       leadsBought: bought.length,
+      // No Stripe key on the deployment: Add funds loads play money, and the button says so.
+      playMoney: !process.env.STRIPE_SECRET_KEY,
       ...roi,
       plan: organization.plan
         ? planSummary(organization.plan, Date.now())
