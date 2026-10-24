@@ -527,6 +527,8 @@ describe("intake", () => {
     expect(result).toMatchObject({ outcome: "sold", companyName: "painter@example.com Co", priceCents: 25000 });
     const row = await va.as.query(api.intake.get, { id });
     expect(row).toMatchObject({ status: "confirmed", confirmedLeadId: result.leadId, county: "Ector", address: "12 Elm St" });
+    // The intake lead says where it went.
+    expect(row.listed).toMatchObject({ id: result.leadId, status: "assigned", companyName: "painter@example.com Co", priceCents: 25000 });
     expect(row.attempts[row.attempts.length - 1]).toMatchObject({ outcome: "reached", note: "Wants it done before Thanksgiving" });
     expect((await va.as.query(api.intake.queue, { status: "confirmed" })).map((r) => r.id)).toEqual([id]);
     await expect(va.as.mutation(api.intake.confirm, { id, checks: all })).rejects.toThrow(/already confirmed/);
@@ -3683,6 +3685,18 @@ describe("dropping prices and buy orders", () => {
         id: other!._id,
         auction: { startCents: 28500 },
       });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("deleting a lead closes the buy orders on it", async () => {
+    try {
+      const { admin, roofer, leadId } = await market();
+      await roofer.as.mutation(api.marketplace.placeBid, { leadId, organizationId: roofer.organizationId, max: 260 });
+      await admin.as.mutation(api.marketplace.removeLead, { id: leadId });
+      const orders = await roofer.as.query(api.marketplace.bids, { organizationId: roofer.organizationId });
+      expect(orders.find((b: { leadId: string }) => b.leadId === leadId)).toMatchObject({ status: "lost", outcome: "Lead removed" });
     } finally {
       vi.useRealTimers();
     }

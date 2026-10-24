@@ -56,7 +56,7 @@ export const TeamCard: React.FC = () => {
   return (
     <section className="border border-[#2A2A2A] rounded p-4" data-testid="team-card">
       <h3 className="text-sm font-medium text-white">Team</h3>
-      <p className="text-xs text-gray-500 mt-0.5 mb-3">Staff confirm and send leads. Money, prices and companies stay with you.</p>
+      <p className="text-xs text-gray-500 mt-0.5 mb-3">Staff confirm and send leads. They see balances but can't change money, prices or company setup.</p>
       <form onSubmit={invite} className="flex gap-2 mb-3">
         <input
           type="email"

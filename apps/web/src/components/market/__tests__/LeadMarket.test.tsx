@@ -62,6 +62,7 @@ jest.mock('../../../lib/live', () => ({
     : [
     { id: 'o1', name: 'Broke Roofing', leadTrades: ['roofing'], balanceCents: 1000, leads30d: 0, spent30dCents: 0, leadsTotal: 0, wonCents: 0, wonCount: 0, pendingCredits: 0, sampleBids: demoBids ? 3 : 0 },
     { id: 'o2', name: 'Peak Roofing', owners: ['pat@peak.example'], leadTrades: ['roofing'], balanceCents: 50000, leads30d: 2, spent30dCents: 17000, leadsTotal: 2, wonCents: 1200000, wonCount: 1, pendingCredits: 0,
+      fundingLink: { status: 'submitted', amountCents: 500000, createdAt: '2026-10-20T00:00:00Z' },
       plan: { status: 'active', active: true, monthlyCents: 9900, claimsIncluded: 10, extraClaimCents: 1500, claimsLeft: 8, nextClaimCents: 0, periodStart: '2026-10-01T00:00:00Z', nextChargeAt: '2026-11-01T00:00:00Z' } },
     { id: 'o3', name: 'Ace Painting', leadTrades: [], balanceCents: 0, isEmpty: true, leads30d: 0, spent30dCents: 0, leadsTotal: 0, wonCents: 0, wonCount: 0, pendingCredits: 0 },
   ],
@@ -292,11 +293,14 @@ describe('Lead Market', () => {
 
   it('says what failed and why, and keeps saying it until dismissed', async () => {
     removeLead.mockRejectedValueOnce(new Error('A sold lead stays on the books'));
-    jest.spyOn(window, 'confirm').mockReturnValue(true);
     await render(<LeadMarketPage />);
     await openListed();
     expect(document.body.querySelector('[role="alert"]')).toBeNull();
     await act(async () => (document.body.querySelector('button[aria-label="Delete Jane Cole"]') as HTMLButtonElement).click());
+    // The confirm says what deleting does to buy orders on it.
+    const ask = document.body.querySelector('[role="dialog"], [role="alertdialog"]')!;
+    expect(ask.textContent).toContain('Any company with a buy order on it sees the order closed.');
+    await act(async () => (Array.from(ask.querySelectorAll('button')).find((b) => b.textContent === 'Delete') as HTMLButtonElement).click());
     await flush();
     expect(removeLead).toHaveBeenCalledWith('m1');
     const alert = () => document.body.querySelector('[role="alert"]');
@@ -595,6 +599,8 @@ describe('loading the balance and buying leads', () => {
     await flush();
     expect(byText('Remove this empty company')).toBeUndefined();
     expect(document.body.querySelector('[data-testid="company-owners"]')?.textContent).toBe('pat@peak.example');
+    // How far the last payment link got.
+    expect(document.body.querySelector('[data-testid="link-status"]')?.textContent).toBe("Payment link: they're at checkout for $5,000.00");
     // The plan section: status, claims left, and a one-tap comp.
     const planSection = document.body.querySelector('[data-testid="plan-section"]')!;
     expect(planSection.textContent).toContain('8 of 10 claims left');
@@ -717,6 +723,32 @@ describe('standing bids in Admin', () => {
     await render(<MemoryRouter initialEntries={['/ops']}><LeadMarketPage /></MemoryRouter>, false);
     const alerts = Array.from(document.body.querySelectorAll('[role="alert"]')).map((a) => a.textContent);
     expect(alerts).toContain("Couldn't load the intake queue: Only FieldQuote staff can do this");
+  });
+
+  it('keeps an unknown county visible, asks before closing with unsaved edits, and says where a confirmed lead went', async () => {
+    const { IntakePanel } = await import('../../ops/IntakePanel');
+    intakeRows = [
+      { id: 'i5', source: 'meta', status: 'new', label: 'Ana Ruiz', name: 'Ana Ruiz', county: 'Midlnd', attempts: [], lastAttempt: null, createdAt: '2026-10-22T02:00:00Z', updatedAt: '2026-10-22T02:00:00Z' },
+      { id: 'i6', source: 'call', status: 'confirmed', label: 'Bo Diaz', name: 'Bo Diaz', county: 'Midland', attempts: [], lastAttempt: null, createdAt: '2026-10-22T02:00:00Z', updatedAt: '2026-10-22T02:00:00Z',
+        listed: { id: 'm7', status: 'assigned', companyName: 'Peak Roofing', organizationId: 'o2', priceCents: 25000 } },
+    ];
+    const onClose = jest.fn();
+    await render(<IntakePanel id="i5" trades={[]} onClose={onClose} onChanged={() => {}} onListed={() => {}} />);
+    const panel = document.body.querySelector('aside[role="dialog"]')!;
+    const county = Array.from(panel.querySelectorAll('select')).find((sel) => Array.from(sel.options).some((o) => o.text === 'Choose a county')) as HTMLSelectElement;
+    expect(county.value).toBe('Midlnd');
+    expect(county.options[county.selectedIndex].text).toBe('Midlnd (not a Texas county)');
+    // An edit that isn't saved: tapping outside asks first.
+    const name = Array.from(panel.querySelectorAll('input')).find((i) => i.value === 'Ana Ruiz')!;
+    await act(async () => type(name, 'Ana M. Ruiz'));
+    await act(async () => (document.body.querySelector('.backdrop-blur-sm') as HTMLElement).click());
+    const ask = Array.from(document.body.querySelectorAll('[role="dialog"], [role="alertdialog"]')).find((d) => d.textContent?.includes('Close without saving?'))!;
+    expect(ask).toBeDefined();
+    await act(async () => (Array.from(ask.querySelectorAll('button')).find((b) => b.textContent === 'Keep editing') as HTMLButtonElement).click());
+    expect(onClose).not.toHaveBeenCalled();
+    document.body.innerHTML = '';
+    await render(<IntakePanel id="i6" trades={[]} onClose={onClose} onChanged={() => {}} onListed={() => {}} />);
+    expect(document.body.querySelector('[data-testid="intake-outcome"]')?.textContent).toBe('Sold to Peak Roofing for $250.00');
   });
 
   it('opens a lead whose details fail to load with the reason and a Close button', async () => {

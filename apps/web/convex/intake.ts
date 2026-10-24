@@ -635,8 +635,20 @@ export const get = query({
     const row = await ctx.db.get(id);
     if (row === null) fail("NOT_FOUND", "Lead not found");
     const duplicate = row.duplicateOf ? await ctx.db.get(row.duplicateOf) : null;
+    // Once confirmed: who it went to and for how much, or that it's for sale.
+    const listed = row.confirmedLeadId ? await ctx.db.get(row.confirmedLeadId) : null;
+    const buyer = listed?.assignedOrganizationId ? await ctx.db.get(listed.assignedOrganizationId) : null;
     return {
       ...summary(row),
+      listed: listed
+        ? {
+            id: listed._id,
+            status: listed.status,
+            companyName: buyer?.name,
+            organizationId: buyer?._id,
+            priceCents: listed.priceCents,
+          }
+        : null,
       duplicate: duplicate
         ? { id: duplicate._id, label: intakeLabel(duplicate), status: duplicate.status, createdAt: duplicate.createdAt, confirmedLeadId: duplicate.confirmedLeadId }
         : null,

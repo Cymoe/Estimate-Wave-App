@@ -247,6 +247,8 @@ export const removeLead = mutation({
       lead.status !== "archived"
     )
       fail("INVALID", "A lead that was sent to a company can't be deleted");
+    // Companies with a buy order on it see it closed, not left open on a lead that's gone.
+    await loseOpenOrders(ctx, id, "Lead removed");
     await ctx.db.delete(id);
   },
 });
@@ -623,6 +625,22 @@ export const companiesOverview = query({
             amountCents: b.amountCents,
           })),
           sampleBids: standing.filter((b) => b.isSample).length,
+          // The latest payment link and how far the payer got with it.
+          fundingLink: await (async () => {
+            const link = await ctx.db
+              .query("fundingRequests")
+              .withIndex("by_organization", (q) => q.eq("organizationId", org._id))
+              .order("desc")
+              .first();
+            return link
+              ? {
+                  status: link.status,
+                  amountCents: link.amountCents,
+                  createdAt: link.createdAt,
+                  confirmedAt: link.confirmedAt,
+                }
+              : null;
+          })(),
         };
       }),
     );

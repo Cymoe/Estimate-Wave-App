@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Link } from 'react-router-dom';
 import { AlertTriangle, MessageSquare, Phone, X } from 'lucide-react';
+import { money } from '../market/wallet';
+import { useConfirm } from '../common/ConfirmDialog';
 import { intakeAPI, type IntakeFields } from '../../lib/api';
 import { COUNTY_CHOICES } from '../../services/counties';
 import { Field, ago, input, primary, secondary } from './ui';
@@ -40,6 +43,8 @@ export interface IntakeRow {
 
 export interface IntakeDetail extends IntakeRow {
   duplicate: { id: string; label: string; status: string; createdAt: string; confirmedLeadId?: string } | null;
+  /** After confirming: the Marketplace lead it became, and who bought it. */
+  listed?: { id: string; status: string; companyName?: string; organizationId?: string; priceCents?: number } | null;
 }
 
 interface Trade {
@@ -83,6 +88,9 @@ export const IntakePanel: React.FC<{
   const [closing, setClosing] = useState<string>('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Which buttons the error belongs to, so it shows next to them.
+  const [errorAt, setErrorAt] = useState<'save' | 'calls' | 'close' | null>(null);
+  const [confirmLeave, leaveDialog] = useConfirm();
 
   // Reloads the row; the draft follows only when asked, so logging a call never wipes typed edits.
   const load = useCallback(async (resetDraft = true) => {
@@ -109,15 +117,17 @@ export const IntakePanel: React.FC<{
   }, [load]);
 
   const [savedAt, setSavedAt] = useState<number | null>(null);
-  const act = async (fn: () => Promise<unknown>, { keepDraft = false } = {}) => {
+  const act = async (fn: () => Promise<unknown>, { keepDraft = false, where = null as 'save' | 'calls' | 'close' | null } = {}) => {
     setBusy(true);
     setError(null);
+    setErrorAt(null);
     try {
       await fn();
       await load(!keepDraft);
       onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'That didn’t work');
+      setErrorAt(where);
     } finally {
       setBusy(false);
     }
@@ -128,14 +138,14 @@ export const IntakePanel: React.FC<{
       await intakeAPI.update(id, draft);
       setSavedAt(Date.now());
       setTimeout(() => setSavedAt(null), 1500);
-    });
+    }, { where: 'save' });
   const logAttempt = (outcome: string) =>
     act(
       async () => {
         await intakeAPI.logAttempt(id, outcome, note || undefined);
         setNote('');
       },
-      { keepDraft: true },
+      { keepDraft: true, where: 'calls' },
     );
 
   if (!row || !draft) {
@@ -156,13 +166,31 @@ export const IntakePanel: React.FC<{
   }
   const set = (key: keyof IntakeFields) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setDraft({ ...draft, [key]: e.target.value });
+  // Typed edits not saved yet: tapping outside the panel asks before throwing them away.
+  const dirty = (Object.keys(draft) as Array<keyof IntakeFields>).some((k) => String(draft[k] ?? '') !== String((row as unknown as Record<string, unknown>)[k] ?? ''));
+  const closeFromBackdrop = async () => {
+    if (dirty) {
+      const yes = await confirmLeave({ title: 'Close without saving?', message: 'Your edits to this lead are not saved yet.', confirmLabel: 'Close without saving', cancelLabel: 'Keep editing' });
+      if (!yes) return;
+    }
+    onClose();
+  };
+  const errorLine = (here: 'save' | 'calls' | 'close' | null) =>
+    error && errorAt === here ? (
+      <p role="alert" className="text-sm text-red-400 mt-2">
+        {error}
+      </p>
+    ) : null;
+  // A county the webhook sent that isn't a Texas county still shows, so it isn't silently blank.
+  const unknownCounty = draft.county && !COUNTY_CHOICES.includes(draft.county) ? draft.county : null;
   const open = row.status === 'new' || row.status === 'working';
   const tel = row.phone?.replace(/[^\d+]/g, '');
 
   return createPortal(
     <>
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[10000]" onClick={onClose} />
-      <aside role="dialog" aria-label={row.label} className="fixed right-0 top-0 h-[100dvh] w-full md:w-[520px] bg-[#121212] border-l border-[#2A2A2A] z-[10001] flex flex-col">
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[10000]" onClick={closeFromBackdrop} />
+      {leaveDialog}
+      <aside role="dialog" aria-modal="true" aria-label={row.label} className="fixed right-0 top-0 h-[100dvh] w-full md:w-[520px] bg-[#121212] border-l border-[#2A2A2A] z-[10001] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#2A2A2A]">
           <div className="min-w-0">
             <h2 className="text-lg font-semibold text-white truncate">{row.label}</h2>
@@ -231,6 +259,7 @@ export const IntakePanel: React.FC<{
               <Field label="County">
                 <select value={draft.county} onChange={set('county')} className={input} disabled={!open}>
                   <option value="">Choose a county</option>
+                  {unknownCounty && <option value={unknownCounty}>{unknownCounty} (not a Texas county)</option>}
                   {COUNTY_CHOICES.map((c) => (
                     <option key={c} value={c}>
                       {c}
@@ -290,6 +319,7 @@ export const IntakePanel: React.FC<{
                 )}
               </span>
             )}
+            {errorLine('save')}
           </section>
 
           <section>
@@ -317,11 +347,33 @@ export const IntakePanel: React.FC<{
                     </button>
                   ))}
                 </div>
+                {errorLine('calls')}
               </>
             )}
           </section>
 
           {open && <ConfirmChecklist row={row} draft={draft} onListed={onListed} />}
+          {row.status === 'confirmed' && row.listed && (
+            <p className="text-sm text-emerald-300" data-testid="intake-outcome">
+              {row.listed.companyName ? (
+                <>
+                  Sold to{' '}
+                  {row.listed.organizationId ? (
+                    <Link to={`/ops?tab=companies&company=${row.listed.organizationId}`} className="underline underline-offset-2">
+                      {row.listed.companyName}
+                    </Link>
+                  ) : (
+                    row.listed.companyName
+                  )}
+                  {row.listed.priceCents ? ` for ${money(row.listed.priceCents)}` : ''}
+                </>
+              ) : (
+                <Link to="/ops?tab=forsale" className="underline underline-offset-2">
+                  {row.listed.status === 'older' ? 'In the Vault' : 'For sale'}
+                </Link>
+              )}
+            </p>
+          )}
 
           {open ? (
             <section className="border-t border-[#2A2A2A] pt-5">
@@ -335,10 +387,11 @@ export const IntakePanel: React.FC<{
                     </option>
                   ))}
                 </select>
-                <button type="button" disabled={busy || !closing} onClick={() => act(() => intakeAPI.close(id, closing, note || undefined), { keepDraft: true })} className={secondary}>
+                <button type="button" disabled={busy || !closing} onClick={() => act(() => intakeAPI.close(id, closing, note || undefined), { keepDraft: true, where: 'close' })} className={secondary}>
                   Close
                 </button>
               </div>
+              {errorLine('close')}
             </section>
           ) : row.status === 'closed' ? (
             <button type="button" disabled={busy} onClick={() => act(() => intakeAPI.reopen(id))} className={primary}>
@@ -346,7 +399,7 @@ export const IntakePanel: React.FC<{
             </button>
           ) : null}
 
-          {error && <p className="text-sm text-red-400">{error}</p>}
+          {errorLine(null)}
         </div>
       </aside>
     </>,

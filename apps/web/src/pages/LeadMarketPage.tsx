@@ -82,6 +82,8 @@ interface MarketLead {
 interface Company {
   id: string;
   name: string;
+  /** The latest payment link: open (not paid yet), submitted (at checkout), confirmed (paid). */
+  fundingLink?: { status: 'open' | 'submitted' | 'confirmed' | 'cancelled'; amountCents?: number; createdAt: string; confirmedAt?: string } | null;
   email?: string;
   phone?: string;
   city?: string;
@@ -148,7 +150,7 @@ const TAB_TITLES: Record<Tab, string> = {
   prices: 'Prices',
 };
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const plural = (n: number, word: string) => `${n} ${n === 1 ? word : word === 'company' ? 'companies' : `${word}s`}`;
 const isToday = (iso: string) => new Date(iso).toDateString() === new Date().toDateString();
 
 
@@ -574,9 +576,18 @@ function CompanyPanel({
 
   const review = async (orgLeadId: string, approve: boolean) => {
     setBusy(true);
+    setError(null);
     try {
       await marketplaceAPI.reviewCredit(orgLeadId, approve);
+      const lead = leads.find((l) => l.id === orgLeadId);
+      setCredited(
+        approve
+          ? `Credited ${money(lead?.pricePaidCents ?? 0)} back to ${company.name}${lead ? ` for ${lead.name}` : ''}.`
+          : `Credit declined${lead ? ` for ${lead.name}` : ''}.`,
+      );
       await load();
+    } catch (err) {
+      setError(`The credit request wasn't ${approve ? 'approved' : 'declined'}: ${describeError(err, 'server error')}`);
     } finally {
       setBusy(false);
     }
@@ -587,9 +598,10 @@ function CompanyPanel({
   const [creditReason, setCreditReason] = useState('wrong_number');
   const [creditNote, setCreditNote] = useState('');
   const [credited, setCredited] = useState<string | null>(null);
+  const [creditError, setCreditError] = useState<string | null>(null);
   const creditLead = async (lead: { id: string; name: string; pricePaidCents?: number }) => {
     setBusy(true);
-    setError(null);
+    setCreditError(null);
     try {
       const { amountCents } = await marketplaceAPI.creditLead(lead.id, creditReason, creditNote || undefined);
       setCrediting(null);
@@ -597,7 +609,8 @@ function CompanyPanel({
       setCredited(`Credited ${money(amountCents)} back to ${company.name} for ${lead.name}.`);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "The credit didn't go through");
+      // Said in the credit form, next to the button that was tapped.
+      setCreditError(`The credit didn't go through: ${describeError(err, 'server error')}`);
     } finally {
       setBusy(false);
     }
@@ -617,16 +630,33 @@ function CompanyPanel({
       });
       if (!yes) return;
     }
+    const before = leadTrades;
     setLeadTrades(next);
-    await marketplaceAPI.setCompanyTrades(company.id, next);
+    try {
+      await marketplaceAPI.setCompanyTrades(company.id, next);
+    } catch (err) {
+      // Put the chips back the way the server has them.
+      setLeadTrades(before);
+      setError(`The trades didn't save: ${describeError(err, 'server error')}`);
+    }
   };
 
   const mine = credits.filter((c) => c.organizationId === company.id);
   const [linkNote, setLinkNote] = useState<string | null>(null);
 
   /** Shares the company's funding page (or copies it where there's no share sheet). */
+  const [linkUrl, setLinkUrl] = useState<string | null>(null);
   const sendFundingLink = async () => {
-    const url = fundingAPI.url(await fundingAPI.createLink(company.id));
+    setLinkNote(null);
+    let url: string;
+    try {
+      url = fundingAPI.url(await fundingAPI.createLink(company.id));
+    } catch (err) {
+      setError(`The payment link couldn't be made: ${describeError(err, 'server error')}`);
+      return;
+    }
+    // Shown too, so it can be copied by hand when sharing or the clipboard is blocked.
+    setLinkUrl(url);
     if (typeof navigator.share === 'function') {
       try {
         await navigator.share({ title: 'Load your FieldQuote lead balance', text: `Here's the link to load ${company.name}'s lead balance:`, url });
@@ -635,10 +665,21 @@ function CompanyPanel({
         if ((err as Error)?.name === 'AbortError') return;
       }
     }
-    await copyText(url);
-    setLinkNote('Payment link copied');
-    setTimeout(() => setLinkNote(null), 2500);
+    try {
+      await copyText(url);
+      setLinkNote('Payment link copied');
+      setTimeout(() => setLinkNote(null), 2500);
+    } catch {
+      setLinkNote('Copy the link below');
+    }
   };
+  const linkStatus = (() => {
+    const link = company.fundingLink;
+    if (!link || link.status === 'cancelled') return null;
+    if (link.status === 'confirmed') return `Last payment link: paid ${money(link.amountCents ?? 0)}${link.confirmedAt ? ` ${ago(link.confirmedAt)}` : ''}`;
+    if (link.status === 'submitted') return `Payment link: they're at checkout${link.amountCents ? ` for ${money(link.amountCents)}` : ''}`;
+    return `Payment link: sent ${ago(link.createdAt)}, not paid yet`;
+  })();
 
   const bought = leads.filter((l) => l.marketplaceLeadId);
 
@@ -703,18 +744,28 @@ function CompanyPanel({
               {money(wallet?.balanceCents ?? company.balanceCents)}
             </p>
             <p className="text-sm text-gray-400 mt-1">
-              {company.leadsTotal} leads from FieldQuote · {money(company.wonCents)} of jobs from them
+              {plural(company.leadsTotal, 'lead')} from FieldQuote · {money(company.wonCents)} of jobs from them
             </p>
           </section>
 
           {owner && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button type="button" onClick={sendFundingLink} className={secondary}>
                 <Link2 className="w-4 h-4" />
                 Send payment link
               </button>
               {linkNote && <span className="text-xs text-emerald-300">{linkNote}</span>}
+              {linkStatus && <span className="text-xs text-gray-400" data-testid="link-status">{linkStatus}</span>}
             </div>
+          )}
+          {owner && linkUrl && (
+            <input
+              readOnly
+              value={linkUrl}
+              onFocus={(e) => e.currentTarget.select()}
+              aria-label="Payment link"
+              className={`${input} py-1.5 text-xs`}
+            />
           )}
 
           {owner && (
@@ -880,6 +931,7 @@ function CompanyPanel({
                           <button type="button" disabled={busy} onClick={() => creditLead(lead)} className={primary}>
                             Credit {money(lead.pricePaidCents ?? 0)} back
                           </button>
+                          <ErrorLine error={creditError} onDismiss={() => setCreditError(null)} />
                         </div>
                       )}
                     </li>
@@ -1139,16 +1191,34 @@ const LeadMarketPage: React.FC = () => {
   const loading = inboxLive === undefined || companiesLive === undefined;
 
   /** Approve sets the company up and opens its panel, so the payment link can go out next. */
-  const decideApplication = (id: string, approve: boolean) =>
-    attempt(approve ? "The application couldn't be approved" : "The application couldn't be declined", async () => {
-      if (approve) {
-        const { organizationId } = await applicationsAPI.approve(id);
-        setOpenCompanyId(organizationId);
-        setNotice('Company set up. Send the payment link when you have spoken to them.');
-      } else {
-        await applicationsAPI.decline(id);
-      }
-    });
+  const [deciding, setDeciding] = useState<string | null>(null);
+  const [confirmAction, confirmActionDialog] = useConfirm();
+  const decideApplication = async (application: { id: string; companyName: string }, approve: boolean) => {
+    if (!approve) {
+      const yes = await confirmAction({
+        title: `Decline ${application.companyName}?`,
+        message: "They come off the list. Nothing is emailed to them: call them if they should hear why.",
+        confirmLabel: 'Decline',
+        cancelLabel: 'Keep it',
+      });
+      if (!yes) return;
+    }
+    setDeciding(application.id);
+    try {
+      await attempt(approve ? "The application couldn't be approved" : "The application couldn't be declined", async () => {
+        if (approve) {
+          const { organizationId } = await applicationsAPI.approve(application.id);
+          setOpenCompanyId(organizationId);
+          setNotice('Company set up. Send the payment link when you have spoken to them.');
+        } else {
+          await applicationsAPI.decline(application.id);
+          setNotice(`${application.companyName} declined.`);
+        }
+      });
+    } finally {
+      setDeciding(null);
+    }
+  };
 
   useEffect(() => {
     if (!staff) return;
@@ -1244,7 +1314,7 @@ const LeadMarketPage: React.FC = () => {
       }
       case 'companies': {
         const pro = companies.filter((c) => c.plan?.status === 'active').length;
-        return `${plural(companies.length, 'company').replace('companys', 'companies')} · ${money(book.balanceCents)} in lead balances${playMoney ? ' (play money)' : ''} · ${pro} Pro`;
+        return `${plural(companies.length, 'company')} · ${money(book.balanceCents)} in lead balances${playMoney ? ' (play money)' : ''} · ${pro} Pro`;
       }
       case 'prices':
         return `Start and floor price for ${plural(trades.length, 'trade')}`;
@@ -1388,9 +1458,17 @@ const LeadMarketPage: React.FC = () => {
                   <button
                     type="button"
                     aria-label={`Delete ${lead.name}`}
-                    onClick={() => {
-                      if (!window.confirm(`Delete ${lead.name}?`)) return;
-                      attempt(`${lead.name} wasn't deleted`, () => marketplaceAPI.removeLead(lead.id));
+                    onClick={async () => {
+                      const yes = await confirmAction({
+                        title: `Delete ${lead.name}?`,
+                        message: 'It leaves the Marketplace for good. Any company with a buy order on it sees the order closed.',
+                        confirmLabel: 'Delete',
+                      });
+                      if (!yes) return;
+                      await attempt(`${lead.name} wasn't deleted`, async () => {
+                        await marketplaceAPI.removeLead(lead.id);
+                        setNotice(`${lead.name} deleted.`);
+                      });
                     }}
                     className="p-2 text-gray-500 hover:text-red-400"
                   >
@@ -1431,7 +1509,12 @@ const LeadMarketPage: React.FC = () => {
                       <button
                         type="button"
                         className={secondary}
-                        onClick={() => attempt(`${lead.name} wasn't archived`, () => marketplaceAPI.archiveLead(lead.id))}
+                        onClick={() =>
+                          attempt(`${lead.name} wasn't archived`, async () => {
+                            await marketplaceAPI.archiveLead(lead.id);
+                            setNotice(`${lead.name} archived. It's out of the Vault.`);
+                          })
+                        }
                       >
                         Archive
                       </button>
@@ -1478,11 +1561,11 @@ const LeadMarketPage: React.FC = () => {
                       {a.notes && <p className="text-xs text-gray-500 mt-1">{a.notes}</p>}
                     </div>
                     <div className="flex gap-2">
-                      <button type="button" onClick={() => decideApplication(a.id, false)} className={secondary}>
+                      <button type="button" disabled={deciding === a.id} onClick={() => decideApplication(a, false)} className={secondary}>
                         Decline
                       </button>
-                      <button type="button" onClick={() => decideApplication(a.id, true)} className={primary}>
-                        Approve
+                      <button type="button" disabled={deciding === a.id} onClick={() => decideApplication(a, true)} className={primary}>
+                        {deciding === a.id ? 'Setting up…' : 'Approve'}
                       </button>
                     </div>
                   </li>
@@ -1538,7 +1621,7 @@ const LeadMarketPage: React.FC = () => {
                 <tr data-testid="companies-totals">
                   <td className="px-4 py-3">
                     <span className="block">Total</span>
-                    <span className="block text-xs text-gray-500">{companies.length} companies</span>
+                    <span className="block text-xs text-gray-500">{plural(companies.length, 'company')}</span>
                   </td>
                   <td className={`px-4 py-3 text-right ${book.balanceCents > 0 ? 'text-emerald-300' : 'text-gray-500'}`}>
                     {money(book.balanceCents)}
@@ -1560,6 +1643,7 @@ const LeadMarketPage: React.FC = () => {
       ) : null}
       </OpsErrorBoundary>
 
+      {confirmActionDialog}
       {owner && creating === 'company' && <NewCompanyDialog trades={trades} onClose={closeCreate} onSaved={() => setNotice('Company added.')} />}
       {verifying && <VerifyDialog lead={verifying} onClose={() => setVerifying(null)} onSaved={() => setNotice(`${verifying.name} confirmed.`)} />}
       {sending && (
