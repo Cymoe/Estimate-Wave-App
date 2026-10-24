@@ -1118,9 +1118,13 @@ const LeadMarketPage: React.FC = () => {
       case 'demand': {
         const slots = demandData?.slots ?? [];
         const open = slots.filter((s) => s.state === 'open').length;
+        const unknown = slots.filter((s) => s.state === 'unknown').length;
+        const loss = slots.filter((s) => s.state === 'loss').length;
         const unsold = slots.filter((s) => s.state === 'oversupplied').length;
         const nobody = slots.filter((s) => s.state === 'nobuyers').length;
-        const parts = [`${open} of ${slots.length} have a buyer waiting`];
+        const parts = [`${open} of ${slots.length} worth running ads`];
+        if (unknown > 0) parts.push(`${unknown} need a cost per lead`);
+        if (loss > 0) parts.push(`${loss} would lose money`);
         if (unsold > 0) parts.push(`${unsold} sitting unsold`);
         if (nobody > 0) parts.push(`${nobody} nobody buys`);
         return parts.join(' · ');

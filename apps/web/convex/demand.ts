@@ -233,18 +233,24 @@ export const board = query({
             planCplCents: cpl,
             marginCents,
             marginBasis,
-            // Green: worth running ads. Amber: bids nobody can pay. Red: leads sitting unsold, and a
-            // darker red when no company buys the trade at all (a sales call, not a campaign change). Grey: nothing.
+            // Green: worth running ads. Blue: buyers waiting but no cost per lead typed, so profit is
+            // unknown. Amber: bids that don't cover the ad cost, or bids nobody can pay. Red: leads
+            // sitting unsold, and a darker red when no company buys the trade at all (a sales call,
+            // not a campaign change). Grey: nothing.
             state:
               r.inMarketplace + r.inVault > 0 && r.buyers === 0
                 ? ("nobuyers" as const)
                 : r.inMarketplace + r.inVault > 0
                   ? ("oversupplied" as const)
-                : r.fundedBidders > 0 && (marginCents === null || marginCents > 0)
-                  ? ("open" as const)
-                  : r.bidders > 0
-                    ? ("unfunded" as const)
-                    : ("quiet" as const),
+                  : r.fundedBidders > 0 && marginCents === null
+                    ? ("unknown" as const)
+                    : r.fundedBidders > 0 && marginCents !== null && marginCents <= 0
+                      ? ("loss" as const)
+                      : r.fundedBidders > 0
+                        ? ("open" as const)
+                        : r.bidders > 0
+                          ? ("unfunded" as const)
+                          : ("quiet" as const),
           };
         })
         .sort((a, b) => (b.marginCents ?? -1) - (a.marginCents ?? -1) || b.depthLeads - a.depthLeads || a.county.localeCompare(b.county)),

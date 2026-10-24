@@ -568,6 +568,13 @@ describe("demand board", () => {
     // A flooring lead in Midland, a trade no company buys: red for a different reason.
     await va.as.mutation(api.marketplace.createLead, { data: { name: "E", county: "Midland", jobType: "flooring" } });
 
+    // Before a cost per lead is typed, a square with buyers is "unknown", never green: nobody should run ads on it.
+    const slotOf = async () => (await va.as.query(api.demand.board, {})).slots.find((s) => s.county === "Midland" && s.jobType === "roofing")!;
+    expect(await slotOf()).toMatchObject({ marginCents: null, state: "unknown" });
+    // A cost above the biggest bid is a loss, labelled as such rather than as "nobody can pay".
+    await owner.as.mutation(api.demand.setPlanCpl, { jobType: "roofing", cents: 40000 });
+    expect(await slotOf()).toMatchObject({ marginCents: 30000 - 40000 - 500, state: "loss" });
+
     // No snapshot to build: the board reads live.
     await owner.as.mutation(api.demand.setPlanCpl, { jobType: "roofing", cents: 6000 });
     await expect(va.as.mutation(api.demand.setPlanCpl, { jobType: "roofing", cents: 6000 })).rejects.toThrow(/admins/);

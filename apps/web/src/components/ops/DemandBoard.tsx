@@ -35,7 +35,7 @@ export interface DemandSlot {
   marginCents: number | null;
   /** "sold": margin on what leads fetched. "bid": on the top funded bid, until enough sold. */
   marginBasis: 'sold' | 'bid';
-  state: 'open' | 'unfunded' | 'oversupplied' | 'nobuyers' | 'quiet';
+  state: 'open' | 'unknown' | 'loss' | 'unfunded' | 'oversupplied' | 'nobuyers' | 'quiet';
 }
 
 export interface DemandBoardData {
@@ -48,6 +48,8 @@ export interface DemandBoardData {
 
 const STATE: Record<DemandSlot['state'], { label: string; cell: string }> = {
   open: { label: 'Run ads here', cell: 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200' },
+  unknown: { label: 'Has buyers · type your cost per lead to check profit', cell: 'bg-sky-500/10 border-sky-500/40 text-sky-200' },
+  loss: { label: "Bids don't cover your ad cost", cell: 'bg-amber-500/15 border-amber-500/60 text-amber-100' },
   unfunded: { label: 'Bids, but nobody can pay', cell: 'bg-amber-500/10 border-amber-500/40 text-amber-200' },
   oversupplied: { label: 'Leads sitting unsold: pause', cell: 'bg-red-500/10 border-red-500/40 text-red-200' },
   nobuyers: { label: 'Nobody buys this trade: sign a company', cell: 'bg-red-500/20 border-red-500/60 text-red-200' },

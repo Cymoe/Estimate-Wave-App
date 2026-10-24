@@ -244,7 +244,7 @@ describe('Lead Market', () => {
     expect(summary()).toBe('3 companies · $510.00 in balances · 1 Pro');
     await open('Demand');
     expect(heading()).toBe('Demand');
-    expect(summary()).toBe('0 of 0 have a buyer waiting');
+    expect(summary()).toBe('0 of 0 worth running ads');
     await open('Prices');
     expect(heading()).toBe('Prices');
     expect(summary()).toBe('Start and floor price for 2 trades');
@@ -297,7 +297,8 @@ describe('Lead Market', () => {
       vaCostCents: 500, demoLeads: true, planCpl: {},
       slots: [
         { county: 'Ector', jobType: 'painting', tradeName: 'Painting', bidders: 1, fundedBidders: 1, topFundedCents: 22000, depthLeads: 49, listed7: 0, listed30: 2, soldAtAward30: 1, sold30: 1, avgSoldCents: 20000, minSoldCents: 20000, maxSoldCents: 20000, lastSoldCents: 20000, sellThrough: 0.5, inMarketplace: 1, inVault: 0, buyers: 1, marginCents: null, marginBasis: 'bid', state: 'oversupplied' },
-        { county: 'Midland', jobType: 'painting', tradeName: 'Painting', bidders: 1, fundedBidders: 1, topFundedCents: 20000, depthLeads: 3, listed7: 0, listed30: 0, soldAtAward30: 0, sold30: 0, avgSoldCents: null, minSoldCents: null, maxSoldCents: null, lastSoldCents: null, sellThrough: null, inMarketplace: 0, inVault: 0, buyers: 1, marginCents: null, marginBasis: 'bid', state: 'open' },
+        { county: 'Midland', jobType: 'painting', tradeName: 'Painting', bidders: 1, fundedBidders: 1, topFundedCents: 20000, depthLeads: 3, listed7: 0, listed30: 0, soldAtAward30: 0, sold30: 0, avgSoldCents: null, minSoldCents: null, maxSoldCents: null, lastSoldCents: null, sellThrough: null, inMarketplace: 0, inVault: 0, buyers: 1, marginCents: null, marginBasis: 'bid', state: 'unknown' },
+        { county: 'Howard', jobType: 'painting', tradeName: 'Painting', bidders: 2, fundedBidders: 2, topFundedCents: 4000, depthLeads: 9, listed7: 0, listed30: 0, soldAtAward30: 0, sold30: 0, avgSoldCents: null, minSoldCents: null, maxSoldCents: null, lastSoldCents: null, sellThrough: null, inMarketplace: 0, inVault: 0, buyers: 2, planCplCents: 5000, marginCents: -1500, marginBasis: 'bid', state: 'loss' },
       ],
     };
     await render(<LeadMarketPage />);
@@ -307,8 +308,15 @@ describe('Lead Market', () => {
     expect(board.textContent).toContain('No real lead yet, so the lead numbers are demo data.');
     const cells = Array.from(board.querySelectorAll('table[aria-label="Demand"] button[data-state]'));
     expect(cells[0].textContent).toContain('Last 30 days: 2 Painting leads in Ector County, 1 sold, about $200.00 each · 1 still unsold (demo)');
-    expect(cells[1].textContent).toContain('No Painting leads in Midland County, last 30 days');
-    await act(async () => (cells[1] as HTMLButtonElement).click());
+    const midlandPainting = cells.find((c) => c.getAttribute('data-state') === 'unknown')!;
+    expect(midlandPainting.textContent).toContain('No Painting leads in Midland County, last 30 days');
+    // No cost typed: blue, never green. A cost above the bids: a loss, not "nobody can pay".
+    expect(midlandPainting.getAttribute('title')!.split('\n')[0]).toBe('Has buyers · type your cost per lead to check profit');
+    const howard = cells.find((c) => c.getAttribute('data-state') === 'loss')!;
+    expect(howard.getAttribute('title')!.split('\n')[0]).toContain("Bids don't cover your ad cost");
+    expect(howard.textContent).toContain('About −$15.00 a lead');
+    expect(document.body.querySelector('[data-testid="ops-summary"]')!.textContent).toBe('0 of 3 worth running ads · 1 need a cost per lead · 1 would lose money · 1 sitting unsold');
+    await act(async () => (midlandPainting as HTMLButtonElement).click());
     expect(document.body.querySelector('[data-testid="slot-sales"]')!.textContent).toBe('No Painting leads came in for Midland County in the last 30 days, whenever the bids here were placed.');
     expect(document.body.querySelector('[data-testid="slot-profit"]')!.textContent).toBe('Type a cost per lead in the Painting column header to see profit here.');
     await act(async () => (document.body.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click());
