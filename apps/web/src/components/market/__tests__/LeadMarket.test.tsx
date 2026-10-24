@@ -177,7 +177,7 @@ describe('Lead Market', () => {
     role = 'staff';
     await render(<LeadMarketPage />);
     expect(document.body.textContent).toContain('FieldQuote staff');
-    expect(Array.from(document.body.querySelectorAll('[role="tablist"]:not([aria-label]) [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand', 'Intake', 'Listed (1)', 'Delivered', 'Companies (3)']);
+    expect(Array.from(document.body.querySelectorAll('[role="tablist"]:not([aria-label]) [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand (0/0)', 'Intake (0)', 'Listed (1)', 'Delivered', 'Companies (3)']);
     expect(document.body.textContent).not.toContain('Add 20 sample leads');
     expect(document.body.querySelector('[data-testid="team-card"]')).toBeNull();
     // The company panel reads only: no funding link, payments or plan.
@@ -236,6 +236,8 @@ describe('Lead Market', () => {
     const summary = () => document.body.querySelector('[data-testid="ops-summary"]')!.textContent;
     expect(heading()).toBe('Intake');
     expect(summary()).toBe('2 to confirm · 1 possible duplicate');
+    expect(document.title).toBe('Intake · Ops · FieldQuote');
+    expect(Array.from(document.body.querySelectorAll('[role="tablist"]:not([aria-label]) [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand (0/0)', 'Intake (2)', 'Listed (1)', 'Delivered', 'Companies (3)', 'Prices']);
     expect(document.body.textContent).not.toContain('sell on their own');
     const open = async (name: string) => {
       await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith(name))!.click());
@@ -253,6 +255,7 @@ describe('Lead Market', () => {
     await open('Prices');
     expect(heading()).toBe('Prices');
     expect(summary()).toBe('Start and floor price for 2 trades');
+    expect(document.title).toBe('Prices · Ops · FieldQuote');
   });
 
   it('shows landing-page applications to the owner, and Approve sets the company up and opens its panel', async () => {
@@ -354,7 +357,7 @@ describe('Lead Market', () => {
       ],
     };
     await render(<LeadMarketPage />);
-    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent === 'Demand')!.click());
+    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Demand'))!.click());
     await flush();
     const board = document.body.querySelector('[data-testid="demand-board"]')!;
     expect(board.textContent).toContain('No real lead yet, so the lead numbers are demo data.');
@@ -683,7 +686,7 @@ describe('standing bids in Admin', () => {
       ],
     };
     await render(<LeadMarketPage />);
-    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent === 'Demand')!.click());
+    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Demand'))!.click());
     await flush();
     const grid = document.body.querySelector('table[aria-label="Demand"]')!;
     const cells = Array.from(grid.querySelectorAll('button[data-state]'));
@@ -748,8 +751,14 @@ describe('standing bids in Admin', () => {
       { id: 'm2', orgLeadId: 'ol2', name: 'Ray Ortiz', jobType: 'painting', companyName: 'Broke Roofing', priceCents: 20000, assignedAt: '2026-10-22T15:00:00Z', acknowledgedAt: '2026-10-22T15:04:00Z', minutesOpen: 4, afterHours: false, overdue: false, deliveries: [] },
     ];
     await render(<LeadMarketPage />);
-    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent === 'Delivered')!.click());
+    // The tab carries the overdue count in red, so a call to make is visible from any tab; the browser tab leads with it too.
+    const tab = Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Delivered'))!;
+    expect(tab.textContent).toBe('Delivered 1');
+    expect(tab.querySelector('span')!.className).toContain('bg-red-500');
+    expect(document.title).toBe('(1) Intake · Ops · FieldQuote');
+    await act(async () => tab.click());
     await flush();
+    expect(document.title).toBe('(1) Delivered · Ops · FieldQuote');
     const list = document.body.querySelector('[aria-label="Delivered"]')!;
     expect(document.body.textContent).toContain('1 not acknowledged after 15 minutes: call the company.');
     const items = Array.from(list.querySelectorAll(':scope > li'));

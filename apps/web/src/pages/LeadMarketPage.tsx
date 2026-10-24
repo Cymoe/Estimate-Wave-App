@@ -1158,6 +1158,23 @@ const LeadMarketPage: React.FC = () => {
     };
   }, [companies]);
 
+  // The numbers on the tabs, so nothing waits behind a tab you have not opened.
+  const counts = {
+    demandOpen: demandData ? demandData.slots.filter((s) => s.state === 'open').length : null,
+    demandTotal: demandData?.slots.length ?? 0,
+    intake: intakeOpen ? intakeOpen.length : null,
+    overdue: (deliveredRows ?? []).filter((r) => !r.acknowledgedAt && r.overdue).length,
+  };
+  // The browser tab says where you are, and leads with the overdue count when there is one.
+  useEffect(() => {
+    if (!staff) return;
+    const before = document.title;
+    document.title = `${counts.overdue > 0 ? `(${counts.overdue}) ` : ''}${TAB_TITLES[tab]} · Ops · FieldQuote`;
+    return () => {
+      document.title = before;
+    };
+  }, [staff, tab, counts.overdue]);
+
   if (!staff) {
     return <div className="p-8 text-gray-400">The Ops page is only for FieldQuote staff.</div>;
   }
@@ -1219,14 +1236,14 @@ const LeadMarketPage: React.FC = () => {
         <div className="flex rounded border border-[#333] overflow-hidden" role="tablist">
           {(
             [
-              ['demand', 'Demand'],
-              ['intake', 'Intake'],
-              ['inbox', `Listed (${inbox.available.length})`],
-              ['delivered', 'Delivered'],
-              ['companies', `Companies (${companies.length})${applications.length > 0 ? ` · ${applications.length} applied` : ''}`],
-              ...(owner ? ([['prices', 'Prices']] as Array<[Tab, string]>) : []),
-            ] as Array<[Tab, string]>
-          ).map(([value, label]) => (
+              ['demand', 'Demand', counts.demandOpen !== null ? `${counts.demandOpen}/${counts.demandTotal}` : ''],
+              ['intake', 'Intake', counts.intake !== null ? `${counts.intake}` : ''],
+              ['inbox', 'Listed', `${inbox.available.length}`],
+              ['delivered', 'Delivered', counts.overdue > 0 ? `${counts.overdue}` : ''],
+              ['companies', 'Companies', `${companies.length}`, applications.length > 0 ? `${applications.length} applied` : ''],
+              ...(owner ? ([['prices', 'Prices', '']] as Array<[Tab, string, string]>) : []),
+            ] as Array<[Tab, string, string, string?]>
+          ).map(([value, label, count, extra]) => (
             <button
               key={value}
               role="tab"
@@ -1235,6 +1252,16 @@ const LeadMarketPage: React.FC = () => {
               className={`px-4 py-2 text-sm ${tab === value ? 'bg-[#336699] text-white' : 'text-gray-300 [@media(hover:hover)]:hover:bg-[#222]'}`}
             >
               {label}
+              {count && (
+                <>
+                  {' '}
+                  {/* Delivered's number is the overdue count: red, because each one is a phone call to make. */}
+                  <span className={value === 'delivered' ? 'px-1.5 rounded-full bg-red-500/90 text-white text-xs' : 'text-xs opacity-80'}>
+                    {value === 'delivered' ? count : `(${count})`}
+                  </span>
+                </>
+              )}
+              {extra && <span className="text-xs opacity-80"> · {extra}</span>}
             </button>
           ))}
         </div>
