@@ -1540,7 +1540,7 @@ export const bids = query({
   handler: async (ctx, { organizationId }) => {
     await requireMember(ctx, organizationId);
     const all = await Promise.all(
-      (["open", "filled", "lost"] as const).map((status) =>
+      (["open", "filled", "lost", "cancelled"] as const).map((status) =>
         ctx.db
           .query("leadBids")
           .withIndex("by_organization_and_status", (q) =>
@@ -1554,6 +1554,8 @@ export const bids = query({
       all
         .flat()
         .filter((bid) => (bid.kind ?? "order") === "order")
+        // A cancelled order shows only when it closed because the company got the lead.
+        .filter((bid) => bid.status !== "cancelled" || bid.outcome === "Bought it now" || bid.outcome === "This lead is yours")
         .map(async (bid) => {
           const lead = await ctx.db.get(bid.marketplaceLeadId);
           return {

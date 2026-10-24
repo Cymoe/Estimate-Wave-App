@@ -106,8 +106,11 @@ const FundAccountPage: React.FC = () => {
               <>
                 <h1 className="text-2xl font-semibold mb-2">Added to your balance</h1>
                 <p className="text-gray-600">
-                  {money(shownAmount + shownBonus)} is in {page.companyName}'s lead balance. Log in to FieldQuote to start buying leads.
+                  {money(shownAmount + shownBonus)} is in {page.companyName}'s lead balance. Set your bids and new leads in your county come straight to you.
                 </p>
+                <a href="/bids" className="mt-5 inline-flex items-center justify-center rounded-xl bg-gray-900 text-white px-5 py-3 font-medium">
+                  Set your bids →
+                </a>
               </>
             ) : (
               <>
@@ -130,7 +133,7 @@ const FundAccountPage: React.FC = () => {
                 </div>
               )}
               <div className="flex justify-between py-1 font-medium border-t border-gray-200 mt-1 pt-2">
-                <span>Lead balance</span>
+                <span>Added to balance</span>
                 <span>{money(shownAmount + shownBonus)}</span>
               </div>
             </div>
@@ -214,15 +217,19 @@ const FundAccountPage: React.FC = () => {
                       value={custom}
                       onChange={(e) => {
                         setCustom(e.target.value);
+                        // Anything that isn't a number means no amount yet, so Continue stays off.
                         const cents = Math.round(Number(e.target.value.replace(/[$,]/g, '')) * 100);
-                        if (Number.isFinite(cents)) setAmountCents(cents);
+                        setAmountCents(e.target.value.trim() && Number.isFinite(cents) ? cents : 0);
                       }}
                       placeholder={(page.minimumCents / 100).toLocaleString()}
                       aria-label="Other amount"
                       className={`${field} pl-7`}
                     />
                   </span>
-                  {custom && customCents < page.minimumCents && (
+                  {custom && !Number.isFinite(customCents) && (
+                    <span className="block text-sm text-red-600 mt-1">Enter an amount in dollars, like 7500.</span>
+                  )}
+                  {custom && Number.isFinite(customCents) && customCents < page.minimumCents && (
                     <span className="block text-sm text-red-600 mt-1">The minimum is {money(page.minimumCents)}.</span>
                   )}
                 </label>

@@ -79,6 +79,13 @@ describe('Marketplace', () => {
     expect(buttons().some((b) => b.textContent === 'Buy now')).toBe(false);
   });
 
+  it('shows an order that closed because the company bought the lead as bought, not missed', async () => {
+    bids = [{ id: 'b2', leadId: 'm9', city: 'Odessa', jobType: 'roofing', maxCents: 7000, status: 'cancelled', outcome: 'Bought it now', createdAt: listedAt }];
+    await render();
+    expect(document.body.textContent).toContain('Bought it now');
+    expect(document.body.textContent).not.toContain('Missed');
+  });
+
   it('formats countdowns', () => {
     expect(span(30_000)).toBe('now');
     expect(span(59 * 60_000)).toBe('59m');

@@ -119,14 +119,17 @@ export async function sellLead(
       .collect();
     for (const bid of bids) {
       if (bid.status !== "open" || bid._id === sale.bidId) continue;
+      // The buyer's own order isn't a miss: it closes because they have the lead.
+      const own = bid.organizationId === organizationId;
       await ctx.db.patch(bid._id, {
-        status: "lost",
-        outcome:
-          bid.organizationId === organizationId
-            ? "You bought this lead"
-            : bid.kind === "round"
-              ? "Sold to another company"
-              : "Another company bought it first",
+        status: own ? "cancelled" : "lost",
+        outcome: own
+          ? sale.via === "buy"
+            ? "Bought it now"
+            : "This lead is yours"
+          : bid.kind === "round"
+            ? "Sold to another company"
+            : "Another company bought it first",
         resolvedAt: now,
       });
     }

@@ -9,6 +9,7 @@ import { money } from '../components/market/wallet';
 import { notifyWalletChanged } from '../components/market/WalletBar';
 import { PlanPanel, usePlan, type PlanSummary } from '../components/market/plan';
 import { InlineNotice, Toast, useToast } from '../components/common/Notice';
+import { useConfirm } from '../components/common/ConfirmDialog';
 
 /** A lead in the Vault: a week or more old, no price countdown. */
 export interface VaultLead {
@@ -59,8 +60,19 @@ const VaultPage: React.FC = () => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { toast, show } = useToast();
+  const [confirm, confirmDialog] = useConfirm();
 
   const claim = async (lead: VaultLead) => {
+    // Inside the allowance a claim is free; past it, say the price before it comes off the balance.
+    if (price > 0) {
+      const yes = await confirm({
+        title: `Claim this lead for ${money(price)}?`,
+        message: `This month's included claims are used, so ${money(price)} comes off your lead balance. The lead is yours alone.`,
+        confirmLabel: `Claim · ${money(price)}`,
+        tone: 'default',
+      });
+      if (!yes) return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -110,6 +122,7 @@ const VaultPage: React.FC = () => {
         </InlineNotice>
       )}
       <Toast text={toast} />
+      {confirmDialog}
 
       {pool === null ? (
         <p className="text-sm text-gray-500">Loading…</p>

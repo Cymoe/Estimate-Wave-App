@@ -3797,9 +3797,10 @@ describe("dropping prices and buy orders", () => {
       const rivals = await rival.as.query(api.marketplace.bids, {
         organizationId: rival.organizationId,
       });
+      // Their own order closes without counting as a miss.
       expect(rivals.find((b) => b.leadId === second!._id)).toMatchObject({
-        status: "lost",
-        outcome: "You bought this lead",
+        status: "cancelled",
+        outcome: "This lead is yours",
       });
     } finally {
       vi.useRealTimers();

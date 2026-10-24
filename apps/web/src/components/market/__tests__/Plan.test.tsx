@@ -97,6 +97,17 @@ describe('the monthly plan', () => {
     expect(Array.from(container.querySelectorAll('button')).some((b) => b.textContent?.startsWith('Continue after the trial · first $99.00 on'))).toBe(true);
   });
 
+  it('asks before cancelling the plan, and keeps it when the answer is no', async () => {
+    const container = await render(<PlanPanel organizationId="o2" plan={active} />);
+    await act(async () => Array.from(container.querySelectorAll('button')).find((b) => b.textContent === 'Cancel plan')!.click());
+    const dialog = document.body.querySelector('[role="dialog"], [role="alertdialog"]')!;
+    expect(dialog.textContent).toContain('Cancel the Pro plan?');
+    expect(dialog.textContent).toContain('stay open until');
+    await act(async () => Array.from(dialog.querySelectorAll('button')).find((b) => b.textContent === 'Keep it')!.click());
+    await flush();
+    expect(document.body.textContent).not.toContain('Plan cancelled');
+  });
+
   it('gates a super admin too when the company they are looking at is off the plan', async () => {
     role = 'super_admin';
     plan = { ...active, status: 'cancelled', active: false };

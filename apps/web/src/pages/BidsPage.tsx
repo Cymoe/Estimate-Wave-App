@@ -6,7 +6,7 @@ import { Modal } from '../components/common/Modal';
 import { bidsAPI, industriesAPI } from '../lib/api';
 import { useBidResults, useStandingBids, useWallet } from '../lib/live';
 import { money } from '../components/market/wallet';
-import { BidStatusLine, openFundingPage, type WalletSummary } from '../components/market/WalletBar';
+import { BidStatusLine, fundErrorText, openFundingPage, type WalletSummary } from '../components/market/WalletBar';
 import { TEXAS_COUNTIES, countyForTown } from '../services/counties';
 import { InlineNotice, Toast, useToast } from '../components/common/Notice';
 import { useConfirm } from '../components/common/ConfirmDialog';
@@ -143,7 +143,7 @@ const BidsPage: React.FC = () => {
   if (params.get('tab') === 'marketplace') return <Navigate to="/marketplace" replace />;
 
   const balance = wallet?.balanceCents ?? 0;
-  const addFunds = () => organizationId && openFundingPage(organizationId).catch(() => {});
+  const addFunds = () => organizationId && openFundingPage(organizationId).catch((err) => notify(fundErrorText(err), false));
   const tradeName = (slug?: string) => trades.find((t) => t.id === slug)?.name ?? titleFromSlug(slug);
   // Errors and the one-time "You're set" line sit in the page; brief confirmations go to the toast.
   const notify = (text: string, good = true) => {

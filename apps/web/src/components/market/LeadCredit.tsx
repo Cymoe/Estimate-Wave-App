@@ -12,12 +12,16 @@ import { SupportLine } from './SupportLine';
  */
 export const LeadCredit: React.FC<{ lead: Lead; onAcknowledged?: (at: string) => void }> = ({ lead, onAcknowledged }) => {
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   if (!lead.marketplaceLeadId) return null;
   const request = lead.creditRequest;
   const acknowledge = async () => {
     setBusy(true);
+    setError(null);
     try {
       onAcknowledged?.(await leadsAPI.acknowledge(lead.id));
+    } catch (err) {
+      setError(`That didn't reach FieldQuote${err instanceof Error && err.message ? `: ${err.message}` : ''}. Tap Got it again.`);
     } finally {
       setBusy(false);
     }
@@ -43,6 +47,11 @@ export const LeadCredit: React.FC<{ lead: Lead; onAcknowledged?: (at: string) =>
         <span className={request.status === 'approved' ? 'text-emerald-300' : request.status === 'denied' ? 'text-gray-400' : 'text-amber-200'}>
           {request.status === 'approved' ? 'Credited' : request.status === 'denied' ? 'Credit declined' : 'Credit requested'}
         </span>
+      )}
+      {error && (
+        <p role="alert" className="w-full text-sm text-red-300">
+          {error}
+        </p>
       )}
       {!request && <SupportLine className="w-full" />}
     </div>

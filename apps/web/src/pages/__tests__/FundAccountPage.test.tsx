@@ -64,6 +64,11 @@ describe('funding page', () => {
     await act(async () => type('Other amount', '4000'));
     expect(document.body.textContent).toContain('The minimum is $5,000.');
     expect((byText('Continue') as HTMLButtonElement).disabled).toBe(true);
+    // Something that isn't a number is no amount at all, not the last tier picked.
+    await act(async () => type('Other amount', 'abc'));
+    expect(document.body.textContent).toContain('Enter an amount in dollars, like 7500.');
+    expect((byText('Continue') as HTMLButtonElement).disabled).toBe(true);
+    expect(byText('Continue')!.textContent).toContain('$0');
   });
 
   it('sends the payer to Stripe for the amount they chose, with no card fields of its own', async () => {
@@ -133,5 +138,9 @@ describe('funding page', () => {
     await render();
     expect(document.body.textContent).toContain('Added to your balance');
     expect(document.body.textContent).toContain('$11,000');
+    // The next step is one tap away, and the total says it was added.
+    const next = Array.from(document.body.querySelectorAll('a')).find((a) => a.textContent === 'Set your bids →')!;
+    expect(next.getAttribute('href')).toBe('/bids');
+    expect(document.body.textContent).toContain('Added to balance');
   });
 });

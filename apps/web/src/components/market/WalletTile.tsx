@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Wallet } from 'lucide-react';
 import { useWallet } from '../../lib/live';
 import { money } from './wallet';
-import { WalletDrawer, leadsCovered, openFundingPage, type WalletSummary } from './WalletBar';
+import { WalletDrawer, fundErrorText, leadsCovered, openFundingPage, type WalletSummary } from './WalletBar';
 
 /**
  * The company's lead balance, pinned in the navigation so it's always in
@@ -17,6 +17,7 @@ export const WalletTile: React.FC<{ organizationId?: string; collapsed?: boolean
 }) => {
   const wallet = useWallet<WalletSummary>(organizationId);
   const [open, setOpen] = useState(false);
+  const [fundError, setFundError] = useState<string | null>(null);
 
   if (!organizationId || !wallet) return null;
   const covered = leadsCovered(wallet);
@@ -25,8 +26,11 @@ export const WalletTile: React.FC<{ organizationId?: string; collapsed?: boolean
     setOpen(true);
     onOpen?.();
   };
-  const addFunds = () => openFundingPage(organizationId).catch(() => {});
-  const drawer = open && <WalletDrawer wallet={wallet} onClose={() => setOpen(false)} onAddFunds={addFunds} />;
+  const addFunds = () => {
+    setFundError(null);
+    openFundingPage(organizationId).catch((err) => setFundError(fundErrorText(err)));
+  };
+  const drawer = open && <WalletDrawer wallet={wallet} onClose={() => setOpen(false)} onAddFunds={addFunds} error={fundError} />;
 
   if (variant === 'menu') {
     return (

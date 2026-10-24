@@ -53,6 +53,10 @@ export async function openFundingPage(organizationId: string) {
   }
 }
 
+/** What to say when the payment page could not be opened. */
+export const fundErrorText = (err: unknown) =>
+  err instanceof Error && err.message ? `The payment page couldn't open: ${err.message}` : "The payment page couldn't open. Try again.";
+
 /** Fired on `window` when a page moved money, so the balance in the navigation refreshes. */
 export const WALLET_CHANGED = 'fieldquote:wallet-changed';
 export const notifyWalletChanged = () => window.dispatchEvent(new Event(WALLET_CHANGED));
@@ -135,10 +139,14 @@ export function bidStatus(wallet: WalletSummary): {
 export const WalletBar: React.FC<{ organizationId?: string }> = ({ organizationId }) => {
   // Live: the line changes as bids win, funds land or a bid gets outbid.
   const wallet = useWallet<WalletSummary>(organizationId) ?? null;
+  const [fundError, setFundError] = useState<string | null>(null);
 
   if (!wallet || !organizationId) return null;
   const status = bidStatus(wallet);
-  const addFunds = () => openFundingPage(organizationId).catch(() => {});
+  const addFunds = () => {
+    setFundError(null);
+    openFundingPage(organizationId).catch((err) => setFundError(fundErrorText(err)));
+  };
 
   return (
     <>
@@ -157,6 +165,11 @@ export const WalletBar: React.FC<{ organizationId?: string }> = ({ organizationI
         </p>
       )}
       {status && <BidStatusLine wallet={wallet} status={status} onAddFunds={addFunds} />}
+      {fundError && (
+        <p role="alert" className="-mt-2 mb-4 text-sm text-red-300">
+          {fundError}
+        </p>
+      )}
     </>
   );
 };
@@ -217,7 +230,7 @@ export function BidStatusLine({
 }
 
 /** The Lead balance panel that slides in from the right: balance, what leads turned into, Add funds and history. */
-export function WalletDrawer({ wallet, onClose: closeNow, onAddFunds }: { wallet: WalletSummary; onClose: () => void; onAddFunds: () => void }) {
+export function WalletDrawer({ wallet, onClose: closeNow, onAddFunds, error }: { wallet: WalletSummary; onClose: () => void; onAddFunds: () => void; error?: string | null }) {
   // Slides in and out like the estimate and lead drawers.
   const [shown, setShown] = useState(false);
   useEffect(() => {
@@ -281,6 +294,11 @@ export function WalletDrawer({ wallet, onClose: closeNow, onAddFunds }: { wallet
             <button type="button" onClick={onAddFunds} className="w-full mb-3 px-4 py-2.5 rounded bg-[#336699] text-white font-medium">
               {wallet.playMoney ? 'Add play money' : 'Add funds'}
             </button>
+            {error && (
+              <p role="alert" className="mb-3 text-sm text-red-300">
+                {error}
+              </p>
+            )}
             {wallet.playMoney && <p className="mb-2 text-xs text-amber-300">Test mode: no card is charged and no real money moves.</p>}
             <p>
               Load from {whole(MIN_FUNDING_CENTS)} by card or Apple Pay. Larger loads get a bonus:{' '}

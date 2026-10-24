@@ -4,8 +4,10 @@ import { walletAPI } from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { money, planLabel, shortDate, type PlanSummary } from './wallet';
-import { WALLET_CHANGED, notifyWalletChanged, openFundingPage } from './WalletBar';
+import { WALLET_CHANGED, fundErrorText, notifyWalletChanged, openFundingPage } from './WalletBar';
 import { InlineNotice, Toast, useToast } from '../common/Notice';
+import { useConfirm } from '../common/ConfirmDialog';
+import { useWallet } from '../../lib/live';
 
 export { planLabel, type PlanSummary };
 
@@ -33,8 +35,12 @@ export function usePlan(organizationId?: string, { ensure = false }: { ensure?: 
     window.addEventListener(WALLET_CHANGED, load);
     return () => window.removeEventListener(WALLET_CHANGED, load);
   }, [load]);
+  // The live wallet carries the plan too: once it has answered, the plan follows it as it
+  // changes (a charge, a pause, a resume in another tab). Until then, the one-shot read above.
+  const live = useWallet<{ plan?: PlanSummary | null }>(organizationId);
+  const current = live !== undefined && !(ensure && plan === undefined) ? (live.plan ?? null) : plan;
   const superAdmin = user?.role === 'super_admin';
-  return { plan: plan ?? null, loading: plan === undefined && Boolean(organizationId), active: Boolean(plan?.active), superAdmin };
+  return { plan: current ?? null, loading: current === undefined && Boolean(organizationId), active: Boolean(current?.active), superAdmin };
 }
 
 const primary = 'inline-flex items-center justify-center px-4 py-2.5 rounded bg-[#336699] text-white text-sm font-medium disabled:opacity-50';
@@ -49,6 +55,7 @@ export const PlanPanel: React.FC<{ organizationId?: string; plan: PlanSummary | 
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ text: string; short?: boolean } | null>(null);
   const { toast, show } = useToast();
+  const [confirm, confirmDialog] = useConfirm();
   const monthly = plan?.monthlyCents ?? 9900;
   const included = plan?.claimsIncluded ?? 10;
   const extra = plan?.extraClaimCents ?? 1500;
@@ -78,8 +85,19 @@ export const PlanPanel: React.FC<{ organizationId?: string; plan: PlanSummary | 
           ? `You're on the Pro plan. ${money(started.chargedCents)} came off your lead balance.`
           : `You're on the Pro plan. The next ${money(started.monthlyCents)} comes off your lead balance on ${shortDate(started.nextChargeAt)}.`,
     );
-  const cancel = () => organizationId && run(() => walletAPI.cancelPlan(organizationId), 'Plan cancelled. Everything stays open to the end of the month you paid for.');
-  const addFunds = () => organizationId && openFundingPage(organizationId).catch(() => {});
+  const cancel = async () => {
+    if (!organizationId) return;
+    const yes = await confirm({
+      title: 'Cancel the Pro plan?',
+      message: plan?.nextChargeAt
+        ? `Estimates, the Price Book, Projects and the Vault stay open until ${shortDate(plan.nextChargeAt)}, and nothing more is charged. You can start it again any time.`
+        : 'Nothing more is charged. You can start it again any time.',
+      confirmLabel: 'Cancel plan',
+      cancelLabel: 'Keep it',
+    });
+    if (yes) await run(() => walletAPI.cancelPlan(organizationId), 'Plan cancelled. Everything stays open to the end of the month you paid for.');
+  };
+  const addFunds = () => organizationId && openFundingPage(organizationId).catch((err) => setMessage({ text: fundErrorText(err) }));
 
   const heading = !plan
     ? 'The Pro plan'
@@ -124,6 +142,7 @@ export const PlanPanel: React.FC<{ organizationId?: string; plan: PlanSummary | 
         </InlineNotice>
       )}
       <Toast text={toast} />
+      {confirmDialog}
       <div className="mt-4 flex flex-wrap gap-2">
         {plan?.status === 'active' ? (
           <button type="button" onClick={cancel} disabled={busy} className={secondary}>

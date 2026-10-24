@@ -21,7 +21,7 @@ let permitsNear: unknown = {
   ],
 };
 
-jest.mock('../../lib/live', () => ({ useOlderLeads: () => pool }));
+jest.mock('../../lib/live', () => ({ useOlderLeads: () => pool, useWallet: () => undefined }));
 jest.mock('../../lib/api', () => ({
   walletAPI: {
     get: async () => ({ balanceCents: 10000, typicalLeadCents: 5000, spentCents: 0, leadsBought: 0, wonCents: 0, wonCount: 0, transactions: [] }),

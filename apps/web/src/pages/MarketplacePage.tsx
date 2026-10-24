@@ -6,7 +6,7 @@ import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { walletAPI } from '../lib/api';
 import { useMarketFeed, useMyBuyOrders, useWallet } from '../lib/live';
 import { money } from '../components/market/wallet';
-import { notifyWalletChanged, openFundingPage, type WalletSummary } from '../components/market/WalletBar';
+import { fundErrorText, notifyWalletChanged, openFundingPage, type WalletSummary } from '../components/market/WalletBar';
 import { fillTimeMs, priceAt, type Auction } from '../services/auction';
 import { InlineNotice, Toast, useToast } from '../components/common/Notice';
 
@@ -88,7 +88,7 @@ const MarketplacePage: React.FC = () => {
   if (params.get('tab') === 'older') return <Navigate to="/vault" replace />;
 
   const balance = wallet?.balanceCents ?? 0;
-  const addFunds = () => organizationId && openFundingPage(organizationId).catch(() => {});
+  const addFunds = () => organizationId && openFundingPage(organizationId).catch((err) => setError(fundErrorText(err)));
 
   const act = async (work: () => Promise<unknown>, done: string) => {
     setBusy(true);
@@ -118,7 +118,7 @@ const MarketplacePage: React.FC = () => {
   }, [leads, mineOnly, now]);
   const vaultCount = wallet?.olderLeads ?? 0;
   const openOrders = bids.filter((b) => b.status === 'open');
-  const settled = bids.filter((b) => b.status === 'filled' || b.status === 'lost').slice(0, 5);
+  const settled = bids.filter((b) => b.status === 'filled' || b.status === 'lost' || (b.status === 'cancelled' && b.outcome)).slice(0, 5);
 
   /** The buttons for one lead, shared by the table and the cards. */
   const actions = (lead: FeedLead, price: ReturnType<typeof priceAt>) => {
@@ -350,7 +350,9 @@ const MarketplacePage: React.FC = () => {
                       ? `Open at ${money(bid.maxCents)}`
                       : bid.status === 'filled'
                         ? `Bought for ${money(bid.pricePaidCents ?? bid.maxCents)}`
-                        : `Missed · ${bid.outcome ?? ''}`}
+                        : bid.status === 'cancelled'
+                          ? bid.outcome
+                          : `Missed · ${bid.outcome ?? ''}`}
                   </span>
                 </span>
                 {bid.status === 'open' && (
