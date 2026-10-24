@@ -32,6 +32,7 @@ let demand: unknown = { vaCostCents: 500, demoLeads: false, planCpl: { roofing: 
 const setPlanCpl = jest.fn(async (_jobType: string, _cents: number | null) => null);
 let delivered: unknown[] = [];
 const resendAlerts = jest.fn(async (_id: string) => null);
+const removeLead = jest.fn(async (): Promise<void> => undefined);
 const destination: unknown = { kind: 'sold', companyName: 'Peak Roofing', priceCents: 25000, tradeName: 'Roofing', county: 'Midland' };
 
 // The live subscriptions see the same fixtures the one-shot calls used to return.
@@ -103,6 +104,7 @@ jest.mock('../../../lib/api', () => ({
     setCompanyOwner: (id: string, email: string) => setCompanyOwner(id, email),
     setPlan: (id: string, changes: unknown) => setPlan(id, changes),
     archiveLead: async () => undefined,
+    removeLead: (id: string) => removeLead(id),
     creditLead: (id: string, reason: string, note?: string) => creditLead(id, reason, note),
   },
   fundingAPI: {
@@ -256,6 +258,25 @@ describe('Lead Market', () => {
     expect(heading()).toBe('Prices');
     expect(summary()).toBe('Start and floor price for 2 trades');
     expect(document.title).toBe('Prices · Ops · FieldQuote');
+  });
+
+  it('says what failed and why, and keeps saying it until dismissed', async () => {
+    removeLead.mockRejectedValueOnce(new Error('A sold lead stays on the books'));
+    jest.spyOn(window, 'confirm').mockReturnValue(true);
+    await render(<LeadMarketPage />);
+    await openListed();
+    expect(document.body.querySelector('[role="alert"]')).toBeNull();
+    await act(async () => (document.body.querySelector('button[aria-label="Delete Jane Cole"]') as HTMLButtonElement).click());
+    await flush();
+    expect(removeLead).toHaveBeenCalledWith('m1');
+    const alert = () => document.body.querySelector('[role="alert"]');
+    expect(alert()!.textContent).toContain("Jane Cole wasn't deleted: A sold lead stays on the books");
+    // It does not fade like a notice: a slow read still catches it, and switching tabs keeps it.
+    await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Companies'))!.click());
+    await flush();
+    expect(alert()!.textContent).toContain("Jane Cole wasn't deleted");
+    await act(async () => (alert()!.querySelector('button[aria-label="Dismiss"]') as HTMLButtonElement).click());
+    expect(alert()).toBeNull();
   });
 
   it('shows landing-page applications to the owner, and Approve sets the company up and opens its panel', async () => {

@@ -5,7 +5,7 @@ import { Building2, Check, Inbox, Link2, MapPin, Phone, Plus, Send, Tag, Trash2,
 import { applicationsAPI, fundingAPI, industriesAPI, leadsAPI, marketplaceAPI, permitsAPI, walletAPI } from '../lib/api';
 import { copyText } from '../components/estimates/estimateActions';
 import { useAuth } from '../contexts/AuthContext';
-import { Dialog, Field, ago, input, primary, secondary } from '../components/ops/ui';
+import { Dialog, ErrorLine, Field, ago, describeError, input, primary, secondary } from '../components/ops/ui';
 import { IntakeQueue } from '../components/ops/IntakeQueue';
 import { Delivered, type DeliveredRow } from '../components/ops/Delivered';
 import { DemandBoard, type DemandBoardData } from '../components/ops/DemandBoard';
@@ -209,7 +209,7 @@ function PermitsCard() {
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
-  const load = useCallback(() => permitsAPI.status().then(setStatus).catch(() => {}), []);
+  const load = useCallback(() => permitsAPI.status().then(setStatus).catch((err) => setNote(`The permit status couldn't be read: ${describeError(err, 'server error')}`)), []);
   useEffect(() => {
     load();
   }, [load]);
@@ -1052,6 +1052,15 @@ const LeadMarketPage: React.FC = () => {
   const [verifying, setVerifying] = useState<MarketLead | null>(null);
   const [openCompanyId, setOpenCompanyId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // A failed action says so here and stays until dismissed; the notice below is for things that worked.
+  const [error, setError] = useState<string | null>(null);
+  const attempt = async (what: string, fn: () => Promise<unknown>) => {
+    try {
+      await fn();
+    } catch (err) {
+      setError(`${what}: ${describeError(err, 'something went wrong on the server')}`);
+    }
+  };
   const creating = searchParams.get('new');
   const openNewCompany = () => {
     const next = new URLSearchParams(searchParams);
@@ -1080,8 +1089,8 @@ const LeadMarketPage: React.FC = () => {
   const loading = inboxLive === undefined || companiesLive === undefined;
 
   /** Approve sets the company up and opens its panel, so the funding link can go out next. */
-  const decideApplication = async (id: string, approve: boolean) => {
-    try {
+  const decideApplication = (id: string, approve: boolean) =>
+    attempt(approve ? "The application couldn't be approved" : "The application couldn't be declined", async () => {
       if (approve) {
         const { organizationId } = await applicationsAPI.approve(id);
         setOpenCompanyId(organizationId);
@@ -1089,10 +1098,7 @@ const LeadMarketPage: React.FC = () => {
       } else {
         await applicationsAPI.decline(id);
       }
-    } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'That did not go through.');
-    }
-  };
+    });
 
   useEffect(() => {
     if (!staff) return;
@@ -1244,6 +1250,8 @@ const LeadMarketPage: React.FC = () => {
         </div>
       </div>
 
+      <ErrorLine error={error} onDismiss={() => setError(null)} className="mb-4" />
+
       {owner && credits.length > 0 && tab !== 'prices' && (
         <button
           type="button"
@@ -1326,9 +1334,9 @@ const LeadMarketPage: React.FC = () => {
                   <button
                     type="button"
                     aria-label={`Delete ${lead.name}`}
-                    onClick={async () => {
+                    onClick={() => {
                       if (!window.confirm(`Delete ${lead.name}?`)) return;
-                      await marketplaceAPI.removeLead(lead.id);
+                      attempt(`${lead.name} wasn't deleted`, () => marketplaceAPI.removeLead(lead.id));
                     }}
                     className="p-2 text-gray-500 hover:text-red-400"
                   >
@@ -1369,9 +1377,7 @@ const LeadMarketPage: React.FC = () => {
                       <button
                         type="button"
                         className={secondary}
-                        onClick={async () => {
-                          await marketplaceAPI.archiveLead(lead.id);
-                        }}
+                        onClick={() => attempt(`${lead.name} wasn't archived`, () => marketplaceAPI.archiveLead(lead.id))}
                       >
                         Archive
                       </button>

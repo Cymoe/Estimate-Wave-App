@@ -105,7 +105,7 @@ export const IntakePanel: React.FC<{
     });
   }, [id]);
   useEffect(() => {
-    load().catch(() => {});
+    load().catch((err) => setError(`The lead couldn't be loaded: ${err instanceof Error && err.message ? err.message : 'server error'}`));
   }, [load]);
 
   const [savedAt, setSavedAt] = useState<number | null>(null);

@@ -58,3 +58,19 @@ export function ago(iso: string, now = Date.now()): string {
   if (hours < 24) return `${hours}h ago`;
   return `${Math.round(hours / 24)}d ago`;
 }
+
+/** Turns whatever was thrown into one sentence for the person. */
+export const describeError = (err: unknown, fallback: string) => (err instanceof Error && err.message ? err.message : fallback);
+
+/** What went wrong, where it happened. It stays until it is dismissed, so a slow read still catches it. */
+export function ErrorLine({ error, onDismiss, className = '' }: { error: string | null; onDismiss: () => void; className?: string }) {
+  if (!error) return null;
+  return (
+    <p role="alert" className={`flex items-start justify-between gap-3 px-3 py-2 rounded border border-red-500/40 bg-red-500/10 text-sm text-red-200 ${className}`}>
+      <span className="break-words">{error}</span>
+      <button type="button" onClick={onDismiss} aria-label="Dismiss" className="p-0.5 -mr-1 text-red-200/70 hover:text-white">
+        <X className="w-4 h-4" />
+      </button>
+    </p>
+  );
+}

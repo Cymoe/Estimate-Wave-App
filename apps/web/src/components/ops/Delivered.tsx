@@ -3,7 +3,7 @@ import { AlertCircle, Check, Mail, MessageSquare, RefreshCw } from 'lucide-react
 import { deliveryAPI } from '../../lib/api';
 import { useDelivered } from '../../lib/live';
 import { money } from '../market/wallet';
-import { ago, secondary } from './ui';
+import { ErrorLine, ago, describeError, secondary } from './ui';
 
 interface Delivery {
   id: string;
@@ -47,11 +47,15 @@ const CHANNEL: Record<Delivery['channel'], { label: string; icon: React.Componen
 export const Delivered: React.FC<{ tradeName: (id?: string) => string }> = ({ tradeName }) => {
   const rows = useDelivered<DeliveredRow[]>();
   const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const resend = async (row: DeliveredRow) => {
     setBusy(row.id);
+    setError(null);
     try {
       await deliveryAPI.resend(row.orgLeadId);
+    } catch (err) {
+      setError(`The alerts for ${row.name} didn't go out again: ${describeError(err, 'server error')}`);
     } finally {
       setBusy(null);
     }
@@ -69,6 +73,7 @@ export const Delivered: React.FC<{ tradeName: (id?: string) => string }> = ({ tr
   const overdue = rows.filter((r) => r.overdue).length;
   return (
     <div className="space-y-3" data-testid="delivered">
+      <ErrorLine error={error} onDismiss={() => setError(null)} />
       <p className="text-xs text-gray-500">
         {overdue > 0 ? (
           <span className="text-red-300">{overdue} not acknowledged after 15 minutes: call the company.</span>

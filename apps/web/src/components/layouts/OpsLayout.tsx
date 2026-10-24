@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { isSuperAdmin } from '../../lib/roles';
 import { usePaymentsMode } from '../../lib/live';
+import { OpsErrorBoundary } from '../ops/OpsErrorBoundary';
 
 /**
  * The frame for the platform side. Nothing of a company's in it: no
@@ -99,7 +100,9 @@ export const OpsLayout: React.FC<{ children: React.ReactNode }> = ({ children })
           Payments are in test mode: every balance is play money until Stripe is connected. No real money has moved.
         </p>
       )}
-      <main>{children}</main>
+      <main>
+        <OpsErrorBoundary>{children}</OpsErrorBoundary>
+      </main>
     </div>
   );
 };

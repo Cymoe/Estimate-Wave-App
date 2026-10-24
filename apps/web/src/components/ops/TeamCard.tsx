@@ -24,7 +24,7 @@ export const TeamCard: React.FC = () => {
 
   const load = useCallback(async () => setTeam(await staffAPI.list()), []);
   useEffect(() => {
-    load().catch(() => setTeam({ staff: [], invites: [] }));
+    load().catch((err) => setNote(`The team couldn't be loaded: ${err instanceof Error && err.message ? err.message : 'server error'}`));
   }, [load]);
 
   const invite = async (e: React.FormEvent) => {
@@ -45,8 +45,12 @@ export const TeamCard: React.FC = () => {
 
   const remove = async (member: Team['staff'][number]) => {
     if (!(await confirm({ title: `Remove ${member.email} from staff?`, message: 'They keep their account but lose the Ops page.', confirmLabel: 'Remove' }))) return;
-    await staffAPI.remove(member.id);
-    await load();
+    try {
+      await staffAPI.remove(member.id);
+      await load();
+    } catch (err) {
+      setNote(`${member.email} wasn't removed: ${err instanceof Error && err.message ? err.message : 'server error'}`);
+    }
   };
 
   return (
