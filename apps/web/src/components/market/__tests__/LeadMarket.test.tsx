@@ -560,7 +560,13 @@ describe('standing bids in Admin', () => {
     expect(cells[0].getAttribute('title')).toBe('Leads sitting unsold: pause · Profit is figured on real sales');
     expect(nobody.textContent).toContain('No bids yet');
     expect(nobody.textContent).toContain('Last month: 1 brought, none sold · 1 still unsold');
+    // The flooring drawer has no price and no cost: it says so instead of showing nothing.
+    await act(async () => (nobody as HTMLButtonElement).click());
+    expect(document.body.querySelector('[data-testid="slot-profit"]')!.textContent).toBe('No price to figure profit from yet: nobody with money has bid here, and nothing has sold.');
+    await act(async () => (document.body.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click());
     await act(async () => (cells[0] as HTMLButtonElement).click());
+    // The drawer shows the profit arithmetic, on the real average once a square has sold enough.
+    expect(document.body.querySelector('[data-testid="slot-profit"]')!.textContent).toBe('Worth it? $140.00 real average − $50.00 ad cost − $5.00 call = about $85.00 profit a lead.');
     expect(document.body.querySelector('[data-testid="slot-sales"]')!.textContent).toBe('Last 30 days: brought 4, sold 3 (75%). They went for $90.00 to $200.00, about $140.00 each, the latest for $90.00. 1 went straight to a standing bid.');
     await act(async () => (document.body.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click());
     // The owner sets the planned cost per lead in the column header.
@@ -575,6 +581,7 @@ describe('standing bids in Admin', () => {
     await flush();
     const panel = document.body.querySelector('[role="dialog"]')!;
     expect(panel.getAttribute('aria-label')).toBe('Roofing in Midland County');
+    expect(panel.querySelector('[data-testid="slot-profit"]')!.textContent).toBe('Worth it? $300.00 bid − $60.00 ad cost − $5.00 call = about $235.00 profit a lead.');
     expect(panel.querySelector('[aria-label="Bidders"]')!.textContent).toContain('Rich Roofing$300.00 · can pay for 1 more lead');
     expect(panel.querySelector('[aria-label="Bidders"]')!.textContent).toContain("Poor Roofing$400.00 · can't pay: balance $1.00");
     await act(async () => (panel.querySelector('button[aria-label="Close"]') as HTMLButtonElement).click());

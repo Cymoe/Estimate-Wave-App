@@ -191,7 +191,7 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
         </>
       )}
 
-      {open && <SlotPanel slot={open} onClose={() => setOpen(null)} />}
+      {open && <SlotPanel slot={open} vaCostCents={data.vaCostCents} onClose={() => setOpen(null)} />}
     </div>
   );
 };
@@ -221,7 +221,17 @@ function PlanCpl({ jobType, cents }: { jobType: string; cents?: number }) {
   );
 }
 
-function SlotPanel({ slot, onClose }: { slot: DemandSlot; onClose: () => void }) {
+/** The profit arithmetic, written out: price − ad cost − the call. */
+function worthIt(slot: DemandSlot, vaCostCents: number): string {
+  const price = slot.marginBasis === 'sold' && slot.avgSoldCents !== null ? slot.avgSoldCents : slot.topFundedCents;
+  if (price === undefined) return 'No price to figure profit from yet: nobody with money has bid here, and nothing has sold.';
+  if (slot.planCplCents === undefined) return `Type a cost per lead in the ${slot.tradeName} column header to see profit here.`;
+  const profit = price - slot.planCplCents - vaCostCents;
+  const basis = slot.marginBasis === 'sold' ? 'real average' : 'bid';
+  return `Worth it? ${money(price)} ${basis} − ${money(slot.planCplCents)} ad cost − ${money(vaCostCents)} call = about ${profit < 0 ? '−' : ''}${money(Math.abs(profit))} ${profit < 0 ? 'lost' : 'profit'} a lead.`;
+}
+
+function SlotPanel({ slot, vaCostCents, onClose }: { slot: DemandSlot; vaCostCents: number; onClose: () => void }) {
   const detail =
     useDemandSlot<{
       bidders: Array<{ companyName: string; amountCents: number; balanceCents: number; funded: boolean }>;
@@ -244,17 +254,20 @@ function SlotPanel({ slot, onClose }: { slot: DemandSlot; onClose: () => void })
           </button>
         </div>
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6 text-sm">
-          <p className="text-gray-300" data-testid="slot-sales">
-            {slot.listed30 === 0
-              ? 'Nothing was brought in during the last 30 days.'
-              : `Last 30 days: brought ${slot.listed30}, sold ${slot.sold30}${slot.sellThrough !== null ? ` (${Math.round(slot.sellThrough * 100)}%)` : ''}.`}
-            {slot.avgSoldCents !== null && slot.minSoldCents !== null && slot.maxSoldCents !== null
-              ? ` ${slot.sold30 === 1 ? 'It' : 'They'} went for ${
-                  slot.minSoldCents === slot.maxSoldCents ? money(slot.minSoldCents) : `${money(slot.minSoldCents)} to ${money(slot.maxSoldCents)}, about ${money(slot.avgSoldCents)} each`
-                }${slot.lastSoldCents !== null && slot.sold30 > 1 ? `, the latest for ${money(slot.lastSoldCents)}` : ''}.`
-              : ''}
-            {slot.sold30 > 0 && slot.soldAtAward30 > 0 ? ` ${slot.soldAtAward30} went straight to a standing bid.` : ''}
+          <p className="text-white font-medium" data-testid="slot-profit">
+            {worthIt(slot, vaCostCents)}
           </p>
+          {slot.listed30 > 0 && (
+            <p className="text-gray-300" data-testid="slot-sales">
+              {`Last 30 days: brought ${slot.listed30}, sold ${slot.sold30}${slot.sellThrough !== null ? ` (${Math.round(slot.sellThrough * 100)}%)` : ''}.`}
+              {slot.avgSoldCents !== null && slot.minSoldCents !== null && slot.maxSoldCents !== null
+                ? ` ${slot.sold30 === 1 ? 'It' : 'They'} went for ${
+                    slot.minSoldCents === slot.maxSoldCents ? money(slot.minSoldCents) : `${money(slot.minSoldCents)} to ${money(slot.maxSoldCents)}, about ${money(slot.avgSoldCents)} each`
+                  }${slot.lastSoldCents !== null && slot.sold30 > 1 ? `, the latest for ${money(slot.lastSoldCents)}` : ''}.`
+                : ''}
+              {slot.sold30 > 0 && slot.soldAtAward30 > 0 ? ` ${slot.soldAtAward30} went straight to a standing bid.` : ''}
+            </p>
+          )}
           <section>
             <h3 className="text-sm font-medium text-white mb-2">Bidders</h3>
             {detail === null ? (
