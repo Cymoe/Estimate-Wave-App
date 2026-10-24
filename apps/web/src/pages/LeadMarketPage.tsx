@@ -324,12 +324,15 @@ function SendToDialog({
   }, [companies, lead]);
   // Nobody buys this trade: show everyone, with a line saying so.
   const sorted = buyers.length === 0 || showOthers ? [...buyers, ...others] : buyers;
+  // Pick a company first, then confirm: one stray tap must not charge anyone.
+  const [picked, setPicked] = useState<Company | null>(null);
   const send = async (company: Company) => {
     setSending(company.id);
     setError(null);
     try {
-      await marketplaceAPI.assign(lead.id, company.id);
-      onSent(`${lead.name} sent to ${company.name} · ${money(lead.price)} charged`);
+      // The price can have dropped since the list loaded: say what was really charged.
+      const { priceCents } = await marketplaceAPI.assign(lead.id, company.id);
+      onSent(`${lead.name} sent to ${company.name} · ${money(priceCents)} charged`);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "The lead couldn't be sent");
@@ -341,37 +344,47 @@ function SendToDialog({
     <Dialog title={`Send ${lead.name}`} onClose={onClose}>
       <p className="text-sm text-gray-400 mb-4">
         {tradeName(lead.jobType)} lead · <span className="text-white font-medium">{money(lead.price)}</span> (its current price) comes off the company's balance, and any buy orders on it are closed.
-        Only one company gets it.
+        Only one company gets it. Pick one, then confirm.
       </p>
       {error && <p className="text-sm text-red-400 mb-3">{error}</p>}
-      <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded">
+      <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" role="radiogroup" aria-label="Send to">
         {sorted.map((company) => {
           const affordable = company.balanceCents >= lead.price;
           const takes = Boolean(lead.jobType && company.leadTrades.includes(lead.jobType));
+          const selected = picked?.id === company.id;
           return (
             <li key={company.id}>
               <button
                 type="button"
+                role="radio"
+                aria-checked={selected}
                 disabled={!affordable || sending !== null}
-                onClick={() => send(company)}
-                className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left disabled:opacity-40 [@media(hover:hover)]:hover:bg-[#1E1E1E] active:bg-[#1E1E1E]"
+                onClick={() => setPicked(company)}
+                className={`w-full flex items-center justify-between gap-3 px-4 py-3 text-left disabled:opacity-40 [@media(hover:hover)]:hover:bg-[#1E1E1E] active:bg-[#1E1E1E] ${selected ? 'bg-[#336699]/15 border-l-2 border-[#336699]' : ''}`}
               >
                 <span className="min-w-0">
                   <span className="block text-sm text-white truncate">{company.name}</span>
                   <span className="block text-xs text-gray-500">
                     {takes ? 'Buys this trade' : 'Other trades'}
                     {company.city ? ` · ${company.city}` : ''}
+                    {!affordable ? ` · needs ${money(lead.price - company.balanceCents)} more` : ''}
                   </span>
                 </span>
-                <span className={`text-sm whitespace-nowrap ${affordable ? 'text-emerald-300' : 'text-red-400'}`}>
-                  {sending === company.id ? 'Sending…' : money(company.balanceCents)}
-                </span>
+                <span className={`text-sm whitespace-nowrap ${affordable ? 'text-emerald-300' : 'text-red-400'}`}>{money(company.balanceCents)}</span>
               </button>
             </li>
           );
         })}
         {sorted.length === 0 && <li className="px-4 py-6 text-sm text-gray-500 text-center">Add a company first.</li>}
       </ul>
+      <button
+        type="button"
+        disabled={!picked || sending !== null}
+        onClick={() => picked && send(picked)}
+        className={`${primary} mt-4 w-full justify-center`}
+      >
+        {sending ? 'Sending…' : picked ? `Send to ${picked.name} · charge ${money(lead.price)}` : 'Pick a company'}
+      </button>
       {buyers.length === 0 && others.length > 0 && (
         <p className="text-xs text-gray-500 mt-2">No company buys {tradeName(lead.jobType)} yet, so this is everyone.</p>
       )}

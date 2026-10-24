@@ -411,10 +411,20 @@ describe('Lead Market', () => {
     expect(names()).toEqual(['Peak Roofing', 'Broke Roofing', 'Ace Painting']);
     const options = Array.from(dialog.querySelectorAll('li button')) as HTMLButtonElement[];
     expect(options[1].disabled).toBe(true);
+    expect(options[1].textContent).toContain('needs $75.00 more');
+    // One tap picks; nothing is charged until the confirm button.
+    const confirm = () => Array.from(dialog.querySelectorAll('button')).find((b) => b.textContent?.startsWith('Pick a company') || b.textContent?.startsWith('Send to')) as HTMLButtonElement;
+    expect(confirm().disabled).toBe(true);
     await act(async () => options[0].click());
+    expect(assign).not.toHaveBeenCalled();
+    expect(options[0].getAttribute('aria-checked')).toBe('true');
+    expect(confirm().textContent).toBe('Send to Peak Roofing · charge $85.00');
+    // The price dropped while the dialog was open: the toast says what was really charged.
+    assign.mockResolvedValueOnce({ orgLeadId: 'ol1', priceCents: 7000 });
+    await act(async () => confirm().click());
     await flush();
     expect(assign).toHaveBeenCalledWith('m1', 'o2');
-    expect(document.body.textContent).toContain('Jane Cole sent to Peak Roofing');
+    expect(document.body.textContent).toContain('Jane Cole sent to Peak Roofing · $70.00 charged');
   });
 
   it('suggests a bonus for bigger payments', () => {
