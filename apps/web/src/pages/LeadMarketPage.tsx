@@ -295,7 +295,7 @@ function PermitsCard() {
   return (
     <section className="border border-[#2A2A2A] rounded p-4 flex flex-wrap items-center justify-between gap-3" aria-label="Midland permits">
       <span className="min-w-0">
-        <span className="block text-sm font-medium text-white">Midland permits · the Vault's "Permits near you"</span>
+        <span className="block text-sm font-medium text-white">Midland permits · the Tolliver Report</span>
         <span className="block text-xs text-gray-500 mt-0.5">
           {!status
             ? 'Loading…'

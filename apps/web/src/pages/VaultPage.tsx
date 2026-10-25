@@ -1,7 +1,6 @@
 import React, { useContext, useMemo, useState } from 'react';
 import { MapPin, Sparkles } from 'lucide-react';
 import { Confirmed } from '../components/market/Confirmed';
-import { PermitsNearYou } from '../components/market/PermitsNearYou';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { walletAPI } from '../lib/api';
 import { useOlderLeads } from '../lib/live';
@@ -55,8 +54,6 @@ const VaultPage: React.FC = () => {
   // A company that has never opened anything on the plan gets its 30-day trial here too.
   usePlan(organizationId, { ensure: true });
   const [mineOnly, setMineOnly] = useState(true);
-  // Two views: leads nobody bought, and public permits for work going on nearby.
-  const [tab, setTab] = useState<'leads' | 'permits'>('leads');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { toast, link, show } = useToast();
@@ -141,24 +138,6 @@ const VaultPage: React.FC = () => {
         </div>
       ) : (
         <>
-          <div role="tablist" aria-label="Vault sections" className="flex items-center gap-1 border-b border-[#2A2A2A] mb-4">
-            {(['leads', 'permits'] as const).map((id) => (
-              <button
-                key={id}
-                type="button"
-                role="tab"
-                aria-selected={tab === id}
-                onClick={() => setTab(id)}
-                className={`px-3 py-2 text-sm -mb-px border-b-2 ${tab === id ? 'border-[#336699] text-white' : 'border-transparent text-gray-400 hover:text-white'}`}
-              >
-                {id === 'leads' ? 'Leads' : 'Permits near you'}
-              </button>
-            ))}
-          </div>
-          {tab === 'permits' ? (
-            <PermitsNearYou organizationId={organizationId!} />
-          ) : (
-            <>
           <div className="flex items-center gap-2 mb-3">
             <button
               type="button"
@@ -223,8 +202,6 @@ const VaultPage: React.FC = () => {
                   </li>
                 ))}
               </ul>
-            </>
-          )}
             </>
           )}
         </>

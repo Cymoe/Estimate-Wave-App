@@ -322,8 +322,8 @@ const recent = (ctx: QueryCtx, from: string) =>
 
 /**
  * Permits applied for near a company in the last `days` (7 to 90), newest
- * first, with which are in its trades. Part of the plan, like the rest of
- * the Vault; without it the counts still show.
+ * first, with which are in its trades: the Tolliver Report's permit list.
+ * Part of the Pro plan; without it the counts still show.
  */
 export const near = query({
   args: { organizationId: v.id("organizations"), days: v.optional(v.number()) },

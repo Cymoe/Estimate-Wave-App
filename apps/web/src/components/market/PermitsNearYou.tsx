@@ -81,8 +81,8 @@ function OnTheJob({ permit }: { permit: NearbyPermit }) {
 }
 
 /**
- * Building permits applied for near the company: public record from the
- * city, mapped to trades. Intelligence, not leads: the address, the work and,
+ * Building permits applied for near the company, the Tolliver Report's
+ * permit list on the Pro plan: public record from the city, mapped to trades. Intelligence, not leads: the address, the work and,
  * once read from the city's permit portal, the builder and the job's value.
  */
 export const PermitsNearYou: React.FC<{ organizationId: string }> = ({ organizationId }) => {

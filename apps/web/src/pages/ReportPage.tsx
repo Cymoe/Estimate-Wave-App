@@ -1,9 +1,10 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink, Lock, Mail, Phone } from 'lucide-react';
+import { Lock, Mail, Phone } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { applicationsAPI, reportAPI } from '../lib/api';
 import { money } from '../components/market/wallet';
+import { PermitsNearYou } from '../components/market/PermitsNearYou';
 import { versus, type TolliverReport } from '../components/report/reportTypes';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -180,33 +181,21 @@ const ReportPage: React.FC = () => {
                     <Locked>{r.permits.hotStreetCount} street(s) with several new homes going up.</Locked>
                   </div>
                 )}
-                {r.pro && r.permits.list && r.permits.list.length > 0 && (
-                  <>
-                    <h3 className="text-sm font-medium text-gray-200 mb-2">This week's permits{r.trade ? ` for ${r.trade.name}` : ' in your trades'}</h3>
-                    <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" data-testid="report-permits">
-                      {r.permits.list.map((p) => (
-                        <li key={p.permitNumber} className="px-3 py-2.5 text-sm">
-                          <span className="text-white">{p.address ?? 'No address'}</span>
-                          <span className="text-gray-400"> · {p.newHome ? 'New home' : p.kind}</span>
-                          {p.valuationCents ? <span className="text-gray-400"> · {money(p.valuationCents)}</span> : null}
-                          {p.builder && <span className="text-gray-200"> · {p.builder}</span>}
-                          <span className="text-gray-500"> · {day(p.appliedAt)}</span>
-                          {p.detail && !p.newHome && <span className="block text-xs text-gray-500">{p.detail}</span>}
-                          {p.url && (
-                            <a href={p.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-[#7fb0e0] ml-1">
-                              {p.permitNumber} <ExternalLink className="w-3 h-3" />
-                            </a>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-                {!r.pro && r.permits.inMyTrades > 0 && <Locked>The address and builder for each of the {r.permits.inMyTrades} permits in your trades.</Locked>}
                 {r.permits.syncedAt && <p className="text-xs text-gray-500 mt-3">City of Midland permit records, updated {day(r.permits.syncedAt)}.</p>}
               </>
             )}
           </section>
+
+          {r.permits.feed && (
+            <section className={card} aria-label="All permits">
+              <h2 className="text-base font-semibold text-white mb-3">All permits</h2>
+              {r.pro ? (
+                <PermitsNearYou organizationId={organizationId} />
+              ) : (
+                <Locked>Every permit with its address, builder and value, filterable by trade and 7, 30 or 90 days.</Locked>
+              )}
+            </section>
+          )}
 
           {r.permits.feed && (
             <section className={card} aria-label="Who's building">

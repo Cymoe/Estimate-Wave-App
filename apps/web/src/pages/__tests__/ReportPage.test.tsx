@@ -6,8 +6,37 @@ import { MemoryRouter } from 'react-router-dom';
 
 let report: unknown = null;
 const get = jest.fn<Promise<unknown>, [string, { county?: string; trade?: string }]>(async () => report);
+const permitsNear = {
+  county: 'Midland',
+  syncedAt: '2026-10-21T06:10:00Z',
+  locked: false,
+  summary: { days: 30, total: 128, residentialBuilding: 60, singleFamily: 41, inMyTrades: 1 },
+  permits: [
+    {
+      id: 'p1',
+      permitNumber: 'RES-1',
+      name: 'Residential - Building',
+      workClass: 'Alteration & Repair',
+      address: '2705 HOWDY DR',
+      status: 'Issued',
+      appliedAt: '2026-10-16T16:57:14Z',
+      residential: true,
+      trades: ['roofing'],
+      matchesTrades: true,
+      builder: 'Betenbough Homes',
+      valuationCents: 26_695_000,
+      squareFeet: 2422,
+      contacts: [
+        { role: 'Contractor', company: 'Betenbough Homes', phone: '(806) 891-1607', email: 'permitting@betenbough.com' },
+        { role: 'Electrical Contractor', company: 'AEC Electrical', phone: '(432) 555-0123' },
+      ],
+    },
+    { id: 'p2', permitNumber: 'MEC-1', name: 'Mechanical - Replacement', workClass: 'Heating, A/C', address: '301 SHARP LN', status: 'Issued', appliedAt: '2026-10-15T16:57:14Z', residential: false, trades: ['hvac'], matchesTrades: false },
+  ],
+};
 jest.mock('../../lib/api', () => ({
   reportAPI: { get: (id: string, opts: { county?: string; trade?: string }) => get(id, opts) },
+  permitsAPI: { near: async () => permitsNear },
   applicationsAPI: { options: async () => ({ trades: [], counties: [], westTexas: ['Ector', 'Midland'] }) },
 }));
 jest.mock('../../components/layouts/DashboardLayout', () => ({
@@ -63,6 +92,8 @@ describe('the Tolliver Report page', () => {
     expect(page.textContent).toContain('12 builders and contractors pulled permits; Pro names them, with their phone and email.');
     expect(page.querySelectorAll('[data-testid="report-locked"]').length).toBeGreaterThanOrEqual(3);
     expect(page.querySelector('[data-testid="report-builders"]')).toBeNull();
+    expect(page.textContent).toContain('Every permit with its address, builder and value, filterable by trade and 7, 30 or 90 days.');
+    expect(page.querySelector('[data-testid="permits-near-you"]')).toBeNull();
   });
 
   it('Pro: builders with call and email, permit addresses with builder and value, and your week; county and trade can change', async () => {
@@ -87,7 +118,20 @@ describe('the Tolliver Report page', () => {
     expect(builders.querySelector('a[href="mailto:permitting@betenbough.com"]')).not.toBeNull();
     expect(page.textContent).toContain('Pulling Roofing permits');
     expect(page.textContent).toContain('Top Roof LLC · 9 permits');
-    expect(page.querySelector('[data-testid="report-permits"]')!.textContent).toContain('2837 ROLLING PLAINS LN · New home · $266,950.00 · Betenbough Homes');
+    // All permits: the full list with its filters, and the builder to call on each.
+    const all = page.querySelector('[data-testid="permits-near-you"]')!;
+    expect(all.textContent).toContain('128 permits applied for in Midland in the last 30 days · 41 single-family · 1 in your trades');
+    const table = () => all.querySelector('[data-testid="permits-table"]')!;
+    expect(table().textContent).toContain('2705 HOWDY DR');
+    expect(table().textContent).not.toContain('301 SHARP LN');
+    await act(async () => Array.from(all.querySelectorAll('button')).find((b) => b.textContent === 'My trades')!.click());
+    expect(table().textContent).toContain('301 SHARP LN');
+    const builder = all.querySelector('[data-testid="permit-builder"]')!;
+    expect(builder.textContent).toContain('Betenbough Homes');
+    expect(builder.textContent).toContain('$266,950 · 2,422 sq ft');
+    expect(builder.querySelector('a[href="tel:8068911607"]')!.textContent).toContain('(806) 891-1607');
+    expect(builder.querySelector('a[href="mailto:permitting@betenbough.com"]')).not.toBeNull();
+    expect(builder.textContent).toContain('Also on it: AEC Electrical (electrical contractor)');
     expect(page.textContent).toContain('Your Roofing bid, $250.00: not winning: another company bids more');
 
     const countySelect = page.querySelector('select[aria-label="County"]') as HTMLSelectElement;
@@ -112,6 +156,7 @@ describe('the Tolliver Report page', () => {
     const page = await render();
     expect(page.textContent).toContain('No public permit feed for Ector County yet.');
     expect(page.textContent).not.toContain("Who's building");
+    expect(page.textContent).not.toContain('All permits');
     expect(page.textContent).toContain('No bids or leads in Ector County yet.');
   });
 });
