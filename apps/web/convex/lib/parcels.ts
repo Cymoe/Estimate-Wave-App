@@ -4,14 +4,15 @@
 // functions: parcels.ts fetches, these decide what each row means. Owner
 // names are only ever shown to Tolliver staff and callers.
 
-import { streetOf } from "./report";
-
 export const MIDLAND_PARCELS = {
   source: "midland-parcels",
   county: "Midland",
   layer:
     "https://services.arcgis.com/0H6bQdxd9223gQB5/arcgis/rest/services/ParcelOwnership/FeatureServer/3",
 } as const;
+
+/** Bumped when what a stored parcel holds changes: the deploy then reads the roll again instead of skipping. */
+export const PARCEL_VERSION = 2;
 
 /** The appraisal district's residential use codes: single-family, mobile home, condo and townhome. */
 export const RESIDENTIAL_USE = ["A1", "A2", "A3", "A4", "A5"] as const;
@@ -80,6 +81,12 @@ const text = (value: unknown): string | undefined => {
 const cents = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.round(value * 100) : undefined;
 
+/** The street part of an address key ("4729 COUNTRY CLUB DR" → "COUNTRY CLUB DR"): homes and permits on one street share it. */
+export function streetKey(address: string | undefined): string | undefined {
+  const street = addressKey(address).replace(/^\d+[A-Z]?\s+/, "");
+  return street && !/^\d+$/.test(street) ? street : undefined;
+}
+
 /** The house's own address from the roll's site number, direction and street ("COUNTY RD 01109" → "COUNTY RD 1109"). */
 export function siteAddress(a: Record<string, unknown>): string | undefined {
   const number = typeof a.SITE_NO === "number" && a.SITE_NO > 0 ? String(a.SITE_NO) : undefined;
@@ -135,7 +142,7 @@ export function rowsToParcels(features: Array<{ attributes?: Record<string, unkn
       useCode,
       siteAddress: site,
       addressKey: addressKey(site),
-      street: streetOf(site),
+      street: streetKey(site),
       owner,
       owner2: text(a.OWNER2),
       mailing: { address: mailing, city: text(a.CITY_1), state: text(a.STATE_1), zip: text(a.ZIP) },

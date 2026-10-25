@@ -538,6 +538,21 @@ export const permitsAPI = {
   syncOwners: () => run('action', api.parcels.syncNow, {}),
 };
 
+/** Tolliver callers: Do Not Call lists, the dial check, call outcomes and call lists. */
+export const callsAPI = {
+  dncStatus: () => run('query', api.calls.dncStatus, {}),
+  startDncImport: (list: 'national' | 'texas', fileName?: string) => run('mutation', api.calls.startDncImport, defined({ list, fileName })),
+  importDncChunk: (batchId: string, numbers: string[]) => run('mutation', api.calls.importDncChunk, { batchId, numbers }),
+  finishDncImport: (batchId: string) => run('mutation', api.calls.finishDncImport, { batchId }),
+  addDoNotCall: (phone: string, note?: string) => run('mutation', api.calls.addDoNotCall, defined({ phone, note })),
+  tally: (days?: number) => run('query', api.calls.tally, defined({ days })),
+  check: (phone: string) => run('query', api.calls.check, { phone }),
+  log: (args: { phone: string; outcome: string; address: string; parcelId?: string; owner?: string; trade?: string; note?: string; callbackAt?: string }) =>
+    run('mutation', api.calls.log, defined(args)),
+  list: (args: { kind: 'trade_permits' | 'recent_buyers' | 'street'; trade?: string; street?: string }) => run('query', api.calls.list, defined(args)),
+  myDay: () => run('query', api.calls.myDay, {}),
+};
+
 /** The Tolliver Report: a county's week in permits, builders, demand and sales (Pro adds the names). */
 export const reportAPI = {
   get: (organizationId: string, opts: { county?: string; trade?: string } = {}) =>

@@ -13,6 +13,7 @@ import { useApplications, useCompanies, useCompanyLeads, useDelivered, useDemand
 import { OpsErrorBoundary } from '../components/ops/OpsErrorBoundary';
 import { isStaff, isSuperAdmin } from '../lib/roles';
 import { TeamCard } from '../components/ops/TeamCard';
+import { CallsCard } from '../components/ops/CallsCard';
 import { useConfirm } from '../components/common/ConfirmDialog';
 import { leadRoute } from '../components/market/leadRoute';
 import { Confirmed } from '../components/market/Confirmed';
@@ -198,8 +199,8 @@ interface CreditRequest {
   requestedAt: string;
 }
 
-type Tab = 'demand' | 'intake' | 'forsale' | 'sold' | 'companies' | 'prices';
-const TABS: Tab[] = ['demand', 'intake', 'forsale', 'sold', 'companies', 'prices'];
+type Tab = 'demand' | 'intake' | 'calls' | 'forsale' | 'sold' | 'companies' | 'prices';
+const TABS: Tab[] = ['demand', 'intake', 'calls', 'forsale', 'sold', 'companies', 'prices'];
 /** Old names in links that were already sent (emails, bookmarks) still open the right tab. */
 const OLD_TAB_NAMES: Record<string, Tab> = { delivered: 'sold', inbox: 'forsale', listed: 'forsale' };
 const isTab = (value: string | null): value is Tab => TABS.includes(value as Tab);
@@ -224,6 +225,7 @@ const LIVE_LABELS: Record<string, string> = {
 const TAB_TITLES: Record<Tab, string> = {
   demand: 'Demand',
   intake: 'Intake',
+  calls: 'Calls',
   forsale: 'For sale',
   sold: 'Sold',
   companies: 'Companies',
@@ -1397,6 +1399,8 @@ const LeadMarketPage: React.FC = () => {
         const duplicates = rows.filter((r) => r.duplicateOf).length;
         return `${rows.length} to confirm${duplicates > 0 ? ` · ${plural(duplicates, 'possible duplicate')}` : ''}`;
       }
+      case 'calls':
+        return 'The Do Not Call lists callers are checked against, and how their week went';
       case 'forsale':
         return `${plural(inbox.available.length, 'lead')} for sale in the Marketplace · ${money(book.spent30dCents)} sold in 30 days`;
       case 'sold': {
@@ -1431,6 +1435,7 @@ const LeadMarketPage: React.FC = () => {
             [
               ['demand', 'Demand', counts.demandOpen !== null ? `${counts.demandOpen}/${counts.demandTotal}` : ''],
               ['intake', 'Intake', counts.intake !== null ? `${counts.intake}` : ''],
+              ['calls', 'Calls', ''],
               ['forsale', 'For sale', `${inbox.available.length}`],
               ['sold', 'Sold', counts.overdue > 0 ? `${counts.overdue}` : ''],
               ['companies', 'Companies', `${companies.length}`, applications.length > 0 ? `${applications.length} applied` : ''],
@@ -1488,6 +1493,8 @@ const LeadMarketPage: React.FC = () => {
           onCloseNew={closeCreate}
           onListed={setNotice}
         />
+      ) : tab === 'calls' ? (
+        <CallsCard />
       ) : tab === 'demand' ? (
         <DemandBoard owner={owner} />
       ) : tab === 'sold' ? (

@@ -587,6 +587,7 @@ export default defineSchema({
     siteAddress: v.string(),
     // lib/parcels.ts addressKey: the same house on a permit has the same key.
     addressKey: v.string(),
+    // lib/parcels.ts streetKey ("COUNTRY CLUB DR"), for call lists by street.
     street: v.optional(v.string()),
     owner: v.string(),
     owner2: v.optional(v.string()),
@@ -608,6 +609,60 @@ export default defineSchema({
     .index("by_county_and_address_key", ["county", "addressKey"])
     .index("by_county_and_street", ["county", "street"])
     .index("by_county_and_deed", ["county", "deedDate"]),
+
+  // Numbers a Tolliver caller must not dial (calls.ts): the national and
+  // Texas lists as uploaded in Ops (only the current upload of each counts),
+  // and everyone who asked us not to call again, kept for good.
+  doNotCall: defineTable({
+    phone: v.string(),
+    list: v.union(v.literal("national"), v.literal("texas"), v.literal("asked")),
+    // The upload it came in (dncLists); not set on "asked".
+    batchId: v.optional(v.id("dncLists")),
+    addedAt: v.string(),
+    addedBy: v.optional(v.id("users")),
+    note: v.optional(v.string()),
+  })
+    .index("by_phone", ["phone"])
+    .index("by_batch", ["batchId"]),
+
+  // Each upload of a Do Not Call list. The newest finished one is current.
+  dncLists: defineTable({
+    list: v.union(v.literal("national"), v.literal("texas")),
+    count: v.number(),
+    startedAt: v.string(),
+    // Set once every chunk is in; only then does it replace the last one.
+    uploadedAt: v.optional(v.string()),
+    uploadedBy: v.id("users"),
+    current: v.boolean(),
+    fileName: v.optional(v.string()),
+  }).index("by_list_and_current", ["list", "current"]),
+
+  // Every call a Tolliver caller made from a call list, and how it went.
+  outboundCalls: defineTable({
+    parcelId: v.optional(v.id("parcels")),
+    address: v.string(),
+    owner: v.optional(v.string()),
+    phone: v.string(),
+    callerId: v.id("users"),
+    outcome: v.union(
+      v.literal("no_answer"),
+      v.literal("voicemail"),
+      v.literal("wrong_number"),
+      v.literal("not_interested"),
+      v.literal("callback"),
+      v.literal("do_not_call"),
+      v.literal("lead_taken"),
+    ),
+    note: v.optional(v.string()),
+    callbackAt: v.optional(v.string()),
+    trade: v.optional(v.string()),
+    intakeLeadId: v.optional(v.id("intakeLeads")),
+    at: v.string(),
+  })
+    .index("by_parcel", ["parcelId", "at"])
+    .index("by_phone", ["phone", "at"])
+    .index("by_caller_and_at", ["callerId", "at"])
+    .index("by_at", ["at"]),
 
   // How each permit feed's last sync went.
   permitSources: defineTable({
