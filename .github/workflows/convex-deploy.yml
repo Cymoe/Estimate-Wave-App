@@ -24,8 +24,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      # Optional repository variable; the site users sign in from.
-      SITE_URL: ${{ vars.SITE_URL || 'http://localhost:3000' }}
+      # The site users sign in from, and where alert links and assistant
+      # sign-in point. Set the SITE_URL repository variable for production;
+      # until then it's this branch's Vercel preview (never localhost, which
+      # would break every link sent from the live deployment).
+      SITE_URL: ${{ vars.SITE_URL || 'https://estimate-wave-app-git-fieldquote-convex-cymoes-projects.vercel.app' }}
     defaults:
       run:
         working-directory: apps/web
