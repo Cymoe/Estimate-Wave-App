@@ -3360,6 +3360,8 @@ describe("funding links and the lead feed", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string, init: { body: string; headers: Record<string, string> }) => {
+        // A town lookup still running from the fixture's lead can land here too; only Stripe counts.
+        if (!url.startsWith("https://api.stripe.com/")) return { ok: false, status: 503, json: async () => ({}) };
         calls.push({ url, body: init.body, auth: init.headers.authorization });
         const id = `cs_test_${sessions++}`;
         return { ok: true, status: 200, json: async () => ({ id, url: `https://checkout.stripe.com/c/${id}` }) };

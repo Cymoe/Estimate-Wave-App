@@ -4,12 +4,15 @@ import { httpAction } from "./_generated/server";
 import { auth } from "./auth";
 import { verifyStripeSignature } from "./lib/stripe";
 import { addOAuthRoutes } from "./lib/oauthRoutes";
+import { addMcpRoutes } from "./lib/mcpServer";
 
 const http = httpRouter();
 
 auth.addHttpRoutes(http);
 // Sign-in for assistants (Claude, ChatGPT) connecting to the connector.
 addOAuthRoutes(http);
+// The connector itself: what a connected assistant calls.
+addMcpRoutes(http);
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });

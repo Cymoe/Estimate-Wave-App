@@ -31,7 +31,7 @@ async function clientById(ctx: Ctx, clientId: string) {
 }
 
 /** The person's role in a company, or null when they aren't in it. Super admins count as owners. */
-async function roleIn(ctx: Ctx, user: Doc<"users">, organizationId: Id<"organizations">) {
+export async function roleIn(ctx: Ctx, user: Doc<"users">, organizationId: Id<"organizations">) {
   const organization = await ctx.db.get(organizationId);
   if (!organization?.isActive) return null;
   if (isSuperAdmin(user)) return "owner" as const;

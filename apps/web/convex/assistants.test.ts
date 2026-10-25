@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- JSON-RPC answers are read loosely in these tests */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -244,5 +245,155 @@ describe("assistant sign-in", () => {
     const last = await connect(t, owner);
     expect((await t.fetch("/oauth/revoke", form({ token: last.accessToken }))).status).toBe(200);
     expect((await token(t, { grant_type: "refresh_token", refresh_token: last.refreshToken, client_id: last.clientId })).body.error).toBe("invalid_grant");
+  });
+});
+
+// ---- The connector (/mcp) ----
+
+let rpcId = 0;
+async function rpc(t: T, accessToken: string | null, method: string, params?: Record<string, unknown>) {
+  const res = await t.fetch("/mcp", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}) },
+    body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params }),
+  });
+  return { status: res.status, headers: res.headers, body: res.status === 200 ? ((await res.json()) as { result?: any; error?: any }) : null };
+}
+
+async function tool(t: T, accessToken: string, name: string, args: Record<string, unknown> = {}) {
+  const { body } = await rpc(t, accessToken, "tools/call", { name, arguments: args });
+  const result = body!.result as { content: Array<{ text: string }>; structuredContent?: any; isError?: boolean };
+  return { text: result.content[0].text, data: result.structuredContent, isError: Boolean(result.isError) };
+}
+
+/** A roofing company with a lead sent to it by FieldQuote, and one for sale in the Marketplace. */
+async function roofingCompany() {
+  const t = setup();
+  const admin = await signUp(t, "admin@fieldquote.example", { role: "super_admin" });
+  const roofer = await signUp(t, "roofer@example.com");
+  await t.run(async (ctx) => {
+    await ctx.db.patch(roofer.organizationId, { leadTrades: ["roofing"], name: "Peak Roofing" });
+  });
+  await admin.as.mutation(api.marketplace.setLeadPrice, { jobType: "roofing", price: 300 });
+  const forSale = await admin.as.mutation(api.marketplace.createLead, {
+    data: { name: "Jane Cole", phone: "432-555-0101", jobType: "roofing", city: "Midland", notes: "Hail damage, needs a new roof" },
+  });
+  return { t, admin, roofer, forSaleId: forSale!._id as Id<"marketplaceLeads"> };
+}
+
+describe("the connector", () => {
+  test("asks for sign-in without a token, then speaks MCP: initialize, tools, notifications", async () => {
+    const t = setup();
+    const owner = await signUp(t, "ana@basin.example");
+    const none = await rpc(t, null, "initialize", { protocolVersion: "2025-06-18" });
+    expect(none.status).toBe(401);
+    expect(none.headers.get("www-authenticate")).toBe(`Bearer resource_metadata="${API}/.well-known/oauth-protected-resource/mcp"`);
+    expect((await rpc(t, "not-a-token", "tools/list")).status).toBe(401);
+
+    const { accessToken } = await connect(t, owner);
+    const init = await rpc(t, accessToken, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude-ai", version: "1" } });
+    expect(init.body!.result).toMatchObject({ protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "fieldquote" } });
+    expect((await rpc(t, accessToken, "initialize", { protocolVersion: "1999-01-01" })).body!.result.protocolVersion).toBe("2025-11-25");
+
+    const notified = await t.fetch("/mcp", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
+    });
+    expect(notified.status).toBe(202);
+    expect((await rpc(t, accessToken, "ping")).body!.result).toEqual({});
+    expect((await rpc(t, accessToken, "resources/list")).body!.error.code).toBe(-32601);
+
+    const { tools } = (await rpc(t, accessToken, "tools/list")).body!.result as { tools: Array<{ name: string; annotations: any; securitySchemes: any }> };
+    expect(tools.map((x) => x.name)).toEqual(expect.arrayContaining(["whats_new", "my_company", "list_my_leads", "get_lead", "update_lead", "browse_marketplace", "my_bids"]));
+    const list = tools.find((x) => x.name === "list_my_leads")!;
+    expect(list.annotations).toMatchObject({ readOnlyHint: true, openWorldHint: false });
+    expect(list.securitySchemes).toEqual([{ type: "oauth2", scopes: ["leads"] }]);
+    expect(tools.find((x) => x.name === "update_lead")!.annotations.readOnlyHint).toBe(false);
+    expect((await t.fetch("/mcp", { method: "GET", headers: { authorization: `Bearer ${accessToken}` } })).status).toBe(405);
+  });
+
+  test("what's new reports a lead once; leads are listed, read, moved and noted like on the web", async () => {
+    const { t, admin, roofer, forSaleId } = await roofingCompany();
+    const { accessToken } = await connect(t, roofer);
+    expect((await tool(t, accessToken, "whats_new")).text).toBe("Nothing new since the last check.");
+
+    await admin.as.mutation(api.marketplace.recordTopUp, { organizationId: roofer.organizationId, amount: 1000 });
+    await admin.as.mutation(api.marketplace.assign, { leadId: forSaleId, organizationId: roofer.organizationId });
+    const news = await tool(t, accessToken, "whats_new");
+    expect(news.text).toContain("New leads (1):");
+    expect(news.text).toContain("Jane Cole");
+    expect(news.text).toContain("432-555-0101");
+    expect(news.text).toContain("Sent by FieldQuote");
+    expect(news.text).toContain('not marked "Got it" yet');
+    expect((await tool(t, accessToken, "whats_new")).text).toBe("Nothing new since the last check.");
+
+    const leadId = news.data.received[0].id as string;
+    const listed = await tool(t, accessToken, "list_my_leads", { search: "jane" });
+    expect(listed.data.leads.map((l: { id: string }) => l.id)).toEqual([leadId]);
+    expect((await tool(t, accessToken, "list_my_leads", { status: "won" })).text).toBe("No leads match.");
+
+    await tool(t, accessToken, "acknowledge_lead", { lead_id: leadId });
+    await tool(t, accessToken, "log_contact", { lead_id: leadId, kind: "call" });
+    await tool(t, accessToken, "log_contact", { lead_id: leadId, kind: "note", note: "Booked Tuesday 9am" });
+    const moved = await tool(t, accessToken, "update_lead", { lead_id: leadId, status: "scheduled", follow_up_date: "2026-11-03" });
+    expect(moved.text).toBe("Jane Cole is now Estimate scheduled, follow up 2026-11-03.");
+    const lead = await tool(t, accessToken, "get_lead", { lead_id: leadId });
+    expect(lead.data).toMatchObject({ status: "scheduled", calls: 1, gotIt: true });
+    expect(lead.text).toContain("Booked Tuesday 9am");
+    expect(lead.text).toContain(`${SITE}/leads?lead=${leadId}`);
+
+    // Bad input comes back as a tool error the assistant can read, and changes nothing.
+    expect(await tool(t, accessToken, "update_lead", { lead_id: leadId, status: "sold" })).toMatchObject({ isError: true, text: expect.stringContaining("status must be one of") });
+    expect((await tool(t, accessToken, "get_lead", { lead_id: "nope" })).isError).toBe(true);
+  });
+
+  test("another company's lead reads as not found, and the Marketplace never shows contact details before buying", async () => {
+    const { t, roofer, forSaleId } = await roofingCompany();
+    const other = await signUp(t, "x@other.example");
+    const theirs = await other.as.mutation(api.leads.create, { organizationId: other.organizationId, data: { name: "Private Lead", phone: "555-9999" } });
+    const { accessToken } = await connect(t, roofer);
+    expect(await tool(t, accessToken, "get_lead", { lead_id: theirs!._id })).toMatchObject({ isError: true, text: "Not found" });
+    expect((await tool(t, accessToken, "log_contact", { lead_id: theirs!._id, kind: "call" })).isError).toBe(true);
+
+    const market = await tool(t, accessToken, "browse_marketplace");
+    expect(market.data.leads).toEqual([expect.objectContaining({ id: forSaleId, city: "Midland", price: "$300.00" })]);
+    expect(market.text).toContain("Hail damage");
+    expect(market.text).not.toContain("432-555-0101");
+    expect(market.text).not.toContain("Jane");
+    expect((await tool(t, accessToken, "browse_marketplace", { trade: "painting" })).data.leads).toEqual([]);
+
+    const company = await tool(t, accessToken, "my_company");
+    expect(company.text).toContain("Peak Roofing: balance $0.00");
+    expect(company.text).toContain("Buying and bidding are off for this assistant");
+    expect((await tool(t, accessToken, "browse_vault")).text).toContain("The Vault needs the Pro plan");
+    expect((await tool(t, accessToken, "add_funds_link")).text).toMatch(new RegExp(`^Add funds here: ${SITE}/fund/[a-f0-9]{32}$`));
+    expect((await tool(t, accessToken, "my_bids")).text).toContain("No standing bids.");
+  });
+
+  test("disconnecting, or leaving the company, cuts the assistant off at once", async () => {
+    const { t, roofer } = await roofingCompany();
+    const { accessToken } = await connect(t, roofer);
+    expect((await rpc(t, accessToken, "tools/list")).status).toBe(200);
+    const [connection] = (await roofer.as.query(api.oauth.myConnections, { organizationId: roofer.organizationId })).connections;
+    await roofer.as.mutation(api.oauth.disconnect, { id: connection.id });
+    const after = await rpc(t, accessToken, "tools/list");
+    expect(after.status).toBe(401);
+    expect(after.headers.get("www-authenticate")).toContain('error="invalid_token"');
+
+    const again = await connect(t, roofer);
+    await t.run(async (ctx) => {
+      const rows = await ctx.db.query("memberships").withIndex("by_user", (q) => q.eq("userId", roofer.userId)).collect();
+      for (const row of rows) await ctx.db.delete(row._id);
+    });
+    expect((await rpc(t, again.accessToken, "tools/list")).status).toBe(401);
+  });
+
+  test("an access token lasts an hour", async () => {
+    vi.useFakeTimers();
+    const { t, roofer } = await roofingCompany();
+    const { accessToken } = await connect(t, roofer);
+    vi.advanceTimersByTime(61 * 60 * 1000);
+    expect((await rpc(t, accessToken, "tools/list")).status).toBe(401);
   });
 });
