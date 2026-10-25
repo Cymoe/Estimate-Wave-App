@@ -530,7 +530,12 @@ describe("intake", () => {
     // The intake lead says where it went.
     expect(row.listed).toMatchObject({ id: result.leadId, status: "assigned", companyName: "painter@example.com Co", priceCents: 25000 });
     expect(row.attempts[row.attempts.length - 1]).toMatchObject({ outcome: "reached", note: "Wants it done before Thanksgiving" });
-    expect((await va.as.query(api.intake.queue, { status: "confirmed" })).map((r) => r.id)).toEqual([id]);
+    const confirmedRows = await va.as.query(api.intake.queue, { status: "confirmed" });
+    expect(confirmedRows.map((r) => r.id)).toEqual([id]);
+    // The Confirmed list says where each lead went, without opening it.
+    expect(confirmedRows[0].listed).toMatchObject({ status: "assigned", companyName: "painter@example.com Co", priceCents: 25000 });
+    // Rows still in the queue carry no destination.
+    expect((await va.as.query(api.intake.queue, {})).every((r) => !("listed" in r))).toBe(true);
     await expect(va.as.mutation(api.intake.confirm, { id, checks: all })).rejects.toThrow(/already confirmed/);
 
     // The company got it with the confirmation and the answers on the card.

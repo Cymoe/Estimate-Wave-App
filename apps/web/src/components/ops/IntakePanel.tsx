@@ -15,6 +15,8 @@ export interface IntakeRow {
   source: 'meta' | 'call' | 'manual' | 'api';
   status: 'new' | 'working' | 'confirmed' | 'closed';
   disposition?: string;
+  /** Confirmed rows only: where the lead went. */
+  listed?: { id: string; status: string; companyName?: string; organizationId?: string; priceCents?: number } | null;
   label: string;
   name?: string;
   phone?: string;

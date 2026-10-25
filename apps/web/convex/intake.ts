@@ -606,6 +606,20 @@ export const reopen = mutation({
   },
 });
 
+/** Where a confirmed intake lead went: the company and price it sold for, or that it's for sale or in the Vault. */
+async function listedOf(ctx: QueryCtx, row: Doc<"intakeLeads">) {
+  const listed = row.confirmedLeadId ? await ctx.db.get(row.confirmedLeadId) : null;
+  if (!listed) return null;
+  const buyer = listed.assignedOrganizationId ? await ctx.db.get(listed.assignedOrganizationId) : null;
+  return {
+    id: listed._id,
+    status: listed.status,
+    companyName: buyer?.name,
+    organizationId: buyer?._id,
+    priceCents: listed.priceCents,
+  };
+}
+
 /** The queue, newest first. Open leads by default; closed or confirmed on request. */
 export const queue = query({
   args: { status: v.optional(v.union(v.literal("open"), v.literal("closed"), v.literal("confirmed"))) },
@@ -621,9 +635,16 @@ export const queue = query({
         : await ctx.db.query("intakeLeads").withIndex("by_status", (q) => q.eq("status", wanted)).order("desc").take(200);
     const trades = await ctx.db.query("industries").take(500);
     const tradeName = new Map(trades.map((t) => [t.slug, t.name]));
-    return rows
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-      .map((row) => ({ ...summary(row), tradeName: row.jobType ? (tradeName.get(row.jobType) ?? row.jobType) : undefined }));
+    // Confirmed rows say where each lead went, so nobody has to open it to find out.
+    return await Promise.all(
+      rows
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .map(async (row) => ({
+          ...summary(row),
+          tradeName: row.jobType ? (tradeName.get(row.jobType) ?? row.jobType) : undefined,
+          ...(row.status === "confirmed" ? { listed: await listedOf(ctx, row) } : {}),
+        })),
+    );
   },
 });
 
@@ -635,20 +656,10 @@ export const get = query({
     const row = await ctx.db.get(id);
     if (row === null) fail("NOT_FOUND", "Lead not found");
     const duplicate = row.duplicateOf ? await ctx.db.get(row.duplicateOf) : null;
-    // Once confirmed: who it went to and for how much, or that it's for sale.
-    const listed = row.confirmedLeadId ? await ctx.db.get(row.confirmedLeadId) : null;
-    const buyer = listed?.assignedOrganizationId ? await ctx.db.get(listed.assignedOrganizationId) : null;
     return {
       ...summary(row),
-      listed: listed
-        ? {
-            id: listed._id,
-            status: listed.status,
-            companyName: buyer?.name,
-            organizationId: buyer?._id,
-            priceCents: listed.priceCents,
-          }
-        : null,
+      // Once confirmed: who it went to and for how much, or that it's for sale.
+      listed: await listedOf(ctx, row),
       duplicate: duplicate
         ? { id: duplicate._id, label: intakeLabel(duplicate), status: duplicate.status, createdAt: duplicate.createdAt, confirmedLeadId: duplicate.confirmedLeadId }
         : null,

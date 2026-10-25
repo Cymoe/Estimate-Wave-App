@@ -5,7 +5,7 @@ import { useIntakeQueue } from '../../lib/live';
 import { COUNTY_CHOICES, countyForTown } from '../../services/counties';
 import { Dialog, Field, ago, input, primary, secondary } from './ui';
 import { IntakePanel, type IntakeRow } from './IntakePanel';
-import { reasonLabel } from './intakeReasons';
+import { destinationLabel, reasonLabel } from './intakeReasons';
 import { IncomingLog } from './IncomingLog';
 
 export interface Trade {
@@ -114,6 +114,12 @@ export const IntakeQueue: React.FC<{
                     <span className="block text-xs text-gray-500">
                       {[tradeName(row.jobType) ?? 'Trade not set', row.county ? `${row.county} County` : 'County not set', row.city].filter(Boolean).join(' · ')}
                     </span>
+                    {/* Confirmed: where it went, at a glance. */}
+                    {destinationLabel(row.listed) && (
+                      <span className="block text-xs text-emerald-300 mt-0.5" data-testid="intake-destination">
+                        {destinationLabel(row.listed)}
+                      </span>
+                    )}
                   </span>
                   {row.phone && (
                     <span className="inline-flex items-center gap-1 text-sm text-gray-300">

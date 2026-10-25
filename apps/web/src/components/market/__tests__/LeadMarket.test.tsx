@@ -815,6 +815,20 @@ describe('standing bids in Admin', () => {
       const filters = Array.from(document.body.querySelectorAll('[aria-label="Intake filter"] [role="tab"]')).map((t) => t.textContent);
       expect(filters).toEqual(['To call', 'Not a lead', 'Confirmed']);
       expect(filters).not.toContain('Closed');
+      // The Confirmed list says where each lead went, without opening the drawer.
+      intakeRows = [
+        ...(intakeRows as unknown[]),
+        { id: 'c1', source: 'meta', status: 'confirmed', label: 'Ed Hale', name: 'Ed Hale', county: 'Midland', attempts: [], lastAttempt: null, createdAt: '2026-10-22T02:00:00Z', updatedAt: '2026-10-22T02:00:00Z', listed: { id: 'm1', status: 'assigned', companyName: 'Peak Roofing', organizationId: 'o2', priceCents: 25000 } },
+        { id: 'c2', source: 'meta', status: 'confirmed', label: 'Flo Ince', name: 'Flo Ince', county: 'Ector', attempts: [], lastAttempt: null, createdAt: '2026-10-21T02:00:00Z', updatedAt: '2026-10-21T02:00:00Z', listed: { id: 'm2', status: 'available' } },
+        { id: 'c3', source: 'meta', status: 'confirmed', label: 'Gus Jay', name: 'Gus Jay', county: 'Ector', attempts: [], lastAttempt: null, createdAt: '2026-10-20T02:00:00Z', updatedAt: '2026-10-20T02:00:00Z', listed: { id: 'm3', status: 'older' } },
+      ];
+      document.body.innerHTML = '';
+      await render(<IntakeQueue trades={[]} openNew={false} onCloseNew={() => {}} />);
+      expect(Array.from(document.body.querySelectorAll('[data-testid="intake-destination"]')).map((d) => d.textContent)).toEqual([
+        'Sold to Peak Roofing · $250.00',
+        'For sale in the Marketplace',
+        'In the Vault',
+      ]);
       document.body.innerHTML = '';
       const { IntakePanel } = await import('../../ops/IntakePanel');
       await render(<IntakePanel id="i7" trades={[]} onClose={() => {}} onChanged={() => {}} onListed={() => {}} />);
