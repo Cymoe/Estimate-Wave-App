@@ -183,6 +183,27 @@ describe("auth and tenancy", () => {
     ).toBe("Smith Residence");
   });
 
+  test("a shared definition run for a connection's user gets that user's checks, as on the web", async () => {
+    const t = setup();
+    const alice = await signUp(t, "alice@example.com");
+    const bob = await signUp(t, "bob@example.com");
+    await alice.as.mutation(api.leads.create, { organizationId: alice.organizationId, data: { name: "Smith roof" } });
+    const { actAs } = await import("./lib/actor");
+    const { listDef, logContactDef } = await import("./leads");
+    await t.run(async (ctx) => {
+      // No one signed in: the same handler refuses, as the public function does.
+      await expect(listDef.handler(ctx, { organizationId: alice.organizationId })).rejects.toThrow(/signed in/);
+      const asAlice = actAs(ctx, alice.userId, "conn-1");
+      const leads = await listDef.handler(asAlice, { organizationId: alice.organizationId });
+      expect(leads.map((l) => l.name)).toEqual(["Smith roof"]);
+      await logContactDef.handler(asAlice, { id: leads[0]._id, kind: "call" });
+      expect((await ctx.db.get(leads[0]._id))!.contacts).toBe(1);
+      // Another company's user is kept out the same way.
+      await expect(listDef.handler(actAs(ctx, bob.userId, "conn-2"), { organizationId: alice.organizationId })).rejects.toThrow(/access/);
+      await expect(logContactDef.handler(actAs(ctx, bob.userId, "conn-2"), { id: leads[0]._id, kind: "call" })).rejects.toThrow(/Not found/);
+    });
+  });
+
   test("callers can't spoof ownership or link another tenant's records", async () => {
     const t = setup();
     const alice = await signUp(t, "alice@example.com");

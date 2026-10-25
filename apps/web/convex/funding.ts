@@ -10,6 +10,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { fail, logActivity, nowIso, requireMember, requireStaff } from "./lib/access";
+import { mutationDef } from "./lib/actor";
 import { siteUrl } from "./delivery";
 import { tellStaff } from "./notify";
 import { FUNDING_TIERS, MIN_FUNDING_CENTS, bonusFor } from "./lib/funding";
@@ -42,7 +43,7 @@ async function byToken(
 }
 
 /** The company's funding link: the open one if there is one, otherwise a new one. */
-export const createLink = mutation({
+export const createLinkDef = mutationDef({
   args: { organizationId: v.id("organizations") },
   handler: async (ctx, { organizationId }) => {
     const { user } = await requireMember(ctx, organizationId);
@@ -65,6 +66,7 @@ export const createLink = mutation({
     return token;
   },
 });
+export const createLink = mutation(createLinkDef);
 
 /** Whether payments are in test mode (no Stripe key: balances are play money). Staff. */
 export const mode = query({

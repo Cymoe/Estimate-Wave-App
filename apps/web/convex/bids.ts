@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { fail, nowIso, requireMember } from "./lib/access";
+import { mutationDef, queryDef } from "./lib/actor";
 import { MIN_START_CENTS } from "./lib/auction";
 import { closeLegacyRound } from "./lib/awards";
 import { dropBidsOutsideTrades, fundedBidsFor, outbidUnseen, refreshStanding } from "./lib/standing";
@@ -26,7 +27,7 @@ function toCents(amount: number): number {
  * bid placed earlier does), `contested` when another company has a funded
  * bid there. Other companies' amounts are never shown.
  */
-export const listStanding = query({
+export const listStandingDef = queryDef({
   args: { organizationId: v.id("organizations") },
   handler: async (ctx, { organizationId }) => {
     await requireMember(ctx, organizationId);
@@ -61,9 +62,10 @@ export const listStanding = query({
     return out;
   },
 });
+export const listStanding = query(listStandingDef);
 
 /** Sets what a company pays for a trade's leads in a county. One per county and trade; setting it again replaces it. */
-export const setStanding = mutation({
+export const setStandingDef = mutationDef({
   args: {
     organizationId: v.id("organizations"),
     county: v.string(),
@@ -140,8 +142,9 @@ export const setStanding = mutation({
     return id;
   },
 });
+export const setStanding = mutation(setStandingDef);
 
-export const removeStanding = mutation({
+export const removeStandingDef = mutationDef({
   args: { id: v.id("standingBids") },
   handler: async (ctx, { id }) => {
     const row = await ctx.db.get(id);
@@ -151,6 +154,7 @@ export const removeStanding = mutation({
     await refreshStanding(ctx, row.county, row.jobType, row.organizationId);
   },
 });
+export const removeStanding = mutation(removeStandingDef);
 
 /** The company has looked at its bids: outbids so far are no longer news. */
 export const markOutbidSeen = mutation({
@@ -190,7 +194,7 @@ export const removeBidsOutsideTrades = internalMutation({
 // ---- Results ----
 
 /** The last leads the company's bids were matched to: won at its bid, or lost and why. */
-export const results = query({
+export const resultsDef = queryDef({
   args: { organizationId: v.id("organizations") },
   handler: async (ctx, { organizationId }) => {
     await requireMember(ctx, organizationId);
@@ -227,6 +231,7 @@ export const results = query({
     return out;
   },
 });
+export const results = query(resultsDef);
 
 /** Legacy: closes a bidding round scheduled before leads were awarded on the spot. */
 export const closeRound = internalMutation({

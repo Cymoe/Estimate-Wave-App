@@ -19,6 +19,7 @@ import {
   requireSuperAdmin,
   requireUser,
 } from "./lib/access";
+import { mutationDef, queryDef } from "./lib/actor";
 import { createOrganization } from "./lib/organizations";
 import { deleteOrganization } from "./lib/cleanup";
 import {
@@ -1160,7 +1161,7 @@ function tradeNamer(ctx: QueryCtx | MutationCtx) {
  * company on the plan sees the rows; everyone else gets the count in their
  * trades, so the page can say what they're missing.
  */
-export const olderLeads = query({
+export const olderLeadsDef = queryDef({
   args: { organizationId: v.id("organizations") },
   handler: async (ctx, { organizationId }) => {
     const { organization } = await requireMember(ctx, organizationId);
@@ -1209,12 +1210,13 @@ export const olderLeads = query({
     };
   },
 });
+export const olderLeads = query(olderLeadsDef);
 
 /**
  * A company on the plan claims an older lead: it's theirs alone, included
  * while the month's allowance lasts, then at the extra-claim price.
  */
-export const claim = mutation({
+export const claimDef = mutationDef({
   args: {
     leadId: v.id("marketplaceLeads"),
     organizationId: v.id("organizations"),
@@ -1241,9 +1243,10 @@ export const claim = mutation({
     return { ...sale, claimsLeft: claimsLeft(used) };
   },
 });
+export const claim = mutation(claimDef);
 
 /** A company's balance, history and what its leads earned it. */
-export const wallet = query({
+export const walletDef = queryDef({
   args: { organizationId: v.id("organizations") },
   handler: async (ctx, { organizationId }) => {
     // Staff read it too: the company panel in Ops shows the same wallet.
@@ -1352,6 +1355,7 @@ export const wallet = query({
     };
   },
 });
+export const wallet = query(walletDef);
 
 /**
  * Leads a company can buy: the trade, town and what the job is, with the
@@ -1359,7 +1363,7 @@ export const wallet = query({
  * its price schedule so the page can count down itself. Their own trades
  * come first.
  */
-export const feed = query({
+export const feedDef = queryDef({
   args: { organizationId: v.id("organizations") },
   handler: async (ctx, { organizationId }) => {
     const { organization } = await requireMember(ctx, organizationId);
@@ -1405,9 +1409,10 @@ export const feed = query({
     );
   },
 });
+export const feed = query(feedDef);
 
 /** A company buys a lead at its current price: paid from its balance, and it's theirs alone. */
-export const buy = mutation({
+export const buyDef = mutationDef({
   args: {
     leadId: v.id("marketplaceLeads"),
     organizationId: v.id("organizations"),
@@ -1423,6 +1428,7 @@ export const buy = mutation({
     });
   },
 });
+export const buy = mutation(buyDef);
 
 // ---- Buy orders ----
 
@@ -1431,7 +1437,7 @@ export const buy = mutation({
  * own when the price drops to that, unless someone buys the lead first.
  * Funds aren't held back: if the balance can't cover it by then, it's lost.
  */
-export const placeBid = mutation({
+export const placeBidDef = mutationDef({
   args: {
     leadId: v.id("marketplaceLeads"),
     organizationId: v.id("organizations"),
@@ -1484,8 +1490,9 @@ export const placeBid = mutation({
     return { bidId, fillsAt: new Date(fillsAt).toISOString() };
   },
 });
+export const placeBid = mutation(placeBidDef);
 
-export const cancelBid = mutation({
+export const cancelBidDef = mutationDef({
   args: { bidId: v.id("leadBids") },
   handler: async (ctx, { bidId }) => {
     const bid = await ctx.db.get(bidId);
@@ -1496,6 +1503,7 @@ export const cancelBid = mutation({
     await ctx.db.patch(bidId, { status: "cancelled", resolvedAt: nowIso() });
   },
 });
+export const cancelBid = mutation(cancelBidDef);
 
 /** Runs when the price reaches a buy order: buys the lead at the price it's at, if it can. */
 export const fillBid = internalMutation({
@@ -1534,7 +1542,7 @@ export const fillBid = internalMutation({
 });
 
 /** A company's buy orders, newest first: open ones plus the last few that filled or lost. */
-export const bids = query({
+export const bidsDef = queryDef({
   args: { organizationId: v.id("organizations") },
   handler: async (ctx, { organizationId }) => {
     await requireMember(ctx, organizationId);
@@ -1574,9 +1582,10 @@ export const bids = query({
     );
   },
 });
+export const bids = query(bidsDef);
 
 /** A company asks for a bad lead to be credited back (within 3 days of getting it). */
-export const requestCredit = mutation({
+export const requestCreditDef = mutationDef({
   args: {
     leadId: v.id("leads"),
     reason: v.string(),
@@ -1619,6 +1628,7 @@ export const requestCredit = mutation({
     });
   },
 });
+export const requestCredit = mutation(requestCreditDef);
 
 /** Open credit requests across every company, for the admin to review. */
 export const pendingCredits = query({

@@ -11,6 +11,7 @@ import {
   requireMemberOrStaff,
   requireUser,
 } from "./lib/access";
+import { mutationDef, queryDef } from "./lib/actor";
 import { assertLinksInOrg } from "./lib/documents";
 import { leadFields } from "./schema";
 import { findCity } from "./leadCity";
@@ -40,7 +41,7 @@ function byPriority(a: Doc<"leads">, b: Doc<"leads">) {
   return b.createdAt.localeCompare(a.createdAt);
 }
 
-export const list = query({
+export const listDef = queryDef({
   args: { organizationId: v.id("organizations") },
   handler: async (ctx, { organizationId }) => {
     // Staff read a company's leads from its panel in Ops.
@@ -74,6 +75,7 @@ export const list = query({
     );
   },
 });
+export const list = query(listDef);
 
 export const create = mutation({
   args: { organizationId: v.id("organizations"), data: v.any() },
@@ -138,7 +140,7 @@ export const companyOf = query({
   },
 });
 
-export const acknowledge = mutation({
+export const acknowledgeDef = mutationDef({
   args: { id: v.id("leads") },
   handler: async (ctx, { id }) => {
     const { doc } = await getOwned(ctx, "leads", id);
@@ -149,8 +151,9 @@ export const acknowledge = mutation({
     return now;
   },
 });
+export const acknowledge = mutation(acknowledgeDef);
 
-export const update = mutation({
+export const updateDef = mutationDef({
   args: { id: v.id("leads"), data: v.any() },
   handler: async (ctx, { id, data }) => {
     const { doc } = await getOwned(ctx, "leads", id);
@@ -195,13 +198,14 @@ export const update = mutation({
     return await ctx.db.get(id);
   },
 });
+export const update = mutation(updateDef);
 
 /**
  * Records a touch on a lead: a call or a text (each counted on its own), or
  * a note typed on the card, which is stamped with the day and added to the
  * notes.
  */
-export const logContact = mutation({
+export const logContactDef = mutationDef({
   args: {
     id: v.id("leads"),
     kind: v.union(v.literal("call"), v.literal("text"), v.literal("note")),
@@ -226,6 +230,7 @@ export const logContact = mutation({
     return await ctx.db.get(id);
   },
 });
+export const logContact = mutation(logContactDef);
 
 export const remove = mutation({
   args: { id: v.id("leads") },
