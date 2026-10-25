@@ -46,6 +46,25 @@ export interface DemandBoardData {
   slots: DemandSlot[];
 }
 
+/** Whole dollars for the cards: "$845", not "$845.00". */
+const dollars = (cents: number) => `$${Math.round(Math.abs(cents) / 100).toLocaleString('en-US')}`;
+
+/** The one number a card leads with: the profit a lead, or why there isn't one yet. */
+function headline(s: DemandSlot): string {
+  if (s.marginCents !== null) return `${dollars(s.marginCents)} ${s.marginCents >= 0 ? 'profit' : 'loss'}`;
+  if (s.state === 'unknown') return 'Add ad cost';
+  if (s.bidders > 0 && s.topFundedCents === undefined) return 'Nobody can pay';
+  return 'No bids yet';
+}
+
+/** The bids in one sentence: who is bidding, the most a company that can pay has bid, and how far the money goes. */
+function bidsLine(s: DemandSlot): string {
+  if (s.topFundedCents !== undefined)
+    return `${s.bidders} ${s.bidders === 1 ? 'bidder' : 'bidders'} · highest funded bid ${money(s.topFundedCents)} · covers ${s.depthLeads} more`;
+  if (s.bidders > 0) return `${s.bidders} ${s.bidders === 1 ? 'bidder' : 'bidders'}, nobody can pay`;
+  return 'No bids yet';
+}
+
 const STATE: Record<DemandSlot['state'], { label: string; cell: string }> = {
   open: { label: 'Run ads here', cell: 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200' },
   unknown: { label: 'Has buyers · type your ad cost per lead to check profit', cell: 'bg-sky-500/10 border-sky-500/40 text-sky-200' },
@@ -76,13 +95,8 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
   const counties = [...new Set(shown.map((s) => s.county))].sort();
   const trades = [...new Map(shown.map((s) => [s.jobType, s.tradeName])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
   const at = (county: string, jobType: string) => shown.find((s) => s.county === county && s.jobType === jobType);
-  // Every string on the board reads as a sentence: the owner shouldn't need a key.
-  const cell = (s: DemandSlot) =>
-    s.topFundedCents !== undefined
-      ? `${s.bidders} ${s.bidders === 1 ? 'bidder' : 'bidders'} · highest funded bid ${money(s.topFundedCents)} · covers ${s.depthLeads} more`
-      : s.bidders > 0
-        ? `${s.bidders} ${s.bidders === 1 ? 'bidder' : 'bidders'}, nobody can pay`
-        : 'No bids yet';
+  // A card shows the profit and what to do; the hover text and the drawer carry the rest.
+  const cell = bidsLine;
   // The 30-day window is about the county and trade, not about when a bid was placed: say which.
   const sales = (s: DemandSlot) => {
     const unsold = s.inMarketplace + s.inVault > 0 ? ` · ${s.inMarketplace + s.inVault} still unsold` : '';
@@ -111,14 +125,15 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
     ]
       .filter(Boolean)
       .join('\n');
-  // Narrow enough to fit six or seven trades across an iPad; each line may wrap to two.
-  const CARD = 'h-[6.75rem] w-full text-left rounded border px-2 py-1.5 text-[11px] leading-snug overflow-hidden';
+  // Narrow enough to fit six or seven trades across an iPad: the profit, then what to do.
+  const CARD = 'h-[4.25rem] w-full text-left rounded border px-2 py-1.5 leading-snug overflow-hidden';
+  const named = (s: DemandSlot) => `${s.tradeName} in ${s.county} County: ${headline(s)}. ${STATE[s.state].label}`;
 
   return (
     <div className="space-y-4" data-testid="demand-board">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-gray-500">
-          Each square is one county and one trade. Top line: the highest funded bid (the most a company that can pay has bid), and how many more leads the money behind the bids covers. Bottom line: the leads that came in for that county and trade in the last 30 days, whenever the bid was placed. Profit a lead = price − the ad cost per lead you type in the column header − {money(data.vaCostCents)} for the confirmation call. Updates on its own.
+          Each square is one county and one trade: about how much profit a lead there makes, and what to do. Tap a square for the bids and the last 30 days of leads behind it. Profit a lead = price − the ad cost per lead you type in the column header − {money(data.vaCostCents)} for the confirmation call. The price is the highest funded bid until 3 leads sell, then what they sold for. Updates on its own.
           {data.demoLeads && <span className="block mt-1 text-amber-300/80">No real lead yet, so the lead numbers are demo data. They switch to real the moment the first real lead is confirmed.</span>}
         </p>
         {data.slots.length > 0 && (
@@ -165,13 +180,12 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
                       return (
                         <td key={slug} className="px-1.5 py-1.5 w-44 min-w-[11rem] align-top">
                           {s ? (
-                            <button type="button" onClick={() => setOpen(s)} title={tip(s)} data-state={s.state} className={`${CARD} ${STATE[s.state].cell}`}>
-                              <span className="block line-clamp-2">{cell(s)}</span>
-                              <span className="block line-clamp-2 opacity-75">{sales(s)}</span>
-                              <span className="block truncate font-medium">{margin(s) ?? '\u00a0'}</span>
+                            <button type="button" onClick={() => setOpen(s)} title={tip(s)} aria-label={named(s)} data-state={s.state} className={`${CARD} ${STATE[s.state].cell}`}>
+                              <span className="block truncate text-base font-semibold">{headline(s)}</span>
+                              <span className="block line-clamp-2 text-[11px] opacity-75">{STATE[s.state].label}</span>
                             </button>
                           ) : (
-                            <span className="flex h-[6.75rem] items-center justify-center text-gray-700">·</span>
+                            <span className="flex h-[4.25rem] items-center justify-center text-gray-700">·</span>
                           )}
                         </td>
                       );
@@ -184,16 +198,14 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
           <ul className="md:hidden space-y-2" aria-label="Demand">
             {shown.map((s) => (
               <li key={`${s.county}|${s.jobType}`}>
-                <button type="button" onClick={() => setOpen(s)} title={tip(s)} data-state={s.state} className={`h-24 w-full text-left rounded border px-3 py-2 overflow-hidden ${STATE[s.state].cell}`}>
-                  <span className="block truncate text-sm">
-                    {s.tradeName} · {s.county} County
+                <button type="button" onClick={() => setOpen(s)} title={tip(s)} aria-label={named(s)} data-state={s.state} className={`min-h-[4rem] w-full text-left rounded border px-3 py-2 overflow-hidden ${STATE[s.state].cell}`}>
+                  <span className="flex items-baseline justify-between gap-3">
+                    <span className="truncate text-sm">
+                      {s.tradeName} · {s.county} County
+                    </span>
+                    <span className="shrink-0 text-base font-semibold">{headline(s)}</span>
                   </span>
-                  <span className="block truncate text-xs opacity-80">{cell(s)}</span>
-                  <span className="block truncate text-xs opacity-70">{sales(s)}</span>
-                  <span className="block truncate text-xs">
-                    {margin(s) ? `${margin(s)} · ` : ''}
-                    {STATE[s.state].label}
-                  </span>
+                  <span className="block truncate text-xs opacity-75">{STATE[s.state].label}</span>
                 </button>
               </li>
             ))}
@@ -292,6 +304,9 @@ function SlotPanel({ slot, vaCostCents, demo, onClose }: { slot: DemandSlot; vaC
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6 text-sm">
           <p className="text-white font-medium" data-testid="slot-profit">
             {worthIt(slot, vaCostCents)}
+          </p>
+          <p className="text-gray-300" data-testid="slot-bids">
+            {bidsLine(slot)}
           </p>
           <p className="text-gray-300" data-testid="slot-sales">
             {slot.listed30 === 0
