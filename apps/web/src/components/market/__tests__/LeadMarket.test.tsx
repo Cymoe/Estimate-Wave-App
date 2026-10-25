@@ -291,6 +291,38 @@ describe('Lead Market', () => {
     expect(document.body.querySelector('h1')!.textContent).toBe('Intake');
   });
 
+  it('sorts the Companies table by the heading tapped, and tapping again flips it', async () => {
+    await render(<MemoryRouter initialEntries={['/ops?tab=companies']}><LeadMarketPage /></MemoryRouter>, false);
+    const table = () => document.body.querySelector('table[aria-label="Companies"]')!;
+    const names = () => Array.from(table().querySelectorAll('tbody tr')).map((r) => r.querySelector('td button')!.textContent);
+    const heading = (label: string) => Array.from(table().querySelectorAll('thead th')).find((th) => th.textContent === label)!;
+    const tapHeading = async (label: string) => {
+      await act(async () => (heading(label).querySelector('button') as HTMLButtonElement).click());
+      await flush();
+    };
+    // Until a heading is tapped, the order is the server's: newest company first.
+    expect(names()).toEqual(['Broke Roofing', 'Peak Roofing', 'Ace Painting']);
+    expect(heading('Balance').getAttribute('aria-sort')).toBe('none');
+    // Numbers start biggest first.
+    await tapHeading('Balance');
+    expect(names()).toEqual(['Peak Roofing', 'Broke Roofing', 'Ace Painting']);
+    expect(heading('Balance').getAttribute('aria-sort')).toBe('descending');
+    await tapHeading('Balance');
+    expect(names()).toEqual(['Ace Painting', 'Broke Roofing', 'Peak Roofing']);
+    expect(heading('Balance').getAttribute('aria-sort')).toBe('ascending');
+    // Names start A to Z, and only the heading in use says it is sorted.
+    await tapHeading('Company');
+    expect(names()).toEqual(['Ace Painting', 'Broke Roofing', 'Peak Roofing']);
+    expect(heading('Company').getAttribute('aria-sort')).toBe('ascending');
+    expect(heading('Balance').getAttribute('aria-sort')).toBe('none');
+    // A paying Pro plan comes before no plan; companies with the same plan go A to Z.
+    await tapHeading('Plan');
+    expect(names()).toEqual(['Peak Roofing', 'Ace Painting', 'Broke Roofing']);
+    // The totals stay at the bottom, whatever the order.
+    expect(table().querySelector('tfoot [data-testid="companies-totals"]')).not.toBeNull();
+    expect(table().querySelectorAll('tbody [data-testid="companies-totals"]').length).toBe(0);
+  });
+
   it('says what failed and why, and keeps saying it until dismissed', async () => {
     removeLead.mockRejectedValueOnce(new Error('A sold lead stays on the books'));
     await render(<LeadMarketPage />);

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
-import { Building2, Check, Inbox, Link2, MapPin, Phone, Plus, Send, Tag, Trash2, X } from 'lucide-react';
+import { Building2, Check, ChevronDown, ChevronUp, Inbox, Link2, MapPin, Phone, Plus, Send, Tag, Trash2, X } from 'lucide-react';
 import { applicationsAPI, fundingAPI, industriesAPI, leadsAPI, marketplaceAPI, permitsAPI, walletAPI } from '../lib/api';
 import { copyText } from '../components/estimates/estimateActions';
 import { useAuth } from '../contexts/AuthContext';
@@ -54,6 +54,83 @@ function planState(plan: PlanSummary | null | undefined): (typeof PLAN_STATES)[n
       return plan.active ? 'ending' : 'ended';
   }
 }
+
+/** How strong a company's plan is, for sorting: paying Pro first, no plan last. */
+function planRank(plan: PlanSummary | null | undefined): number {
+  if (!plan) return 0;
+  switch (plan.status) {
+    case 'active':
+      return plan.monthlyCents > 0 ? 6 : 5;
+    case 'trial':
+      return plan.active ? 4 : 1;
+    case 'cancelled':
+      return plan.active ? 3 : 1;
+    case 'past_due':
+      return 2;
+  }
+}
+
+type CompanySortKey = 'name' | 'balance' | 'leads' | 'spent' | 'plan' | 'won';
+type CompanySort = { key: CompanySortKey; desc: boolean } | null;
+
+/** Compares two companies by one column, strongest or biggest first. Ties go A to Z by name. */
+function compareCompanies(a: Company, b: Company, key: CompanySortKey, desc: boolean): number {
+  const byName = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+  if (key === 'name') return desc ? -byName : byName;
+  let diff: number;
+  switch (key) {
+    case 'balance':
+      diff = a.balanceCents - b.balanceCents;
+      break;
+    case 'leads':
+      diff = a.leads30d - b.leads30d;
+      break;
+    case 'spent':
+      diff = a.spent30dCents - b.spent30dCents;
+      break;
+    case 'won':
+      diff = a.wonCents - b.wonCents;
+      break;
+    case 'plan':
+      diff = planRank(a.plan) - planRank(b.plan);
+      // Two trials, or two plans ending: the one with more time left is stronger.
+      if (diff === 0 && a.plan && b.plan && a.plan.active && b.plan.active && a.plan.status === b.plan.status) {
+        diff = Date.parse(a.plan.nextChargeAt) - Date.parse(b.plan.nextChargeAt);
+      }
+      break;
+  }
+  if (diff === 0) return byName;
+  return desc ? -diff : diff;
+}
+
+/** A column heading you can tap to sort by it; tap again to flip it. */
+const SortHeading: React.FC<{
+  label: string;
+  column: CompanySortKey;
+  sort: CompanySort;
+  onSort: (column: CompanySortKey) => void;
+  align: 'left' | 'right';
+  className?: string;
+}> = ({ label, column, sort, onSort, align, className = '' }) => {
+  const on = sort?.key === column;
+  const Arrow = on && sort?.desc ? ChevronDown : ChevronUp;
+  return (
+    <th
+      scope="col"
+      aria-sort={on ? (sort?.desc ? 'descending' : 'ascending') : 'none'}
+      className={`font-medium px-2 py-0 ${align === 'right' ? 'text-right' : 'text-left'} ${className}`}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        className={`inline-flex items-center gap-1 min-h-[44px] px-2 w-full uppercase tracking-wide ${align === 'right' ? 'justify-end' : 'justify-start'} ${on ? 'text-white' : '[@media(hover:hover)]:hover:text-white'}`}
+      >
+        {label}
+        <Arrow aria-hidden="true" className={`w-3 h-3 shrink-0 ${on ? '' : 'invisible'}`} />
+      </button>
+    </th>
+  );
+};
 
 interface MarketLead {
   id: string;
@@ -1190,6 +1267,14 @@ const LeadMarketPage: React.FC = () => {
   const applicationsLive = useApplications<Application[]>(staff);
   const inbox = inboxLive ?? { available: [], sold: [] };
   const companies = useMemo(() => companiesLive ?? [], [companiesLive]);
+  // Tap a heading on the Companies table to sort by it. Until then, newest company first.
+  const [companySort, setCompanySort] = useState<CompanySort>(null);
+  const sortCompaniesBy = (column: CompanySortKey) =>
+    setCompanySort((current) => (current?.key === column ? { key: column, desc: !current.desc } : { key: column, desc: column !== 'name' }));
+  const sortedCompanies = useMemo(
+    () => (companySort ? [...companies].sort((a, b) => compareCompanies(a, b, companySort.key, companySort.desc)) : companies),
+    [companies, companySort],
+  );
   const credits = creditsLive ?? [];
   const applications = applicationsLive ?? [];
   const loading = inboxLive === undefined || companiesLive === undefined;
@@ -1589,16 +1674,16 @@ const LeadMarketPage: React.FC = () => {
             <table className="w-full text-sm" aria-label="Companies">
               <thead className="text-xs text-gray-500 uppercase tracking-wide">
                 <tr className="border-b border-[#2A2A2A]">
-                  <th className="text-left font-medium px-4 py-2">Company</th>
-                  <th className="text-right font-medium px-4 py-2">Balance</th>
-                  <th className="text-right font-medium px-4 py-2 hidden sm:table-cell">Leads (30d)</th>
-                  <th className="text-right font-medium px-4 py-2 hidden sm:table-cell">Spent (30d)</th>
-                  <th className="text-left font-medium px-4 py-2">Plan</th>
-                  <th className="text-right font-medium px-4 py-2">Job value</th>
+                  <SortHeading label="Company" column="name" sort={companySort} onSort={sortCompaniesBy} align="left" />
+                  <SortHeading label="Balance" column="balance" sort={companySort} onSort={sortCompaniesBy} align="right" />
+                  <SortHeading label="Leads (30d)" column="leads" sort={companySort} onSort={sortCompaniesBy} align="right" className="hidden sm:table-cell" />
+                  <SortHeading label="Spent (30d)" column="spent" sort={companySort} onSort={sortCompaniesBy} align="right" className="hidden sm:table-cell" />
+                  <SortHeading label="Plan" column="plan" sort={companySort} onSort={sortCompaniesBy} align="left" />
+                  <SortHeading label="Job value" column="won" sort={companySort} onSort={sortCompaniesBy} align="right" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#2A2A2A]">
-                {companies.map((company) => (
+                {sortedCompanies.map((company) => (
                   <tr
                     key={company.id}
                     onClick={() => setOpenCompanyId(company.id)}
