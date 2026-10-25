@@ -254,55 +254,6 @@ function TradePicker({ trades, value, onChange }: { trades: Trade[]; value: stri
   );
 }
 
-/** Re-confirming a Vault lead after a fresh call: one line on what the homeowner said. Saving stamps today's date on the lead. Leads are confirmed the first time in Intake. */
-function VerifyDialog({ lead, onClose, onSaved }: { lead: MarketLead; onClose: () => void; onSaved: () => void }) {
-  const [note, setNote] = useState(lead.verified?.note ?? '');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const save = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    setError(null);
-    try {
-      await marketplaceAPI.verifyLead(lead.id, note);
-      onSaved();
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "That didn't save");
-    } finally {
-      setSaving(false);
-    }
-  };
-  return (
-    <Dialog title={`${lead.verified ? 'Re-confirm' : 'Confirm'} ${lead.name}`} onClose={onClose}>
-      <form onSubmit={save}>
-        <p className="text-sm text-gray-400 mb-3">
-          Companies will see “Confirmed {new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}” on this lead, with your line.
-        </p>
-        <Field label="What did they say?">
-          <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            rows={3}
-            placeholder="e.g. Wants a quote this month, budget about $8K"
-            className={input}
-            autoFocus
-          />
-        </Field>
-        {error && <p className="text-sm text-red-300 mb-3">{error}</p>}
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className={secondary}>
-            Cancel
-          </button>
-          <button type="submit" disabled={saving} className={primary}>
-            {saving ? 'Saving…' : 'Mark confirmed'}
-          </button>
-        </div>
-      </form>
-    </Dialog>
-  );
-}
-
 /** The Midland permit feed: when it last ran, how it went, and a button to run it now. */
 function PermitsCard() {
   type Status = { source: { syncedAt: string; fetched: number; added: number; updated: number; error?: string } | null; last30Days: number };
@@ -1222,7 +1173,6 @@ const LeadMarketPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [trades, setTrades] = useState<Trade[]>([]);
   const [sending, setSending] = useState<MarketLead | null>(null);
-  const [verifying, setVerifying] = useState<MarketLead | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   // Staff run the page; only the owner sees money, prices, demo data and companies' setup.
   const staff = isStaff(user);
@@ -1587,17 +1537,12 @@ const LeadMarketPage: React.FC = () => {
                         {lead.county ? ` · ${lead.county} County` : lead.city ? ` · ${lead.city}` : ''} · for sale since{' '}
                         {new Date(lead.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                       </span>
-                      {/* Older leads are re-confirmed before they're worth claiming; say which still need the call. */}
+                      {/* Confirmed once, in Intake. Staff don't call Vault leads again: the company that claims one calls it. */}
                       {lead.verified ? (
                         <Confirmed verified={lead.verified} className="mt-0.5" />
                       ) : (
-                        <span className="block text-xs text-amber-200/80 mt-0.5">Not confirmed yet</span>
+                        <span className="block text-xs text-gray-500 mt-0.5">Not confirmed</span>
                       )}
-                    </span>
-                    <span className="flex items-center gap-2 flex-shrink-0">
-                      <button type="button" className={secondary} onClick={() => setVerifying(lead)}>
-                        {lead.verified ? 'Re-confirm' : 'Confirm'}
-                      </button>
                     </span>
                   </li>
                 ))}
@@ -1732,7 +1677,6 @@ const LeadMarketPage: React.FC = () => {
 
       {confirmActionDialog}
       {owner && creating === 'company' && <NewCompanyDialog trades={trades} onClose={closeCreate} onSaved={() => setNotice('Company added.')} />}
-      {verifying && <VerifyDialog lead={verifying} onClose={() => setVerifying(null)} onSaved={() => setNotice(`${verifying.name} confirmed.`)} />}
       {sending && (
         <SendToDialog
           lead={sending}

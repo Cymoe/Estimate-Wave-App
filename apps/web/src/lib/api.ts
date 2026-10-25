@@ -442,8 +442,6 @@ export const marketplaceAPI = {
     organizationId: string,
     changes: { status?: 'trial' | 'active' | 'past_due' | 'cancelled'; monthlyCents?: number; claimsIncluded?: number; extraClaimCents?: number },
   ) => run('mutation', api.marketplace.setPlan, defined({ organizationId, ...changes })),
-  verifyLead: (id: string, note?: string) => run('mutation', api.marketplace.verifyLead, { id, note }),
-  clearVerified: (id: string) => run('mutation', api.marketplace.clearVerified, { id }),
   recordTopUp: (organizationId: string, payment: { amount: number; bonus?: number; method?: string; note?: string }) =>
     run('mutation', api.marketplace.recordTopUp, defined({ organizationId, ...payment })),
   prices: () => run('query', api.marketplace.listLeadPrices, {}),

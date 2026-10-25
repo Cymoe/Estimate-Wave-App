@@ -200,7 +200,7 @@ describe('Lead Market', () => {
     expect(panel.textContent).not.toContain('Record a payment');
   });
 
-  it('confirms a lead once, in Intake: For sale shows the stamp with no second Confirm, and only a Vault lead offers Re-confirm', async () => {
+  it('confirms a lead once, in Intake: For sale and the Vault show the stamp, and nobody is asked to call again', async () => {
     role = 'super_admin';
     await render(<LeadMarketPage />);
     await openListed();
@@ -211,8 +211,10 @@ describe('Lead Market', () => {
     expect(Array.from(listed.querySelectorAll('button')).map((b) => b.textContent)).not.toContain('Confirm');
     const vault = document.body.querySelector('ul[aria-label="The Vault"]')!;
     expect(vault.textContent).toContain('Old Hollis');
-    expect(vault.textContent).toContain('Not confirmed yet');
-    expect(Array.from(vault.querySelectorAll('button')).map((b) => b.textContent)).toContain('Confirm');
+    expect(vault.textContent).toContain('Not confirmed');
+    // No Confirm or Re-confirm on Vault leads: the company that claims one calls the homeowner.
+    expect(Array.from(vault.querySelectorAll('button')).map((b) => b.textContent)).not.toContain('Confirm');
+    expect(Array.from(vault.querySelectorAll('button')).map((b) => b.textContent)).not.toContain('Re-confirm');
   });
 
   it('lists every webhook hit under Intake, accepted or not, with the reason', async () => {
