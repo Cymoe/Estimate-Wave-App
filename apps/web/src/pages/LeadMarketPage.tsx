@@ -1261,7 +1261,7 @@ const LeadMarketPage: React.FC = () => {
 
   // Everything on the page is a live subscription: a sale, a payment, an
   // application or a credit shows the moment it lands, from any device.
-  const inboxLive = useInbox<{ available: MarketLead[]; older?: MarketLead[]; archivedCount?: number; sold: MarketLead[] }>(staff);
+  const inboxLive = useInbox<{ available: MarketLead[]; older?: MarketLead[]; sold: MarketLead[] }>(staff);
   const companiesLive = useCompanies<Company[]>(staff);
   const creditsLive = usePendingCredits<CreditRequest[]>(staff);
   const applicationsLive = useApplications<Application[]>(staff);
@@ -1568,7 +1568,7 @@ const LeadMarketPage: React.FC = () => {
             <section>
               <h2 className="text-sm font-medium text-gray-300 mb-2">
                 The Vault · {inbox.older!.length}
-                <span className="text-xs text-gray-500 font-normal"> · a week old, claimable on the plan; archived at a month</span>
+                <span className="text-xs text-gray-500 font-normal"> · a week or more old, claimable on the plan. They stay until someone claims them.</span>
               </h2>
               <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="The Vault">
                 {inbox.older!.map((lead) => (
@@ -1591,26 +1591,11 @@ const LeadMarketPage: React.FC = () => {
                       <button type="button" className={secondary} onClick={() => setVerifying(lead)}>
                         {lead.verified ? 'Re-confirm' : 'Confirm'}
                       </button>
-                      <button
-                        type="button"
-                        className={secondary}
-                        onClick={() =>
-                          attempt(`${lead.name} wasn't archived`, async () => {
-                            await marketplaceAPI.archiveLead(lead.id);
-                            setNotice(`${lead.name} archived. It's out of the Vault.`);
-                          })
-                        }
-                      >
-                        Archive
-                      </button>
                     </span>
                   </li>
                 ))}
               </ul>
             </section>
-          )}
-          {(inbox.archivedCount ?? 0) > 0 && (
-            <p className="text-xs text-gray-500">{inbox.archivedCount} archived lead{inbox.archivedCount === 1 ? '' : 's'}.</p>
           )}
           <PermitsCard />
         </div>

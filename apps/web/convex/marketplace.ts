@@ -42,7 +42,6 @@ import { deleteDemoIntake } from "./intake";
 import { dropBidsOutsideTrades, outbidUnseen } from "./lib/standing";
 import { knownTrades } from "./industries";
 import {
-  ARCHIVE_AFTER_DAYS,
   OLDER_AFTER_DAYS,
   type Plan,
   claimPrice,
@@ -133,12 +132,6 @@ export const listInbox = query({
       .withIndex("by_status", (q) => q.eq("status", "older"))
       .order("desc")
       .take(200);
-    const archivedCount = (
-      await ctx.db
-        .query("marketplaceLeads")
-        .withIndex("by_status", (q) => q.eq("status", "archived"))
-        .take(1000)
-    ).length;
     const names = new Map<string, string>();
     const withCompany = async (lead: Doc<"marketplaceLeads">) => {
       const orgId = lead.assignedOrganizationId;
@@ -177,7 +170,6 @@ export const listInbox = query({
     return {
       available: await Promise.all(available.map(withCompany)),
       older: await Promise.all(older.map(withCompany)),
-      archivedCount,
       sold: await Promise.all(
         [...sold, ...credited]
           .sort((a, b) =>
@@ -285,19 +277,6 @@ export const clearVerified = mutation({
   },
 });
 
-/** Takes a lead out of every list without selling it. */
-export const archiveLead = mutation({
-  args: { id: v.id("marketplaceLeads") },
-  handler: async (ctx, { id }) => {
-    await requireStaff(ctx);
-    const lead = await ctx.db.get(id);
-    if (lead === null) fail("NOT_FOUND", "Lead not found");
-    if (lead.status !== "available" && lead.status !== "older")
-      fail("INVALID", "Only a lead for sale or in the Vault can be archived");
-    await loseOpenOrders(ctx, id, "Lead archived");
-    await ctx.db.patch(id, { status: "archived", updatedAt: nowIso() });
-  },
-});
 
 /** Marks every open buy order on a lead lost, with the reason. */
 async function loseOpenOrders(
@@ -319,9 +298,10 @@ async function loseOpenOrders(
 }
 
 /**
- * Hourly: Marketplace leads nobody bought in a week move to Older leads,
- * where companies on the plan can claim them; a month after listing
- * they're archived.
+ * Hourly: Marketplace leads nobody bought in a week move to the Vault,
+ * where companies on the plan can claim them. They stay there until
+ * someone does: nothing is archived. A lead archived before that rule
+ * goes back into the Vault.
  */
 export const ageLeads = internalMutation({
   args: {},
@@ -331,7 +311,7 @@ export const ageLeads = internalMutation({
     const listedMs = (lead: Doc<"marketplaceLeads">) =>
       Date.parse(lead.auction?.listedAt ?? lead.createdAt);
     let moved = 0;
-    let archived = 0;
+    let restored = 0;
     const available = await ctx.db
       .query("marketplaceLeads")
       .withIndex("by_status", (q) => q.eq("status", "available"))
@@ -342,16 +322,15 @@ export const ageLeads = internalMutation({
       await ctx.db.patch(lead._id, { status: "older", updatedAt: now });
       moved++;
     }
-    const older = await ctx.db
+    const archived = await ctx.db
       .query("marketplaceLeads")
-      .withIndex("by_status", (q) => q.eq("status", "older"))
+      .withIndex("by_status", (q) => q.eq("status", "archived"))
       .take(500);
-    for (const lead of older) {
-      if (listedMs(lead) > nowMs - ARCHIVE_AFTER_DAYS * DAY_MS) continue;
-      await ctx.db.patch(lead._id, { status: "archived", updatedAt: now });
-      archived++;
+    for (const lead of archived) {
+      await ctx.db.patch(lead._id, { status: "older", updatedAt: now });
+      restored++;
     }
-    return { moved, archived };
+    return { moved, restored };
   },
 });
 

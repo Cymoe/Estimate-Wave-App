@@ -15,8 +15,6 @@ export const DEFAULT_PLAN = {
 export const TRIAL_DAYS = 30;
 /** A Marketplace lead nobody bought in this long moves to Older leads. */
 export const OLDER_AFTER_DAYS = 7;
-/** An older lead this old is archived. */
-export const ARCHIVE_AFTER_DAYS = 30;
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 

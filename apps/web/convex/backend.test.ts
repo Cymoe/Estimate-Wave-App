@@ -4555,7 +4555,7 @@ describe("older leads and the monthly plan", () => {
   const status = async (t: any, leadId: any) =>
     (await t.run(async (ctx: any) => ctx.db.get(leadId))).status;
 
-  test("a lead nobody buys moves to Older leads after a week and is archived after a month", async () => {
+  test("a lead nobody buys moves to the Vault after a week and stays there; nothing is archived", async () => {
     try {
       const { t, admin, roofer, rival, leadId } = await market();
       await rival.as.mutation(api.marketplace.placeBid, {
@@ -4566,12 +4566,12 @@ describe("older leads and the monthly plan", () => {
       vi.setSystemTime(new Date("2026-10-07T12:00:00.000Z"));
       expect(await t.mutation(internal.marketplace.ageLeads, {})).toEqual({
         moved: 0,
-        archived: 0,
+        restored: 0,
       });
       vi.setSystemTime(new Date("2026-10-08T13:00:00.000Z"));
       expect(await t.mutation(internal.marketplace.ageLeads, {})).toEqual({
         moved: 1,
-        archived: 0,
+        restored: 0,
       });
       expect(await status(t, leadId)).toBe("older");
       // Gone from the Marketplace, and the rival's order on it has lost.
@@ -4593,15 +4593,26 @@ describe("older leads and the monthly plan", () => {
       expect(inbox.older.map((l) => l.name)).toEqual(["Jane Cole"]);
       expect(inbox.available).toHaveLength(0);
 
-      vi.setSystemTime(new Date("2026-11-01T13:00:00.000Z"));
+      // Months later it is still in the Vault, claimable: leads are never archived.
+      vi.setSystemTime(new Date("2027-03-01T13:00:00.000Z"));
       expect(await t.mutation(internal.marketplace.ageLeads, {})).toEqual({
         moved: 0,
-        archived: 1,
+        restored: 0,
       });
-      expect(await status(t, leadId)).toBe("archived");
+      expect(await status(t, leadId)).toBe("older");
+      expect((await wallet(roofer)).olderLeads).toBe(1);
+      // A lead archived under the old rule goes back into the Vault on the next run.
+      await t.run(async (ctx: any) => {
+        await ctx.db.patch(leadId, { status: "archived" });
+      });
+      expect(await t.mutation(internal.marketplace.ageLeads, {})).toEqual({
+        moved: 0,
+        restored: 1,
+      });
+      expect(await status(t, leadId)).toBe("older");
       expect(
-        (await admin.as.query(api.marketplace.listInbox, {})).archivedCount,
-      ).toBe(1);
+        (await admin.as.query(api.marketplace.listInbox, {})).older.map((l) => l.name),
+      ).toEqual(["Jane Cole"]);
     } finally {
       vi.useRealTimers();
     }

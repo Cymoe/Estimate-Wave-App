@@ -109,7 +109,6 @@ jest.mock('../../../lib/api', () => ({
     removeCompany: (id: string) => removeCompany(id),
     setCompanyOwner: (id: string, email: string) => setCompanyOwner(id, email),
     setPlan: (id: string, changes: unknown) => setPlan(id, changes),
-    archiveLead: async () => undefined,
     removeLead: (id: string) => removeLead(id),
     creditLead: (id: string, reason: string, note?: string) => creditLead(id, reason, note),
   },

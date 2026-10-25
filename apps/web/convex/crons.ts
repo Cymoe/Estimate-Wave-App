@@ -3,8 +3,8 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
-// Marketplace leads nobody bought in a week move to Older leads; a month on
-// they're archived.
+// Marketplace leads nobody bought in a week move to the Vault, and stay there
+// until someone claims them.
 crons.hourly("age leads", { minuteUTC: 7 }, internal.marketplace.ageLeads, {});
 
 // Monthly plan fees come out of lead balances as they fall due.
