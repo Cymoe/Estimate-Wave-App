@@ -14,6 +14,7 @@ import { EstimateContractView } from './components/contracts/EstimateContractVie
 import { SharedServiceOption } from './pages/SharedServiceOption';
 // Packages page removed as part of simplification
 import LeadsLanding from './pages/LeadsLanding';
+import ConnectAssistant from './pages/ConnectAssistant';
 import Projects from './pages/marketing/Projects';
 import { BillsList } from './components/bills/BillsList';
 import { Callback } from './components/auth/Callback';
@@ -203,6 +204,15 @@ function AppRoutes() {
       } />
 
       {/* Protected routes */}
+      {/* Claude or ChatGPT asking to connect: the person approves it here. */}
+      <Route
+        path="/connect"
+        element={
+          <ProtectedRoute>
+            <ConnectAssistant />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/home"
         element={

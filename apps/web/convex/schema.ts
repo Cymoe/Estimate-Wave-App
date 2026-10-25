@@ -972,4 +972,58 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_email", ["email"])
     .index("by_phone", ["phone"]),
+
+  // Assistants (Claude, ChatGPT) that may sign in to the connector. A client
+  // either registered itself (dcr) or is known by the URL of its metadata
+  // document (cimd), which is fetched and kept here.
+  oauthClients: defineTable({
+    clientId: v.string(),
+    kind: v.union(v.literal("dcr"), v.literal("cimd")),
+    name: v.optional(v.string()),
+    redirectUris: v.array(v.string()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  }).index("by_clientId", ["clientId"]),
+
+  // One-use codes handed back after the person approves, swapped for tokens within 10 minutes.
+  oauthCodes: defineTable({
+    codeHash: v.string(),
+    clientId: v.string(),
+    userId: v.id("users"),
+    organizationId: v.id("organizations"),
+    redirectUri: v.string(),
+    codeChallenge: v.string(),
+    scopes: v.array(v.string()),
+    resource: v.optional(v.string()),
+    dailyCapCents: v.number(),
+    expiresAt: v.number(),
+    usedAt: v.optional(v.number()),
+  }).index("by_codeHash", ["codeHash"]),
+
+  // A connected assistant: who it acts for, in which company, what it may do,
+  // and its current tokens (hashes only). Disconnecting stamps revokedAt.
+  aiConnections: defineTable({
+    userId: v.id("users"),
+    organizationId: v.id("organizations"),
+    clientId: v.string(),
+    app: v.union(v.literal("claude"), v.literal("chatgpt"), v.literal("other")),
+    clientName: v.optional(v.string()),
+    scopes: v.array(v.string()),
+    dailyCapCents: v.number(),
+    spendDay: v.optional(v.string()),
+    spentTodayCents: v.optional(v.number()),
+    accessHash: v.string(),
+    accessExpiresAt: v.number(),
+    refreshHash: v.string(),
+    refreshExpiresAt: v.number(),
+    createdAt: v.string(),
+    lastUsedAt: v.optional(v.number()),
+    // Where "what's new" last left off.
+    lastCheckedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_access", ["accessHash"])
+    .index("by_refresh", ["refreshHash"])
+    .index("by_user", ["userId"])
+    .index("by_organization", ["organizationId"]),
 });

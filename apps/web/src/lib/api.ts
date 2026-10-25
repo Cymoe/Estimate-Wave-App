@@ -576,4 +576,47 @@ export const applicationsAPI = {
   decline: (id: string) => run('mutation', api.applications.decline, { id }),
 };
 
+export type AssistantRequest =
+  | { ok: false }
+  | {
+      ok: true;
+      app: 'claude' | 'chatgpt' | 'other';
+      appName: string;
+      domain: string;
+      issuer: string;
+      companies: Array<{ id: string; name: string; canSpend: boolean }>;
+    };
+
+export type AssistantConnection = {
+  id: string;
+  app: 'claude' | 'chatgpt' | 'other';
+  appName: string;
+  connectedAt: string;
+  lastUsedAt?: number;
+  spending: boolean;
+  dailyCapCents: number;
+  spentTodayCents: number;
+};
+
+/** Claude and ChatGPT connected to FieldQuote: approving a connection and managing them in Settings. */
+export const assistantsAPI = {
+  request: (clientId: string, redirectUri: string): Promise<AssistantRequest> =>
+    run('query', api.oauth.request, { clientId, redirectUri }),
+  approve: (args: {
+    clientId: string;
+    redirectUri: string;
+    codeChallenge: string;
+    state?: string;
+    resource?: string;
+    organizationId: string;
+    spending: boolean;
+    dailyCap?: number;
+  }): Promise<string> => run('mutation', api.oauth.approve, defined(args)),
+  connections: (organizationId: string): Promise<{ canSpend: boolean; connections: AssistantConnection[] }> =>
+    run('query', api.oauth.myConnections, { organizationId }),
+  update: (id: string, spending: boolean, dailyCap?: number) =>
+    run('mutation', api.oauth.updateConnection, defined({ id, spending, dailyCap })),
+  disconnect: (id: string) => run('mutation', api.oauth.disconnect, { id }),
+};
+
 export { APIError };

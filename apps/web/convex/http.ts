@@ -3,10 +3,13 @@ import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import { auth } from "./auth";
 import { verifyStripeSignature } from "./lib/stripe";
+import { addOAuthRoutes } from "./lib/oauthRoutes";
 
 const http = httpRouter();
 
 auth.addHttpRoutes(http);
+// Sign-in for assistants (Claude, ChatGPT) connecting to the connector.
+addOAuthRoutes(http);
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
