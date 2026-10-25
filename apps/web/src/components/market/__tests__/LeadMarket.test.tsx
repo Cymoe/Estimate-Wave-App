@@ -47,7 +47,7 @@ jest.mock('../../../lib/live', () => ({
   useDemandSlot: (_county: string, jobType: string) =>
     jobType === 'flooring'
       ? { bidders: [], buyers: [], leads: [] }
-      : { bidders: [{ companyName: 'Rich Roofing', amountCents: 30000, balanceCents: 40000, funded: true }, { companyName: 'Poor Roofing', amountCents: 40000, balanceCents: 100, funded: false }], buyers: ['Rich Roofing', 'Poor Roofing'], leads: [] },
+      : { bidders: [{ companyName: 'Rich Roofing', amountCents: 30000, balanceCents: 40000, funded: true, winning: true }, { companyName: 'Poor Roofing', amountCents: 40000, balanceCents: 100, funded: false, winning: false }], buyers: ['Rich Roofing', 'Poor Roofing'], leads: [] },
   useIntakeQueue: () => intakeRows,
   useIntakeLog: () => intakeLog,
   usePaymentsMode: () => payments,
@@ -848,7 +848,7 @@ describe('standing bids in Admin', () => {
     demand = {
       vaCostCents: 500, demoLeads: false, planCpl: { roofing: 6000 },
       slots: [
-        { county: 'Midland', jobType: 'roofing', tradeName: 'Roofing', bidders: 3, fundedBidders: 2, topFundedCents: 30000, secondFundedCents: 25000, depthLeads: 2, listed7: 2, listed30: 2, soldAtAward30: 2, sold30: 2, avgSoldCents: 30000, minSoldCents: 30000, maxSoldCents: 30000, lastSoldCents: 30000, sellThrough: 1, inMarketplace: 0, inVault: 0, planCplCents: 6000, marginCents: 23500, marginBasis: 'bid', state: 'open' },
+        { county: 'Midland', jobType: 'roofing', tradeName: 'Roofing', bidders: 3, fundedBidders: 2, topFundedCents: 30000, topBidderName: 'Rich Roofing', secondFundedCents: 25000, depthLeads: 2, listed7: 2, listed30: 2, soldAtAward30: 2, sold30: 2, avgSoldCents: 30000, minSoldCents: 30000, maxSoldCents: 30000, lastSoldCents: 30000, sellThrough: 1, inMarketplace: 0, inVault: 0, planCplCents: 6000, marginCents: 23500, marginBasis: 'bid', state: 'open' },
         { county: 'Ector', jobType: 'painting', tradeName: 'Painting', bidders: 1, fundedBidders: 1, topFundedCents: 20000, depthLeads: 2, listed7: 0, listed30: 4, soldAtAward30: 1, sold30: 3, avgSoldCents: 14000, minSoldCents: 9000, maxSoldCents: 20000, lastSoldCents: 9000, sellThrough: 0.75, inMarketplace: 1, inVault: 0, buyers: 1, planCplCents: 5000, marginCents: 8500, marginBasis: 'sold', state: 'oversupplied' },
         { county: 'Midland', jobType: 'flooring', tradeName: 'Flooring', bidders: 0, fundedBidders: 0, depthLeads: 0, listed7: 1, listed30: 1, soldAtAward30: 0, sold30: 0, avgSoldCents: null, minSoldCents: null, maxSoldCents: null, lastSoldCents: null, sellThrough: 0, inMarketplace: 1, inVault: 0, buyers: 0, marginCents: null, marginBasis: 'bid', state: 'nobuyers' },
       ],
@@ -868,8 +868,10 @@ describe('standing bids in Admin', () => {
     const midland = cells.find((c) => c.getAttribute('data-state') === 'open')!;
     // A square leads with the profit in whole dollars, then the winning bid and what to do; the rest is in the hover text and the drawer.
     // Green with a winning bid means run ads: the card doesn't spell it out, the label and hover text still do.
-    expect(midland.textContent).toBe('$235 profitWinning bid $300');
-    expect(midland.getAttribute('aria-label')).toBe('Roofing in Midland County: $235 profit. Winning bid $300. Run ads here');
+    // The last line of a green square names who wins the next lead there.
+    expect(midland.textContent).toBe('$235 profitWinning bid $300Rich Roofing');
+    expect(midland.getAttribute('aria-label')).toBe('Roofing in Midland County: $235 profit. Winning bid $300, Rich Roofing. Run ads here');
+    expect(midland.getAttribute('title')).toContain('Wins the next lead: Rich Roofing');
     expect(midland.getAttribute('title')).toContain('Last 30 days: 2 Roofing leads in Midland County, 2 sold, about $300.00 each');
     expect(midland.getAttribute('title')).toContain('About +$235.00 profit a lead');
     expect(midland.getAttribute('title')!.split('\n')[0]).toBe('Run ads here · Profit is figured on the highest funded bid; switches to real sales after 3');
@@ -916,7 +918,7 @@ describe('standing bids in Admin', () => {
     expect(panel.querySelector('[data-testid="slot-profit"]')!.textContent).toBe('Worth it? $300.00 highest funded bid − $60.00 ad cost − $5.00 call = about $235.00 profit a lead.');
     // The bids summary that left the card lives here now.
     expect(panel.querySelector('[data-testid="slot-bids"]')!.textContent).toBe('3 bidders · highest funded bid $300.00 · covers 2 more');
-    expect(panel.querySelector('[aria-label="Bidders"]')!.textContent).toContain('Rich Roofing$300.00 · can pay for 1 more lead');
+    expect(panel.querySelector('[aria-label="Bidders"]')!.textContent).toContain('Rich RoofingWins the next lead$300.00 · can pay for 1 more lead');
     expect(panel.querySelector('[aria-label="Bidders"]')!.textContent).toContain("Poor Roofing$400.00 · can't pay: balance $1.00");
     await act(async () => (panel.querySelector('button[aria-label="Close"]') as HTMLButtonElement).click());
     // The search box narrows the grid to matching counties and trades.

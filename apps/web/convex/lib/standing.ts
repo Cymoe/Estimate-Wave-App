@@ -5,6 +5,14 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { nowIso } from "./access";
 
+/** Winning order for standing bids: highest first; a tie goes to whoever reached that amount first. */
+export const winningOrder = (
+  a: Pick<Doc<"standingBids">, "amountCents" | "amountSetAt" | "createdAt">,
+  b: Pick<Doc<"standingBids">, "amountCents" | "amountSetAt" | "createdAt">,
+): number =>
+  b.amountCents - a.amountCents ||
+  (a.amountSetAt ?? a.createdAt).localeCompare(b.amountSetAt ?? b.createdAt);
+
 /** Active companies' standing bids for a county and trade, highest first; a tie goes to whoever reached that amount first. */
 export async function standingBidsFor(
   ctx: QueryCtx | MutationCtx,
@@ -22,11 +30,7 @@ export async function standingBidsFor(
     const organization = await ctx.db.get(row.organizationId);
     if (organization?.isActive) active.push(row);
   }
-  return active.sort(
-    (a, b) =>
-      b.amountCents - a.amountCents ||
-      (a.amountSetAt ?? a.createdAt).localeCompare(b.amountSetAt ?? b.createdAt),
-  );
+  return active.sort(winningOrder);
 }
 
 /** Active companies that list a trade among the ones they buy leads for. */

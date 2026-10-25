@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { fail, nowIso, requireStaff, requireSuperAdmin } from "./lib/access";
-import { buyersOf } from "./lib/standing";
+import { buyersOf, winningOrder } from "./lib/standing";
 
 /**
  * The demand board: for every county and trade, how many companies have a
@@ -24,6 +24,8 @@ interface Slot {
   bidders: number;
   fundedBidders: number;
   topFundedCents?: number;
+  /** The company whose bid wins the next lead here, by the same rule the bidding uses. */
+  topBidderName?: string;
   secondFundedCents?: number;
   depthLeads: number;
   listed7: number;
@@ -73,7 +75,7 @@ export async function computeSlots(ctx: QueryCtx | MutationCtx, now = Date.now()
     if (!orgs.has(id)) orgs.set(id, await ctx.db.get(id));
     return orgs.get(id)!;
   };
-  const funded = new Map<string, number[]>();
+  const funded = new Map<string, Array<{ bid: Doc<"standingBids">; name: string }>>();
   for (const bid of bids) {
     const company = await org(bid.organizationId);
     if (!company?.isActive) continue;
@@ -84,15 +86,16 @@ export async function computeSlots(ctx: QueryCtx | MutationCtx, now = Date.now()
       s.fundedBidders++;
       s.depthLeads += Math.floor(balance / bid.amountCents);
       const list = funded.get(key(bid.county, bid.jobType)) ?? [];
-      list.push(bid.amountCents);
+      list.push({ bid, name: company.name });
       funded.set(key(bid.county, bid.jobType), list);
     }
   }
-  for (const [k, amounts] of funded) {
-    const sorted = amounts.sort((a, b) => b - a);
+  for (const [k, list] of funded) {
+    const sorted = list.sort((a, b) => winningOrder(a.bid, b.bid));
     const s = slots.get(k)!;
-    s.topFundedCents = sorted[0];
-    s.secondFundedCents = sorted[1];
+    s.topFundedCents = sorted[0]?.bid.amountCents;
+    s.topBidderName = sorted[0]?.name;
+    s.secondFundedCents = sorted[1]?.bid.amountCents;
   }
 
   // Leads: listed in the last 7 and 30 days, sold at award, sitting unsold.
@@ -216,6 +219,7 @@ export const board = query({
             bidders: r.bidders,
             fundedBidders: r.fundedBidders,
             topFundedCents: r.topFundedCents,
+            topBidderName: r.topBidderName,
             secondFundedCents: r.secondFundedCents,
             depthLeads: r.depthLeads,
             listed7: r.listed7,
@@ -267,12 +271,17 @@ export const slot = query({
       .query("standingBids")
       .withIndex("by_county_and_type", (q) => q.eq("county", county).eq("jobType", jobType))
       .collect();
+    // In winning order, and the first bid a balance can pay is marked: that company gets the next lead.
     const bidders = [];
-    for (const bid of bids.sort((a, b) => b.amountCents - a.amountCents)) {
+    let winnerFound = false;
+    for (const bid of bids.sort(winningOrder)) {
       const company = await ctx.db.get(bid.organizationId);
       if (!company?.isActive) continue;
       const balance = company.walletBalanceCents ?? 0;
-      bidders.push({ companyName: company.name, amountCents: bid.amountCents, balanceCents: balance, funded: balance >= bid.amountCents });
+      const funded = balance >= bid.amountCents;
+      const winning = funded && !winnerFound;
+      if (winning) winnerFound = true;
+      bidders.push({ companyName: company.name, amountCents: bid.amountCents, balanceCents: balance, funded, winning });
     }
     const buyers = (await buyersOf(ctx, jobType)).map((o) => o.name);
     const since30 = new Date(Date.now() - 30 * DAY_MS).toISOString();

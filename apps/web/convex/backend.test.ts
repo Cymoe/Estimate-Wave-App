@@ -927,11 +927,13 @@ describe("demand board", () => {
 
     const detail = await va.as.query(api.demand.slot, { county: "Midland", jobType: "roofing" });
     expect(detail.buyers.sort()).toEqual(["Mid Roofing", "Poor Roofing", "Rich Roofing"]);
-    expect(detail.bidders.map((b) => [b.companyName, b.amountCents, b.funded])).toEqual([
-      ["Poor Roofing", 40000, false],
-      ["Rich Roofing", 30000, true],
-      ["Mid Roofing", 25000, true],
+    expect(detail.bidders.map((b) => [b.companyName, b.amountCents, b.funded, b.winning])).toEqual([
+      ["Poor Roofing", 40000, false, false],
+      ["Rich Roofing", 30000, true, true],
+      ["Mid Roofing", 25000, true, false],
     ]);
+    // The square names the company that can pay and wins, not Poor's higher bid it can't cover.
+    expect(midland.topBidderName).toBe("Rich Roofing");
     expect(detail.leads.map((l) => [l.name, l.status, l.companyName])).toEqual([
       ["B", "assigned", "Rich Roofing"],
       ["A", "assigned", "Rich Roofing"],
@@ -4630,6 +4632,18 @@ describe("older leads and the monthly plan", () => {
         return (await standingBidsFor(ctx, "Midland", "roofing")).map((b) => b.organizationId);
       });
       expect(order).toEqual([early.organizationId, late.organizationId]);
+      // The Demand board and its drawer name the same winner the bidding picks, not whichever $300 came up first.
+      await t.run(async (ctx) => {
+        await ctx.db.patch(early.organizationId, { name: "Early Roofing" });
+        await ctx.db.patch(late.organizationId, { name: "Late Roofing" });
+      });
+      const square = (await admin.as.query(api.demand.board, {})).slots.find((s) => s.county === "Midland" && s.jobType === "roofing")!;
+      expect(square).toMatchObject({ topFundedCents: 30000, topBidderName: "Early Roofing" });
+      const drawer = await admin.as.query(api.demand.slot, { county: "Midland", jobType: "roofing" });
+      expect(drawer.bidders.map((b) => [b.companyName, b.winning])).toEqual([
+        ["Early Roofing", true],
+        ["Late Roofing", false],
+      ]);
       const listed = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Hail Roof", phone: "4325550142", city: "Midland", jobType: "roofing" } });
       expect((await t.run(async (ctx) => ctx.db.get(listed!._id)))?.assignedOrganizationId).toBe(early.organizationId);
     } finally {

@@ -13,6 +13,8 @@ export interface DemandSlot {
   bidders: number;
   fundedBidders: number;
   topFundedCents?: number;
+  /** The company whose bid wins the next lead here. */
+  topBidderName?: string;
   secondFundedCents?: number;
   depthLeads: number;
   listed7: number;
@@ -123,6 +125,7 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
           : ''
       }`,
       cell(s),
+      s.topBidderName ? `Wins the next lead: ${s.topBidderName}` : '',
       sales(s),
       margin(s) ?? '',
     ]
@@ -130,9 +133,11 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
       .join('\n');
   // Narrow enough to fit six or seven trades across an iPad: the profit, then what to do.
   const CARD = 'h-[4.75rem] w-full text-left rounded border px-2 py-1.5 leading-snug overflow-hidden';
-  // Green with a winning bid already says "run ads": only the other colours spell out what to do.
-  const action = (s: DemandSlot) => (s.state === 'open' ? null : STATE[s.state].label);
-  const named = (s: DemandSlot) => `${s.tradeName} in ${s.county} County: ${headline(s)}.${winningBid(s) ? ` ${winningBid(s)}.` : ''} ${STATE[s.state].label}`;
+  // Green with a winning bid already says "run ads", so its last line names who wins the next lead.
+  // The other colours keep what to do there: that matters more than who leads.
+  const lastLine = (s: DemandSlot) => (s.state === 'open' ? s.topBidderName ?? null : STATE[s.state].label);
+  const named = (s: DemandSlot) =>
+    `${s.tradeName} in ${s.county} County: ${headline(s)}.${winningBid(s) ? ` ${winningBid(s)}${s.topBidderName ? `, ${s.topBidderName}` : ''}.` : ''} ${STATE[s.state].label}`;
 
   return (
     <div className="space-y-4" data-testid="demand-board">
@@ -188,7 +193,7 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
                             <button type="button" onClick={() => setOpen(s)} title={tip(s)} aria-label={named(s)} data-state={s.state} className={`${CARD} ${STATE[s.state].cell}`}>
                               <span className="block truncate text-base font-semibold">{headline(s)}</span>
                               <span className="block truncate text-xs">{winningBid(s) ?? '\u00a0'}</span>
-                              {action(s) && <span className="block truncate text-[11px] opacity-75">{action(s)}</span>}
+                              {lastLine(s) && <span className="block truncate text-[11px] opacity-75">{lastLine(s)}</span>}
                             </button>
                           ) : (
                             <span className="flex h-[4.75rem] items-center justify-center text-gray-700">·</span>
@@ -211,7 +216,7 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
                     </span>
                     <span className="shrink-0 text-base font-semibold">{headline(s)}</span>
                   </span>
-                  <span className="block truncate text-xs opacity-75">{[winningBid(s), action(s)].filter(Boolean).join(' · ') || '\u00a0'}</span>
+                  <span className="block truncate text-xs opacity-75">{[winningBid(s), lastLine(s)].filter(Boolean).join(' · ') || '\u00a0'}</span>
                 </button>
               </li>
             ))}
@@ -288,7 +293,7 @@ function SlotPanel({ slot, vaCostCents, demo, onClose }: { slot: DemandSlot; vaC
   const panelRef = usePanel<HTMLElement>(onClose);
   const detail =
     useDemandSlot<{
-      bidders: Array<{ companyName: string; amountCents: number; balanceCents: number; funded: boolean }>;
+      bidders: Array<{ companyName: string; amountCents: number; balanceCents: number; funded: boolean; winning?: boolean }>;
       buyers: string[];
       leads: Array<{ id: string; name: string; status: string; createdAt: string; priceCents?: number; companyName?: string }>;
     }>(slot.county, slot.jobType) ?? null;
@@ -344,7 +349,10 @@ function SlotPanel({ slot, vaCostCents, demo, onClose }: { slot: DemandSlot; vaC
               <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="Bidders">
                 {detail.bidders.map((b) => (
                   <li key={b.companyName} className="flex items-center justify-between gap-3 px-3 py-2">
-                    <span className="text-white">{b.companyName}</span>
+                    <span className="text-white">
+                      {b.companyName}
+                      {b.winning && <span className="ml-2 rounded bg-emerald-500/15 border border-emerald-500/40 px-1.5 py-0.5 text-[11px] text-emerald-200">Wins the next lead</span>}
+                    </span>
                     <span className={b.funded ? 'text-emerald-300' : 'text-amber-300'}>
                       {money(b.amountCents)} ·{' '}
                       {b.funded
