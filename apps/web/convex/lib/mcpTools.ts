@@ -4,6 +4,8 @@ import { listDef, logContactDef, updateDef, acknowledgeDef } from "../leads";
 import { bidsDef, buyDef, cancelBidDef, claimDef, feedDef, olderLeadsDef, placeBidDef, requestCreditDef, walletDef, CREDIT_REASONS } from "../marketplace";
 import { listStandingDef, removeStandingDef, resultsDef, setStandingDef } from "../bids";
 import { createLinkDef } from "../funding";
+import { reportDef } from "../report";
+import { reportText } from "./report";
 import { siteUrl } from "../delivery";
 import { fail, getOwned, logActivity } from "./access";
 import { priceAt } from "./auction";
@@ -193,6 +195,30 @@ export const TOOLS: Tool[] = [
           : "Buying and bidding are off for this assistant; the person can turn them on in Tolliver → Company settings → Assistants.",
       ];
       return { text: lines.join("\n"), data };
+    },
+  },
+  {
+    name: "tolliver_report",
+    title: "The Tolliver Report",
+    description:
+      "The Tolliver Report: a county's last 7 days in building permits (how many, by trade, new homes, and where homes are going up), lead demand (what bids win at, what's unsold) and what sold, plus the company's own week. Use it for market questions: \"what's happening in Midland roofing?\", \"is it worth bidding in Ector?\". Without the Pro plan some parts are held back, and it says so.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        county: { type: "string", description: "Texas county. Defaults to where the company bids most, else Midland." },
+        trade: { type: "string", description: "Narrow to one trade, by name or slug, for example Roofing." },
+      },
+      additionalProperties: false,
+    },
+    readOnly: true,
+    scope: "leads",
+    run: async (ctx, connection, args) => {
+      const report = await reportDef.handler(ctx, {
+        organizationId: connection.organizationId,
+        county: str(args, "county", { max: 60 }),
+        trade: str(args, "trade", { max: 60 }),
+      });
+      return { text: reportText(report, { pro: app("/vault"), web: app("/leads") }), data: report };
     },
   },
   {

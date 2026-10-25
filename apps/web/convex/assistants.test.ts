@@ -542,3 +542,125 @@ describe("lead origin wording after the rename", () => {
     expect(leadRoute({ marketplaceLeadId: "m1", wonVia: "sent", pricePaidCents: 4000, source: "FieldQuote Lead" } as never)).toBe("Sent by Tolliver · $40.00");
   });
 });
+
+describe("the Tolliver Report", () => {
+  async function market() {
+    const { t, admin, roofer, forSaleId } = await roofingCompany();
+    const rival = await signUp(t, "rival@example.com");
+    const now = Date.now();
+    const daysAgo = (d: number) => new Date(now - d * 24 * 60 * 60 * 1000).toISOString();
+    await t.run(async (ctx) => {
+      const stamp = new Date().toISOString();
+      await ctx.db.insert("industries", { slug: "roofing", name: "Roofing", display_order: 1, is_active: true, created_at: stamp, updated_at: stamp });
+      await ctx.db.insert("industries", { slug: "electrical", name: "Electrical", display_order: 2, is_active: true, created_at: stamp, updated_at: stamp });
+      await ctx.db.patch(rival.organizationId, { name: "Rival Roofing Co", leadTrades: ["roofing"], walletBalanceCents: 100_000 });
+      await ctx.db.insert("standingBids", { organizationId: rival.organizationId, county: "Midland", jobType: "roofing", amountCents: 32_000, createdBy: rival.userId, createdAt: stamp, updatedAt: stamp });
+      const home = ["general-construction", "concrete", "roofing", "drywall", "window-door"];
+      const permit = (n: string, address: string, appliedAt: string, extra: Record<string, unknown> = {}) =>
+        ctx.db.insert("permits", {
+          source: "midland",
+          permitNumber: n,
+          name: "Residential - Building",
+          workClass: "Single Family",
+          detail: "New Construction",
+          address,
+          county: "Midland",
+          city: "Midland",
+          appliedAt,
+          trades: home,
+          importedAt: stamp,
+          url: `https://permits.example/${n}`,
+          ...extra,
+        });
+      await permit("RES-1", "2837 ROLLING PLAINS LN", daysAgo(1));
+      await permit("RES-2", "2841 ROLLING PLAINS LN", daysAgo(2));
+      await permit("RES-3", "2845 ROLLING PLAINS LN", daysAgo(3));
+      await permit("ELE-1", "100 MAIN ST", daysAgo(2), { name: "Electrical - Construction", workClass: undefined, detail: "Panel upgrade", trades: ["electrical"] });
+      await permit("RES-4", "6600 HONEY LOCUST LN", daysAgo(9));
+      await permit("RES-5", "6604 HONEY LOCUST LN", daysAgo(20));
+      await permit("OLD-1", "1 OLD RD", daysAgo(60));
+    });
+    await admin.as.mutation(api.marketplace.recordTopUp, { organizationId: roofer.organizationId, amount: 1000 });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(forSaleId, { county: "Midland" });
+    });
+    await admin.as.mutation(api.marketplace.assign, { leadId: forSaleId, organizationId: roofer.organizationId });
+    return { t, roofer };
+  }
+
+  const proPlan = () => ({
+    status: "active" as const,
+    monthlyCents: 9900,
+    claimsIncluded: 5,
+    extraClaimCents: 2500,
+    periodStart: new Date().toISOString(),
+    nextChargeAt: new Date(Date.now() + 20 * 24 * 60 * 60 * 1000).toISOString(),
+    claimsThisPeriod: 0,
+  });
+
+  test("free: the county's numbers, with the addresses, streets and own week held back for Pro", async () => {
+    const { t, roofer } = await market();
+    const { accessToken } = await connect(t, roofer);
+    const report = await tool(t, accessToken, "tolliver_report");
+    expect(report.text).toMatch(/^THE TOLLIVER REPORT · Midland County · /);
+    expect(report.text).toContain("4 filed this week, up 300% on last week (1).");
+    expect(report.text).toContain("New homes: 3 (1 the week before).");
+    expect(report.text).toContain("By trade: Roofing 3 (yours) · Concrete 3 · Drywall 3 · General construction 3 · Window door 3 · Electrical 1");
+    expect(report.text).toContain("Roofing (yours): leads win at $320.00 (1 funded bid)");
+    expect(report.text).toContain("1 lead(s) sold, none last week.");
+    expect(report.text).toContain("2 street(s) with several new homes going up this month; the Pro report names them.");
+    expect(report.text).toContain("3 of them are in your trades.");
+    expect(report.text).toContain(`comes with the Pro plan: ${SITE}/vault`);
+    expect(report.text).not.toContain("Rolling Plains");
+    expect(report.data.permits.list).toBeUndefined();
+    expect(report.data.mine).toBeUndefined();
+    // Other companies are never named, in the words or the data.
+    expect(JSON.stringify(report)).not.toContain("Rival");
+  });
+
+  test("Pro: where homes are going up, this week's permits in the company's trades, and its own week", async () => {
+    const { t, roofer } = await market();
+    await t.run(async (ctx) => {
+      await ctx.db.patch(roofer.organizationId, { plan: proPlan() });
+    });
+    const { accessToken } = await connect(t, roofer);
+    const report = await tool(t, accessToken, "tolliver_report");
+    expect(report.text).toContain("Where homes are going up (last 30 days): Rolling Plains Ln (3), Honey Locust Ln (2).");
+    expect(report.text).toContain("- 2837 ROLLING PLAINS LN · New home · ");
+    expect(report.text).not.toContain("100 MAIN ST");
+    expect(report.text).toContain("YOUR WEEK");
+    expect(report.text).toContain("3 permit(s) in your trades; 1 new lead(s) from Tolliver.");
+    expect(report.text).toContain("No standing bids in Midland County.");
+    expect(report.text).not.toContain("Pro plan:");
+    expect(JSON.stringify(report)).not.toContain("Rival");
+
+    // One trade: only its permits; an electrical company would see the panel upgrade.
+    const electrical = await tool(t, accessToken, "tolliver_report", { trade: "Electrical" });
+    expect(electrical.text).toMatch(/^THE TOLLIVER REPORT · Midland County · Electrical · /);
+    expect(electrical.text).toContain("1 filed this week");
+    expect(electrical.text).toContain("100 MAIN ST · Electrical - Construction: Panel upgrade");
+    expect((await tool(t, accessToken, "tolliver_report", { trade: "Basket weaving" })).text).toBe("No trade called Basket weaving");
+  });
+
+  test("a county with no permit feed says so and still gives demand and sales", async () => {
+    const { t, roofer } = await market();
+    const { accessToken } = await connect(t, roofer);
+    const report = await tool(t, accessToken, "tolliver_report", { county: "ector county" });
+    expect(report.text).toMatch(/^THE TOLLIVER REPORT · Ector County · /);
+    expect(report.text).toContain("No public permit feed for Ector County yet.");
+    expect(report.text).toContain("No bids or leads in Ector County yet.");
+    expect(report.text).toContain("No leads sold this week.");
+  });
+
+  test("street names and new homes are read from the permit's own words", async () => {
+    const { streetOf, isNewHome, hotStreets } = await import("./lib/report");
+    expect(streetOf("2837 ROLLING PLAINS LN")).toBe("Rolling Plains Ln");
+    expect(streetOf("1002 S ATLANTA ST, Unit 4")).toBe("S Atlanta St");
+    expect(streetOf("4234")).toBeUndefined();
+    expect(isNewHome({ name: "Residential - Building", workClass: "Single Family", detail: "New Construction" })).toBe(true);
+    expect(isNewHome({ name: "Residential - Building", detail: "New Residence" })).toBe(true);
+    expect(isNewHome({ name: "Residential - Building", workClass: "Single Family", detail: "24X40 DETACHED CARPORT" })).toBe(false);
+    expect(isNewHome({ name: "Residential - Building", workClass: "Addition", detail: "Addition" })).toBe(false);
+    expect(hotStreets([{ name: "Residential - Building", workClass: "Single Family", address: "1 A ST" }])).toEqual([]);
+  });
+});

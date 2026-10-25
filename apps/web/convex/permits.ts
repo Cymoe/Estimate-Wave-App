@@ -15,7 +15,7 @@ import {
 } from "./_generated/server";
 import { nowIso, requireMember, requireStaff, requireUser } from "./lib/access";
 import { planSummary } from "./marketplace";
-import { MIDLAND, PERMIT_FIELDS, monthOf, rowsToPermits } from "./lib/permits";
+import { FIELDS_VERSION, MIDLAND, PERMIT_FIELDS, monthOf, rowsToPermits } from "./lib/permits";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** How far back the first sync reaches. */
@@ -26,6 +26,7 @@ export const permitRow = v.object({
   name: v.string(),
   workClass: v.optional(v.string()),
   description: v.optional(v.string()),
+  detail: v.optional(v.string()),
   status: v.optional(v.string()),
   address: v.optional(v.string()),
   appliedAt: v.string(),
@@ -38,7 +39,7 @@ export const permitRow = v.object({
 });
 
 const sameRow = (a: Doc<"permits">, b: { [k: string]: unknown; trades: string[] }) =>
-  (["name", "workClass", "description", "status", "address", "issuedAt", "url"] as const).every(
+  (["name", "workClass", "description", "detail", "status", "address", "issuedAt", "url"] as const).every(
     (k) => (a[k] ?? undefined) === (b[k] ?? undefined),
   ) && a.trades.join(",") === b.trades.join(",");
 
@@ -89,6 +90,7 @@ export const recordSync = internalMutation({
     updated: v.number(),
     lastAppliedAt: v.optional(v.string()),
     error: v.optional(v.string()),
+    fieldsVersion: v.optional(v.number()),
   },
   handler: async (ctx, { source, ...result }) => {
     const existing = await ctx.db
@@ -120,9 +122,11 @@ const arcDate = (ms: number) => `DATE '${new Date(ms).toISOString().slice(0, 19)
 async function pullMidland(ctx: ActionCtx, days?: number) {
   const state = await ctx.runQuery(internal.permits.sourceState, { source: MIDLAND.source });
   // Overlap the last minute so a permit applied for while we were reading isn't missed.
-  const sinceMs = state?.lastAppliedAt
-    ? Date.parse(state.lastAppliedAt) - 60_000
-    : Date.now() - (days ?? BACKFILL_DAYS) * DAY_MS;
+  // A new field to read: go over the whole window again so stored permits get it too.
+  const sinceMs =
+    state?.lastAppliedAt && state.fieldsVersion === FIELDS_VERSION
+      ? Date.parse(state.lastAppliedAt) - 60_000
+      : Date.now() - (days ?? BACKFILL_DAYS) * DAY_MS;
   let offset = 0;
   let fetched = 0;
   let added = 0;
@@ -174,6 +178,8 @@ async function pullMidland(ctx: ActionCtx, days?: number) {
     updated,
     lastAppliedAt,
     error,
+    // Only a clean pass counts as having read every field.
+    fieldsVersion: error ? state?.fieldsVersion : FIELDS_VERSION,
   });
   return { fetched, added, updated, error };
 }

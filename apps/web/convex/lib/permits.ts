@@ -11,6 +11,12 @@ export const MIDLAND = {
     "https://services.arcgis.com/0H6bQdxd9223gQB5/arcgis/rest/services/Permits/FeatureServer/0",
 } as const;
 
+/**
+ * Bumped when PERMIT_FIELDS gains a field: the next sync then reads the
+ * whole backfill window again, so permits already stored get it too.
+ */
+export const FIELDS_VERSION = 2;
+
 /** The layer's fields we read. */
 export const PERMIT_FIELDS = [
   "PermitNumber",
@@ -18,6 +24,7 @@ export const PERMIT_FIELDS = [
   "Name",
   "PermitWorkClass",
   "Description",
+  "Description1",
   "Address",
   "ApplyDate",
   "DateIssued",
@@ -29,6 +36,8 @@ export type PermitRow = {
   name: string;
   workClass?: string;
   description?: string;
+  /** What the work is, in the applicant's words ("New Construction", "Install 18 panels…"). */
+  detail?: string;
   status?: string;
   address?: string;
   appliedAt: string;
@@ -107,6 +116,7 @@ export function rowsToPermits(features: Feature[]): PermitRow[] {
       name,
       workClass,
       description: text(a.Description),
+      detail: text(a.Description1)?.replace(/\s+/g, " ").slice(0, 300),
       status: text(a.PermitStatus),
       address: text(a.Address),
       appliedAt,

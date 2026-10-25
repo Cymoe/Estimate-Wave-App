@@ -530,6 +530,8 @@ export default defineSchema({
     name: v.string(),
     workClass: v.optional(v.string()),
     description: v.optional(v.string()),
+    // What the work is, in the applicant's words.
+    detail: v.optional(v.string()),
     status: v.optional(v.string()),
     address: v.optional(v.string()),
     county: v.string(),
@@ -555,6 +557,8 @@ export default defineSchema({
     added: v.number(),
     updated: v.number(),
     error: v.optional(v.string()),
+    // Which PERMIT_FIELDS the stored permits were read with (lib/permits.ts).
+    fieldsVersion: v.optional(v.number()),
   }).index("by_source", ["source"]),
 
   // Legacy: the round length from when leads sat in timed bidding rounds.

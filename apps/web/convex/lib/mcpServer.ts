@@ -15,6 +15,7 @@ const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 const INSTRUCTIONS = `Tolliver sells home-service leads (roofing, painting and more) to contracting companies, and keeps each company's leads.
 You are connected to one company for one person. Amounts are US dollars.
 - For an update, call whats_new. For context (balance, trades, what you may spend), call my_company.
+- For the market (permits, demand, what leads sell for in a county), call tolliver_report.
 - Homeowner contact details only appear on leads the company has (list_my_leads, get_lead), never on Marketplace leads before they are bought.
 - Before anything that spends from the balance, say what it costs and get a clear yes from the person.
 - Give the person the Tolliver links from results when they want to see something on the web.`;
