@@ -26,4 +26,7 @@ crons.daily(
   {},
 );
 
+// Builders and job value for new permits, from the city's permit portal (lib/energov.ts).
+crons.interval("look up Midland permit builders", { hours: 1 }, internal.permits.lookUpMidlandDetails, {});
+
 export default crons;

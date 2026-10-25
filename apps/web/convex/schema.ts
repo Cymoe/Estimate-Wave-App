@@ -544,9 +544,33 @@ export default defineSchema({
     trades: v.array(v.string()),
     url: v.optional(v.string()),
     importedAt: v.string(),
+    // From the city's permit portal (lib/energov.ts), filled in after import:
+    // what the job is worth, its size, and the companies on it. Only contacts
+    // with a company name are kept, so a homeowner pulling their own permit
+    // is never stored.
+    valuationCents: v.optional(v.number()),
+    squareFeet: v.optional(v.number()),
+    contacts: v.optional(
+      v.array(
+        v.object({
+          role: v.string(),
+          company: v.string(),
+          person: v.optional(v.string()),
+          phone: v.optional(v.string()),
+          email: v.optional(v.string()),
+        }),
+      ),
+    ),
+    // The contractor's company, else the applicant's.
+    builder: v.optional(v.string()),
+    // When the portal was read for this permit (set too once it has failed 3 times).
+    detailsAt: v.optional(v.string()),
+    detailsTries: v.optional(v.number()),
+    detailsError: v.optional(v.string()),
   })
     .index("by_permit_number", ["permitNumber"])
-    .index("by_county_and_applied", ["county", "appliedAt"]),
+    .index("by_county_and_applied", ["county", "appliedAt"])
+    .index("by_source_and_details", ["source", "detailsAt"]),
 
   // How each permit feed's last sync went.
   permitSources: defineTable({
@@ -559,6 +583,16 @@ export default defineSchema({
     error: v.optional(v.string()),
     // Which PERMIT_FIELDS the stored permits were read with (lib/permits.ts).
     fieldsVersion: v.optional(v.number()),
+    // How the last run reading builders from the city's permit portal went.
+    details: v.optional(
+      v.object({
+        at: v.string(),
+        looked: v.number(),
+        filled: v.number(),
+        failed: v.number(),
+        error: v.optional(v.string()),
+      }),
+    ),
   }).index("by_source", ["source"]),
 
   // Legacy: the round length from when leads sat in timed bidding rounds.

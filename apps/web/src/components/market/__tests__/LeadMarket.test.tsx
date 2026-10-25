@@ -11,6 +11,7 @@ let liveErrors: Record<string, string> = {};
 let role = 'super_admin';
 let emptyMarket = false;
 let feedLeads: unknown[] = [];
+let permitStatus: unknown = { source: null, last30Days: 0 };
 let soldLeads: unknown[] = [];
 const buyLead = jest.fn(async () => ({ orgLeadId: 'ol9' }));
 let demoCompanies = false;
@@ -101,7 +102,7 @@ jest.mock('../../../lib/api', () => ({
     removeInvite: async () => undefined,
     remove: async () => undefined,
   },
-  permitsAPI: { status: async () => ({ source: null, last30Days: 0 }), syncNow: async () => ({ fetched: 0, added: 0, updated: 0 }) },
+  permitsAPI: { status: async () => permitStatus, syncNow: async () => ({ fetched: 0, added: 0, updated: 0 }) },
   marketplaceAPI: {
     prices: async () => ({ defaultCents: 20000, prices: [{ jobType: 'roofing', priceCents: 28500, floorCents: 6000, dropCents: 1000, dropEveryMinutes: 60 }] }),
     setPrice: (...args: unknown[]) => setPrice(...(args as [])),
@@ -291,6 +292,28 @@ describe('Lead Market', () => {
     role = 'staff';
     await render(<MemoryRouter initialEntries={['/ops?tab=prices']}><LeadMarketPage /></MemoryRouter>, false);
     expect(document.body.querySelector('h1')!.textContent).toBe('Intake');
+  });
+
+  it("the Permits card shows how far the builder lookup has got, and when the city's portal failed", async () => {
+    permitStatus = {
+      source: {
+        syncedAt: '2026-10-26T06:10:00.000Z',
+        fetched: 40,
+        added: 30,
+        updated: 2,
+        details: { at: '2026-10-26T15:00:00.000Z', looked: 5, filled: 0, failed: 5, error: 'stopped after 5 failures in a row: HTTP 503' },
+      },
+      last30Days: 900,
+      details: { filled: 2950, total: 3159 },
+    };
+    try {
+      await render(<MemoryRouter initialEntries={['/ops?tab=forsale']}><LeadMarketPage /></MemoryRouter>, false);
+      const line = document.body.querySelector('[data-testid="permit-builders"]')!;
+      expect(line.textContent).toContain('Builders and job value: 2,950 of 3,159 permits filled in · last run ');
+      expect(line.textContent).toContain("the city's portal failed: stopped after 5 failures in a row: HTTP 503");
+    } finally {
+      permitStatus = { source: null, last30Days: 0 };
+    }
   });
 
   it('sorts the Companies table by the heading tapped, and tapping again flips it', async () => {

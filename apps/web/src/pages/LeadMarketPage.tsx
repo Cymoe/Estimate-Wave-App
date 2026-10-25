@@ -259,7 +259,18 @@ function TradePicker({ trades, value, onChange }: { trades: Trade[]; value: stri
 
 /** The Midland permit feed: when it last ran, how it went, and a button to run it now. */
 function PermitsCard() {
-  type Status = { source: { syncedAt: string; fetched: number; added: number; updated: number; error?: string } | null; last30Days: number };
+  type Status = {
+    source: {
+      syncedAt: string;
+      fetched: number;
+      added: number;
+      updated: number;
+      error?: string;
+      details?: { at: string; looked: number; filled: number; failed: number; error?: string };
+    } | null;
+    last30Days: number;
+    details?: { filled: number; total: number };
+  };
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -292,6 +303,13 @@ function PermitsCard() {
               ? `Last pulled ${new Date(s.syncedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · ${s.fetched} fetched, ${s.added} new, ${s.updated} updated${s.error ? ` · failed: ${s.error}` : ''} · ${status.last30Days} building permits in the last 30 days`
               : 'Not pulled yet. The deploy and a daily job pull them from the city.'}
         </span>
+        {status?.details && status.details.total > 0 && (
+          <span className="block text-xs text-gray-500 mt-0.5" data-testid="permit-builders">
+            {`Builders and job value: ${status.details.filled.toLocaleString()} of ${status.details.total.toLocaleString()} permits filled in`}
+            {s?.details ? ` · last run ${new Date(s.details.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ' · runs every hour'}
+            {s?.details?.error ? ` · the city's portal failed: ${s.details.error}` : ''}
+          </span>
+        )}
         {note && <span className="block text-xs text-gray-300 mt-1">{note}</span>}
       </span>
       <button type="button" onClick={sync} disabled={busy} className={secondary}>

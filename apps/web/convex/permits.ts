@@ -16,6 +16,7 @@ import {
 import { nowIso, requireMember, requireStaff, requireUser } from "./lib/access";
 import { planSummary } from "./marketplace";
 import { FIELDS_VERSION, MIDLAND, PERMIT_FIELDS, monthOf, rowsToPermits } from "./lib/permits";
+import { MIDLAND_ENERGOV, detailsFrom, permitGuid } from "./lib/energov";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** How far back the first sync reaches. */
@@ -97,9 +98,121 @@ export const recordSync = internalMutation({
       .query("permitSources")
       .withIndex("by_source", (q) => q.eq("source", source))
       .unique();
-    const row = { source, syncedAt: nowIso(), ...result };
+    // The builder lookup's own status rides along untouched.
+    const row = { source, syncedAt: nowIso(), ...result, ...(existing?.details ? { details: existing.details } : {}) };
     if (existing) await ctx.db.replace(existing._id, row);
     else await ctx.db.insert("permitSources", row);
+  },
+});
+
+// ---- Builders and job value, from the city's permit portal ----
+
+/** A permit read 3 times without success is left without details. */
+const DETAIL_TRIES = 3;
+
+/** Permits not yet read from the portal, newest first. */
+export const permitsNeedingDetails = internalQuery({
+  args: { limit: v.number() },
+  handler: async (ctx, { limit }) =>
+    (
+      await ctx.db
+        .query("permits")
+        .withIndex("by_source_and_details", (q) => q.eq("source", MIDLAND.source).eq("detailsAt", undefined))
+        .order("desc")
+        .take(limit)
+    ).map((p) => ({ id: p._id, url: p.url, tries: p.detailsTries ?? 0 })),
+});
+
+const contactRow = v.object({
+  role: v.string(),
+  company: v.string(),
+  person: v.optional(v.string()),
+  phone: v.optional(v.string()),
+  email: v.optional(v.string()),
+});
+
+export const saveDetails = internalMutation({
+  args: {
+    id: v.id("permits"),
+    details: v.optional(
+      v.object({
+        valuationCents: v.optional(v.number()),
+        squareFeet: v.optional(v.number()),
+        contacts: v.array(contactRow),
+        builder: v.optional(v.string()),
+      }),
+    ),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, { id, details, error }) => {
+    const permit = await ctx.db.get(id);
+    if (!permit) return;
+    if (details) {
+      await ctx.db.patch(id, { ...details, detailsAt: nowIso(), detailsError: undefined });
+      return;
+    }
+    const tries = (permit.detailsTries ?? 0) + 1;
+    await ctx.db.patch(id, {
+      detailsTries: tries,
+      detailsError: error,
+      // Given up on: stamped so it stops coming round.
+      ...(tries >= DETAIL_TRIES ? { detailsAt: nowIso() } : {}),
+    });
+  },
+});
+
+export const recordDetails = internalMutation({
+  args: { looked: v.number(), filled: v.number(), failed: v.number(), error: v.optional(v.string()) },
+  handler: async (ctx, run) => {
+    const source = await ctx.db
+      .query("permitSources")
+      .withIndex("by_source", (q) => q.eq("source", MIDLAND.source))
+      .unique();
+    if (source) await ctx.db.patch(source._id, { details: { at: nowIso(), ...run } });
+  },
+});
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Hourly: reads the next permits' builder, contractors and value from the
+ * city's portal, one at a time and politely spaced. Five failures in a row
+ * usually means the portal is down or changed, so the run stops and says
+ * so on the Ops Permits card; the report simply goes without builders.
+ */
+export const lookUpMidlandDetails = internalAction({
+  args: { limit: v.optional(v.number()), gapMs: v.optional(v.number()) },
+  handler: async (ctx, { limit, gapMs }) => {
+    const todo = await ctx.runQuery(internal.permits.permitsNeedingDetails, { limit: limit ?? 100 });
+    let filled = 0;
+    let failed = 0;
+    let inARow = 0;
+    let lastError: string | undefined;
+    for (const [i, permit] of todo.entries()) {
+      if (i > 0) await pause(gapMs ?? 300);
+      const guid = permitGuid(permit.url);
+      if (!guid) {
+        await ctx.runMutation(internal.permits.saveDetails, { id: permit.id, details: { contacts: [] } });
+        continue;
+      }
+      try {
+        const response = await fetch(`${MIDLAND_ENERGOV.base}${guid}`, { headers: MIDLAND_ENERGOV.headers });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const body = (await response.json()) as { Success?: boolean; Result?: unknown; ErrorMessage?: string };
+        if (!body.Success || !body.Result) throw new Error(body.ErrorMessage || "the portal returned no permit");
+        await ctx.runMutation(internal.permits.saveDetails, { id: permit.id, details: detailsFrom(body.Result) });
+        filled++;
+        inARow = 0;
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : String(e);
+        await ctx.runMutation(internal.permits.saveDetails, { id: permit.id, error: lastError });
+        failed++;
+        if (++inARow >= 5) break;
+      }
+    }
+    const run = { looked: filled + failed, filled, failed, error: inARow >= 5 ? `stopped after 5 failures in a row: ${lastError}` : undefined };
+    if (todo.length) await ctx.runMutation(internal.permits.recordDetails, run);
+    return run;
   },
 });
 
@@ -288,6 +401,14 @@ export const status = query({
       .withIndex("by_source", (q) => q.eq("source", MIDLAND.source))
       .unique();
     const month = await recent(ctx, since(30));
-    return { source, last30Days: month.length };
+    const stored = await ctx.db
+      .query("permits")
+      .withIndex("by_county_and_applied", (q) => q.eq("county", MIDLAND.county))
+      .take(10000);
+    return {
+      source,
+      last30Days: month.length,
+      details: { filled: stored.filter((p) => p.detailsAt && !p.detailsError).length, total: stored.length },
+    };
   },
 });

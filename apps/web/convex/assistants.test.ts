@@ -663,4 +663,140 @@ describe("the Tolliver Report", () => {
     expect(isNewHome({ name: "Residential - Building", workClass: "Addition", detail: "Addition" })).toBe(false);
     expect(hotStreets([{ name: "Residential - Building", workClass: "Single Family", address: "1 A ST" }])).toEqual([]);
   });
+  test("builders: who built the new homes and who pulls each trade's permits, with business phone and email on Pro", async () => {
+    const { t, roofer } = await market();
+    await t.run(async (ctx) => {
+      const rows = await ctx.db.query("permits").collect();
+      const betenbough = { role: "Contractor", company: "Betenbough Homes", phone: "(806) 891-1607", email: "permitting@betenbough.com" };
+      for (const p of rows) {
+        if (p.address?.includes("ROLLING PLAINS"))
+          await ctx.db.patch(p._id, {
+            builder: "Betenbough Homes",
+            valuationCents: 26_695_000,
+            contacts: [betenbough, { role: "Roofing Contractor", company: "Top Roof LLC", phone: "(432) 555-0199" }],
+            detailsAt: new Date().toISOString(),
+          });
+        if (p.permitNumber === "RES-4")
+          await ctx.db.patch(p._id, { builder: "Hogan Homes", valuationCents: 31_000_000, contacts: [{ role: "Contractor", company: "Hogan Homes" }], detailsAt: new Date().toISOString() });
+      }
+    });
+    const { accessToken } = await connect(t, roofer);
+    const free = await tool(t, accessToken, "tolliver_report");
+    expect(free.text).toContain("3 builders and contractors pulled permits this month; the Pro report names them and how to reach them.");
+    expect(free.text).not.toContain("Betenbough");
+    expect(JSON.stringify(free.data)).not.toContain("Betenbough");
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(roofer.organizationId, { plan: proPlan() });
+    });
+    const pro = await tool(t, accessToken, "tolliver_report");
+    expect(pro.text).toContain("Who's building new homes (last 30 days):");
+    expect(pro.text).toContain("- Betenbough Homes: 3 new homes, $800,850.00 in permits · (806) 891-1607 · permitting@betenbough.com");
+    expect(pro.text).toContain("- Hogan Homes: 1 new home, $310,000.00 in permits");
+    expect(pro.text).toContain("Pulling Roofing permits (last 30 days): Betenbough Homes (3) · (806) 891-1607 · permitting@betenbough.com; Top Roof LLC (3) · (432) 555-0199");
+    expect(pro.text).toContain("- 2837 ROLLING PLAINS LN · New home · $266,950.00 · Betenbough Homes · ");
+    expect(pro.text).not.toContain("builders and contractors pulled permits this month");
+  });
+});
+
+describe("builders from Midland's permit portal", () => {
+  const GUID_A = "9ee91cca-c5cb-4763-bdf0-696ee4a704b5";
+  const portalPermit = {
+    PermitNumber: "RES-084280-2026",
+    ValuationValue: 266950.0,
+    SquareFeet: 2422.0,
+    Contacts: [
+      { ContactTypeName: "Applicant", GlobalEntityName: "Betenbough", FirstName: "Ty", LastName: "Stolp", EmailTo: "permitting@betenbough.com", Phone: "(806) 891-1607" },
+      { ContactTypeName: "Contractor", GlobalEntityName: "Real Property Resources", FirstName: "Betenbough Homes", LastName: "Betenbough", EmailTo: "permits@rpr.example", Phone: "(806) 555-0100" },
+      { ContactTypeName: "Electrical Contractor", GlobalEntityName: "  AEC Electrical  Contractor ", FirstName: "Refugio", LastName: "Aranda", Phone: "(432) 555-0123" },
+      { ContactTypeName: "Contractor", GlobalEntityName: "Real Property Resources", FirstName: "Dup", LastName: "Row" },
+      // A homeowner pulling their own permit: a person, no company. Never kept.
+      { ContactTypeName: "Owner", GlobalEntityName: "", FirstName: "Jane", LastName: "Homeowner", Phone: "(432) 555-0000", EmailTo: "jane@home.example" },
+    ],
+  };
+
+  test("the portal's record becomes the job's value, size and companies; people with no company are left out", async () => {
+    const { detailsFrom, permitGuid } = await import("./lib/energov");
+    expect(permitGuid(`\nhttps://comapps.midlandtexas.gov/energov/selfservice#/permit/${GUID_A}`)).toBe(GUID_A);
+    expect(permitGuid("https://example.com/no-guid")).toBeUndefined();
+    const details = detailsFrom(portalPermit);
+    expect(details).toMatchObject({ valuationCents: 26_695_000, squareFeet: 2422, builder: "Real Property Resources" });
+    expect(details.contacts).toEqual([
+      { role: "Applicant", company: "Betenbough", person: "Ty Stolp", phone: "(806) 891-1607", email: "permitting@betenbough.com" },
+      { role: "Contractor", company: "Real Property Resources", person: "Betenbough Homes Betenbough", phone: "(806) 555-0100", email: "permits@rpr.example" },
+      { role: "Electrical Contractor", company: "AEC Electrical Contractor", person: "Refugio Aranda", phone: "(432) 555-0123" },
+    ]);
+    expect(JSON.stringify(details)).not.toContain("Homeowner");
+    expect(detailsFrom({ ValuationValue: 0, SquareFeet: 0, Contacts: [{ ContactTypeName: "Applicant", GlobalEntityName: "Solo Co" }] })).toEqual({
+      valuationCents: undefined,
+      squareFeet: undefined,
+      contacts: [{ role: "Applicant", company: "Solo Co" }],
+      builder: "Solo Co",
+    });
+  });
+
+  test("the hourly lookup fills permits in, retries a failing one twice, and stops when the portal looks broken", async () => {
+    const t = setup();
+    const guid = (n: number) => `00000000-0000-0000-0000-${String(n).padStart(12, "0")}`;
+    await t.run(async (ctx) => {
+      const stamp = new Date().toISOString();
+      await ctx.db.insert("permitSources", { source: "midland", syncedAt: stamp, fetched: 0, added: 0, updated: 0 });
+      for (const n of [1, 2, 3])
+        await ctx.db.insert("permits", {
+          source: "midland",
+          permitNumber: `P-${n}`,
+          name: "Residential - Building",
+          county: "Midland",
+          city: "Midland",
+          appliedAt: stamp,
+          trades: ["roofing"],
+          importedAt: stamp,
+          url: `\nhttps://comapps.midlandtexas.gov/energov/selfservice#/permit/${guid(n)}`,
+        });
+    });
+    const calls: Array<{ url: string; headers: Record<string, string> }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: { headers: Record<string, string> }) => {
+        calls.push({ url, headers: init.headers });
+        if (url.endsWith(guid(2))) return { ok: true, status: 200, json: async () => ({ Success: false, ErrorMessage: "Cannot find permit" }) };
+        return { ok: true, status: 200, json: async () => ({ Success: true, Result: portalPermit }) };
+      }),
+    );
+    const { internal } = await import("./_generated/api");
+    expect(await t.action(internal.permits.lookUpMidlandDetails, { gapMs: 0 })).toEqual({ looked: 3, filled: 2, failed: 1, error: undefined });
+    expect(calls[0].url).toMatch(/^https:\/\/comapps\.midlandtexas\.gov\/energov\/selfservice\/api\/energov\/permits\/permit\/0{8}-/);
+    expect(calls[0].headers).toMatchObject({ tenantId: "1", "Tyler-TenantUrl": "www.midlandtexas.gov" });
+    await t.run(async (ctx) => {
+      const rows = await ctx.db.query("permits").collect();
+      const filled = rows.find((p) => p.permitNumber === "P-1")!;
+      expect(filled).toMatchObject({ builder: "Real Property Resources", valuationCents: 26_695_000, squareFeet: 2422 });
+      expect(filled.detailsAt).toBeTruthy();
+      const failing = rows.find((p) => p.permitNumber === "P-2")!;
+      expect(failing).toMatchObject({ detailsTries: 1, detailsError: "Cannot find permit" });
+      expect(failing.detailsAt).toBeUndefined();
+    });
+    // Tried twice more, then left alone.
+    await t.action(internal.permits.lookUpMidlandDetails, { gapMs: 0 });
+    expect(await t.action(internal.permits.lookUpMidlandDetails, { gapMs: 0 })).toEqual({ looked: 1, filled: 0, failed: 1, error: undefined });
+    expect(await t.action(internal.permits.lookUpMidlandDetails, { gapMs: 0 })).toEqual({ looked: 0, filled: 0, failed: 0, error: undefined });
+    await t.run(async (ctx) => {
+      const gaveUp = (await ctx.db.query("permits").collect()).find((p) => p.permitNumber === "P-2")!;
+      expect(gaveUp.detailsTries).toBe(3);
+      expect(gaveUp.detailsAt).toBeTruthy();
+    });
+
+    // A portal that's down: five failures in a row stop the run, and Ops sees why.
+    await t.run(async (ctx) => {
+      const stamp = new Date().toISOString();
+      for (const n of [10, 11, 12, 13, 14, 15, 16])
+        await ctx.db.insert("permits", { source: "midland", permitNumber: `D-${n}`, name: "Pool", county: "Midland", city: "Midland", appliedAt: stamp, trades: ["concrete"], importedAt: stamp, url: `#/permit/${guid(n)}` });
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 503, json: async () => ({}) })));
+    expect(await t.action(internal.permits.lookUpMidlandDetails, { gapMs: 0 })).toEqual({ looked: 5, filled: 0, failed: 5, error: "stopped after 5 failures in a row: HTTP 503" });
+    const admin = await signUp(t, "owner@fieldquote.example", { role: "super_admin" });
+    const status = await admin.as.query(api.permits.status, {});
+    expect(status.source?.details).toMatchObject({ looked: 5, failed: 5, error: "stopped after 5 failures in a row: HTTP 503" });
+    expect(status.details).toEqual({ filled: 2, total: 10 });
+  });
 });

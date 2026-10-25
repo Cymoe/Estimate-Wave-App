@@ -201,7 +201,7 @@ export const TOOLS: Tool[] = [
     name: "tolliver_report",
     title: "The Tolliver Report",
     description:
-      "The Tolliver Report: a county's last 7 days in building permits (how many, by trade, new homes, and where homes are going up), lead demand (what bids win at, what's unsold) and what sold, plus the company's own week. Use it for market questions: \"what's happening in Midland roofing?\", \"is it worth bidding in Ector?\". Without the Pro plan some parts are held back, and it says so.",
+      "The Tolliver Report: a county's last 7 days in building permits (how many, by trade, new homes, where homes are going up, and who's building them, with builders' and contractors' business phone and email on Pro), lead demand (what bids win at, what's unsold) and what sold, plus the company's own week. Use it for market questions: \"what's happening in Midland roofing?\", \"is it worth bidding in Ector?\". Without the Pro plan some parts are held back, and it says so.",
     inputSchema: {
       type: "object",
       properties: {

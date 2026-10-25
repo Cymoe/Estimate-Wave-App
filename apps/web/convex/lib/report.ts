@@ -75,6 +75,9 @@ export const weekLabel = (from: string, to: string) =>
 
 const shortDay = (iso: string) => central(iso, { month: "short", day: "numeric" });
 
+/** " · (806) 891-1607 · permitting@betenbough.com", or nothing. */
+const reach = (c: { phone?: string; email?: string }) => [c.phone, c.email].filter(Boolean).map((x) => ` · ${x}`).join("");
+
 export type Report = {
   county: string;
   trade?: { slug: string; name: string };
@@ -93,7 +96,24 @@ export type Report = {
     hotStreets?: Array<{ street: string; newHomes: number }>;
     hotStreetCount: number;
     /** Pro only: this week's permits in the company's trades (or the trade asked about). */
-    list?: Array<{ permitNumber: string; address?: string; kind: string; detail?: string; appliedAt: string; trades: string[]; newHome: boolean; url?: string }>;
+    list?: Array<{
+      permitNumber: string;
+      address?: string;
+      kind: string;
+      detail?: string;
+      appliedAt: string;
+      trades: string[];
+      newHome: boolean;
+      url?: string;
+      builder?: string;
+      valuationCents?: number;
+    }>;
+    /** Companies that pulled permits in the last 30 days (a count for everyone, names on Pro). */
+    builderCount: number;
+    /** Pro only: who built the most new homes in the last 30 days. */
+    builders?: Array<{ name: string; newHomes: number; valuationCents: number; phone?: string; email?: string }>;
+    /** Pro only: for each of the company's trades, the contractors pulling those permits in the last 30 days. */
+    tradeContractors?: Array<{ trade: string; contractors: Array<{ name: string; permits: number; phone?: string; email?: string }> }>;
   };
   demand: Array<{
     slug: string;
@@ -140,10 +160,23 @@ export function reportText(r: Report, links: { pro: string; web: string }): stri
       out.push(`Where homes are going up (last 30 days): ${r.permits.hotStreets.map((s) => `${s.street} (${s.newHomes})`).join(", ")}.`);
     else if (!r.pro && r.permits.hotStreetCount)
       out.push(`${r.permits.hotStreetCount} street(s) with several new homes going up this month; the Pro report names them.`);
+    if (r.pro && r.permits.builders?.length) {
+      out.push("Who's building new homes (last 30 days):");
+      for (const b of r.permits.builders)
+        out.push(`- ${b.name}: ${b.newHomes} new home${b.newHomes === 1 ? "" : "s"}${b.valuationCents ? `, ${dollars(b.valuationCents)} in permits` : ""}${reach(b)}`);
+    }
+    if (r.pro && r.permits.tradeContractors?.length) {
+      for (const t of r.permits.tradeContractors)
+        out.push(`Pulling ${t.trade} permits (last 30 days): ${t.contractors.map((c) => `${c.name} (${c.permits})${reach(c)}`).join("; ")}`);
+    }
+    if (!r.pro && r.permits.builderCount)
+      out.push(`${r.permits.builderCount} builders and contractors pulled permits this month; the Pro report names them and how to reach them.`);
     if (r.pro && r.permits.list?.length) {
       out.push(`This week's permits${r.trade ? ` for ${r.trade.name}` : " in your trades"}:`);
       for (const p of r.permits.list)
-        out.push(`- ${p.address ?? "No address"} · ${p.newHome ? "New home" : p.kind}${p.detail && !p.newHome ? `: ${p.detail.slice(0, 90)}` : ""} · ${shortDay(p.appliedAt)}${p.url ? ` · ${p.url}` : ""}`);
+        out.push(
+          `- ${p.address ?? "No address"} · ${p.newHome ? "New home" : p.kind}${p.detail && !p.newHome ? `: ${p.detail.slice(0, 90)}` : ""}${p.valuationCents ? ` · ${dollars(p.valuationCents)}` : ""}${p.builder ? ` · ${p.builder}` : ""} · ${shortDay(p.appliedAt)}${p.url ? ` · ${p.url}` : ""}`,
+        );
     } else if (!r.pro && r.permits.inMyTrades) {
       out.push(`${r.permits.inMyTrades} of them are in your trades. Addresses and what each job is are in the Pro report.`);
     }

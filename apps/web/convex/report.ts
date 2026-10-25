@@ -6,6 +6,7 @@ import { queryDef } from "./lib/actor";
 import { normalizeCounty } from "./lib/counties";
 import { MIDLAND } from "./lib/permits";
 import { planIsActive } from "./lib/plan";
+import { isContractor } from "./lib/energov";
 import { DAY_MS, STREET_DAYS, hotStreets, isNewHome, median, weekWindow, type Report } from "./lib/report";
 import { sameWorld } from "./lib/sales";
 import { computeSlots } from "./demand";
@@ -75,7 +76,37 @@ export const reportDef = queryDef({
           tradeCounts.set(t, row);
         }
     const mine = (p: Doc<"permits">) => p.trades.some((t) => (only ? t === only.slug : myTrades.includes(t)));
-    const streets = hotStreets(permits.filter((p) => p.appliedAt >= streetsFrom));
+    const month = permits.filter((p) => p.appliedAt >= streetsFrom);
+    const streets = hotStreets(month);
+
+    // Who's building: new homes by builder, and the contractors on each of the company's trades.
+    const builderTally = new Map<string, { name: string; newHomes: number; valuationCents: number; phone?: string; email?: string }>();
+    for (const p of month) {
+      if (!p.builder || !isNewHome(p)) continue;
+      const key = p.builder.toLowerCase();
+      const contact = p.contacts?.find((c) => c.company === p.builder);
+      const row = builderTally.get(key) ?? { name: p.builder, newHomes: 0, valuationCents: 0, phone: contact?.phone, email: contact?.email };
+      row.newHomes++;
+      row.valuationCents += p.valuationCents ?? 0;
+      builderTally.set(key, row);
+    }
+    const companies = new Set(month.flatMap((p) => (p.contacts ?? []).map((c) => c.company.toLowerCase())));
+    const tradesToShow = only ? [only.slug] : myTrades;
+    const tradeContractors = tradesToShow
+      .map((slug) => {
+        const tally = new Map<string, { name: string; permits: number; phone?: string; email?: string }>();
+        for (const p of month) {
+          if (!p.trades.includes(slug)) continue;
+          for (const c of (p.contacts ?? []).filter(isContractor)) {
+            const row = tally.get(c.company.toLowerCase()) ?? { name: c.company, permits: 0, phone: c.phone, email: c.email };
+            row.permits++;
+            tally.set(c.company.toLowerCase(), row);
+          }
+        }
+        const contractors = [...tally.values()].sort((a, b) => b.permits - a.permits || a.name.localeCompare(b.name)).slice(0, 3);
+        return { trade: names.name(slug), contractors };
+      })
+      .filter((t) => t.contractors.length > 0);
     const source = feed
       ? await ctx.db
           .query("permitSources")
@@ -142,6 +173,9 @@ export const reportDef = queryDef({
         inMyTrades: thisWeek.filter(mine).length,
         hotStreetCount: streets.length,
         hotStreets: pro ? streets : undefined,
+        builderCount: companies.size,
+        builders: pro ? [...builderTally.values()].sort((a, b) => b.newHomes - a.newHomes || a.name.localeCompare(b.name)).slice(0, 6) : undefined,
+        tradeContractors: pro ? tradeContractors : undefined,
         list: pro
           ? thisWeek
               .filter(mine)
@@ -155,6 +189,8 @@ export const reportDef = queryDef({
                 trades: p.trades.map(names.name),
                 newHome: isNewHome(p),
                 url: p.url,
+                builder: p.builder,
+                valuationCents: p.valuationCents,
               }))
           : undefined,
       },
