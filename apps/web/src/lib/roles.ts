@@ -14,8 +14,11 @@ export const isSuperAdmin = (user: RoleUser | null | undefined) => user?.role ==
 export const isStaff = (user: RoleUser | null | undefined) =>
   Boolean(user && (user.isStaff || user.role === 'staff' || user.role === 'super_admin'));
 
-/** Where someone lands after signing in: staff and the owner on Ops, everyone else on their company. */
-export const homeFor = (user: RoleUser | null | undefined) => (isStaff(user) ? '/ops' : HOME_PATH);
+/** Phones homeowners from call lists: the Calls page is their whole app. Staff and the owner can make calls too. */
+export const isCaller = (user: RoleUser | null | undefined) => Boolean(user && (user.role === 'caller' || isStaff(user)));
+
+/** Where someone lands after signing in: staff and the owner on Ops, callers on Calls, everyone else on their company. */
+export const homeFor = (user: RoleUser | null | undefined) => (isStaff(user) ? '/ops' : user?.role === 'caller' ? '/calls' : HOME_PATH);
 
 /**
  * Where to land after signing in when the address asked for somewhere

@@ -1,4 +1,4 @@
-import { homeFor, isStaff, isSuperAdmin, landingFor } from '../roles';
+import { homeFor, isCaller, isStaff, isSuperAdmin, landingFor } from '../roles';
 
 describe('who lands where', () => {
   it('sends staff and the owner to Ops, and everyone else to their company', () => {
@@ -8,6 +8,15 @@ describe('who lands where', () => {
     expect(homeFor({ role: 'user' })).toBe('/leads');
     expect(homeFor({ role: 'admin' })).toBe('/leads');
     expect(homeFor(null)).toBe('/leads');
+  });
+
+  it('sends callers to Calls; staff and the owner can make calls too, companies cannot', () => {
+    expect(homeFor({ role: 'caller' })).toBe('/calls');
+    expect(isCaller({ role: 'caller' })).toBe(true);
+    expect(isStaff({ role: 'caller' })).toBe(false);
+    expect(isCaller({ role: 'staff' })).toBe(true);
+    expect(isCaller({ role: 'super_admin' })).toBe(true);
+    expect(isCaller({ role: 'user' })).toBe(false);
   });
 
   it('goes back to where they were headed, but never off the site', () => {

@@ -26,7 +26,7 @@ async function tradeSlugs(ctx: QueryCtx | MutationCtx): Promise<string[]> {
 }
 
 /** The same phone seen in the last 45 days, in intake or already listed. */
-async function findDuplicate(
+export async function findDuplicate(
   ctx: MutationCtx,
   phoneNormalized: string | undefined,
   exclude?: Id<"intakeLeads">,
@@ -43,7 +43,7 @@ async function findDuplicate(
   return earlier[0]?._id;
 }
 
-const fieldArgs = {
+export const fieldArgs = {
   name: v.optional(v.string()),
   phone: v.optional(v.string()),
   email: v.optional(v.string()),
@@ -63,7 +63,7 @@ type FieldArgs = {
 };
 
 /** Trims text, drops blanks, checks the county and trade. */
-async function cleanFields(ctx: QueryCtx | MutationCtx, fields: FieldArgs): Promise<FieldArgs> {
+export async function cleanFields(ctx: QueryCtx | MutationCtx, fields: FieldArgs): Promise<FieldArgs> {
   const out: FieldArgs = {};
   for (const [key, value] of Object.entries(fields) as Array<[keyof FieldArgs, unknown]>) {
     if (value === undefined || value === null) continue;
@@ -364,6 +364,22 @@ const TIMELINE_LABELS: Record<string, string> = {
   planning: "Just planning",
 };
 
+/** How the Marketplace names where a lead came from. */
+const LISTED_SOURCE: Record<Doc<"intakeLeads">["source"], string> = {
+  meta: "Facebook",
+  call: "Call",
+  manual: "Staff",
+  api: "Staff",
+  outbound: "Tolliver Call",
+};
+
+/** The caller who took an outbound lead, by name. */
+async function takenBy(ctx: QueryCtx, row: Doc<"intakeLeads">) {
+  if (row.source !== "outbound" || !row.createdBy) return undefined;
+  const user = await ctx.db.get(row.createdBy);
+  return user?.name || user?.email || "a caller";
+}
+
 /** The checks a person makes on the phone before a lead is worth selling. */
 export const CHECKS = {
   reached: "Reached the homeowner live",
@@ -401,6 +417,9 @@ export const confirm = mutation({
     const user = await requireStaff(ctx);
     const row = await openRow(ctx, id);
     if (row.status === "closed") fail("INVALID", "Put it back in the queue first");
+    // A second pair of ears on every caller's lead.
+    if (row.source === "outbound" && row.createdBy === user._id)
+      fail("INVALID", "You took this lead on a call: someone else confirms it");
     for (const [key, label] of Object.entries(CHECKS) as Array<[keyof typeof CHECKS, string]>) {
       if (!checks[key]) fail("INVALID", `Not confirmed yet: ${label.toLowerCase()}`);
     }
@@ -433,7 +452,7 @@ export const confirm = mutation({
         verified: { at: now, note: note?.trim() || undefined, by: user._id },
       },
       user._id,
-      { source: row.source === "meta" ? "Facebook" : row.source === "call" ? "Call" : "Staff" },
+      { source: LISTED_SOURCE[row.source] },
     );
     await ctx.db.patch(id, {
       ...clean,
@@ -641,6 +660,7 @@ export const queue = query({
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
         .map(async (row) => ({
           ...summary(row),
+          takenBy: await takenBy(ctx, row),
           tradeName: row.jobType ? (tradeName.get(row.jobType) ?? row.jobType) : undefined,
           ...(row.status === "confirmed" ? { listed: await listedOf(ctx, row) } : {}),
         })),
@@ -658,6 +678,7 @@ export const get = query({
     const duplicate = row.duplicateOf ? await ctx.db.get(row.duplicateOf) : null;
     return {
       ...summary(row),
+      takenBy: await takenBy(ctx, row),
       // Once confirmed: who it went to and for how much, or that it's for sale.
       listed: await listedOf(ctx, row),
       duplicate: duplicate

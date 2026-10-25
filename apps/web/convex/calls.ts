@@ -16,10 +16,12 @@ import {
   MAX_TRIES,
   callingHours,
   centralMidnight,
+  consentLine,
   listDue,
   type DncList,
 } from "./lib/calls";
 import { normalizePhone } from "./lib/intake";
+import { cleanFields, findDuplicate } from "./intake";
 import { MIDLAND_PARCELS, ownerName, streetKey } from "./lib/parcels";
 import { DAY_MS } from "./lib/report";
 
@@ -178,6 +180,17 @@ export const addDoNotCall = mutation({
 
 // ---- Before a call ----
 
+/** Why a number is on a Do Not Call list (the current uploads, or our own), or nothing. */
+async function onDoNotCall(ctx: Ctx, phone: string, lists: Awaited<ReturnType<typeof listsState>>) {
+  const listed = await ctx.db
+    .query("doNotCall")
+    .withIndex("by_phone", (q) => q.eq("phone", phone))
+    .collect();
+  if (listed.some((r) => r.list === "asked")) return "This number asked not to be called again.";
+  const onList = lists.find((l) => listed.some((r) => r.batchId === l.batchId));
+  return onList ? `This number is on the ${onList.label}.` : undefined;
+}
+
 /** Why a number can't be called right now, or nothing when it can. */
 async function blockedReason(ctx: Ctx, phone: string, now = Date.now()): Promise<string | undefined> {
   const hours = callingHours(now);
@@ -188,13 +201,8 @@ async function blockedReason(ctx: Ctx, phone: string, now = Date.now()): Promise
       return l.uploadedAt
         ? `The ${l.label} is out of date. Staff upload this month's in Ops, Calls.`
         : `Staff need to upload the ${l.label} in Ops, Calls, before anyone calls.`;
-  const listed = await ctx.db
-    .query("doNotCall")
-    .withIndex("by_phone", (q) => q.eq("phone", phone))
-    .collect();
-  if (listed.some((r) => r.list === "asked")) return "This number asked not to be called again.";
-  const onList = lists.find((l) => listed.some((r) => r.batchId === l.batchId));
-  if (onList) return `This number is on the ${onList.label}.`;
+  const listed = await onDoNotCall(ctx, phone, lists);
+  if (listed) return listed;
   const recent = await ctx.db
     .query("outboundCalls")
     .withIndex("by_phone", (q) => q.eq("phone", phone).gte("at", since(CALL_WINDOW_DAYS, now)))
@@ -252,6 +260,70 @@ export const log = mutation({
   },
 });
 
+// ---- A homeowner said yes ----
+
+/**
+ * The homeowner wants the work and said yes to the consent line: the lead
+ * goes into the Ops intake queue as a Tolliver call, with the line they
+ * agreed to, for someone other than the caller to confirm and list.
+ */
+export const takeLead = mutation({
+  args: {
+    parcelId: v.optional(v.id("parcels")),
+    phone: v.string(),
+    name: v.string(),
+    address: v.string(),
+    city: v.optional(v.string()),
+    zip: v.optional(v.string()),
+    county: v.optional(v.string()),
+    jobType: v.string(),
+    scope: v.optional(v.string()),
+    timeline: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    isOwner: v.boolean(),
+    consented: v.boolean(),
+  },
+  handler: async (ctx, { parcelId, consented, ...args }) => {
+    const user = await requireCaller(ctx);
+    if (!consented) fail("INVALID", "The homeowner has to say yes to the consent line");
+    if (!args.isOwner) fail("INVALID", "Leads are for the owner who decides on the work");
+    const phone = normalizePhone(args.phone);
+    if (!phone) fail("INVALID", "Enter a 10-digit phone number");
+    const listed = await onDoNotCall(ctx, phone, await listsState(ctx));
+    if (listed) fail("INVALID", listed);
+    const fields = await cleanFields(ctx, { ...args, city: args.city ?? "Midland", county: args.county ?? MIDLAND_PARCELS.county });
+    if (!fields.name) fail("INVALID", "The homeowner's name is needed");
+    const trade = await ctx.db.query("industries").withIndex("by_slug", (q) => q.eq("slug", args.jobType)).first();
+    const now = nowIso();
+    const duplicateOf = await findDuplicate(ctx, phone);
+    const id = await ctx.db.insert("intakeLeads", {
+      source: "outbound",
+      status: "new",
+      ...fields,
+      phone,
+      phoneNormalized: phone,
+      consent: { text: consentLine(trade?.name ?? args.jobType), value: "Said yes on the call", at: now },
+      duplicateOf,
+      attempts: [{ at: now, by: user._id, outcome: "reached", note: "Taken on a Tolliver call" }],
+      createdBy: user._id,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.insert("outboundCalls", {
+      parcelId,
+      address: fields.address ?? args.address,
+      owner: fields.name,
+      phone,
+      callerId: user._id,
+      outcome: "lead_taken",
+      trade: args.jobType,
+      intakeLeadId: id,
+      at: now,
+    });
+    return { id, duplicate: duplicateOf !== undefined };
+  },
+});
+
 // ---- Call lists ----
 
 const LIST_DAYS = { tradePermits: 30, recentBuyers: 540 };
@@ -263,6 +335,7 @@ type Home = {
   owner2?: string;
   address: string;
   street?: string;
+  zip?: string;
   marketValueCents?: number;
   deedDate?: string;
   why: string;
@@ -284,6 +357,7 @@ const homeOf = (p: Doc<"parcels">, why: string): Home => ({
   owner2: p.owner2 ? ownerName(p.owner2) : undefined,
   address: title(p.siteAddress),
   street: p.street ? title(p.street) : undefined,
+  zip: p.mailing.zip?.slice(0, 5),
   marketValueCents: p.marketValueCents,
   deedDate: p.deedDate,
   why,

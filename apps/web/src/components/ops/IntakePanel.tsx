@@ -12,7 +12,9 @@ import { DISPOSITIONS, reasonLabel } from './intakeReasons';
 
 export interface IntakeRow {
   id: string;
-  source: 'meta' | 'call' | 'manual' | 'api';
+  source: 'meta' | 'call' | 'manual' | 'api' | 'outbound';
+  /** The caller who took it, on a Tolliver call. */
+  takenBy?: string;
   status: 'new' | 'working' | 'confirmed' | 'closed';
   disposition?: string;
   /** Confirmed rows only: where the lead went. */
@@ -64,7 +66,7 @@ const ATTEMPTS: Array<[string, string]> = [
   ['wrong_number', 'Wrong number'],
 ];
 
-const SOURCE: Record<IntakeRow['source'], string> = { meta: 'Facebook form', call: 'Called in', manual: 'Typed in', api: 'Webhook' };
+const SOURCE: Record<IntakeRow['source'], string> = { meta: 'Facebook form', call: 'Called in', manual: 'Typed in', api: 'Webhook', outbound: 'Tolliver call' };
 
 /** One lead in the queue: call the homeowner, fix what the form got wrong, log what happened. */
 export const IntakePanel: React.FC<{
@@ -191,7 +193,8 @@ export const IntakePanel: React.FC<{
           <div className="min-w-0">
             <h2 className="text-lg font-semibold text-white truncate">{row.label}</h2>
             <p className="text-xs text-gray-500 truncate">
-              {SOURCE[row.source]} · in {ago(row.createdAt)}
+              {SOURCE[row.source]}
+              {row.takenBy ? ` by ${row.takenBy}` : ''} · in {ago(row.createdAt)}
               {row.campaignName ? ` · ${row.campaignName}` : ''}
               {row.status === 'closed' ? ` · not a lead: ${reasonLabel(row.disposition)}` : row.status === 'confirmed' ? ' · confirmed' : ''}
             </p>
@@ -228,7 +231,7 @@ export const IntakePanel: React.FC<{
           )}
           {row.consent && (
             <p className="text-xs text-gray-500">
-              Consent on the form: {row.consent.value ?? 'not recorded'}
+              Consent {row.source === 'outbound' ? 'on the call' : 'on the form'}: {row.consent.value ?? 'not recorded'}
               {row.consent.text ? ` (${row.consent.text})` : ''}
             </p>
           )}

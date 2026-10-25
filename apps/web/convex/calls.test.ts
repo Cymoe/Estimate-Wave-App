@@ -339,3 +339,58 @@ describe("calling rules", () => {
     await expect(caller.as.query(api.calls.tally, {})).rejects.toThrow(/staff/);
   });
 });
+
+describe("leads taken on a call", () => {
+  test("a yes goes to intake with the consent line; someone else confirms it and it lists as a Tolliver Call", async () => {
+    vi.useFakeTimers({ now: OPEN, toFake: ["Date"] });
+    const t = setup();
+    const { staff, caller } = await team(t);
+    await uploadLists(staff);
+    await t.run(async (ctx) => {
+      const now = new Date().toISOString();
+      await ctx.db.insert("industries", { slug: "roofing", name: "Roofing", display_order: 1, is_active: true, created_at: now, updated_at: now });
+    });
+    const home = await addHome(t);
+    const lead = { parcelId: home, phone: "(432) 555-0123", name: "Jane Cole", address: "2709 Howdy Dr", zip: "79705", jobType: "roofing", scope: "replacement", timeline: "month", notes: "Hail last spring", isOwner: true };
+    await expect(caller.as.mutation(api.calls.takeLead, { ...lead, consented: false })).rejects.toThrow(/consent line/);
+    await expect(caller.as.mutation(api.calls.takeLead, { ...lead, isOwner: false, consented: true })).rejects.toThrow(/owner/);
+    await expect(caller.as.mutation(api.calls.takeLead, { ...lead, phone: "4325550100", consented: true })).rejects.toThrow(/National Do Not Call/);
+
+    const { id, duplicate } = await caller.as.mutation(api.calls.takeLead, { ...lead, consented: true });
+    expect(duplicate).toBe(false);
+    const row = await staff.as.query(api.intake.get, { id });
+    expect(row).toMatchObject({
+      source: "outbound",
+      status: "new",
+      name: "Jane Cole",
+      phone: "4325550123",
+      county: "Midland",
+      city: "Midland",
+      isOwner: true,
+      takenBy: "dana",
+      consent: {
+        text: "Is it okay if one local roofing company from the Tolliver network calls or texts you at this number about this job?",
+        value: "Said yes on the call",
+      },
+    });
+    // The call is logged as a lead, and the home leaves the lists.
+    expect(await caller.as.query(api.calls.myDay, {})).toMatchObject({ calls: 1, answered: 1, leads: 1 });
+    expect((await caller.as.query(api.calls.list, { kind: "street", street: "Howdy Dr" })).homes).toEqual([]);
+
+    const checks = { reached: true, phoneOwner: true, addressInCounty: true, trade: true, owner: true, consent: true };
+    // The caller who took it can't confirm it (callers can't open intake at all; a staff member who took one can't either).
+    await expect(caller.as.mutation(api.intake.confirm, { id, checks })).rejects.toThrow(/staff/);
+    await t.run(async (ctx) => ctx.db.patch(id, { createdBy: staff.userId }));
+    await expect(staff.as.mutation(api.intake.confirm, { id, checks })).rejects.toThrow(/someone else confirms/);
+    await t.run(async (ctx) => ctx.db.patch(id, { createdBy: caller.userId }));
+    const confirmed = await staff.as.mutation(api.intake.confirm, { id, checks });
+    await t.run(async (ctx) => {
+      const listed = (await ctx.db.get(confirmed.leadId as never)) as { source?: string } | null;
+      expect(listed?.source).toBe("Tolliver Call");
+    });
+    expect((await staff.as.query(api.calls.tally, {}))[0]).toMatchObject({ leads: 1, confirmed: 1 });
+
+    // The same number again is flagged as a duplicate, not dropped.
+    expect((await caller.as.mutation(api.calls.takeLead, { ...lead, consented: true })).duplicate).toBe(true);
+  });
+});

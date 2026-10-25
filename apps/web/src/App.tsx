@@ -2,7 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { landingFor, isStaff } from './lib/roles';
+import { landingFor, isCaller, isStaff } from './lib/roles';
 import { ScrollRestoration } from './components/ScrollRestoration';
 import Dashboard from './pages/dashboard/Dashboard';
 import { TestAuth } from './components/auth/TestAuth';
@@ -29,6 +29,7 @@ import Templates from './pages/Templates';
 import { FEATURES } from './config/features';
 import LeadsPage from './pages/LeadsPage';
 import LeadMarketPage from './pages/LeadMarketPage';
+import CallsPage from './pages/CallsPage';
 import BidsPage from './pages/BidsPage';
 import MarketplacePage from './pages/MarketplacePage';
 import PlanPage from './pages/PlanPage';
@@ -122,9 +123,13 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to={here === '/' ? '/' : `/?next=${encodeURIComponent(here)}`} replace />;
   }
 
-  // Staff have no company of their own: Ops is their whole app.
-  if (user.role === 'staff' && !user.organizationId && location.pathname !== '/ops') {
+  // Staff have no company of their own: Ops is their whole app (and Calls, to make calls).
+  if (user.role === 'staff' && !user.organizationId && location.pathname !== '/ops' && location.pathname !== '/calls') {
     return <Navigate to="/ops" replace />;
+  }
+  // Callers: the Calls page is all there is.
+  if (user.role === 'caller' && !user.organizationId && location.pathname !== '/calls') {
+    return <Navigate to="/calls" replace />;
   }
 
   return <>{children}</>;
@@ -136,6 +141,16 @@ function StaffRoute({ children }: { children: React.ReactNode }) {
   return (
     <ProtectedRoute>
       {isStaff(user) ? <>{children}</> : <Navigate to="/profit-tracker" replace />}
+    </ProtectedRoute>
+  );
+}
+
+/** The Calls page: Tolliver callers, and staff and the owner. */
+function CallerRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  return (
+    <ProtectedRoute>
+      {isCaller(user) ? <>{children}</> : <Navigate to="/profit-tracker" replace />}
     </ProtectedRoute>
   );
 }
@@ -344,6 +359,16 @@ function AppRoutes() {
               <LeadMarketPage />
             </OpsLayout>
           </StaffRoute>
+        }
+      />
+      <Route
+        path="/calls"
+        element={
+          <CallerRoute>
+            <OpsLayout>
+              <CallsPage />
+            </OpsLayout>
+          </CallerRoute>
         }
       />
       <Route path="/lead-market" element={<LeadMarketRedirect />} />

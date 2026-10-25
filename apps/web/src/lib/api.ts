@@ -551,6 +551,10 @@ export const callsAPI = {
     run('mutation', api.calls.log, defined(args)),
   list: (args: { kind: 'trade_permits' | 'recent_buyers' | 'street'; trade?: string; street?: string }) => run('query', api.calls.list, defined(args)),
   myDay: () => run('query', api.calls.myDay, {}),
+  takeLead: (args: {
+    parcelId?: string; phone: string; name: string; address: string; zip?: string; jobType: string;
+    scope?: string; timeline?: string; notes?: string; isOwner: boolean; consented: boolean;
+  }) => run('mutation', api.calls.takeLead, defined(args)),
 };
 
 /** The Tolliver Report: a county's week in permits, builders, demand and sales (Pro adds the names). */

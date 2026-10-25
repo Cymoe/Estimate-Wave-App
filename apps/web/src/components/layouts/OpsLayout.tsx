@@ -40,7 +40,7 @@ export const OpsLayout: React.FC<{ children: React.ReactNode }> = ({ children })
           <span className="flex items-center gap-2 text-sm">
             <span className="font-semibold tracking-tight">Tolliver</span>
             <span className="text-xs px-1.5 py-0.5 rounded border border-[#336699]/60 bg-[#336699]/15 text-[#cfe2f5]">Ops</span>
-            <span className="hidden sm:inline text-gray-500">· {isSuperAdmin(user) ? 'platform owner' : 'staff'}</span>
+            <span className="hidden sm:inline text-gray-500">· {isSuperAdmin(user) ? 'platform owner' : user?.role === 'caller' ? 'caller' : 'staff'}</span>
           </span>
           <div className="relative" ref={menuRef}>
             <button

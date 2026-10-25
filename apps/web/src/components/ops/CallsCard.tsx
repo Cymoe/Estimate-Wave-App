@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Upload } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { PhoneOutgoing, Upload } from 'lucide-react';
 import { callsAPI } from '../../lib/api';
 import { numbersIn } from '../../../convex/lib/calls';
 import { input, secondary } from './ui';
@@ -87,6 +88,10 @@ export function CallsCard() {
 
   return (
     <div className="space-y-6">
+      <Link to="/calls" className={secondary}>
+        <PhoneOutgoing className="w-4 h-4" />
+        Open the Calls page
+      </Link>
       <section className="border border-[#2A2A2A] rounded p-4" aria-label="Do Not Call lists" data-testid="dnc-card">
         <h3 className="text-sm font-medium text-white">Do Not Call lists</h3>
         <p className="text-xs text-gray-500 mt-0.5 mb-3">

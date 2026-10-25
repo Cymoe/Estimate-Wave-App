@@ -23,7 +23,8 @@ export const userRole = v.union(
 );
 
 /** Where an intake lead came from and where it is in the queue. */
-export const intakeSource = v.union(v.literal("meta"), v.literal("call"), v.literal("manual"), v.literal("api"));
+// "outbound": a Tolliver caller took it on a call from a call list (calls.ts).
+export const intakeSource = v.union(v.literal("meta"), v.literal("call"), v.literal("manual"), v.literal("api"), v.literal("outbound"));
 export const intakeStatus = v.union(v.literal("new"), v.literal("working"), v.literal("confirmed"), v.literal("closed"));
 export const intakeDisposition = v.union(
   v.literal("duplicate"),

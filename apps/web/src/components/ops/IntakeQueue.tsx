@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertTriangle, Facebook, Keyboard, Phone, PhoneCall, Plus, Webhook } from 'lucide-react';
+import { AlertTriangle, Facebook, Keyboard, Phone, PhoneCall, PhoneOutgoing, Plus, Webhook } from 'lucide-react';
 import { intakeAPI, type IntakeFields } from '../../lib/api';
 import { useIntakeQueue } from '../../lib/live';
 import { COUNTY_CHOICES, countyForTown } from '../../services/counties';
@@ -18,6 +18,7 @@ export const SOURCE_LABELS: Record<IntakeRow['source'], { label: string; icon: R
   call: { label: 'Call', icon: PhoneCall },
   manual: { label: 'Typed in', icon: Keyboard },
   api: { label: 'Webhook', icon: Webhook },
+  outbound: { label: 'Tolliver call', icon: PhoneOutgoing },
 };
 
 export const ATTEMPT_LABELS: Record<string, string> = {
