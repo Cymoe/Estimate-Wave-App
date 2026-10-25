@@ -13,7 +13,7 @@ import { AppointmentField } from '../components/leads/AppointmentField';
 import { LeadDrawer } from '../components/leads/LeadDrawer';
 import { WalletBar, openFundingPage, type WalletSummary } from '../components/market/WalletBar';
 import { useWallet } from '../lib/live';
-import { isWonLead } from '../components/market/wallet';
+import { leadTag } from '../components/market/leadRoute';
 import { STATUSES, type Lead, type LeadStatus, type Trade } from '../components/leads/leadTypes';
 import { appointmentDay, formatAppointmentShort, toLocalInput } from '../utils/appointments';
 import { ago, intakeAnswers, leadSummary } from '../components/leads/leadIntake';
@@ -638,9 +638,10 @@ const LeadsPage: React.FC = () => {
                               )}
                             </div>
                             <div className="flex items-center gap-1 flex-shrink-0">
-                              {isWonLead(lead) && (
-                                <span className="text-[10px] uppercase tracking-wide px-1 border text-emerald-300 border-emerald-500/40 bg-emerald-500/10">
-                                  FieldQuote
+                              {/* Where it came from: FieldQuote, and which way (bid, Marketplace, Vault...). */}
+                              {leadTag(lead) && (
+                                <span className="text-[10px] uppercase tracking-wide px-1 border text-emerald-300 border-emerald-500/40 bg-emerald-500/10 whitespace-nowrap">
+                                  {leadTag(lead)}
                                 </span>
                               )}
                               {lead.isSample && (

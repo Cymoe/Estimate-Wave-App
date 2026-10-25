@@ -14,10 +14,11 @@ import { OpsErrorBoundary } from '../components/ops/OpsErrorBoundary';
 import { isStaff, isSuperAdmin } from '../lib/roles';
 import { TeamCard } from '../components/ops/TeamCard';
 import { useConfirm } from '../components/common/ConfirmDialog';
+import { leadRoute } from '../components/market/leadRoute';
 import { Confirmed } from '../components/market/Confirmed';
 import { STATUSES, type Lead } from '../components/leads/leadTypes';
 import type { WalletSummary } from '../components/market/WalletBar';
-import { CREDIT_REASON_LABELS, WalletHistory, leadOrigin, money, planLabel, suggestedBonus, type PlanSummary } from '../components/market/wallet';
+import { CREDIT_REASON_LABELS, WalletHistory, money, planLabel, suggestedBonus, type PlanSummary } from '../components/market/wallet';
 import { dropsToFloor, pricingFor } from '../services/auction';
 
 interface Trade {
@@ -937,7 +938,7 @@ function CompanyPanel({
                         <span className="min-w-0">
                           <span className="block text-sm text-white truncate">{lead.name}</span>
                           <span className="block text-xs text-gray-500">
-                            {leadOrigin(lead) ?? lead.source ?? 'Their own lead'}
+                            {leadRoute(lead)}
                             {creditState === 'approved' ? ' · credited back' : creditState === 'denied' ? ' · credit declined' : creditState === 'pending' ? ' · credit requested' : ''}
                           </span>
                         </span>

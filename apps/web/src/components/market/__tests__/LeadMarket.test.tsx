@@ -476,8 +476,11 @@ describe('Lead Market', () => {
 
   it('lets the owner credit a bought lead back from the company panel', async () => {
     companyLeads = [
-      { id: 'l1', name: 'Dana Reyes', status: 'new', marketplaceLeadId: 'm1', pricePaidCents: 28500 },
-      { id: 'l2', name: 'Own Lead', status: 'new' },
+      { id: 'l1', name: 'Dana Reyes', status: 'new', marketplaceLeadId: 'm1', pricePaidCents: 28500, wonVia: 'bid' },
+      { id: 'l2', name: 'Own Lead', status: 'won', source: 'Referral' },
+      { id: 'l4', name: 'Market Buy', status: 'new', marketplaceLeadId: 'm4', pricePaidCents: 4000, wonVia: 'buy' },
+      { id: 'l5', name: 'Vault Claim', status: 'new', marketplaceLeadId: 'm5', pricePaidCents: 0, wonVia: 'claim' },
+      { id: 'l6', name: 'Hand Sent', status: 'new', marketplaceLeadId: 'm6', pricePaidCents: 4000, wonVia: 'sent' },
       { id: 'l3', name: 'Already Done', status: 'new', marketplaceLeadId: 'm3', pricePaidCents: 20000, creditRequest: { reason: 'duplicate', requestedAt: '2026-10-01T00:00:00Z', status: 'approved' } },
     ];
     await render(<LeadMarketPage />);
@@ -486,9 +489,19 @@ describe('Lead Market', () => {
     await act(async () => Array.from(document.body.querySelectorAll('tr')).find((r) => r.textContent?.includes('Peak Roofing'))!.click());
     await flush();
     const panel = document.body.querySelector('[role="dialog"]')!;
+    // Each lead says how it got there, not just "From FieldQuote".
+    const row = (name: string) => Array.from(panel.querySelectorAll('li')).find((li) => li.textContent?.includes(name))!;
+    expect(row('Dana Reyes').textContent).toContain('Won with a bid · $285.00');
+    expect(row('Market Buy').textContent).toContain('Bought in the Marketplace · $40.00');
+    expect(row('Vault Claim').textContent).toContain('Claimed from the Vault · included in the plan');
+    expect(row('Hand Sent').textContent).toContain('Sent by FieldQuote · $40.00');
+    expect(row('Own Lead').textContent).toContain('Added by hand · Referral');
+    // The stage on the right is the job, never confused with how the lead was got.
+    expect(row('Own Lead').textContent).toContain('Job sold');
+    expect(row('Already Done').textContent).toContain('From FieldQuote · $200.00');
     const creditButtons = Array.from(panel.querySelectorAll('button')).filter((b) => b.textContent === 'Credit it back');
-    // Only the bought lead that isn't credited yet offers it.
-    expect(creditButtons).toHaveLength(1);
+    // Only the bought leads that aren't credited yet offer it.
+    expect(creditButtons).toHaveLength(4);
     expect(panel.textContent).toContain('Already Done');
     expect(panel.textContent).toContain('credited back');
     await act(async () => creditButtons[0].click());

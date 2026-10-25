@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import { STATUSES, type Lead } from '../components/leads/leadTypes';
-import { leadOrigin } from '../components/market/wallet';
+import { leadOrigin } from '../components/market/leadRoute';
 
 /**
  * Leads as a spreadsheet: one row per lead, the same columns in CSV and

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Check } from 'lucide-react';
 import type { Lead } from '../leads/leadTypes';
 import { leadsAPI } from '../../lib/api';
-import { leadOrigin } from './wallet';
+import { leadOrigin } from './leadRoute';
 import { SupportLine } from './SupportLine';
 
 /**

@@ -184,14 +184,15 @@ describe('Leads board', () => {
     await flush();
 
     const card = (who: string) => Array.from(container.querySelectorAll('[data-lead-card]')).find((el) => el.textContent?.includes(who))!;
-    expect(card('Omar Haddad').textContent).toContain('FieldQuote');
-    expect(card('Dana Ruiz').textContent).toContain('FieldQuote');
+    // The tag says FieldQuote and which way the lead came.
+    expect(card('Omar Haddad').textContent).toContain('FieldQuote · Bid');
+    expect(card('Dana Ruiz').textContent).toContain('FieldQuote · Marketplace');
     expect(card('Rocky Vansau').textContent).not.toContain('FieldQuote');
 
     // The lead's detail shows what it cost, and "Got it" tells FieldQuote they have it.
     act(() => click(Array.from(container.querySelectorAll('span')).find((el) => el.textContent === 'Omar Haddad')!));
     const credit = () => document.body.querySelector('[data-testid="lead-credit"]')!;
-    expect(credit().textContent).toContain('From FieldQuote · $250.00');
+    expect(credit().textContent).toContain('Won with a bid · $250.00');
     await act(async () => (credit().querySelector('button') as HTMLButtonElement).click());
     await flush();
     expect(acknowledge).toHaveBeenCalledWith('l2');
@@ -211,7 +212,7 @@ describe('Leads board', () => {
     await act(async () => createRoot(container).render(<MemoryRouter initialEntries={['/leads?lead=l2&ack=1']}><LeadsPage /></MemoryRouter>));
     await flush();
     expect(acknowledge).toHaveBeenCalledWith('l2');
-    expect(document.body.querySelector('[data-testid="lead-credit"]')?.textContent).toContain('From FieldQuote · $250.00');
+    expect(document.body.querySelector('[data-testid="lead-credit"]')?.textContent).toContain('Won with a bid · $250.00');
     expect(document.body.querySelector('[data-testid="acknowledged"]')).not.toBeNull();
     // Where a bad lead gets reported, with a link that opens an email.
     const support = document.body.querySelector('[data-testid="support-line"]')!;

@@ -106,7 +106,7 @@ describe('LeadDrawer', () => {
   it('lists every stage in the dropdown with the current one selected', () => {
     open();
     const stage = document.body.querySelector('select[aria-label="Stage"]') as HTMLSelectElement;
-    expect(Array.from(stage.options).map((o) => o.text)).toEqual(['New', 'No Answer', 'Contacted', 'Estimate Scheduled', 'Estimate Sent', 'Sold', 'Lost']);
+    expect(Array.from(stage.options).map((o) => o.text)).toEqual(['New', 'No Answer', 'Contacted', 'Estimate Scheduled', 'Estimate Sent', 'Job sold', 'Lost']);
     expect(stage.value).toBe('scheduled');
     expect(document.body.querySelector('[role="group"][aria-label="Stage"]')).toBeNull();
   });

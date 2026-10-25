@@ -64,11 +64,6 @@ export function WalletHistory({ transactions }: { transactions: any[] }) {
 /** A lead that came in through FieldQuote rather than one the company added itself. */
 export const isWonLead = (lead: { marketplaceLeadId?: string }) => Boolean(lead.marketplaceLeadId);
 
-/** "From FieldQuote · $250.00" for a lead that came in through FieldQuote, however it was got; nothing for the company's own leads. */
-export function leadOrigin(lead: { marketplaceLeadId?: string; pricePaidCents?: number }): string | null {
-  return isWonLead(lead) ? `From FieldQuote · ${money(lead.pricePaidCents ?? 0)}` : null;
-}
-
 /** A company's monthly plan as the backend reports it. */
 export interface PlanSummary {
   status: 'trial' | 'active' | 'past_due' | 'cancelled';
