@@ -1393,7 +1393,7 @@ const LeadMarketPage: React.FC = () => {
         return `${rows.length} to confirm${duplicates > 0 ? ` · ${plural(duplicates, 'possible duplicate')}` : ''}`;
       }
       case 'forsale':
-        return `${inbox.available.length} for sale · ${money(book.spent30dCents)} sold in 30 days`;
+        return `${plural(inbox.available.length, 'lead')} for sale in the Marketplace · ${money(book.spent30dCents)} sold in 30 days`;
       case 'sold': {
         const rows = deliveredRows ?? [];
         const today = rows.filter((r) => isToday(r.assignedAt)).length;
@@ -1415,12 +1415,8 @@ const LeadMarketPage: React.FC = () => {
       <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
         <div>
           <p className="text-xs uppercase tracking-wide text-gray-500">Ops</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-xl font-semibold">{TAB_TITLES[tab]}</h1>
-            <span className="text-xs px-2 py-0.5 rounded-full border border-[#336699]/60 bg-[#336699]/15 text-[#cfe2f5]">
-              {owner ? 'Platform owner' : 'FieldQuote staff'}
-            </span>
-          </div>
+          {/* Who you are is in the top bar already; the heading says what the tab holds. */}
+          <h1 className="text-xl font-semibold">{TAB_TITLES[tab]}</h1>
           <p className="text-sm text-gray-400" data-testid="ops-summary">
             {summary}
           </p>

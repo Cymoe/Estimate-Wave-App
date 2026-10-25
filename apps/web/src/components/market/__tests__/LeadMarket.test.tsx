@@ -185,7 +185,8 @@ describe('Lead Market', () => {
     document.body.innerHTML = '';
     role = 'staff';
     await render(<LeadMarketPage />);
-    expect(document.body.textContent).toContain('FieldQuote staff');
+    // No role pill by the heading: the top bar already says who you are.
+    expect(document.body.textContent).not.toContain('FieldQuote staff');
     expect(Array.from(document.body.querySelectorAll('[role="tablist"][aria-label="Ops tabs"] [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand (0/0)', 'Intake (0)', 'For sale (1)', 'Sold', 'Companies (3)']);
     expect(document.body.textContent).not.toContain('Add 20 sample leads');
     expect(document.body.querySelector('[data-testid="team-card"]')).toBeNull();
@@ -254,7 +255,7 @@ describe('Lead Market', () => {
     };
     await open('For sale');
     expect(heading()).toBe('For sale');
-    expect(summary()).toBe('1 for sale · $170.00 sold in 30 days');
+    expect(summary()).toBe('1 lead for sale in the Marketplace · $170.00 sold in 30 days');
     await open('Companies');
     expect(heading()).toBe('Companies');
     expect(summary()).toBe('3 companies · $510.00 in lead balances · 1 Pro');
@@ -627,7 +628,7 @@ describe("a company's lead balance", () => {
 describe('loading the balance and buying leads', () => {
   it('sets an owner, and removes an empty company (only offered for empty ones)', async () => {
     await render(<LeadMarketPage />);
-    expect(document.body.textContent).toContain('Platform owner');
+    expect(document.body.textContent).not.toContain('Platform owner');
     await act(async () => byText('Companies')!.click());
     await flush();
     const row = (name: string) => Array.from(document.body.querySelectorAll('tr')).find((r) => r.textContent?.includes(name))!;
