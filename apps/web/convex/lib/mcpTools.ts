@@ -1,14 +1,15 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { listDef, logContactDef, updateDef, acknowledgeDef } from "../leads";
-import { bidsDef, feedDef, olderLeadsDef, requestCreditDef, walletDef, CREDIT_REASONS } from "../marketplace";
-import { listStandingDef, resultsDef } from "../bids";
+import { bidsDef, buyDef, cancelBidDef, claimDef, feedDef, olderLeadsDef, placeBidDef, requestCreditDef, walletDef, CREDIT_REASONS } from "../marketplace";
+import { listStandingDef, removeStandingDef, resultsDef, setStandingDef } from "../bids";
 import { createLinkDef } from "../funding";
 import { siteUrl } from "../delivery";
-import { fail, getOwned } from "./access";
+import { fail, getOwned, logActivity } from "./access";
 import { priceAt } from "./auction";
+import { claimPrice, planIsActive } from "./plan";
 import { centralDay } from "./oauth";
-import { dollars } from "./wallet";
+import { dollars, leadPriceCents } from "./wallet";
 
 // The connector's tools: what Claude or ChatGPT can do in FieldQuote for
 // the person who connected it. Each runs the same code as the web app
@@ -566,7 +567,233 @@ export const TOOLS: Tool[] = [
       return { text: `Add funds here: ${url}`, data: { url } };
     },
   },
+
+  // ---- Spending (scope "spend": an owner or admin turned it on, under a daily limit) ----
+  {
+    name: "buy_lead",
+    title: "Buy a Marketplace lead",
+    description:
+      "Buys a lead from the Marketplace at its current price, paid from the company's balance; it's theirs alone and the homeowner's details come back. Pass the price you quoted the person: if it has gone up since, nothing is bought. Confirm with the person first.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        lead_id: { type: "string", description: "The Marketplace lead's id, from browse_marketplace." },
+        expected_price: { type: "number", description: "The price in dollars you told the person, from browse_marketplace." },
+      },
+      required: ["lead_id", "expected_price"],
+      additionalProperties: false,
+    },
+    readOnly: false,
+    destructive: true,
+    scope: "spend",
+    run: async (ctx, connection, args) => {
+      const leadId = idOf(ctx, "marketplaceLeads", args, "lead_id");
+      const expectedCents = Math.round(num(args, "expected_price", { required: true })! * 100);
+      const lead = await ctx.db.get(leadId);
+      if (lead === null || lead.status !== "available") fail("INVALID", "Someone just bought this lead");
+      const priceCents = await leadPriceCents(ctx, lead);
+      if (priceCents > expectedCents)
+        fail("INVALID", `It's ${dollars(priceCents)} now, not ${dollars(expectedCents)}. Nothing was bought: check the new price with the person.`);
+      await spend(ctx, connection, priceCents);
+      const sale = await buyDef.handler(ctx, { leadId, organizationId: connection.organizationId });
+      await logSpend(ctx, connection, "bought_lead", sale.orgLeadId, priceCents);
+      return await bought(ctx, sale.orgLeadId, `Bought for ${dollars(priceCents)}.`);
+    },
+  },
+  {
+    name: "claim_vault_lead",
+    title: "Claim a Vault lead",
+    description:
+      "Claims an older lead from the Vault (Pro plan): free while the month's included claims last, then the plan's extra-claim price, paid from the balance. Confirm with the person first.",
+    inputSchema: {
+      type: "object",
+      properties: { lead_id: { type: "string", description: "The Vault lead's id, from browse_vault." } },
+      required: ["lead_id"],
+      additionalProperties: false,
+    },
+    readOnly: false,
+    destructive: true,
+    scope: "spend",
+    run: async (ctx, connection, args) => {
+      const leadId = idOf(ctx, "marketplaceLeads", args, "lead_id");
+      const organization = (await ctx.db.get(connection.organizationId))!;
+      const priceCents = organization.plan && planIsActive(organization.plan, Date.now()) ? claimPrice(organization.plan) : 0;
+      await spend(ctx, connection, priceCents);
+      const sale = await claimDef.handler(ctx, { leadId, organizationId: connection.organizationId });
+      await logSpend(ctx, connection, "claimed_lead", sale.orgLeadId, priceCents);
+      return await bought(
+        ctx,
+        sale.orgLeadId,
+        `${priceCents ? `Claimed for ${dollars(priceCents)}` : "Claimed, included in the plan"}; ${sale.claimsLeft} included claim(s) left this month.`,
+      );
+    },
+  },
+  {
+    name: "place_buy_order",
+    title: "Place a buy order",
+    description:
+      "Names the most the company will pay for one Marketplace lead. Its price drops every hour; the order buys it automatically when it reaches this amount, unless someone buys it first. The amount counts toward today's limit. Confirm with the person first.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        lead_id: { type: "string", description: "The Marketplace lead's id, from browse_marketplace." },
+        max: { type: "number", description: "Dollars: below today's price and not below the lead's floor." },
+      },
+      required: ["lead_id", "max"],
+      additionalProperties: false,
+    },
+    readOnly: false,
+    destructive: true,
+    scope: "spend",
+    run: async (ctx, connection, args) => {
+      const leadId = idOf(ctx, "marketplaceLeads", args, "lead_id");
+      const max = num(args, "max", { required: true })!;
+      const maxCents = Math.round(max * 100);
+      await spend(ctx, connection, maxCents);
+      const order = await placeBidDef.handler(ctx, { leadId, organizationId: connection.organizationId, max });
+      await logSpend(ctx, connection, "placed_buy_order", order.bidId, maxCents);
+      return {
+        text: `Buy order placed at ${dollars(maxCents)}. If nobody buys it first, it fills around ${new Date(order.fillsAt).toLocaleString("en-US", { timeZone: "America/Chicago", dateStyle: "medium", timeStyle: "short" })} Central.`,
+        data: { orderId: order.bidId, max: dollars(maxCents), fillsAt: order.fillsAt },
+      };
+    },
+  },
+  {
+    name: "cancel_buy_order",
+    title: "Cancel a buy order",
+    description: "Cancels one of the company's open buy orders (ids from my_bids).",
+    inputSchema: {
+      type: "object",
+      properties: { order_id: { type: "string", description: "The buy order's id, from my_bids." } },
+      required: ["order_id"],
+      additionalProperties: false,
+    },
+    readOnly: false,
+    scope: "spend",
+    run: async (ctx, connection, args) => {
+      const bidId = idOf(ctx, "leadBids", args, "order_id");
+      const bid = await ctx.db.get(bidId);
+      if (bid === null || bid.organizationId !== connection.organizationId) fail("NOT_FOUND", "Buy order not found");
+      await cancelBidDef.handler(ctx, { bidId });
+      return { text: "Buy order cancelled.", data: { orderId: bidId } };
+    },
+  },
+  {
+    name: "set_standing_bid",
+    title: "Set a standing bid",
+    description:
+      "Sets what the company pays per new lead in one county and trade (replacing any bid there). The highest funded bid wins each new lead the moment it arrives, paid from the balance, so this can buy many leads over time. The amount can't be above this assistant's daily limit. Confirm with the person first.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        county: { type: "string", description: "Texas county, for example Midland." },
+        trade: { type: "string", description: "One of the company's trades, by name or slug, for example Roofing." },
+        amount: { type: "number", description: "Dollars per lead." },
+      },
+      required: ["county", "trade", "amount"],
+      additionalProperties: false,
+    },
+    readOnly: false,
+    destructive: true,
+    scope: "spend",
+    run: async (ctx, connection, args) => {
+      const county = str(args, "county", { required: true })!;
+      const amount = num(args, "amount", { required: true })!;
+      const amountCents = Math.round(amount * 100);
+      if (amountCents > connection.dailyCapCents)
+        fail(
+          "FORBIDDEN",
+          `A ${dollars(amountCents)} bid is above this assistant's ${dollars(connection.dailyCapCents)} daily limit. The person can raise it in FieldQuote → Company settings → Assistants, or set the bid on the web.`,
+        );
+      const jobType = await tradeSlug(ctx, connection, str(args, "trade", { required: true })!);
+      const id = await setStandingDef.handler(ctx, { organizationId: connection.organizationId, county, jobType, amount });
+      await logSpend(ctx, connection, "set_standing_bid", id, amountCents);
+      const row = (await listStandingDef.handler(ctx, { organizationId: connection.organizationId })).find((b) => b.id === id)!;
+      return {
+        text: `Standing bid set: ${dollars(row.amountCents)} per ${(await tradeNames(ctx)(row.jobType)) ?? row.jobType} lead in ${row.county} County · ${row.leading ? "winning" : row.funded ? "not winning yet: another company bids more" : "paused until the balance covers it"}.`,
+        data: { bidId: id, county: row.county, amount: dollars(row.amountCents), winning: row.leading },
+      };
+    },
+  },
+  {
+    name: "remove_standing_bid",
+    title: "Remove a standing bid",
+    description: "Removes one of the company's standing bids (ids from my_bids); it wins no more leads.",
+    inputSchema: {
+      type: "object",
+      properties: { bid_id: { type: "string", description: "The standing bid's id, from my_bids." } },
+      required: ["bid_id"],
+      additionalProperties: false,
+    },
+    readOnly: false,
+    scope: "spend",
+    run: async (ctx, connection, args) => {
+      const id = idOf(ctx, "standingBids", args, "bid_id");
+      const row = await ctx.db.get(id);
+      if (row === null || row.organizationId !== connection.organizationId) fail("NOT_FOUND", "Bid not found");
+      await removeStandingDef.handler(ctx, { id });
+      return { text: `Removed the ${row.county} County bid.`, data: { bidId: id } };
+    },
+  },
 ];
+
+/**
+ * Counts a charge against the connection's daily limit (Central time).
+ * Runs in the same mutation as the charge, so a refused or failed buy
+ * counts nothing.
+ */
+async function spend(ctx: MutationCtx, connection: Connection, cents: number) {
+  const today = centralDay();
+  const spent = spentTodayCents(connection, today);
+  if (spent + cents > connection.dailyCapCents)
+    fail(
+      "FORBIDDEN",
+      `That's over today's ${dollars(connection.dailyCapCents)} limit for this assistant (${dollars(spent)} spent so far, this is ${dollars(cents)}). Nothing was spent. The person can raise the limit in FieldQuote → Company settings → Assistants.`,
+    );
+  await ctx.db.patch(connection._id, { spendDay: today, spentTodayCents: spent + cents });
+}
+
+/** The audit trail says it was the assistant. */
+async function logSpend(ctx: MutationCtx, connection: Connection, action: string, resourceId: string, amountCents: number) {
+  await logActivity(ctx, {
+    organizationId: connection.organizationId,
+    userId: connection.userId,
+    action,
+    resourceType: "assistant",
+    resourceId,
+    details: { amountCents },
+    metadata: { via: connection.app, connectionId: connection._id },
+  });
+}
+
+/** After buying or claiming: the lead as the company now has it, contact details included. */
+async function bought(ctx: MutationCtx, orgLeadId: Id<"leads">, headline: string): Promise<ToolResult> {
+  const lead = (await ctx.db.get(orgLeadId))!;
+  const summary = leadSummary(lead, await tradeNames(ctx)(lead.jobType));
+  return {
+    text: [
+      headline,
+      `${lead.name}${lead.phone ? ` · ${lead.phone}` : ""}${lead.email ? ` · ${lead.email}` : ""}`,
+      lead.address || lead.city ? [lead.address, lead.city].filter(Boolean).join(", ") : "",
+      lead.notes ?? "",
+      `It's in the company's leads: ${leadLink(lead._id)}. Call the homeowner, then acknowledge_lead.`,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    data: { ...summary, email: lead.email, address: lead.address, notes: lead.notes },
+  };
+}
+
+/** A trade the company lists, from its name or slug. */
+async function tradeSlug(ctx: MutationCtx, connection: Connection, trade: string): Promise<string> {
+  const organization = (await ctx.db.get(connection.organizationId))!;
+  const wanted = trade.toLowerCase();
+  const names = tradeNames(ctx);
+  for (const slug of organization.leadTrades ?? []) {
+    if (slug.toLowerCase() === wanted || (await names(slug))?.toLowerCase() === wanted) return slug;
+  }
+  return trade;
+}
 
 /** The connected company's lead, or not found (an id from another company reads the same as a wrong one). */
 async function ownLead(ctx: MutationCtx, connection: Connection, id: Id<"leads">) {

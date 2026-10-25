@@ -397,3 +397,89 @@ describe("the connector", () => {
     expect((await rpc(t, accessToken, "tools/list")).status).toBe(401);
   });
 });
+
+describe("buying and bidding from an assistant", () => {
+  test("off unless the owner turned it on; then a buy checks the quoted price and the daily limit, and is logged as the assistant", async () => {
+    vi.useFakeTimers({ now: Date.parse("2026-10-26T15:00:00.000Z") });
+    const { t, admin, roofer, forSaleId } = await roofingCompany();
+    await admin.as.mutation(api.marketplace.recordTopUp, { organizationId: roofer.organizationId, amount: 1000 });
+    const second = (await admin.as.mutation(api.marketplace.createLead, {
+      data: { name: "Bob Ray", phone: "432-555-0102", jobType: "roofing", city: "Odessa" },
+    }))!._id;
+
+    const readOnly = await connect(t, roofer);
+    expect(await tool(t, readOnly.accessToken, "buy_lead", { lead_id: forSaleId, expected_price: 300 })).toMatchObject({
+      isError: true,
+      text: expect.stringContaining("Buying and bidding are off"),
+    });
+
+    const spender = await connect(t, roofer, { spending: true, dailyCap: 500 });
+    let accessToken = spender.accessToken;
+    const stale = await tool(t, accessToken, "buy_lead", { lead_id: forSaleId, expected_price: 250 });
+    expect(stale).toMatchObject({ isError: true, text: expect.stringContaining("It's $300.00 now, not $250.00. Nothing was bought") });
+
+    const bought = await tool(t, accessToken, "buy_lead", { lead_id: forSaleId, expected_price: 300 });
+    expect(bought.isError).toBe(false);
+    expect(bought.text).toContain("Bought for $300.00.");
+    expect(bought.text).toContain("Jane Cole · 432-555-0101");
+    expect(bought.data.origin).toBe("Bought in the Marketplace · $300.00");
+    expect((await tool(t, accessToken, "my_company")).text).toContain("up to $500.00 today ($300.00 spent so far)");
+
+    // $300 more would pass the $500 limit: refused, and nothing is charged.
+    const over = await tool(t, accessToken, "buy_lead", { lead_id: second, expected_price: 300 });
+    expect(over).toMatchObject({ isError: true, text: expect.stringContaining("over today's $500.00 limit for this assistant ($300.00 spent so far, this is $300.00)") });
+    expect((await roofer.as.query(api.marketplace.wallet, { organizationId: roofer.organizationId })).balanceCents).toBe(70_000);
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(second))!.status).toBe("available");
+    });
+    const connections = await roofer.as.query(api.oauth.myConnections, { organizationId: roofer.organizationId });
+    expect(connections.connections.find((c) => c.spending)!.spentTodayCents).toBe(30_000);
+
+    // A new day in Texas starts the limit over (the lead has dropped in price by then too).
+    vi.setSystemTime(Date.parse("2026-10-27T15:00:00.000Z"));
+    // The hour-long access token has run out by then; the assistant refreshes it, as Claude and ChatGPT do.
+    expect((await rpc(t, accessToken, "tools/list")).status).toBe(401);
+    accessToken = (await token(t, { grant_type: "refresh_token", refresh_token: spender.refreshToken, client_id: spender.clientId })).body.access_token;
+    const price = (await tool(t, accessToken, "browse_marketplace")).data.leads[0].priceCents / 100;
+    expect(price).toBeLessThan(300);
+    expect((await tool(t, accessToken, "buy_lead", { lead_id: second, expected_price: price })).text).toContain(`Bought for $${price.toFixed(2)}`);
+
+    await t.run(async (ctx) => {
+      const logs = await ctx.db.query("activityLogs").withIndex("by_organization", (q) => q.eq("organizationId", roofer.organizationId)).collect();
+      const spends = logs.filter((l) => l.action === "bought_lead");
+      expect(spends).toHaveLength(2);
+      expect(spends[0].metadata).toMatchObject({ via: "claude" });
+      expect(spends[0].details).toEqual({ amountCents: 30_000 });
+    });
+  });
+
+  test("standing bids stay under the limit; buy orders count toward it; a member can't spend even with an old grant", async () => {
+    const { t, admin, roofer, forSaleId } = await roofingCompany();
+    await admin.as.mutation(api.marketplace.recordTopUp, { organizationId: roofer.organizationId, amount: 1000 });
+    const { accessToken } = await connect(t, roofer, { spending: true, dailyCap: 400 });
+
+    expect(await tool(t, accessToken, "set_standing_bid", { county: "Midland", trade: "Roofing", amount: 450 })).toMatchObject({
+      isError: true,
+      text: expect.stringContaining("above this assistant's $400.00 daily limit"),
+    });
+    const set = await tool(t, accessToken, "set_standing_bid", { county: "midland", trade: "roofing", amount: 250 });
+    expect(set.text).toBe("Standing bid set: $250.00 per roofing lead in Midland County · winning.");
+    expect((await tool(t, accessToken, "set_standing_bid", { county: "Midland", trade: "Painting", amount: 250 })).text).toContain("Add Painting to your trades");
+    const bids = await tool(t, accessToken, "my_bids");
+    expect(bids.text).toContain("roofing in Midland County: $250.00 · winning");
+
+    const order = await tool(t, accessToken, "place_buy_order", { lead_id: forSaleId, max: 250 });
+    expect(order.text).toContain("Buy order placed at $250.00");
+    expect((await tool(t, accessToken, "place_buy_order", { lead_id: forSaleId, max: 200 })).text).toContain("over today's $400.00 limit");
+    const orderId = (await tool(t, accessToken, "my_bids")).data.orders[0].id;
+    expect((await tool(t, accessToken, "cancel_buy_order", { order_id: orderId })).text).toBe("Buy order cancelled.");
+    expect((await tool(t, accessToken, "remove_standing_bid", { bid_id: set.data.bidId })).text).toBe("Removed the Midland County bid.");
+
+    // Moved down to member after connecting: the web's own admin check still says no.
+    await t.run(async (ctx) => {
+      const m = await ctx.db.query("memberships").withIndex("by_user", (q) => q.eq("userId", roofer.userId)).unique();
+      await ctx.db.patch(m!._id, { role: "member" });
+    });
+    expect(await tool(t, accessToken, "set_standing_bid", { county: "Midland", trade: "roofing", amount: 100 })).toMatchObject({ isError: true, text: expect.stringContaining("access") });
+  });
+});
