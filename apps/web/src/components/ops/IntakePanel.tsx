@@ -8,6 +8,7 @@ import { intakeAPI, type IntakeFields } from '../../lib/api';
 import { COUNTY_CHOICES } from '../../services/counties';
 import { Field, ago, input, primary, secondary, tap, usePanel } from './ui';
 import { ConfirmChecklist, type ConfirmResult } from './ConfirmChecklist';
+import { DISPOSITIONS, reasonLabel } from './intakeReasons';
 
 export interface IntakeRow {
   id: string;
@@ -59,17 +60,6 @@ const ATTEMPTS: Array<[string, string]> = [
   ['texted', 'Texted'],
   ['callback', 'Call back later'],
   ['wrong_number', 'Wrong number'],
-];
-
-const DISPOSITIONS: Array<[string, string]> = [
-  ['not_reached', 'Never reached them'],
-  ['duplicate', 'Same homeowner as another lead'],
-  ['out_of_area', 'Outside the counties we sell'],
-  ['renter', 'Renter, not the owner'],
-  ['wrong_trade', 'Not work we sell'],
-  ['not_interested', 'Not interested any more'],
-  ['bad_number', 'Bad number'],
-  ['other', 'Something else'],
 ];
 
 const SOURCE: Record<IntakeRow['source'], string> = { meta: 'Facebook form', call: 'Called in', manual: 'Typed in', api: 'Webhook' };
@@ -201,7 +191,7 @@ export const IntakePanel: React.FC<{
             <p className="text-xs text-gray-500 truncate">
               {SOURCE[row.source]} · in {ago(row.createdAt)}
               {row.campaignName ? ` · ${row.campaignName}` : ''}
-              {row.status === 'closed' ? ` · closed: ${row.disposition?.replace(/_/g, ' ')}` : row.status === 'confirmed' ? ' · confirmed' : ''}
+              {row.status === 'closed' ? ` · not a lead: ${reasonLabel(row.disposition)}` : row.status === 'confirmed' ? ' · confirmed' : ''}
             </p>
           </div>
           <div className="flex items-center gap-1">
@@ -227,7 +217,7 @@ export const IntakePanel: React.FC<{
               <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <span>
                 Same number as <strong>{row.duplicate.label}</strong>, {ago(row.duplicate.createdAt)}
-                {row.duplicate.confirmedLeadId ? ', already confirmed and sold' : row.duplicate.status === 'closed' ? ', closed' : ', still in the queue'}. One lead per homeowner in 45 days.
+                {row.duplicate.confirmedLeadId ? ', already confirmed and sold' : row.duplicate.status === 'closed' ? ', marked not a lead' : ', still in the queue'}. One lead per homeowner in 45 days.
               </span>
             </div>
           )}
@@ -392,7 +382,7 @@ export const IntakePanel: React.FC<{
                   ))}
                 </select>
                 <button type="button" disabled={busy || !closing} onClick={() => act(() => intakeAPI.close(id, closing, note || undefined), { keepDraft: true, where: 'close' })} className={secondary}>
-                  Close
+                  Mark not a lead
                 </button>
               </div>
               {errorLine('close')}

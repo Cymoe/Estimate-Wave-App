@@ -800,6 +800,45 @@ describe('standing bids in Admin', () => {
     expect(document.body.querySelector('[data-testid="intake-outcome"]')?.textContent).toBe('Sold to Peak Roofing for $250.00');
   });
 
+  it('says "Not a lead", not "Closed": the filter, the button, and the reason staff picked', async () => {
+    const { IntakeQueue } = await import('../../ops/IntakeQueue');
+    const { intakeAPI } = jest.requireMock('../../../lib/api') as { intakeAPI: { close: (...a: unknown[]) => Promise<unknown> } };
+    const close = intakeAPI.close;
+    const closeSpy = jest.fn(async () => null);
+    intakeAPI.close = closeSpy;
+    try {
+      intakeRows = [
+        { id: 'i7', source: 'meta', status: 'working', label: 'Cy Ford', name: 'Cy Ford', phone: '432-555-0177', county: 'Midland', attempts: [], lastAttempt: null, createdAt: '2026-10-22T02:00:00Z', updatedAt: '2026-10-22T02:00:00Z' },
+        { id: 'i8', source: 'meta', status: 'closed', disposition: 'bad_number', label: 'Di Gray', name: 'Di Gray', county: 'Midland', attempts: [], lastAttempt: null, createdAt: '2026-10-22T02:00:00Z', updatedAt: '2026-10-22T02:00:00Z' },
+      ];
+      await render(<IntakeQueue trades={[]} openNew={false} onCloseNew={() => {}} />);
+      const filters = Array.from(document.body.querySelectorAll('[aria-label="Intake filter"] [role="tab"]')).map((t) => t.textContent);
+      expect(filters).toEqual(['To call', 'Not a lead', 'Confirmed']);
+      expect(filters).not.toContain('Closed');
+      document.body.innerHTML = '';
+      const { IntakePanel } = await import('../../ops/IntakePanel');
+      await render(<IntakePanel id="i7" trades={[]} onClose={() => {}} onChanged={() => {}} onListed={() => {}} />);
+      const panel = document.body.querySelector('aside[role="dialog"]')!;
+      const reason = panel.querySelector('select[aria-label="Reason"]') as HTMLSelectElement;
+      await act(async () => {
+        reason.value = 'bad_number';
+        reason.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      const mark = Array.from(panel.querySelectorAll('button')).find((b) => b.textContent === 'Mark not a lead') as HTMLButtonElement;
+      expect(mark).toBeDefined();
+      await act(async () => mark.click());
+      await flush();
+      expect(closeSpy).toHaveBeenCalledWith('i7', 'bad_number', undefined);
+      document.body.innerHTML = '';
+      // A lead marked "not a lead" says so, with the reason as staff picked it.
+      await render(<IntakePanel id="i8" trades={[]} onClose={() => {}} onChanged={() => {}} onListed={() => {}} />);
+      expect(document.body.textContent).toContain('not a lead: Bad number');
+      expect(document.body.textContent).not.toContain('closed:');
+    } finally {
+      intakeAPI.close = close;
+    }
+  });
+
   it('opens a lead whose details fail to load with the reason and a Close button', async () => {
     const { intakeAPI } = jest.requireMock('../../../lib/api') as { intakeAPI: { get: (id: string) => Promise<unknown> } };
     const get = intakeAPI.get;

@@ -5,6 +5,7 @@ import { useIntakeQueue } from '../../lib/live';
 import { COUNTY_CHOICES, countyForTown } from '../../services/counties';
 import { Dialog, Field, ago, input, primary, secondary } from './ui';
 import { IntakePanel, type IntakeRow } from './IntakePanel';
+import { reasonLabel } from './intakeReasons';
 import { IncomingLog } from './IncomingLog';
 
 export interface Trade {
@@ -26,7 +27,7 @@ export const ATTEMPT_LABELS: Record<string, string> = {
   wrong_number: 'Wrong number',
   callback: 'Call back',
   texted: 'Texted',
-  closed: 'Closed',
+  closed: 'Marked not a lead',
 };
 
 /**
@@ -58,7 +59,7 @@ export const IntakeQueue: React.FC<{
           {(
             [
               ['open', 'To call'],
-              ['closed', 'Closed'],
+              ['closed', 'Not a lead'],
               ['confirmed', 'Confirmed'],
             ] as const
           ).map(([value, label]) => (
@@ -85,7 +86,7 @@ export const IntakeQueue: React.FC<{
         <div className="border border-dashed border-[#333] rounded p-8 text-center">
           <PhoneCall className="w-8 h-8 mx-auto text-gray-500 mb-2" />
           <p className="text-sm text-gray-400">
-            {filter === 'open' ? 'Nobody to call. Leads from the Facebook forms and calls land here.' : filter === 'closed' ? 'Nothing closed yet.' : 'Nothing confirmed yet.'}
+            {filter === 'open' ? 'Nobody to call. Leads from the Facebook forms and calls land here.' : filter === 'closed' ? 'No leads marked “not a lead” yet.' : 'Nothing confirmed yet.'}
           </p>
         </div>
       ) : (
@@ -122,7 +123,7 @@ export const IntakeQueue: React.FC<{
                   <span className="text-xs text-gray-500 whitespace-nowrap">
                     {row.attempts.length > 0 ? `${row.attempts.length} ${row.attempts.length === 1 ? 'try' : 'tries'} · ` : ''}
                     {row.lastAttempt ? `${ATTEMPT_LABELS[row.lastAttempt.outcome] ?? row.lastAttempt.outcome} ${ago(row.lastAttempt.at)}` : `in ${ago(row.createdAt)}`}
-                    {row.disposition ? ` · ${row.disposition.replace(/_/g, ' ')}` : ''}
+                    {row.disposition ? ` · ${reasonLabel(row.disposition)}` : ''}
                   </span>
                 </button>
               </li>
