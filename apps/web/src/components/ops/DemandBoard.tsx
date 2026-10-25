@@ -130,6 +130,8 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
       .join('\n');
   // Narrow enough to fit six or seven trades across an iPad: the profit, then what to do.
   const CARD = 'h-[4.75rem] w-full text-left rounded border px-2 py-1.5 leading-snug overflow-hidden';
+  // Green with a winning bid already says "run ads": only the other colours spell out what to do.
+  const action = (s: DemandSlot) => (s.state === 'open' ? null : STATE[s.state].label);
   const named = (s: DemandSlot) => `${s.tradeName} in ${s.county} County: ${headline(s)}.${winningBid(s) ? ` ${winningBid(s)}.` : ''} ${STATE[s.state].label}`;
 
   return (
@@ -186,7 +188,7 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
                             <button type="button" onClick={() => setOpen(s)} title={tip(s)} aria-label={named(s)} data-state={s.state} className={`${CARD} ${STATE[s.state].cell}`}>
                               <span className="block truncate text-base font-semibold">{headline(s)}</span>
                               <span className="block truncate text-xs">{winningBid(s) ?? '\u00a0'}</span>
-                              <span className="block truncate text-[11px] opacity-75">{STATE[s.state].label}</span>
+                              {action(s) && <span className="block truncate text-[11px] opacity-75">{action(s)}</span>}
                             </button>
                           ) : (
                             <span className="flex h-[4.75rem] items-center justify-center text-gray-700">·</span>
@@ -209,10 +211,7 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
                     </span>
                     <span className="shrink-0 text-base font-semibold">{headline(s)}</span>
                   </span>
-                  <span className="block truncate text-xs opacity-75">
-                    {winningBid(s) ? `${winningBid(s)} · ` : ''}
-                    {STATE[s.state].label}
-                  </span>
+                  <span className="block truncate text-xs opacity-75">{[winningBid(s), action(s)].filter(Boolean).join(' · ') || '\u00a0'}</span>
                 </button>
               </li>
             ))}

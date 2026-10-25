@@ -867,7 +867,8 @@ describe('standing bids in Admin', () => {
     await act(async () => (document.body.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click());
     const midland = cells.find((c) => c.getAttribute('data-state') === 'open')!;
     // A square leads with the profit in whole dollars, then the winning bid and what to do; the rest is in the hover text and the drawer.
-    expect(midland.textContent).toBe('$235 profitWinning bid $300Run ads here');
+    // Green with a winning bid means run ads: the card doesn't spell it out, the label and hover text still do.
+    expect(midland.textContent).toBe('$235 profitWinning bid $300');
     expect(midland.getAttribute('aria-label')).toBe('Roofing in Midland County: $235 profit. Winning bid $300. Run ads here');
     expect(midland.getAttribute('title')).toContain('Last 30 days: 2 Roofing leads in Midland County, 2 sold, about $300.00 each');
     expect(midland.getAttribute('title')).toContain('About +$235.00 profit a lead');
