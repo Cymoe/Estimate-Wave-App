@@ -698,7 +698,7 @@ function CompanyPanel({
     setLinkUrl(url);
     if (typeof navigator.share === 'function') {
       try {
-        await navigator.share({ title: 'Load your FieldQuote lead balance', text: `Here's the link to load ${company.name}'s lead balance:`, url });
+        await navigator.share({ title: 'Load your Tolliver lead balance', text: `Here's the link to load ${company.name}'s lead balance:`, url });
         return;
       } catch (err) {
         if ((err as Error)?.name === 'AbortError') return;
@@ -786,7 +786,7 @@ function CompanyPanel({
               {money(wallet?.balanceCents ?? company.balanceCents)}
             </p>
             <p className="text-sm text-gray-400 mt-1">
-              {plural(company.leadsTotal, 'lead')} from FieldQuote · {money(company.wonCents)} of jobs from them
+              {plural(company.leadsTotal, 'lead')} from Tolliver · {money(company.wonCents)} of jobs from them
             </p>
           </section>
 
@@ -986,7 +986,7 @@ function CompanyPanel({
                 {credited}
               </p>
             )}
-            {bought.length > 0 && <p className="text-xs text-gray-500 mt-1">{bought.length} bought from FieldQuote</p>}
+            {bought.length > 0 && <p className="text-xs text-gray-500 mt-1">{bought.length} bought from Tolliver</p>}
           </section>
 
           <section>
@@ -1316,14 +1316,14 @@ const LeadMarketPage: React.FC = () => {
   useEffect(() => {
     if (!staff) return;
     const before = document.title;
-    document.title = `${counts.overdue > 0 ? `(${counts.overdue}) ` : ''}${TAB_TITLES[tab]} · Ops · FieldQuote`;
+    document.title = `${counts.overdue > 0 ? `(${counts.overdue}) ` : ''}${TAB_TITLES[tab]} · Ops · Tolliver`;
     return () => {
       document.title = before;
     };
   }, [staff, tab, counts.overdue]);
 
   if (!staff) {
-    return <div className="p-8 text-gray-400">The Ops page is only for FieldQuote staff.</div>;
+    return <div className="p-8 text-gray-400">The Ops page is only for Tolliver staff.</div>;
   }
 
   const summary = (() => {

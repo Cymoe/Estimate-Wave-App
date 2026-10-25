@@ -25,15 +25,15 @@ export interface Lead {
   isSample?: boolean;
   createdAt?: string;
   estimate: { id: string; estimateNumber: string; status: string; totalAmount: number } | null;
-  /** Bought from the FieldQuote Lead Market. */
+  /** Bought from the Tolliver Lead Market. */
   marketplaceLeadId?: string;
   pricePaidCents?: number;
   assignedAt?: string;
-  /** How it got here: a standing bid won it, a buy order filled, bought in the Marketplace, or sent by FieldQuote. */
+  /** How it got here: a standing bid won it, a buy order filled, bought in the Marketplace, or sent by Tolliver. */
   wonVia?: 'bid' | 'order' | 'buy' | 'sent' | 'claim';
   /** When someone here tapped "Got it" on the alert. */
   acknowledgedAt?: string;
-  /** When FieldQuote confirmed the lead with the homeowner, and what they said. */
+  /** When Tolliver confirmed the lead with the homeowner, and what they said. */
   verified?: { at: string; note?: string };
   creditRequest?: { reason: string; note?: string; requestedAt: string; status: 'pending' | 'approved' | 'denied' };
 }
@@ -50,7 +50,7 @@ export const STATUSES: { value: LeadStatus; label: string; color: string; dot: s
   { value: 'contacted', label: 'Contacted', color: 'text-amber-300', dot: 'bg-amber-300' },
   { value: 'scheduled', label: 'Estimate Scheduled', color: 'text-orange-300', dot: 'bg-orange-300' },
   { value: 'quoted', label: 'Estimate Sent', color: 'text-violet-300', dot: 'bg-violet-300' },
-  // "Job sold": the company sold the job to the homeowner. Never confused with how FieldQuote sold them the lead.
+  // "Job sold": the company sold the job to the homeowner. Never confused with how Tolliver sold them the lead.
   { value: 'won', label: 'Job sold', color: 'text-emerald-300', dot: 'bg-emerald-300' },
   { value: 'lost', label: 'Lost', color: 'text-gray-500', dot: 'bg-gray-500' },
 ];

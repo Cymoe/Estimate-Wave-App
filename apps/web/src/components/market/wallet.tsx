@@ -61,7 +61,7 @@ export function WalletHistory({ transactions }: { transactions: any[] }) {
 }
 
 
-/** A lead that came in through FieldQuote rather than one the company added itself. */
+/** A lead that came in through Tolliver rather than one the company added itself. */
 export const isWonLead = (lead: { marketplaceLeadId?: string }) => Boolean(lead.marketplaceLeadId);
 
 /** A company's monthly plan as the backend reports it. */

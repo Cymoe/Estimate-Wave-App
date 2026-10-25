@@ -6,18 +6,18 @@ import { TOOLS } from "./mcpTools";
 import { resourceMetadataUrl, sha256 } from "./oauth";
 import { CORS, json } from "./oauthRoutes";
 
-// FieldQuote's MCP connector, for Claude and ChatGPT: JSON-RPC over
+// Tolliver's MCP connector, for Claude and ChatGPT: JSON-RPC over
 // streamable HTTP at POST /mcp. Stateless: every request carries its
 // bearer token and gets a plain JSON answer, so there are no sessions.
 
 const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 
-const INSTRUCTIONS = `FieldQuote sells home-service leads (roofing, painting and more) to contracting companies, and keeps each company's leads.
+const INSTRUCTIONS = `Tolliver sells home-service leads (roofing, painting and more) to contracting companies, and keeps each company's leads.
 You are connected to one company for one person. Amounts are US dollars.
 - For an update, call whats_new. For context (balance, trades, what you may spend), call my_company.
 - Homeowner contact details only appear on leads the company has (list_my_leads, get_lead), never on Marketplace leads before they are bought.
 - Before anything that spends from the balance, say what it costs and get a clear yes from the person.
-- Give the person the FieldQuote links from results when they want to see something on the web.`;
+- Give the person the Tolliver links from results when they want to see something on the web.`;
 
 type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
 
@@ -48,7 +48,7 @@ export function addMcpRoutes(http: HttpRouter) {
     method: "POST",
     handler: httpAction(async (ctx, request) => {
       const bearer = /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1];
-      if (!bearer) return unauthorized("Sign in to FieldQuote to use this connector");
+      if (!bearer) return unauthorized("Sign in to Tolliver to use this connector");
       const accessHash = await sha256(bearer);
       const access = await ctx.runQuery(internal.mcp.authorize, { accessHash });
       if (!access.ok) return unauthorized("This sign-in has expired or was disconnected", "invalid_token");
@@ -69,7 +69,7 @@ export function addMcpRoutes(http: HttpRouter) {
             return rpcResult(message.id, {
               protocolVersion: PROTOCOL_VERSIONS.includes(asked) ? asked : PROTOCOL_VERSIONS[0],
               capabilities: { tools: { listChanged: false } },
-              serverInfo: { name: "fieldquote", title: "FieldQuote", version: "1.0.0" },
+              serverInfo: { name: "tolliver", title: "Tolliver", version: "1.0.0" },
               instructions: INSTRUCTIONS,
             });
           }
@@ -88,14 +88,14 @@ export function addMcpRoutes(http: HttpRouter) {
                 ...(result.data !== undefined ? { structuredContent: result.data } : {}),
               });
             } catch (error) {
-              // A FieldQuote "no" (not enough balance, someone else bought it) goes back to the assistant to tell the person.
+              // A Tolliver "no" (not enough balance, someone else bought it) goes back to the assistant to tell the person.
               const data = error instanceof ConvexError ? (error.data as { code?: string; message?: string }) : null;
               if (!data) console.error("connector tool failed", name, error);
               return rpcResult(message.id, {
-                content: [{ type: "text", text: data?.message ?? "Something went wrong on FieldQuote's side. Try again in a minute." }],
+                content: [{ type: "text", text: data?.message ?? "Something went wrong on Tolliver's side. Try again in a minute." }],
                 isError: true,
                 ...(data?.code === "UNAUTHENTICATED"
-                  ? { _meta: { "mcp/www_authenticate": [`${challenge("invalid_token")}, error_description="Sign in to FieldQuote again"`] } }
+                  ? { _meta: { "mcp/www_authenticate": [`${challenge("invalid_token")}, error_description="Sign in to Tolliver again"`] } }
                   : {}),
               });
             }

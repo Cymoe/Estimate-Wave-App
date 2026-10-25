@@ -1,4 +1,4 @@
-// Sign-in for assistants. Claude and ChatGPT connect to FieldQuote's
+// Sign-in for assistants. Claude and ChatGPT connect to Tolliver's
 // connector (/mcp) with OAuth 2.1: the person signs in on the web app,
 // picks a company and approves, and the assistant gets a token that acts
 // for them in that company. Tokens are random; only their SHA-256 is stored.
@@ -90,7 +90,7 @@ export function protectedResourceMetadata() {
     authorization_servers: [issuer()],
     scopes_supported: [...SCOPES],
     bearer_methods_supported: ["header"],
-    resource_name: "FieldQuote",
+    resource_name: "Tolliver",
   };
 }
 

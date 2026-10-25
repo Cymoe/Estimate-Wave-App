@@ -19,7 +19,7 @@ export interface FeedLead {
   receivedAt: string;
   auction: Auction;
   matchesTrades: boolean;
-  /** When FieldQuote confirmed it with the homeowner, and what they said. */
+  /** When Tolliver confirmed it with the homeowner, and what they said. */
   verified?: { at: string; note?: string };
   /** A demo lead shown to a real company: there to see, not to buy. */
   demo?: boolean;

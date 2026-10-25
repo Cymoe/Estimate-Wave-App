@@ -11,7 +11,7 @@ import { claimPrice, planIsActive } from "./plan";
 import { centralDay } from "./oauth";
 import { dollars, leadPriceCents } from "./wallet";
 
-// The connector's tools: what Claude or ChatGPT can do in FieldQuote for
+// The connector's tools: what Claude or ChatGPT can do in Tolliver for
 // the person who connected it. Each runs the same code as the web app
 // (see lib/actor.ts), signed in as that person in the connected company.
 
@@ -91,17 +91,20 @@ const ROUTES = {
   order: "Buy order filled",
   buy: "Bought in the Marketplace",
   claim: "Claimed from the Vault",
-  sent: "Sent by FieldQuote",
+  sent: "Sent by Tolliver",
 } as const;
+
+/** The source a sold lead is stored with; leads sold before the rename carry the old name. */
+const NETWORK_SOURCES = new Set(["Tolliver Lead", "FieldQuote Lead"]);
 
 /** How a lead got to the company: "Won with a bid · $300.00", or "Added by hand · Referral". Same wording as the web app. */
 export function leadRoute(lead: Pick<Doc<"leads">, "marketplaceLeadId" | "wonVia" | "pricePaidCents" | "source">): string {
   if (lead.marketplaceLeadId) {
-    const how = lead.wonVia ? ROUTES[lead.wonVia] : "From FieldQuote";
+    const how = lead.wonVia ? ROUTES[lead.wonVia] : "From Tolliver";
     const price = lead.wonVia === "claim" && !lead.pricePaidCents ? "included in the plan" : dollars(lead.pricePaidCents ?? 0);
     return `${how} · ${price}`;
   }
-  return lead.source && lead.source !== "FieldQuote Lead" ? `Added by hand · ${lead.source}` : "Added by hand";
+  return lead.source && !NETWORK_SOURCES.has(lead.source) ? `Added by hand · ${lead.source}` : "Added by hand";
 }
 
 function tradeNames(ctx: MutationCtx) {
@@ -152,7 +155,7 @@ export const TOOLS: Tool[] = [
     name: "my_company",
     title: "Company and balance",
     description:
-      "The connected FieldQuote company: its balance, plan, trades, bids, and what this assistant is allowed to spend today. Call this first when you need context.",
+      "The connected Tolliver company: its balance, plan, trades, bids, and what this assistant is allowed to spend today. Call this first when you need context.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     readOnly: true,
     scope: "leads",
@@ -187,7 +190,7 @@ export const TOOLS: Tool[] = [
         `${wallet.availableLeads} lead(s) for sale in the Marketplace in your trades; ${wallet.olderLeads} in the Vault.`,
         spending
           ? `You may buy and bid up to ${dollars(connection.dailyCapCents)} today (${dollars(spentToday)} spent so far). Always confirm with the person before spending.`
-          : "Buying and bidding are off for this assistant; the person can turn them on in FieldQuote → Company settings → Assistants.",
+          : "Buying and bidding are off for this assistant; the person can turn them on in Tolliver → Company settings → Assistants.",
       ];
       return { text: lines.join("\n"), data };
     },
@@ -305,14 +308,14 @@ export const TOOLS: Tool[] = [
         [lead.phone, lead.email].filter(Boolean).join(" · ") || "No phone or email",
         lead.address || lead.city ? `Address: ${[lead.address, lead.city].filter(Boolean).join(", ")}` : "",
         `Origin: ${leadRoute(lead)}`,
-        lead.verified ? `FieldQuote confirmed it with the homeowner${lead.verified.note ? `: ${lead.verified.note}` : ""}` : "",
+        lead.verified ? `Tolliver confirmed it with the homeowner${lead.verified.note ? `: ${lead.verified.note}` : ""}` : "",
         lead.followUpDate ? `Follow up: ${lead.followUpDate}` : "",
         lead.appointmentAt ? `Estimate visit: ${lead.appointmentAt}` : "",
         `Calls ${lead.contacts ?? 0}, texts ${lead.texts ?? 0}${lead.lastContactAt ? `, last ${lead.lastContactAt.slice(0, 10)}` : ""}`,
         lead.marketplaceLeadId && !lead.acknowledgedAt ? 'Not marked "Got it" yet.' : "",
         lead.creditRequest ? `Credit request: ${lead.creditRequest.status}` : "",
         lead.notes ? `Notes:\n${lead.notes}` : "",
-        `Open in FieldQuote: ${leadLink(lead._id)}`,
+        `Open in Tolliver: ${leadLink(lead._id)}`,
       ];
       return { text: lines.filter(Boolean).join("\n"), data };
     },
@@ -386,7 +389,7 @@ export const TOOLS: Tool[] = [
   {
     name: "acknowledge_lead",
     title: 'Mark "Got it"',
-    description: 'Tells FieldQuote the company has a new lead and is calling the homeowner (the "Got it" on the alert). Do this once someone is on it.',
+    description: 'Tells Tolliver the company has a new lead and is calling the homeowner (the "Got it" on the alert). Do this once someone is on it.',
     inputSchema: { type: "object", properties: leadIdArg, required: ["lead_id"], additionalProperties: false },
     readOnly: false,
     scope: "leads",
@@ -401,7 +404,7 @@ export const TOOLS: Tool[] = [
     name: "browse_marketplace",
     title: "Leads for sale",
     description:
-      "Leads for sale in the FieldQuote Marketplace right now, with today's price (it drops every hour until someone buys), town and the job. Homeowner contact details show only after buying. The company's own trades come first.",
+      "Leads for sale in the Tolliver Marketplace right now, with today's price (it drops every hour until someone buys), town and the job. Homeowner contact details show only after buying. The company's own trades come first.",
     inputSchema: {
       type: "object",
       properties: {
@@ -533,7 +536,7 @@ export const TOOLS: Tool[] = [
   {
     name: "request_credit",
     title: "Ask for a credit",
-    description: "Asks FieldQuote to credit back a bad lead bought from FieldQuote, within 3 days of getting it. FieldQuote staff decide.",
+    description: "Asks Tolliver to credit back a bad lead bought from Tolliver, within 3 days of getting it. Tolliver staff decide.",
     inputSchema: {
       type: "object",
       properties: {
@@ -551,7 +554,7 @@ export const TOOLS: Tool[] = [
       const lead = await ownLead(ctx, connection, leadId);
       const reason = oneOf(args, "reason", CREDIT_REASONS, { required: true })!;
       await requestCreditDef.handler(ctx, { leadId, reason, note: str(args, "note", { max: 500 }) });
-      return { text: `Credit requested for ${lead.name}. FieldQuote will review it; whats_new reports the answer.`, data: { id: leadId } };
+      return { text: `Credit requested for ${lead.name}. Tolliver will review it; whats_new reports the answer.`, data: { id: leadId } };
     },
   },
   {
@@ -703,7 +706,7 @@ export const TOOLS: Tool[] = [
       if (amountCents > connection.dailyCapCents)
         fail(
           "FORBIDDEN",
-          `A ${dollars(amountCents)} bid is above this assistant's ${dollars(connection.dailyCapCents)} daily limit. The person can raise it in FieldQuote → Company settings → Assistants, or set the bid on the web.`,
+          `A ${dollars(amountCents)} bid is above this assistant's ${dollars(connection.dailyCapCents)} daily limit. The person can raise it in Tolliver → Company settings → Assistants, or set the bid on the web.`,
         );
       const jobType = await tradeSlug(ctx, connection, str(args, "trade", { required: true })!);
       const id = await setStandingDef.handler(ctx, { organizationId: connection.organizationId, county, jobType, amount });
@@ -748,7 +751,7 @@ async function spend(ctx: MutationCtx, connection: Connection, cents: number) {
   if (spent + cents > connection.dailyCapCents)
     fail(
       "FORBIDDEN",
-      `That's over today's ${dollars(connection.dailyCapCents)} limit for this assistant (${dollars(spent)} spent so far, this is ${dollars(cents)}). Nothing was spent. The person can raise the limit in FieldQuote → Company settings → Assistants.`,
+      `That's over today's ${dollars(connection.dailyCapCents)} limit for this assistant (${dollars(spent)} spent so far, this is ${dollars(cents)}). Nothing was spent. The person can raise the limit in Tolliver → Company settings → Assistants.`,
     );
   await ctx.db.patch(connection._id, { spendDay: today, spentTodayCents: spent + cents });
 }

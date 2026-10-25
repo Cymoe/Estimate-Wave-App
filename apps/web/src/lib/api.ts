@@ -372,7 +372,7 @@ export const leadsAPI = {
   /** A call or text (counted), or a note typed on the card (stamped with the day). */
   logContact: (id: string, kind: 'call' | 'text' | 'note', note?: string) =>
     run('mutation', api.leads.logContact, defined({ id, kind, note })),
-  /** "Got it, calling now" on a lead FieldQuote sent. Returns when it was acknowledged. */
+  /** "Got it, calling now" on a lead Tolliver sent. Returns when it was acknowledged. */
   acknowledge: (id: string): Promise<string> => run('mutation', api.leads.acknowledge, { id }),
   /** Which of your companies a lead is in (for an alert link opened under another company), or null. */
   companyOf: (id: string): Promise<{ organizationId: string; name: string } | null> => run('query', api.leads.companyOf, { id }),
@@ -449,7 +449,7 @@ export const marketplaceAPI = {
     run('mutation', api.marketplace.setLeadPrice, { jobType, price, ...(schedule ?? {}) }),
   pendingCredits: () => run('query', api.marketplace.pendingCredits, {}),
   reviewCredit: (orgLeadId: string, approve: boolean) => run('mutation', api.marketplace.reviewCredit, { orgLeadId, approve }),
-  /** The owner credits a bought lead back without a request: the company told FieldQuote by phone. */
+  /** The owner credits a bought lead back without a request: the company told Tolliver by phone. */
   creditLead: (orgLeadId: string, reason: string, note?: string): Promise<{ amountCents: number }> =>
     run('mutation', api.marketplace.creditLead, defined({ orgLeadId, reason, note })),
 };
@@ -598,7 +598,7 @@ export type AssistantConnection = {
   spentTodayCents: number;
 };
 
-/** Claude and ChatGPT connected to FieldQuote: approving a connection and managing them in Settings. */
+/** Claude and ChatGPT connected to Tolliver: approving a connection and managing them in Settings. */
 export const assistantsAPI = {
   request: (clientId: string, redirectUri: string): Promise<AssistantRequest> =>
     run('query', api.oauth.request, { clientId, redirectUri }),

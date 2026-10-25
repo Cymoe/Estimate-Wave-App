@@ -213,7 +213,7 @@ const LeadsPage: React.FC = () => {
     setEditing('new');
     setSearchParams({}, { replace: true });
   }, [searchParams, setSearchParams]);
-  // The alert's link: /leads?lead=<id>&ack=1 opens that lead and tells FieldQuote "got it".
+  // The alert's link: /leads?lead=<id>&ack=1 opens that lead and tells Tolliver "got it".
   // A lead in another of the user's companies switches to that company first.
   const [elsewhere, setElsewhere] = useState<string | null>(null);
   const looked = useRef<string | null>(null);
@@ -482,7 +482,7 @@ const LeadsPage: React.FC = () => {
             {buysLeads && (
               <>
                 <p className="text-sm text-gray-300 max-w-md mb-4">
-                  Leads you buy from FieldQuote land here. Add funds, then set your bids.
+                  Leads you buy from Tolliver land here. Add funds, then set your bids.
                 </p>
                 <div className="flex flex-wrap justify-center gap-2 mb-6">
                   <button
@@ -638,7 +638,7 @@ const LeadsPage: React.FC = () => {
                               )}
                             </div>
                             <div className="flex items-center gap-1 flex-shrink-0">
-                              {/* Where it came from: FieldQuote, and which way (bid, Marketplace, Vault...). */}
+                              {/* Where it came from: Tolliver, and which way (bid, Marketplace, Vault...). */}
                               {leadTag(lead) && (
                                 <span className="text-[10px] uppercase tracking-wide px-1 border text-emerald-300 border-emerald-500/40 bg-emerald-500/10 whitespace-nowrap">
                                   {leadTag(lead)}

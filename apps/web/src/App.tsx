@@ -129,7 +129,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-/** Pages for FieldQuote staff only. Everyone else lands back on their dashboard. */
+/** Pages for Tolliver staff only. Everyone else lands back on their dashboard. */
 function StaffRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   return (

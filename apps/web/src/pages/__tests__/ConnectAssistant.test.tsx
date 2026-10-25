@@ -59,7 +59,7 @@ describe('connecting an assistant', () => {
   it('approves for the picked company, with spending and a daily limit, and goes back to Claude', async () => {
     asked = { ok: true, app: 'claude', appName: 'Claude', domain: 'claude.ai', issuer: 'https://api.example/oauth', companies };
     const page = await render();
-    expect(page.textContent).toContain('Claude wants to use FieldQuote');
+    expect(page.textContent).toContain('Claude wants to use Tolliver');
     const spend = page.querySelector('input[type="checkbox"]') as HTMLInputElement;
     await act(async () => spend.click());
     const cap = page.querySelector('#connect-cap') as HTMLInputElement;

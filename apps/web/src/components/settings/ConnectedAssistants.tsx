@@ -27,7 +27,7 @@ export const ConnectedAssistants: React.FC<{ organizationId: string }> = ({ orga
   return (
     <div className="space-y-4" data-testid="connected-assistants">
       <p className="text-sm text-gray-400">
-        Run FieldQuote from Claude or ChatGPT: ask what's new, look up a lead, log a call or place a bid. To connect, add FieldQuote as a
+        Run Tolliver from Claude or ChatGPT: ask what's new, look up a lead, log a call or place a bid. To connect, add Tolliver as a
         connector in the assistant and sign in; it shows up here.
       </p>
       {data.connections.length === 0 ? (

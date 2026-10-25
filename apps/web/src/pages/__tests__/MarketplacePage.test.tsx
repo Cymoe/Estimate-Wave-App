@@ -62,7 +62,7 @@ afterEach(() => {
 });
 
 describe('Marketplace', () => {
-  it('shows when FieldQuote confirmed a lead with the homeowner, and what they said', async () => {
+  it('shows when Tolliver confirmed a lead with the homeowner, and what they said', async () => {
     await render();
     // The table and the phone list both render, so the confirmed lead shows twice; the other not at all.
     const marks = Array.from(document.body.querySelectorAll('[data-confirmed]'));

@@ -3,14 +3,14 @@
 //
 // Environment (set on the Convex deployment, never committed):
 //   RESEND_API_KEY   the key
-//   RESEND_FROM      the sender, e.g. "FieldQuote <leads@fieldquote.app>"
+//   RESEND_FROM      the sender, e.g. "Tolliver <leads@fieldquote.app>"
 
 export type SendResult = { status: "sent" | "failed" | "skipped"; error?: string; providerId?: string };
 
 /** Sends one email to the addresses given; "skipped" without a key, "failed" with Resend's reason. */
 export async function sendEmail(to: string[], body: { subject: string; text: string; html: string }): Promise<SendResult> {
   const key = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM ?? "FieldQuote <leads@fieldquote.app>";
+  const from = process.env.RESEND_FROM ?? "Tolliver <leads@fieldquote.app>";
   if (!key) return { status: "skipped", error: "RESEND_API_KEY not set" };
   try {
     const res = await fetch("https://api.resend.com/emails", {

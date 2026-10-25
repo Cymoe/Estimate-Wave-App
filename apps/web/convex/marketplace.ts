@@ -440,7 +440,7 @@ export const reviewCredit = mutation({
 
 /**
  * The owner credits a bad lead without waiting for a request: companies
- * tell FieldQuote by phone, and this is where it lands. Refunds what they
+ * tell Tolliver by phone, and this is where it lands. Refunds what they
  * paid, once, and shows on the company's lead as "Credited".
  */
 export const creditLead = mutation({
@@ -1597,7 +1597,7 @@ export const requestCreditDef = mutationDef({
     if (lead === null) fail("NOT_FOUND", "Lead not found");
     await requireMember(ctx, lead.organizationId);
     if (!lead.marketplaceLeadId)
-      fail("INVALID", "Only leads bought from FieldQuote can be credited");
+      fail("INVALID", "Only leads bought from Tolliver can be credited");
     if (lead.creditRequest)
       fail("INVALID", "A credit was already requested for this lead");
     if (!(CREDIT_REASONS as readonly string[]).includes(reason))

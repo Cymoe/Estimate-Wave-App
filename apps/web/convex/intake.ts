@@ -501,7 +501,7 @@ export async function seedDemoIntake(ctx: MutationCtx, user: Doc<"users">) {
         adsetName: "TX_MIDLAND_ROOFING_hail",
         adName: "video1",
         formId: "demo-form",
-        consent: { text: "I agree to be contacted by FieldQuote and one contractor", value: "true", at: ago(12) },
+        consent: { text: "I agree to be contacted by Tolliver and one contractor", value: "true", at: ago(12) },
       },
       {
         ...base(ago(45)),
@@ -521,7 +521,7 @@ export async function seedDemoIntake(ctx: MutationCtx, user: Doc<"users">) {
         externalId: "demo-leadgen-2",
         campaignName: "TX_MIDLAND_PAINTING_LG_202610",
         formId: "demo-form",
-        consent: { text: "I agree to be contacted by FieldQuote and one contractor", value: "true", at: ago(45) },
+        consent: { text: "I agree to be contacted by Tolliver and one contractor", value: "true", at: ago(45) },
       },
       {
         ...base(ago(180)),

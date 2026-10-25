@@ -79,7 +79,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { user, signOut } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { plan, active: planActive } = usePlan(selectedOrg.id || undefined);
-  // "Add another company": owners apply for it (FieldQuote approves); the platform owner adds it in Ops.
+  // "Add another company": owners apply for it (Tolliver approves); the platform owner adds it in Ops.
   const [addingCompany, setAddingCompany] = useState(false);
   const addCompany = () => {
     setOrgDropdownOpen(false);

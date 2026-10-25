@@ -10,7 +10,7 @@ const answer: unknown[] = [];
 const client = {
   watchQuery: () => ({
     localQueryResult: () => {
-      if (fail) throw new Error('[CONVEX Q(intake:queue)] [Request ID: abc] Server Error\nUncaught Error: Only FieldQuote staff can do this\n    at handler');
+      if (fail) throw new Error('[CONVEX Q(intake:queue)] [Request ID: abc] Server Error\nUncaught Error: Only Tolliver staff can do this\n    at handler');
       return answer;
     },
     onUpdate: (cb: () => void) => {
@@ -34,7 +34,7 @@ describe('live query errors', () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
     await act(async () => createRoot(container).render(<Probe />));
-    expect(JSON.parse(container.textContent!)).toEqual({ 'intake:queue': 'Only FieldQuote staff can do this' });
+    expect(JSON.parse(container.textContent!)).toEqual({ 'intake:queue': 'Only Tolliver staff can do this' });
     fail = false;
     await act(async () => notify());
     expect(JSON.parse(container.textContent!)).toEqual({});

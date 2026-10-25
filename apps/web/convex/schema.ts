@@ -3,7 +3,7 @@ import { authTables } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 
 /**
- * FieldQuote data model.
+ * Tolliver data model.
  *
  * Field names deliberately match the old MongoDB/Express API (camelCase for
  * estimates/invoices/clients/projects, snake_case for the price book) so the
@@ -850,7 +850,7 @@ export default defineSchema({
     // County, as the Lead Market knew it when it sold the lead (server-set).
     // Leads without one get it from their town when listed.
     county: v.optional(v.string()),
-    // Carried over from the Lead Market: when FieldQuote confirmed the lead
+    // Carried over from the Lead Market: when Tolliver confirmed the lead
     // with the homeowner, and what they said.
     verified: v.optional(
       v.object({ at: v.string(), note: v.optional(v.string()) }),

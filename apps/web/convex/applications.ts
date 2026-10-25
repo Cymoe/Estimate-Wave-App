@@ -51,7 +51,7 @@ function shape(row: Doc<"companyApplications">) {
   };
 }
 
-/** The companies a person with this email already runs on FieldQuote, by name. */
+/** The companies a person with this email already runs on Tolliver, by name. */
 async function companiesOf(ctx: QueryCtx, email: string): Promise<string[]> {
   const user = await ctx.db
     .query("users")
@@ -178,12 +178,12 @@ export const notifyApplicant = internalAction({
     const lines = [
       `${a.contactName.trim().split(/\s+/)[0]}, ${a.companyName} is approved to buy ${notice.tradeNames.join(" and ").toLowerCase()} leads in ${a.county} County.`,
       notice.hasAccount
-        ? `It's already in your FieldQuote account: sign in at ${site} as usual and pick ${a.companyName} in the company list.`
+        ? `It's already in your Tolliver account: sign in at ${site} as usual and pick ${a.companyName} in the company list.`
         : `Go to ${site} and sign in with this address (${a.email}): Continue with Google, or Create an account with it and type the code we email you. Your company is set up and waiting.`,
       "We'll call you about loading your lead balance, so the next confirmed lead in your county can be yours.",
     ];
     return await sendEmail([a.email], {
-      subject: `${a.companyName} is approved on FieldQuote`,
+      subject: `${a.companyName} is approved on Tolliver`,
       text: lines.join("\n\n"),
       html: `<div style="font-family:sans-serif;font-size:15px;line-height:1.5">${lines.map((l) => `<p style="margin:0 0 10px">${l}</p>`).join("")}<p style="margin:12px 0"><a href="${site}" style="display:inline-block;padding:10px 16px;background:#336699;color:#fff;text-decoration:none;border-radius:4px">Sign in</a></p></div>`,
     });

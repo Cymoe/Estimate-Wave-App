@@ -27,7 +27,7 @@ export function isSuperAdmin(user: Doc<"users">): boolean {
 /** Throws unless the signed-in user owns the platform (money, prices, companies). */
 export async function requireSuperAdmin(ctx: Ctx): Promise<Doc<"users">> {
   const user = await requireUser(ctx);
-  if (!isSuperAdmin(user)) fail("FORBIDDEN", "Only FieldQuote admins can do this");
+  if (!isSuperAdmin(user)) fail("FORBIDDEN", "Only Tolliver admins can do this");
   return user;
 }
 
@@ -36,10 +36,10 @@ export function isStaff(user: Doc<"users">): boolean {
   return user.role === "staff" || isSuperAdmin(user);
 }
 
-/** Throws unless the signed-in user is FieldQuote staff (or the owner). */
+/** Throws unless the signed-in user is Tolliver staff (or the owner). */
 export async function requireStaff(ctx: Ctx): Promise<Doc<"users">> {
   const user = await requireUser(ctx);
-  if (!isStaff(user)) fail("FORBIDDEN", "Only FieldQuote staff can do this");
+  if (!isStaff(user)) fail("FORBIDDEN", "Only Tolliver staff can do this");
   return user;
 }
 
@@ -70,7 +70,7 @@ export async function requireMember(
 }
 
 /**
- * For reads only: a member of the company, or FieldQuote staff, who look
+ * For reads only: a member of the company, or Tolliver staff, who look
  * after every company from Ops (its balance, its leads). Changing anything
  * still goes through requireMember or the owner-only guards.
  */

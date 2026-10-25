@@ -9,7 +9,7 @@ const button =
   'inline-flex items-center gap-2 px-4 py-2 rounded bg-[#336699] text-white text-sm font-medium disabled:opacity-50';
 
 /**
- * Where a new lead is sent the moment FieldQuote awards it: the company's
+ * Where a new lead is sent the moment Tolliver awards it: the company's
  * email, and the signed-in person's own mobile for a text with the link.
  */
 export const NotificationsSettings: React.FC<{ organizationId: string }> = ({ organizationId }) => {
@@ -73,7 +73,7 @@ export const NotificationsSettings: React.FC<{ organizationId: string }> = ({ or
   return (
     <div className="space-y-6" data-testid="notifications-settings">
       <p className="text-sm text-gray-400">
-        When FieldQuote awards you a lead, the full lead goes to your company email right away and a text with the link goes to each
+        When Tolliver awards you a lead, the full lead goes to your company email right away and a text with the link goes to each
         owner or admin who has a mobile here. Open the link and tap “Got it” so our team knows you have it.
       </p>
       <form onSubmit={saveEmail}>

@@ -7,7 +7,7 @@ import { goTo } from '../lib/goTo';
  * /open/:app/:leadId, from a lead alert: opens a new Claude or ChatGPT chat
  * asking about the lead. The question is written here, not in the alert,
  * so it can change without old texts going stale. Any other app opens the
- * lead in FieldQuote instead.
+ * lead in Tolliver instead.
  */
 export default function OpenInAssistant() {
   const { app, leadId = '' } = useParams();

@@ -266,7 +266,7 @@ async function tool(t: T, accessToken: string, name: string, args: Record<string
   return { text: result.content[0].text, data: result.structuredContent, isError: Boolean(result.isError) };
 }
 
-/** A roofing company with a lead sent to it by FieldQuote, and one for sale in the Marketplace. */
+/** A roofing company with a lead sent to it by Tolliver, and one for sale in the Marketplace. */
 async function roofingCompany() {
   const t = setup();
   const admin = await signUp(t, "admin@fieldquote.example", { role: "super_admin" });
@@ -292,7 +292,7 @@ describe("the connector", () => {
 
     const { accessToken } = await connect(t, owner);
     const init = await rpc(t, accessToken, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude-ai", version: "1" } });
-    expect(init.body!.result).toMatchObject({ protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "fieldquote" } });
+    expect(init.body!.result).toMatchObject({ protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "tolliver", title: "Tolliver" } });
     expect((await rpc(t, accessToken, "initialize", { protocolVersion: "1999-01-01" })).body!.result.protocolVersion).toBe("2025-11-25");
 
     const notified = await t.fetch("/mcp", {
@@ -324,7 +324,7 @@ describe("the connector", () => {
     expect(news.text).toContain("New leads (1):");
     expect(news.text).toContain("Jane Cole");
     expect(news.text).toContain("432-555-0101");
-    expect(news.text).toContain("Sent by FieldQuote");
+    expect(news.text).toContain("Sent by Tolliver");
     expect(news.text).toContain('not marked "Got it" yet');
     expect((await tool(t, accessToken, "whats_new")).text).toBe("Nothing new since the last check.");
 
@@ -530,5 +530,15 @@ describe("alerts for companies with an assistant", () => {
     expect(after.email.text).toContain(`Open it in Claude: ${SITE}/open/claude/${orgLead}`);
     expect(after.email.html).toContain(`href="${SITE}/open/claude/${orgLead}"`);
     expect(after.sms).toContain(`Ask Claude: ${SITE}/open/claude/${orgLead}`);
+  });
+});
+
+describe("lead origin wording after the rename", () => {
+  test("leads stored with the old or new network source never read as Added by hand with that source", async () => {
+    const { leadRoute } = await import("./lib/mcpTools");
+    expect(leadRoute({ source: "FieldQuote Lead" } as never)).toBe("Added by hand");
+    expect(leadRoute({ source: "Tolliver Lead" } as never)).toBe("Added by hand");
+    expect(leadRoute({ source: "Referral" } as never)).toBe("Added by hand · Referral");
+    expect(leadRoute({ marketplaceLeadId: "m1", wonVia: "sent", pricePaidCents: 4000, source: "FieldQuote Lead" } as never)).toBe("Sent by Tolliver · $40.00");
   });
 });

@@ -39,11 +39,11 @@ export const call = internalMutation({
   args: { accessHash: v.string(), name: v.string(), args: v.any() },
   handler: async (ctx, { accessHash, name, args }): Promise<ToolResult> => {
     const connection = await live(ctx, accessHash);
-    if (!connection) fail("UNAUTHENTICATED", "Sign in to FieldQuote again");
+    if (!connection) fail("UNAUTHENTICATED", "Sign in to Tolliver again");
     const tool = TOOLS.find((t) => t.name === name);
     if (!tool) fail("INVALID", `Unknown tool ${name}`);
     if (!connection.scopes.includes(tool.scope))
-      fail("FORBIDDEN", "Buying and bidding are off for this assistant. The person can turn them on in FieldQuote → Company settings → Assistants.");
+      fail("FORBIDDEN", "Buying and bidding are off for this assistant. The person can turn them on in Tolliver → Company settings → Assistants.");
     const now = Date.now();
     if (!connection.lastUsedAt || now - connection.lastUsedAt > TOUCH_EVERY_MS) await ctx.db.patch(connection._id, { lastUsedAt: now });
     const input = args && typeof args === "object" && !Array.isArray(args) ? (args as Record<string, unknown>) : {};

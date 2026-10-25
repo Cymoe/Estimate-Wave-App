@@ -26,7 +26,7 @@ export async function createCheckoutSession(
   params.set("line_items[0][quantity]", "1");
   params.set("line_items[0][price_data][currency]", "usd");
   params.set("line_items[0][price_data][unit_amount]", String(input.amountCents));
-  params.set("line_items[0][price_data][product_data][name]", `FieldQuote lead balance for ${input.companyName}`);
+  params.set("line_items[0][price_data][product_data][name]", `Tolliver lead balance for ${input.companyName}`);
   if (input.bonusCents > 0) {
     params.set(
       "line_items[0][price_data][product_data][description]",
