@@ -549,6 +549,15 @@ describe('Lead Market', () => {
     expect(assign).not.toHaveBeenCalled();
     expect(options[0].getAttribute('aria-checked')).toBe('true');
     expect(confirm().textContent).toBe('Send to Peak Roofing · charge $85.00');
+    // The send button sits in a footer pinned to the bottom of the dialog, so a long list never hides it.
+    const footer = dialog.querySelector('[data-testid="send-footer"]')!;
+    expect(footer.className).toContain('sticky');
+    expect(footer.contains(confirm())).toBe(true);
+    // A failed send says why right above the button, where the eye already is.
+    assign.mockRejectedValueOnce(new Error('Not enough balance'));
+    await act(async () => confirm().click());
+    await flush();
+    expect(footer.querySelector('[role="alert"]')!.textContent).toBe('Not enough balance');
     // The price dropped while the dialog was open: the toast says what was really charged.
     assign.mockResolvedValueOnce({ orgLeadId: 'ol1', priceCents: 7000 });
     await act(async () => confirm().click());

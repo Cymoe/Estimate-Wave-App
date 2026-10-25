@@ -446,7 +446,6 @@ function SendToDialog({
         {tradeName(lead.jobType)} lead · <span className="text-white font-medium">{money(lead.price)}</span> (its current price) comes off the company's balance, and any buy orders on it are closed.
         Only one company gets it. Pick one, then confirm.
       </p>
-      {error && <p className="text-sm text-red-400 mb-3">{error}</p>}
       <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" role="radiogroup" aria-label="Send to">
         {sorted.map((company) => {
           const affordable = company.balanceCents >= lead.price;
@@ -477,22 +476,30 @@ function SendToDialog({
         })}
         {sorted.length === 0 && <li className="px-4 py-6 text-sm text-gray-500 text-center">Add a company first.</li>}
       </ul>
-      <button
-        type="button"
-        disabled={!picked || sending !== null}
-        onClick={() => picked && send(picked)}
-        className={`${primary} mt-4 w-full justify-center`}
-      >
-        {sending ? 'Sending…' : picked ? `Send to ${picked.name} · charge ${money(lead.price)}` : 'Pick a company'}
-      </button>
       {buyers.length === 0 && others.length > 0 && (
         <p className="text-xs text-gray-500 mt-2">No company buys {tradeName(lead.jobType)} yet, so this is everyone.</p>
       )}
       {buyers.length > 0 && others.length > 0 && (
-        <button type="button" onClick={() => setShowOthers((v) => !v)} className="mt-3 text-xs text-gray-400 underline underline-offset-2">
+        <button type="button" onClick={() => setShowOthers((v) => !v)} className="mt-3 min-h-[44px] text-xs text-gray-400 underline underline-offset-2">
           {showOthers ? `Hide the ${others.length} ${others.length === 1 ? 'company' : 'companies'} that don’t buy ${tradeName(lead.jobType)}` : `Show ${others.length} ${others.length === 1 ? 'company' : 'companies'} that don’t buy ${tradeName(lead.jobType)}`}
         </button>
       )}
+      {/* Pinned to the bottom of the dialog: picking a company far down the list never means scrolling to send. */}
+      <div className="sticky bottom-0 -mx-5 -mb-5 mt-4 px-5 pt-3 pb-5 bg-[#121212] border-t border-[#2A2A2A]" data-testid="send-footer">
+        {error && (
+          <p role="alert" className="text-sm text-red-400 mb-2">
+            {error}
+          </p>
+        )}
+        <button
+          type="button"
+          disabled={!picked || sending !== null}
+          onClick={() => picked && send(picked)}
+          className={`${primary} w-full justify-center`}
+        >
+          {sending ? 'Sending…' : picked ? `Send to ${picked.name} · charge ${money(lead.price)}` : 'Pick a company'}
+        </button>
+      </div>
     </Dialog>
   );
 }
