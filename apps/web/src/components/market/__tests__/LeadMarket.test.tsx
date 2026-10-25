@@ -21,8 +21,8 @@ const removeCompany = jest.fn(async (_id: string) => undefined);
 const setCompanyOwner = jest.fn(async (_id: string, _email: string) => 'invited');
 const setPlan = jest.fn(async () => undefined);
 
-let staffInvites: Array<{ id: string; email: string; createdAt: string }> = [];
-const inviteStaff = jest.fn(async (email: string) => { staffInvites = [...staffInvites, { id: `i${staffInvites.length + 1}`, email, createdAt: '2026-10-22' }]; return { status: 'invited' }; });
+let staffInvites: Array<{ id: string; email: string; role?: string; createdAt: string }> = [];
+const inviteStaff = jest.fn(async (email: string, role = 'staff') => { staffInvites = [...staffInvites, { id: `i${staffInvites.length + 1}`, email, role, createdAt: '2026-10-22' }]; return { status: 'invited' }; });
 
 let intakeRows: unknown[] = [];
 let intakeLog: unknown[] = [];
@@ -98,7 +98,7 @@ jest.mock('../../../lib/api', () => ({
   },
   staffAPI: {
     list: async () => ({ staff: [], invites: staffInvites }),
-    invite: (email: string) => inviteStaff(email),
+    invite: (email: string, role?: string) => inviteStaff(email, role),
     removeInvite: async () => undefined,
     remove: async () => undefined,
   },
@@ -567,8 +567,22 @@ describe('Lead Market', () => {
     });
     await act(async () => (card.querySelector('button[type="submit"]') as HTMLButtonElement).click());
     await flush();
-    expect(inviteStaff).toHaveBeenCalledWith('va@fieldquote.example');
-    expect(document.body.querySelector('[data-testid="team-card"]')!.textContent).toContain('invited, not signed up yet');
+    expect(inviteStaff).toHaveBeenCalledWith('va@fieldquote.example', 'staff');
+    expect(document.body.querySelector('[data-testid="team-card"]')!.textContent).toContain('va@fieldquote.example · invited as staff, not signed up yet');
+
+    // A caller: the same form with Caller picked.
+    const roleSelect = card.querySelector('select[aria-label="Role"]') as HTMLSelectElement;
+    await act(async () => {
+      roleSelect.value = 'caller';
+      roleSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      type(card.querySelector('input[type="email"]') as HTMLInputElement, 'dana@tolliver.example');
+    });
+    await act(async () => (card.querySelector('button[type="submit"]') as HTMLButtonElement).click());
+    await flush();
+    expect(inviteStaff).toHaveBeenLastCalledWith('dana@tolliver.example', 'caller');
+    const after = document.body.querySelector('[data-testid="team-card"]')!.textContent;
+    expect(after).toContain('Invited. dana@tolliver.example becomes a caller when they sign up with that email.');
+    expect(after).toContain('dana@tolliver.example · invited as caller, not signed up yet');
   });
 
   it('sends a lead to one company, listing only ones that buy the trade (the rest behind a link) and greying out ones that can’t afford it', async () => {

@@ -521,10 +521,10 @@ export const usersAPI = {
   setMobile: (mobile: string): Promise<string | null> => run('mutation', api.users.setMobile, { mobile }),
 };
 
-/** Who runs the Lead Market (owner only). */
+/** Who runs the Lead Market, and who makes calls (owner only). */
 export const staffAPI = {
   list: () => run('query', api.staff.list, {}),
-  invite: (email: string) => run('mutation', api.staff.invite, { email }),
+  invite: (email: string, role: 'staff' | 'caller' = 'staff') => run('mutation', api.staff.invite, { email, role }),
   removeInvite: (id: string) => run('mutation', api.staff.removeInvite, { id }),
   remove: (id: string) => run('mutation', api.staff.remove, { id }),
 };

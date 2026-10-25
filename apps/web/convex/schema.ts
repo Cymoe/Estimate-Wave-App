@@ -16,6 +16,9 @@ export const userRole = v.union(
   v.literal("admin"),
   // Runs the Lead Market day to day (intake, confirming, sending): no company of their own.
   v.literal("staff"),
+  // Phones homeowners from call lists (calls.ts) and takes leads into intake;
+  // sees nothing else of Ops and has no company of their own.
+  v.literal("caller"),
   v.literal("super_admin"),
 );
 
@@ -828,6 +831,8 @@ export default defineSchema({
   // them staff instead of giving them a company.
   staffInvites: defineTable({
     email: v.string(),
+    // What they become on sign-up; staff when not set.
+    role: v.optional(v.union(v.literal("staff"), v.literal("caller"))),
     invitedBy: v.id("users"),
     createdAt: v.string(),
     acceptedAt: v.optional(v.string()),

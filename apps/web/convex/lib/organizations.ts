@@ -81,7 +81,7 @@ export async function claimInvites(ctx: MutationCtx, userId: Id<"users">): Promi
   if (!email) return "nothing";
   if (await acceptStaffInvite(ctx, userId, email)) return "staff";
   if (await acceptInvites(ctx, userId, email)) return "owner";
-  if (user?.role === "staff" || user?.role === "super_admin") return "nothing";
+  if (user?.role === "staff" || user?.role === "caller" || user?.role === "super_admin") return "nothing";
   const member = await ctx.db
     .query("memberships")
     .withIndex("by_user", (q) => q.eq("userId", userId))

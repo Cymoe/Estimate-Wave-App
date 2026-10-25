@@ -1,6 +1,6 @@
 /** Who can do what on the platform side. Companies' own roles live on memberships. */
 import { HOME_PATH } from '../config/features';
-export type AppRole = 'user' | 'admin' | 'staff' | 'super_admin';
+export type AppRole = 'user' | 'admin' | 'staff' | 'caller' | 'super_admin';
 
 interface RoleUser {
   role?: AppRole | string;

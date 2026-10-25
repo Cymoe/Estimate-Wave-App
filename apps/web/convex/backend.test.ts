@@ -290,6 +290,39 @@ describe("staff", () => {
     await expect(owner.as.mutation(api.staff.remove, { id: owner.userId })).rejects.toThrow(/yourself/);
   });
 
+  test("callers: invited as callers, they make calls but see nothing of Ops, and can be removed", async () => {
+    const t = setup();
+    const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
+    const existing = await signUp(t, "dana@tolliver.example");
+    expect(await owner.as.mutation(api.staff.invite, { email: "dana@tolliver.example", role: "caller" })).toEqual({ status: "caller" });
+    expect(await existing.as.query(api.users.me, {})).toMatchObject({ role: "caller", isStaff: false });
+    await expect(existing.as.query(api.marketplace.listInbox, {})).rejects.toThrow(/staff/);
+    await expect(existing.as.query(api.intake.queue, {})).rejects.toThrow(/staff/);
+    const { isCaller, isStaff } = await import("./lib/access");
+    await t.run(async (ctx) => {
+      const caller = (await ctx.db.get(existing.userId))!;
+      expect([isCaller(caller), isStaff(caller)]).toEqual([true, false]);
+    });
+
+    // An invite waiting for sign-up carries the role, and changing it doesn't stack invites.
+    await owner.as.mutation(api.staff.invite, { email: "new@tolliver.example" });
+    await owner.as.mutation(api.staff.invite, { email: "new@tolliver.example", role: "caller" });
+    const team = await owner.as.query(api.staff.list, {});
+    expect(team.invites.map((i) => [i.email, i.role])).toEqual([["new@tolliver.example", "caller"]]);
+    expect(team.staff.map((s) => [s.email, s.role])).toEqual([["dana@tolliver.example", "caller"]]);
+    const { claimInvites } = await import("./lib/organizations");
+    await t.run(async (ctx) => {
+      const id = await ctx.db.insert("users", { email: "new@tolliver.example", name: "New" });
+      expect(await claimInvites(ctx, id)).toBe("staff");
+      expect((await ctx.db.get(id))!.role).toBe("caller");
+      // No company of their own.
+      expect(await ctx.db.query("memberships").withIndex("by_user", (q) => q.eq("userId", id)).collect()).toHaveLength(0);
+    });
+
+    await owner.as.mutation(api.staff.remove, { id: existing.userId });
+    expect(await existing.as.query(api.users.me, {})).toMatchObject({ role: "user" });
+  });
+
   test("an invited email becomes staff on sign-up, with no company of its own", async () => {
     const t = setup();
     const owner = await signUp(t, "owner@fieldquote.example", { role: "super_admin" });

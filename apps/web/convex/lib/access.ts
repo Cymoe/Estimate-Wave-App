@@ -43,6 +43,18 @@ export async function requireStaff(ctx: Ctx): Promise<Doc<"users">> {
   return user;
 }
 
+/** Callers phone homeowners from call lists; staff and the owner can do it too. */
+export function isCaller(user: Doc<"users">): boolean {
+  return user.role === "caller" || isStaff(user);
+}
+
+/** Throws unless the signed-in user is a Tolliver caller (or staff, or the owner). */
+export async function requireCaller(ctx: Ctx): Promise<Doc<"users">> {
+  const user = await requireUser(ctx);
+  if (!isCaller(user)) fail("FORBIDDEN", "Only Tolliver callers can do this");
+  return user;
+}
+
 /**
  * Throws unless the signed-in user belongs to the organization with at least
  * `minRole`. Super admins pass every check.

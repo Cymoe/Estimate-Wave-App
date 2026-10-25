@@ -10,7 +10,7 @@ export interface User {
   name: string;
   picture?: string;
   organizationId?: string;
-  role?: 'user' | 'admin' | 'staff' | 'super_admin';
+  role?: 'user' | 'admin' | 'staff' | 'caller' | 'super_admin';
   /** Runs the Lead Market (staff or the owner). */
   isStaff?: boolean;
 }

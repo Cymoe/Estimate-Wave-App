@@ -3,21 +3,27 @@ import { UserPlus, X } from 'lucide-react';
 import { staffAPI } from '../../lib/api';
 import { useConfirm } from '../common/ConfirmDialog';
 
+type TeamRole = 'staff' | 'caller';
+
 interface Team {
-  staff: Array<{ id: string; email: string; name: string }>;
-  invites: Array<{ id: string; email: string; createdAt: string }>;
+  staff: Array<{ id: string; email: string; name: string; role?: TeamRole }>;
+  invites: Array<{ id: string; email: string; role?: TeamRole; createdAt: string }>;
 }
+
+const ROLE_LABEL: Record<TeamRole, string> = { staff: 'staff', caller: 'caller' };
 
 const secondary =
   'inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-[#333] text-sm text-gray-200 hover:border-[#336699] disabled:opacity-50';
 
 /**
  * Who runs the Lead Market besides the owner. Staff confirm and send leads;
- * they never see money, prices or company settings. Owner only.
+ * they never see money, prices or company settings. Callers phone homeowners
+ * from call lists and see only the Calls page. Owner only.
  */
 export const TeamCard: React.FC = () => {
   const [team, setTeam] = useState<Team | null>(null);
   const [email, setEmail] = useState('');
+  const [role, setRole] = useState<TeamRole>('staff');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [confirm, confirmDialog] = useConfirm();
@@ -32,8 +38,12 @@ export const TeamCard: React.FC = () => {
     setBusy(true);
     setNote(null);
     try {
-      const result = await staffAPI.invite(email);
-      setNote(result.status === 'staff' ? `${email.trim()} is staff now.` : `Invited. ${email.trim()} becomes staff when they sign up with that email.`);
+      const result = await staffAPI.invite(email, role);
+      setNote(
+        result.status === 'invited'
+          ? `Invited. ${email.trim()} becomes ${role === 'caller' ? 'a caller' : 'staff'} when they sign up with that email.`
+          : `${email.trim()} is ${result.status === 'caller' ? 'a caller' : 'staff'} now.`,
+      );
       setEmail('');
       await load();
     } catch (err) {
@@ -44,7 +54,8 @@ export const TeamCard: React.FC = () => {
   };
 
   const remove = async (member: Team['staff'][number]) => {
-    if (!(await confirm({ title: `Remove ${member.email} from staff?`, message: 'They keep their account but lose the Ops page.', confirmLabel: 'Remove' }))) return;
+    const calls = member.role === 'caller';
+    if (!(await confirm({ title: `Remove ${member.email} from the team?`, message: `They keep their account but lose the ${calls ? 'Calls' : 'Ops'} page.`, confirmLabel: 'Remove' }))) return;
     try {
       await staffAPI.remove(member.id);
       await load();
@@ -56,7 +67,10 @@ export const TeamCard: React.FC = () => {
   return (
     <section className="border border-[#2A2A2A] rounded p-4" data-testid="team-card">
       <h3 className="text-sm font-medium text-white">Team</h3>
-      <p className="text-xs text-gray-500 mt-0.5 mb-3">Staff confirm and send leads. They see balances but can't change money, prices or company setup.</p>
+      <p className="text-xs text-gray-500 mt-0.5 mb-3">
+        Staff confirm and send leads. They see balances but can't change money, prices or company setup. Callers phone homeowners
+        from call lists and see only the Calls page; someone else confirms the leads they take.
+      </p>
       <form onSubmit={invite} className="flex gap-2 mb-3">
         <input
           type="email"
@@ -64,8 +78,17 @@ export const TeamCard: React.FC = () => {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="va@yourcompany.com"
-          className="flex-1 bg-[#181818] border border-[#333] rounded px-3 py-1.5 text-sm text-white"
+          className="flex-1 min-w-0 bg-[#181818] border border-[#333] rounded px-3 py-1.5 text-sm text-white"
         />
+        <select
+          aria-label="Role"
+          value={role}
+          onChange={(e) => setRole(e.target.value as TeamRole)}
+          className="bg-[#181818] border border-[#333] rounded px-2 py-1.5 text-sm text-white"
+        >
+          <option value="staff">Staff</option>
+          <option value="caller">Caller</option>
+        </select>
         <button type="submit" disabled={busy || !email.trim()} className={secondary}>
           <UserPlus className="w-4 h-4" />
           Invite
@@ -83,6 +106,7 @@ export const TeamCard: React.FC = () => {
               <span className="text-white truncate">
                 {member.email}
                 {member.name ? <span className="text-gray-500"> · {member.name}</span> : null}
+                <span className="text-xs text-gray-500"> · {ROLE_LABEL[member.role ?? 'staff']}</span>
               </span>
               <button type="button" onClick={() => remove(member)} aria-label={`Remove ${member.email}`} className="p-1 text-gray-500 hover:text-white">
                 <X className="w-4 h-4" />
@@ -92,7 +116,7 @@ export const TeamCard: React.FC = () => {
           {team.invites.map((invite) => (
             <li key={invite.id} className="flex items-center justify-between gap-3 py-2 text-sm">
               <span className="text-gray-300 truncate">
-                {invite.email} <span className="text-xs text-amber-200/80">· invited, not signed up yet</span>
+                {invite.email} <span className="text-xs text-amber-200/80">· invited as {ROLE_LABEL[invite.role ?? 'staff']}, not signed up yet</span>
               </span>
               <button
                 type="button"
