@@ -696,6 +696,13 @@ describe("the Tolliver Report", () => {
     expect(pro.text).toContain("Pulling Roofing permits (last 30 days): Betenbough Homes (3) · (806) 891-1607 · permitting@betenbough.com; Top Roof LLC (3) · (432) 555-0199");
     expect(pro.text).toContain("- 2837 ROLLING PLAINS LN · New home · $266,950.00 · Betenbough Homes · ");
     expect(pro.text).not.toContain("builders and contractors pulled permits this month");
+    // The Vault's permit list carries the same: builder, value and the companies on the job.
+    const near = await roofer.as.query(api.permits.near, { organizationId: roofer.organizationId, days: 30 });
+    expect(near.permits.find((p) => p.address === "2837 ROLLING PLAINS LN")).toMatchObject({
+      builder: "Betenbough Homes",
+      valuationCents: 26_695_000,
+      contacts: [expect.objectContaining({ company: "Betenbough Homes", phone: "(806) 891-1607" }), expect.objectContaining({ company: "Top Roof LLC" })],
+    });
   });
 });
 

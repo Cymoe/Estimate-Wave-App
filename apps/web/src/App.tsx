@@ -33,6 +33,7 @@ import BidsPage from './pages/BidsPage';
 import MarketplacePage from './pages/MarketplacePage';
 import PlanPage from './pages/PlanPage';
 import VaultPage from './pages/VaultPage';
+import ReportPage from './pages/ReportPage';
 import { PlanGate } from './components/market/plan';
 import FundAccountPage from './pages/FundAccountPage';
 import OrganizationSettings from './pages/OrganizationSettings';
@@ -300,6 +301,16 @@ function AppRoutes() {
           <ProtectedRoute>
             <DashboardLayout fullWidth={true}>
               <VaultPage />
+            </DashboardLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/report"
+        element={
+          <ProtectedRoute>
+            <DashboardLayout fullWidth={true}>
+              <ReportPage />
             </DashboardLayout>
           </ProtectedRoute>
         }

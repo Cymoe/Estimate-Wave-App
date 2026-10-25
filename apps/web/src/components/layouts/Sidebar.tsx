@@ -301,6 +301,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               )}
             </NavLink>
+            {/* The Tolliver Report: the county's week in permits, builders, demand and sales. Wide, it's the flagship. */}
+            <NavLink
+              to="/report"
+              className={({ isActive }) =>
+                isActive
+                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 ${isSidebarCollapsed ? '' : 'col-span-2'} flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
+                  : `bg-[#1A1A1A] border border-[#2A2A2A] ${isSidebarCollapsed ? '' : 'col-span-2'} flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95`
+              }
+              title={isSidebarCollapsed ? 'The Tolliver Report - Permits, builders and demand' : undefined}
+            >
+              {({ isActive }) => (
+                <div className="relative z-10 flex flex-col items-center">
+                  <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
+                    <span className="text-base">📊</span>
+                  </div>
+                  {!isSidebarCollapsed && (
+                    <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
+                      Tolliver Report
+                    </span>
+                  )}
+                </div>
+              )}
+            </NavLink>
             {/* Estimates */}
             <NavLink
               to="/work"

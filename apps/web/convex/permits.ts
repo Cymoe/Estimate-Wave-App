@@ -364,6 +364,11 @@ export const near = query({
         trades: p.trades,
         url: p.url,
         matchesTrades: matches(p),
+        // From the city's permit portal, once read: the job's value and the companies on it.
+        builder: p.builder,
+        valuationCents: p.valuationCents,
+        squareFeet: p.squareFeet,
+        contacts: p.contacts,
       })),
     };
   },

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ExternalLink, Sparkles } from 'lucide-react';
+import { ExternalLink, Mail, Phone, Sparkles } from 'lucide-react';
 import { permitsAPI } from '../../lib/api';
 
 export interface NearbyPermit {
@@ -16,6 +16,18 @@ export interface NearbyPermit {
   trades: string[];
   url?: string;
   matchesTrades: boolean;
+  /** From the city's permit portal, once read: who's on the job and what it's worth. */
+  builder?: string;
+  valuationCents?: number;
+  squareFeet?: number;
+  contacts?: PermitContact[];
+}
+export interface PermitContact {
+  role: string;
+  company: string;
+  person?: string;
+  phone?: string;
+  email?: string;
 }
 export interface PermitsNear {
   county: string;
@@ -30,11 +42,48 @@ type Scope = 'both' | 'residential' | 'commercial';
 const pill = (on: boolean) =>
   `px-3 py-1.5 rounded-full text-xs border ${on ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333] text-gray-400'}`;
 const when = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+const dollars = (cents: number) => `$${Math.round(cents / 100).toLocaleString('en-US')}`;
+const telHref = (phone: string) => `tel:${phone.replace(/[^\d+]/g, '')}`;
+
+/** The company to call about a permit: the builder's contact, else the first company on it. */
+const builderContact = (p: NearbyPermit) => p.contacts?.find((c) => c.company === p.builder) ?? p.contacts?.[0];
+
+/** Who's on the job, the value, and a call / email for the builder. */
+function OnTheJob({ permit }: { permit: NearbyPermit }) {
+  const contact = builderContact(permit);
+  const others = (permit.contacts ?? []).filter((c) => c !== contact);
+  if (!contact && !permit.valuationCents) return <span className="text-gray-600">—</span>;
+  return (
+    <span className="block" data-testid="permit-builder">
+      {contact && <span className="block text-white">{contact.company}</span>}
+      <span className="block text-xs text-gray-500">
+        {[permit.valuationCents ? dollars(permit.valuationCents) : '', permit.squareFeet ? `${permit.squareFeet.toLocaleString('en-US')} sq ft` : '']
+          .filter(Boolean)
+          .join(' · ')}
+      </span>
+      {contact && (contact.phone || contact.email) && (
+        <span className="flex flex-wrap gap-3 mt-1">
+          {contact.phone && (
+            <a href={telHref(contact.phone)} className="inline-flex items-center gap-1 text-xs text-[#7fb0e0] min-h-[32px]">
+              <Phone className="w-3 h-3" /> {contact.phone}
+            </a>
+          )}
+          {contact.email && (
+            <a href={`mailto:${contact.email}`} className="inline-flex items-center gap-1 text-xs text-[#7fb0e0] min-h-[32px]">
+              <Mail className="w-3 h-3" /> Email
+            </a>
+          )}
+        </span>
+      )}
+      {others.length > 0 && <span className="block text-xs text-gray-500 mt-0.5">Also on it: {others.map((c) => `${c.company} (${c.role.toLowerCase()})`).join(', ')}</span>}
+    </span>
+  );
+}
 
 /**
  * Building permits applied for near the company: public record from the
- * city, mapped to trades. Intelligence, not leads: the address and the work,
- * no contact details.
+ * city, mapped to trades. Intelligence, not leads: the address, the work and,
+ * once read from the city's permit portal, the builder and the job's value.
  */
 export const PermitsNearYou: React.FC<{ organizationId: string }> = ({ organizationId }) => {
   const [days, setDays] = useState<(typeof DAYS)[number]>(30);
@@ -73,7 +122,7 @@ export const PermitsNearYou: React.FC<{ organizationId: string }> = ({ organizat
           : 'Loading…'}
       </p>
       <p className="text-xs text-gray-500 mt-1 mb-3">
-        Public record from the City of {county}: the address and the work, no contact details. The builder's sign is usually on site.
+        Public record from the City of {county}: the address, the work, and the companies on the job with the business phone and email the city lists.
         {data?.syncedAt ? ` Updated ${when(data.syncedAt)}.` : ''}
       </p>
       <div className="flex flex-wrap items-center gap-2 mb-3">
@@ -118,6 +167,7 @@ export const PermitsNearYou: React.FC<{ organizationId: string }> = ({ organizat
                 <th className="px-4 py-2 font-medium">Applied</th>
                 <th className="px-4 py-2 font-medium">Work</th>
                 <th className="px-4 py-2 font-medium">Address</th>
+                <th className="px-4 py-2 font-medium">Builder · value</th>
                 <th className="px-4 py-2 font-medium">Status</th>
                 <th className="px-4 py-2 font-medium">Permit</th>
               </tr>
@@ -133,6 +183,9 @@ export const PermitsNearYou: React.FC<{ organizationId: string }> = ({ organizat
                     </span>
                   </td>
                   <td className="px-4 py-3 text-gray-300">{p.address || '—'}</td>
+                  <td className="px-4 py-3 text-gray-300">
+                    <OnTheJob permit={p} />
+                  </td>
                   <td className="px-4 py-3 text-gray-400 whitespace-nowrap">{p.status || '—'}</td>
                   <td className="px-4 py-3 text-gray-400 whitespace-nowrap">
                     {p.url ? (
@@ -159,6 +212,11 @@ export const PermitsNearYou: React.FC<{ organizationId: string }> = ({ organizat
                   {p.address || 'Address not given'} · {when(p.appliedAt)}
                   {p.status ? ` · ${p.status}` : ''}
                 </p>
+                {(builderContact(p) || p.valuationCents) && (
+                  <div className="text-sm mt-2">
+                    <OnTheJob permit={p} />
+                  </div>
+                )}
                 <p className="text-xs text-gray-500 mt-1">
                   {p.url ? (
                     <a href={p.url} target="_blank" rel="noreferrer" className="text-[#7fb0e0] underline underline-offset-2">

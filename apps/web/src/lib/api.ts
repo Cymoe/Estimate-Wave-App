@@ -537,6 +537,12 @@ export const permitsAPI = {
   syncNow: () => run('action', api.permits.syncNow, {}),
 };
 
+/** The Tolliver Report: a county's week in permits, builders, demand and sales (Pro adds the names). */
+export const reportAPI = {
+  get: (organizationId: string, opts: { county?: string; trade?: string } = {}) =>
+    run('query', api.report.report, defined({ organizationId, county: opts.county, trade: opts.trade })),
+};
+
 /** Standing bids by county and service type, and the leads they won or missed. */
 export const bidsAPI = {
   listStanding: (organizationId: string) => run('query', api.bids.listStanding, { organizationId }),

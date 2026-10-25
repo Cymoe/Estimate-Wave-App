@@ -16,7 +16,25 @@ let permitsNear: unknown = {
   locked: false,
   summary: { days: 30, total: 128, residentialBuilding: 60, singleFamily: 41, inMyTrades: 2 },
   permits: [
-    { id: 'p1', permitNumber: 'RES-1', name: 'Residential - Building', workClass: 'Alteration & Repair', address: '2705 HOWDY DR', status: 'Issued', appliedAt: '2026-10-16T16:57:14Z', residential: true, trades: ['painting'], matchesTrades: true },
+    {
+      id: 'p1',
+      permitNumber: 'RES-1',
+      name: 'Residential - Building',
+      workClass: 'Alteration & Repair',
+      address: '2705 HOWDY DR',
+      status: 'Issued',
+      appliedAt: '2026-10-16T16:57:14Z',
+      residential: true,
+      trades: ['painting'],
+      matchesTrades: true,
+      builder: 'Betenbough Homes',
+      valuationCents: 26_695_000,
+      squareFeet: 2422,
+      contacts: [
+        { role: 'Contractor', company: 'Betenbough Homes', phone: '(806) 891-1607', email: 'permitting@betenbough.com' },
+        { role: 'Electrical Contractor', company: 'AEC Electrical', phone: '(432) 555-0123' },
+      ],
+    },
     { id: 'p2', permitNumber: 'MEC-1', name: 'Mechanical - Replacement', workClass: 'Heating, A/C', address: '301 SHARP LN', status: 'Issued', appliedAt: '2026-10-15T16:57:14Z', residential: false, trades: ['hvac'], matchesTrades: false },
   ],
 };
@@ -106,7 +124,14 @@ describe('The Vault', () => {
     await flush();
     const panel = document.body.querySelector('[data-testid="permits-near-you"]')!;
     expect(panel.textContent).toContain('128 permits applied for in Midland in the last 30 days · 41 single-family · 2 in your trades');
-    expect(panel.textContent).toContain('no contact details');
+    expect(panel.textContent).toContain('the companies on the job');
+    // The builder, the value and how to reach them, from the city's permit portal.
+    const builder = panel.querySelector('[data-testid="permit-builder"]')!;
+    expect(builder.textContent).toContain('Betenbough Homes');
+    expect(builder.textContent).toContain('$266,950 · 2,422 sq ft');
+    expect(builder.querySelector('a[href="tel:8068911607"]')!.textContent).toContain('(806) 891-1607');
+    expect(builder.querySelector('a[href="mailto:permitting@betenbough.com"]')).not.toBeNull();
+    expect(builder.textContent).toContain('Also on it: AEC Electrical (electrical contractor)');
     // "My trades" is on, so only the repair permit shows; off, the HVAC one too.
     const table = () => panel.querySelector('[data-testid="permits-table"]')!;
     expect(table().textContent).toContain('Residential - Building · Alteration & Repair');
