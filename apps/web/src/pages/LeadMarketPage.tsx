@@ -268,6 +268,7 @@ function PermitsCard() {
       error?: string;
       details?: { at: string; looked: number; filled: number; failed: number; error?: string };
     } | null;
+    owners?: { syncedAt: string; fetched: number; lastAppliedAt?: string; error?: string } | null;
     last30Days: number;
     details?: { filled: number; total: number };
   };
@@ -291,7 +292,21 @@ function PermitsCard() {
       setBusy(false);
     }
   };
+  const syncOwners = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const r: { fetched: number; added: number; updated: number; error?: string } = await permitsAPI.syncOwners();
+      setNote(r.error ? `The city's service failed: ${r.error}` : `Read ${r.fetched.toLocaleString()} homes: ${r.added} new, ${r.updated} changed.`);
+      await load();
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "That didn't work");
+    } finally {
+      setBusy(false);
+    }
+  };
   const s = status?.source;
+  const o = status?.owners;
   return (
     <section className="border border-[#2A2A2A] rounded p-4 flex flex-wrap items-center justify-between gap-3" aria-label="Midland permits">
       <span className="min-w-0">
@@ -310,11 +325,23 @@ function PermitsCard() {
             {s?.details?.error ? ` · the city's portal failed: ${s.details.error}` : ''}
           </span>
         )}
+        {status && (
+          <span className="block text-xs text-gray-500 mt-0.5" data-testid="permit-owners">
+            {o
+              ? `Owners: ${o.fetched.toLocaleString()} Midland homes on the appraisal roll${o.lastAppliedAt ? ` · newest deed ${new Date(`${o.lastAppliedAt}T12:00:00`).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}` : ''} · read ${new Date(o.syncedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}${o.error ? ` · failed: ${o.error}` : ''}`
+              : 'Owners: not read yet. The deploy and a weekly job read them from the appraisal roll.'}
+          </span>
+        )}
         {note && <span className="block text-xs text-gray-300 mt-1">{note}</span>}
       </span>
-      <button type="button" onClick={sync} disabled={busy} className={secondary}>
-        {busy ? 'Pulling…' : 'Sync now'}
-      </button>
+      <span className="flex gap-2">
+        <button type="button" onClick={sync} disabled={busy} className={secondary}>
+          {busy ? 'Pulling…' : 'Sync now'}
+        </button>
+        <button type="button" onClick={syncOwners} disabled={busy} className={secondary}>
+          Sync owners
+        </button>
+      </span>
     </section>
   );
 }

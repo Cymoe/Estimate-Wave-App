@@ -29,4 +29,12 @@ crons.daily(
 // Builders and job value for new permits, from the city's permit portal (lib/energov.ts).
 crons.interval("look up Midland permit builders", { hours: 1 }, internal.permits.lookUpMidlandDetails, {});
 
+// Who owns each Midland home, from the appraisal roll (lib/parcels.ts), weekly.
+crons.weekly(
+  "sync Midland owners",
+  { dayOfWeek: "sunday", hourUTC: 7, minuteUTC: 20 },
+  internal.parcels.syncMidland,
+  {},
+);
+
 export default crons;

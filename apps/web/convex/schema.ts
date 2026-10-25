@@ -572,6 +572,40 @@ export default defineSchema({
     .index("by_county_and_applied", ["county", "appliedAt"])
     .index("by_source_and_details", ["source", "detailsAt"]),
 
+  // Who owns each Midland home: the appraisal roll from the city's public
+  // ArcGIS (lib/parcels.ts), refreshed weekly. Public record, but only
+  // Tolliver staff and callers see it, never member companies. No phones.
+  parcels: defineTable({
+    county: v.string(),
+    // The appraisal district's property id ("R000029279"); the key we upsert on.
+    cadId: v.string(),
+    pin: v.optional(v.string()),
+    useCode: v.string(),
+    siteAddress: v.string(),
+    // lib/parcels.ts addressKey: the same house on a permit has the same key.
+    addressKey: v.string(),
+    street: v.optional(v.string()),
+    owner: v.string(),
+    owner2: v.optional(v.string()),
+    mailing: v.object({
+      address: v.optional(v.string()),
+      city: v.optional(v.string()),
+      state: v.optional(v.string()),
+      zip: v.optional(v.string()),
+    }),
+    ownerOccupied: v.boolean(),
+    companyOwned: v.boolean(),
+    marketValueCents: v.optional(v.number()),
+    buildingValueCents: v.optional(v.number()),
+    // "2021-10-11": roughly when the owner bought it.
+    deedDate: v.optional(v.string()),
+    importedAt: v.string(),
+  })
+    .index("by_cad_id", ["cadId"])
+    .index("by_county_and_address_key", ["county", "addressKey"])
+    .index("by_county_and_street", ["county", "street"])
+    .index("by_county_and_deed", ["county", "deedDate"]),
+
   // How each permit feed's last sync went.
   permitSources: defineTable({
     source: v.string(),

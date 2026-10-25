@@ -303,6 +303,7 @@ describe('Lead Market', () => {
         updated: 2,
         details: { at: '2026-10-26T15:00:00.000Z', looked: 5, filled: 0, failed: 5, error: 'stopped after 5 failures in a row: HTTP 503' },
       },
+      owners: { syncedAt: '2026-10-25T07:20:00.000Z', fetched: 53024, lastAppliedAt: '2025-12-04' },
       last30Days: 900,
       details: { filled: 2950, total: 3159 },
     };
@@ -311,6 +312,8 @@ describe('Lead Market', () => {
       const line = document.body.querySelector('[data-testid="permit-builders"]')!;
       expect(line.textContent).toContain('Builders and job value: 2,950 of 3,159 permits filled in · last run ');
       expect(line.textContent).toContain("the city's portal failed: stopped after 5 failures in a row: HTTP 503");
+      const owners = document.body.querySelector('[data-testid="permit-owners"]')!;
+      expect(owners.textContent).toContain('Owners: 53,024 Midland homes on the appraisal roll · newest deed Dec 2025 · read Oct 25');
     } finally {
       permitStatus = { source: null, last30Days: 0 };
     }

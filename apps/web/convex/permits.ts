@@ -1,6 +1,6 @@
 // Building permits near a company: pulled from the City of Midland's public
-// permit layer once a day, mapped to trades, and shown in the Vault as
-// public-record intelligence (address and work, no contact details).
+// permit layer once a day, mapped to trades, and shown in the Tolliver
+// Report as public-record intelligence (address, work, builder and value).
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
@@ -17,6 +17,7 @@ import { nowIso, requireMember, requireStaff, requireUser } from "./lib/access";
 import { planSummary } from "./marketplace";
 import { FIELDS_VERSION, MIDLAND, PERMIT_FIELDS, monthOf, rowsToPermits } from "./lib/permits";
 import { MIDLAND_ENERGOV, detailsFrom, permitGuid } from "./lib/energov";
+import { MIDLAND_PARCELS } from "./lib/parcels";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** How far back the first sync reaches. */
@@ -410,8 +411,13 @@ export const status = query({
       .query("permits")
       .withIndex("by_county_and_applied", (q) => q.eq("county", MIDLAND.county))
       .take(10000);
+    const owners = await ctx.db
+      .query("permitSources")
+      .withIndex("by_source", (q) => q.eq("source", MIDLAND_PARCELS.source))
+      .unique();
     return {
       source,
+      owners,
       last30Days: month.length,
       details: { filled: stored.filter((p) => p.detailsAt && !p.detailsError).length, total: stored.length },
     };

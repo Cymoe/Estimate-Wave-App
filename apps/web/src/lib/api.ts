@@ -535,6 +535,7 @@ export const permitsAPI = {
   monthly: () => run('query', api.permits.monthly, {}),
   status: () => run('query', api.permits.status, {}),
   syncNow: () => run('action', api.permits.syncNow, {}),
+  syncOwners: () => run('action', api.parcels.syncNow, {}),
 };
 
 /** The Tolliver Report: a county's week in permits, builders, demand and sales (Pro adds the names). */
