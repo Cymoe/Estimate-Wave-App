@@ -15,6 +15,7 @@ import { SharedServiceOption } from './pages/SharedServiceOption';
 // Packages page removed as part of simplification
 import LeadsLanding from './pages/LeadsLanding';
 import ConnectAssistant from './pages/ConnectAssistant';
+import OpenInAssistant from './pages/OpenInAssistant';
 import Projects from './pages/marketing/Projects';
 import { BillsList } from './components/bills/BillsList';
 import { Callback } from './components/auth/Callback';
@@ -448,6 +449,8 @@ function AppRoutes() {
       />
       {/* Public page a company pays through to load its lead balance - no auth required */}
       <Route path="/fund/:token" element={<FundAccountPage />} />
+      {/* "Open it in Claude / ChatGPT" from a lead alert. */}
+      <Route path="/open/:app/:leadId" element={<OpenInAssistant />} />
       {/* Packages route removed as part of simplification */}
       <Route
         path="/bills"

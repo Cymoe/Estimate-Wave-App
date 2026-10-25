@@ -36,6 +36,13 @@ export const siteUrl = () => (process.env.SITE_URL ?? "https://estimate-wave-app
 
 export const leadLink = (orgLeadId: Id<"leads">, base = siteUrl()) => `${base}/leads?lead=${orgLeadId}&ack=1`;
 
+/** An assistant someone at the company connected (Settings → Assistants). */
+export type AssistantApp = "claude" | "chatgpt";
+export const ASSISTANT_NAMES: Record<AssistantApp, string> = { claude: "Claude", chatgpt: "ChatGPT" };
+
+/** Opens a new chat in that assistant asking about the lead (the web app's /open page writes the question). */
+export const assistantLink = (app: AssistantApp, orgLeadId: Id<"leads">, base = siteUrl()) => `${base}/open/${app}/${orgLeadId}`;
+
 /** How far Central time is from UTC at a moment, in ms (negative: -5h or -6h). */
 function centralOffsetMs(ms: number): number {
   const parts = Object.fromEntries(
@@ -111,6 +118,18 @@ export const recipients = internalQuery({
     const people = (await Promise.all(memberships.filter((m) => m.role !== "member").map((m) => ctx.db.get(m.userId)))).filter(
       (u): u is Doc<"users"> => u !== null,
     );
+    // Assistants connected to this company, most recently used first: the alert offers to open the lead in them.
+    const connections = (
+      await ctx.db
+        .query("aiConnections")
+        .withIndex("by_organization", (q) => q.eq("organizationId", lead.organizationId))
+        .take(100)
+    )
+      .filter((c) => !c.revokedAt && c.refreshExpiresAt > Date.now() && c.app !== "other")
+      .sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0));
+    const appsOf = (userId?: Id<"users">) => [
+      ...new Set(connections.filter((c) => userId === undefined || c.userId === userId).map((c) => c.app as AssistantApp)),
+    ];
     const trade = lead.jobType
       ? await ctx.db
           .query("industries")
@@ -144,6 +163,15 @@ export const recipients = internalQuery({
         const own = [...new Set(people.map((p) => p.mobile).filter((m): m is string => Boolean(m)))];
         const fallback = usMobile(company.phone);
         return own.length > 0 ? own : fallback ? [fallback] : [];
+      })(),
+      assistants: appsOf(),
+      // Each mobile's own assistants; the company's phone (the fallback) gets the company's.
+      mobileAssistants: (() => {
+        const byMobile: Record<string, AssistantApp[]> = {};
+        for (const p of people) if (p.mobile) byMobile[p.mobile] = [...new Set([...(byMobile[p.mobile] ?? []), ...appsOf(p._id)])];
+        const fallback = usMobile(company.phone);
+        if (fallback && !(fallback in byMobile)) byMobile[fallback] = appsOf();
+        return byMobile;
       })(),
       homeownerConsent: Boolean(intake?.consent?.value && /^(1|true|yes|on|checked)$/i.test(intake.consent.value)),
     };
@@ -195,15 +223,22 @@ type Recipients = NonNullable<Awaited<ReturnType<typeof recipients._handler>>>;
 const firstName = (name: string) => name.trim().split(/\s+/)[0];
 const digits = (phone?: string) => phone?.replace(/[^\d+]/g, "") ?? "";
 
-/** One segment: who, what, where, the number to call, the link. */
-export function smsText(r: Recipients, link: string): string {
+type AlertParts = Pick<Recipients, "lead" | "tradeName"> & Partial<Pick<Recipients, "assistants">>;
+
+/**
+ * One segment: who, what, where, the number to call, the link. Someone
+ * with an assistant connected also gets a link that opens the lead there
+ * (that makes it two segments).
+ */
+export function smsText(r: AlertParts, link: string, assistants: AssistantApp[] = []): string {
   const where = r.lead.city ?? (r.lead.county ? `${r.lead.county} County` : "your area");
-  const text = `FieldQuote: new ${r.tradeName.toLowerCase()} lead in ${where}. ${firstName(r.lead.name)} ${r.lead.phone ?? ""}. Details: ${link} Reply STOP to opt out`;
+  const ask = assistants[0] ? ` Ask ${ASSISTANT_NAMES[assistants[0]]}: ${assistantLink(assistants[0], r.lead.id, new URL(link).origin)}` : "";
+  const text = `FieldQuote: new ${r.tradeName.toLowerCase()} lead in ${where}. ${firstName(r.lead.name)} ${r.lead.phone ?? ""}. Details: ${link}${ask} Reply STOP to opt out`;
   return text.replace(/\s+/g, " ").trim();
 }
 
 /** The whole lead, since email has no segment cost and contractors forward it. */
-export function emailBody(r: Recipients, link: string): { subject: string; text: string; html: string } {
+export function emailBody(r: AlertParts & Pick<Recipients, "lead">, link: string): { subject: string; text: string; html: string } {
   const lines = [
     `${r.lead.name}${r.lead.phone ? ` · ${r.lead.phone}` : ""}`,
     [r.lead.address, r.lead.city, r.lead.county ? `${r.lead.county} County` : undefined].filter(Boolean).join(", "),
@@ -214,13 +249,17 @@ export function emailBody(r: Recipients, link: string): { subject: string; text:
   ].filter((l): l is string => Boolean(l));
   const support = badLeadLine();
   const subject = `New ${r.tradeName.toLowerCase()} lead: ${r.lead.name}${r.lead.city ? ` in ${r.lead.city}` : ""}`;
-  const text = `${lines.join("\n")}\n\nTap to open it and tell us you're on it: ${link}\n\n${support}`;
+  const origin = new URL(link).origin;
+  const apps: AssistantApp[] = r.assistants ?? [];
+  const open: Array<{ name: string; url: string }> = apps.map((app) => ({ name: ASSISTANT_NAMES[app], url: assistantLink(app, r.lead.id, origin) }));
+  const text = `${lines.join("\n")}\n\nTap to open it and tell us you're on it: ${link}\n${open.map((o) => `Open it in ${o.name}: ${o.url}\n`).join("")}\n${support}`;
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.5;color:#111">
 <p style="font-size:18px;margin:0 0 12px"><strong>New ${esc(r.tradeName.toLowerCase())} lead</strong></p>
 ${lines.map((l) => `<p style="margin:0 0 6px">${esc(l).replace(/\n/g, "<br>")}</p>`).join("\n")}
 ${r.lead.phone ? `<p style="margin:12px 0"><a href="tel:${digits(r.lead.phone)}" style="display:inline-block;padding:10px 16px;background:#336699;color:#fff;text-decoration:none;border-radius:4px">Call ${esc(firstName(r.lead.name))}</a></p>` : ""}
 <p style="margin:12px 0"><a href="${link}" style="display:inline-block;padding:10px 16px;border:1px solid #336699;color:#336699;text-decoration:none;border-radius:4px">Got it, calling now</a></p>
+${open.map((o) => `<p style="margin:0 0 6px"><a href="${o.url}" style="color:#336699">Open it in ${esc(o.name)}</a></p>`).join("\n")}
 <p style="color:#666;font-size:13px">FieldQuote sends each lead to one company only. Tapping the button tells our team you have it.</p>
 <p style="color:#666;font-size:13px">${esc(support)}</p>
 </div>`;
@@ -262,7 +301,9 @@ export const sendLeadAlerts = internalAction({
     else rows.push({ ...base, channel: "email", to: r.emails.join(", "), ...(await sendEmail(r.emails, emailBody(r, link))) });
 
     if (r.mobiles.length === 0) rows.push({ ...base, channel: "sms", to: "", status: "skipped", error: "Nobody at the company has a mobile for alerts" });
-    else for (const mobile of r.mobiles) rows.push({ ...base, channel: "sms", to: mobile, ...(await sendSms(mobile, smsText(r, link))) });
+    else
+      for (const mobile of r.mobiles)
+        rows.push({ ...base, channel: "sms", to: mobile, ...(await sendSms(mobile, smsText(r, link, r.mobileAssistants[mobile] ?? []))) });
 
     if (process.env.HOMEOWNER_SMS === "on") {
       const to = r.lead.phone ? `+1${r.lead.phone.replace(/\D/g, "").replace(/^1(\d{10})$/, "$1")}` : "";

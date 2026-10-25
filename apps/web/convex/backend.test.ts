@@ -595,7 +595,15 @@ describe("delivery", () => {
     const sms = smsText(r, link);
     expect(sms).toBe("FieldQuote: new roofing lead in Midland. Dana 432-555-0133. Details: https://app.example/leads?lead=l1&ack=1 Reply STOP to opt out");
     expect(sms.length).toBeLessThanOrEqual(160);
+    // Someone who connected Claude also gets a link that opens the lead there.
+    expect(smsText(r, link, ["claude"])).toBe(
+      "FieldQuote: new roofing lead in Midland. Dana 432-555-0133. Details: https://app.example/leads?lead=l1&ack=1 Ask Claude: https://app.example/open/claude/l1 Reply STOP to opt out",
+    );
+    expect(emailBody({ ...r, assistants: ["claude", "chatgpt"] }, link).text).toContain(
+      "Open it in Claude: https://app.example/open/claude/l1\nOpen it in ChatGPT: https://app.example/open/chatgpt/l1",
+    );
     const email = emailBody(r, link);
+    expect(email.text).not.toContain("/open/");
     expect(email.subject).toBe("New roofing lead: Dana Reyes in Midland");
     expect(email.text).toContain("12 Elm St, Midland, Midland County");
     expect(email.text).toContain("Confirmed with the homeowner by FieldQuote: Wants it this month");

@@ -483,3 +483,52 @@ describe("buying and bidding from an assistant", () => {
     expect(await tool(t, accessToken, "set_standing_bid", { county: "Midland", trade: "roofing", amount: 100 })).toMatchObject({ isError: true, text: expect.stringContaining("access") });
   });
 });
+
+describe("alerts for companies with an assistant", () => {
+  test("a new lead's email and text offer to open it in the assistant someone connected; nobody else's alerts change", async () => {
+    const { t, admin, roofer, forSaleId } = await roofingCompany();
+    await t.run(async (ctx) => {
+      await ctx.db.patch(roofer.organizationId, { email: "office@peak.example" });
+    });
+    await roofer.as.mutation(api.users.setMobile, { mobile: "(432) 555-0177" });
+    await admin.as.mutation(api.marketplace.recordTopUp, { organizationId: roofer.organizationId, amount: 1000 });
+    const second = (await admin.as.mutation(api.marketplace.createLead, { data: { name: "Bob Ray", phone: "432-555-0102", jobType: "roofing", city: "Odessa" } }))!._id;
+
+    const sent: Array<{ url: string; body: string }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        sent.push({ url, body: String(init.body) });
+        return { ok: true, status: 200, json: async () => ({ id: "x", sid: "SM1" }) };
+      }),
+    );
+    vi.stubEnv("RESEND_API_KEY", "re_test");
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "AC1");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "tok");
+    vi.stubEnv("TWILIO_FROM", "+14320000000");
+    const sell = async (leadId: Id<"marketplaceLeads">) => {
+      vi.useFakeTimers();
+      try {
+        await admin.as.mutation(api.marketplace.assign, { leadId, organizationId: roofer.organizationId });
+        await t.finishAllScheduledFunctions(vi.runAllTimers);
+      } finally {
+        vi.useRealTimers();
+      }
+      const email = JSON.parse(sent.find((s) => s.url.includes("resend"))!.body) as { html: string; text: string };
+      const sms = new URLSearchParams(sent.find((s) => s.url.includes("twilio"))!.body).get("Body")!;
+      sent.length = 0;
+      return { email, sms };
+    };
+
+    const before = await sell(forSaleId);
+    expect(before.email.text).not.toContain("/open/");
+    expect(before.sms).not.toContain("Ask ");
+
+    await connect(t, roofer);
+    const after = await sell(second);
+    const orgLead = await t.run(async (ctx) => (await ctx.db.get(second))!.orgLeadId!);
+    expect(after.email.text).toContain(`Open it in Claude: ${SITE}/open/claude/${orgLead}`);
+    expect(after.email.html).toContain(`href="${SITE}/open/claude/${orgLead}"`);
+    expect(after.sms).toContain(`Ask Claude: ${SITE}/open/claude/${orgLead}`);
+  });
+});
