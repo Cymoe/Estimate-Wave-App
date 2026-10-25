@@ -1,7 +1,9 @@
-import React, { useRef, useEffect } from 'react';
+import React, { Suspense, lazy, useRef, useEffect, useState } from 'react';
 import { useNavigate, useLocation, NavLink } from 'react-router-dom';
 import { NO_TRADES_LABEL } from '../settings/tradesLabels';
-import { isStaff } from '../../lib/roles';
+import { isStaff, isSuperAdmin } from '../../lib/roles';
+// Loaded when opened: it pulls in the application form and its backend calls.
+const AddCompanyDialog = lazy(() => import('../settings/AddCompanyDialog').then((m) => ({ default: m.AddCompanyDialog })));
 import type { ProjectShortcut } from '../projects/useProjectShortcuts';
 import {
   ChevronDown,
@@ -12,7 +14,8 @@ import {
   Activity,
   TrendingUp,
   Sun,
-  Moon
+  Moon,
+  Plus
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -76,6 +79,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { user, signOut } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { plan, active: planActive } = usePlan(selectedOrg.id || undefined);
+  // "Add another company": owners apply for it (FieldQuote approves); the platform owner adds it in Ops.
+  const [addingCompany, setAddingCompany] = useState(false);
+  const addCompany = () => {
+    setOrgDropdownOpen(false);
+    if (isSuperAdmin(user)) navigate('/ops?new=company');
+    else setAddingCompany(true);
+  };
   // Tiles the plan covers go grey when it isn't on; they still open, to the plan panel.
   const dim = planActive ? '' : ' opacity-40 grayscale';
   const profileDropdownRef = useRef<HTMLDivElement>(null);
@@ -154,6 +164,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={addCompany}
+                className="w-full text-left px-3 py-2 min-h-[44px] flex items-center gap-2 border-t border-[#2A2A2A] mt-1 text-sm text-[#7fb0e0] hover:bg-[#2A2A2A] transition-colors"
+              >
+                <Plus className="w-4 h-4 flex-shrink-0" />
+                Add another company
+              </button>
             </div>
           )}
         </div>
@@ -663,6 +681,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
       </div>
+      {addingCompany && (
+        <Suspense fallback={null}>
+          <AddCompanyDialog onClose={() => setAddingCompany(false)} />
+        </Suspense>
+      )}
     </>
   );
 }; 

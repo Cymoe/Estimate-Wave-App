@@ -1,8 +1,9 @@
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { internalAction, internalQuery, mutation, query, type QueryCtx } from "./_generated/server";
-import { fail, nowIso, requireStaff, requireSuperAdmin } from "./lib/access";
+import { fail, nowIso, organizationIdsFor, requireStaff, requireSuperAdmin } from "./lib/access";
 import { COUNTY_CHOICES, WEST_TEXAS_COUNTIES, normalizeCounty } from "./lib/counties";
 import { sendEmail, siteUrl } from "./delivery";
 import { knownTrades } from "./industries";
@@ -50,7 +51,22 @@ function shape(row: Doc<"companyApplications">) {
   };
 }
 
-/** The form's submit. No login: anyone can apply, once per email or phone. */
+/** The companies a person with this email already runs on FieldQuote, by name. */
+async function companiesOf(ctx: QueryCtx, email: string): Promise<string[]> {
+  const user = await ctx.db
+    .query("users")
+    .withIndex("email", (q) => q.eq("email", email))
+    .unique();
+  if (!user) return [];
+  const orgs = await Promise.all((await organizationIdsFor(ctx, user._id)).map((id) => ctx.db.get(id)));
+  return orgs.filter((o): o is Doc<"organizations"> => o !== null && o.isActive && !o.isSample).map((o) => o.name);
+}
+
+/**
+ * The form's submit. No login: anyone can apply, once per email or phone.
+ * Signed in, it's an owner adding another company: it goes through the same
+ * approval, marked with who sent it.
+ */
 export const submit = mutation({
   args: {
     companyName: v.string(),
@@ -97,6 +113,7 @@ export const submit = mutation({
       county,
       jobsPerMonth: args.jobsPerMonth?.trim().slice(0, 40) || undefined,
       notes: args.notes?.trim().slice(0, 1000) || undefined,
+      appliedBy: (await getAuthUserId(ctx)) ?? undefined,
       status: "new",
       createdAt: nowIso(),
     });
@@ -114,7 +131,12 @@ export const forNotice = internalQuery({
     const owner = (await ctx.db.query("users").take(5000)).find((u) => u.role === "super_admin");
     const trades = await activeTrades(ctx);
     const names = new Map(trades.map((t) => [t.slug, t.name]));
-    return { application: shape(row), to: owner?.email ?? null, tradeNames: row.trades.map((t) => names.get(t) ?? t) };
+    const hasAccount =
+      (await ctx.db
+        .query("users")
+        .withIndex("email", (q) => q.eq("email", row.email))
+        .unique()) !== null;
+    return { application: shape(row), to: owner?.email ?? null, tradeNames: row.trades.map((t) => names.get(t) ?? t), hasAccount };
   },
 });
 
@@ -155,7 +177,9 @@ export const notifyApplicant = internalAction({
     const site = siteUrl();
     const lines = [
       `${a.contactName.trim().split(/\s+/)[0]}, ${a.companyName} is approved to buy ${notice.tradeNames.join(" and ").toLowerCase()} leads in ${a.county} County.`,
-      `Go to ${site} and sign in with this address (${a.email}): Continue with Google, or Create an account with it and type the code we email you. Your company is set up and waiting.`,
+      notice.hasAccount
+        ? `It's already in your FieldQuote account: sign in at ${site} as usual and pick ${a.companyName} in the company list.`
+        : `Go to ${site} and sign in with this address (${a.email}): Continue with Google, or Create an account with it and type the code we email you. Your company is set up and waiting.`,
       "We'll call you about loading your lead balance, so the next confirmed lead in your county can be yours.",
     ];
     return await sendEmail([a.email], {
@@ -175,7 +199,12 @@ export const list = query({
       .query("companyApplications")
       .withIndex("by_status", (q) => q.eq("status", "new"))
       .take(200);
-    return rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(shape);
+    // An owner adding another company says so, with the companies they already run.
+    return await Promise.all(
+      rows
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .map(async (row) => ({ ...shape(row), existingCompanies: await companiesOf(ctx, row.email) })),
+    );
   },
 });
 

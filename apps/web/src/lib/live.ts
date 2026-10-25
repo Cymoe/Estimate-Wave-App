@@ -88,7 +88,7 @@ export const useInbox = <T,>(on = true) => useLive<T>(q('marketplace:listInbox')
 export const useCompanies = <T,>(on = true) => useLive<T>(q('marketplace:companiesOverview'), on ? {} : 'skip');
 /** Credit requests waiting on the owner. */
 export const usePendingCredits = <T,>(on = true) => useLive<T>(q('marketplace:pendingCredits'), on ? {} : 'skip');
-/** Companies that applied from the landing page and wait on a decision. */
+/** Companies that applied (from the landing page, or an owner adding another) and wait on a decision. */
 export const useApplications = <T,>(on = true) => useLive<T>(q('applications:list'), on ? {} : 'skip');
 /** Whether payments are in test mode (play money). Staff only; undefined while loading or signed out. */
 export const usePaymentsMode = <T,>() => useLive<T>(q('funding:mode'), {});

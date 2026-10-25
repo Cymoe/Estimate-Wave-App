@@ -5043,6 +5043,47 @@ describe("working a lead from the card", () => {
 });
 
 describe("landing page applications", () => {
+  test("an owner adds another company from inside the app: same approval, and it lands in their account", async () => {
+    const t = setup();
+    const owner = await signUp(t, "owner@fieldquote.example", { role: "super_admin" });
+    const ana = await signUp(t, "ana@desertair.example");
+    await t.run(async (ctx) => {
+      const now = new Date().toISOString();
+      await ctx.db.insert("industries", { slug: "painting", name: "Painting", display_order: 1, is_active: true, created_at: now, updated_at: now });
+      await ctx.db.patch(ana.organizationId, { name: "Desert Air HVAC" });
+    });
+    const sent = await ana.as.mutation(api.applications.submit, {
+      companyName: "Basin Paint Co.", contactName: "Ana Ruiz", email: "ana@desertair.example", phone: "432-555-0199", trades: ["painting"], county: "Midland",
+    });
+    expect(sent.duplicate).toBe(false);
+    // Ops sees who sent it and what they already run.
+    const [row] = await owner.as.query(api.applications.list, {});
+    expect(row).toMatchObject({ companyName: "Basin Paint Co.", existingCompanies: ["Desert Air HVAC"] });
+    expect(await t.run(async (ctx) => (await ctx.db.get(row.id as Id<"companyApplications">))?.appliedBy)).toBeDefined();
+    // Approved, it is in her company list at once, beside the first; no new sign-up needed.
+    const emails: Array<{ subject: string; text: string }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      emails.push(JSON.parse(init.body as string));
+      return { ok: true, status: 200, json: async () => ({ id: "em_1" }) };
+    }));
+    vi.stubEnv("RESEND_API_KEY", "re_test");
+    vi.stubEnv("SITE_URL", "https://app.example");
+    vi.useFakeTimers();
+    try {
+      await owner.as.mutation(api.applications.approve, { id: row.id });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+    const mine = await ana.as.query(api.organizations.list, {});
+    expect(mine.map((o) => o.name).sort()).toEqual(["Basin Paint Co.", "Desert Air HVAC"]);
+    const approved = emails.find((e) => e.subject === "Basin Paint Co. is approved on FieldQuote")!;
+    expect(approved.text).toContain("It's already in your FieldQuote account: sign in at https://app.example as usual and pick Basin Paint Co. in the company list.");
+    expect(approved.text).not.toContain("Create an account");
+  });
+
   test("a company applies once; the owner approves it into a company with an invite, or declines", async () => {
     const t = setup();
     const owner = await signUp(t, "owner@fieldquote.example", { role: "super_admin" });

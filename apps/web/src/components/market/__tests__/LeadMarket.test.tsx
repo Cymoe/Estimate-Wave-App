@@ -351,14 +351,16 @@ describe('Lead Market', () => {
 
   it('shows landing-page applications to the owner, and Approve sets the company up and opens its panel', async () => {
     applications = [
-      { id: 'a1', companyName: 'Basin Paint Co.', contactName: 'Ana Ruiz', email: 'ana@basinpaint.example', phone: '4325550199', trades: ['painting'], county: 'Midland', jobsPerMonth: '6', createdAt: new Date().toISOString() },
+      { id: 'a1', companyName: 'Basin Paint Co.', contactName: 'Ana Ruiz', email: 'ana@basinpaint.example', phone: '4325550199', trades: ['painting'], county: 'Midland', jobsPerMonth: '6', createdAt: new Date().toISOString(), existingCompanies: ['Desert Air HVAC'] },
     ];
     await render(<LeadMarketPage />);
     expect(Array.from(document.body.querySelectorAll('[role="tab"]')).map((t) => t.textContent)).toContain('Companies (3) · 1 applied');
     await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Companies'))!.click());
     await flush();
     const section = document.body.querySelector('[aria-label="Applications"]')!;
-    expect(section.textContent).toContain('1 company applied from the landing page');
+    expect(section.textContent).toContain('1 company applied to buy leads');
+    // An owner adding a second company is flagged as an existing customer.
+    expect(section.querySelector('[data-testid="existing-customer"]')!.textContent).toBe('Already a customer: runs Desert Air HVAC');
     expect(section.textContent).toContain('Basin Paint Co. · Ana Ruiz');
     expect(section.textContent).toContain('Painting · Midland County · 6 jobs a month');
     await act(async () => (Array.from(section.querySelectorAll('button')).find((b) => b.textContent === 'Approve') as HTMLButtonElement).click());

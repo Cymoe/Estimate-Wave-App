@@ -950,7 +950,7 @@ export default defineSchema({
       "resourceType",
     ]),
 
-  // Companies that applied from the landing page. The owner approves one
+  // Companies that applied, from the landing page or (signed in) an owner adding another. The owner approves one
   // into a company (with an invite for the applicant) or declines it.
   companyApplications: defineTable({
     companyName: v.string(),
@@ -966,6 +966,8 @@ export default defineSchema({
     decidedAt: v.optional(v.string()),
     decidedBy: v.optional(v.id("users")),
     organizationId: v.optional(v.id("organizations")),
+    // Sent from inside the app by someone who already has a company ("Add another company").
+    appliedBy: v.optional(v.id("users")),
   })
     .index("by_status", ["status"])
     .index("by_email", ["email"])

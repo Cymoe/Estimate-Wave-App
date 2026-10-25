@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
-import { X, ChevronRight, User, Building, CreditCard, HelpCircle, LogOut } from 'lucide-react';
+import React, { Suspense, lazy, useState } from 'react';
+import { X, ChevronRight, User, Building, CreditCard, HelpCircle, LogOut, Plus } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { FEATURES } from '../../config/features';
-import { isStaff } from '../../lib/roles';
+import { isStaff, isSuperAdmin } from '../../lib/roles';
+// Loaded when opened: it pulls in the application form and its backend calls.
+const AddCompanyDialog = lazy(() => import('../settings/AddCompanyDialog').then((m) => ({ default: m.AddCompanyDialog })));
 import { WalletTile } from '../market/WalletTile';
 import { planLabel, usePlan } from '../market/plan';
 import { NO_TRADES_LABEL } from '../settings/tradesLabels';
@@ -28,6 +30,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
   const [orgDropdownOpen, setOrgDropdownOpen] = useState(false);
+  const [addingCompany, setAddingCompany] = useState(false);
   const { plan, active: planActive } = usePlan(selectedOrg.id || undefined);
   const dim = planActive ? '' : ' opacity-40 grayscale';
 
@@ -85,6 +88,20 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
                   <div className={`text-sm ${org.industry === NO_TRADES_LABEL ? 'text-amber-300' : 'opacity-70'}`}>{org.industry}</div>
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setOrgDropdownOpen(false);
+                  if (isSuperAdmin(user)) {
+                    navigate('/ops?new=company');
+                    onClose();
+                  } else setAddingCompany(true);
+                }}
+                className="w-full text-left p-3 min-h-[44px] flex items-center gap-2 rounded-[4px] text-[#7fb0e0] hover:bg-[#333333]"
+              >
+                <Plus className="w-4 h-4" />
+                Add another company
+              </button>
             </div>
           )}
         </div>
@@ -296,6 +313,11 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
           </div>
         </div>
       </div>
+      {addingCompany && (
+        <Suspense fallback={null}>
+          <AddCompanyDialog onClose={() => setAddingCompany(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }; 

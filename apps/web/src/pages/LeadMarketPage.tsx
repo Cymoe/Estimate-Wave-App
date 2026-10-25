@@ -26,7 +26,7 @@ interface Trade {
   name: string;
 }
 
-/** A company that applied from the landing page and is waiting on the owner. */
+/** A company that applied (landing page, or an owner adding another) and is waiting on the owner. */
 interface Application {
   id: string;
   companyName: string;
@@ -38,6 +38,8 @@ interface Application {
   jobsPerMonth?: string;
   notes?: string;
   createdAt: string;
+  /** An owner adding another company: the ones they already run. */
+  existingCompanies?: string[];
 }
 
 /** The plan mix in the totals row, in the order it reads best. */
@@ -1565,7 +1567,7 @@ const LeadMarketPage: React.FC = () => {
           {owner && applications.length > 0 && (
             <section aria-label="Applications" className="border border-emerald-500/40 bg-emerald-500/5 rounded">
               <h2 className="px-4 pt-3 pb-1 text-sm font-medium text-emerald-200">
-                {applications.length} {applications.length === 1 ? 'company' : 'companies'} applied from the landing page
+                {applications.length} {applications.length === 1 ? 'company' : 'companies'} applied to buy leads
               </h2>
               <ul className="divide-y divide-[#2A2A2A]">
                 {applications.map((a) => (
@@ -1582,6 +1584,11 @@ const LeadMarketPage: React.FC = () => {
                         <a href={`tel:${a.phone}`} className="underline">{a.phone}</a> · <a href={`mailto:${a.email}`} className="underline">{a.email}</a>
                       </p>
                       {a.notes && <p className="text-xs text-gray-500 mt-1">{a.notes}</p>}
+                      {(a.existingCompanies?.length ?? 0) > 0 && (
+                        <p className="text-xs text-sky-300 mt-1" data-testid="existing-customer">
+                          Already a customer: runs {a.existingCompanies!.join(', ')}
+                        </p>
+                      )}
                     </div>
                     <div className="flex gap-2">
                       <button type="button" disabled={deciding === a.id} onClick={() => decideApplication(a, false)} className={secondary}>
