@@ -106,7 +106,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <>
       {/* Sidebar - part of grid layout, not fixed */}
-      <div className={`hidden md:flex ${isSidebarCollapsed ? 'w-14' : 'w-48'} h-[100dvh] bg-[#000000] border-l border-gray-700 flex-col transition-all duration-300`}>
+      <div className={`hidden md:flex ${isSidebarCollapsed ? 'w-12' : 'w-48'} h-[100dvh] bg-[#000000] border-l border-gray-700 flex-col transition-all duration-300`}>
         {/* Organization header and sidebar toggle */}
         <div className="p-2 border-b border-[#333333] relative flex items-center justify-between flex-shrink-0 overflow-visible">
           <button
@@ -341,8 +341,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               to="/projects"
               className={({ isActive }) =>
                 isActive || location.pathname.startsWith('/projects')
-                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 col-span-2 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]${dim}`
-                  : `bg-[#1A1A1A] border border-[#2A2A2A] col-span-2 flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95${dim}`
+                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 ${isSidebarCollapsed ? '' : 'col-span-2'} flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]${dim}`
+                  : `bg-[#1A1A1A] border border-[#2A2A2A] ${isSidebarCollapsed ? '' : 'col-span-2'} flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95${dim}`
               }
               title={isSidebarCollapsed ? "Projects - Manage Your Projects" : undefined}
             >
@@ -636,7 +636,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               ref={profileButtonRef}
               onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-              className="w-full p-4 flex items-center hover:bg-[#252525] transition-colors duration-200 cursor-pointer group"
+              className={`w-full ${isSidebarCollapsed ? 'px-2 py-4 justify-center' : 'p-4'} flex items-center hover:bg-[#252525] transition-colors duration-200 cursor-pointer group`}
+              aria-label={isSidebarCollapsed ? 'Account menu' : undefined}
             >
               {/* User Info - only when sidebar expanded */}
               {!isSidebarCollapsed && (
@@ -653,7 +654,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
 
               {/* Avatar */}
-              <div className={`${isSidebarCollapsed ? 'w-full' : 'ml-3'} flex items-center justify-center w-8 h-8 rounded-full bg-[#336699] text-white group-hover:bg-[#2A5580] transition-all`}>
+              <div className={`${isSidebarCollapsed ? '' : 'ml-3'} flex flex-shrink-0 items-center justify-center w-8 h-8 rounded-full bg-[#336699] text-white group-hover:bg-[#2A5580] transition-all`}>
                 <span className="text-sm font-medium">
                   {(user?.name || user?.email || 'You').charAt(0).toUpperCase()}
                 </span>
