@@ -315,6 +315,8 @@ describe('Lead Market', () => {
     expect(names()).toEqual(['Ace Painting', 'Broke Roofing', 'Peak Roofing']);
     expect(heading('Company').getAttribute('aria-sort')).toBe('ascending');
     expect(heading('Balance').getAttribute('aria-sort')).toBe('none');
+    // The won-jobs column says it counts all time, unlike the 30-day columns beside it.
+    expect(heading('Jobs won, all time')).toBeDefined();
     // A paying Pro plan comes before no plan; companies with the same plan go A to Z.
     await tapHeading('Plan');
     expect(names()).toEqual(['Peak Roofing', 'Ace Painting', 'Broke Roofing']);

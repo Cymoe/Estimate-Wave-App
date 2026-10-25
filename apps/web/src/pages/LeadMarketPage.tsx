@@ -1679,7 +1679,7 @@ const LeadMarketPage: React.FC = () => {
                   <SortHeading label="Leads (30d)" column="leads" sort={companySort} onSort={sortCompaniesBy} align="right" className="hidden sm:table-cell" />
                   <SortHeading label="Spent (30d)" column="spent" sort={companySort} onSort={sortCompaniesBy} align="right" className="hidden sm:table-cell" />
                   <SortHeading label="Plan" column="plan" sort={companySort} onSort={sortCompaniesBy} align="left" />
-                  <SortHeading label="Job value" column="won" sort={companySort} onSort={sortCompaniesBy} align="right" />
+                  <SortHeading label="Jobs won, all time" column="won" sort={companySort} onSort={sortCompaniesBy} align="right" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#2A2A2A]">
