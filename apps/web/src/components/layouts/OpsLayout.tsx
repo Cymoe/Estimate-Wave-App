@@ -6,6 +6,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { isSuperAdmin } from '../../lib/roles';
 import { usePaymentsMode } from '../../lib/live';
 import { OpsErrorBoundary } from '../ops/OpsErrorBoundary';
+import { HOME_PATH } from '../../config/features';
 
 /**
  * The frame for the platform side. Nothing of a company's in it: no
@@ -61,7 +62,8 @@ export const OpsLayout: React.FC<{ children: React.ReactNode }> = ({ children })
                     role="menuitem"
                     onClick={() => {
                       setOpen(false);
-                      navigate('/profit-tracker');
+                      // The company side's home (Leads). The old dashboard is switched off and sends staff back to Ops.
+                      navigate(HOME_PATH);
                     }}
                     className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-200 hover:bg-[#222] text-left"
                   >

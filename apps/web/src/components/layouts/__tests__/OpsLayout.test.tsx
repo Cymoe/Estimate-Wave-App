@@ -26,7 +26,8 @@ async function render(page: ReactNode = <p>the page</p>) {
       <MemoryRouter initialEntries={['/ops']}>
         <Routes>
           <Route path="/ops" element={<OpsLayout>{page}</OpsLayout>} />
-          <Route path="/profit-tracker" element={<p>company dashboard</p>} />
+          <Route path="/leads" element={<p>company leads</p>} />
+          <Route path="/profit-tracker" element={<p>old dashboard, sends staff back to Ops</p>} />
         </Routes>
       </MemoryRouter>,
     ),
@@ -87,6 +88,7 @@ describe('the Ops frame', () => {
     await act(async () => (document.body.querySelector('[aria-haspopup="menu"]') as HTMLButtonElement).click());
     await act(async () => byText('Switch to my company')!.click());
     await flush();
-    expect(document.body.textContent).toContain('company dashboard');
+    // It lands on the company side's home, not the switched-off dashboard that bounces staff back to Ops.
+    expect(document.body.textContent).toContain('company leads');
   });
 });
