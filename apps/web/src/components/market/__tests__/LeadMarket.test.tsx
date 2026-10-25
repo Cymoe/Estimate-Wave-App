@@ -866,20 +866,21 @@ describe('standing bids in Admin', () => {
     expect(document.body.querySelector('[role="dialog"]')!.textContent).toContain('No company lists Flooring as a trade it buys');
     await act(async () => (document.body.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement).click());
     const midland = cells.find((c) => c.getAttribute('data-state') === 'open')!;
-    // A square leads with the profit in whole dollars and what to do; the rest is in the hover text and the drawer.
-    expect(midland.textContent).toBe('$235 profitRun ads here');
-    expect(midland.getAttribute('aria-label')).toBe('Roofing in Midland County: $235 profit. Run ads here');
+    // A square leads with the profit in whole dollars, then the winning bid and what to do; the rest is in the hover text and the drawer.
+    expect(midland.textContent).toBe('$235 profitWinning bid $300Run ads here');
+    expect(midland.getAttribute('aria-label')).toBe('Roofing in Midland County: $235 profit. Winning bid $300. Run ads here');
     expect(midland.getAttribute('title')).toContain('Last 30 days: 2 Roofing leads in Midland County, 2 sold, about $300.00 each');
     expect(midland.getAttribute('title')).toContain('About +$235.00 profit a lead');
     expect(midland.getAttribute('title')!.split('\n')[0]).toBe('Run ads here · Profit is figured on the highest funded bid; switches to real sales after 3');
     expect(midland.getAttribute('title')).toContain('3 bidders · highest funded bid $300.00');
     // Ector has sold enough that its profit is on what leads really went for, not the bid.
-    expect(cells[0].textContent).toBe('$85 profitLeads sitting unsold: pause');
+    expect(cells[0].textContent).toBe('$85 profitWinning bid $200Leads sitting unsold: pause');
     expect(cells[0].getAttribute('title')).toContain('Last 30 days: 4 Painting leads in Ector County, 3 sold, about $140.00 each · 1 still unsold');
     expect(cells[0].getAttribute('title')).toContain('About +$85.00 profit a lead (on real sales)');
     expect(cells[0].getAttribute('title')!.split('\n')[0]).toBe('Leads sitting unsold: pause · Profit is figured on real sales');
     expect(cells[0].getAttribute('title')).toContain('1 bidder · highest funded bid $200.00 · covers 2 more');
     expect(nobody.textContent).toContain('No bids yet');
+    expect(nobody.textContent).not.toContain('Winning bid');
     expect(nobody.getAttribute('title')).toContain('Last 30 days: 1 Flooring lead in Midland County, none sold · 1 still unsold');
     // The flooring drawer has no price and no cost: it says so instead of showing nothing.
     await act(async () => (nobody as HTMLButtonElement).click());

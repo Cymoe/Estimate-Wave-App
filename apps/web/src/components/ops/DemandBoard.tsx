@@ -57,6 +57,9 @@ function headline(s: DemandSlot): string {
   return 'No bids yet';
 }
 
+/** The bid that would win the next lead here: the most a company that can pay has bid. */
+const winningBid = (s: DemandSlot) => (s.topFundedCents !== undefined ? `Winning bid ${dollars(s.topFundedCents)}` : null);
+
 /** The bids in one sentence: who is bidding, the most a company that can pay has bid, and how far the money goes. */
 function bidsLine(s: DemandSlot): string {
   if (s.topFundedCents !== undefined)
@@ -126,14 +129,14 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
       .filter(Boolean)
       .join('\n');
   // Narrow enough to fit six or seven trades across an iPad: the profit, then what to do.
-  const CARD = 'h-[4.25rem] w-full text-left rounded border px-2 py-1.5 leading-snug overflow-hidden';
-  const named = (s: DemandSlot) => `${s.tradeName} in ${s.county} County: ${headline(s)}. ${STATE[s.state].label}`;
+  const CARD = 'h-[4.75rem] w-full text-left rounded border px-2 py-1.5 leading-snug overflow-hidden';
+  const named = (s: DemandSlot) => `${s.tradeName} in ${s.county} County: ${headline(s)}.${winningBid(s) ? ` ${winningBid(s)}.` : ''} ${STATE[s.state].label}`;
 
   return (
     <div className="space-y-4" data-testid="demand-board">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-gray-500">
-          Each square is one county and one trade: about how much profit a lead there makes, and what to do. Tap a square for the bids and the last 30 days of leads behind it. Profit a lead = price − the ad cost per lead you type in the column header − {money(data.vaCostCents)} for the confirmation call. The price is the highest funded bid until 3 leads sell, then what they sold for. Updates on its own.
+          Each square is one county and one trade: about how much profit a lead there makes, the winning bid (the most a company that can pay has bid), and what to do. Tap a square for the bids and the last 30 days of leads behind it. Profit a lead = price − the ad cost per lead you type in the column header − {money(data.vaCostCents)} for the confirmation call. The price is the highest funded bid until 3 leads sell, then what they sold for. Updates on its own.
           {data.demoLeads && <span className="block mt-1 text-amber-300/80">No real lead yet, so the lead numbers are demo data. They switch to real the moment the first real lead is confirmed.</span>}
         </p>
         {data.slots.length > 0 && (
@@ -182,10 +185,11 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
                           {s ? (
                             <button type="button" onClick={() => setOpen(s)} title={tip(s)} aria-label={named(s)} data-state={s.state} className={`${CARD} ${STATE[s.state].cell}`}>
                               <span className="block truncate text-base font-semibold">{headline(s)}</span>
-                              <span className="block line-clamp-2 text-[11px] opacity-75">{STATE[s.state].label}</span>
+                              <span className="block truncate text-xs">{winningBid(s) ?? '\u00a0'}</span>
+                              <span className="block truncate text-[11px] opacity-75">{STATE[s.state].label}</span>
                             </button>
                           ) : (
-                            <span className="flex h-[4.25rem] items-center justify-center text-gray-700">·</span>
+                            <span className="flex h-[4.75rem] items-center justify-center text-gray-700">·</span>
                           )}
                         </td>
                       );
@@ -205,7 +209,10 @@ export const DemandBoard: React.FC<{ owner: boolean }> = ({ owner }) => {
                     </span>
                     <span className="shrink-0 text-base font-semibold">{headline(s)}</span>
                   </span>
-                  <span className="block truncate text-xs opacity-75">{STATE[s.state].label}</span>
+                  <span className="block truncate text-xs opacity-75">
+                    {winningBid(s) ? `${winningBid(s)} · ` : ''}
+                    {STATE[s.state].label}
+                  </span>
                 </button>
               </li>
             ))}
