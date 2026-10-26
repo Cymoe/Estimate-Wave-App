@@ -233,6 +233,7 @@ html.light .text-\[\#cfe2f5\] { color: #205C98; }
 html.light .text-\[\#fbbf24\] { color: #AE8009; }
 html.light .text-amber-200 { color: #92400e; }
 html.light .text-amber-200\/80 { color: rgba(146, 64, 14, 0.8); }
+html.light .text-amber-200\/90 { color: rgba(146, 64, 14, 0.9); }
 html.light .text-amber-300 { color: #92400e; }
 html.light .text-amber-300\/80 { color: rgba(146, 64, 14, 0.8); }
 html.light .text-amber-400 { color: #92400e; }
@@ -286,6 +287,7 @@ html.light .text-yellow-400\/70 { color: rgba(133, 77, 14, 0.7); }
 html.light .text-yellow-400\/80 { color: rgba(133, 77, 14, 0.8); }
 @media (hover: hover) {
   html.light .\[\@media\(hover\:hover\)\]\:hover\:bg-\[\#161616\]:hover { background-color: #FFFFFF; }
+  html.light .\[\@media\(hover\:hover\)\]\:hover\:bg-\[\#181818\]:hover { background-color: #FFFFFF; }
   html.light .\[\@media\(hover\:hover\)\]\:hover\:bg-\[\#1A1A1A\]:hover { background-color: #FFFFFF; }
   html.light .\[\@media\(hover\:hover\)\]\:hover\:bg-\[\#1E1E1E\]:hover { background-color: #F7F8FA; }
   html.light .\[\@media\(hover\:hover\)\]\:hover\:bg-\[\#22272d\]:hover { background-color: #F1F2F4; }

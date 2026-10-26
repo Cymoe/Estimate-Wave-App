@@ -35,6 +35,34 @@ const dncFinish = jest.fn<Promise<{ count: number }>, [string]>(async () => {
 });
 const dncAdd = jest.fn<Promise<null>, [string, string | undefined]>(async () => null);
 
+const sellerHomes = [
+  {
+    parcelId: 'p1',
+    address: '807 W Weatherford Av',
+    owner: 'Away Owner',
+    mailing: { address: '1 Ocean Way', city: 'Malibu', state: 'CA', zip: '90265' },
+    lists: ['serious_violation', 'out_of_state', 'absentee'],
+    score: 6,
+    codeCases: 3,
+    seriousCases: 1,
+    lastSignalAt: '2026-10-01T15:00:00.000Z',
+    marketValueCents: 18_000_000,
+    deedDate: '1999-03-01',
+  },
+];
+const sellersQuery = jest.fn<Promise<unknown>, [{ lists?: string[]; minLists?: number }]>(async () => ({
+  homes: sellerHomes,
+  more: false,
+  counts: { serious_violation: 912, out_of_state: 801, absentee: 11000 },
+  stacked: 1234,
+  total: 25000,
+  lists: [
+    { key: 'serious_violation', label: 'Serious violation', weight: 3 },
+    { key: 'out_of_state', label: 'Out-of-state owner', weight: 2 },
+    { key: 'absentee', label: 'Absentee owner', weight: 1 },
+  ],
+}));
+
 let auctionHomes: unknown[] = [];
 const auctionAdd = jest.fn<Promise<{ added: number; skipped: number; unmatched: string[] }>, [string, string, string]>(async () => {
   auctionHomes = [
@@ -122,6 +150,19 @@ jest.mock('../../../lib/api', () => ({
     invite: (email: string, role?: string) => inviteStaff(email, role),
     removeInvite: async () => undefined,
     remove: async () => undefined,
+  },
+  sellersAPI: {
+    sellers: (args: { lists?: string[]; minLists?: number }) => sellersQuery(args),
+    home: async () => ({
+      address: '807 W Weatherford Av',
+      owner: 'Away Owner',
+      lists: ['serious_violation', 'out_of_state'],
+      score: 5,
+      signals: [{ kind: 'code_violation', detail: 'Deteriorated Structure', status: 'In Violation', caseNumber: 'DS-1', date: '2026-09-01T15:00:00.000Z' }],
+      foreclosures: [],
+    }),
+    status: async () => ({ source: { syncedAt: '2026-10-26T06:40:00.000Z', fetched: 47868, added: 0, updated: 12 }, stacked: 1234, total: 25000 }),
+    syncNow: async () => ({ fetched: 3000, added: 4, updated: 9 }),
   },
   foreclosuresAPI: {
     sale: async (saleDate?: string) => ({ saleDate: saleDate ?? '2026-11-03', saleDates: ['2026-11-03', '2026-10-06'], homes: auctionHomes }),
@@ -222,7 +263,7 @@ describe('Lead Market', () => {
     await render(<LeadMarketPage />);
     // No role pill by the heading: the top bar already says who you are.
     expect(document.body.textContent).not.toContain('Tolliver staff');
-    expect(Array.from(document.body.querySelectorAll('[role="tablist"][aria-label="Ops tabs"] [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand (0/0)', 'Intake (0)', 'Calls', 'For sale (1)', 'Sold', 'Companies (3)']);
+    expect(Array.from(document.body.querySelectorAll('[role="tablist"][aria-label="Ops tabs"] [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand (0/0)', 'Intake (0)', 'Calls', 'Sellers', 'For sale (1)', 'Sold', 'Companies (3)']);
     expect(document.body.textContent).not.toContain('Add 20 sample leads');
     expect(document.body.querySelector('[data-testid="team-card"]')).toBeNull();
     // The company panel reads only: no payment link, payments or plan.
@@ -284,7 +325,7 @@ describe('Lead Market', () => {
     expect(heading()).toBe('Intake');
     expect(summary()).toBe('2 to confirm · 1 possible duplicate');
     expect(document.title).toBe('Intake · Ops · Tolliver');
-    expect(Array.from(document.body.querySelectorAll('[role="tablist"][aria-label="Ops tabs"] [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand (0/0)', 'Intake (2)', 'Calls', 'For sale (1)', 'Sold', 'Companies (3)', 'Prices']);
+    expect(Array.from(document.body.querySelectorAll('[role="tablist"][aria-label="Ops tabs"] [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand (0/0)', 'Intake (2)', 'Calls', 'Sellers', 'For sale (1)', 'Sold', 'Companies (3)', 'Prices']);
     expect(document.body.textContent).not.toContain('sell on their own');
     const open = async (name: string) => {
       await act(async () => Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith(name))!.click());
@@ -425,6 +466,38 @@ describe('Lead Market', () => {
     });
     await flush();
     expect(auctionUpdate).toHaveBeenLastCalledWith({ id: 'f2', status: 'back_to_lender' });
+  });
+
+  it("the Sellers tab: lists with counts, filtering, a home's records, and the CSV export", async () => {
+    await render(<MemoryRouter initialEntries={['/ops?tab=sellers']}><LeadMarketPage /></MemoryRouter>, false);
+    expect(document.body.querySelector('[data-testid="sellers-status"]')!.textContent).toBe('City records read Oct 26, 2026 · 47,868 records · 25,000 homes on a list, 1,234 on 2 or more');
+    expect(sellersQuery).toHaveBeenLastCalledWith({ lists: [], minLists: 1, limit: 200 });
+    const chip = (name: string) => Array.from(document.body.querySelectorAll('[aria-label="Lists"] button')).find((b) => b.textContent?.startsWith(name)) as HTMLButtonElement;
+    expect(chip('Out-of-state owner').textContent).toBe('Out-of-state owner (801)');
+    await act(async () => chip('Out-of-state owner').click());
+    await flush();
+    expect(sellersQuery).toHaveBeenLastCalledWith({ lists: ['out_of_state'], minLists: 1, limit: 200 });
+    expect(chip('Out-of-state owner').getAttribute('aria-pressed')).toBe('true');
+    const min = document.body.querySelector('select[aria-label="Minimum lists"]') as HTMLSelectElement;
+    await act(async () => {
+      min.value = '2';
+      min.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await flush();
+    expect(sellersQuery).toHaveBeenLastCalledWith({ lists: ['out_of_state'], minLists: 2, limit: 200 });
+
+    const row = document.body.querySelector('[data-testid="sellers"] button')!;
+    expect(row.textContent).toContain('Away Owner · mail to 1 Ocean Way, Malibu CA · out of state');
+    expect(row.textContent).toContain('3 code cases · last record Oct 1, 2026 · worth $180,000 · owned since 1999');
+    await act(async () => (row as HTMLButtonElement).click());
+    await flush();
+    expect(document.body.querySelector('[data-testid="seller-home"]')!.textContent).toContain('Deteriorated Structure · Sep 1, 2026 · In Violation · DS-1');
+
+    const { sellersCsv } = await import('../../ops/SellersCard');
+    expect(sellersCsv(sellerHomes as never).split('\n')).toEqual([
+      'Property address,Owner,Owner 2,Mailing address,Mailing city,Mailing state,Mailing zip,Lists,Score,Code cases,Last record,Market value,Owned since',
+      '807 W Weatherford Av,Away Owner,,1 Ocean Way,Malibu,CA,90265,Serious violation; Out-of-state owner; Absentee owner,6,3,2026-10-01,180000,1999-03-01',
+    ]);
   });
 
   it('sorts the Companies table by the heading tapped, and tapping again flips it', async () => {

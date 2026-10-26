@@ -566,6 +566,14 @@ export const foreclosuresAPI = {
   remove: (id: string) => run('mutation', api.foreclosures.remove, { id }),
 };
 
+/** Motivated-seller lists: Midland homes stacked by public-record signals (staff). */
+export const sellersAPI = {
+  sellers: (args: { lists?: string[]; minLists?: number; limit?: number }) => run('query', api.signals.sellers, defined(args)),
+  home: (parcelId: string) => run('query', api.signals.home, { parcelId }),
+  status: () => run('query', api.signals.status, {}),
+  syncNow: () => run('action', api.signals.syncNow, {}),
+};
+
 /** The Tolliver Report: a county's week in permits, builders, demand and sales (Pro adds the names). */
 export const reportAPI = {
   get: (organizationId: string, opts: { county?: string; trade?: string } = {}) =>
