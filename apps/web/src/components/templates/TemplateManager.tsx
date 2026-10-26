@@ -479,7 +479,7 @@ export const TemplateManager: React.FC = () => {
         </div>
         <button
           onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-[#F9D71C] text-[#121212] rounded-[4px] hover:bg-[#E5C61A] transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-[#336699] text-white rounded-[4px] hover:bg-[#2a5580] transition-colors"
         >
           <Plus className="w-4 h-4" />
           <span className="font-medium">CREATE CUSTOM TEMPLATE</span>
@@ -579,7 +579,7 @@ export const TemplateManager: React.FC = () => {
                             onClick={() => handleToggleFavorite(template.id)}
                             className="p-1 hover:bg-[#1E1E1E] rounded-[4px] transition-colors"
                           >
-                            <Star className={`w-4 h-4 ${template.isFavorite ? 'fill-[#F9D71C] text-[#F9D71C]' : 'text-gray-400'}`} />
+                            <Star className={`w-4 h-4 ${template.isFavorite ? 'fill-[#5b8fc7] text-yellow-400' : 'text-gray-400'}`} />
                           </button>
                         )}
                       </div>

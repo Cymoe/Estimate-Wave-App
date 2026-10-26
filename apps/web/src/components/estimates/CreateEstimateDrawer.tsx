@@ -984,13 +984,13 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <Package className="w-5 h-5 text-gray-400 group-hover:text-[#F9D71C]" />
+                        <Package className="w-5 h-5 text-gray-400 group-hover:text-[#5b8fc7]" />
                         <div>
                           <div className="text-sm font-medium text-white">Use a Template</div>
                           <div className="text-xs text-gray-400">Start with saved templates</div>
                         </div>
                       </div>
-                      <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-[#F9D71C]" />
+                      <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-[#5b8fc7]" />
                     </div>
                   </button>
                 </div>

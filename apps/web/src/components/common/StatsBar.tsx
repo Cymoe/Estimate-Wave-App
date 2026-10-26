@@ -28,7 +28,7 @@ export const StatsBar: React.FC<StatsBarProps> = ({ stats, className = '' }) => 
       case 'green':
         return 'text-green-400';
       case 'yellow':
-        return 'text-[#F9D71C]';
+        return 'text-[#5b8fc7]';
       case 'red':
         return 'text-red-400';
       default:

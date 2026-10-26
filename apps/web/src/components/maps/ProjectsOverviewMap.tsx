@@ -953,9 +953,9 @@ export const ProjectsOverviewMap: React.FC<ProjectsOverviewMapProps> = ({ select
             type: 'fill',
             source: 'building-source',
             paint: {
-              'fill-color': '#F9D71C',
+              'fill-color': '#336699',
               'fill-opacity': 0.1,
-              'fill-outline-color': '#F9D71C'
+              'fill-outline-color': '#336699'
             }
           });
           
@@ -965,7 +965,7 @@ export const ProjectsOverviewMap: React.FC<ProjectsOverviewMapProps> = ({ select
             type: 'line',
             source: 'building-source',
             paint: {
-              'line-color': '#F9D71C',
+              'line-color': '#336699',
               'line-width': 2,
               'line-dasharray': [2, 2]
             }
@@ -1064,7 +1064,7 @@ export const ProjectsOverviewMap: React.FC<ProjectsOverviewMapProps> = ({ select
           {/* Project Count Badge */}
           <div className="absolute top-4 left-4 bg-[#1E1E1E] border border-[#333] rounded-lg px-4 py-2 shadow-lg">
             <div className="flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-[#F9D71C]" />
+              <MapPin className="w-4 h-4 text-[#5b8fc7]" />
               <span className="text-sm text-white font-medium">
                 {(() => {
                   if (filteredProjectIds) {

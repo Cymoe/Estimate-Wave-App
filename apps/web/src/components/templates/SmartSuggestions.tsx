@@ -185,7 +185,7 @@ export const SmartSuggestions: React.FC<SmartSuggestionsProps> = ({
       {/* Timeline Suggestions */}
       <div className="bg-[#1E1E1E] rounded-[4px] p-4">
         <div className="flex items-center gap-2 mb-4">
-          <Calendar className="w-5 h-5 text-[#F9D71C]" />
+          <Calendar className="w-5 h-5 text-[#5b8fc7]" />
           <h3 className="text-lg font-medium">TIMELINE RECOMMENDATIONS</h3>
         </div>
 
@@ -216,7 +216,7 @@ export const SmartSuggestions: React.FC<SmartSuggestionsProps> = ({
         <div className="mt-4 p-3 bg-[#333333] rounded-[4px]">
           <div className="flex items-center justify-between">
             <span className="text-sm text-gray-400">Total Project Duration</span>
-            <span className="text-lg font-mono font-bold text-[#F9D71C]">
+            <span className="text-lg font-mono font-bold text-[#5b8fc7]">
               {timeline.reduce((sum, phase) => sum + phase.estimatedDays, 0)} days
             </span>
           </div>

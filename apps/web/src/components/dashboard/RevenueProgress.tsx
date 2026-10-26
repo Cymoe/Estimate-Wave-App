@@ -26,7 +26,7 @@ export const RevenueProgress: React.FC<RevenueProgressProps> = ({
         </div>
         <div className="text-right">
           <p className="text-sm text-[#9E9E9E] font-['Roboto']">Outstanding Amount</p>
-          <p className="text-lg font-bold text-[#F9D71C] font-['Roboto_Mono']">
+          <p className="text-lg font-bold text-[#5b8fc7] font-['Roboto_Mono']">
             {formatCurrency(outstandingAmount)}
           </p>
         </div>
@@ -40,7 +40,7 @@ export const RevenueProgress: React.FC<RevenueProgressProps> = ({
         />
         {/* Outstanding amount (yellow) */}
         <div 
-          className="h-full bg-[#F9D71C] transition-all duration-500 absolute top-0"
+          className="h-full bg-[#336699] transition-all duration-500 absolute top-0"
           style={{ left: `${percentage}%`, width: `${outstandingPercentage}%` }}
         />
       </div>

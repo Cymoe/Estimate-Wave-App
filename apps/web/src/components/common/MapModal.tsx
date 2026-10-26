@@ -80,7 +80,7 @@ export const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, address, cl
           // Wait for map to load
           map.current.on('load', () => {
             // Add marker at the location
-            new maplibregl.Marker({ color: '#F9D71C' })
+            new maplibregl.Marker({ color: '#336699' })
               .setLngLat([lng, lat])
               .setPopup(
                 new maplibregl.Popup({ offset: 25 })

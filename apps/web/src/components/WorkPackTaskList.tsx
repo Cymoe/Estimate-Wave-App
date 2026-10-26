@@ -217,7 +217,7 @@ export const WorkPackTaskList: React.FC<WorkPackTaskListProps> = ({ workPackId, 
           {/* Total Hours */}
           <div>
             <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">Total Hours</div>
-            <div className="text-2xl font-semibold text-[#F9D71C]">{totalHours}h</div>
+            <div className="text-2xl font-semibold text-[#5b8fc7]">{totalHours}h</div>
             <div className="text-sm text-gray-500 mt-1">estimated</div>
           </div>
 
@@ -401,7 +401,7 @@ const WorkPackTaskItem: React.FC<{
             {task.title}
           </span>
           {task.estimated_hours > 0 && (
-            <span className="text-xs text-[#F9D71C] flex items-center gap-1">
+            <span className="text-xs text-[#5b8fc7] flex items-center gap-1">
               <Clock className="w-3 h-3" />
               {task.estimated_hours}h
             </span>

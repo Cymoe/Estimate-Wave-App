@@ -109,7 +109,7 @@ export const CreateEstimateModal: React.FC<CreateEstimateModalProps> = ({
                   required
                   value={formData.title}
                   onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
-                  className="w-full px-3 py-2 bg-[#2a2a2a] border border-[#444] rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-[#F9D71C]"
+                  className="w-full px-3 py-2 bg-[#2a2a2a] border border-[#444] rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-[#336699]"
                   placeholder="e.g., Kitchen Renovation Estimate"
                 />
               </div>
@@ -122,7 +122,7 @@ export const CreateEstimateModal: React.FC<CreateEstimateModalProps> = ({
                   required
                   value={formData.client_id}
                   onChange={(e) => setFormData(prev => ({ ...prev, client_id: e.target.value }))}
-                  className="w-full px-3 py-2 bg-[#2a2a2a] border border-[#444] rounded-lg text-white focus:outline-none focus:border-[#F9D71C]"
+                  className="w-full px-3 py-2 bg-[#2a2a2a] border border-[#444] rounded-lg text-white focus:outline-none focus:border-[#336699]"
                 >
                   <option value="">Select a client</option>
                   {clients.map(client => (
@@ -141,7 +141,7 @@ export const CreateEstimateModal: React.FC<CreateEstimateModalProps> = ({
                   type="date"
                   value={formData.issue_date}
                   onChange={(e) => setFormData(prev => ({ ...prev, issue_date: e.target.value }))}
-                  className="w-full px-3 py-2 bg-[#2a2a2a] border border-[#444] rounded-lg text-white focus:outline-none focus:border-[#F9D71C]"
+                  className="w-full px-3 py-2 bg-[#2a2a2a] border border-[#444] rounded-lg text-white focus:outline-none focus:border-[#336699]"
                 />
               </div>
 
@@ -153,7 +153,7 @@ export const CreateEstimateModal: React.FC<CreateEstimateModalProps> = ({
                   type="date"
                   value={formData.expiry_date}
                   onChange={(e) => setFormData(prev => ({ ...prev, expiry_date: e.target.value }))}
-                  className="w-full px-3 py-2 bg-[#2a2a2a] border border-[#444] rounded-lg text-white focus:outline-none focus:border-[#F9D71C]"
+                  className="w-full px-3 py-2 bg-[#2a2a2a] border border-[#444] rounded-lg text-white focus:outline-none focus:border-[#336699]"
                 />
               </div>
             </div>
@@ -166,7 +166,7 @@ export const CreateEstimateModal: React.FC<CreateEstimateModalProps> = ({
                 value={formData.description}
                 onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
                 rows={3}
-                className="w-full px-3 py-2 bg-[#2a2a2a] border border-[#444] rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-[#F9D71C] resize-none"
+                className="w-full px-3 py-2 bg-[#2a2a2a] border border-[#444] rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-[#336699] resize-none"
                 placeholder="Describe the project scope and requirements..."
               />
             </div>
@@ -182,7 +182,7 @@ export const CreateEstimateModal: React.FC<CreateEstimateModalProps> = ({
               <button
                 type="submit"
                 disabled={loading}
-                className="flex items-center gap-2 px-4 py-2 bg-[#F9D71C] text-black rounded-lg hover:bg-[#F9D71C]/90 transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2 bg-[#336699] text-white rounded-lg hover:bg-[#336699]/90 transition-colors disabled:opacity-50"
               >
                 {loading ? (
                   <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-black"></div>

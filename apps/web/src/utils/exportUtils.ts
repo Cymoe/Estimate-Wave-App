@@ -117,7 +117,7 @@ export const exportToPDF = async (
     .text-\\[\\#336699\\] { color: #336699 !important; }
     .text-\\[\\#388E3C\\] { color: #388E3C !important; }
     .text-\\[\\#D32F2F\\] { color: #D32F2F !important; }
-    .text-\\[\\#F9D71C\\] { color: #F9D71C !important; }
+    .text-\\[\\#5b8fc7\\] { color: #336699 !important; }
   `;
   
   // Temporarily append to body

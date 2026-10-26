@@ -371,7 +371,7 @@ export const VendorDetailPage: React.FC = () => {
                                     key={i}
                                     className={`w-4 h-4 ${
                                       i < vendor.rating!
-                                        ? 'text-[#F9D71C] fill-current'
+                                        ? 'text-[#5b8fc7] fill-current'
                                         : 'text-gray-600'
                                     }`}
                                   />

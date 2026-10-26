@@ -619,7 +619,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                                     setProjectsSidebarLockedWithPersistence(true);
                                   }
                                 }}
-                                className={`w-7 h-7 ${isProjectsSidebarLocked ? 'bg-[#F9D71C] text-[#121212]' : 'bg-[#333333] text-gray-400'} hover:bg-[#F9D71C] hover:text-[#121212] rounded-[2px] flex items-center justify-center transition-colors`}
+                                className={`w-7 h-7 ${isProjectsSidebarLocked ? 'bg-[#336699] text-white' : 'bg-[#333333] text-gray-400'} hover:bg-[#336699] hover:text-white rounded-[2px] flex items-center justify-center transition-colors`}
                                 title={isProjectsSidebarLocked ? "Unlock and close projects pane" : "Lock projects pane open"}
                               >
                                 {isProjectsSidebarLocked ? (
@@ -985,7 +985,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                                      navigate('/clients?tutorial=true');
                                    }}>
                                 <div className="flex items-center mb-3">
-                                  <div className="w-10 h-10 bg-[#F9D71C] rounded-[4px] flex items-center justify-center mr-3">
+                                  <div className="w-10 h-10 bg-[#336699] rounded-[4px] flex items-center justify-center mr-3">
                                     <span className="text-base">⠿</span>
                                   </div>
                                   <div>
@@ -996,7 +996,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                                 <p className="text-gray-300 text-sm mb-3">
                                   Take a complete tour through all features and see how they work together.
                                 </p>
-                                <div className="flex items-center text-[#F9D71C] text-sm font-medium">
+                                <div className="flex items-center text-[#5b8fc7] text-sm font-medium">
                                   <span>Start Full Tour</span>
                                   <ChevronRight className="w-4 h-4 ml-1" />
                                 </div>

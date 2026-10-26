@@ -97,7 +97,7 @@ export function BillsList() {
             </button>
             <button
               onClick={() => {/* Add bill modal logic */}}
-              className="bg-[#F9D71C] hover:bg-[#e9c91c] text-[#121212] p-2 rounded-full transition-colors"
+              className="bg-[#336699] hover:bg-[#2a5580] text-white p-2 rounded-full transition-colors"
             >
               <Plus className="h-5 w-5" />
             </button>
@@ -112,7 +112,7 @@ export function BillsList() {
           </div>
           <div>
             <span className="text-gray-400">Pending: </span>
-            <span className="text-[#F9D71C] font-medium">{formatCurrency(pendingAmount)}</span>
+            <span className="text-[#5b8fc7] font-medium">{formatCurrency(pendingAmount)}</span>
           </div>
           <div>
             <span className="text-gray-400">Paid: </span>

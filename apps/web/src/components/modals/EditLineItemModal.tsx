@@ -80,7 +80,7 @@ export const EditLineItemModal: React.FC<EditLineItemModalProps> = ({
         <div className="flex flex-col h-full">
           <div className="flex justify-between items-center p-4 border-b border-[#333333] bg-[#121212] sticky top-0 z-10">
             <h2 className="text-xl font-bold text-white font-['Roboto_Condensed'] uppercase">Edit Line Item</h2>
-            <button onClick={handleClose} className="p-2 text-gray-400 hover:text-[#F9D71C]">
+            <button onClick={handleClose} className="p-2 text-gray-400 hover:text-[#5b8fc7]">
               <X className="w-6 h-6" />
             </button>
           </div>
@@ -168,7 +168,7 @@ export const EditLineItemModal: React.FC<EditLineItemModalProps> = ({
               <button
                 type="submit"
                 form="product-form"
-                className="w-full px-4 py-2 bg-[#F9D71C] text-[#121212] rounded-[4px] hover:bg-opacity-90 disabled:opacity-50 font-['Roboto'] font-medium uppercase tracking-wider h-10"
+                className="w-full px-4 py-2 bg-[#336699] text-white rounded-[4px] hover:bg-opacity-90 disabled:opacity-50 font-['Roboto'] font-medium uppercase tracking-wider h-10"
                 disabled={loading}
               >
                 {loading ? 'Updating...' : 'Update Line Item'}

@@ -1,13 +1,20 @@
-import { marked } from 'marked';
+import { Marked } from 'marked';
 
+const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+
+// Raw HTML in the markdown is shown as text, never run. (Escaping the whole
+// input first instead also broke blockquotes and double-escaped code.)
+const marked = new Marked({
+  async: false,
+  renderer: {
+    html: ({ text }) => escapeHtml(text),
+  },
+});
+
+/** Markdown as compact HTML: no line breaks between tags, none at the end of code blocks. */
 export function markdownToHtml(md: string): string {
-  // Escape HTML
-  const safe = md.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]!));
-  // marked.parseSync is sync and always returns string (marked v4+)
-  // If not available, fallback to parse with async: false
-  if (typeof (marked as any).parseSync === 'function') {
-    return (marked as any).parseSync(safe).trim();
-  }
-  // @ts-ignore
-  return marked.parse(safe, { async: false }).trim();
-} 
+  return (marked.parse(md) as string)
+    .replace(/\n<\/code><\/pre>/g, '</code></pre>')
+    .replace(/>\n+</g, '><')
+    .trim();
+}

@@ -102,7 +102,7 @@ export const ProjectSelectionModal: React.FC<ProjectSelectionModalProps> = ({
 
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#F9D71C]"></div>
+            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#336699]"></div>
           </div>
         ) : (
           <div className="space-y-4 flex-1 overflow-y-auto">
@@ -114,12 +114,12 @@ export const ProjectSelectionModal: React.FC<ProjectSelectionModalProps> = ({
               }}
               className={`p-4 rounded-lg border cursor-pointer transition-all ${
                 showCreateProject
-                  ? 'border-[#F9D71C] bg-[#F9D71C]/10'
+                  ? 'border-[#336699] bg-[#336699]/10'
                   : 'border-[#333333] hover:border-[#555555] bg-[#2a2a2a]'
               }`}
             >
               <div className="flex items-center gap-3">
-                <Plus className="w-5 h-5 text-[#F9D71C]" />
+                <Plus className="w-5 h-5 text-[#5b8fc7]" />
                 <div className="flex-1">
                   <h3 className="text-white font-medium">Create New Project</h3>
                   <p className="text-sm text-gray-400 mt-1">
@@ -142,7 +142,7 @@ export const ProjectSelectionModal: React.FC<ProjectSelectionModalProps> = ({
                     }}
                     className={`p-4 rounded-lg border cursor-pointer transition-all ${
                       selectedProjectId === project.id
-                        ? 'border-[#F9D71C] bg-[#F9D71C]/10'
+                        ? 'border-[#336699] bg-[#336699]/10'
                         : 'border-[#333333] hover:border-[#555555] bg-[#2a2a2a]'
                     }`}
                   >
@@ -194,7 +194,7 @@ export const ProjectSelectionModal: React.FC<ProjectSelectionModalProps> = ({
           </button>
           <button
             onClick={handleProceed}
-            className="px-4 py-2 bg-[#F9D71C] text-black rounded-lg hover:bg-[#F9D71C]/90 transition-colors flex items-center gap-2"
+            className="px-4 py-2 bg-[#336699] text-white rounded-lg hover:bg-[#336699]/90 transition-colors flex items-center gap-2"
           >
             {showCreateProject ? 'Create Project' : selectedProjectId ? 'Select Project' : 'Skip & Continue'}
             <ArrowRight className="w-4 h-4" />

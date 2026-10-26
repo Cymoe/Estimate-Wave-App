@@ -78,7 +78,7 @@ export const Dropdown: React.FC<DropdownProps> = ({ trigger, items }) => {
                   }}
                   className={`block w-full text-left px-4 py-3 text-sm font-['Roboto'] uppercase tracking-wider ${
                     item.className ||
-                    'text-[#FFFFFF] hover:bg-[#333333] hover:text-[#F9D71C]'
+                    'text-[#FFFFFF] hover:bg-[#333333] hover:text-[#5b8fc7]'
                   }`}
                   role="menuitem"
                 >

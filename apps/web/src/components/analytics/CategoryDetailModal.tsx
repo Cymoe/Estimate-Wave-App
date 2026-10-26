@@ -277,7 +277,7 @@ export const CategoryDetailModal: React.FC<CategoryDetailModalProps> = ({
                     </div>
 
                     <div className="bg-[#1E1E1E] rounded-[4px] p-4">
-                      <Briefcase className="w-5 h-5 text-[#F9D71C] mb-2" />
+                      <Briefcase className="w-5 h-5 text-[#5b8fc7] mb-2" />
                       <p className="text-xs text-gray-400 uppercase mb-1">Active Projects</p>
                       <p className="text-xl font-semibold">{categoryStats.activeProjects}</p>
                       <p className="text-xs text-gray-400">of {categoryStats.totalProjects} total</p>

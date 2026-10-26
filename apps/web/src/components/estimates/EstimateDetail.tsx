@@ -419,7 +419,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
         <h3 className="text-lg font-medium text-white mb-2">Estimate not found</h3>
         <button
           onClick={leave}
-          className="text-[#F9D71C] hover:text-white transition-colors"
+          className="text-[#5b8fc7] hover:text-white transition-colors"
         >
           Back to Estimates
         </button>
@@ -651,7 +651,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
             <div className="bg-[#1a1a1a] rounded-lg border border-[#333] grid grid-cols-3 divide-x divide-[#333]">
               <div className="p-4 min-w-0">
                 <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Total</div>
-                <div className="text-lg font-semibold text-[#F9D71C] whitespace-nowrap overflow-hidden text-ellipsis">
+                <div className="text-lg font-semibold text-[#5b8fc7] whitespace-nowrap overflow-hidden text-ellipsis">
                   {formatCurrency(estimate.total_amount)}
                 </div>
               </div>
@@ -926,7 +926,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                   if (shareUrl) window.open(shareUrl, '_blank');
                   setShowShareModal(false);
                 }}
-                className="px-4 py-2 bg-[#F9D71C] hover:bg-[#F9D71C]/90 text-black rounded-lg transition-colors flex items-center gap-2"
+                className="px-4 py-2 bg-[#336699] hover:bg-[#336699]/90 text-white rounded-lg transition-colors flex items-center gap-2"
               >
                 <Eye className="w-4 h-4" />
                 Preview
@@ -951,7 +951,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
           
           <button 
             onClick={() => setShowEditModal(true)}
-            className="flex-1 bg-[#F9D71C] text-black px-3 py-3 rounded-lg text-sm font-medium"
+            className="flex-1 bg-[#336699] text-white px-3 py-3 rounded-lg text-sm font-medium"
           >
             Edit
           </button>

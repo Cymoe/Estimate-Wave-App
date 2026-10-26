@@ -280,7 +280,7 @@ export const TeamMembersList: React.FC<TeamMembersListProps> = ({
                   Invite employees and contractors to collaborate
                 </p>
               </div>
-              <div className="bg-[#333333] rounded-[4px] p-6 border-l-4 border-[#F9D71C]">
+              <div className="bg-[#333333] rounded-[4px] p-6 border-l-4 border-[#336699]">
                 <h3 className="text-white font-bold mb-2">Set Permissions</h3>
                 <p className="text-gray-400 text-sm">
                   Control what each team member can access
@@ -484,7 +484,7 @@ export const TeamMembersList: React.FC<TeamMembersListProps> = ({
                                 </div>
                                 
                                 <div className="flex items-center gap-3 text-xs text-gray-400">
-                                  <span className="text-[#F9D71C] font-medium truncate">{member.job_title}</span>
+                                  <span className="text-[#5b8fc7] font-medium truncate">{member.job_title}</span>
                                   <span className="truncate">{member.department}</span>
                                   <span className="capitalize flex-shrink-0">{member.employment_type}</span>
                                   {member.email && <span className="text-blue-400 truncate">{member.email}</span>}
@@ -584,7 +584,7 @@ export const TeamMembersList: React.FC<TeamMembersListProps> = ({
                                 </div>
                                 
                                 <div className="flex items-center gap-4 text-xs text-gray-400 mb-1">
-                                  <span className="text-[#F9D71C] font-medium">{member.job_title}</span>
+                                  <span className="text-[#5b8fc7] font-medium">{member.job_title}</span>
                                   <span>{member.department}</span>
                                   <span className="capitalize">{member.employment_type}</span>
                                 </div>

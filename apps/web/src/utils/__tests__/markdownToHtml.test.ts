@@ -72,3 +72,13 @@ code block
     expect(markdownToHtml(input).replace(/\s+/g, '')).toBe(expected.replace(/\s+/g, ''));
   });
 }); 
+describe('raw HTML in markdown', () => {
+  test('is shown as text, not run', () => {
+    expect(markdownToHtml('<script>alert(1)</script>')).toBe('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(markdownToHtml('Hi <img src=x onerror=alert(1)> there')).toBe('<p>Hi &lt;img src=x onerror=alert(1)&gt; there</p>');
+  });
+
+  test('inside code stays readable', () => {
+    expect(markdownToHtml('`a < b`')).toBe('<p><code>a &lt; b</code></p>');
+  });
+});

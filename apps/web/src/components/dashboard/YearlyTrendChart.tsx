@@ -50,10 +50,10 @@ export const YearlyTrendChart: React.FC<YearlyTrendChartProps> = ({ data, title 
             <Line 
               type="monotone" 
               dataKey="amount" 
-              stroke="#F9D71C"
+              stroke="#336699"
               strokeWidth={3}
-              dot={{ r: 6, fill: '#121212', strokeWidth: 3, stroke: '#F9D71C' }}
-              activeDot={{ r: 8, fill: '#F9D71C' }}
+              dot={{ r: 6, fill: '#121212', strokeWidth: 3, stroke: '#336699' }}
+              activeDot={{ r: 8, fill: '#336699' }}
             />
           </LineChart>
         </ResponsiveContainer>

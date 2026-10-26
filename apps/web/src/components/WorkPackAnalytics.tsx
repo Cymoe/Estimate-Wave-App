@@ -208,7 +208,7 @@ export const WorkPackAnalytics: React.FC<WorkPackAnalyticsProps> = ({ workPackId
           }`}
         >
           Created Projects
-          <span className="text-xs bg-[#F9D71C]/20 text-[#F9D71C] px-1.5 py-0.5 rounded">
+          <span className="text-xs bg-[#336699]/20 text-[#5b8fc7] px-1.5 py-0.5 rounded">
             {totalProjects}
           </span>
         </button>
@@ -249,7 +249,7 @@ export const WorkPackAnalytics: React.FC<WorkPackAnalyticsProps> = ({ workPackId
 
             <div className="bg-[#111827]/50 border border-gray-800 rounded-[4px] p-4">
               <div className="flex items-center gap-3 mb-2">
-                <DollarSign className="w-4 h-4 text-[#F9D71C]" />
+                <DollarSign className="w-4 h-4 text-[#5b8fc7]" />
                 <div className="text-xs text-gray-400 uppercase tracking-wider">Total Revenue</div>
               </div>
               <div className="text-2xl font-bold text-white">{formatCurrency(totalRevenue)}</div>
@@ -273,7 +273,7 @@ export const WorkPackAnalytics: React.FC<WorkPackAnalyticsProps> = ({ workPackId
               {projects.slice(0, 5).map((project) => (
                 <div key={project.id} className="flex items-center justify-between py-2">
                   <div className="flex items-center gap-3">
-                    <div className="w-2 h-2 rounded-full bg-[#F9D71C]"></div>
+                    <div className="w-2 h-2 rounded-full bg-[#336699]"></div>
                     <div>
                       <div className="text-sm text-white font-medium">{project.name}</div>
                       <div className="text-xs text-gray-400">{project.client_name} • Created {formatDate(project.created_at)}</div>
@@ -307,7 +307,7 @@ export const WorkPackAnalytics: React.FC<WorkPackAnalyticsProps> = ({ workPackId
               <div key={project.id} className="bg-[#111827]/50 border border-gray-800 rounded-[4px] p-4 hover:bg-[#111827]/70 transition-colors">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="w-3 h-3 rounded-full bg-[#F9D71C]"></div>
+                    <div className="w-3 h-3 rounded-full bg-[#336699]"></div>
                     <div>
                       <div className="text-white font-medium">{project.name}</div>
                       <div className="text-sm text-gray-400">

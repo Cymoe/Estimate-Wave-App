@@ -156,8 +156,8 @@ export const PerformanceMetricsChart: React.FC<PerformanceMetricsChartProps> = (
       {
         label: 'Avg Duration',
         data: data.map(d => d.avgDuration),
-        backgroundColor: '#F9D71C',
-        borderColor: '#F9D71C',
+        backgroundColor: '#336699',
+        borderColor: '#336699',
         borderWidth: 1,
         yAxisID: 'y-days',
         borderRadius: 4

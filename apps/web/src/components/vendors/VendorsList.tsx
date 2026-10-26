@@ -419,7 +419,7 @@ export const VendorsList: React.FC<VendorsListProps> = ({
                               onClick={() => setShowPreferredOnly(!showPreferredOnly)}
                               className={`px-3 py-2 rounded-[4px] text-sm font-medium transition-colors flex items-center gap-2 border ${
                                 showPreferredOnly 
-                                  ? 'bg-[#F9D71C] text-[#121212] border-[#F9D71C]' 
+                                  ? 'bg-[#336699] text-white border-[#336699]' 
                                   : 'bg-[#333333] text-white border-[#555555] hover:bg-[#404040]'
                               }`}
                             >

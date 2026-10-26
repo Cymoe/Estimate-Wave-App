@@ -147,7 +147,7 @@ export const WorkEstimatesView: React.FC = () => {
             placeholder="Search estimates..."
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            className="px-3 py-1.5 bg-[#1E1E1E] border border-[#333] rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#F9D71C]"
+            className="px-3 py-1.5 bg-[#1E1E1E] border border-[#333] rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
           />
           <button
             onClick={() => navigate('/estimates/new')}
@@ -168,7 +168,7 @@ export const WorkEstimatesView: React.FC = () => {
         </div>
         <div className="flex flex-col">
           <div className="text-xs text-gray-400 uppercase">Total Value</div>
-          <div className="text-xl font-semibold text-[#F9D71C] mt-1">
+          <div className="text-xl font-semibold text-[#5b8fc7] mt-1">
             {formatCurrency(estimates.reduce((sum, est) => sum + est.total_amount, 0))}
           </div>
           <div className="text-xs text-gray-500 mt-auto">potential revenue</div>
@@ -190,7 +190,7 @@ export const WorkEstimatesView: React.FC = () => {
       {/* Filters */}
       <div className="px-6 py-3 border-b border-[#1E1E1E] flex items-center gap-4 flex-shrink-0">
         <select
-          className="bg-[#1E1E1E] border border-[#333] rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#F9D71C]"
+          className="bg-[#1E1E1E] border border-[#333] rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#336699]"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as any)}
         >
@@ -229,7 +229,7 @@ export const WorkEstimatesView: React.FC = () => {
             {!searchTerm && statusFilter === 'all' && (
               <button
                 onClick={() => navigate('/estimates/new')}
-                className="px-4 py-2 bg-[#F9D71C] hover:bg-[#E5C61A] rounded-lg text-black font-medium transition-colors"
+                className="px-4 py-2 bg-[#336699] hover:bg-[#2a5580] rounded-lg text-white font-medium transition-colors"
               >
                 Create Estimate
               </button>
@@ -586,7 +586,7 @@ export const WorkEstimatesView: React.FC = () => {
                   setShowShareModal(false);
                   setSharingEstimate(null);
                 }}
-                className="px-4 py-2 bg-[#F9D71C] hover:bg-[#E5C61A] text-black rounded-lg transition-colors flex items-center gap-2"
+                className="px-4 py-2 bg-[#336699] hover:bg-[#2a5580] text-white rounded-lg transition-colors flex items-center gap-2"
               >
                 <Eye className="w-4 h-4" />
                 Preview

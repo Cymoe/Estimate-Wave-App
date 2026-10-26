@@ -60,11 +60,11 @@ const fieldClass =
 const labelClass = 'text-xs uppercase tracking-wider text-gray-500 font-medium';
 const cardClass = (selected: boolean) =>
   `relative flex flex-col items-start p-6 rounded-lg border text-left transition-all duration-200 ${
-    selected ? 'bg-[#0f1729] border-[#fbbf24]' : 'bg-transparent border-[#2a2a2a] hover:border-[#3a3a3a] hover:bg-[#111]'
+    selected ? 'bg-[#0f1729] border-[#336699]' : 'bg-transparent border-[#2a2a2a] hover:border-[#3a3a3a] hover:bg-[#111]'
   }`;
 
 const Selected: React.FC = () => (
-  <div className="absolute top-4 right-4 w-6 h-6 bg-[#fbbf24] rounded-full flex items-center justify-center">
+  <div className="absolute top-4 right-4 w-6 h-6 bg-[#336699] rounded-full flex items-center justify-center">
     <Check className="w-4 h-4 text-black" />
   </div>
 );
@@ -286,7 +286,7 @@ export const CreateProjectWizard: React.FC<{
               {!ownTrades && (
                 <>
                   {' · '}
-                  <button type="button" onClick={() => navigate('/settings/industries')} className="text-[#fbbf24] hover:underline">
+                  <button type="button" onClick={() => navigate('/settings/industries')} className="text-[#5b8fc7] hover:underline">
                     choose your trades
                   </button>{' '}
                   to see only yours
@@ -301,7 +301,7 @@ export const CreateProjectWizard: React.FC<{
               return (
                 <button key={option.slug} type="button" onClick={() => chooseIndustry(option)} className={cardClass(selected)}>
                   <div
-                    className={`w-12 h-12 rounded-lg flex items-center justify-center mb-4 border ${selected ? 'border-[#fbbf24]' : 'border-[#2a2a2a]'}`}
+                    className={`w-12 h-12 rounded-lg flex items-center justify-center mb-4 border ${selected ? 'border-[#336699]' : 'border-[#2a2a2a]'}`}
                     style={{ borderColor: selected ? option.color : undefined }}
                   >
                     <span className="text-2xl">{option.icon}</span>
@@ -364,7 +364,7 @@ export const CreateProjectWizard: React.FC<{
                 onClick={() => choosePackage(option)}
                 className={`p-4 border rounded-lg text-left transition-all ${
                   chosenPackage?.id === option.id
-                    ? 'bg-[#0f1729] border-[#fbbf24] text-white'
+                    ? 'bg-[#0f1729] border-[#336699] text-white'
                     : 'bg-transparent border-[#2a2a2a] text-white hover:border-[#3a3a3a] hover:bg-[#111]'
                 }`}
               >
@@ -392,7 +392,7 @@ export const CreateProjectWizard: React.FC<{
     }
 
     const kinds: { value: Kind; label: string; hint: string; note: string; color: string }[] = [
-      { value: 'lead', label: '💡 Lead', hint: 'Initial inquiry', note: '📝 Adds it to your leads pipeline', color: '#F9D71C' },
+      { value: 'lead', label: '💡 Lead', hint: 'Initial inquiry', note: '📝 Adds it to your leads pipeline', color: '#9CA3AF' },
       {
         value: 'quote',
         label: '📋 Quote',
@@ -580,7 +580,7 @@ export const CreateProjectWizard: React.FC<{
           </div>
 
           <div className="h-1 bg-[#1a1a1a] relative overflow-hidden">
-            <div className="absolute left-0 top-0 h-full bg-[#fbbf24] transition-all duration-300" style={{ width: `${(stepNumber / steps.length) * 100}%` }} />
+            <div className="absolute left-0 top-0 h-full bg-[#336699] transition-all duration-300" style={{ width: `${(stepNumber / steps.length) * 100}%` }} />
           </div>
 
           <div className="flex-1 px-6 md:px-8 py-8 md:py-12 overflow-y-auto">{renderStep()}</div>
@@ -602,7 +602,7 @@ export const CreateProjectWizard: React.FC<{
                   type="button"
                   onClick={create}
                   disabled={creating || (kind === 'quote' && !form.client_id)}
-                  className="px-5 py-2.5 bg-[#fbbf24] text-black rounded-lg text-sm font-semibold hover:bg-[#f59e0b] transition-all disabled:bg-[#2a2a2a] disabled:text-gray-600 disabled:cursor-not-allowed flex items-center gap-2"
+                  className="px-5 py-2.5 bg-[#336699] text-white rounded-lg text-sm font-semibold hover:bg-[#2a5580] transition-all disabled:bg-[#2a2a2a] disabled:text-gray-600 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   {creating ? (
                     <>
@@ -622,7 +622,7 @@ export const CreateProjectWizard: React.FC<{
                   type="button"
                   onClick={() => next(step)}
                   disabled={(step === 'industry' && !industry) || (step === 'type' && !projectType) || (step === 'package' && !pack)}
-                  className="px-5 py-2.5 bg-[#fbbf24] text-black rounded-lg text-sm font-semibold hover:bg-[#f59e0b] transition-all disabled:bg-[#2a2a2a] disabled:text-gray-600 disabled:cursor-not-allowed flex items-center gap-2"
+                  className="px-5 py-2.5 bg-[#336699] text-white rounded-lg text-sm font-semibold hover:bg-[#2a5580] transition-all disabled:bg-[#2a2a2a] disabled:text-gray-600 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   Continue <span>→</span>
                 </button>

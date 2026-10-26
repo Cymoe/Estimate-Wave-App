@@ -172,7 +172,7 @@ export const CompanyList: React.FC<CompanyListProps> = ({
                             </div>
                           </td>
                           <td className="px-6 py-4">
-                            <div className="text-sm text-[#F9D71C] font-medium">{company.industry || 'N/A'}</div>
+                            <div className="text-sm text-[#5b8fc7] font-medium">{company.industry || 'N/A'}</div>
                           </td>
                           <td className="px-6 py-4">
                             <div className="text-sm text-gray-300">{company.main_phone}</div>

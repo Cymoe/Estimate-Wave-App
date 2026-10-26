@@ -207,7 +207,7 @@ export const WorkPackTimelineView: React.FC<WorkPackTimelineViewProps> = ({ work
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium uppercase tracking-wider text-gray-400">Template Timeline</h2>
-        <div className="text-sm text-[#F9D71C]">
+        <div className="text-sm text-[#5b8fc7]">
           {totalHours}h • {totalDays} day{totalDays !== 1 ? 's' : ''} estimated
         </div>
       </div>
@@ -220,15 +220,15 @@ export const WorkPackTimelineView: React.FC<WorkPackTimelineViewProps> = ({ work
       )}
 
       {/* Timeline Summary */}
-      <div className="bg-[#F9D71C]/10 border border-[#F9D71C]/20 rounded-[4px] p-4">
+      <div className="bg-[#336699]/10 border border-[#336699]/20 rounded-[4px] p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="text-[#F9D71C] font-medium">Template Workflow</div>
+            <div className="text-[#5b8fc7] font-medium">Template Workflow</div>
             <div className="text-sm text-gray-400">
               {timelineEvents.filter(e => e.type === 'phase').length} phases • {timelineEvents.filter(e => e.type === 'milestone').length} milestones
             </div>
           </div>
-          <div className="text-lg font-bold text-[#F9D71C]">
+          <div className="text-lg font-bold text-[#5b8fc7]">
             ${(totalHours * 50).toLocaleString()} labor
           </div>
         </div>
@@ -243,7 +243,7 @@ export const WorkPackTimelineView: React.FC<WorkPackTimelineViewProps> = ({ work
                 className={`absolute left-4 top-1.5 w-4 h-4 rounded-full border-2 ${
                   event.type === "milestone"
                     ? "bg-[#336699] border-[#5A8BB8]"
-                    : "bg-[#F9D71C] border-[#E6C419]"
+                    : "bg-[#336699] border-[#2a5580]"
                 }`}
               ></div>
               <div className="bg-[#111827]/50 border border-gray-800 rounded-[4px] p-4">
@@ -251,7 +251,7 @@ export const WorkPackTimelineView: React.FC<WorkPackTimelineViewProps> = ({ work
                   <div className="font-medium text-white">{event.title}</div>
                   <div className="flex items-center gap-2">
                     {event.estimatedHours > 0 && (
-                      <span className="px-2 py-1 rounded text-xs font-medium border border-[#F9D71C]/60 text-[#F9D71C] bg-[#F9D71C]/10">
+                      <span className="px-2 py-1 rounded text-xs font-medium border border-[#336699]/60 text-[#5b8fc7] bg-[#336699]/10">
                         {event.estimatedHours}h
                       </span>
                     )}
@@ -269,7 +269,7 @@ export const WorkPackTimelineView: React.FC<WorkPackTimelineViewProps> = ({ work
                 <div className="text-sm text-gray-400 mb-2">{event.duration}</div>
                 <div className="text-sm text-gray-300">{event.description}</div>
                 {event.estimatedHours > 0 && event.type === 'phase' && (
-                  <div className="mt-2 text-xs text-[#F9D71C]">
+                  <div className="mt-2 text-xs text-[#5b8fc7]">
                     Estimated cost: ${(event.estimatedHours * 50).toLocaleString()} @ $50/hr
                   </div>
                 )}

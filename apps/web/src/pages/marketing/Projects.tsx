@@ -478,7 +478,7 @@ export const Projects = () => {
                   {project.featured && (
                     <div 
                       className="absolute top-3 right-3 px-3 py-1 text-xs font-bold uppercase tracking-wide"
-                      style={{ backgroundColor: '#F9D71C', color: '#121212' }}
+                      style={{ backgroundColor: '#336699', color: '#ffffff' }}
                     >
                       FEATURED
                     </div>

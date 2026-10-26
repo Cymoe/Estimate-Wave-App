@@ -32,15 +32,15 @@ export const RelationshipManagement: React.FC = () => {
             
             <div className="space-y-3 mb-4">
               <div className="flex items-center gap-2 text-sm text-gray-300">
-                <ChevronRight className="w-4 h-4 text-[#F9D71C]" />
+                <ChevronRight className="w-4 h-4 text-[#5b8fc7]" />
                 Multiple contacts per company
               </div>
               <div className="flex items-center gap-2 text-sm text-gray-300">
-                <ChevronRight className="w-4 h-4 text-[#F9D71C]" />
+                <ChevronRight className="w-4 h-4 text-[#5b8fc7]" />
                 Track company-level relationships
               </div>
               <div className="flex items-center gap-2 text-sm text-gray-300">
-                <ChevronRight className="w-4 h-4 text-[#F9D71C]" />
+                <ChevronRight className="w-4 h-4 text-[#5b8fc7]" />
                 Organize by industry and department
               </div>
             </div>
@@ -79,8 +79,8 @@ export const RelationshipManagement: React.FC = () => {
         <div className="bg-[#1E1E1E] border border-[#333333] rounded-[4px] overflow-hidden">
           <div className="p-6 border-b border-[#333333]">
             <div className="flex items-center gap-3 mb-3">
-              <div className="w-12 h-12 bg-[#F9D71C]/20 rounded-full flex items-center justify-center">
-                <Users className="w-6 h-6 text-[#F9D71C]" />
+              <div className="w-12 h-12 bg-[#336699]/20 rounded-full flex items-center justify-center">
+                <Users className="w-6 h-6 text-[#5b8fc7]" />
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-white">Vendor Contacts</h3>
@@ -90,15 +90,15 @@ export const RelationshipManagement: React.FC = () => {
             
             <div className="space-y-3 mb-4">
               <div className="flex items-center gap-2 text-sm text-gray-300">
-                <ChevronRight className="w-4 h-4 text-[#F9D71C]" />
+                <ChevronRight className="w-4 h-4 text-[#5b8fc7]" />
                 Track multiple roles per vendor
               </div>
               <div className="flex items-center gap-2 text-sm text-gray-300">
-                <ChevronRight className="w-4 h-4 text-[#F9D71C]" />
+                <ChevronRight className="w-4 h-4 text-[#5b8fc7]" />
                 Primary contact designation
               </div>
               <div className="flex items-center gap-2 text-sm text-gray-300">
-                <ChevronRight className="w-4 h-4 text-[#F9D71C]" />
+                <ChevronRight className="w-4 h-4 text-[#5b8fc7]" />
                 14 specialized contact roles
               </div>
             </div>
@@ -110,7 +110,7 @@ export const RelationshipManagement: React.FC = () => {
                   <div>
                     <div className="text-sm font-medium text-white flex items-center gap-2">
                       Mike Johnson 
-                      <Star className="w-3 h-3 text-[#F9D71C] fill-current" />
+                      <Star className="w-3 h-3 text-yellow-400 fill-current" />
                     </div>
                     <div className="text-xs text-gray-400">Sales Manager • Primary</div>
                   </div>
@@ -128,7 +128,7 @@ export const RelationshipManagement: React.FC = () => {
 
             <button 
               onClick={() => setActiveDemo('vendor-contacts')}
-              className="w-full bg-[#F9D71C] hover:bg-[#F9D71C]/80 text-black px-4 py-2 rounded-[4px] text-sm font-medium transition-colors flex items-center justify-center gap-2"
+              className="w-full bg-[#336699] hover:bg-[#336699]/80 text-white px-4 py-2 rounded-[4px] text-sm font-medium transition-colors flex items-center justify-center gap-2"
             >
               <Eye className="w-4 h-4" />
               View Vendor Contacts
@@ -161,7 +161,7 @@ export const RelationshipManagement: React.FC = () => {
                     Track different people at the same company - project managers, billing contacts, decision makers
                   </p>
                 </div>
-                <div className="bg-[#333333] rounded-[4px] p-4 border-l-4 border-[#F9D71C]">
+                <div className="bg-[#333333] rounded-[4px] p-4 border-l-4 border-[#336699]">
                   <h4 className="text-white font-medium mb-2">Organized Communication</h4>
                   <p className="text-gray-400 text-sm">
                     Know exactly who to contact for different needs and departments
@@ -190,7 +190,7 @@ export const RelationshipManagement: React.FC = () => {
                   <h4 className="text-white font-medium mb-3">Available Contact Roles</h4>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div className="flex items-center gap-2">
-                      <Shield className="w-4 h-4 text-[#F9D71C]" />
+                      <Shield className="w-4 h-4 text-[#5b8fc7]" />
                       <span className="text-gray-300">Owner</span>
                     </div>
                     <div className="flex items-center gap-2">
@@ -224,7 +224,7 @@ export const RelationshipManagement: React.FC = () => {
                       <span className="text-sm text-gray-300">One-click calling</span>
                     </div>
                     <div className="bg-[#333333] rounded px-3 py-2 flex items-center gap-2">
-                      <Star className="w-4 h-4 text-[#F9D71C]" />
+                      <Star className="w-4 h-4 text-yellow-400" />
                       <span className="text-sm text-gray-300">Primary contact highlighting</span>
                     </div>
                     <div className="bg-[#333333] rounded px-3 py-2 flex items-center gap-2">
@@ -237,7 +237,7 @@ export const RelationshipManagement: React.FC = () => {
 
               <div className="flex items-center justify-center py-8">
                 <div className="text-center">
-                  <Users className="w-16 h-16 text-[#F9D71C] mx-auto mb-4" />
+                  <Users className="w-16 h-16 text-[#5b8fc7] mx-auto mb-4" />
                   <p className="text-white font-medium mb-2">Go to People → Vendors</p>
                   <p className="text-gray-400 text-sm">Click any vendor to see the Contacts tab in the detail modal</p>
                 </div>

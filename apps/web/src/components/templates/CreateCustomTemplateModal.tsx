@@ -197,7 +197,7 @@ export const CreateCustomTemplateModal: React.FC<CreateCustomTemplateModalProps>
                   <div className="flex items-center gap-2">
                     <Brain className="w-5 h-5 text-[#336699]" />
                     <span className="text-lg font-medium">AI-POWERED SUGGESTIONS</span>
-                    <span className="text-xs bg-[#F9D71C] text-[#121212] px-2 py-0.5 rounded-[2px] font-bold">BETA</span>
+                    <span className="text-xs bg-[#336699] text-white px-2 py-0.5 rounded-[2px] font-bold">BETA</span>
                   </div>
                   <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${showSmartSuggestions ? 'rotate-180' : ''}`} />
                 </button>

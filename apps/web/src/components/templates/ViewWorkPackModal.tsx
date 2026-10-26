@@ -66,7 +66,7 @@ export const ViewWorkPackModal: React.FC<ViewWorkPackModalProps> = ({ isOpen, on
       case 'standard':
         return 'bg-[#1a1a1a] text-[#999] border-[#666]/20';
       case 'premium':
-        return 'bg-[#2d2006] text-[#fbbf24] border-[#fbbf24]/20';
+        return 'bg-[#2d2006] text-[#5b8fc7] border-[#336699]/20';
       default:
         return 'bg-[#1a1a1a] text-[#666] border-[#666]/20';
     }
@@ -122,7 +122,7 @@ export const ViewWorkPackModal: React.FC<ViewWorkPackModalProps> = ({ isOpen, on
         >
           {loading ? (
             <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#fbbf24]"></div>
+              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#336699]"></div>
             </div>
           ) : (
             <>
@@ -160,7 +160,7 @@ export const ViewWorkPackModal: React.FC<ViewWorkPackModalProps> = ({ isOpen, on
                         // TODO: Implement use in project
                         onClose();
                       }}
-                      className="px-5 py-2.5 bg-[#fbbf24] text-black rounded-lg text-sm font-semibold hover:bg-[#f59e0b] transition-all"
+                      className="px-5 py-2.5 bg-[#336699] text-white rounded-lg text-sm font-semibold hover:bg-[#2a5580] transition-all"
                     >
                       Use in Project
                     </button>
@@ -235,7 +235,7 @@ export const ViewWorkPackModal: React.FC<ViewWorkPackModalProps> = ({ isOpen, on
                         <span className="text-xs text-[#666]">({tab.count})</span>
                       )}
                       {activeTab === tab.id && (
-                        <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#fbbf24]" />
+                        <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#336699]" />
                       )}
                     </button>
                   ))}
@@ -258,7 +258,7 @@ export const ViewWorkPackModal: React.FC<ViewWorkPackModalProps> = ({ isOpen, on
                               Quantity: {item.quantity} • {item.product?.category || 'Product'}
                             </div>
                           </div>
-                          <div className="text-2xl font-bold text-[#fbbf24]">
+                          <div className="text-2xl font-bold text-[#5b8fc7]">
                             {formatCurrency(item.price * item.quantity)}
                           </div>
                         </div>
@@ -323,7 +323,7 @@ export const ViewWorkPackModal: React.FC<ViewWorkPackModalProps> = ({ isOpen, on
                         </div>
                         <div className="text-[15px] font-semibold text-white mb-1">{expense.description}</div>
                         <div className="text-[13px] text-[#666] mb-3">{expense.vendor || expense.category}</div>
-                        <div className="text-xl font-bold text-[#fbbf24]">{formatCurrency(expense.amount)}</div>
+                        <div className="text-xl font-bold text-[#5b8fc7]">{formatCurrency(expense.amount)}</div>
                       </div>
                     ))}
                     

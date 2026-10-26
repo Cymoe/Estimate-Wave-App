@@ -144,7 +144,7 @@ export const WorkPackManager: React.FC = () => {
     switch (tier) {
       case 'budget': return 'bg-[#0d2818] text-[#4ade80] border-[#4ade80]';
       case 'standard': return 'bg-[#1a1a1a] text-[#999] border-[#666]';
-      case 'premium': return 'bg-[#2d2006] text-[#fbbf24] border-[#fbbf24]';
+      case 'premium': return 'bg-[#2d2006] text-[#5b8fc7] border-[#336699]';
       default: return 'bg-[#1a1a1a] text-[#666] border-[#666]';
     }
   };
@@ -362,7 +362,7 @@ export const WorkPackManager: React.FC = () => {
           onClick={() => setFilterStatus('all')}
           className={`px-4 py-1.5 rounded-full text-[13px] border transition-all cursor-pointer
                     ${filterStatus === 'all'
-                      ? 'bg-[#1a1a1a] text-[#fbbf24] border-[#3a3a3a]'
+                      ? 'bg-[#1a1a1a] text-[#5b8fc7] border-[#3a3a3a]'
                       : 'bg-[#111] text-white border-[#2a2a2a] hover:bg-[#151515] hover:border-[#3a3a3a]'
                     }`}
         >
@@ -372,7 +372,7 @@ export const WorkPackManager: React.FC = () => {
           onClick={() => setFilterStatus('active')}
           className={`px-4 py-1.5 rounded-full text-[13px] border transition-all cursor-pointer
                     ${filterStatus === 'active'
-                      ? 'bg-[#1a1a1a] text-[#fbbf24] border-[#3a3a3a]'
+                      ? 'bg-[#1a1a1a] text-[#5b8fc7] border-[#3a3a3a]'
                       : 'bg-[#111] text-white border-[#2a2a2a] hover:bg-[#151515] hover:border-[#3a3a3a]'
                     }`}
         >
@@ -382,7 +382,7 @@ export const WorkPackManager: React.FC = () => {
           onClick={() => setFilterStatus('archived')}
           className={`px-4 py-1.5 rounded-full text-[13px] border transition-all cursor-pointer
                     ${filterStatus === 'archived'
-                      ? 'bg-[#1a1a1a] text-[#fbbf24] border-[#3a3a3a]'
+                      ? 'bg-[#1a1a1a] text-[#5b8fc7] border-[#3a3a3a]'
                       : 'bg-[#111] text-white border-[#2a2a2a] hover:bg-[#151515] hover:border-[#3a3a3a]'
                     }`}
         >
@@ -392,7 +392,7 @@ export const WorkPackManager: React.FC = () => {
           onClick={() => setFilterStatus('recent')}
           className={`px-4 py-1.5 rounded-full text-[13px] border transition-all cursor-pointer
                     ${filterStatus === 'recent'
-                      ? 'bg-[#1a1a1a] text-[#fbbf24] border-[#3a3a3a]'
+                      ? 'bg-[#1a1a1a] text-[#5b8fc7] border-[#3a3a3a]'
                       : 'bg-[#111] text-white border-[#2a2a2a] hover:bg-[#151515] hover:border-[#3a3a3a]'
                     }`}
         >

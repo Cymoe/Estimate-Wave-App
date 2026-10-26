@@ -58,7 +58,7 @@ export const VendorContactsList: React.FC<VendorContactsListProps> = ({
     switch (role?.toLowerCase()) {
       case 'owner':
       case 'sales manager':
-        return 'text-[#F9D71C]';
+        return 'text-[#5b8fc7]';
       case 'account manager':
       case 'project manager':
         return 'text-blue-400';
@@ -119,7 +119,7 @@ export const VendorContactsList: React.FC<VendorContactsListProps> = ({
             <div
               key={contact.id}
               className={`bg-[#1E1E1E] border border-[#333333] rounded-[4px] p-4 hover:bg-[#252525] transition-colors ${
-                contact.is_primary ? 'ring-2 ring-[#F9D71C] border-[#F9D71C]' : ''
+                contact.is_primary ? 'ring-2 ring-[#336699] border-[#336699]' : ''
               }`}
             >
               <div className="flex items-start justify-between">
@@ -128,7 +128,7 @@ export const VendorContactsList: React.FC<VendorContactsListProps> = ({
                     <h4 className="text-white font-medium flex items-center gap-2">
                       {contact.name}
                       {contact.is_primary && (
-                        <div className="flex items-center gap-1 bg-[#F9D71C] text-black px-2 py-1 rounded text-xs font-medium">
+                        <div className="flex items-center gap-1 bg-[#336699] text-white px-2 py-1 rounded text-xs font-medium">
                           <Star className="w-3 h-3" />
                           PRIMARY
                         </div>
@@ -190,7 +190,7 @@ export const VendorContactsList: React.FC<VendorContactsListProps> = ({
                   {!contact.is_primary && (
                     <button
                       onClick={() => handleSetPrimary(contact.id)}
-                      className="text-gray-400 hover:text-[#F9D71C] transition-colors"
+                      className="text-gray-400 hover:text-[#5b8fc7] transition-colors"
                       title="Set as primary contact"
                     >
                       <Star className="w-4 h-4" />

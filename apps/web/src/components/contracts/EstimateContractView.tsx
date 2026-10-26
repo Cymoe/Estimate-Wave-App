@@ -112,7 +112,7 @@ export const EstimateContractView: React.FC = () => {
       <div className="min-h-screen bg-[#000000] text-white">
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#fbbf24] mx-auto mb-4"></div>
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#336699] mx-auto mb-4"></div>
             <p className="text-gray-400 text-sm">Loading contract...</p>
           </div>
         </div>
@@ -128,7 +128,7 @@ export const EstimateContractView: React.FC = () => {
           <h3 className="text-lg font-medium text-white mb-2">Contract not found</h3>
           <button
             onClick={backToEstimate}
-            className="text-[#fbbf24] hover:text-white transition-colors"
+            className="text-[#5b8fc7] hover:text-white transition-colors"
           >
             Back to Estimate
           </button>
@@ -225,7 +225,7 @@ export const EstimateContractView: React.FC = () => {
                 <button
                   onClick={handleSave}
                   disabled={saving}
-                  className="flex items-center gap-2 px-4 py-2 bg-[#fbbf24] text-black rounded-lg hover:bg-[#f59e0b] transition-colors font-medium disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2 bg-[#336699] text-white rounded-lg hover:bg-[#2a5580] transition-colors font-medium disabled:opacity-50"
                 >
                   <Save className="w-4 h-4" />
                   {saving ? 'Saving...' : 'Save'}

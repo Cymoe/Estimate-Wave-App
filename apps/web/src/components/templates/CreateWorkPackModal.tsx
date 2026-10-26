@@ -764,7 +764,7 @@ export const CreateWorkPackModal: React.FC<CreateWorkPackModalProps> = ({ isOpen
                         <input
                           type="number"
                           placeholder="0"
-                          className="w-16 bg-transparent text-sm font-semibold text-[#F9D71C] focus:outline-none text-right"
+                          className="w-16 bg-transparent text-sm font-semibold text-[#5b8fc7] focus:outline-none text-right"
                           value={expense.amount || ''}
                           onChange={(e) => updateExpense(expense.id, 'amount', parseFloat(e.target.value) || 0)}
                         />
@@ -805,7 +805,7 @@ export const CreateWorkPackModal: React.FC<CreateWorkPackModalProps> = ({ isOpen
               </div>
               <div className="text-right">
                 <div className="text-xs font-medium text-gray-400 uppercase tracking-wide">Total Value</div>
-                <div className="text-lg font-bold text-[#F9D71C]">{formatCurrency(totals.total)}</div>
+                <div className="text-lg font-bold text-[#5b8fc7]">{formatCurrency(totals.total)}</div>
               </div>
             </div>
           </div>

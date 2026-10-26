@@ -317,8 +317,8 @@ export const SubcontractorsList: React.FC<SubcontractorsListProps> = ({
         // Onboarding/Empty State
         <div className="max-w-4xl mx-auto p-8">
           <div className="text-center py-12">
-            <div className="w-16 h-16 bg-[#F9D71C]/20 rounded-full flex items-center justify-center mx-auto mb-4">
-              <HardHat className="w-8 h-8 text-[#F9D71C]" />
+            <div className="w-16 h-16 bg-[#336699]/20 rounded-full flex items-center justify-center mx-auto mb-4">
+              <HardHat className="w-8 h-8 text-[#5b8fc7]" />
             </div>
             <h2 className="text-2xl font-bold text-white mb-2">Subcontractor Management</h2>
             <p className="text-gray-400 max-w-2xl mx-auto mb-8">
@@ -326,7 +326,7 @@ export const SubcontractorsList: React.FC<SubcontractorsListProps> = ({
             </p>
             
             <div className="grid md:grid-cols-3 gap-6 mb-8">
-              <div className="bg-[#333333] rounded-[4px] p-6 border-l-4 border-[#F9D71C]">
+              <div className="bg-[#333333] rounded-[4px] p-6 border-l-4 border-[#336699]">
                 <h3 className="text-white font-bold mb-2">Track Specialties</h3>
                 <p className="text-gray-400 text-sm">
                   Organize subs by trade (electrical, plumbing, HVAC, etc.)
@@ -348,7 +348,7 @@ export const SubcontractorsList: React.FC<SubcontractorsListProps> = ({
 
             <button 
               onClick={() => setShowNewModal(true)}
-              className="px-6 py-3 bg-[#F9D71C] text-[#121212] rounded-[4px] font-medium hover:bg-[#F9D71C]/80 transition-colors"
+              className="px-6 py-3 bg-[#336699] text-white rounded-[4px] font-medium hover:bg-[#336699]/80 transition-colors"
             >
               ADD FIRST SUBCONTRACTOR
             </button>
