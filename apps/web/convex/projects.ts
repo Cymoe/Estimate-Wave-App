@@ -4,6 +4,7 @@ import { mutation, query } from "./_generated/server";
 import { fail, getOwned, logActivity, nowIso, pick, requireMember } from "./lib/access";
 import { assertLinksInOrg } from "./lib/documents";
 import { projectFields, projectStatus } from "./schema";
+import { deleteTasks } from "./tasks";
 import { deletePhotos } from "./photos";
 
 export const list = query({
@@ -74,8 +75,9 @@ export const remove = mutation({
   args: { id: v.id("projects") },
   handler: async (ctx, { id }) => {
     const { doc, user } = await getOwned(ctx, "projects", id);
-    // A project's expenses and photos go with it.
+    // A project's expenses, photos and tasks go with it.
     await deletePhotos(ctx, { projectId: id });
+    await deleteTasks(ctx, id);
     const expenses = await ctx.db.query("expenses").withIndex("by_project", (q) => q.eq("projectId", id)).take(2000);
     for (const expense of expenses) await ctx.db.delete(expense._id);
     await ctx.db.delete(id);

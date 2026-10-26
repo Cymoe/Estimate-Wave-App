@@ -9,6 +9,7 @@ import { TableSkeleton } from '../skeletons/TableSkeleton';
 import { PROJECT_STATUSES, formatProjectDate, projectStatusInfo } from './projectStatus';
 import { CreateProjectWizard } from './CreateProjectWizard';
 import { ProjectDetailsDrawer } from './ProjectDetails';
+import { ScheduleView } from './Schedule';
 
 /** Project, client, status, dates, budget: shared by the header and every row. */
 const ROW_GRID = 'grid grid-cols-[minmax(0,2fr)_minmax(0,1.5fr)_6.5rem_minmax(9rem,1.2fr)_minmax(6rem,1fr)] gap-4 items-center';
@@ -32,6 +33,10 @@ export const ProjectList: React.FC = () => {
   // ?new=1 (the + menu) opens the new-project wizard.
   const [searchParams] = useSearchParams();
   const creating = searchParams.get('new') === '1';
+  // ?view=schedule shows the week across every project instead of the list.
+  const scheduling = searchParams.get('view') === 'schedule';
+  const back = scheduling ? '/projects?view=schedule' : '/projects';
+  const openProject = (id: string) => navigate(`/projects/${id}${scheduling ? '?view=schedule' : ''}`);
   // /projects/:id opens that project in a drawer over the list.
   const openId = useMatch('/projects/:id')?.params.id;
 
@@ -110,9 +115,7 @@ export const ProjectList: React.FC = () => {
     }
   };
 
-  const openBudget = projects
-    .filter((p) => p.status === 'active' || p.status === 'planned')
-    .reduce((sum, p) => sum + (p.budget ?? 0), 0);
+  const openBudget = projects.filter((p) => p.status === 'active' || p.status === 'planned').reduce((sum, p) => sum + (p.budget ?? 0), 0);
 
   const dates = (p: Project) => {
     const start = formatProjectDate(p.start_date);
@@ -124,154 +127,182 @@ export const ProjectList: React.FC = () => {
   return (
     <div className="bg-transparent border border-[#333333] flex flex-col">
       {/* Toolbar */}
-      <div className="px-4 py-2 border-b border-[#333333]/50 flex items-center gap-3">
-        <label className="relative flex-1 max-w-md min-w-[10rem]">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-          <input
-            type="search"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search projects, clients…"
-            aria-label="Search projects"
-            className="w-full bg-[#1E1E1E] border border-[#333333] rounded-[4px] pl-9 pr-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
-          />
-        </label>
-        <div className="relative">
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as 'all' | ProjectStatus)}
-            aria-label="Status"
-            className="bg-[#1E1E1E] border border-[#333333] rounded-[4px] px-3 py-2 text-sm text-white focus:outline-none focus:border-[#336699] appearance-none pr-10 min-w-[180px]"
-          >
-            <option value="all">All Projects ({projects.length})</option>
-            {PROJECT_STATUSES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label} ({counts[s.value] || 0})
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+      <div className="px-4 py-2 border-b border-[#333333]/50 flex flex-wrap items-center gap-3">
+        <div className="flex border border-[#333333] rounded-[4px] overflow-hidden" role="tablist" aria-label="View">
+          {(
+            [
+              ['list', 'List'],
+              ['schedule', 'Schedule'],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              role="tab"
+              aria-selected={(id === 'schedule') === scheduling}
+              onClick={() => navigate(id === 'schedule' ? '/projects?view=schedule' : '/projects', { replace: true })}
+              className={`px-3 py-2 text-sm ${(id === 'schedule') === scheduling ? 'bg-[#336699] text-white' : 'bg-[#1E1E1E] text-gray-300 hover:bg-[#333333]'}`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-        <div className="relative ml-auto" ref={optionsRef}>
-          <button
-            onClick={() => setShowOptions(!showOptions)}
-            aria-label="More"
-            className="p-2 bg-[#1E1E1E] border border-[#333333] hover:bg-[#333333] rounded-[4px] transition-colors text-gray-400"
-          >
-            <MoreVertical className="w-4 h-4" />
-          </button>
-          {showOptions && (
-            <div className="absolute top-full right-0 mt-2 w-48 bg-[#1E1E1E] border border-[#333333] rounded-[4px] shadow-lg z-50 py-1">
-              <button
-                onClick={() => exportAs('csv')}
-                className="w-full flex items-center px-3 py-2 text-sm text-white hover:bg-[#333333] transition-colors"
+        {!scheduling && (
+          <>
+            <label className="relative flex-1 max-w-md min-w-[10rem]">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+              <input
+                type="search"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Search projects, clients…"
+                aria-label="Search projects"
+                className="w-full bg-[#1E1E1E] border border-[#333333] rounded-[4px] pl-9 pr-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
+              />
+            </label>
+            <div className="relative">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as 'all' | ProjectStatus)}
+                aria-label="Status"
+                className="bg-[#1E1E1E] border border-[#333333] rounded-[4px] px-3 py-2 text-sm text-white focus:outline-none focus:border-[#336699] appearance-none pr-10 min-w-[180px]"
               >
-                <Download className="w-3 h-3 mr-3 text-gray-400" />
-                Export to CSV
-              </button>
-              <button
-                onClick={() => exportAs('excel')}
-                className="w-full flex items-center px-3 py-2 text-sm text-white hover:bg-[#333333] transition-colors"
-              >
-                <FileSpreadsheet className="w-3 h-3 mr-3 text-gray-400" />
-                Export to Excel
-              </button>
+                <option value="all">All Projects ({projects.length})</option>
+                {PROJECT_STATUSES.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label} ({counts[s.value] || 0})
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* Stats */}
-      <div className="px-4 py-2 border-b border-[#333333]/50 grid grid-cols-3 gap-4">
-        <div>
-          <div className="text-xs text-gray-400 uppercase tracking-wider">Projects</div>
-          <div className="text-lg font-semibold mt-1">{projects.length}</div>
-        </div>
-        <div>
-          <div className="text-xs text-gray-400 uppercase tracking-wider">Active</div>
-          <div className="text-lg font-semibold text-blue-400 mt-1">{counts.active || 0}</div>
-        </div>
-        <div>
-          <div className="text-xs text-gray-400 uppercase tracking-wider">Open budget</div>
-          <div className="text-lg font-semibold text-white mt-1">{formatCurrency(openBudget)}</div>
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="min-h-[400px] pb-32">
-        {loading ? (
-          <TableSkeleton rows={6} />
-        ) : shown.length === 0 ? (
-          <div className="p-12 text-center">
-            <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
-              <FolderOpen className="w-8 h-8 text-gray-400" />
-            </div>
-            <h3 className="text-lg font-medium text-white mb-2">No projects found</h3>
-            <p className="text-gray-400">
-              {search || statusFilter !== 'all'
-                ? 'Try adjusting your search or filters.'
-                : 'Tap the blue + and choose Project to create one.'}
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <div className={`${ROW_GRID} px-4 py-2 border-b border-[#333333]/50 text-[11px] font-medium text-gray-500 uppercase tracking-wider`}>
-              {(
-                [
-                  ['name', 'Project', ''],
-                  ['client', 'Client', ''],
-                  [null, 'Status', ''],
-                  ['start', 'Dates', ''],
-                  ['budget', 'Budget', 'justify-end'],
-                ] as const
-              ).map(([field, label, align]) =>
-                field ? (
-                  <button
-                    key={label}
-                    onClick={() => sortBy(field)}
-                    className={`flex items-center gap-1 uppercase tracking-wider hover:text-white transition-colors ${align} ${sortField === field ? 'text-white' : ''}`}
-                  >
-                    {label}
-                    {sortField === field && (sortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
-                  </button>
-                ) : (
-                  <span key={label}>{label}</span>
-                ),
-              )}
-            </div>
-            {shown.map((project) => {
-              const status = projectStatusInfo(project.status);
-              const client = clientName(project);
-              return (
-                <div
-                  key={project.id}
-                  onClick={() => navigate(`/projects/${project.id}`)}
-                  className={`${ROW_GRID} px-4 py-2.5 text-sm hover:bg-[#1A1A1A] transition-colors cursor-pointer border-b border-[#333333]/50 last:border-b-0 ${
-                    project.id === openId ? 'bg-[#336699]/10' : ''
-                  }`}
+          </>
+        )}
+        {!scheduling && (
+          <div className="relative ml-auto" ref={optionsRef}>
+            <button
+              onClick={() => setShowOptions(!showOptions)}
+              aria-label="More"
+              className="p-2 bg-[#1E1E1E] border border-[#333333] hover:bg-[#333333] rounded-[4px] transition-colors text-gray-400"
+            >
+              <MoreVertical className="w-4 h-4" />
+            </button>
+            {showOptions && (
+              <div className="absolute top-full right-0 mt-2 w-48 bg-[#1E1E1E] border border-[#333333] rounded-[4px] shadow-lg z-50 py-1">
+                <button
+                  onClick={() => exportAs('csv')}
+                  className="w-full flex items-center px-3 py-2 text-sm text-white hover:bg-[#333333] transition-colors"
                 >
-                  <div className="font-medium text-white truncate">{project.name}</div>
-                  <div className={`truncate ${client ? 'text-gray-200' : 'text-gray-500'}`}>{client || 'No client'}</div>
-                  <div>
-                    <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${status.pill}`}>
-                      {status.label}
-                    </span>
-                  </div>
-                  <div className="text-gray-400 text-xs truncate">{dates(project)}</div>
-                  <div className="text-right font-semibold text-white tabular-nums whitespace-nowrap">
-                    {project.budget != null ? formatCurrency(project.budget) : '—'}
-                  </div>
-                </div>
-              );
-            })}
+                  <Download className="w-3 h-3 mr-3 text-gray-400" />
+                  Export to CSV
+                </button>
+                <button
+                  onClick={() => exportAs('excel')}
+                  className="w-full flex items-center px-3 py-2 text-sm text-white hover:bg-[#333333] transition-colors"
+                >
+                  <FileSpreadsheet className="w-3 h-3 mr-3 text-gray-400" />
+                  Export to Excel
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
 
+      {scheduling && selectedOrg?.id && <ScheduleView organizationId={selectedOrg.id} onOpenProject={openProject} />}
+
+      {!scheduling && (
+        <>
+          {/* Stats */}
+          <div className="px-4 py-2 border-b border-[#333333]/50 grid grid-cols-3 gap-4">
+            <div>
+              <div className="text-xs text-gray-400 uppercase tracking-wider">Projects</div>
+              <div className="text-lg font-semibold mt-1">{projects.length}</div>
+            </div>
+            <div>
+              <div className="text-xs text-gray-400 uppercase tracking-wider">Active</div>
+              <div className="text-lg font-semibold text-blue-400 mt-1">{counts.active || 0}</div>
+            </div>
+            <div>
+              <div className="text-xs text-gray-400 uppercase tracking-wider">Open budget</div>
+              <div className="text-lg font-semibold text-white mt-1">{formatCurrency(openBudget)}</div>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="min-h-[400px] pb-32">
+            {loading ? (
+              <TableSkeleton rows={6} />
+            ) : shown.length === 0 ? (
+              <div className="p-12 text-center">
+                <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <FolderOpen className="w-8 h-8 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-medium text-white mb-2">No projects found</h3>
+                <p className="text-gray-400">
+                  {search || statusFilter !== 'all' ? 'Try adjusting your search or filters.' : 'Tap the blue + and choose Project to create one.'}
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <div className={`${ROW_GRID} px-4 py-2 border-b border-[#333333]/50 text-[11px] font-medium text-gray-500 uppercase tracking-wider`}>
+                  {(
+                    [
+                      ['name', 'Project', ''],
+                      ['client', 'Client', ''],
+                      [null, 'Status', ''],
+                      ['start', 'Dates', ''],
+                      ['budget', 'Budget', 'justify-end'],
+                    ] as const
+                  ).map(([field, label, align]) =>
+                    field ? (
+                      <button
+                        key={label}
+                        onClick={() => sortBy(field)}
+                        className={`flex items-center gap-1 uppercase tracking-wider hover:text-white transition-colors ${align} ${sortField === field ? 'text-white' : ''}`}
+                      >
+                        {label}
+                        {sortField === field && (sortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
+                      </button>
+                    ) : (
+                      <span key={label}>{label}</span>
+                    ),
+                  )}
+                </div>
+                {shown.map((project) => {
+                  const status = projectStatusInfo(project.status);
+                  const client = clientName(project);
+                  return (
+                    <div
+                      key={project.id}
+                      onClick={() => openProject(project.id!)}
+                      className={`${ROW_GRID} px-4 py-2.5 text-sm hover:bg-[#1A1A1A] transition-colors cursor-pointer border-b border-[#333333]/50 last:border-b-0 ${
+                        project.id === openId ? 'bg-[#336699]/10' : ''
+                      }`}
+                    >
+                      <div className="font-medium text-white truncate">{project.name}</div>
+                      <div className={`truncate ${client ? 'text-gray-200' : 'text-gray-500'}`}>{client || 'No client'}</div>
+                      <div>
+                        <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${status.pill}`}>
+                          {status.label}
+                        </span>
+                      </div>
+                      <div className="text-gray-400 text-xs truncate">{dates(project)}</div>
+                      <div className="text-right font-semibold text-white tabular-nums whitespace-nowrap">
+                        {project.budget != null ? formatCurrency(project.budget) : '—'}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
       {openId && (
         <ProjectDetailsDrawer
           projectId={openId}
-          onClose={() => navigate('/projects', { replace: true })}
+          onClose={() => navigate(back, { replace: true })}
           onSaved={(saved) => setProjects((current) => current.map((p) => (p.id === saved.id ? { ...p, ...saved } : p)))}
           onDeleted={(id) => setProjects((current) => current.filter((p) => p.id !== id))}
         />
@@ -283,7 +314,6 @@ export const ProjectList: React.FC = () => {
           onProjectCreated={(project) => setProjects((current) => [project, ...current])}
         />
       )}
-
     </div>
   );
 };

@@ -8,13 +8,15 @@ import { ClientService, type Client } from '../../services/ClientService';
 import { ExpenseService, paymentState, summarize, type Expense } from '../../services/ExpenseService';
 import { EstimateService, type Estimate } from '../../services/EstimateService';
 import { formatCurrency } from '../../utils/format';
-import { invoicesAPI } from '../../lib/api';
+import { invoicesAPI, tasksAPI, type ProjectTask } from '../../lib/api';
 import { ExpensesList } from '../expenses/ExpensesList';
 import { JobPhotos } from '../common/JobPhotos';
+import { ProjectTasks } from './ProjectTasks';
+import { taskDays } from './taskDates';
 import { NoteDate, NoteRow, SaveStatus, noteInput, noteSelect, noteTextarea, useNoteFields, useSlideIn } from '../common/StructuredNote';
 import { PROJECT_STATUSES, formatProjectDate, projectStatusInfo } from './projectStatus';
 
-type TabType = 'overview' | 'estimates' | 'expenses' | 'photos';
+type TabType = 'overview' | 'tasks' | 'estimates' | 'expenses' | 'photos';
 
 const ESTIMATE_PILL: Record<string, string> = {
   draft: 'bg-gray-500/20 text-gray-300',
@@ -257,6 +259,8 @@ export const ProjectPanel: React.FC<{
   const [collected, setCollected] = useState<{ paid: number; due: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [tasks, setTasks] = useState<ProjectTask[] | null>(null);
+  const [openTasks, setOpenTasks] = useState<number | undefined>(undefined);
 
   useEffect(() => {
     if (!orgId) return;
@@ -292,6 +296,22 @@ export const ProjectPanel: React.FC<{
       live = false;
     };
   }, [projectId, estimates]);
+
+  // The next few open tasks, for the Overview; reloaded when the Tasks tab changes the count.
+  useEffect(() => {
+    let live = true;
+    Promise.resolve()
+      .then(() => tasksAPI.forProject(projectId))
+      .then((rows) => {
+        if (!live) return;
+        setTasks(rows);
+        setOpenTasks(rows.filter((t) => !t.done).length);
+      })
+      .catch(() => live && setTasks([]));
+    return () => {
+      live = false;
+    };
+  }, [projectId, activeTab]);
 
   useEffect(() => {
     if (!project?.client_id) {
@@ -368,9 +388,12 @@ export const ProjectPanel: React.FC<{
   const margin = contract > 0 ? Math.round((profit / contract) * 100) : null;
   const spentShare = budget > 0 ? Math.min(100, Math.round((summary.total / budget) * 100)) : 0;
   const clientLabel = client ? client.company_name || client.name : project.client?.name;
+  const place = client ? [client.address, client.city].filter(Boolean).join(', ') : '';
+  const nextUp = (tasks ?? []).filter((t) => !t.done).slice(0, 3);
 
   const tabs: Array<{ id: TabType; label: string; count?: number }> = [
     { id: 'overview', label: 'Overview' },
+    { id: 'tasks', label: 'Tasks', count: openTasks },
     { id: 'estimates', label: 'Estimates', count: estimates?.length ?? 0 },
     { id: 'expenses', label: 'Expenses', count: summary.count },
     { id: 'photos', label: 'Photos' },
@@ -495,7 +518,38 @@ export const ProjectPanel: React.FC<{
             </div>
 
             <ProjectFields key={project.id} project={project} organizationId={orgId} onSaved={saved} />
+            <section className="bg-[#1a1a1a] border border-[#333]" aria-label="Next up" data-testid="next-up">
+              <div className="flex items-center justify-between px-4 pt-4 pb-2">
+                <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wide">Next up</h3>
+                <button type="button" onClick={() => setActiveTab('tasks')} className="text-sm text-[#5b8fc7] hover:text-white">
+                  {nextUp.length ? 'All tasks' : 'Add tasks'}
+                </button>
+              </div>
+              {nextUp.length === 0 ? (
+                <p className="px-4 pb-4 text-sm text-gray-500">
+                  {tasks?.length ? 'Every task is done.' : 'Plan the job in steps with days and crew; they show on your schedule.'}
+                </p>
+              ) : (
+                <ul className="divide-y divide-[#262626] border-t border-[#262626]">
+                  {nextUp.map((t) => (
+                    <li key={t.id}>
+                      <button type="button" onClick={() => setActiveTab('tasks')} className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-[#222]">
+                        <span className="flex-1 min-w-0 truncate text-white">{t.title}</span>
+                        <span className="text-xs text-gray-500 truncate max-w-[40%]">{t.crew.map((c) => c.name).join(', ')}</span>
+                        <span className="text-xs text-gray-400 w-24 text-right">{taskDays(t) || 'No date'}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
             <CostsOverview expenses={expenses} budget={budget} onOpen={() => openExpenses(false)} onAdd={() => openExpenses(true)} />
+          </div>
+        )}
+
+        {activeTab === 'tasks' && (
+          <div className="p-4">
+            <ProjectTasks projectId={project.id!} organizationId={orgId} place={place} onCount={setOpenTasks} />
           </div>
         )}
 

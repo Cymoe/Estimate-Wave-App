@@ -267,6 +267,45 @@ export const photosAPI = {
   remove: (id: string) => run('mutation', api.photos.remove, { id }),
 };
 
+export interface CrewMember { id: string; name: string; phone?: string; email?: string; trade?: string; archived: boolean }
+export interface CrewInput { name: string; phone?: string; email?: string; trade?: string }
+
+/** The people a company puts on its jobs. */
+export const crewAPI = {
+  list: (organizationId: string): Promise<CrewMember[]> => run('query', api.crew.list, { organizationId }),
+  add: (organizationId: string, data: CrewInput): Promise<string> => run('mutation', api.crew.add, defined({ organizationId, ...data })),
+  update: (id: string, data: CrewInput) => run('mutation', api.crew.update, defined({ id, ...data })),
+  archive: (id: string, archived: boolean) => run('mutation', api.crew.archive, { id, archived }),
+};
+
+export interface ProjectTask {
+  id: string;
+  projectId: string;
+  title: string;
+  notes?: string;
+  startDate?: string;
+  endDate?: string;
+  done: boolean;
+  doneAt?: string;
+  crew: Array<{ id: string; name: string; phone?: string; trade?: string }>;
+  order: number;
+}
+export interface ScheduledTask extends ProjectTask { projectName: string; address?: string }
+export interface Schedule {
+  tasks: ScheduledTask[];
+  projects: Array<{ id: string; name: string; status: string; startDate: string; endDate?: string }>;
+}
+export interface TaskInput { title?: string; notes?: string; startDate?: string | null; endDate?: string | null; crewIds?: string[]; done?: boolean }
+
+/** The work on a project, and the company's schedule across projects. */
+export const tasksAPI = {
+  forProject: (projectId: string): Promise<ProjectTask[]> => run('query', api.tasks.forProject, { projectId }),
+  add: (projectId: string, data: TaskInput & { title: string }): Promise<string> => run('mutation', api.tasks.add, defined({ projectId, ...data })),
+  update: (id: string, data: TaskInput) => run('mutation', api.tasks.update, defined({ id, ...data })),
+  remove: (id: string) => run('mutation', api.tasks.remove, { id }),
+  schedule: (organizationId: string, from: string, to: string): Promise<Schedule> => run('query', api.tasks.schedule, { organizationId, from, to }),
+};
+
 export type SignoffKind = 'change_order' | 'affidavit';
 export interface Signoff {
   id: string;

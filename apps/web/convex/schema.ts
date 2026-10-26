@@ -1141,6 +1141,40 @@ export default defineSchema({
     .index("by_estimate", ["estimateId"])
     .index("by_project", ["projectId"]),
 
+  // The people a company sends to its jobs: its own crew and the subs it
+  // uses. They don't sign in; they're who a task is assigned to (convex/crew.ts).
+  crew: defineTable({
+    organizationId: v.id("organizations"),
+    name: v.string(),
+    phone: v.optional(v.string()),
+    email: v.optional(v.string()),
+    // What they do: "Framer", "Electrician (sub)".
+    trade: v.optional(v.string()),
+    // Taken off the list; kept so past tasks still show who did them.
+    archivedAt: v.optional(v.string()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  }).index("by_organization", ["organizationId"]),
+
+  // The work on a project, with its days and who's on it (convex/tasks.ts).
+  projectTasks: defineTable({
+    organizationId: v.id("organizations"),
+    projectId: v.id("projects"),
+    title: v.string(),
+    notes: v.optional(v.string()),
+    // Days, YYYY-MM-DD; a one-day task has only a start.
+    startDate: v.optional(v.string()),
+    endDate: v.optional(v.string()),
+    crewIds: v.array(v.id("crew")),
+    doneAt: v.optional(v.string()),
+    order: v.number(),
+    createdBy: v.id("users"),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_organization_and_start", ["organizationId", "startDate"]),
+
   // Contract PDFs a company uploaded: its library (no estimateId) or one
   // job's own. Signed files are kept for good; see convex/contractDocs.ts.
   contractDocs: defineTable({
