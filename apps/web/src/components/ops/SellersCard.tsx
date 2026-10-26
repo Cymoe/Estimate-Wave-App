@@ -146,6 +146,7 @@ export function SellersCard() {
   const [open, setOpen] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [exported, setExported] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -176,6 +177,29 @@ export function SellersCard() {
     }
   };
 
+  /** Every home matching the filters, not just the 200 on screen, a page at a time. */
+  const exportAll = async () => {
+    setExported(0);
+    setNote(null);
+    try {
+      const homes: SellerHome[] = [];
+      let cursor: string | null = null;
+      for (;;) {
+        const page: { page: SellerHome[]; isDone: boolean; continueCursor: string } = await sellersAPI.exportPage({ lists: picked, minLists, cursor });
+        homes.push(...page.page);
+        setExported(homes.length);
+        if (page.isDone) break;
+        cursor = page.continueCursor;
+      }
+      download(`midland-sellers-${new Date().toISOString().slice(0, 10)}.csv`, sellersCsv(homes));
+      setNote(`Exported ${homes.length.toLocaleString()} home${homes.length === 1 ? '' : 's'}.`);
+    } catch (err) {
+      setNote(`The export stopped: ${errorText(err)}`);
+    } finally {
+      setExported(null);
+    }
+  };
+
   const s = status?.source;
   return (
     <section className="space-y-4" aria-label="Motivated sellers">
@@ -193,11 +217,11 @@ export function SellersCard() {
           <button
             type="button"
             className={secondary}
-            disabled={!data?.homes.length}
-            onClick={() => data && download(`midland-sellers-${new Date().toISOString().slice(0, 10)}.csv`, sellersCsv(data.homes))}
+            disabled={!data?.homes.length || exported !== null}
+            onClick={exportAll}
           >
             <Download className="w-4 h-4" />
-            Export CSV
+            {exported === null ? 'Export CSV' : `Exporting… ${exported.toLocaleString()}`}
           </button>
         </div>
       </div>
@@ -246,7 +270,7 @@ export function SellersCard() {
       ) : (
         <>
           <p className="text-xs text-gray-400" data-testid="sellers-count">
-            {data.homes.length.toLocaleString()} home{data.homes.length === 1 ? '' : 's'}, highest score first{data.more ? ' (the top ones; narrow the lists for the rest)' : ''}
+            {data.homes.length.toLocaleString()} home{data.homes.length === 1 ? '' : 's'}, highest score first{data.more ? ' (the top ones; Export CSV takes them all)' : ''}
           </p>
           <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" data-testid="sellers">
             {data.homes.map((h) => (

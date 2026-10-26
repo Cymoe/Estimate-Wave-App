@@ -32,6 +32,12 @@ const sellersQuery = jest.fn<Promise<unknown>, [{ lists?: string[]; minLists?: n
   ],
 }));
 
+const exportPage = jest.fn<Promise<unknown>, [{ lists?: string[]; minLists?: number; cursor: string | null }]>(async ({ cursor }) =>
+  cursor === null
+    ? { page: sellerHomes, isDone: false, continueCursor: 'c1' }
+    : { page: [{ ...sellerHomes[0], parcelId: 'p2', address: '410 Elm St' }], isDone: true, continueCursor: 'c2' },
+);
+
 let auctionHomes: unknown[] = [];
 const auctionAdd = jest.fn<Promise<{ added: number; skipped: number; unmatched: string[] }>, [string, string, string]>(async () => {
   auctionHomes = [
@@ -48,6 +54,7 @@ const syncOwners = jest.fn(async () => ({ fetched: 52220, added: 0, updated: 3 }
 jest.mock('../../lib/api', () => ({
   sellersAPI: {
     sellers: (args: { lists?: string[]; minLists?: number }) => sellersQuery(args),
+    exportPage: (args: { lists?: string[]; minLists?: number; cursor: string | null }) => exportPage(args),
     home: async () => ({
       address: '807 W Weatherford Av',
       owner: 'Away Owner',
@@ -194,6 +201,32 @@ describe('Ops, the Real estate side', () => {
       'Property address,Owner,Owner 2,Mailing address,Mailing city,Mailing state,Mailing zip,Lists,Score,Code cases,Last record,Market value,Owned since',
       '807 W Weatherford Av,Away Owner,,1 Ocean Way,Malibu,CA,90265,Serious violation; Out-of-state owner; Absentee owner,6,3,2026-10-01,180000,1999-03-01',
     ]);
+  });
+
+  it('Export CSV reads every page of the filtered homes, not just the ones on screen', async () => {
+    const blobs: Blob[] = [];
+    const url = URL as unknown as { createObjectURL: (b: Blob) => string; revokeObjectURL: (u: string) => void };
+    url.createObjectURL = (b: Blob) => {
+      blobs.push(b);
+      return 'blob:sellers';
+    };
+    url.revokeObjectURL = () => {};
+    const click = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    await render('/ops/real-estate');
+    const chip = Array.from(document.body.querySelectorAll('[aria-label="Lists"] button')).find((b) => b.textContent?.startsWith('Absentee owner')) as HTMLButtonElement;
+    await act(async () => chip.click());
+    await flush();
+    exportPage.mockClear();
+    await act(async () => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent === 'Export CSV')!.click());
+    await flush();
+    expect(exportPage.mock.calls.map(([a]) => a)).toEqual([
+      { lists: ['absentee'], minLists: 1, cursor: null },
+      { lists: ['absentee'], minLists: 1, cursor: 'c1' },
+    ]);
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(blobs).toHaveLength(1);
+    expect(document.body.textContent).toContain('Exported 2 homes.');
+    click.mockRestore();
   });
 
 });

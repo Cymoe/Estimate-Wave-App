@@ -564,6 +564,9 @@ export const foreclosuresAPI = {
 /** Motivated-seller lists: Midland homes stacked by public-record signals (staff). */
 export const sellersAPI = {
   sellers: (args: { lists?: string[]; minLists?: number; limit?: number }) => run('query', api.signals.sellers, defined(args)),
+  /** One page of every home matching the filters, for the CSV; read until isDone. */
+  exportPage: (args: { lists?: string[]; minLists?: number; cursor: string | null }) =>
+    run('query', api.signals.sellersExport, defined({ lists: args.lists, minLists: args.minLists, paginationOpts: { numItems: 400, cursor: args.cursor } })),
   home: (parcelId: string) => run('query', api.signals.home, { parcelId }),
   status: () => run('query', api.signals.status, {}),
   syncNow: () => run('action', api.signals.syncNow, {}),

@@ -4,6 +4,7 @@
 // owner (absentee, out of state, owned 20+ years, landlord), stacked per
 // home and scored (lib/signals.ts). Read daily from the city's ArcGIS;
 // staff filter and export them in Ops. Investors get them on a plan later.
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -15,6 +16,7 @@ import {
   query,
   type ActionCtx,
   type MutationCtx,
+  type QueryCtx,
 } from "./_generated/server";
 import { nowIso, requireStaff } from "./lib/access";
 import { MIDLAND_PARCELS, addressKey, looseKey, ownerName } from "./lib/parcels";
@@ -351,6 +353,30 @@ export const recount = internalAction({
 
 const MAX_ROWS = 500;
 const SCAN = 2000;
+const EXPORT_PAGE = 400;
+
+/** The lists asked for, keeping only real list keys. */
+const knownLists = (lists?: string[]) => (lists ?? []).filter((l): l is (typeof LIST_KEYS)[number] => (LIST_KEYS as string[]).includes(l));
+
+/** One home as the Sellers tab and the CSV show it: the stack joined to the roll. */
+async function homeRow(ctx: QueryCtx, d: Doc<"distress">) {
+  const p = await ctx.db.get(d.parcelId);
+  if (!p) return null;
+  return {
+    parcelId: p._id,
+    address: title(p.siteAddress),
+    owner: ownerName(p.owner),
+    owner2: p.owner2 ? ownerName(p.owner2) : undefined,
+    mailing: p.mailing,
+    lists: d.lists,
+    score: d.score,
+    codeCases: d.codeCases,
+    seriousCases: d.seriousCases,
+    lastSignalAt: d.lastSignalAt,
+    marketValueCents: p.marketValueCents,
+    deedDate: p.deedDate,
+  };
+}
 
 /**
  * Homes on every chosen list (and on at least minLists lists), highest
@@ -366,7 +392,7 @@ export const sellers = query({
       .withIndex("by_county", (q) => q.eq("county", COUNTY))
       .first();
     const counts = summary?.counts ?? {};
-    const wanted = (args.lists ?? []).filter((l): l is (typeof LIST_KEYS)[number] => (LIST_KEYS as string[]).includes(l));
+    const wanted = knownLists(args.lists);
     const minLists = Math.max(1, args.minLists ?? 1);
     const limit = Math.min(MAX_ROWS, Math.max(1, args.limit ?? 200));
     const ok = (d: Doc<"distress">) => d.lists.length >= minLists && wanted.every((l) => d.lists.includes(l));
@@ -404,22 +430,8 @@ export const sellers = query({
 
     const homes = [];
     for (const d of picked) {
-      const p = await ctx.db.get(d.parcelId);
-      if (!p) continue;
-      homes.push({
-        parcelId: p._id,
-        address: title(p.siteAddress),
-        owner: ownerName(p.owner),
-        owner2: p.owner2 ? ownerName(p.owner2) : undefined,
-        mailing: p.mailing,
-        lists: d.lists,
-        score: d.score,
-        codeCases: d.codeCases,
-        seriousCases: d.seriousCases,
-        lastSignalAt: d.lastSignalAt,
-        marketValueCents: p.marketValueCents,
-        deedDate: p.deedDate,
-      });
+      const home = await homeRow(ctx, d);
+      if (home) homes.push(home);
     }
     return {
       homes,
@@ -429,6 +441,62 @@ export const sellers = query({
       total: summary?.total ?? 0,
       lists: LIST_KEYS.map((key) => ({ key, label: LISTS[key].label, weight: LISTS[key].weight })),
     };
+  },
+});
+
+/**
+ * Every home matching the filters, a page at a time, for the CSV: the
+ * Sellers tab shows the top 200, the export takes them all. Walks the rarest
+ * chosen list (or every stacked home) by score; a page can come back short
+ * when the filters drop rows, so read until isDone.
+ */
+export const sellersExport = query({
+  args: { lists: v.optional(v.array(v.string())), minLists: v.optional(v.number()), paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
+    await requireStaff(ctx);
+    const wanted = knownLists(args.lists);
+    const minLists = Math.max(1, args.minLists ?? 1);
+    const ok = (d: Doc<"distress">) => d.lists.length >= minLists && wanted.every((l) => d.lists.includes(l));
+    const opts = { ...args.paginationOpts, numItems: Math.min(EXPORT_PAGE, Math.max(1, args.paginationOpts.numItems)) };
+
+    const picked: Doc<"distress">[] = [];
+    let result: { isDone: boolean; continueCursor: string };
+    if (wanted.length) {
+      const summary = await ctx.db
+        .query("sellerCounts")
+        .withIndex("by_county", (q) => q.eq("county", COUNTY))
+        .first();
+      const counts = summary?.counts ?? {};
+      const rarest = [...wanted].sort((a, b) => (counts[a] ?? 0) - (counts[b] ?? 0))[0];
+      const page = await ctx.db
+        .query("distressLists")
+        .withIndex("by_list_and_score", (q) => q.eq("county", COUNTY).eq("list", rarest))
+        .order("desc")
+        .paginate(opts);
+      for (const r of page.page) {
+        const d = await ctx.db
+          .query("distress")
+          .withIndex("by_parcel", (q) => q.eq("parcelId", r.parcelId))
+          .first();
+        if (d && ok(d)) picked.push(d);
+      }
+      result = page;
+    } else {
+      const page = await ctx.db
+        .query("distress")
+        .withIndex("by_county_and_score", (q) => q.eq("county", COUNTY))
+        .order("desc")
+        .paginate(opts);
+      picked.push(...page.page.filter(ok));
+      result = page;
+    }
+
+    const homes = [];
+    for (const d of picked) {
+      const home = await homeRow(ctx, d);
+      if (home) homes.push(home);
+    }
+    return { page: homes, isDone: result.isDone, continueCursor: result.continueCursor };
   },
 });
 

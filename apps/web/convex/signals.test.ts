@@ -138,6 +138,26 @@ describe("the sync and the Sellers lists", () => {
     expect((await staff.as.query(api.signals.sellers, { lists: ["absentee", "code_violation"] })).homes.map((h) => h.parcelId)).toEqual([weatherford]);
     expect((await staff.as.query(api.signals.sellers, { minLists: 2 })).homes.map((h) => h.parcelId)).toEqual([weatherford, howdy]);
 
+    // The export reads every matching home a page at a time, in score order.
+    const exportAll = async (filters: { lists?: string[]; minLists?: number }) => {
+      const ids = [];
+      let cursor: string | null = null;
+      for (;;) {
+        const page: { page: Array<{ parcelId: string }>; isDone: boolean; continueCursor: string } = await staff.as.query(api.signals.sellersExport, {
+          ...filters,
+          paginationOpts: { numItems: 1, cursor },
+        });
+        ids.push(...page.page.map((h) => h.parcelId));
+        if (page.isDone) return ids;
+        cursor = page.continueCursor;
+      }
+    };
+    expect(await exportAll({})).toEqual([weatherford, howdy, jackson]);
+    expect(await exportAll({ minLists: 2 })).toEqual([weatherford, howdy]);
+    expect(await exportAll({ lists: ["absentee", "code_violation"] })).toEqual([weatherford]);
+    const first = await staff.as.query(api.signals.sellersExport, { paginationOpts: { numItems: 5, cursor: null } });
+    expect(first.page[0]).toMatchObject({ address: "807 W Weatherford Av", owner: "Away Owner", mailing: { address: "1 OCEAN WAY", state: "CA" } });
+
     const detail = await staff.as.query(api.signals.home, { parcelId: weatherford });
     expect(detail!.signals.map((s) => s.detail)).toEqual(["Weeds/Tall Grass/Rubbish/Brush", "Junk Vehicle", "Deteriorated Structure"]);
 
@@ -159,6 +179,7 @@ describe("the sync and the Sellers lists", () => {
     // Only staff.
     const company = await signUp(t, "owner@roof.example");
     await expect(company.as.query(api.signals.sellers, {})).rejects.toThrow(/staff/);
+    await expect(company.as.query(api.signals.sellersExport, { paginationOpts: { numItems: 5, cursor: null } })).rejects.toThrow(/staff/);
     await expect(company.as.action(api.signals.syncNow, {})).rejects.toThrow();
   });
 
