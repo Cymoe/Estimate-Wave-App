@@ -90,6 +90,7 @@ html.light .border-\[\#1a1a1a\] { border-color: #EEF0F2; }
 html.light .border-\[\#1a1a1a\]\/50 { border-color: rgba(238, 240, 242, 0.5); }
 html.light .border-\[\#222222\] { border-color: #E9EBEE; }
 html.light .border-\[\#232323\] { border-color: #E9EBEE; }
+html.light .border-\[\#262626\] { border-color: #E9EBEE; }
 html.light .border-\[\#2A2A2A\] { border-color: #E9EBEE; }
 html.light .border-\[\#2C2C2C\] { border-color: #E9EBEE; }
 html.light .border-\[\#2a2a2a\] { border-color: #E9EBEE; }
@@ -121,11 +122,13 @@ html.light .border-white\/15 { border-color: rgba(0, 0, 0, 0.150); }
 html.light .border-white\/20 { border-color: rgba(0, 0, 0, 0.200); }
 html.light .border-white\/8 { border-color: rgba(0, 0, 0, 0.080); }
 html.light .disabled\:bg-\[\#2a2a2a\]:disabled { background-color: #F1F2F4; }
+html.light .disabled\:bg-\[\#333333\]:disabled { background-color: #E8EAED; }
 html.light .disabled\:bg-gray-700:disabled { background-color: #E5E7EB; }
 html.light .disabled\:hover\:text-gray-300:disabled:hover { color: #374151; }
 html.light .disabled\:text-gray-500:disabled { color: #6B7280; }
 html.light .disabled\:text-gray-600:disabled { color: #9CA3AF; }
 html.light .divide-\[\#1a1a1a\] > :not([hidden]) ~ :not([hidden]) { border-color: #EEF0F2; }
+html.light .divide-\[\#262626\] > :not([hidden]) ~ :not([hidden]) { border-color: #E9EBEE; }
 html.light .divide-\[\#2A2A2A\] > :not([hidden]) ~ :not([hidden]) { border-color: #E9EBEE; }
 html.light .divide-\[\#2a2a2a\] > :not([hidden]) ~ :not([hidden]) { border-color: #E9EBEE; }
 html.light .divide-\[\#333333\] > :not([hidden]) ~ :not([hidden]) { border-color: #E2E5E9; }
