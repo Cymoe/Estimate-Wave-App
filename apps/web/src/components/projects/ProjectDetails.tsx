@@ -10,10 +10,11 @@ import { EstimateService, type Estimate } from '../../services/EstimateService';
 import { formatCurrency } from '../../utils/format';
 import { invoicesAPI } from '../../lib/api';
 import { ExpensesList } from '../expenses/ExpensesList';
+import { JobPhotos } from '../common/JobPhotos';
 import { NoteDate, NoteRow, SaveStatus, noteInput, noteSelect, noteTextarea, useNoteFields, useSlideIn } from '../common/StructuredNote';
 import { PROJECT_STATUSES, formatProjectDate, projectStatusInfo } from './projectStatus';
 
-type TabType = 'overview' | 'estimates' | 'expenses';
+type TabType = 'overview' | 'estimates' | 'expenses' | 'photos';
 
 const ESTIMATE_PILL: Record<string, string> = {
   draft: 'bg-gray-500/20 text-gray-300',
@@ -372,6 +373,7 @@ export const ProjectPanel: React.FC<{
     { id: 'overview', label: 'Overview' },
     { id: 'estimates', label: 'Estimates', count: estimates?.length ?? 0 },
     { id: 'expenses', label: 'Expenses', count: summary.count },
+    { id: 'photos', label: 'Photos' },
   ];
 
   return (
@@ -530,6 +532,12 @@ export const ProjectPanel: React.FC<{
         {activeTab === 'expenses' && (
           <div className="p-4">
             <ExpensesList projectId={project.id!} onChange={setExpenses} startAdding={addingExpense} />
+          </div>
+        )}
+
+        {activeTab === 'photos' && (
+          <div className="p-4">
+            <JobPhotos organizationId={orgId} projectId={project.id!} title="Job photos" />
           </div>
         )}
       </div>

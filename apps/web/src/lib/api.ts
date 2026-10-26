@@ -254,6 +254,17 @@ export const followUpsAPI = {
   setForEstimate: (estimateId: string, on: boolean) => run('mutation', api.followUps.setForEstimate, { estimateId, on }),
 };
 
+export interface JobPhoto { id: string; url?: string; fileName: string; caption?: string; createdAt: string; estimateId?: string; projectId?: string; from?: string }
+
+/** Job photos on an estimate or a project. */
+export const photosAPI = {
+  list: (target: { estimateId?: string; projectId?: string }): Promise<JobPhoto[]> => run('query', api.photos.list, defined(target)),
+  uploadUrl: (organizationId: string): Promise<string> => run('mutation', api.photos.uploadUrl, { organizationId }),
+  add: (args: { storageId: string; fileName: string; estimateId?: string; projectId?: string; caption?: string }) => run('mutation', api.photos.add, defined(args)),
+  setCaption: (id: string, caption: string) => run('mutation', api.photos.setCaption, { id, caption }),
+  remove: (id: string) => run('mutation', api.photos.remove, { id }),
+};
+
 export const estimatesAPI = {
   async list(organizationId: string, filters?: { clientId?: string; status?: string }) {
     return run('query', api.estimates.list, defined({ organizationId, clientId: filters?.clientId, status: filters?.status }));

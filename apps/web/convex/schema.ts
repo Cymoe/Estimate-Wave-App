@@ -1090,6 +1090,23 @@ export default defineSchema({
     .index("by_organization", ["organizationId"])
     .index("by_client", ["clientId"]),
 
+  // Job photos: before and after, progress, what the client showed. On an
+  // estimate or a project (a project also shows its estimates' photos).
+  jobPhotos: defineTable({
+    organizationId: v.id("organizations"),
+    estimateId: v.optional(v.id("estimates")),
+    projectId: v.optional(v.id("projects")),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    contentType: v.string(),
+    size: v.number(),
+    caption: v.optional(v.string()),
+    uploadedBy: v.id("users"),
+    createdAt: v.string(),
+  })
+    .index("by_estimate", ["estimateId"])
+    .index("by_project", ["projectId"]),
+
   // Contract PDFs a company uploaded: its library (no estimateId) or one
   // job's own. Signed files are kept for good; see convex/contractDocs.ts.
   contractDocs: defineTable({

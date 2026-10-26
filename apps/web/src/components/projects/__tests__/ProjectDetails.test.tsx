@@ -114,7 +114,7 @@ describe('Project drawer', () => {
     expect(dialog.className).toContain('md:w-[720px]');
     expect(dialog.querySelector('h1')!.textContent).toBe('Kitchen trim');
     expect(dialog.textContent).toContain('Ann Miller • Oct 1, 2026 – Jan 1, 2099');
-    expect(Array.from(dialog.querySelectorAll('[role="tab"]')).map((t) => t.textContent)).toEqual(['Overview', 'Estimates1', 'Expenses2']);
+    expect(Array.from(dialog.querySelectorAll('[role="tab"]')).map((t) => t.textContent)).toEqual(['Overview', 'Estimates1', 'Expenses2', 'Photos']);
     expect(summary()).toContain('Contract$3,000.00$900.00 collected');
     expect(summary()).toContain('Costs$700.00of $1,000.00 budget');
     expect(summary()).toContain('Profit$2,300.0077% margin');

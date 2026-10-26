@@ -14,6 +14,7 @@ import type { MutationCtx } from "./_generated/server";
 import { withCategories } from "./lib/categories";
 import { lockContract } from "./lib/contract";
 import { askForDeposit } from "./lib/invoicing";
+import { deletePhotos } from "./photos";
 import {
   CHOICE_KEY,
   companyDocs,
@@ -197,7 +198,8 @@ export const remove = mutation({
       if (file && (await ctx.db.system.get(file.storageId)) !== null)
         await ctx.storage.delete(file.storageId);
     }
-    // Its invoices go with it.
+    // Its invoices and photos go with it.
+    await deletePhotos(ctx, { estimateId: id });
     for (const invoice of await ctx.db.query("invoices").withIndex("by_estimate", (q) => q.eq("estimateId", id)).take(200))
       await ctx.db.delete(invoice._id);
     // The job's own contract PDFs go with it; the company's library stays.
