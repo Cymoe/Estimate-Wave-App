@@ -1082,8 +1082,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                   <MobileCreateMenu
                     isOpen={isCreateMenuOpen}
                     onClose={() => setIsCreateMenuOpen(false)}
-                    onCreateClient={() => navigate('/clients/new')}
-                    onCreateLineItem={() => setShowLineItemDrawer(true)}
                   />
 
                 {/* Activity Panel */}

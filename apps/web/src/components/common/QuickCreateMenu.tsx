@@ -1,16 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Building2, FileText, FolderOpen, Inbox, User, UserPlus } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
-import { FEATURES } from '../../config/features';
-import { isStaff, isSuperAdmin } from '../../lib/roles';
-
-interface QuickCreateOption {
-  id: string;
-  name: string;
-  icon: React.ComponentType<{ className?: string }>;
-  action: () => void;
-}
+import { SPRING, useQuickCreateOptions, type QuickCreateOption } from './quickCreateOptions';
 
 interface Props {
   isOpen: boolean;
@@ -18,26 +7,14 @@ interface Props {
 }
 
 /**
- * What the yellow + button creates. The choices float up out of the button
+ * What the yellow + button creates. The choices pop up out of the button
  * (rendered inside QuickCreateButton so they line up with it), each a round
- * icon with its label beside it, over a dimmed page.
+ * icon with its label beside it, over a dimmed page. Opening is quick and
+ * springy, nearest choice first; closing just drops them.
  */
 export const QuickCreateMenu: React.FC<Props> = ({ isOpen, onClose }) => {
-  const navigate = useNavigate();
-  const { user } = useAuth();
+  const options = useQuickCreateOptions();
   const [selectedIndex, setSelectedIndex] = useState(-1);
-
-  const options: QuickCreateOption[] = [
-    { id: 'lead', name: 'Lead', icon: UserPlus, action: () => navigate('/leads?new=1') },
-    { id: 'estimate', name: 'Estimate', icon: FileText, action: () => navigate('/work?new=1') },
-    ...(FEATURES.projects
-      ? [{ id: 'project', name: 'Project', icon: FolderOpen, action: () => navigate('/projects?new=1') }]
-      : []),
-    { id: 'client', name: 'Client', icon: User, action: () => navigate('/clients/new') },
-    // Staff stock the Lead Market from here; only the owner adds companies.
-    ...(isStaff(user) ? [{ id: 'market-lead', name: 'Market lead', icon: Inbox, action: () => navigate('/ops?new=lead') }] : []),
-    ...(isSuperAdmin(user) ? [{ id: 'company', name: 'Company', icon: Building2, action: () => navigate('/ops?new=company') }] : []),
-  ];
 
   const choose = (option: QuickCreateOption) => {
     option.action();
@@ -73,7 +50,7 @@ export const QuickCreateMenu: React.FC<Props> = ({ isOpen, onClose }) => {
     <>
       {/* Dims the page; tapping it closes the menu. */}
       <div
-        className={`fixed inset-0 bg-black/50 -z-10 transition-opacity duration-200 ${
+        className={`fixed inset-0 bg-black/50 -z-10 transition-opacity motion-reduce:transition-none ${isOpen ? 'duration-100' : 'duration-150'} ${
           isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
         onClick={onClose}
@@ -87,14 +64,18 @@ export const QuickCreateMenu: React.FC<Props> = ({ isOpen, onClose }) => {
         {options.map((option, index) => {
           const Icon = option.icon;
           // The item nearest the button appears first.
-          const delay = isOpen ? (options.length - 1 - index) * 35 : 0;
+          const delay = isOpen ? (options.length - 1 - index) * 25 : 0;
           return (
             <li
               key={option.id}
-              className={`transition-all duration-200 ease-out ${
-                isOpen ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'
-              }`}
-              style={{ transitionDelay: `${delay}ms` }}
+              className="origin-bottom-right motion-reduce:transition-none"
+              style={{
+                opacity: isOpen ? 1 : 0,
+                transform: isOpen ? 'translateY(0) scale(1)' : 'translateY(10px) scale(0.6)',
+                transition: isOpen
+                  ? `transform 220ms ${SPRING} ${delay}ms, opacity 90ms linear ${delay}ms`
+                  : 'transform 100ms ease-in, opacity 100ms ease-in',
+              }}
             >
               <button
                 role="menuitem"
@@ -111,7 +92,7 @@ export const QuickCreateMenu: React.FC<Props> = ({ isOpen, onClose }) => {
                   {option.name}
                 </span>
                 <span
-                  className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition-transform ${
+                  className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition-transform duration-150 ${
                     selectedIndex === index ? 'scale-110' : 'group-hover:scale-110'
                   }`}
                   style={{ backgroundColor: '#FFFFFF', color: '#111827' }}
