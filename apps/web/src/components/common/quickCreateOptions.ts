@@ -1,6 +1,6 @@
 import type React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText, FolderOpen, UserPlus } from 'lucide-react';
+import { FileText, FolderOpen, Gavel, Package, UserPlus } from 'lucide-react';
 import { FEATURES } from '../../config/features';
 
 // Springs a little past where it lands, then settles.
@@ -15,15 +15,18 @@ export interface QuickCreateOption {
 
 /**
  * What the yellow + button creates, on desktop and phone alike: the work
- * itself. Clients, Lead Market leads and companies are added from their own pages.
+ * and what prices it. Clients, Lead Market leads and companies are added
+ * from their own pages.
  */
 export function useQuickCreateOptions(): QuickCreateOption[] {
   const navigate = useNavigate();
   return [
     { id: 'lead', name: 'Lead', icon: UserPlus, action: () => navigate('/leads?new=1') },
     { id: 'estimate', name: 'Estimate', icon: FileText, action: () => navigate('/work?new=1') },
+    { id: 'bid', name: 'Bid', icon: Gavel, action: () => navigate('/bids?new=1') },
     ...(FEATURES.projects
       ? [{ id: 'project', name: 'Project', icon: FolderOpen, action: () => navigate('/projects?new=1') }]
       : []),
+    { id: 'item', name: 'Price book item', icon: Package, action: () => navigate('/price-book/items?new=1') },
   ];
 }

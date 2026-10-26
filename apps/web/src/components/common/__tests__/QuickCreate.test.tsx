@@ -39,11 +39,13 @@ function mount() {
 }
 
 describe('the yellow + button', () => {
-  it('only creates leads, estimates and projects, on desktop and phone', async () => {
+  it('creates leads, estimates, bids, projects and price book items, on desktop and phone', async () => {
     const { container, render } = mount();
     await render(true);
-    expect(Array.from(container.querySelectorAll('[role="menu"] li')).map((li) => li.textContent)).toEqual(['Lead', 'Estimate', 'Project']);
+    expect(Array.from(container.querySelectorAll('[role="menu"] li')).map((li) => li.textContent)).toEqual(['Lead', 'Estimate', 'Bid', 'Project', 'Price book item']);
     expect(container.textContent).toContain('New leadSomeone asking about work');
+    expect(container.textContent).toContain('New bidWhat a lead is worth to you');
+    expect(container.textContent).toContain('New price book itemAdd to your price book');
     for (const gone of ['Client', 'Market lead', 'Company']) expect(container.textContent).not.toContain(gone);
   });
 
@@ -65,7 +67,7 @@ describe('the yellow + button', () => {
     const { container, render } = mount();
     await render(true);
     const items = Array.from(container.querySelectorAll('[role="menu"] li')) as HTMLElement[];
-    expect(items.map((li) => li.style.transition.match(/ (\d+)ms,/)![1])).toEqual(['50', '25', '0']);
+    expect(items.map((li) => li.style.transition.match(/ (\d+)ms,/)![1])).toEqual(['80', '60', '40', '20', '0']);
     await render(false);
     expect(items[0].style.transition).toBe('transform 100ms ease-in, opacity 100ms ease-in');
     expect(items[0].style.opacity).toBe('0');

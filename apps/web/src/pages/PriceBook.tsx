@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { 
   ShoppingCart,
   List,
@@ -53,6 +53,14 @@ export const PriceBook: React.FC = () => {
   const [triggerAddItem, setTriggerAddItem] = useState(0);
   const [triggerAddCostCode, setTriggerAddCostCode] = useState(0);
   const [isAddingItem, setIsAddingItem] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // The yellow + button's "Price book item" opens /price-book/items?new=1.
+  useEffect(() => {
+    if (searchParams.get('new') !== '1') return;
+    setTriggerAddItem((n) => n + 1);
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   // Debounce search input
   useEffect(() => {

@@ -597,6 +597,16 @@ describe('Bids', () => {
     expect(document.body.querySelector('[data-bid-status]')).toBeNull(); // said once, in the card
   });
 
+  it("opens the add-bid window straight away from the yellow + button's Bid, but not with no trades to bid on", async () => {
+    await render('/bids?new=1');
+    expect(dialog()?.textContent).toContain('Your bids');
+    document.body.innerHTML = '';
+    walletExtra = { leadTrades: [] };
+    await render('/bids?new=1');
+    expect(dialog()).toBeNull();
+    expect(document.body.querySelector('[data-no-trades]')?.textContent).toContain('First, pick your trades');
+  });
+
   it('says nothing about the shared balance when no bid is covered', async () => {
     balanceCents = 0;
     standing = [{ id: 'sb1', county: 'Midland', jobType: 'landscaping', amountCents: 25000, funded: false, leading: false, contested: false }];

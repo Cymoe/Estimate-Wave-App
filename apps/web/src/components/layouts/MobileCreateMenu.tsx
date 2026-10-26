@@ -10,7 +10,9 @@ interface MobileCreateMenuProps {
 const HINTS: Record<string, string> = {
   lead: 'Someone asking about work',
   estimate: 'Price a job',
+  bid: 'What a lead is worth to you',
   project: 'Start a job',
+  item: 'Add to your price book',
 };
 
 export const MobileCreateMenu: React.FC<MobileCreateMenuProps> = ({ isOpen, onClose }) => {

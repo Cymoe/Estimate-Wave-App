@@ -64,7 +64,7 @@ export const QuickCreateMenu: React.FC<Props> = ({ isOpen, onClose }) => {
         {options.map((option, index) => {
           const Icon = option.icon;
           // The item nearest the button appears first.
-          const delay = isOpen ? (options.length - 1 - index) * 25 : 0;
+          const delay = isOpen ? (options.length - 1 - index) * 20 : 0;
           return (
             <li
               key={option.id}
