@@ -665,6 +665,37 @@ export default defineSchema({
     .index("by_caller_and_at", ["callerId", "at"])
     .index("by_at", ["at"]),
 
+  // Homes posted for Midland's monthly courthouse foreclosure auction (first
+  // Tuesday; lib/foreclosures.ts), typed in by staff from the county clerk's
+  // public search, then what happened at the sale and who bought. The roll's
+  // owner of a posted home is never called; the buyer of a sold one can be.
+  foreclosures: defineTable({
+    county: v.string(),
+    saleDate: v.string(),
+    kind: v.union(v.literal("mortgage"), v.literal("tax")),
+    address: v.string(),
+    addressKey: v.string(),
+    parcelId: v.optional(v.id("parcels")),
+    // The clerk's document number for the notice.
+    instrument: v.optional(v.string()),
+    status: v.union(v.literal("posted"), v.literal("sold"), v.literal("back_to_lender"), v.literal("cancelled")),
+    buyer: v.optional(
+      v.object({
+        name: v.string(),
+        company: v.boolean(),
+        phone: v.optional(v.string()),
+        email: v.optional(v.string()),
+      }),
+    ),
+    salePriceCents: v.optional(v.number()),
+    note: v.optional(v.string()),
+    addedBy: v.id("users"),
+    addedAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_county_and_sale", ["county", "saleDate"])
+    .index("by_parcel", ["parcelId"]),
+
   // How each permit feed's last sync went.
   permitSources: defineTable({
     source: v.string(),

@@ -557,6 +557,15 @@ export const callsAPI = {
   }) => run('mutation', api.calls.takeLead, defined(args)),
 };
 
+/** Midland's monthly courthouse foreclosure auction, kept by hand in Ops. */
+export const foreclosuresAPI = {
+  sale: (saleDate?: string) => run('query', api.foreclosures.sale, defined({ saleDate })),
+  addMany: (saleDate: string, kind: 'mortgage' | 'tax', addresses: string) => run('mutation', api.foreclosures.addMany, { saleDate, kind, addresses }),
+  update: (args: { id: string; status?: string; buyer?: { name: string; company: boolean; phone?: string }; salePriceCents?: number; note?: string }) =>
+    run('mutation', api.foreclosures.update, defined(args)),
+  remove: (id: string) => run('mutation', api.foreclosures.remove, { id }),
+};
+
 /** The Tolliver Report: a county's week in permits, builders, demand and sales (Pro adds the names). */
 export const reportAPI = {
   get: (organizationId: string, opts: { county?: string; trade?: string } = {}) =>

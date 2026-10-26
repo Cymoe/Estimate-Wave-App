@@ -14,6 +14,7 @@ import { OpsErrorBoundary } from '../components/ops/OpsErrorBoundary';
 import { isStaff, isSuperAdmin } from '../lib/roles';
 import { TeamCard } from '../components/ops/TeamCard';
 import { CallsCard } from '../components/ops/CallsCard';
+import { AuctionCard } from '../components/ops/AuctionCard';
 import { useConfirm } from '../components/common/ConfirmDialog';
 import { leadRoute } from '../components/market/leadRoute';
 import { Confirmed } from '../components/market/Confirmed';
@@ -1494,7 +1495,10 @@ const LeadMarketPage: React.FC = () => {
           onListed={setNotice}
         />
       ) : tab === 'calls' ? (
-        <CallsCard />
+        <div className="space-y-6">
+          <CallsCard />
+          <AuctionCard />
+        </div>
       ) : tab === 'demand' ? (
         <DemandBoard owner={owner} />
       ) : tab === 'sold' ? (

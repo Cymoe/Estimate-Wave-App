@@ -35,6 +35,16 @@ const dncFinish = jest.fn<Promise<{ count: number }>, [string]>(async () => {
 });
 const dncAdd = jest.fn<Promise<null>, [string, string | undefined]>(async () => null);
 
+let auctionHomes: unknown[] = [];
+const auctionAdd = jest.fn<Promise<{ added: number; skipped: number; unmatched: string[] }>, [string, string, string]>(async () => {
+  auctionHomes = [
+    { id: 'f1', address: '2709 Howdy Dr', kind: 'mortgage', status: 'posted', matched: true, ownerOnRoll: 'Cole Jane', marketValueCents: 24_000_000 },
+    { id: 'f2', address: '410 Elm St', kind: 'mortgage', status: 'posted', matched: false },
+  ];
+  return { added: 2, skipped: 0, unmatched: ['410 Elm St'] };
+});
+const auctionUpdate = jest.fn<Promise<null>, [Record<string, unknown>]>(async () => null);
+
 let intakeRows: unknown[] = [];
 let intakeLog: unknown[] = [];
 let payments: { playMoney: boolean } | undefined = { playMoney: false };
@@ -112,6 +122,12 @@ jest.mock('../../../lib/api', () => ({
     invite: (email: string, role?: string) => inviteStaff(email, role),
     removeInvite: async () => undefined,
     remove: async () => undefined,
+  },
+  foreclosuresAPI: {
+    sale: async (saleDate?: string) => ({ saleDate: saleDate ?? '2026-11-03', saleDates: ['2026-11-03', '2026-10-06'], homes: auctionHomes }),
+    addMany: (saleDate: string, kind: string, addresses: string) => auctionAdd(saleDate, kind, addresses),
+    update: (args: Record<string, unknown>) => auctionUpdate(args),
+    remove: async () => null,
   },
   callsAPI: {
     dncStatus: async () => dncLists,
@@ -365,6 +381,50 @@ describe('Lead Market', () => {
     await act(async () => (never.form!.querySelector('button[type="submit"]') as HTMLButtonElement).click());
     await flush();
     expect(dncAdd).toHaveBeenCalledWith('432-555-0199', 'Added in Ops');
+  });
+
+  it('the courthouse auction card: paste a sale, then mark one sold with its buyer', async () => {
+    auctionHomes = [];
+    await render(<MemoryRouter initialEntries={['/ops?tab=calls']}><LeadMarketPage /></MemoryRouter>, false);
+    const card = () => document.body.querySelector('[data-testid="auction-card"]')!;
+    expect(card().textContent).toContain('Nothing added for Nov 3 yet.');
+    await act(async () => {
+      const box = card().querySelector('textarea[aria-label="Posted addresses"]') as HTMLTextAreaElement;
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, '2709 Howdy Dr\n410 Elm St');
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => (card().querySelector('form button[type="submit"]') as HTMLButtonElement).click());
+    await flush();
+    expect(auctionAdd).toHaveBeenCalledWith('2026-11-03', 'mortgage', '2709 Howdy Dr\n410 Elm St');
+    expect(card().textContent).toContain('Added 2 for Nov 3 · not on the appraisal roll: 410 Elm St');
+    expect(card().querySelector('[data-testid="auction-counts"]')!.textContent).toBe('Nov 3: 2 posted');
+    const first = card().querySelector('[data-testid="auction-home"]')!;
+    expect(first.textContent).toContain('on the roll as Cole Jane, worth $240,000');
+
+    const status = first.querySelector('select') as HTMLSelectElement;
+    await act(async () => {
+      status.value = 'sold';
+      status.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(auctionUpdate).not.toHaveBeenCalled();
+    await act(async () => {
+      type(first.querySelector('input[aria-label="Buyer"]') as HTMLInputElement, 'Basin Flips LLC');
+      type(first.querySelector('input[aria-label="Buyer phone"]') as HTMLInputElement, '432-555-0142');
+      type(first.querySelector('input[aria-label="Sale price"]') as HTMLInputElement, '145,000');
+    });
+    await act(async () => Array.from(first.querySelectorAll('button')).find((b) => b.textContent === 'Save')!.click());
+    await flush();
+    expect(auctionUpdate).toHaveBeenCalledWith({ id: 'f1', status: 'sold', buyer: { name: 'Basin Flips LLC', company: true, phone: '432-555-0142' }, salePriceCents: 14_500_000 });
+
+    // Another home: back to the lender saves straight away.
+    const second = card().querySelectorAll('[data-testid="auction-home"]')[1];
+    const other = second.querySelector('select') as HTMLSelectElement;
+    await act(async () => {
+      other.value = 'back_to_lender';
+      other.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await flush();
+    expect(auctionUpdate).toHaveBeenLastCalledWith({ id: 'f2', status: 'back_to_lender' });
   });
 
   it('sorts the Companies table by the heading tapped, and tapping again flips it', async () => {
