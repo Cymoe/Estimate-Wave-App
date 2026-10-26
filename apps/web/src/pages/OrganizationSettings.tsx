@@ -8,6 +8,7 @@ import { NotificationsSettings } from '../components/settings/NotificationsSetti
 import { ConnectedAssistants } from '../components/settings/ConnectedAssistants';
 import { ContractsSettings } from '../components/settings/ContractsSettings';
 import { PaymentsSettings } from '../components/settings/PaymentsSettings';
+import { ClientRemindersSettings } from '../components/settings/ClientRemindersSettings';
 
 export default function OrganizationSettings() {
   const navigate = useNavigate();
@@ -146,6 +147,8 @@ export default function OrganizationSettings() {
               <div className="bg-[#1A1A1A] rounded-lg p-6">
                 <h2 className="text-lg font-semibold text-white mb-4">Lead alerts</h2>
                 <NotificationsSettings organizationId={selectedOrg.id} />
+                <h2 className="text-lg font-semibold text-white mt-8 mb-3">Client reminders</h2>
+                <ClientRemindersSettings organizationId={selectedOrg.id} />
               </div>
             )}
 

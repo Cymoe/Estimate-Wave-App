@@ -44,6 +44,10 @@ const serverOnly = new Set([
   "contractDocs",
   "shareToken",
   "firstOpenedAt",
+  "sentAt",
+  "remindersSent",
+  "lastReminderAt",
+  "remindersOff",
 ]);
 
 const MAX_DESIGN_BYTES = 10 * 1024 * 1024;
@@ -164,6 +168,8 @@ export const updateDef = mutationDef({
       taxAmount,
       totalAmount,
       ...lock,
+      // Reminders count from when it was first sent.
+      ...(patch.status === "sent" && !doc.sentAt ? { sentAt: now } : {}),
       updatedAt: now,
     });
     if ("contractLockedAt" in lock) await askForDeposit(ctx, (await ctx.db.get(id))!, user._id);

@@ -245,6 +245,12 @@ export const estimateFields = {
   // The secret in the estimate's client link (/share/estimate/:token).
   shareToken: v.optional(v.string()),
   firstOpenedAt: v.optional(v.string()),
+  // When it was first sent, and the reminders emailed to the client since
+  // (followUps.ts). remindersOff stops them for this estimate.
+  sentAt: v.optional(v.string()),
+  remindersSent: v.optional(v.number()),
+  lastReminderAt: v.optional(v.string()),
+  remindersOff: v.optional(v.boolean()),
 };
 
 // A payment the company recorded on an invoice: check, cash, Zelle, a card
@@ -476,6 +482,9 @@ export default defineSchema({
     isSample: v.optional(v.boolean()),
     // How clients pay the company (organizations.setPayments).
     payments: v.optional(paymentSettings),
+    // Reminder emails to clients who haven't signed (organizations.setFollowUps).
+    // Absent means on, after 3 days.
+    followUps: v.optional(v.object({ enabled: v.boolean(), afterDays: v.number() })),
     ...timestamps,
   }).index("by_slug", ["slug"]),
 
@@ -1110,7 +1119,8 @@ export default defineSchema({
   })
     .index("by_organization_and_issue_date", ["organizationId", "issueDate"])
     .index("by_client", ["clientId"])
-    .index("by_share_token", ["shareToken"]),
+    .index("by_share_token", ["shareToken"])
+    .index("by_status", ["status"]),
 
   // Invoicing was removed from the app (no payments are taken here). The table
   // stays defined so any rows saved earlier don't block a deploy; nothing reads

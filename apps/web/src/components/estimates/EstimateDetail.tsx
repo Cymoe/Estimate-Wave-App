@@ -21,6 +21,7 @@ import { ItemPricingDrawer } from './ItemPricingDrawer';
 import { ContextualPricingSelector } from './ContextualPricingSelector';
 import { DesignUpload } from './DesignUpload';
 import { PaymentsTab } from './PaymentsTab';
+import { RemindersCard } from './RemindersCard';
 import { ContractTab } from './ContractTab';
 import { copyText, duplicateEstimate, sendEstimateLink } from './estimateActions';
 
@@ -739,6 +740,9 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                 </div>
               )}
             </div>
+
+            {/* Reminder emails while the client hasn't signed */}
+            {estimate.id && <RemindersCard estimateId={estimate.id} />}
 
             {/* Agreed design: shown on the contract */}
             <DesignUpload estimateId={estimate.id!} design={estimate.design} onChange={() => loadEstimate(true)} />

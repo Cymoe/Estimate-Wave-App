@@ -107,6 +107,17 @@ export const setPayments = mutation({
   },
 });
 
+/** Reminder emails to clients who haven't signed: on or off, and how many days after sending. */
+export const setFollowUps = mutation({
+  args: { id: v.id("organizations"), enabled: v.boolean(), afterDays: v.number() },
+  handler: async (ctx, { id, enabled, afterDays }) => {
+    await requireMember(ctx, id, "admin");
+    if (!Number.isInteger(afterDays) || afterDays < 1 || afterDays > 30) fail("INVALID", "Remind after 1 to 30 days");
+    await ctx.db.patch(id, { followUps: { enabled, afterDays }, updatedAt: nowIso() });
+    return { enabled, afterDays };
+  },
+});
+
 /**
  * Deactivates the organization (owner only). Its data is kept so it can be
  * restored; it just stops appearing for its members.

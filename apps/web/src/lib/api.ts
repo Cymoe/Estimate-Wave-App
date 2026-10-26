@@ -108,6 +108,11 @@ export const organizationsAPI = {
     return run('mutation', api.organizations.remove, { id });
   },
 
+  /** Reminder emails to clients who haven't signed: on or off, and after how many days. */
+  setFollowUps(id: string, settings: { enabled: boolean; afterDays: number }): Promise<{ enabled: boolean; afterDays: number }> {
+    return run('mutation', api.organizations.setFollowUps, { id, ...settings });
+  },
+
   /** How clients pay the company: deposit at signing, pay link, instructions. */
   setPayments(id: string, settings: PaymentSettings): Promise<PaymentSettings> {
     return run('mutation', api.organizations.setPayments, defined({ id, ...settings }));
@@ -229,6 +234,24 @@ export const invoicesAPI = {
     run('mutation', api.invoices.recordPayment, defined({ id, ...payment })),
   removePayment: (id: string, paymentId: string): Promise<InvoiceView> => run('mutation', api.invoices.removePayment, { id, paymentId }),
   cancel: (id: string) => run('mutation', api.invoices.cancel, { id }),
+};
+
+export interface ReminderStatus {
+  companyOn: boolean;
+  afterDays: number;
+  on: boolean;
+  clientEmail?: string;
+  sent: number;
+  max: number;
+  lastAt?: string;
+  nextAt?: string;
+  open: boolean;
+}
+
+/** Reminder emails to clients who haven't signed. */
+export const followUpsAPI = {
+  status: (estimateId: string): Promise<ReminderStatus> => run('query', api.followUps.status, { estimateId }),
+  setForEstimate: (estimateId: string, on: boolean) => run('mutation', api.followUps.setForEstimate, { estimateId, on }),
 };
 
 export const estimatesAPI = {

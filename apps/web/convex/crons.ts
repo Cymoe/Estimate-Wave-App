@@ -45,4 +45,7 @@ crons.daily(
   {},
 );
 
+// Reminder emails to clients who haven't signed their estimate (followUps.ts).
+crons.hourly("remind clients about estimates", { minuteUTC: 23 }, internal.followUps.send, {});
+
 export default crons;
