@@ -1,5 +1,6 @@
 import React, { Suspense, lazy, useState } from 'react';
-import { X, ChevronRight, User, Building, CreditCard, HelpCircle, LogOut, Plus, TrendingUp, Phone, Gavel, Tag, Lock, BarChart3, FileText, BookOpen, HardHat } from 'lucide-react';
+import { X, ChevronRight, User, Building, CreditCard, HelpCircle, LogOut, Plus } from 'lucide-react';
+import { NavShapeMark } from './NavShapes';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { FEATURES } from '../../config/features';
@@ -120,7 +121,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
               }`
             }
           >
-            <TrendingUp className="w-5 h-5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+            <NavShapeMark shape="profit" className="w-5 h-5 shrink-0" />
             <span>Profit Tracker</span>
           </NavLink>
           )}
@@ -137,7 +138,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
               }`
             }
           >
-            <Phone className="w-5 h-5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+            <NavShapeMark shape="leads" className="w-5 h-5 shrink-0" />
             <span>Leads</span>
           </NavLink>
 
@@ -152,7 +153,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
               }`
             }
           >
-            <Gavel className="w-5 h-5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+            <NavShapeMark shape="bids" className="w-5 h-5 shrink-0" />
             <span>Bids</span>
           </NavLink>
 
@@ -167,7 +168,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
               }`
             }
           >
-            <Tag className="w-5 h-5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+            <NavShapeMark shape="marketplace" className="w-5 h-5 shrink-0" />
             <span>Marketplace</span>
           </NavLink>
 
@@ -182,7 +183,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
               }${dim}`
             }
           >
-            <Lock className="w-5 h-5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+            <NavShapeMark shape="vault" className="w-5 h-5 shrink-0" />
             <span>The Vault</span>
           </NavLink>
 
@@ -197,7 +198,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
               }`
             }
           >
-            <BarChart3 className="w-5 h-5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+            <NavShapeMark shape="report" className="w-5 h-5 shrink-0" />
             <span>Tolliver Report</span>
           </NavLink>
 
@@ -212,7 +213,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
               }${dim}`
             }
           >
-            <FileText className="w-5 h-5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+            <NavShapeMark shape="estimates" className="w-5 h-5 shrink-0" />
             <span>Work</span>
           </NavLink>
 
@@ -227,7 +228,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
               }${dim}`
             }
           >
-            <BookOpen className="w-5 h-5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+            <NavShapeMark shape="pricebook" className="w-5 h-5 shrink-0" />
             <span>Price Book</span>
           </NavLink>
 
@@ -242,7 +243,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
               }${dim}`
             }
           >
-            <HardHat className="w-5 h-5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+            <NavShapeMark shape="projects" className="w-5 h-5 shrink-0" />
             <span>Services</span>
           </NavLink>
         </nav>

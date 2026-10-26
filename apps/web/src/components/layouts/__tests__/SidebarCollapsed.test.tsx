@@ -51,10 +51,17 @@ describe('the right nav', () => {
     expect(nav.firstElementChild!.className).toContain('w-12');
   });
 
-  it('lays the tiles out two across when open, with Projects across the full width', async () => {
+  it('lays the tiles out two across when open, every one the same square with a shape', async () => {
     const nav = await render(false);
     const grid = nav.querySelector('a[href="/leads"]')!.parentElement!;
     expect(grid.className).toContain('grid-cols-2');
-    expect(nav.querySelector('a[href="/projects"]')!.className).toContain('col-span-2');
+    const tiles = Array.from(grid.querySelectorAll(':scope > a'));
+    expect(tiles.length).toBeGreaterThan(0);
+    for (const tile of tiles) {
+      expect(tile.className).toContain('aspect-square');
+      expect(tile.className).not.toContain('col-span-2');
+    }
+    expect(nav.querySelector('a[href="/leads"] svg')!.getAttribute('data-shape')).toBe('leads');
+    expect(nav.querySelector('a[href="/projects"] svg')!.getAttribute('data-shape')).toBe('projects');
   });
 });

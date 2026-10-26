@@ -15,16 +15,9 @@ import {
   TrendingUp,
   Sun,
   Moon,
-  Plus,
-  Phone,
-  Gavel,
-  Tag,
-  Lock,
-  BarChart3,
-  FileText,
-  BookOpen,
-  HardHat
+  Plus
 } from 'lucide-react';
+import { NavShapeMark } from './NavShapes';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { FEATURES } from '../../config/features';
@@ -194,8 +187,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               to="/profit-tracker"
               className={({ isActive }) =>
                 isActive
-                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
-                  : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
+                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center aspect-square relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
+                  : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center aspect-square hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
               }
               title={isSidebarCollapsed ? "Profit Tracker" : undefined}
             >
@@ -203,7 +196,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <>
                   <div className="relative z-10 flex flex-col items-center">
                     <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      <TrendingUp className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />
+                      <NavShapeMark shape="profit" />
                     </div>
                     {!isSidebarCollapsed && (
                       <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
@@ -221,15 +214,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
               to="/leads"
               className={({ isActive }) =>
                 isActive
-                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
-                  : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
+                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center aspect-square relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
+                  : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center aspect-square hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
               }
               title={isSidebarCollapsed ? "Leads - Quote requests from first call to sold or lost" : undefined}
             >
               {({ isActive }) => (
                 <div className="relative z-10 flex flex-col items-center">
                   <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                    <Phone className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />
+                    <NavShapeMark shape="leads" />
                   </div>
                   {!isSidebarCollapsed && (
                     <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
@@ -245,15 +238,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
               to="/bids"
               className={({ isActive }) =>
                 isActive
-                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
-                  : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
+                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center aspect-square relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
+                  : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center aspect-square hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
               }
               title={isSidebarCollapsed ? "Bids - Bid on leads in your counties" : undefined}
             >
               {({ isActive }) => (
                 <div className="relative z-10 flex flex-col items-center">
                   <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                    <Gavel className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />
+                    <NavShapeMark shape="bids" />
                   </div>
                   {!isSidebarCollapsed && (
                     <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
@@ -268,15 +261,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
               to="/marketplace"
               className={({ isActive }) =>
                 isActive
-                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
-                  : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
+                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center aspect-square relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
+                  : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center aspect-square hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
               }
               title={isSidebarCollapsed ? "Marketplace - Leads nobody bid on, priced to move" : undefined}
             >
               {({ isActive }) => (
                 <div className="relative z-10 flex flex-col items-center">
                   <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                    <Tag className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />
+                    <NavShapeMark shape="marketplace" />
                   </div>
                   {!isSidebarCollapsed && (
                     <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
@@ -291,15 +284,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
               to="/vault"
               className={({ isActive }) =>
                 isActive
-                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]${dim}`
-                  : `bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95${dim}`
+                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center aspect-square relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]${dim}`
+                  : `bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center aspect-square hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95${dim}`
               }
               title={isSidebarCollapsed ? 'The Vault - Members-only leads' : planActive ? undefined : 'On the plan'}
             >
               {({ isActive }) => (
                 <div className="relative z-10 flex flex-col items-center">
                   <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                    <Lock className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />
+                    <NavShapeMark shape="vault" />
                   </div>
                   {!isSidebarCollapsed && (
                     <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
@@ -314,15 +307,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
               to="/report"
               className={({ isActive }) =>
                 isActive
-                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 ${isSidebarCollapsed ? '' : 'col-span-2'} flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
-                  : `bg-[#1A1A1A] border border-[#2A2A2A] ${isSidebarCollapsed ? '' : 'col-span-2'} flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95`
+                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center aspect-square relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
+                  : `bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center aspect-square hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95`
               }
               title={isSidebarCollapsed ? 'The Tolliver Report - Permits, builders and demand' : undefined}
             >
               {({ isActive }) => (
                 <div className="relative z-10 flex flex-col items-center">
                   <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                    <BarChart3 className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />
+                    <NavShapeMark shape="report" />
                   </div>
                   {!isSidebarCollapsed && (
                     <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
@@ -337,8 +330,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               to="/work"
               className={({ isActive }) =>
                 isActive || location.pathname.startsWith('/work') || location.pathname.startsWith('/estimates')
-                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]${dim}`
-                  : `bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95${dim}`
+                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center aspect-square relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]${dim}`
+                  : `bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center aspect-square hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95${dim}`
               }
               title={isSidebarCollapsed ? "Estimates - Create and Manage Estimates" : undefined}
             >
@@ -346,7 +339,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <>
                   <div className="relative z-10 flex flex-col items-center">
                     <div className={`mb-1 ${isActive || location.pathname.startsWith('/work') || location.pathname.startsWith('/estimates') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      <FileText className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />
+                      <NavShapeMark shape="estimates" />
                     </div>
                     {!isSidebarCollapsed && (
                       <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/work') || location.pathname.startsWith('/estimates') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
@@ -363,8 +356,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               to="/price-book"
               className={({ isActive }) =>
                 isActive || location.pathname.startsWith('/price-book') || location.pathname.startsWith('/items') || location.pathname.startsWith('/cost-codes')
-                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]${dim}`
-                  : `bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95${dim}`
+                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center aspect-square relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]${dim}`
+                  : `bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center aspect-square hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95${dim}`
               }
               title={isSidebarCollapsed ? "Price Book - Cost Codes, Items, Services & Packages" : undefined}
             >
@@ -372,7 +365,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <>
                   <div className="relative z-10 flex flex-col items-center">
                     <div className={`mb-1 ${isActive || location.pathname.startsWith('/price-book') || location.pathname.startsWith('/items') || location.pathname.startsWith('/cost-codes') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      <BookOpen className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />
+                      <NavShapeMark shape="pricebook" />
                     </div>
                     {!isSidebarCollapsed && (
                       <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/price-book') || location.pathname.startsWith('/items') || location.pathname.startsWith('/cost-codes') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
@@ -390,8 +383,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               to="/projects"
               className={({ isActive }) =>
                 isActive || location.pathname.startsWith('/projects')
-                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 ${isSidebarCollapsed ? '' : 'col-span-2'} flex flex-col items-center justify-center h-16 relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]${dim}`
-                  : `bg-[#1A1A1A] border border-[#2A2A2A] ${isSidebarCollapsed ? '' : 'col-span-2'} flex flex-col items-center justify-center h-16 hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95${dim}`
+                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center aspect-square relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]${dim}`
+                  : `bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center aspect-square hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95${dim}`
               }
               title={isSidebarCollapsed ? "Projects - Manage Your Projects" : undefined}
             >
@@ -399,7 +392,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <>
                   <div className="relative z-10 flex flex-col items-center">
                     <div className={`mb-1 ${isActive || location.pathname.startsWith('/projects') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      <HardHat className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />
+                      <NavShapeMark shape="projects" />
                     </div>
                     {!isSidebarCollapsed && (
                       <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/projects') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
