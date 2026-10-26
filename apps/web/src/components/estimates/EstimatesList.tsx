@@ -424,7 +424,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
                 CREATE FIRST ESTIMATE
               </button>
             ) : (
-              <p className="text-sm text-gray-400">Tap the yellow + and choose Estimate to create your first one.</p>
+              <p className="text-sm text-gray-400">Tap the blue + and choose Estimate to create your first one.</p>
             )}
           </div>
         </div>
@@ -611,7 +611,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
                   ? 'Try adjusting your search or filters.'
                   : onCreateEstimate
                     ? 'Get started by creating your first estimate.'
-                    : 'Tap the yellow + and choose Estimate to create one.'
+                    : 'Tap the blue + and choose Estimate to create one.'
                 }
               </p>
               {(!searchTerm && statusFilter === 'all' && onCreateEstimate) && (

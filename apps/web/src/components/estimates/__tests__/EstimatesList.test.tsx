@@ -79,7 +79,7 @@ describe('EstimatesList', () => {
   it('points to the + button when there are no estimates yet', async () => {
     rows = [];
     const container = await render();
-    expect(container.textContent).toContain('Tap the yellow + and choose Estimate');
+    expect(container.textContent).toContain('Tap the blue + and choose Estimate');
     expect(container.querySelector('button')?.textContent ?? '').not.toMatch(/CREATE FIRST ESTIMATE/);
   });
 

@@ -23,7 +23,7 @@ function Where() {
   return <p data-testid="where">{pathname + search}</p>;
 }
 
-it("opens Add Item straight away from the yellow + button's Price book item, then tidies the address", async () => {
+it("opens Add Item straight away from the blue + button's Price book item, then tidies the address", async () => {
   const container = document.createElement('div');
   document.body.appendChild(container);
   await act(async () =>

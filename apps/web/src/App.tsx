@@ -163,7 +163,7 @@ function HomeRedirect() {
   return <Navigate to={landingFor(user, params.get('next'))} replace />;
 }
 
-/** The old Ops address, with its query string (the yellow + button's ?new=lead). */
+/** The old Ops address, with its query string (the blue + button's ?new=lead). */
 function LeadMarketRedirect() {
   const location = useLocation();
   return <Navigate to={`/ops${location.search}`} replace />;

@@ -404,7 +404,7 @@ const Dashboard = () => {
           <div className="p-12 text-center">
             <FileText className="w-12 h-12 text-gray-600 mx-auto mb-4" />
             <p className="text-gray-400 mb-4">No estimates yet</p>
-            <p className="text-sm text-gray-500">Tap the yellow + and choose Estimate to create one.</p>
+            <p className="text-sm text-gray-500">Tap the blue + and choose Estimate to create one.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">

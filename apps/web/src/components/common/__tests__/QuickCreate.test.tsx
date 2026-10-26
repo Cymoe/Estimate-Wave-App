@@ -38,7 +38,7 @@ function mount() {
   return { container, render };
 }
 
-describe('the yellow + button', () => {
+describe('the blue + button', () => {
   it('creates leads, estimates, bids, projects and price book items, on desktop and phone', async () => {
     const { container, render } = mount();
     await render(true);

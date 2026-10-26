@@ -7,7 +7,7 @@ interface Props {
 }
 
 /**
- * What the yellow + button creates. The choices pop up out of the button
+ * What the blue + button creates. The choices pop up out of the button
  * (rendered inside QuickCreateButton so they line up with it), each a round
  * icon with its label beside it, over a dimmed page. Opening is quick and
  * springy, nearest choice first; closing just drops them.

@@ -207,7 +207,7 @@ export const ProjectList: React.FC = () => {
             <p className="text-gray-400">
               {search || statusFilter !== 'all'
                 ? 'Try adjusting your search or filters.'
-                : 'Tap the yellow + and choose Project to create one.'}
+                : 'Tap the blue + and choose Project to create one.'}
             </p>
           </div>
         ) : (

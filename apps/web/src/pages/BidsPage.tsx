@@ -136,7 +136,7 @@ const BidsPage: React.FC = () => {
     setNewlyOutbid((prev) => (fresh.every((id) => prev.has(id)) ? prev : new Set([...prev, ...fresh])));
     bidsAPI.markOutbidSeen(organizationId).catch(() => {});
   }, [organizationId, standing]);
-  // The yellow + button's "Bid" opens /bids?new=1, once the page knows whether there are trades to bid on.
+  // The blue + button's "Bid" opens /bids?new=1, once the page knows whether there are trades to bid on.
   useEffect(() => {
     if (params.get('new') !== '1' || !standing || !wallet) return;
     if (!noTrades) setAdding(true);

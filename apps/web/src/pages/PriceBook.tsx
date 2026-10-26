@@ -55,7 +55,7 @@ export const PriceBook: React.FC = () => {
   const [isAddingItem, setIsAddingItem] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // The yellow + button's "Price book item" opens /price-book/items?new=1.
+  // The blue + button's "Price book item" opens /price-book/items?new=1.
   useEffect(() => {
     if (searchParams.get('new') !== '1') return;
     setTriggerAddItem((n) => n + 1);

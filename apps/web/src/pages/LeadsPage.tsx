@@ -207,7 +207,7 @@ const LeadsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Lead | 'new' | null>(null);
 
-  // The yellow + button's "Lead" opens /leads?new=1.
+  // The blue + button's "Lead" opens /leads?new=1.
   useEffect(() => {
     if (searchParams.get('new') !== '1') return;
     setEditing('new');

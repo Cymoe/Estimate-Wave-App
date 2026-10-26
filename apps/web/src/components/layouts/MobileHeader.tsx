@@ -50,9 +50,9 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
               type="button"
               onClick={onCreateClick}
               aria-label="Create"
-              className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] bg-[#F9D71C] hover:bg-[#e9c91c] rounded-[4px] transition-colors"
+              className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] bg-[#336699] hover:bg-[#2a5580] rounded-[4px] transition-colors"
             >
-              <Plus className="h-4 w-4 text-[#121212]" />
+              <Plus className="h-4 w-4 text-white" />
             </button>
           )}
 

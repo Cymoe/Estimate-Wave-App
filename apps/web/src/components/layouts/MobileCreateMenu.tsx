@@ -47,7 +47,7 @@ export const MobileCreateMenu: React.FC<MobileCreateMenuProps> = ({ isOpen, onCl
           </button>
         </div>
 
-        {/* The same choices as the yellow + button on a wider screen. */}
+        {/* The same choices as the blue + button on a wider screen. */}
         <div className="px-4 pb-8 space-y-2">
           {options.map((option) => {
             const Icon = option.icon;

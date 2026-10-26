@@ -14,7 +14,7 @@ export interface QuickCreateOption {
 }
 
 /**
- * What the yellow + button creates, on desktop and phone alike: the work
+ * What the blue + button creates, on desktop and phone alike: the work
  * and what prices it. Clients, Lead Market leads and companies are added
  * from their own pages.
  */

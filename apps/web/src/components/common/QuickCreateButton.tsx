@@ -89,16 +89,16 @@ export const QuickCreateButton: React.FC<Props> = ({
   return (
     <div className="fixed bottom-6 hidden md:block z-[9998]" style={{ right: `${totalRightPx}px` }}>
       {children}
-      <span ref={ringRef} className="absolute inset-0 rounded-full border-2 border-yellow-300 opacity-0 pointer-events-none" aria-hidden />
+      <span ref={ringRef} className="absolute inset-0 rounded-full border-2 border-[#5b8fc4] opacity-0 pointer-events-none" aria-hidden />
       <button
         ref={buttonRef}
         onClick={onClick}
         aria-label={isOpen ? 'Close' : 'Create new'}
         aria-expanded={isOpen}
-        className={`relative flex w-14 h-14 bg-yellow-400 hover:bg-yellow-500 
-          text-black rounded-full shadow-[0_4px_20px_rgba(249,215,28,0.4)] hover:shadow-[0_6px_25px_rgba(249,215,28,0.6)]
+        className={`relative flex w-14 h-14 bg-[#336699] hover:bg-[#2a5580] 
+          text-white rounded-full shadow-[0_4px_20px_rgba(51,102,153,0.45)] hover:shadow-[0_6px_25px_rgba(51,102,153,0.65)]
           items-center justify-center transition-[box-shadow,background-color] duration-150 group
-          ${isOpen ? 'shadow-[0_6px_28px_rgba(249,215,28,0.7)]' : ''}`}
+          ${isOpen ? 'shadow-[0_6px_28px_rgba(51,102,153,0.75)]' : ''}`}
       >
         {/* The + spins round into a ×. */}
         <Plus

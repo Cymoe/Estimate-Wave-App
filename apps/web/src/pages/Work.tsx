@@ -8,7 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 
 /**
- * The estimates list. New estimates start from the yellow + button
+ * The estimates list. New estimates start from the blue + button
  * ("Estimate"), which opens /work?new=1 and with it the drawer below.
  * /estimates/:id opens that estimate in a drawer over the list.
  */

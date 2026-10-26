@@ -597,7 +597,7 @@ describe('Bids', () => {
     expect(document.body.querySelector('[data-bid-status]')).toBeNull(); // said once, in the card
   });
 
-  it("opens the add-bid window straight away from the yellow + button's Bid, but not with no trades to bid on", async () => {
+  it("opens the add-bid window straight away from the blue + button's Bid, but not with no trades to bid on", async () => {
     await render('/bids?new=1');
     expect(dialog()?.textContent).toContain('Your bids');
     document.body.innerHTML = '';

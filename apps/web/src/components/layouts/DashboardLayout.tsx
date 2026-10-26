@@ -740,7 +740,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                             {sortedProjects.length === 0 && (
                               <div className="text-center py-6">
                                 <div className="text-gray-400 text-xs">No projects found</div>
-                                <div className="text-gray-500 text-[10px] mt-1">{projectsSearch ? 'Try adjusting your search' : 'Tap the yellow + and choose Project'}</div>
+                                <div className="text-gray-500 text-[10px] mt-1">{projectsSearch ? 'Try adjusting your search' : 'Tap the blue + and choose Project'}</div>
                               </div>
                             )}
                           </div>
