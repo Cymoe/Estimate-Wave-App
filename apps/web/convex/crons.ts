@@ -37,4 +37,12 @@ crons.weekly(
   {},
 );
 
+// Code violations, dilapidated buildings, demolition orders and stalled permits, restacked per home (lib/signals.ts).
+crons.daily(
+  "sync Midland distress signals",
+  { hourUTC: 6, minuteUTC: 40 },
+  internal.signals.syncMidland,
+  {},
+);
+
 export default crons;

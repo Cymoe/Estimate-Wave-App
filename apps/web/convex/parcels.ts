@@ -7,7 +7,8 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { action, internalAction, internalMutation, type ActionCtx } from "./_generated/server";
 import { nowIso } from "./lib/access";
-import { MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, rowsToParcels } from "./lib/parcels";
+import { MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, ownerOf, rowsToParcels } from "./lib/parcels";
+import { LANDLORD_HOMES } from "./lib/signals";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -17,6 +18,7 @@ export const parcelRow = v.object({
   useCode: v.string(),
   siteAddress: v.string(),
   addressKey: v.string(),
+  looseKey: v.string(),
   street: v.optional(v.string()),
   owner: v.string(),
   owner2: v.optional(v.string()),
@@ -34,7 +36,7 @@ export const parcelRow = v.object({
 });
 
 const KEYS = [
-  "pin", "useCode", "siteAddress", "addressKey", "street", "owner", "owner2", "ownerOccupied",
+  "pin", "useCode", "siteAddress", "addressKey", "looseKey", "street", "owner", "owner2", "ownerOccupied",
   "companyOwned", "marketValueCents", "buildingValueCents", "deedDate",
 ] as const;
 const sameParcel = (a: Doc<"parcels">, b: Record<string, unknown> & { mailing: Doc<"parcels">["mailing"] }) =>
@@ -62,6 +64,36 @@ export const upsert = internalMutation({
       }
     }
     return { added, updated };
+  },
+});
+
+/** Owners with LANDLORD_HOMES or more homes on the roll, counted by the city's layer itself. */
+async function pullLandlords(ctx: ActionCtx) {
+  const params = new URLSearchParams({
+    where: `GOV_USE_CO IN (${RESIDENTIAL_USE.map((c) => `'${c}'`).join(",")})`,
+    groupByFieldsForStatistics: "OWNER",
+    outStatistics: JSON.stringify([{ statisticType: "count", onStatisticField: "OBJECTID", outStatisticFieldName: "homes" }]),
+    having: `COUNT(OBJECTID) >= ${LANDLORD_HOMES}`,
+    f: "json",
+  });
+  const response = await fetch(`${MIDLAND_PARCELS.layer}/query?${params}`);
+  if (!response.ok) throw new Error(`Midland landlords: HTTP ${response.status}`);
+  const body = (await response.json()) as { error?: { message?: string }; features?: Array<{ attributes?: Record<string, unknown> }> };
+  if (body.error) throw new Error(`Midland landlords: ${body.error.message ?? "the service returned an error"}`);
+  const owners = (body.features ?? []).flatMap((f) => {
+    const owner = ownerOf(f.attributes?.OWNER);
+    const homes = f.attributes?.homes;
+    return owner && typeof homes === "number" ? [{ owner, homes }] : [];
+  });
+  await ctx.runMutation(internal.parcels.setLandlords, { owners });
+}
+
+/** Replaces the list of landlords. */
+export const setLandlords = internalMutation({
+  args: { owners: v.array(v.object({ owner: v.string(), homes: v.number() })) },
+  handler: async (ctx, { owners }) => {
+    for (const row of await ctx.db.query("landlords").collect()) await ctx.db.delete(row._id);
+    for (const o of owners) await ctx.db.insert("landlords", { county: MIDLAND_PARCELS.county, ...o });
   },
 });
 
@@ -110,9 +142,12 @@ async function pullMidlandParcels(ctx: ActionCtx) {
       if (!body.exceededTransferLimit || features.length === 0) break;
       offset += features.length;
     }
+    await pullLandlords(ctx);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
+  // Every home's motivated-seller lists, now the roll (and who's a landlord) is current.
+  if (!error) await ctx.scheduler.runAfter(0, internal.signals.recomputePage, {});
   await ctx.runMutation(internal.permits.recordSync, {
     source: MIDLAND_PARCELS.source,
     fetched,

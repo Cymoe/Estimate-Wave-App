@@ -103,6 +103,11 @@ jobs:
         # The appraisal roll callers work from. Skipped when a clean pass ran
         # in the last week; the weekly job keeps it current.
         run: npx convex run parcels:syncMidland '{"ifStale":true}'
+      - name: Pull Midland's distress signals
+        # Code violations, dilapidated buildings, demolition orders and stalled
+        # permits for the Sellers lists. All of them the first time; skipped
+        # when a clean run happened in the last day.
+        run: npx convex run signals:syncMidland '{"ifStale":true}'
 
       - name: Smoke test the live deployment
         run: node scripts/convex-smoke-test.mjs

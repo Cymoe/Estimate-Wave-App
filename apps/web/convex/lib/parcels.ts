@@ -12,7 +12,7 @@ export const MIDLAND_PARCELS = {
 } as const;
 
 /** Bumped when what a stored parcel holds changes: the deploy then reads the roll again instead of skipping. */
-export const PARCEL_VERSION = 2;
+export const PARCEL_VERSION = 3;
 
 /** The appraisal district's residential use codes: single-family, mobile home, condo and townhome. */
 export const RESIDENTIAL_USE = ["A1", "A2", "A3", "A4", "A5"] as const;
@@ -41,6 +41,7 @@ export type ParcelRow = {
   useCode: string;
   siteAddress: string;
   addressKey: string;
+  looseKey: string;
   street?: string;
   owner: string;
   owner2?: string;
@@ -72,6 +73,26 @@ export function addressKey(address: string | undefined): string {
     .map((w) => (/^\d+$/.test(w) ? String(Number(w)) : (WORDS[w] ?? w)))
     .join(" ");
 }
+
+const DIRECTIONS = new Set(["N", "S", "E", "W", "NE", "NW", "SE", "SW"]);
+const SUFFIXES = new Set(["DR", "ST", "AV", "LN", "CT", "PL", "RD", "TRL", "CIR", "BLVD", "HWY", "PKWY", "TER", "CV", "LP", "WAY"]);
+
+/**
+ * The address key without directions or the street's suffix, for records
+ * that leave them off: a code case's "807 WEATHERFORD" and the roll's
+ * "807 W WEATHERFORD AV" both give "807 WEATHERFORD". "COUNTY RD 1109"
+ * keeps its RD, since it isn't at the end.
+ */
+export function looseKey(address: string | undefined): string {
+  const words = addressKey(address)
+    .split(" ")
+    .filter((w, i, all) => !(DIRECTIONS.has(w) && all.length > 2 && (i === 1 || i === all.length - 1)));
+  if (words.length > 2 && SUFFIXES.has(words[words.length - 1])) words.pop();
+  return words.join(" ");
+}
+
+/** The owner as stored: spaces squashed and a trailing "&" dropped (the roll's "MATHES JOE &"). */
+export const ownerOf = (value: unknown): string | undefined => text(value)?.replace(/\s*&$/, "");
 
 const text = (value: unknown): string | undefined => {
   if (typeof value !== "string") return undefined;
@@ -130,7 +151,7 @@ export function rowsToParcels(features: Array<{ attributes?: Record<string, unkn
   for (const f of features) {
     const a = f.attributes ?? {};
     const cadId = text(a.SU_NUM);
-    const owner = text(a.OWNER)?.replace(/\s*&$/, "");
+    const owner = ownerOf(a.OWNER);
     const useCode = text(a.GOV_USE_CO);
     const site = siteAddress(a);
     if (!cadId || !owner || !useCode || !site) continue;
@@ -142,6 +163,7 @@ export function rowsToParcels(features: Array<{ attributes?: Record<string, unkn
       useCode,
       siteAddress: site,
       addressKey: addressKey(site),
+      looseKey: looseKey(site),
       street: streetKey(site),
       owner,
       owner2: text(a.OWNER2),

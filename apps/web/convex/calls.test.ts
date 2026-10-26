@@ -92,12 +92,22 @@ describe("Midland owners (the appraisal roll)", () => {
       { features: [roll({ SU_NUM: "R3", SITE_NO: 11, DEED_DATE: "11/20/2025" })] },
     ];
     const urls: string[] = [];
+    const landlordAsks: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      // The landlord count is its own group-by query.
+      if (url.includes("groupByFieldsForStatistics")) {
+        landlordAsks.push(url);
+        return new Response(JSON.stringify({ features: [{ attributes: { OWNER: "NUKA HIVA LLC &", homes: 7 } }] }), { status: 200 });
+      }
       urls.push(url);
       return new Response(JSON.stringify(pages[urls.length - 1] ?? { features: [] }), { status: 200 });
     }));
     expect(await t.action(internal.parcels.syncMidland, {})).toEqual({ fetched: 3, added: 3, updated: 0, error: undefined });
     expect(urls).toHaveLength(2);
+    expect(new URL(landlordAsks[0]).searchParams.get("having")).toBe("COUNT(OBJECTID) >= 5");
+    await t.run(async (ctx) => {
+      expect((await ctx.db.query("landlords").collect()).map((l) => [l.owner, l.homes])).toEqual([["NUKA HIVA LLC", 7]]);
+    });
     expect(new URL(urls[0]).searchParams.get("where")).toBe("GOV_USE_CO IN ('A1','A2','A3','A4','A5')");
     expect(urls[1]).toContain("resultOffset=2");
 

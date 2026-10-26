@@ -588,6 +588,9 @@ export default defineSchema({
     siteAddress: v.string(),
     // lib/parcels.ts addressKey: the same house on a permit has the same key.
     addressKey: v.string(),
+    // lib/parcels.ts looseKey: no directions or suffix, for code cases' short addresses.
+    // Optional until the roll is next read.
+    looseKey: v.optional(v.string()),
     // lib/parcels.ts streetKey ("COUNTRY CLUB DR"), for call lists by street.
     street: v.optional(v.string()),
     owner: v.string(),
@@ -608,6 +611,7 @@ export default defineSchema({
   })
     .index("by_cad_id", ["cadId"])
     .index("by_county_and_address_key", ["county", "addressKey"])
+    .index("by_county_and_loose_key", ["county", "looseKey"])
     .index("by_county_and_street", ["county", "street"])
     .index("by_county_and_deed", ["county", "deedDate"]),
 
@@ -695,6 +699,70 @@ export default defineSchema({
   })
     .index("by_county_and_sale", ["county", "saleDate"])
     .index("by_parcel", ["parcelId"]),
+
+  // Public records that say a home's owner may want to sell (lib/signals.ts):
+  // code violations, dilapidated buildings, demolition orders and stalled
+  // permits, read from the city's ArcGIS. Matched to a home on the roll when
+  // the address matches one home.
+  signals: defineTable({
+    county: v.string(),
+    parcelId: v.optional(v.id("parcels")),
+    address: v.string(),
+    kind: v.union(v.literal("code_violation"), v.literal("dilapidated"), v.literal("demolition"), v.literal("stalled_permit")),
+    // The violation, or the permit's status.
+    detail: v.string(),
+    status: v.optional(v.string()),
+    // A code case groups several inspections.
+    caseNumber: v.optional(v.string()),
+    date: v.string(),
+    // Unique per source record ("code:<inspection id>", "permit:<number>").
+    sourceId: v.string(),
+    importedAt: v.string(),
+  })
+    .index("by_source_id", ["sourceId"])
+    .index("by_parcel", ["parcelId", "date"])
+    .index("by_kind_and_date", ["kind", "date"]),
+
+  // Owners with 5 or more Midland homes on the roll ("tired landlords").
+  landlords: defineTable({
+    county: v.string(),
+    owner: v.string(),
+    homes: v.number(),
+  }).index("by_county_and_owner", ["county", "owner"]),
+
+  // A home's motivated-seller lists and stack score (lib/signals.ts), one row
+  // per home on at least one list, kept current as signals and the roll change.
+  distress: defineTable({
+    county: v.string(),
+    parcelId: v.id("parcels"),
+    score: v.number(),
+    lists: v.array(v.string()),
+    codeCases: v.number(),
+    seriousCases: v.number(),
+    lastSignalAt: v.optional(v.string()),
+    updatedAt: v.string(),
+  })
+    .index("by_parcel", ["parcelId"])
+    .index("by_county_and_score", ["county", "score"]),
+
+  // One row per home and list, so a list can be read by score on its own.
+  distressLists: defineTable({
+    county: v.string(),
+    parcelId: v.id("parcels"),
+    list: v.string(),
+    score: v.number(),
+  })
+    .index("by_parcel", ["parcelId"])
+    .index("by_list_and_score", ["county", "list", "score"]),
+
+  // How many homes are on each list, refreshed after each sync.
+  sellerCounts: defineTable({
+    county: v.string(),
+    counts: v.record(v.string(), v.number()),
+    stacked: v.number(),
+    total: v.number(),
+    updatedAt: v.string(),
+  }).index("by_county", ["county"]),
 
   // How each permit feed's last sync went.
   permitSources: defineTable({

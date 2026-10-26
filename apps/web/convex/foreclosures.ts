@@ -3,6 +3,8 @@
 // which doesn't allow automated reading), then record what happened and who
 // bought. Rules for the dates: lib/foreclosures.ts.
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { fail, nowIso, requireStaff } from "./lib/access";
 import { isAuctionDay, nextAuction, parseAddresses, recentAuctions } from "./lib/foreclosures";
@@ -33,6 +35,7 @@ export const addMany = mutation({
     let added = 0;
     let skipped = 0;
     const unmatched: string[] = [];
+    const homes: Id<"parcels">[] = [];
     for (const address of lines) {
       const key = addressKey(address);
       if (!key || existing.has(key)) {
@@ -45,6 +48,7 @@ export const addMany = mutation({
         .withIndex("by_county_and_address_key", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("addressKey", key))
         .first();
       if (!parcel) unmatched.push(address);
+      else homes.push(parcel._id);
       await ctx.db.insert("foreclosures", {
         county: MIDLAND_PARCELS.county,
         saleDate: args.saleDate,
@@ -59,6 +63,8 @@ export const addMany = mutation({
       });
       added++;
     }
+    // Posted homes go on the Pre-foreclosure list.
+    if (homes.length) await ctx.scheduler.runAfter(0, internal.signals.recomputeParcels, { ids: homes });
     return { added, skipped, unmatched };
   },
 });
@@ -97,6 +103,7 @@ export const update = mutation({
       note: args.note !== undefined ? args.note.trim().slice(0, 300) || undefined : row.note,
       updatedAt: nowIso(),
     });
+    if (row.parcelId) await ctx.scheduler.runAfter(0, internal.signals.recomputeParcels, { ids: [row.parcelId] });
     return null;
   },
 });
@@ -105,7 +112,10 @@ export const remove = mutation({
   args: { id: v.id("foreclosures") },
   handler: async (ctx, { id }) => {
     await requireStaff(ctx);
-    if (await ctx.db.get(id)) await ctx.db.delete(id);
+    const row = await ctx.db.get(id);
+    if (!row) return null;
+    await ctx.db.delete(id);
+    if (row.parcelId) await ctx.scheduler.runAfter(0, internal.signals.recomputeParcels, { ids: [row.parcelId] });
     return null;
   },
 });
