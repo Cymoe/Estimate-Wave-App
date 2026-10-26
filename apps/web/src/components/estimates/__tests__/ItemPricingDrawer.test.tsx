@@ -85,4 +85,24 @@ describe('ItemPricingDrawer', () => {
     expect(onClose).toHaveBeenCalled();
     act(() => root.unmount());
   });
+
+  it('lays out like the estimate drawer: as wide, with the pricing options in a column beside the price', () => {
+    const { dialog, unmount } = setup();
+    expect(dialog.className).toContain('md:w-[720px]');
+    const options = dialog.querySelector('[role="group"][aria-label="Pricing options"]')!;
+    expect(options.className).toContain('sm:w-[168px]');
+    expect([...options.querySelectorAll('button')].map(b => b.textContent)).toEqual([
+      'CAP Price (100%)$187.50',
+      'Busy Season (60%)$147.50',
+      'Competitive (35%)$122.50',
+      'Slow Season (25%)$112.50',
+      'Need Job (10%)$97.50',
+      'Redline (0%)$87.50',
+    ]);
+    expect(options.querySelector('[aria-pressed="true"]')!.textContent).toContain('CAP Price');
+    // The price box sits beside the column, not under it.
+    expect(options.parentElement!.className).toContain('sm:flex-row');
+    expect(options.nextElementSibling!.querySelector('input[inputmode="decimal"]')).not.toBeNull();
+    unmount();
+  });
 });

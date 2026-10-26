@@ -125,7 +125,6 @@ html.light .disabled\:hover\:text-gray-300:disabled:hover { color: #374151; }
 html.light .disabled\:text-gray-500:disabled { color: #6B7280; }
 html.light .disabled\:text-gray-600:disabled { color: #9CA3AF; }
 html.light .divide-\[\#1a1a1a\] > :not([hidden]) ~ :not([hidden]) { border-color: #EEF0F2; }
-html.light .divide-\[\#262626\] > :not([hidden]) ~ :not([hidden]) { border-color: #E9EBEE; }
 html.light .divide-\[\#2A2A2A\] > :not([hidden]) ~ :not([hidden]) { border-color: #E9EBEE; }
 html.light .divide-\[\#2a2a2a\] > :not([hidden]) ~ :not([hidden]) { border-color: #E9EBEE; }
 html.light .divide-\[\#333333\] > :not([hidden]) ~ :not([hidden]) { border-color: #E2E5E9; }

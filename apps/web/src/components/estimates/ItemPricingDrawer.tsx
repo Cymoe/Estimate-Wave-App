@@ -103,7 +103,7 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
         role="dialog"
         aria-label={`Price ${shownItem.description}`}
         aria-hidden={!open}
-        className={`fixed right-0 top-0 h-[100dvh] w-full sm:w-[340px] bg-[#121212] border-l border-[#333333] shadow-xl transform transition-transform z-[10003] flex flex-col ${
+        className={`fixed right-0 top-0 h-[100dvh] w-full md:w-[720px] max-w-full bg-[#121212] border-l border-[#333333] shadow-xl transform transition-transform z-[10003] flex flex-col ${
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
@@ -123,82 +123,13 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
           </button>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-5">
-          {/* Price and quantity */}
-          <div className="flex gap-3">
-            <label className="flex-1 min-w-0">
-              <span className="block text-xs text-gray-400 mb-1.5">Price each</span>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={priceText}
-                  onChange={(e) => setPriceText(e.target.value)}
-                  onBlur={() => setPriceText(price.toFixed(2))}
-                  onKeyDown={(e) => { if (e.key === 'Enter') save(); }}
-                  className="w-full pl-7 pr-3 py-2.5 bg-[#0A0A0A] border border-[#333333] text-white font-mono focus:outline-none focus:border-[#336699]"
-                />
-              </div>
-            </label>
-            <div>
-              <span className="block text-xs text-gray-400 mb-1.5">Quantity</span>
-              <div className="flex items-center border border-[#333333]">
-                <button
-                  type="button"
-                  onClick={() => setQuantity(q => Math.max(1, q - 1))}
-                  className="p-2 text-gray-300 hover:bg-[#1E1E1E]"
-                  aria-label="Decrease quantity"
-                >
-                  <Minus className="w-4 h-4" />
-                </button>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={quantity}
-                  onChange={(e) => {
-                    const n = parseInt(e.target.value, 10);
-                    setQuantity(Number.isFinite(n) && n > 0 ? n : 1);
-                  }}
-                  aria-label="Quantity"
-                  className="w-10 py-2 bg-transparent text-center text-white focus:outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => setQuantity(q => q + 1)}
-                  className="p-2 text-gray-300 hover:bg-[#1E1E1E]"
-                  aria-label="Increase quantity"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          </div>
-          {belowRedLine && (
-            <p className="text-xs text-red-400 -mt-4">
-              The price can't go below red line ({formatCurrency(range.redLine)}).
-            </p>
-          )}
-
-          {/* Commission */}
-          <div className="border border-[#333333] p-4">
-            <div className="flex items-baseline justify-between">
-              <span className="text-sm text-gray-300">Your commission</span>
-              <span className={`font-mono text-lg ${commission > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {formatCurrency(commission)}
-              </span>
-            </div>
-            <div className="h-1.5 bg-[#333333] mt-3">
-              <div className="h-full bg-[#336699]" style={{ width: `${share * 100}%` }} />
-            </div>
-            <div className="flex justify-between text-xs text-gray-500 mt-1.5">
-              <span>Red line</span>
-              <span>Max at cap {formatCurrency(maxCommission)}</span>
-            </div>
-          </div>
-
-          {/* Pricing options */}
-          <div className="divide-y divide-[#262626] border border-[#333333]">
+        <div className="flex-1 min-h-0 flex flex-col sm:flex-row">
+          {/* Pricing options: the same column, in the same place, as the estimate's */}
+          <div
+            className="sm:w-[168px] flex-shrink-0 bg-[#0A0A0A] border-b sm:border-b-0 sm:border-r border-[#333333] py-1 sm:overflow-y-auto"
+            role="group"
+            aria-label="Pricing options"
+          >
             {PRICING_OPTIONS.map(option => {
               const optionPrice = priceAt(range, option.position);
               const selected = Math.abs(optionPrice - price) < 0.005;
@@ -208,42 +139,120 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
                   type="button"
                   onClick={() => setPriceText(optionPrice.toFixed(2))}
                   aria-pressed={selected}
-                  className={`w-full flex items-center justify-between px-4 py-3 text-sm border-l-2 transition-colors ${
-                    selected ? 'border-[#336699] bg-[#336699]/10 text-white' : 'border-transparent text-gray-300 hover:bg-[#1E1E1E]'
+                  className={`w-full px-3 py-1.5 flex sm:flex-col items-center sm:items-start justify-between gap-x-2 text-left text-[13px] transition-colors ${
+                    selected ? 'bg-[#336699] text-white' : 'text-gray-300 hover:bg-[#22272d] hover:text-white'
                   }`}
                 >
                   <span>{option.name}</span>
-                  <span className="font-mono">{formatCurrency(optionPrice)}</span>
+                  <span className={`font-mono text-[11px] ${selected ? 'text-white/80' : 'text-gray-500'}`}>{formatCurrency(optionPrice)}</span>
                 </button>
               );
             })}
           </div>
-          {onRemove && (
-            <button
-              type="button"
-              onClick={() => {
-                if (!confirmRemove) {
-                  setConfirmRemove(true);
-                  return;
-                }
-                onRemove();
-                onClose();
-              }}
-              className={`w-full py-2.5 text-sm border transition-colors ${
-                confirmRemove
-                  ? 'bg-red-500/15 border-red-500/60 text-red-300'
-                  : 'border-[#333333] text-red-400 hover:bg-red-500/10'
-              }`}
-            >
-              {confirmRemove ? 'Tap again to remove this item' : 'Remove item'}
-            </button>
-          )}
-        </div>
 
-        {/* Footer */}
-        <div className="border-t border-[#333333] px-4 py-4 flex items-center justify-between flex-shrink-0 text-sm text-gray-400">
-          <span>Total</span>
-          <span className="font-mono text-white">{formatCurrency(price * quantity)}</span>
+          {/* Price, quantity and commission beside the options */}
+          <div className="flex-1 min-w-0 flex flex-col">
+            <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-5">
+              {/* Price and quantity */}
+              <div className="flex gap-3">
+                <label className="flex-1 min-w-0">
+                  <span className="block text-xs text-gray-400 mb-1.5">Price each</span>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={priceText}
+                      onChange={(e) => setPriceText(e.target.value)}
+                      onBlur={() => setPriceText(price.toFixed(2))}
+                      onKeyDown={(e) => { if (e.key === 'Enter') save(); }}
+                      className="w-full pl-7 pr-3 py-2.5 bg-[#0A0A0A] border border-[#333333] text-white font-mono focus:outline-none focus:border-[#336699]"
+                    />
+                  </div>
+                </label>
+                <div>
+                  <span className="block text-xs text-gray-400 mb-1.5">Quantity</span>
+                  <div className="flex items-center border border-[#333333]">
+                    <button
+                      type="button"
+                      onClick={() => setQuantity(q => Math.max(1, q - 1))}
+                      className="p-2 text-gray-300 hover:bg-[#1E1E1E]"
+                      aria-label="Decrease quantity"
+                    >
+                      <Minus className="w-4 h-4" />
+                    </button>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={quantity}
+                      onChange={(e) => {
+                        const n = parseInt(e.target.value, 10);
+                        setQuantity(Number.isFinite(n) && n > 0 ? n : 1);
+                      }}
+                      aria-label="Quantity"
+                      className="w-10 py-2 bg-transparent text-center text-white focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setQuantity(q => q + 1)}
+                      className="p-2 text-gray-300 hover:bg-[#1E1E1E]"
+                      aria-label="Increase quantity"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+              {belowRedLine && (
+                <p className="text-xs text-red-400 -mt-4">
+                  The price can't go below red line ({formatCurrency(range.redLine)}).
+                </p>
+              )}
+
+              {/* Commission */}
+              <div className="border border-[#333333] p-4">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-sm text-gray-300">Your commission</span>
+                  <span className={`font-mono text-lg ${commission > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {formatCurrency(commission)}
+                  </span>
+                </div>
+                <div className="h-1.5 bg-[#333333] mt-3">
+                  <div className="h-full bg-[#336699]" style={{ width: `${share * 100}%` }} />
+                </div>
+                <div className="flex justify-between text-xs text-gray-500 mt-1.5">
+                  <span>Red line</span>
+                  <span>Max at cap {formatCurrency(maxCommission)}</span>
+                </div>
+              </div>
+
+              {onRemove && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!confirmRemove) {
+                      setConfirmRemove(true);
+                      return;
+                    }
+                    onRemove();
+                    onClose();
+                  }}
+                  className={`w-full py-2.5 text-sm border transition-colors ${
+                    confirmRemove
+                      ? 'bg-red-500/15 border-red-500/60 text-red-300'
+                      : 'border-[#333333] text-red-400 hover:bg-red-500/10'
+                  }`}
+                >
+                  {confirmRemove ? 'Tap again to remove this item' : 'Remove item'}
+                </button>
+              )}
+            </div>
+            {/* Footer */}
+            <div className="border-t border-[#333333] px-4 py-4 flex items-center justify-between flex-shrink-0 text-sm text-gray-400">
+              <span>Total</span>
+              <span className="font-mono text-white">{formatCurrency(price * quantity)}</span>
+            </div>
+          </div>
         </div>
       </div>
     </>,
