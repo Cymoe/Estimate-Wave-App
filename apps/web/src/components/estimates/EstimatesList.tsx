@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import {
-  FileText, Filter, MoreVertical, Search,
+  FileText, Filter, MoreVertical, Plus, Search,
   Eye, Edit, Send, CheckCircle,
   XCircle, AlertTriangle, ChevronDown, ChevronUp,
   Download, FileSpreadsheet
@@ -383,50 +383,54 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
   }
 
   if (estimates.length === 0) {
+    // A faded example of what an estimate looks like, and where new ones come from.
+    const example = [
+      ['Demo and haul-off', '$850'],
+      ['Cabinet install', '$4,200'],
+      ['Quartz countertops', '$3,600'],
+    ];
     return (
-      <div>
-        <div className="bg-transparent border border-[#333333]">
-          <div className="text-center py-8 px-6">
-            <div className="w-16 h-16 bg-purple-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-              <FileText className="w-8 h-8 text-purple-400" />
+      <div className="min-h-[70vh] flex items-center justify-center px-4 py-12" data-testid="estimates-empty">
+        <div className="w-full max-w-sm text-center">
+          <div className="mx-auto w-72 bg-[#121212] border border-[#262626] text-left opacity-60 select-none" aria-hidden>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[#262626]">
+              <span className="text-sm text-white">Kitchen remodel</span>
+              <span className="text-[11px] px-1.5 py-0.5 border border-[#333] text-gray-400">Draft</span>
             </div>
-            <h2 className="text-2xl font-bold text-white mb-2">Estimates Management</h2>
-            <p className="text-gray-400 max-w-2xl mx-auto mb-8">
-              Create professional estimates to win more business. Track approval status and convert estimates to projects seamlessly.
-            </p>
-            
-            <div className="grid md:grid-cols-3 gap-6 mb-8">
-              <div className="bg-[#333333] rounded-[4px] p-6 border-l-4 border-purple-500">
-                <h3 className="text-white font-bold mb-2">Professional Quotes</h3>
-                <p className="text-gray-400 text-sm">
-                  Create detailed estimates with line items and accurate pricing
-                </p>
+            {example.map(([name, price]) => (
+              <div key={name} className="flex items-center justify-between px-4 py-2 text-xs border-b border-[#262626]">
+                <span className="text-gray-400">{name}</span>
+                <span className="font-mono text-gray-300">{price}</span>
               </div>
-              <div className="bg-[#333333] rounded-[4px] p-6 border-l-4 border-blue-500">
-                <h3 className="text-white font-bold mb-2">Track Approvals</h3>
-                <p className="text-gray-400 text-sm">
-                  Monitor estimate status and follow up on pending quotes
-                </p>
-              </div>
-              <div className="bg-[#333333] rounded-[4px] p-6 border-l-4 border-green-500">
-                <h3 className="text-white font-bold mb-2">Win More Work</h3>
-                <p className="text-gray-400 text-sm">
-                  Convert accepted estimates to projects and invoices
-                </p>
-              </div>
+            ))}
+            <div className="flex items-center justify-between px-4 py-3 text-sm">
+              <span className="text-gray-400">Total</span>
+              <span className="font-mono text-white">$8,650</span>
             </div>
-
-            {onCreateEstimate ? (
-              <button 
-                onClick={onCreateEstimate}
-                className="px-6 py-3 bg-white text-black rounded-[8px] font-medium hover:bg-gray-100 transition-colors"
-              >
-                CREATE FIRST ESTIMATE
-              </button>
-            ) : (
-              <p className="text-sm text-gray-400">Tap the blue + and choose Estimate to create your first one.</p>
-            )}
           </div>
+
+          <h2 className="mt-8 text-lg font-semibold text-white">No estimates yet</h2>
+          <p className="mt-1 text-sm text-gray-400">
+            Price a job from your price book and send the link. The client signs on their phone.
+          </p>
+          {onCreateEstimate ? (
+            <button
+              type="button"
+              onClick={onCreateEstimate}
+              className="mt-5 inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-[#336699] text-white hover:bg-[#2a5580] transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              New estimate
+            </button>
+          ) : (
+            <p className="mt-5 inline-flex items-center gap-2 text-sm text-gray-300">
+              Tap
+              <span className="inline-flex w-6 h-6 rounded-full bg-[#336699] text-white items-center justify-center" aria-label="the blue +">
+                <Plus className="w-3.5 h-3.5" />
+              </span>
+              and choose Estimate
+            </p>
+          )}
         </div>
       </div>
     );

@@ -79,8 +79,12 @@ describe('EstimatesList', () => {
   it('points to the + button when there are no estimates yet', async () => {
     rows = [];
     const container = await render();
-    expect(container.textContent).toContain('Tap the blue + and choose Estimate');
-    expect(container.querySelector('button')?.textContent ?? '').not.toMatch(/CREATE FIRST ESTIMATE/);
+    const empty = container.querySelector('[data-testid="estimates-empty"]')!;
+    expect(empty.textContent).toContain('No estimates yet');
+    expect(empty.textContent).toContain('Tapand choose Estimate');
+    expect(Array.from(empty.querySelectorAll('[aria-label]')).map((el) => el.getAttribute('aria-label'))).toContain('the blue +');
+    expect(empty.querySelector('button')).toBeNull();
+    expect(empty.textContent).not.toContain('Estimates Management');
   });
 
   it('reloading after an estimate closes keeps the rows on screen instead of a loading state', async () => {
