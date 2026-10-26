@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Download, FileSpreadsheet, FolderOpen, MoreVertical, Search } from 'lucide-react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useMatch, useNavigate, useSearchParams } from 'react-router-dom';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { ProjectService, type Project, type ProjectStatus } from '../../services/ProjectService';
 import { ProjectExportService } from '../../services/ProjectExportService';
@@ -8,6 +8,7 @@ import { formatCurrency } from '../../utils/format';
 import { TableSkeleton } from '../skeletons/TableSkeleton';
 import { PROJECT_STATUSES, formatProjectDate, projectStatusInfo } from './projectStatus';
 import { CreateProjectWizard } from './CreateProjectWizard';
+import { ProjectDetailsDrawer } from './ProjectDetails';
 
 /** Project, client, status, dates, budget: shared by the header and every row. */
 const ROW_GRID = 'grid grid-cols-[minmax(0,2fr)_minmax(0,1.5fr)_6.5rem_minmax(9rem,1.2fr)_minmax(6rem,1fr)] gap-4 items-center';
@@ -31,6 +32,8 @@ export const ProjectList: React.FC = () => {
   // ?new=1 (the + menu) opens the new-project wizard.
   const [searchParams] = useSearchParams();
   const creating = searchParams.get('new') === '1';
+  // /projects/:id opens that project in a drawer over the list.
+  const openId = useMatch('/projects/:id')?.params.id;
 
   useEffect(() => {
     const handler = setTimeout(() => setSearch(searchInput.trim().toLowerCase()), 300);
@@ -190,7 +193,7 @@ export const ProjectList: React.FC = () => {
         </div>
         <div>
           <div className="text-xs text-gray-400 uppercase tracking-wider">Open budget</div>
-          <div className="text-lg font-semibold text-yellow-400 mt-1">{formatCurrency(openBudget)}</div>
+          <div className="text-lg font-semibold text-white mt-1">{formatCurrency(openBudget)}</div>
         </div>
       </div>
 
@@ -243,7 +246,9 @@ export const ProjectList: React.FC = () => {
                 <div
                   key={project.id}
                   onClick={() => navigate(`/projects/${project.id}`)}
-                  className={`${ROW_GRID} px-4 py-2.5 text-sm hover:bg-[#1A1A1A] transition-colors cursor-pointer border-b border-[#333333]/50 last:border-b-0`}
+                  className={`${ROW_GRID} px-4 py-2.5 text-sm hover:bg-[#1A1A1A] transition-colors cursor-pointer border-b border-[#333333]/50 last:border-b-0 ${
+                    project.id === openId ? 'bg-[#336699]/10' : ''
+                  }`}
                 >
                   <div className="font-medium text-white truncate">{project.name}</div>
                   <div className={`truncate ${client ? 'text-gray-200' : 'text-gray-500'}`}>{client || 'No client'}</div>
@@ -262,6 +267,15 @@ export const ProjectList: React.FC = () => {
           </div>
         )}
       </div>
+
+      {openId && (
+        <ProjectDetailsDrawer
+          projectId={openId}
+          onClose={() => navigate('/projects', { replace: true })}
+          onSaved={(saved) => setProjects((current) => current.map((p) => (p.id === saved.id ? { ...p, ...saved } : p)))}
+          onDeleted={(id) => setProjects((current) => current.filter((p) => p.id !== id))}
+        />
+      )}
 
       {creating && (
         <CreateProjectWizard

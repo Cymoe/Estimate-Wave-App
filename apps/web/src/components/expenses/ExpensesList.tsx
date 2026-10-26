@@ -327,7 +327,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
             <select
               value={viewMode}
               onChange={(e) => setViewMode(e.target.value as 'cost-codes' | 'categories' | 'payee' | 'timeline')}
-              className="w-40 bg-[#111827]/50 border border-gray-700 rounded-[4px] pl-8 pr-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#336699] appearance-none cursor-pointer"
+              className="w-40 bg-[#1a1a1a] border border-[#333] pl-8 pr-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#336699] appearance-none cursor-pointer"
             >
               <option value="cost-codes">Cost Codes</option>
               <option value="categories">Categories</option>
@@ -339,7 +339,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
 
           <button
             onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-            className="p-1.5 bg-[#111827]/50 border border-gray-700 rounded-[4px] text-gray-400 hover:text-white transition-colors"
+            className="p-1.5 bg-[#1a1a1a] border border-[#333] text-gray-400 hover:text-white transition-colors"
             title={`Sort by amount ${sortOrder === 'asc' ? 'descending' : 'ascending'}`}
           >
             <ArrowUpDown className="w-4 h-4" />
@@ -349,7 +349,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
             <button
               onClick={() => setShowAddForm(true)}
               aria-label="Add expense"
-              className="flex items-center gap-2 px-3 py-1.5 bg-white hover:bg-gray-100 text-black rounded-[8px] text-sm font-medium transition-colors"
+              className="flex items-center gap-2 px-3 py-1.5 bg-[#336699] hover:bg-[#2a5580] text-white text-sm font-medium transition-colors"
             >
               <Plus className="w-4 h-4" />
             </button>
@@ -358,20 +358,20 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
       </div>
 
       {/* Payment Status Filter Tabs */}
-      <div className="bg-[#111827]/50 border border-gray-800 rounded-[4px] p-1 flex gap-1">
+      <div className="bg-[#1a1a1a] border border-[#333] p-1 flex gap-1">
         <button
           onClick={() => setStatusFilter('all')}
-          className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-colors ${
+          className={`flex-1 px-3 py-2 text-sm font-medium transition-colors ${
             statusFilter === 'all'
               ? 'bg-[#336699] text-white'
-              : 'text-gray-400 hover:text-white hover:bg-[#1f2937]'
+              : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'
           }`}
         >
           All
         </button>
         <button
           onClick={() => setStatusFilter('paid')}
-          className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
+          className={`flex-1 px-3 py-2 text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
             statusFilter === 'paid'
               ? 'bg-green-900/20 text-green-400'
               : 'text-gray-400 hover:text-green-400 hover:bg-green-900/10'
@@ -382,7 +382,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
         </button>
         <button
           onClick={() => setStatusFilter('pending')}
-          className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
+          className={`flex-1 px-3 py-2 text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
             statusFilter === 'pending'
               ? 'bg-yellow-900/20 text-yellow-400'
               : 'text-gray-400 hover:text-yellow-400 hover:bg-yellow-900/10'
@@ -393,7 +393,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
         </button>
         <button
           onClick={() => setStatusFilter('unpaid')}
-          className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
+          className={`flex-1 px-3 py-2 text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
             statusFilter === 'unpaid'
               ? 'bg-red-900/20 text-red-400'
               : 'text-gray-400 hover:text-red-400 hover:bg-red-900/10'
@@ -408,7 +408,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
 
       {/* Add Expense Form */}
       {showAddForm && (
-        <div className="bg-[#111827]/50 border border-gray-700 rounded-[4px] p-4">
+        <div className="bg-[#1a1a1a] border border-[#333] p-4">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-medium uppercase tracking-wider text-gray-400">Add New Expense</h3>
             <button onClick={() => setShowAddForm(false)} className="text-gray-400 hover:text-white">
@@ -424,7 +424,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
                 placeholder="What did you pay for?"
                 value={newExpense.description}
                 onChange={(e) => setNewExpense({ ...newExpense, description: e.target.value })}
-                className="w-full bg-gray-900/50 border border-gray-700 rounded-[4px] px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
+                className="w-full bg-[#0A0A0A] border border-[#333] px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
               />
             </div>
 
@@ -437,7 +437,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
                 step="0.01"
                 value={newExpense.amount}
                 onChange={(e) => setNewExpense({ ...newExpense, amount: e.target.value })}
-                className="w-full bg-gray-900/50 border border-gray-700 rounded-[4px] px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
+                className="w-full bg-[#0A0A0A] border border-[#333] px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
               />
             </div>
 
@@ -447,7 +447,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
                 placeholder="Vendor (optional)"
                 value={newExpense.vendor}
                 onChange={(e) => setNewExpense({ ...newExpense, vendor: e.target.value })}
-                className="w-full bg-gray-900/50 border border-gray-700 rounded-[4px] px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
+                className="w-full bg-[#0A0A0A] border border-[#333] px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
               />
             </div>
 
@@ -455,7 +455,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
               <select
                 value={newExpense.category}
                 onChange={(e) => setNewExpense({ ...newExpense, category: e.target.value })}
-                className="w-full bg-gray-900/50 border border-gray-700 rounded-[4px] px-3 py-2 text-white focus:outline-none focus:border-[#336699] cursor-pointer"
+                className="w-full bg-[#0A0A0A] border border-[#333] px-3 py-2 text-white focus:outline-none focus:border-[#336699] cursor-pointer"
               >
                 {EXPENSE_CATEGORIES.map((category) => (
                   <option key={category} value={category}>{category}</option>
@@ -469,7 +469,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
                 aria-label="Date"
                 value={newExpense.date}
                 onChange={(e) => setNewExpense({ ...newExpense, date: e.target.value })}
-                className="w-full bg-gray-900/50 border border-gray-700 rounded-[4px] px-3 py-2 text-white focus:outline-none focus:border-[#336699]"
+                className="w-full bg-[#0A0A0A] border border-[#333] px-3 py-2 text-white focus:outline-none focus:border-[#336699]"
               />
             </div>
 
@@ -478,7 +478,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
                 aria-label="Cost code"
                 value={newExpense.cost_code_id}
                 onChange={(e) => setNewExpense({ ...newExpense, cost_code_id: e.target.value })}
-                className="w-full bg-gray-900/50 border border-gray-700 rounded-[4px] px-3 py-2 text-white focus:outline-none focus:border-[#336699] cursor-pointer"
+                className="w-full bg-[#0A0A0A] border border-[#333] px-3 py-2 text-white focus:outline-none focus:border-[#336699] cursor-pointer"
               >
                 <option value="">No Cost Code</option>
                 {costCodes.map(cc => (
@@ -493,14 +493,14 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
           <div className="flex justify-end gap-2 mt-4">
             <button
               onClick={() => setShowAddForm(false)}
-              className="px-4 py-2 border border-gray-700 rounded-[4px] text-gray-400 hover:text-white transition-colors"
+              className="px-4 py-2 border border-[#333] text-gray-400 hover:text-white transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={handleAddExpense}
               disabled={saving || !newExpense.description.trim() || !newExpense.amount}
-              className="px-4 py-2 bg-white hover:bg-gray-100 text-black rounded-[8px] font-medium transition-colors disabled:opacity-50"
+              className="px-4 py-2 bg-[#336699] hover:bg-[#2a5580] text-white font-medium transition-colors disabled:opacity-50"
             >
               {saving ? 'Adding…' : 'Add Expense'}
             </button>
@@ -509,10 +509,10 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
       )}
 
       {/* All Summary */}
-      <div className="bg-[#F9D71C]/10 border border-[#F9D71C]/20 rounded-[4px] p-4">
+      <div className="bg-[#1a1a1a] border border-[#333] p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="text-[#F9D71C] font-medium">
+            <div className="text-white font-medium">
               {viewMode === 'cost-codes' ? 'All Categories' : 
                viewMode === 'categories' ? 'All Expenses' : 
                viewMode === 'payee' ? 'All Payees' : 'All Timeline'}
@@ -538,7 +538,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
               )}
             </div>
           </div>
-          <div className="text-xl font-bold text-[#F9D71C]">{formatCurrency(filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0))}</div>
+          <div className="text-xl font-semibold text-white font-mono">{formatCurrency(filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0))}</div>
         </div>
       </div>
 
@@ -552,7 +552,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
             {editable && statusFilter === 'all' && (
               <button
                 onClick={() => setShowAddForm(true)}
-                className="px-4 py-2 bg-white hover:bg-gray-100 text-black rounded-[8px] font-medium transition-colors"
+                className="px-4 py-2 bg-[#336699] hover:bg-[#2a5580] text-white font-medium transition-colors"
               >
                 Add First Expense
               </button>
@@ -591,8 +591,8 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
               <div key={groupKey}>
                 {/* Group Header */}
                 <div 
-                  className={`bg-[#111827]/30 border border-gray-800/50 rounded-[4px] p-4 cursor-pointer transition-colors hover:bg-[#111827]/50 ${
-                    isExpanded ? 'bg-[#111827]/50' : ''
+                  className={`bg-[#1a1a1a] border border-[#333] p-4 cursor-pointer transition-colors hover:bg-[#222] ${
+                    isExpanded ? 'bg-[#222]' : ''
                   }`}
                   onClick={() => toggleGroup(groupKey)}
                 >
@@ -627,7 +627,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
                     {groupedExpenses[groupKey].map((expense) => {
                       const displayStatus = mapStatusToDisplay(expense.status);
                       return (
-                        <div key={expense.id} className={`border border-gray-800/30 rounded-[4px] p-3 ${
+                        <div key={expense.id} className={`border border-[#262626] p-3 ${
                           displayStatus === 'paid' ? 'bg-green-900/5' :
                           displayStatus === 'pending' ? 'bg-yellow-900/5' :
                           'bg-red-900/5'
@@ -644,7 +644,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
                                   <Calendar className="w-3 h-3" />
                                   {formatExpenseDate(expense.date)}
                                 </span>
-                                <span className="px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs text-gray-300">
+                                <span className="px-2 py-1 bg-[#262626] border border-[#333] text-xs text-gray-300">
                                   {expense.category}
                                 </span>
                               </div>
@@ -656,11 +656,11 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
                                   value={displayStatus}
                                   onChange={(e) => handleUpdateStatus(expense.id, e.target.value as 'paid' | 'pending' | 'unpaid')}
                                   onClick={(e) => e.stopPropagation()}
-                                  className="h-7 w-24 bg-transparent border border-gray-700 rounded text-xs text-white focus:outline-none focus:border-[#336699] cursor-pointer"
+                                  className="h-7 w-24 bg-transparent border border-[#333] text-xs text-white focus:outline-none focus:border-[#336699] cursor-pointer"
                                 >
-                                  <option value="paid" className="bg-[#111827]">Paid</option>
-                                  <option value="pending" className="bg-[#111827]">Pending</option>
-                                  <option value="unpaid" className="bg-[#111827]">Unpaid</option>
+                                  <option value="paid" className="bg-[#1a1a1a]">Paid</option>
+                                  <option value="pending" className="bg-[#1a1a1a]">Pending</option>
+                                  <option value="unpaid" className="bg-[#1a1a1a]">Unpaid</option>
                                 </select>
                                 <button 
                                   onClick={(e) => {

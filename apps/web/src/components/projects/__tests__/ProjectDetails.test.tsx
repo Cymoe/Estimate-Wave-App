@@ -63,7 +63,10 @@ jest.mock('../../layouts/DashboardLayout', () => {
   return { OrganizationContext: createContext({ selectedOrg: { id: 'org1' } }) };
 });
 
-import { ProjectDetails, projectHealth } from '../ProjectDetails';
+import { ProjectDetailsDrawer } from '../ProjectDetails';
+
+const onClose = jest.fn();
+const onSaved = jest.fn();
 
 async function render() {
   const container = document.createElement('div');
@@ -72,13 +75,13 @@ async function render() {
     createRoot(container).render(
       <MemoryRouter initialEntries={['/projects/p1']}>
         <Routes>
-          <Route path="/projects/:id" element={<ProjectDetails />} />
+          <Route path="/projects/:id" element={<ProjectDetailsDrawer projectId="p1" onClose={onClose} onSaved={onSaved} />} />
         </Routes>
       </MemoryRouter>,
     ),
   );
   await act(async () => {});
-  return container;
+  return document.body;
 }
 
 const click = async (text: string) => {
@@ -90,30 +93,43 @@ function type(el: HTMLInputElement, value: string) {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, value);
   el.dispatchEvent(new Event('input', { bubbles: true }));
 }
+const summary = () => document.body.querySelector('[data-testid="project-summary"]')!.textContent ?? '';
 
-describe('ProjectDetails', () => {
+describe('Project drawer', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     createExpense.mockClear();
+    onClose.mockClear();
+    onSaved.mockClear();
   });
 
-  it('shows budget against spending, and adding an expense updates it', async () => {
+  it('opens as a drawer as wide as the estimate, with the contract, spending and what is left', async () => {
     expenses = [
       { id: 'x1', description: 'Lumber', amount: 600, category: 'Materials', date: '2026-10-02', status: 'paid' },
       { id: 'x2', description: 'Nails', amount: 100, category: 'Materials', date: '2026-10-03', status: 'pending' },
     ];
-    const container = await render();
-    const text = () => container.textContent ?? '';
-    expect(text()).toContain('Kitchen trim');
-    expect(text()).toContain('Under Budget');
-    expect(text()).toContain('70% of budget');
-    expect(text()).toContain('$700.00');
-    expect(text()).toContain('86%'); // paid share
-    expect(text()).toContain('Accepted estimates');
+    const body = await render();
+    const dialog = body.querySelector('[role="dialog"][aria-label="Project"]')!;
+    expect(dialog.className).toContain('md:w-[720px]');
+    expect(dialog.querySelector('h1')!.textContent).toBe('Kitchen trim');
+    expect(dialog.textContent).toContain('Ann Miller • Oct 1, 2026 – Jan 1, 2099');
+    expect(Array.from(dialog.querySelectorAll('[role="tab"]')).map((t) => t.textContent)).toEqual(['Overview', 'Estimates1', 'Expenses2']);
+    expect(summary()).toContain('Contract$3,000.00accepted estimates');
+    expect(summary()).toContain('Spent$700.00of $1,000.00 budget');
+    expect(summary()).toContain('Left$2,300.00of the contract');
+    expect(dialog.textContent).not.toContain('Project Health');
+    expect(dialog.textContent).not.toContain('Most Used');
+    // The client's phone is one tap away.
+    expect(dialog.querySelector('a[href="tel:4325550100"]')?.textContent).toBe('Call');
+  });
 
-    await click('Add Expense');
-    const description = container.querySelector('input[aria-label="What did you pay for?"]') as HTMLInputElement;
-    const amount = container.querySelector('input[aria-label="Amount"]') as HTMLInputElement;
+  it('adds an expense from the Expenses tab, and the overview counts it', async () => {
+    expenses = [{ id: 'x1', description: 'Lumber', amount: 600, category: 'Materials', date: '2026-10-02', status: 'paid' }];
+    await render();
+    await click('Expenses');
+    await act(async () => (document.body.querySelector('button[aria-label="Add expense"]') as HTMLButtonElement).click());
+    const description = document.body.querySelector('input[aria-label="What did you pay for?"]') as HTMLInputElement;
+    const amount = document.body.querySelector('input[aria-label="Amount"]') as HTMLInputElement;
     await act(async () => {
       type(description, 'Dumpster');
       type(amount, '450');
@@ -123,14 +139,12 @@ describe('ProjectDetails', () => {
       expect.objectContaining({ organization_id: 'org1', project_id: 'p1', description: 'Dumpster', amount: 450, status: 'pending' }),
     );
     await click('Overview');
-    expect(text()).toContain('Over Budget');
-    expect(text()).toContain('115% of budget');
+    expect(summary()).toContain('Spent$1,050.00of $1,000.00 budget');
   });
 
-  it('edits the project from its page', async () => {
+  it('edits the details in place, and tells the list behind', async () => {
     expenses = [];
     await render();
-    await click('Edit');
     const budget = document.body.querySelector('input[aria-label="Budget"]') as HTMLInputElement;
     expect(budget.value).toBe('1000');
     await act(async () => type(budget, '2500'));
@@ -139,13 +153,26 @@ describe('ProjectDetails', () => {
       budget.blur();
     });
     expect(updateProject).toHaveBeenCalledWith('p1', { budget: '2500' });
+    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1', budget: 2500 }));
   });
 
-  it('scores health from budget and schedule', () => {
-    const base = { name: 'x', status: 'active' as const, budget: 1000, end_date: '2099-01-01' };
-    expect(projectHealth(base, 500)).toBe(100);
-    expect(projectHealth(base, 1100)).toBe(80); // 10% over costs 20
-    expect(projectHealth({ ...base, end_date: '2020-01-01' }, 0)).toBe(80); // late
-    expect(projectHealth({ ...base, end_date: '2020-01-01', status: 'completed' }, 0)).toBe(100);
+  it('lists the estimates on their own tab', async () => {
+    expenses = [];
+    await render();
+    await click('Estimates');
+    const list = document.body.querySelector('[aria-label="Estimates"]')!;
+    expect(list.textContent).toContain('EST-1');
+    expect(list.textContent).toContain('accepted');
+    expect(list.textContent).toContain('$3,000.00');
+  });
+
+  it('closes with the X', async () => {
+    expenses = [];
+    jest.useFakeTimers();
+    await render();
+    await act(async () => (document.body.querySelector('button[aria-label="Close"]') as HTMLButtonElement).click());
+    await act(async () => jest.advanceTimersByTime(200));
+    expect(onClose).toHaveBeenCalled();
+    jest.useRealTimers();
   });
 });

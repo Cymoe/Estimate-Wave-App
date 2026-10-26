@@ -47,7 +47,6 @@ import { TeamMemberDetailPage } from './pages/TeamMemberDetailPage';
 import { DebugData } from './pages/DebugData';
 import { Work } from './pages/Work';
 import { Projects as ProjectsPage } from './pages/Projects';
-import { ProjectDetails } from './components/projects/ProjectDetails';
 import { ActivityPage } from './pages/ActivityPage';
 import { WhoWeServe } from './pages/WhoWeServe';
 // import { ServicesPackages } from './pages/ServicesPackages'; // Removed - using line items only
@@ -530,8 +529,8 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             {FEATURES.projects ? (
-              <DashboardLayout>
-                <PlanGate><ProjectDetails /></PlanGate>
+              <DashboardLayout fullWidth={true}>
+                <PlanGate><ProjectsPage /></PlanGate>
               </DashboardLayout>
             ) : (
               <HomeRedirect />
