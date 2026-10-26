@@ -6,6 +6,11 @@ import { fail, logActivity, nowIso } from "./lib/access";
 import { withCategories } from "./lib/categories";
 import { lockContract } from "./lib/contract";
 import {
+  needsAcknowledgment,
+  resolveDocuments,
+  signedDocuments,
+} from "./lib/contractDocs";
+import {
   DEFAULT_PAYMENT_TERMS,
   DEFAULT_WARRANTY,
 } from "./lib/contractDefaults";
@@ -60,6 +65,25 @@ export const get = query({
     const signed = estimate.contractSnapshot;
     const terms = (signed ? signed.terms : estimate.contractTerms) ?? {};
     const design = signed ? signed.design : estimate.design;
+    // What the client signs besides the estimate: the agreement and any
+    // attachments (the uploaded PDFs as signed, once signed). Fingerprints
+    // only go out after signing, on the signed record.
+    const docs =
+      signed?.documents ??
+      signedDocuments(await resolveDocuments(ctx, estimate));
+    const documents = await Promise.all(
+      docs.map(async (d) => ({
+        kind: d.kind,
+        source: d.source,
+        name: d.name,
+        fileName: d.fileName,
+        size: d.size,
+        sha256: signed ? d.sha256 : undefined,
+        url: d.storageId
+          ? ((await ctx.storage.getUrl(d.storageId)) ?? undefined)
+          : undefined,
+      })),
+    );
     const clientAddress = signed
       ? signed.client?.address
       : client
@@ -104,6 +128,8 @@ export const get = query({
         paymentTerms: terms.paymentTerms || DEFAULT_PAYMENT_TERMS,
         warrantyPeriod: terms.warrantyPeriod || DEFAULT_WARRANTY,
       },
+      documents,
+      acknowledgedAt: signed?.acknowledgedAt,
       lockedAt: estimate.contractLockedAt,
       clientSignature: estimate.clientSignature,
       signedAt: estimate.signedAt,
@@ -137,17 +163,34 @@ export const markOpened = mutation({
 });
 
 export const accept = mutation({
-  args: { token: v.string(), signature: v.string() },
-  handler: async (ctx, { token, signature }) => {
+  args: {
+    token: v.string(),
+    signature: v.string(),
+    agreedToDocuments: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { token, signature, agreedToDocuments }) => {
     const estimate = await requireByToken(ctx, token);
     if (!OPEN.has(estimate.status))
       fail("INVALID", "This estimate can no longer be accepted");
     if (!signature.trim())
       fail("INVALID", "Please sign to accept the estimate");
     const now = nowIso();
-    const lock = estimate.contractLockedAt
-      ? {}
-      : await lockContract(ctx, estimate, now);
+    const lock: Partial<Awaited<ReturnType<typeof lockContract>>> =
+      estimate.contractLockedAt
+        ? {}
+        : await lockContract(
+            ctx,
+            estimate,
+            now,
+            agreedToDocuments ? now : undefined,
+          );
+    // Uploaded documents are signed only once the client says they've read them.
+    if (
+      lock.contractSnapshot &&
+      needsAcknowledgment(lock.contractSnapshot.documents) &&
+      !agreedToDocuments
+    )
+      fail("INVALID", "Please confirm you've read the attached documents");
     await ctx.db.patch(estimate._id, {
       clientSignature: signature,
       signedAt: now,

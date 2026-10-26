@@ -177,6 +177,36 @@ export const estimateDesign = v.object({
   url: v.string(),
 });
 
+// A contract document a company uploaded (a PDF), or Tolliver's built-in one.
+export const contractDocKind = v.union(
+  v.literal("agreement"),
+  v.literal("affidavit"),
+  v.literal("change_order"),
+  v.literal("attachment"),
+);
+
+// One document as it went out for signing, kept on the signed contract.
+export const signedDocument = v.object({
+  kind: contractDocKind,
+  source: v.union(v.literal("tolliver"), v.literal("upload")),
+  name: v.string(),
+  docId: v.optional(v.id("contractDocs")),
+  fileName: v.optional(v.string()),
+  storageId: v.optional(v.id("_storage")),
+  sha256: v.optional(v.string()),
+  size: v.optional(v.number()),
+});
+
+// This job's choice per document: a PDF, Tolliver's, or (absent) the company's.
+const contractDocChoice = v.union(v.id("contractDocs"), v.literal("tolliver"));
+export const estimateContractDocs = v.object({
+  agreement: v.optional(contractDocChoice),
+  affidavit: v.optional(contractDocChoice),
+  changeOrder: v.optional(contractDocChoice),
+  // Company attachments turned off for this job.
+  hiddenAttachments: v.optional(v.array(v.id("contractDocs"))),
+});
+
 // The contract as agreed, kept when the estimate is accepted so later
 // estimate changes don't alter it (they become a change order instead).
 export const contractSnapshot = v.object({
@@ -194,6 +224,10 @@ export const contractSnapshot = v.object({
   totalAmount: v.number(),
   terms: v.optional(contractTerms),
   design: v.optional(estimateDesign),
+  // The documents signed with it (the agreement and attachments), and when
+  // the client confirmed reading the uploaded ones.
+  documents: v.optional(v.array(signedDocument)),
+  acknowledgedAt: v.optional(v.string()),
 });
 
 export const estimateFields = {
@@ -207,6 +241,7 @@ export const estimateFields = {
   contractLockedAt: v.optional(v.string()),
   contractSnapshot: v.optional(contractSnapshot),
   design: v.optional(estimateDesign),
+  contractDocs: v.optional(estimateContractDocs),
   // The secret in the estimate's client link (/share/estimate/:token).
   shareToken: v.optional(v.string()),
   firstOpenedAt: v.optional(v.string()),
@@ -1019,6 +1054,27 @@ export default defineSchema({
   })
     .index("by_organization", ["organizationId"])
     .index("by_client", ["clientId"]),
+
+  // Contract PDFs a company uploaded: its library (no estimateId) or one
+  // job's own. Signed files are kept for good; see convex/contractDocs.ts.
+  contractDocs: defineTable({
+    organizationId: v.id("organizations"),
+    kind: contractDocKind,
+    name: v.string(),
+    fileName: v.string(),
+    storageId: v.id("_storage"),
+    size: v.number(),
+    sha256: v.string(),
+    estimateId: v.optional(v.id("estimates")),
+    // The company's default for its kind; for attachments, sent with every estimate.
+    active: v.boolean(),
+    archivedAt: v.optional(v.string()),
+    signedAt: v.optional(v.string()),
+    uploadedBy: v.id("users"),
+    uploadedAt: v.string(),
+  })
+    .index("by_organization_and_kind", ["organizationId", "kind"])
+    .index("by_estimate", ["estimateId"]),
 
   estimates: defineTable({
     ...estimateFields,

@@ -1,9 +1,17 @@
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { withCategories } from "./categories";
+import { markSigned, resolveDocuments, signedDocuments } from "./contractDocs";
 
-/** Freezes the contract as it stands, for an estimate being accepted. */
-export async function lockContract(ctx: MutationCtx, estimate: Doc<"estimates">, now: string) {
+/**
+ * Freezes the contract as it stands, for an estimate being accepted: its
+ * data and the documents signed with it (the agreement and attachments,
+ * with each uploaded file's fingerprint). `acknowledgedAt` is when the
+ * client confirmed reading the uploaded ones.
+ */
+export async function lockContract(ctx: MutationCtx, estimate: Doc<"estimates">, now: string, acknowledgedAt?: string) {
+  const documents = signedDocuments(await resolveDocuments(ctx, estimate));
+  await markSigned(ctx, documents, now);
   const client = estimate.clientId ? await ctx.db.get(estimate.clientId) : null;
   const address = client ? [client.address, client.city, client.state, client.zip].filter(Boolean).join(", ") : "";
   return {
@@ -18,6 +26,8 @@ export async function lockContract(ctx: MutationCtx, estimate: Doc<"estimates">,
       totalAmount: estimate.totalAmount,
       terms: estimate.contractTerms,
       design: estimate.design,
+      documents,
+      ...(acknowledgedAt ? { acknowledgedAt } : {}),
     },
   };
 }

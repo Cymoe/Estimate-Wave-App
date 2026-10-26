@@ -13,6 +13,15 @@ import type { MutationCtx } from "./_generated/server";
 import { withCategories } from "./lib/categories";
 import { lockContract } from "./lib/contract";
 import {
+  CHOICE_KEY,
+  companyDocs,
+  fileType,
+  forPage,
+  needsAcknowledgment,
+  resolveDocuments,
+  resolvedForPage,
+} from "./lib/contractDocs";
+import {
   assertLinksInOrg,
   documentNumber,
   normalizeItems,
@@ -30,21 +39,12 @@ const serverOnly = new Set([
   "contractLockedAt",
   "contractSnapshot",
   "design",
+  "contractDocs",
   "shareToken",
   "firstOpenedAt",
 ]);
 
 const MAX_DESIGN_BYTES = 10 * 1024 * 1024;
-
-/** The file's type, or one guessed from its name when the upload didn't say. */
-function designType(contentType: string | undefined, name: string): string {
-  if (contentType) return contentType;
-  const ext = name.split(".").pop()?.toLowerCase() ?? "";
-  if (ext === "pdf") return "application/pdf";
-  if (["png", "jpg", "jpeg", "gif", "webp", "heic"].includes(ext))
-    return `image/${ext === "jpg" ? "jpeg" : ext}`;
-  return "";
-}
 
 /** Deletes a design file unless the signed contract still shows it. */
 async function deleteDesignFile(
@@ -185,6 +185,16 @@ export const remove = mutation({
       if (file && (await ctx.db.system.get(file.storageId)) !== null)
         await ctx.storage.delete(file.storageId);
     }
+    // The job's own contract PDFs go with it; the company's library stays.
+    const jobDocs = await ctx.db
+      .query("contractDocs")
+      .withIndex("by_estimate", (q) => q.eq("estimateId", id))
+      .take(100);
+    for (const d of jobDocs) {
+      await ctx.db.delete(d._id);
+      if ((await ctx.db.system.get(d.storageId)) !== null)
+        await ctx.storage.delete(d.storageId);
+    }
     await logActivity(ctx, {
       organizationId: doc.organizationId,
       userId: user._id,
@@ -198,11 +208,29 @@ export const remove = mutation({
 });
 
 export const sign = mutation({
-  args: { id: v.id("estimates"), signature: v.string() },
-  handler: async (ctx, { id, signature }) => {
+  args: {
+    id: v.id("estimates"),
+    signature: v.string(),
+    agreedToDocuments: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { id, signature, agreedToDocuments }) => {
     const { doc, user } = await getOwned(ctx, "estimates", id);
     const now = nowIso();
-    const lock = doc.contractLockedAt ? {} : await lockContract(ctx, doc, now);
+    const lock: Partial<Awaited<ReturnType<typeof lockContract>>> =
+      doc.contractLockedAt
+        ? {}
+        : await lockContract(
+            ctx,
+            doc,
+            now,
+            agreedToDocuments ? now : undefined,
+          );
+    if (
+      lock.contractSnapshot &&
+      needsAcknowledgment(lock.contractSnapshot.documents) &&
+      !agreedToDocuments
+    )
+      fail("INVALID", "Please confirm you've read the attached documents");
     await ctx.db.patch(id, {
       clientSignature: signature,
       signedAt: now,
@@ -242,7 +270,7 @@ export const setDesign = mutation({
     const { doc } = await getOwned(ctx, "estimates", id);
     const file = await ctx.db.system.get(storageId);
     if (file === null) fail("NOT_FOUND", "The uploaded file wasn't found");
-    const type = designType(file.contentType, name);
+    const type = fileType(file.contentType, name);
     if (
       !(type.startsWith("image/") || type === "application/pdf") ||
       file.size > MAX_DESIGN_BYTES
@@ -268,6 +296,138 @@ export const removeDesign = mutation({
     if (doc.design) await deleteDesignFile(ctx, doc, doc.design.storageId);
     await ctx.db.patch(id, { design: undefined, updatedAt: nowIso() });
     return await ctx.db.get(id);
+  },
+});
+
+/**
+ * The contract documents this estimate uses, for its Contract tab: the
+ * agreement and attachments (as signed, once the contract is locked), the
+ * affidavit and change order (used later in the job), and the company's own
+ * defaults, so the tab can offer "use the company's".
+ */
+export const documents = query({
+  args: { id: v.id("estimates") },
+  handler: async (ctx, { id }) => {
+    const { doc } = await getOwned(ctx, "estimates", id);
+    const resolved = await resolveDocuments(ctx, doc);
+    const signed = doc.contractSnapshot?.documents;
+    const signedAgreement = signed?.find((d) => d.kind === "agreement");
+    const companyAttachments = await companyDocs(
+      ctx,
+      doc.organizationId,
+      "attachment",
+    );
+    const hidden = new Set(doc.contractDocs?.hiddenAttachments ?? []);
+    const defaults = {
+      agreement: (await companyDocs(ctx, doc.organizationId, "agreement"))[0]
+        ?.name,
+      affidavit: (await companyDocs(ctx, doc.organizationId, "affidavit"))[0]
+        ?.name,
+      changeOrder: (
+        await companyDocs(ctx, doc.organizationId, "change_order")
+      )[0]?.name,
+    };
+    return {
+      locked: doc.contractLockedAt !== undefined,
+      acknowledgedAt: doc.contractSnapshot?.acknowledgedAt,
+      agreement: signedAgreement
+        ? await forPage(ctx, signedAgreement, "signed")
+        : await resolvedForPage(ctx, resolved.agreement),
+      affidavit: await resolvedForPage(ctx, resolved.affidavit),
+      changeOrder: await resolvedForPage(ctx, resolved.changeOrder),
+      attachments: signed
+        ? await Promise.all(
+            signed
+              .filter((d) => d.kind === "attachment")
+              .map((d) => forPage(ctx, d, "signed")),
+          )
+        : await Promise.all(
+            resolved.attachments.map((r) => resolvedForPage(ctx, r)),
+          ),
+      // The company's always-included attachments, with whether this job sends each.
+      companyAttachments: companyAttachments.map((d) => ({
+        docId: d._id,
+        name: d.name,
+        included: !hidden.has(d._id),
+      })),
+      companyDefaults: defaults,
+    };
+  },
+});
+
+const slotKind = v.union(
+  v.literal("agreement"),
+  v.literal("affidavit"),
+  v.literal("change_order"),
+);
+
+/** This job's choice for one document: a PDF, Tolliver's, or null for the company's. */
+export const setContractDoc = mutation({
+  args: {
+    id: v.id("estimates"),
+    kind: slotKind,
+    choice: v.union(v.id("contractDocs"), v.literal("tolliver"), v.null()),
+  },
+  handler: async (ctx, { id, kind, choice }) => {
+    const { doc } = await getOwned(ctx, "estimates", id);
+    if (doc.contractLockedAt)
+      fail(
+        "INVALID",
+        "The contract was accepted, so its documents can't change.",
+      );
+    if (choice !== null && choice !== "tolliver") {
+      const picked = await ctx.db.get(choice);
+      if (
+        picked === null ||
+        picked.organizationId !== doc.organizationId ||
+        picked.kind !== kind ||
+        picked.archivedAt !== undefined ||
+        (picked.estimateId !== undefined && picked.estimateId !== id)
+      )
+        fail("NOT_FOUND", "That document wasn't found");
+    }
+    const key = CHOICE_KEY[kind];
+    const contractDocs = { ...(doc.contractDocs ?? {}) };
+    if (choice === null) delete contractDocs[key];
+    else contractDocs[key] = choice;
+    await ctx.db.patch(id, { contractDocs, updatedAt: nowIso() });
+    return null;
+  },
+});
+
+/** Sends, or stops sending, one of the company's always-included attachments with this job. */
+export const setAttachment = mutation({
+  args: {
+    id: v.id("estimates"),
+    docId: v.id("contractDocs"),
+    included: v.boolean(),
+  },
+  handler: async (ctx, { id, docId, included }) => {
+    const { doc } = await getOwned(ctx, "estimates", id);
+    if (doc.contractLockedAt)
+      fail(
+        "INVALID",
+        "The contract was accepted, so its documents can't change.",
+      );
+    const attachment = await ctx.db.get(docId);
+    if (
+      attachment === null ||
+      attachment.organizationId !== doc.organizationId ||
+      attachment.kind !== "attachment" ||
+      attachment.estimateId !== undefined
+    )
+      fail("NOT_FOUND", "That document wasn't found");
+    const hidden = new Set(doc.contractDocs?.hiddenAttachments ?? []);
+    if (included) hidden.delete(docId);
+    else hidden.add(docId);
+    await ctx.db.patch(id, {
+      contractDocs: {
+        ...(doc.contractDocs ?? {}),
+        hiddenAttachments: [...hidden],
+      },
+      updatedAt: nowIso(),
+    });
+    return null;
   },
 });
 
