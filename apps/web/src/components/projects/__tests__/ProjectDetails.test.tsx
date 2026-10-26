@@ -55,6 +55,7 @@ jest.mock('../../../services/ExpenseService', () => {
   };
 });
 jest.mock('../../../lib/api', () => ({
+  invoicesAPI: { forProject: jest.fn(async () => ({ invoiced: 900, paid: 900, due: 0 })) },
   costCodesAPI: { list: jest.fn(async () => []) },
   industriesAPI: { forOrganization: jest.fn(async () => []) },
 }));
@@ -114,7 +115,7 @@ describe('Project drawer', () => {
     expect(dialog.querySelector('h1')!.textContent).toBe('Kitchen trim');
     expect(dialog.textContent).toContain('Ann Miller • Oct 1, 2026 – Jan 1, 2099');
     expect(Array.from(dialog.querySelectorAll('[role="tab"]')).map((t) => t.textContent)).toEqual(['Overview', 'Estimates1', 'Expenses2']);
-    expect(summary()).toContain('Contract$3,000.00accepted estimates');
+    expect(summary()).toContain('Contract$3,000.00$900.00 collected');
     expect(summary()).toContain('Costs$700.00of $1,000.00 budget');
     expect(summary()).toContain('Profit$2,300.0077% margin');
     // Where the money went, the budget, the latest costs, and the numbers pinned at the bottom.

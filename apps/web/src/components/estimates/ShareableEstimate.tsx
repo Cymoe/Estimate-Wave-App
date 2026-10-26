@@ -38,7 +38,19 @@ interface ClientEstimate {
   /** What's signed besides the estimate: the agreement and any attachments. */
   documents: RecordDocument[];
   acknowledged_at?: string;
+  /** Once signed: what the client has been asked to pay, and how. */
+  payments?: ClientPayments;
   items: Array<{ id: string; description: string; quantity: number; unit_price: number; total_price: number; category?: string }>;
+}
+
+interface ClientPayments {
+  invoices: Array<{ number: string; kind: string; description: string; total: number; paid: number; due: number; dueDate?: string; paidDate?: string }>;
+  contract: number;
+  invoiced: number;
+  paid: number;
+  due: number;
+  payLink?: string;
+  instructions?: string;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -65,6 +77,7 @@ function fromView(view: any): ClientEstimate {
     locked_at: view.lockedAt,
     documents: view.documents ?? [],
     acknowledged_at: view.acknowledgedAt,
+    payments: view.payments,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     items: (view.items ?? []).map((item: any, i: number) => ({
       id: String(i),
@@ -75,6 +88,47 @@ function fromView(view: any): ClientEstimate {
       category: item.category,
     })),
   };
+}
+
+/** What's due after signing: each invoice, what's been paid, and how to pay the company. */
+function PaymentsDue({ payments }: { payments: ClientPayments }) {
+  const settled = payments.due <= 0;
+  return (
+    <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-6" aria-label="Payment" data-testid="client-payments">
+      <div className="flex items-baseline justify-between gap-3 mb-3">
+        <h3 className="text-lg font-semibold text-gray-900">{settled ? 'Paid in full so far' : 'Payment due'}</h3>
+        {!settled && <span className="text-xl font-bold text-gray-900">{formatCurrency(payments.due)}</span>}
+      </div>
+      <ul className="divide-y divide-gray-200 border border-gray-200 rounded">
+        {payments.invoices.map((invoice) => (
+          <li key={invoice.number} className="px-3 py-2.5 text-sm flex items-center justify-between gap-3">
+            <span>
+              <span className="block text-gray-900">{invoice.description}</span>
+              <span className="block text-xs text-gray-500">
+                {invoice.number}
+                {invoice.due <= 0 ? ' · Paid' : invoice.paid > 0 ? ` · ${formatCurrency(invoice.paid)} paid` : ''}
+              </span>
+            </span>
+            <span className={`font-medium ${invoice.due <= 0 ? 'text-green-700' : 'text-gray-900'}`}>{formatCurrency(invoice.due <= 0 ? invoice.total : invoice.due)}</span>
+          </li>
+        ))}
+      </ul>
+      {!settled && payments.payLink && (
+        <a
+          href={payments.payLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-4 inline-flex items-center justify-center w-full sm:w-auto px-6 py-3 rounded-lg bg-[#336699] hover:bg-[#2a5580] text-white font-medium"
+        >
+          Pay {formatCurrency(payments.due)}
+        </a>
+      )}
+      {!settled && payments.instructions && <p className="mt-4 text-sm text-gray-700 whitespace-pre-wrap">{payments.instructions}</p>}
+      <p className="mt-3 text-xs text-gray-500">
+        {formatCurrency(payments.paid)} paid of {formatCurrency(payments.contract)}.
+      </p>
+    </section>
+  );
 }
 
 /** The agreement the client signs, in the shape the contract wording reads. */
@@ -547,6 +601,9 @@ export const ShareableEstimate: React.FC = () => {
             )}
           </div>
         )}
+
+        {/* What's due, once signed */}
+        {estimate.status === 'accepted' && estimate.payments && <PaymentsDue payments={estimate.payments} />}
 
         {/* Signature Section */}
         {estimate.status === 'accepted' && estimate.client_signature ? (

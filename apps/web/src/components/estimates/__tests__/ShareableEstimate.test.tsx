@@ -116,6 +116,32 @@ describe('client estimate page', () => {
     expect(document.body.textContent).toContain('Accepted & Signed');
   });
 
+  it('after signing, shows what is due with the company pay link and how to pay', async () => {
+    view = {
+      ...sent,
+      status: 'accepted',
+      clientSignature: 'data:image/png;base64,AAAA',
+      signedAt: '2026-10-11T12:00:00Z',
+      payments: {
+        invoices: [{ number: 'INV-1', kind: 'deposit', description: 'Deposit (30%) for EST-2026-000001', total: 270, paid: 0, due: 270 }],
+        contract: 900,
+        invoiced: 270,
+        paid: 0,
+        due: 270,
+        payLink: 'https://square.link/shah',
+        instructions: 'Checks to Shah Builders LLC',
+      },
+    };
+    await open();
+    const card = document.body.querySelector('[data-testid="client-payments"]')!;
+    expect(card.textContent).toContain('Payment due$270.00');
+    expect(card.textContent).toContain('Deposit (30%) for EST-2026-000001INV-1$270.00');
+    expect(card.querySelector('a')!.getAttribute('href')).toBe('https://square.link/shah');
+    expect(card.querySelector('a')!.textContent).toBe('Pay $270.00');
+    expect(card.textContent).toContain('Checks to Shah Builders LLC');
+    expect(card.textContent).toContain('$0.00 paid of $900.00.');
+  });
+
   it('can be declined', async () => {
     view = { ...sent };
     window.confirm = () => true;
