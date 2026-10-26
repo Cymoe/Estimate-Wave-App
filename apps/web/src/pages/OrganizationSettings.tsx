@@ -1,12 +1,13 @@
 import React, { useContext, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Building2, Hammer, Users, Bell, Shield, Bot, FileText } from 'lucide-react';
+import { ArrowLeft, Building2, Hammer, Users, Bell, Shield, Bot, FileText, Wallet } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { BusinessDetailsForm } from '../components/settings/BusinessDetailsForm';
 import { TradesEditor } from '../components/settings/TradesEditor';
 import { NotificationsSettings } from '../components/settings/NotificationsSettings';
 import { ConnectedAssistants } from '../components/settings/ConnectedAssistants';
 import { ContractsSettings } from '../components/settings/ContractsSettings';
+import { PaymentsSettings } from '../components/settings/PaymentsSettings';
 
 export default function OrganizationSettings() {
   const navigate = useNavigate();
@@ -19,6 +20,7 @@ export default function OrganizationSettings() {
     { id: 'general', label: 'General', icon: Building2 },
     { id: 'trades', label: 'Trades', icon: Hammer },
     { id: 'contracts', label: 'Contracts', icon: FileText },
+    { id: 'payments', label: 'Payments', icon: Wallet },
     { id: 'team', label: 'Team & Permissions', icon: Users },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'assistants', label: 'Assistants', icon: Bot },
@@ -123,6 +125,13 @@ export default function OrganizationSettings() {
               <div className="bg-[#1A1A1A] rounded-lg p-6">
                 <h2 className="text-lg font-semibold text-white mb-1">Your contracts</h2>
                 <ContractsSettings organizationId={selectedOrg.id} />
+              </div>
+            )}
+
+            {activeTab === 'payments' && (
+              <div className="bg-[#1A1A1A] rounded-lg p-6">
+                <h2 className="text-lg font-semibold text-white mb-1">Getting paid</h2>
+                <PaymentsSettings organizationId={selectedOrg.id} />
               </div>
             )}
 

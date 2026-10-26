@@ -20,6 +20,7 @@ import { AirtableSidebar } from './AirtableSidebar';
 import { ItemPricingDrawer } from './ItemPricingDrawer';
 import { ContextualPricingSelector } from './ContextualPricingSelector';
 import { DesignUpload } from './DesignUpload';
+import { PaymentsTab } from './PaymentsTab';
 import { ContractTab } from './ContractTab';
 import { copyText, duplicateEstimate, sendEstimateLink } from './estimateActions';
 
@@ -97,7 +98,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   const [pricingItemId, setPricingItemId] = useState<string | null>(null);
   
   // Tab state - Default to Line Items for immediate visibility (3-tab structure)
-  const [activeTab, setActiveTab] = useState<'items' | 'overview' | 'contract'>('items');
+  const [activeTab, setActiveTab] = useState<'items' | 'overview' | 'contract' | 'payments'>('items');
   // The contract tab's inline document preview that's open.
 
   // The client link, loaded when it's first needed (Share or Send).
@@ -617,7 +618,8 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
             {[
               { id: 'items', label: 'Line Items' },
               { id: 'overview', label: 'Overview' },
-              { id: 'contract', label: 'Contract' }
+              { id: 'contract', label: 'Contract' },
+              { id: 'payments', label: 'Payments' }
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -850,6 +852,8 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
 
 
          {/* Contract Tab */}
+         {activeTab === 'payments' && estimate.id && <PaymentsTab estimateId={estimate.id} />}
+
          {activeTab === 'contract' && (
            <div className="p-4">
              {estimate.items && estimate.items.length > 0 ? (

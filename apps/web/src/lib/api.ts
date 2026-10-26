@@ -107,6 +107,11 @@ export const organizationsAPI = {
   async delete(id: string) {
     return run('mutation', api.organizations.remove, { id });
   },
+
+  /** How clients pay the company: deposit at signing, pay link, instructions. */
+  setPayments(id: string, settings: PaymentSettings): Promise<PaymentSettings> {
+    return run('mutation', api.organizations.setPayments, defined({ id, ...settings }));
+  },
 };
 
 // Clients API
@@ -184,6 +189,46 @@ export const contractDocsAPI = {
   setActive: (id: string) => run('mutation', api.contractDocs.setActive, { id }),
   useTolliver: (organizationId: string, kind: SlotKind) => run('mutation', api.contractDocs.useTolliver, { organizationId, kind }),
   remove: (id: string): Promise<{ archived: boolean }> => run('mutation', api.contractDocs.remove, { id }),
+};
+
+export type InvoiceKind = 'deposit' | 'balance' | 'other';
+export interface InvoicePayment { _id: string; amount: number; method: string; paidAt: string; note?: string }
+export interface InvoiceView {
+  id: string;
+  number: string;
+  kind: InvoiceKind;
+  label: string;
+  description: string;
+  total: number;
+  paid: number;
+  due: number;
+  status: 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled';
+  issueDate: string;
+  dueDate?: string;
+  paidDate?: string;
+  payments: InvoicePayment[];
+}
+export interface PaymentSummary { contract: number; invoiced: number; paid: number; due: number; toInvoice: number }
+export interface EstimatePayments {
+  signed: boolean;
+  invoices: InvoiceView[];
+  summary: PaymentSummary;
+  depositPercent: number;
+  methods: string[];
+}
+export interface PaymentSettings { depositPercent: number; payLink?: string; instructions?: string }
+
+/** Getting paid for a signed estimate: deposits, the balance and payments recorded by hand. */
+export const invoicesAPI = {
+  forEstimate: (estimateId: string): Promise<EstimatePayments> => run('query', api.invoices.forEstimate, { estimateId }),
+  forProject: (projectId: string): Promise<{ invoiced: number; paid: number; due: number }> => run('query', api.invoices.forProject, { projectId }),
+  requestDeposit: (estimateId: string, ask: { percent?: number; amount?: number }) =>
+    run('mutation', api.invoices.requestDeposit, defined({ estimateId, ...ask })),
+  invoiceBalance: (estimateId: string) => run('mutation', api.invoices.invoiceBalance, { estimateId }),
+  recordPayment: (id: string, payment: { amount: number; method: string; paidAt?: string; note?: string }): Promise<InvoiceView> =>
+    run('mutation', api.invoices.recordPayment, defined({ id, ...payment })),
+  removePayment: (id: string, paymentId: string): Promise<InvoiceView> => run('mutation', api.invoices.removePayment, { id, paymentId }),
+  cancel: (id: string) => run('mutation', api.invoices.cancel, { id }),
 };
 
 export const estimatesAPI = {
