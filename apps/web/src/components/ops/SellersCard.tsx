@@ -166,8 +166,8 @@ export function SellersCard() {
     setSyncing(true);
     setNote(null);
     try {
-      const r: { fetched?: number; added?: number; updated?: number; error?: string } = await sellersAPI.syncNow();
-      setNote(r.error ? `The city's service failed: ${r.error}` : `Read ${r.fetched?.toLocaleString()} records: ${r.added} new, ${r.updated} changed.`);
+      const r: { full?: boolean } = await sellersAPI.syncNow();
+      setNote(`Reading the city's records${r.full ? ' (all of them, the first time: a few minutes)' : ''}. The lists update as it goes.`);
       await load();
     } catch (err) {
       setNote(errorText(err));

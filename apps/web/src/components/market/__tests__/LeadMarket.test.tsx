@@ -162,7 +162,7 @@ jest.mock('../../../lib/api', () => ({
       foreclosures: [],
     }),
     status: async () => ({ source: { syncedAt: '2026-10-26T06:40:00.000Z', fetched: 47868, added: 0, updated: 12 }, stacked: 1234, total: 25000 }),
-    syncNow: async () => ({ fetched: 3000, added: 4, updated: 9 }),
+    syncNow: async () => ({ started: true, full: false }),
   },
   foreclosuresAPI: {
     sale: async (saleDate?: string) => ({ saleDate: saleDate ?? '2026-11-03', saleDates: ['2026-11-03', '2026-10-06'], homes: auctionHomes }),

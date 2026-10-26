@@ -110,83 +110,106 @@ export const stalledPermits = internalQuery({
 /** ArcGIS wants dates as DATE 'yyyy-mm-dd hh:mm:ss' (UTC). */
 const arcDate = (ms: number) => `DATE '${new Date(ms).toISOString().slice(0, 19).replace("T", " ")}'`;
 
-/** Every feature of a layer matching `where`, 2,000 at a time. */
-async function readLayer(layer: string, where: string, label: string) {
-  const out: Array<{ attributes?: Record<string, unknown> }> = [];
-  let offset = 0;
-  for (;;) {
-    const params = new URLSearchParams({
-      where,
-      outFields: "*",
-      orderByFields: "OBJECTID ASC",
-      resultOffset: String(offset),
-      resultRecordCount: "2000",
-      returnGeometry: "false",
-      f: "json",
-    });
-    const response = await fetch(`${layer}/query?${params}`);
-    if (!response.ok) throw new Error(`Midland ${label}: HTTP ${response.status}`);
-    const body = (await response.json()) as { error?: { message?: string }; features?: typeof out; exceededTransferLimit?: boolean };
-    if (body.error) throw new Error(`Midland ${label}: ${body.error.message ?? "the service returned an error"}`);
-    const features = body.features ?? [];
-    out.push(...features);
-    if (!body.exceededTransferLimit || features.length === 0) return out;
-    offset += features.length;
-  }
+const PAGE = 2000;
+
+/** One page of a layer, from `offset`. */
+async function readPage(layer: string, where: string, offset: number, label: string) {
+  const params = new URLSearchParams({
+    where,
+    outFields: "*",
+    orderByFields: "OBJECTID ASC",
+    resultOffset: String(offset),
+    resultRecordCount: String(PAGE),
+    returnGeometry: "false",
+    f: "json",
+  });
+  const response = await fetch(`${layer}/query?${params}`);
+  if (!response.ok) throw new Error(`Midland ${label}: HTTP ${response.status}`);
+  const body = (await response.json()) as { error?: { message?: string }; features?: Array<{ attributes?: Record<string, unknown> }>; exceededTransferLimit?: boolean };
+  if (body.error) throw new Error(`Midland ${label}: ${body.error.message ?? "the service returned an error"}`);
+  const features = body.features ?? [];
+  return { features, more: Boolean(body.exceededTransferLimit) && features.length > 0 };
 }
 
-/** Code cases (all of them the first time, then the last 180 days), dilapidated buildings, demolition orders, stalled permits. */
-async function pullSignals(ctx: ActionCtx) {
-  const state = await ctx.runQuery(internal.permits.sourceState, { source: SIGNALS_SOURCE });
-  const full = !state?.syncedAt || state.fieldsVersion !== SIGNALS_VERSION;
-  let fetched = 0;
-  let added = 0;
-  let updated = 0;
-  let error: string | undefined;
+const tally = v.object({ fetched: v.number(), added: v.number(), updated: v.number(), homes: v.number() });
+type Tally = { fetched: number; added: number; updated: number; homes: number };
+
+/** Saves signals and restacks the homes they touched. */
+async function save(ctx: ActionCtx, rows: SignalRow[], t: Tally): Promise<Tally> {
+  const out = { ...t, fetched: t.fetched + rows.length };
   const touched = new Set<Id<"parcels">>();
-  const save = async (rows: SignalRow[]) => {
-    fetched += rows.length;
-    for (let i = 0; i < rows.length; i += 400) {
-      const r: { added: number; updated: number; touched: Id<"parcels">[] } = await ctx.runMutation(internal.signals.upsert, { rows: rows.slice(i, i + 400) });
-      added += r.added;
-      updated += r.updated;
-      for (const id of r.touched) touched.add(id);
-    }
-  };
-  try {
-    const where = full ? "1=1" : `CREATED_DATE >= ${arcDate(Date.now() - RECENT_DAYS * DAY_MS)}`;
-    await save(codeCaseSignals(await readLayer(SIGNAL_LAYERS.codeCases, where, "code cases")));
-    await save(dilapidatedSignals(await readLayer(SIGNAL_LAYERS.dilapidated, "1=1", "dilapidated buildings")));
-    await save(demolitionSignals(await readLayer(SIGNAL_LAYERS.demolition, "1=1", "demolition orders")));
-    await save(await ctx.runQuery(internal.signals.stalledPermits, {}));
-  } catch (e) {
-    error = e instanceof Error ? e.message : String(e);
+  for (let i = 0; i < rows.length; i += 400) {
+    const r: { added: number; updated: number; touched: Id<"parcels">[] } = await ctx.runMutation(internal.signals.upsert, { rows: rows.slice(i, i + 400) });
+    out.added += r.added;
+    out.updated += r.updated;
+    for (const id of r.touched) touched.add(id);
   }
   const ids = [...touched];
   for (let i = 0; i < ids.length; i += 200) await ctx.runMutation(internal.signals.recomputeParcels, { ids: ids.slice(i, i + 200) });
-  await refreshCounts(ctx);
-  await ctx.runMutation(internal.permits.recordSync, {
-    source: SIGNALS_SOURCE,
-    fetched,
-    added,
-    updated,
-    error,
-    // Only a clean full pass counts as having read everything with this version.
-    fieldsVersion: error ? state?.fieldsVersion : full ? SIGNALS_VERSION : state?.fieldsVersion,
-  });
-  return { fetched, added, updated, homes: ids.length, full, error };
+  out.homes += ids.length;
+  return out;
 }
 
-/** The daily sync; the deploy runs it with ifStale, skipping it when a clean run happened in the last day. */
+/**
+ * One step of a sync: a page of code cases, then the next step is scheduled,
+ * so no single run is long (the first read is 47,000+ cases). After the last
+ * page: dilapidated buildings, demolition orders and stalled permits, the
+ * list counts, and the record of how it went.
+ */
+export const syncStep = internalAction({
+  args: { full: v.boolean(), offset: v.number(), tally },
+  handler: async (ctx, { full, offset, tally: t }) => {
+    let error: string | undefined;
+    try {
+      const where = full ? "1=1" : `CREATED_DATE >= ${arcDate(Date.now() - RECENT_DAYS * DAY_MS)}`;
+      const page = await readPage(SIGNAL_LAYERS.codeCases, where, offset, "code cases");
+      t = await save(ctx, codeCaseSignals(page.features), t);
+      if (page.more) {
+        await ctx.scheduler.runAfter(0, internal.signals.syncStep, { full, offset: offset + page.features.length, tally: t });
+        return;
+      }
+      t = await save(ctx, dilapidatedSignals((await readPage(SIGNAL_LAYERS.dilapidated, "1=1", 0, "dilapidated buildings")).features), t);
+      t = await save(ctx, demolitionSignals((await readPage(SIGNAL_LAYERS.demolition, "1=1", 0, "demolition orders")).features), t);
+      t = await save(ctx, await ctx.runQuery(internal.signals.stalledPermits, {}), t);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+    await refreshCounts(ctx);
+    const state = await ctx.runQuery(internal.permits.sourceState, { source: SIGNALS_SOURCE });
+    await ctx.runMutation(internal.permits.recordSync, {
+      source: SIGNALS_SOURCE,
+      fetched: t.fetched,
+      added: t.added,
+      updated: t.updated,
+      error,
+      // Only a clean full pass counts as having read everything with this version.
+      fieldsVersion: !error && full ? SIGNALS_VERSION : state?.fieldsVersion,
+    });
+  },
+});
+
+/** Starts a sync: everything the first time (or after SIGNALS_VERSION changes), then the recent code cases. */
+async function startSync(ctx: ActionCtx) {
+  const state = await ctx.runQuery(internal.permits.sourceState, { source: SIGNALS_SOURCE });
+  const full = !state?.syncedAt || state.fieldsVersion !== SIGNALS_VERSION;
+  await ctx.scheduler.runAfter(0, internal.signals.syncStep, { full, offset: 0, tally: { fetched: 0, added: 0, updated: 0, homes: 0 } });
+  return { started: true as const, full };
+}
+
+/**
+ * The daily sync, also started by the deploy with ifStale, which skips it
+ * when a clean run happened in the last day. It returns once started; the
+ * steps run on their own.
+ */
 export const syncMidland = internalAction({
   args: { ifStale: v.optional(v.boolean()) },
   handler: async (ctx, { ifStale }) => {
     if (ifStale) {
       const last = await ctx.runQuery(internal.permits.sourceState, { source: SIGNALS_SOURCE });
       const fresh = last && !last.error && last.fieldsVersion === SIGNALS_VERSION && Date.now() - Date.parse(last.syncedAt) < DAY_MS;
-      if (fresh) return { skipped: true };
+      if (fresh) return { skipped: true as const };
     }
-    return await pullSignals(ctx);
+    return await startSync(ctx);
   },
 });
 
@@ -195,7 +218,7 @@ export const syncNow = action({
   args: {},
   handler: async (ctx) => {
     await ctx.runQuery(internal.permits.assertStaff, {});
-    return await pullSignals(ctx);
+    return await startSync(ctx);
   },
 });
 

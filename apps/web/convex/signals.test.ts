@@ -114,9 +114,11 @@ describe("the sync and the Sellers lists", () => {
       return new Response(JSON.stringify({ features: [] }), { status: 200 });
     }));
 
-    const result = await t.action(internal.signals.syncMidland, {});
-    expect(result).toMatchObject({ fetched: 6, added: 6, updated: 0, homes: 3, full: true });
-    expect(wheres[0]).toBe("1=1");
+    // It starts and returns; the pages run as scheduled steps.
+    expect(await t.action(internal.signals.syncMidland, {})).toEqual({ started: true, full: true });
+    await t.finishAllScheduledFunctions(() => {});
+    expect(wheres).toEqual(["1=1", "1=1"]);
+    expect((await staff.as.query(api.signals.status, {})).source).toMatchObject({ fetched: 6, added: 6, updated: 0 });
     await t.run(async (ctx) => {
       const unmatched = (await ctx.db.query("signals").collect()).filter((s) => !s.parcelId).map((s) => s.address);
       expect(unmatched).toEqual(["801 D"]);
@@ -138,12 +140,13 @@ describe("the sync and the Sellers lists", () => {
 
     const detail = await staff.as.query(api.signals.home, { parcelId: weatherford });
     expect(detail!.signals.map((s) => s.detail)).toEqual(["Weeds/Tall Grass/Rubbish/Brush", "Junk Vehicle", "Deteriorated Structure"]);
-    expect((await staff.as.query(api.signals.status, {})).source).toMatchObject({ fetched: 6, added: 6 });
 
     // The next day reads only the recent code cases, and a case closing is an update.
     codeCalls = 0;
     codePages.splice(0, 2, { features: [inspection("i1", "807 WEATHERFORD", "Deteriorated Structure", "2026-09-01T15:00:00Z", { STATUS: "Compliant" })] });
-    expect(await t.action(internal.signals.syncMidland, {})).toMatchObject({ added: 0, updated: 1, full: false });
+    expect(await t.action(internal.signals.syncMidland, {})).toEqual({ started: true, full: false });
+    await t.finishAllScheduledFunctions(() => {});
+    expect((await staff.as.query(api.signals.status, {})).source).toMatchObject({ added: 0, updated: 1 });
     expect(wheres[wheres.length - 1]).toMatch(/^CREATED_DATE >= DATE '2026-04-29/);
     // A clean run today: the deploy's run skips it.
     expect(await t.action(internal.signals.syncMidland, { ifStale: true })).toEqual({ skipped: true });
