@@ -173,5 +173,12 @@ export async function logActivity(
     metadata?: unknown;
   },
 ): Promise<Id<"activityLogs">> {
-  return await ctx.db.insert("activityLogs", { ...args, createdAt: nowIso() });
+  // Something an assistant did for the person says so (see lib/actor.ts).
+  const identity = await ctx.auth.getUserIdentity();
+  const assistant = identity?.issuer === "fieldquote-assistant" ? identity.subject.split("|assistant:")[1] : undefined;
+  const metadata =
+    assistant && !(args.metadata && typeof args.metadata === "object" && "via" in args.metadata)
+      ? { ...(args.metadata as Record<string, unknown> | undefined), via: "assistant", connectionId: assistant }
+      : args.metadata;
+  return await ctx.db.insert("activityLogs", { ...args, ...(metadata !== undefined ? { metadata } : {}), createdAt: nowIso() });
 }

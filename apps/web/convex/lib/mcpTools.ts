@@ -12,6 +12,7 @@ import { priceAt } from "./auction";
 import { claimPrice, planIsActive } from "./plan";
 import { centralDay } from "./oauth";
 import { dollars, leadPriceCents } from "./wallet";
+import { ESTIMATING_TOOLS } from "./mcpEstimating";
 
 // The connector's tools: what Claude or ChatGPT can do in Tolliver for
 // the person who connected it. Each runs the same code as the web app
@@ -764,6 +765,7 @@ export const TOOLS: Tool[] = [
       return { text: `Removed the ${row.county} County bid.`, data: { bidId: id } };
     },
   },
+  ...ESTIMATING_TOOLS,
 ];
 
 /**

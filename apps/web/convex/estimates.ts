@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { mutationDef, queryDef } from "./lib/actor";
 import { mutation, query } from "./_generated/server";
 import {
   fail,
@@ -60,7 +61,7 @@ const writableFields = Object.fromEntries(
   Object.entries(estimateFields).filter(([key]) => !serverOnly.has(key)),
 );
 
-export const list = query({
+export const listDef = queryDef({
   args: {
     organizationId: v.id("organizations"),
     clientId: v.optional(v.id("clients")),
@@ -82,6 +83,7 @@ export const list = query({
     );
   },
 });
+export const list = query(listDef);
 
 export const get = query({
   args: { id: v.id("estimates") },
@@ -92,7 +94,7 @@ export const get = query({
   },
 });
 
-export const create = mutation({
+export const createDef = mutationDef({
   args: { organizationId: v.id("organizations"), data: v.any() },
   handler: async (ctx, { organizationId, data }) => {
     const { user } = await requireMember(ctx, organizationId);
@@ -129,8 +131,9 @@ export const create = mutation({
     return await ctx.db.get(id);
   },
 });
+export const create = mutation(createDef);
 
-export const update = mutation({
+export const updateDef = mutationDef({
   args: { id: v.id("estimates"), data: v.any() },
   handler: async (ctx, { id, data }) => {
     const { doc, user } = await getOwned(ctx, "estimates", id);
@@ -175,6 +178,7 @@ export const update = mutation({
     return await ctx.db.get(id);
   },
 });
+export const update = mutation(updateDef);
 
 export const remove = mutation({
   args: { id: v.id("estimates") },

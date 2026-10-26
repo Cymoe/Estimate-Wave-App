@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { queryDef } from "./lib/actor";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { fail, nowIso, pick, requireMember } from "./lib/access";
@@ -36,7 +37,7 @@ async function loadEditable(ctx: MutationCtx, id: Id<"lineItems">) {
 }
 
 /** Org items plus (by default) shared industry items, like the old API. */
-export const list = query({
+export const listDef = queryDef({
   args: {
     organizationId: v.id("organizations"),
     costCodeId: v.optional(v.id("costCodes")),
@@ -75,6 +76,7 @@ export const list = query({
     return await Promise.all(filtered.map((item) => withCostCode(ctx, item, cache)));
   },
 });
+export const list = query(listDef);
 
 export const get = query({
   args: { id: v.id("lineItems") },

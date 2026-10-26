@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { mutationDef } from "./lib/actor";
 import type { Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import { fail, getOwned, logActivity, nowIso, pick, requireMember } from "./lib/access";
@@ -42,7 +43,7 @@ export const list = query({
   },
 });
 
-export const create = mutation({
+export const createDef = mutationDef({
   args: { organizationId: v.id("organizations"), data: v.any() },
   handler: async (ctx, { organizationId, data }) => {
     const { user } = await requireMember(ctx, organizationId);
@@ -72,6 +73,7 @@ export const create = mutation({
     return await ctx.db.get(id);
   },
 });
+export const create = mutation(createDef);
 
 export const update = mutation({
   args: { id: v.id("expenses"), data: v.any() },

@@ -12,13 +12,16 @@ import { CORS, json } from "./oauthRoutes";
 
 const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 
-const INSTRUCTIONS = `Tolliver sells home-service leads (roofing, painting and more) to contracting companies, and keeps each company's leads.
+const INSTRUCTIONS = `Tolliver sells home-service leads (roofing, painting and more) to contracting companies, and keeps each company's leads, estimates, projects and price book.
 You are connected to one company for one person. Amounts are US dollars.
 - For an update, call whats_new. For context (balance, trades, what you may spend), call my_company.
 - For the market (permits, demand, what leads sell for in a county), call tolliver_report.
 - Homeowner contact details only appear on leads the company has (list_my_leads, get_lead), never on Marketplace leads before they are bought.
 - Before anything that spends from the balance, say what it costs and get a clear yes from the person.
-- Give the person the Tolliver links from results when they want to see something on the web.`;
+- Give the person the Tolliver links from results when they want to see something on the web.
+- To price a job the person describes or shows in photos, search_price_book and build the estimate from the company's own items. Ask for measurements or details a photo can't show, and say what you assumed.
+- Estimates you make are drafts: the person reviews and sends them from Tolliver. Never price below an item's red line.
+- For a receipt, add_cost to the project it belongs to; get_project shows the job's costs, profit and margin.`;
 
 type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
 

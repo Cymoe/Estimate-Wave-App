@@ -807,3 +807,150 @@ describe("builders from Midland's permit portal", () => {
     expect(status.details).toEqual({ filled: 2, total: 10 });
   });
 });
+
+describe("estimating from an assistant", () => {
+  /** A roofer with Tolliver's shingle item, the company's own vent, and another company's item. */
+  async function roofer() {
+    const t = setup();
+    const owner = await signUp(t, "ana@peak.example");
+    const other = await signUp(t, "bo@rival.example");
+    const stamp = new Date().toISOString();
+    const ids = await t.run(async (ctx) => {
+      await ctx.db.patch(owner.organizationId, { leadTrades: ["roofing"], name: "Peak Roofing" });
+      await ctx.db.insert("industries", { slug: "roofing", name: "Roofing", display_order: 1, is_active: true, created_at: stamp, updated_at: stamp });
+      const code = await ctx.db.insert("costCodes", { code: "RF200", name: "Roof Installation", industry_id: "roofing", is_active: true, created_at: stamp, updated_at: stamp });
+      const item = (fields: Record<string, unknown>) =>
+        ctx.db.insert("lineItems", { cost_code_id: code, is_active: true, created_at: stamp, updated_at: stamp, ...(fields as { name: string; unit: string; base_price: number }) });
+      return {
+        shingles: await item({ name: "Architectural Shingle Roof", unit: "square", base_price: 300, red_line_price: 300, cap_price: 450 }),
+        vent: await item({ name: "Ridge Vent", unit: "linear ft", base_price: 8, red_line_price: 8, cap_price: 12, organization_id: owner.organizationId }),
+        theirs: await item({ name: "Rival Shingle Special", unit: "square", base_price: 100, red_line_price: 100, cap_price: 150, organization_id: other.organizationId }),
+      };
+    });
+    const { accessToken } = await connect(t, owner);
+    return { t, owner, other, ids, accessToken };
+  }
+
+  test("finds items in the company's price book with their cap and red line, never another company's", async () => {
+    const { t, ids, accessToken } = await roofer();
+    const found = await tool(t, accessToken, "search_price_book", { query: "architectural shingles" });
+    expect(found.text).toContain(`- Architectural Shingle Roof: $450.00 per square (red line $300.00) · RF200 Roof Installation · Tolliver catalog · id ${ids.shingles}`);
+    expect(found.text).not.toContain("Rival");
+    const vents = await tool(t, accessToken, "search_price_book", { query: "ridge vents", trade: "Roofing" });
+    expect(vents.data.items[0]).toMatchObject({ id: ids.vent, cap: 12, redLine: 8, source: "company" });
+    expect((await tool(t, accessToken, "search_price_book", { query: "pool liner" })).text).toContain("Nothing in the price book matches");
+  });
+
+  test("drafts an estimate at price book prices, flags custom lines, and reuses the client", async () => {
+    const { t, owner, ids, accessToken } = await roofer();
+    const drafted = await tool(t, accessToken, "create_estimate", {
+      title: "Re-roof, architectural shingles",
+      lines: [
+        { line_item_id: ids.shingles, quantity: 28 },
+        { line_item_id: ids.vent, quantity: 40, price: 10 },
+      ],
+      custom_lines: [{ description: "Dumpster, 20 yd", price: 450 }],
+      client: { name: "Luis Ortega", phone: "(432) 555-0188" },
+      notes: "Photos: 6/12 pitch, one layer of 3-tab, two plumbing vents.",
+    });
+    expect(drafted.isError).toBe(false);
+    expect(drafted.data).toMatchObject({ status: "draft", total: 13450, lowestTotal: 9170, client: "Luis Ortega" });
+    expect(drafted.data.items.map((i: any) => [i.description, i.price, i.fromPriceBook])).toEqual([
+      ["Architectural Shingle Roof", 450, true],
+      ["Ridge Vent", 10, true],
+      ["Dumpster, 20 yd", 450, false],
+    ]);
+    expect(drafted.text).toContain("Dumpster, 20 yd: 1 × $450.00 = $450.00 (custom line, not from the price book)");
+    expect(drafted.text).toContain("It's a draft: the person reviews it and sends it from Tolliver: https://app.example/estimates/");
+
+    // The same phone, written differently, is the same client.
+    await tool(t, accessToken, "create_estimate", { title: "Gutters", lines: [{ line_item_id: ids.vent }], client: { name: "L. Ortega", phone: "432-555-0188" } });
+    const clients = await t.run((ctx) => ctx.db.query("clients").withIndex("by_organization", (q) => q.eq("organizationId", owner.organizationId)).collect());
+    expect(clients.map((c) => c.name)).toEqual(["Luis Ortega"]);
+
+    // The log says Claude did it.
+    const log = await t.run((ctx) => ctx.db.query("activityLogs").collect());
+    expect(log.find((l) => l.resourceType === "estimate" && l.action === "created")?.metadata).toMatchObject({ via: "assistant" });
+  });
+
+  test("never below the red line or above the cap, and another company's item reads as not found", async () => {
+    const { t, ids, accessToken } = await roofer();
+    const low = await tool(t, accessToken, "create_estimate", { title: "Roof", lines: [{ line_item_id: ids.shingles, quantity: 10, price: 250 }] });
+    expect(low).toMatchObject({ isError: true, text: "Architectural Shingle Roof: the lowest it can go is $300.00 per square (its red line). Nothing was saved." });
+    const high = await tool(t, accessToken, "create_estimate", { title: "Roof", lines: [{ line_item_id: ids.shingles, price: 500 }] });
+    expect(high.text).toContain("the most it can go is $450.00 per square");
+    const theirs = await tool(t, accessToken, "create_estimate", { title: "Roof", lines: [{ line_item_id: ids.theirs }] });
+    expect(theirs).toMatchObject({ isError: true, text: `No price book item with id ${ids.theirs}` });
+    expect(await t.run((ctx) => ctx.db.query("estimates").collect())).toHaveLength(0);
+  });
+
+  test("changes a draft, keeps the floor on old lines, and leaves a sent estimate to the person", async () => {
+    const { t, ids, accessToken } = await roofer();
+    const drafted = await tool(t, accessToken, "create_estimate", {
+      title: "Roof",
+      lines: [{ line_item_id: ids.shingles, quantity: 20 }, { line_item_id: ids.vent, quantity: 30 }],
+    });
+    const [shingles, vent] = drafted.data.items;
+    expect((await tool(t, accessToken, "update_estimate", { estimate_id: drafted.data.id, change_lines: [{ line_id: shingles.lineId, price: 299 }] })).text).toContain(
+      "the lowest it can go is $300.00",
+    );
+    const changed = await tool(t, accessToken, "update_estimate", {
+      estimate_id: drafted.data.id,
+      change_lines: [{ line_id: shingles.lineId, quantity: 24, price: 400 }],
+      remove_lines: [vent.lineId],
+      add_custom_lines: [{ description: "Permit", price: 150 }],
+    });
+    expect(changed.data.items.map((i: any) => [i.description, i.quantity, i.price])).toEqual([
+      ["Architectural Shingle Roof", 24, 400],
+      ["Permit", 1, 150],
+    ]);
+    expect(changed.data.total).toBe(24 * 400 + 150);
+
+    await t.run((ctx) => ctx.db.patch(drafted.data.id, { status: "sent" }));
+    const sent = await tool(t, accessToken, "update_estimate", { estimate_id: drafted.data.id, add_custom_lines: [{ description: "Extra", price: 1 }] });
+    expect(sent).toMatchObject({ isError: true, text: expect.stringContaining("has been sent, so change it in Tolliver") });
+    expect((await tool(t, accessToken, "get_estimate", { estimate_id: drafted.data.id })).text).toContain("Total $9,750.00");
+  });
+
+  test("an estimate for a lead takes the lead's contact and is linked to it", async () => {
+    const { t, owner, ids, accessToken } = await roofer();
+    const lead = await owner.as.mutation(api.leads.create, { organizationId: owner.organizationId, data: { name: "Amanda Trevino", phone: "432-555-0144", city: "Midland" } });
+    const drafted = await tool(t, accessToken, "create_estimate", { title: "Roof repair", lead_id: lead!._id, lines: [{ line_item_id: ids.shingles, quantity: 3 }] });
+    expect(drafted.text).toContain("for the lead Amanda Trevino");
+    expect(drafted.data.client).toBe("Amanda Trevino");
+    expect((await t.run((ctx) => ctx.db.get(lead!._id)))!.estimateId).toBe(drafted.data.id);
+  });
+
+  test("starts a project from an estimate, logs costs and reports profit and margin", async () => {
+    const { t, other, ids, accessToken } = await roofer();
+    const drafted = await tool(t, accessToken, "create_estimate", { title: "Roof", client: { name: "Ann Miller" }, lines: [{ line_item_id: ids.shingles, quantity: 20 }] });
+    await t.run((ctx) => ctx.db.patch(drafted.data.id, { status: "accepted" }));
+    const started = await tool(t, accessToken, "create_project", { name: "Miller roof", estimate_id: drafted.data.id, budget: 6000, start_date: "2026-11-02" });
+    expect(started.data).toMatchObject({ name: "Miller roof", status: "Planned", client: "Ann Miller", contract: 9000, costs: 0, profit: 9000, margin: 100 });
+
+    await tool(t, accessToken, "add_cost", { project_id: started.data.id, description: "Shingles, 21 squares", amount: 2940, category: "Materials", vendor: "ABC Supply", date: "2026-11-01" });
+    const logged = await tool(t, accessToken, "add_cost", { project_id: started.data.id, description: "Tear-off crew", amount: 1800, category: "Labor", paid: false });
+    expect(logged.text).toContain("Logged $1,800.00 for Tear-off crew on Miller roof.");
+    expect(logged.data).toMatchObject({ costs: 4740, profit: 4260, margin: 47, costsByType: { Materials: 2940, Labor: 1800 } });
+    expect(logged.text).toContain("Contract $9,000.00, costs $4,740.00 of a $6,000.00 budget, profit $4,260.00 (47% margin).");
+    expect((await tool(t, accessToken, "add_cost", { project_id: started.data.id, description: "x", amount: 1, category: "Snacks" })).text).toContain("category must be one of");
+
+    const listed = await tool(t, accessToken, "list_projects");
+    expect(listed.text).toContain("- Miller roof · Planned · Ann Miller · Contract $9,000.00");
+    // Another company can't read or add to it.
+    const theirProject = await other.as.mutation(api.projects.create, { organizationId: other.organizationId, data: { name: "Theirs" } });
+    expect((await tool(t, accessToken, "get_project", { project_id: theirProject!._id })).isError).toBe(true);
+    expect((await tool(t, accessToken, "add_cost", { project_id: theirProject!._id, description: "x", amount: 1 })).isError).toBe(true);
+  });
+
+  test("the estimating tools are listed, and none of them sends anything", async () => {
+    const { t, accessToken } = await roofer();
+    const { tools } = (await rpc(t, accessToken, "tools/list")).body!.result as { tools: Array<{ name: string; annotations: any }> };
+    const names = tools.map((x) => x.name);
+    expect(names).toEqual(expect.arrayContaining(["search_price_book", "list_estimates", "get_estimate", "create_estimate", "update_estimate", "list_projects", "get_project", "create_project", "add_cost"]));
+    expect(names.some((n) => /send/.test(n))).toBe(false);
+    expect(tools.find((x) => x.name === "search_price_book")!.annotations.readOnlyHint).toBe(true);
+    const init = await rpc(t, accessToken, "initialize", { protocolVersion: "2025-06-18" });
+    expect(init.body!.result.instructions).toContain("Never price below an item's red line.");
+  });
+});
