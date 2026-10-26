@@ -28,9 +28,33 @@ jest.mock('../../../lib/supabase', () => {
   chain.then = (resolve: (v: unknown) => void) => resolve({ data: [], error: null });
   return { supabase: chain };
 });
+const tolliver = (kind: string, name: string) => ({ kind, source: 'tolliver', origin: 'tolliver', name });
+const baseDocs = () => ({
+  locked: false,
+  agreement: tolliver('agreement', 'Service Contract Agreement'),
+  affidavit: tolliver('affidavit', 'Affidavit of Completion'),
+  changeOrder: tolliver('change_order', 'Change Order'),
+  attachments: [] as unknown[],
+  companyAttachments: [] as unknown[],
+  companyDefaults: {} as Record<string, string>,
+});
+let docs: ReturnType<typeof baseDocs> = baseDocs();
+const setContractDoc = jest.fn(async () => null);
+const setAttachment = jest.fn(async () => null);
+const removeDoc = jest.fn(async () => ({ archived: false }));
+const uploadContractDoc = jest.fn(async () => 'd1');
 jest.mock('../../../lib/api', () => ({
   organizationsAPI: { getById: async () => ({ name: 'Shah Builders', address: '9 Oak Ave', email: 'hi@shah.example' }) },
   clientsAPI: { list: async () => [] },
+  estimatesAPI: {
+    documents: async () => docs,
+    setContractDoc: (...args: unknown[]) => setContractDoc(...(args as [])),
+    setAttachment: (...args: unknown[]) => setAttachment(...(args as [])),
+  },
+  contractDocsAPI: { remove: (id: string) => removeDoc(id as never) },
+}));
+jest.mock('../../../services/ContractDocsService', () => ({
+  uploadContractDoc: (...args: unknown[]) => uploadContractDoc(...(args as [])),
 }));
 jest.mock('../CreateEstimateDrawer', () => ({ CreateEstimateDrawer: () => null }));
 jest.mock('../../common/MapModal', () => ({ MapModal: () => null }));
@@ -56,6 +80,8 @@ describe('estimate contract tab', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     extra = {};
+    docs = baseDocs();
+    jest.clearAllMocks();
   });
 
   async function openContractTab() {
@@ -68,12 +94,14 @@ describe('estimate contract tab', () => {
           <Routes>
             <Route path="/estimates/:id" element={<EstimateDetail estimateId="e1" onClose={() => {}} inDrawer />} />
             <Route path="/estimates/:id/contract" element={<p>contract page</p>} />
+            <Route path="/settings/organization" element={<p>settings page</p>} />
           </Routes>
         </MemoryRouter>,
       ),
     );
     await act(async () => {});
     await act(async () => buttons().find((b) => b.textContent === 'Contract')!.click());
+    await act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
   }
 
   it('lists the three documents, with no separate Contract button in the header', async () => {
@@ -127,5 +155,75 @@ describe('estimate contract tab', () => {
     await act(async () => byText('Change Order')!.click());
     expect(document.body.textContent).toContain('$100.00 → $150.00');
     expect(document.body.textContent).toMatch(/Change Order Amount\$50\.00/);
+  });
+
+  it("tags each document Tolliver's until the company has its own, and points to Settings", async () => {
+    await openContractTab();
+    expect(Array.from(document.body.querySelectorAll('[data-testid="source-tag"]')).map((t) => t.textContent)).toEqual(['Tolliver', 'Tolliver', 'Tolliver']);
+    expect(document.body.textContent).toContain("Using Tolliver’s documents. Have your own?");
+    await act(async () => byText('Add them in Settings')!.click());
+    expect(path).toBe('/settings/organization');
+  });
+
+  it("an uploaded agreement opens its PDF; Change swaps it for this job", async () => {
+    docs.agreement = { kind: 'agreement', source: 'upload', origin: 'company', name: 'Shah Agreement', fileName: 'Shah Agreement.pdf', url: 'https://files/agreement' } as never;
+    docs.companyDefaults = { agreement: 'Shah Agreement' };
+    await openContractTab();
+    const link = Array.from(document.body.querySelectorAll('a')).find((a) => a.textContent?.includes('Service Contract Agreement'))!;
+    expect(link.getAttribute('href')).toBe('https://files/agreement');
+    expect(link.textContent).toContain("Shah Agreement.pdf · the company's · signed with the estimate");
+    expect(link.textContent).toContain('Your PDF');
+
+    await act(async () => (document.body.querySelector('button[aria-label="Change agreement"]') as HTMLButtonElement).click());
+    const menu = () => Array.from(document.body.querySelectorAll('[role="menu"] button')).map((b) => b.textContent);
+    expect(menu()).toEqual(['Use Tolliver’s for this job', 'Upload a PDF for this job', 'Manage company contracts']);
+    await act(async () => byText('Use Tolliver’s for this job')!.click());
+    expect(setContractDoc).toHaveBeenCalledWith('e1', 'agreement', 'tolliver');
+
+    // A job's own choice offers the company's back.
+    docs.agreement = { kind: 'agreement', source: 'tolliver', origin: 'job', name: 'Service Contract Agreement' } as never;
+    document.body.innerHTML = '';
+    await openContractTab();
+    await act(async () => (document.body.querySelector('button[aria-label="Change agreement"]') as HTMLButtonElement).click());
+    expect(menu()[0]).toBe('Use the company’s (Shah Agreement)');
+    await act(async () => byText('Use the company’s')!.click());
+    expect(setContractDoc).toHaveBeenLastCalledWith('e1', 'agreement', null);
+  });
+
+  it('uploads a PDF for this job only, and turns company attachments on and off', async () => {
+    docs.companyAttachments = [{ docId: 'w1', name: 'Warranty', included: true }];
+    docs.attachments = [{ kind: 'attachment', source: 'upload', origin: 'job', name: 'HOA form', docId: 'h1', url: 'https://files/hoa' }];
+    await openContractTab();
+    const section = document.body.querySelector('[aria-label="Also sent with this estimate"]')!;
+    expect(section.textContent).toContain('Warranty');
+    expect(section.textContent).toContain('HOA form');
+    const toggle = section.querySelector('input[aria-label="Send Warranty with this estimate"]') as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    await act(async () => toggle.click());
+    expect(setAttachment).toHaveBeenCalledWith('e1', 'w1', false);
+    await act(async () => (section.querySelector('button[aria-label="Remove HOA form"]') as HTMLButtonElement).click());
+    expect(removeDoc).toHaveBeenCalledWith('h1');
+
+    await act(async () => (document.body.querySelector('button[aria-label="Change affidavit"]') as HTMLButtonElement).click());
+    await act(async () => byText('Upload a PDF for this job')!.click());
+    const input = document.body.querySelector('[data-testid="job-contract-file"]') as HTMLInputElement;
+    const file = new File(['%PDF'], 'Smith affidavit.pdf', { type: 'application/pdf' });
+    Object.defineProperty(input, 'files', { value: [file], configurable: true });
+    await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+    await act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
+    expect(uploadContractDoc).toHaveBeenCalledWith('org1', 'affidavit', file, 'e1');
+    expect(document.body.textContent).toContain('Smith affidavit.pdf is added to this job.');
+  });
+
+  it('once signed, the documents show as signed and can no longer change', async () => {
+    extra = { status: 'accepted', contract_locked_at: '2026-10-11T12:00:00Z', contract_snapshot: { items: [], totalAmount: 100 } };
+    docs.locked = true;
+    docs.agreement = { kind: 'agreement', source: 'upload', origin: 'signed', name: 'Shah Agreement', fileName: 'Shah Agreement.pdf', url: 'https://files/agreement' } as never;
+    docs.attachments = [{ kind: 'attachment', source: 'upload', origin: 'signed', name: 'Warranty', docId: 'w1', url: 'https://files/w' }];
+    await openContractTab();
+    expect(document.body.textContent).toContain(`Signed ${new Date('2026-10-11T12:00:00Z').toLocaleDateString()} · Shah Agreement.pdf`);
+    expect(document.body.querySelector('button[aria-label^="Change"]')).toBeNull();
+    expect(byText('Add a PDF to this job')).toBeUndefined();
+    expect(document.body.querySelector('[aria-label="Also sent with this estimate"]')!.textContent).toContain('Warranty');
   });
 });

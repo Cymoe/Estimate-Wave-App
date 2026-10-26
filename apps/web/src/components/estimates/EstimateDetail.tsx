@@ -5,7 +5,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Edit, Send, Share2, Trash2,
   CheckCircle, XCircle, FileText, User,
-  Phone, Mail, MapPin, Copy, Eye, Calendar, X, MoreVertical, ChevronRight, ChevronDown
+  Phone, Mail, MapPin, Copy, Eye, Calendar, X, MoreVertical
 } from 'lucide-react';
 import { EstimateService, Estimate, EstimateItem } from '../../services/EstimateService';
 import { priceAt } from '../../utils/priceRange';
@@ -20,6 +20,7 @@ import { AirtableSidebar } from './AirtableSidebar';
 import { ItemPricingDrawer } from './ItemPricingDrawer';
 import { ContextualPricingSelector } from './ContextualPricingSelector';
 import { DesignUpload } from './DesignUpload';
+import { ContractTab } from './ContractTab';
 import { copyText, duplicateEstimate, sendEstimateLink } from './estimateActions';
 
 // Header actions share one size so they line up; only the main action is filled.
@@ -98,7 +99,6 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   // Tab state - Default to Line Items for immediate visibility (3-tab structure)
   const [activeTab, setActiveTab] = useState<'items' | 'overview' | 'contract'>('items');
   // The contract tab's inline document preview that's open.
-  const [expandedDoc, setExpandedDoc] = useState<'affidavit' | 'change-order' | null>(null);
 
   // The client link, loaded when it's first needed (Share or Send).
   const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -853,185 +853,12 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
          {activeTab === 'contract' && (
            <div className="p-4">
              {estimate.items && estimate.items.length > 0 ? (
-               <div className="bg-[#1a1a1a] border border-[#333] divide-y divide-[#333]">
-                 {/* Service contract: opens the full page (edit, Print/PDF) */}
-                 <div>
-                   <button
-                     type="button"
-                     onClick={() => navigate(`/estimates/${estimate.id}/contract`)}
-                     aria-expanded={undefined}
-                     className="w-full flex items-center gap-3 px-4 py-3 text-left [@media(hover:hover)]:hover:bg-[#1E1E1E] active:bg-[#1E1E1E] transition-colors"
-                   >
-                     <FileText className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                     <span className="flex-1 min-w-0">
-                       <span className="block text-sm font-medium text-white">Service Contract Agreement</span>
-                       <span className="block text-xs text-gray-400">
-                         {estimate.contract_locked_at
-                           ? `Signed ${new Date(estimate.contract_locked_at).toLocaleDateString()}`
-                           : 'Signed together with the estimate · follows it until then'}
-                       </span>
-                     </span>
-                     <ChevronRight className="w-4 h-4 text-gray-500 flex-shrink-0" />
-                   </button>
-                 </div>
-                 {/* Affidavit of Completion (lien release): preview inline */}
-                 <div>
-                   <button
-                     type="button"
-                     onClick={() => setExpandedDoc(expandedDoc === 'affidavit' ? null : 'affidavit')}
-                     aria-expanded={expandedDoc === 'affidavit'}
-                     className="w-full flex items-center gap-3 px-4 py-3 text-left [@media(hover:hover)]:hover:bg-[#1E1E1E] active:bg-[#1E1E1E] transition-colors"
-                   >
-                     <FileText className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                     <span className="flex-1 min-w-0">
-                       <span className="block text-sm font-medium text-white">Affidavit of Completion</span>
-                       <span className="block text-xs text-gray-400">Lien release at completion</span>
-                     </span>
-                     <ChevronDown className={`w-4 h-4 text-gray-500 flex-shrink-0 transition-transform ${expandedDoc === 'affidavit' ? 'rotate-180' : ''}`} />
-                   </button>
-                   {expandedDoc === 'affidavit' && (
-                     <div className="p-4">
-                       <div className="bg-white text-black p-6 rounded-lg">
-                         <div className="text-center mb-6">
-                           <h1 className="text-xl font-bold">AFFIDAVIT OF COMPLETION</h1>
-                           <p className="text-sm text-gray-600 mt-2">LIEN RELEASE CERTIFICATE</p>
-                         </div>
-
-                         <div className="space-y-4 text-sm">
-                           <div>
-                             <h3 className="font-semibold mb-2">PROJECT COMPLETION</h3>
-                             <p>
-                               I, <strong>{contract.contractorName || 'Your business'}</strong>, hereby certify that all work 
-                               described in Contract {estimate.estimate_number} has been completed in accordance 
-                               with the agreed specifications and to the satisfaction of the client.
-                             </p>
-                           </div>
-
-                           <div>
-                             <h3 className="font-semibold mb-2">LIEN RELEASE</h3>
-                             <p>
-                               This affidavit serves as a release of any and all liens, claims, or encumbrances 
-                               against the property located at {contract.propertyAddress || 'the property address'} 
-                               arising from the work performed under this contract.
-                             </p>
-                           </div>
-
-                           <div>
-                             <h3 className="font-semibold mb-2">FINAL PAYMENT</h3>
-                             <p>
-                               All payments due under the contract have been received, and no additional 
-                               amounts are owed for the work performed.
-                             </p>
-                           </div>
-
-                           <div className="pt-4 border-t border-gray-300">
-                             <div className="flex justify-between">
-                               <span>Total Contract Amount</span>
-                               <span>{formatCurrency(contract.totalAmount)}</span>
-                             </div>
-                           </div>
-                         </div>
-
-                         <div className="mt-6 p-4 bg-gray-100 rounded-lg text-center">
-                           <p className="text-sm text-gray-600">
-                             This affidavit will be available for download upon project completion and final payment.
-                           </p>
-                         </div>
-                       </div>
-                     </div>
-                   )}
-                 </div>
-                 {/* Change order: preview inline */}
-                 <div>
-                   <button
-                     type="button"
-                     onClick={() => setExpandedDoc(expandedDoc === 'change-order' ? null : 'change-order')}
-                     aria-expanded={expandedDoc === 'change-order'}
-                     className="w-full flex items-center gap-3 px-4 py-3 text-left [@media(hover:hover)]:hover:bg-[#1E1E1E] active:bg-[#1E1E1E] transition-colors"
-                   >
-                     <FileText className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                     <span className="flex-1 min-w-0">
-                       <span className="block text-sm font-medium text-white">Change Order</span>
-                       <span className="block text-xs text-gray-400">
-                         {changeOrder && changeOrder.changes.length > 0
-                           ? `${changeOrder.changes.length} change${changeOrder.changes.length === 1 ? '' : 's'} since signing`
-                           : 'Changes to the original scope'}
-                       </span>
-                     </span>
-                     <ChevronDown className={`w-4 h-4 text-gray-500 flex-shrink-0 transition-transform ${expandedDoc === 'change-order' ? 'rotate-180' : ''}`} />
-                   </button>
-                   {expandedDoc === 'change-order' && (
-                     <div className="p-4">
-                       <div className="bg-white text-black p-6 rounded-lg">
-                         <div className="text-center mb-6">
-                           <h1 className="text-xl font-bold">CHANGE ORDER AGREEMENT</h1>
-                           <p className="text-sm text-gray-600 mt-2">SCOPE MODIFICATION CONTRACT</p>
-                         </div>
-
-                         <div className="space-y-4 text-sm">
-                           <div>
-                             <h3 className="font-semibold mb-2">CHANGE ORDER DETAILS</h3>
-                             <p>
-                               {changeOrder
-                                 ? `This change order modifies the Service Contract Agreement ${estimate.estimate_number} signed ${new Date(estimate.contract_locked_at!).toLocaleDateString()}.`
-                                 : 'Change orders start once the estimate is accepted. Until then, the contract follows the estimate, so just edit the estimate.'}
-                             </p>
-                           </div>
-
-                           {changeOrder && (
-                             <>
-                               <div>
-                                 <h3 className="font-semibold mb-2">MODIFICATIONS</h3>
-                                 {changeOrder.changes.length === 0 ? (
-                                   <p className="text-gray-600 italic">No changes since signing.</p>
-                                 ) : (
-                                   <div className="divide-y divide-gray-200 border border-gray-300">
-                                     {changeOrder.changes.map((change, i) => (
-                                       <div key={i} className="flex justify-between gap-4 px-3 py-2">
-                                         <span>
-                                           {change.before === undefined ? 'Added: ' : change.after === undefined ? 'Removed: ' : ''}
-                                           {change.description}
-                                         </span>
-                                         <span className="whitespace-nowrap">
-                                           {change.before !== undefined && change.after !== undefined
-                                             ? `${formatCurrency(change.before)} → ${formatCurrency(change.after)}`
-                                             : formatCurrency(change.after ?? -(change.before ?? 0))}
-                                         </span>
-                                       </div>
-                                     ))}
-                                   </div>
-                                 )}
-                               </div>
-
-                               <div>
-                                 <h3 className="font-semibold mb-2">COST IMPACT</h3>
-                                 <div className="flex justify-between">
-                                   <span>Original Contract Amount</span>
-                                   <span>{formatCurrency(contract.totalAmount)}</span>
-                                 </div>
-                                 <div className="flex justify-between">
-                                   <span>Change Order Amount</span>
-                                   <span>{formatCurrency(changeOrder.difference)}</span>
-                                 </div>
-                                 <div className="flex justify-between font-semibold border-t border-gray-300 pt-2">
-                                   <span>New Total Contract Amount</span>
-                                   <span>{formatCurrency(estimate.total_amount)}</span>
-                                 </div>
-                               </div>
-                             </>
-                           )}
-                         </div>
-
-                         <div className="mt-6 p-4 bg-gray-100 rounded-lg text-center">
-                           <p className="text-sm text-gray-600">
-                             Change orders will appear here when modifications are made to the original contract scope.
-                           </p>
-                         </div>
-                       </div>
-                     </div>
-                   )}
-                 </div>
-               </div>
+               <ContractTab
+                 estimate={estimate}
+                 contract={contract}
+                 changeOrder={changeOrder}
+                 organizationId={estimate.organization_id || selectedOrg?.id}
+               />
              ) : (
                <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6 text-center">
                  <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
