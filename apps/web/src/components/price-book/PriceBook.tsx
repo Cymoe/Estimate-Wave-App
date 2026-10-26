@@ -646,6 +646,19 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
     return grouped;
   }, [filteredLineItems]);
   
+  // The left column: each category under the trade its items' cost codes belong to.
+  const sidebarGroups = useMemo(() => {
+    const byTrade = new Map<string, Array<[string, number]>>();
+    Object.entries(groupedLineItemsByCategory).forEach(([category, items]) => {
+      const costCode = trades.find((t) => t.id === items[0]?.cost_code_id);
+      const tradeName = costCode?.industry?.name || 'Other';
+      byTrade.set(tradeName, [...(byTrade.get(tradeName) ?? []), [category, items.length]]);
+    });
+    return [...byTrade.entries()]
+      .map(([trade, categories]) => [trade, categories.sort(([a], [b]) => a.localeCompare(b))] as [string, Array<[string, number]>])
+      .sort(([a], [b]) => (a === 'Other' ? 1 : b === 'Other' ? -1 : a.localeCompare(b)));
+  }, [groupedLineItemsByCategory, trades]);
+
   // Filter items based on selected category
   const displayedItems = useMemo(() => {
     if (selectedCategory === 'all') {
@@ -1311,49 +1324,34 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
   };
 
 
+  // One row of the left column; the pl-6 clears the projects handle on the screen's left edge.
+  const categoryButton = (key: string, label: string, count: number) => (
+    <button
+      key={key}
+      type="button"
+      onClick={() => setSelectedCategory(key)}
+      aria-pressed={selectedCategory === key}
+      className={`w-full pl-6 pr-3 py-1.5 text-left text-[13px] flex items-center justify-between gap-2 transition-colors ${
+        selectedCategory === key ? 'bg-[#336699] text-white' : 'text-gray-300 hover:bg-[#22272d] hover:text-white'
+      }`}
+    >
+      <span className="truncate">{label}</span>
+      <span className={`text-[11px] ${selectedCategory === key ? 'text-white/80' : 'text-gray-500'}`}>{count}</span>
+    </button>
+  );
+
   return (
-    <div className="flex h-screen bg-[#0A0A0A] overflow-hidden">
-      {/* Left Sidebar for Categories - Fixed with own scroll */}
-      <div className="w-64 border-r border-[#333333] bg-[#1D1F25] flex flex-col h-full">
-        <div className="p-4 border-b border-[#333333] flex-shrink-0">
-          <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">Categories</h3>
-          <div className="text-xs text-gray-500 mt-1">{Object.keys(groupedLineItemsByCategory).length} categories</div>
-        </div>
-        <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-[#333333] scrollbar-track-transparent">
-          <div className="py-2">
-            <button
-              onClick={() => setSelectedCategory('all')}
-              className={`w-full px-4 py-2 text-left text-sm flex items-center justify-between group transition-colors ${
-                selectedCategory === 'all' 
-                  ? 'bg-[#22272d] text-white border-l-2 border-[#336699]' 
-                  : 'text-gray-400 hover:bg-[#22272d] hover:text-gray-300'
-              }`}
-            >
-              <span className="flex items-center gap-2">
-                <Layers className="w-4 h-4" />
-                All Items
-              </span>
-              <span className="text-xs text-gray-500">{filteredLineItems.length}</span>
-            </button>
-            {Object.entries(groupedLineItemsByCategory)
-              .sort(([a], [b]) => a.localeCompare(b)) // Sort alphabetically
-              .map(([categoryKey, items]) => {
-              return (
-                <button
-                  key={categoryKey}
-                  onClick={() => setSelectedCategory(categoryKey)}
-                  className={`w-full px-4 py-2 text-left text-sm flex items-center justify-between group transition-colors ${
-                    selectedCategory === categoryKey 
-                      ? 'bg-[#22272d] text-white border-l-2 border-[#336699]' 
-                      : 'text-gray-400 hover:bg-[#22272d] hover:text-gray-300'
-                  }`}
-                >
-                  <span className="truncate">{categoryKey}</span>
-                  <span className="text-xs text-gray-500 ml-2">{items.length}</span>
-                </button>
-              );
-            })}
-          </div>
+    <div className="flex h-screen bg-[#121212] overflow-hidden">
+      {/* Left column: trades, each with its categories. Styled like the estimate's pricing-options column. */}
+      <div className="w-56 border-r border-[#333333] bg-[#0A0A0A] flex flex-col h-full flex-shrink-0" role="group" aria-label="Categories">
+        <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-[#333333] scrollbar-track-transparent py-1">
+          {categoryButton('all', 'All items', filteredLineItems.length)}
+          {sidebarGroups.map(([tradeName, categories]) => (
+            <div key={tradeName} className="mt-2">
+              <div className="pl-6 pr-3 pt-2 pb-1 text-[11px] uppercase tracking-wide text-gray-500">{tradeName}</div>
+              {categories.map(([categoryKey, count]) => categoryButton(categoryKey, categoryKey, count))}
+            </div>
+          ))}
         </div>
       </div>
 
@@ -1391,7 +1389,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
       {/* Progress Overlay */}
       {applyingProgress && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[12000] flex items-center justify-center">
-          <div className="bg-[#1D1F25] border border-[#333333] p-6 shadow-xl">
+          <div className="bg-[#1a1a1a] border border-[#333333] p-6 shadow-xl">
             <h3 className="text-white font-medium mb-4">
               {applyingProgress.action === 'undoing' ? 'Reverting Prices' : 'Applying Pricing Changes'}
             </h3>
@@ -1428,7 +1426,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
       {/* Success Confirmation */}
       {showSuccess && !applyingProgress && (
         <div className="fixed inset-0 bg-black/50 z-[12000] flex items-center justify-center pointer-events-none">
-          <div className="bg-[#1D1F25] border border-green-600 p-6 shadow-xl pointer-events-auto">
+          <div className="bg-[#1a1a1a] border border-green-600 p-6 shadow-xl pointer-events-auto">
             <div className="flex items-center justify-center mb-4">
               <div className="w-12 h-12 bg-green-600 rounded-full flex items-center justify-center">
                 <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1472,7 +1470,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
 
       {/* Pricing Mode Selector */}
       {selectedLineItemIds.length > 0 && (
-        <div className="border-t border-[#333333] px-6 py-3 bg-[#1D1F25]">
+        <div className="border-t border-[#333333] px-6 py-3 bg-[#1a1a1a]">
           <PricingModeSelector
             onModeChange={setSelectedMode}
             selectedLineItemCount={selectedLineItemIds.length}
@@ -1483,7 +1481,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
       
       {/* Undo Button */}
       {showUndo && lastPricingOperation && selectedLineItemIds.length === 0 && !applyingProgress && (
-        <div className="border-t border-[#333333] px-6 py-3 bg-[#1D1F25] flex items-center justify-between">
+        <div className="border-t border-[#333333] px-6 py-3 bg-[#1a1a1a] flex items-center justify-between">
           <div className="text-sm text-gray-400">
             Applied "{lastPricingOperation.modeName}" to {lastPricingOperation.lineItemIds.length} items
           </div>
@@ -1509,7 +1507,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
       )}
 
       {/* Sticky Header Section - Contains controls and column headers */}
-      <div className="flex-shrink-0 bg-[#1D1F25] border-b border-[#333333] sticky top-0 z-10">
+      <div className="flex-shrink-0 bg-[#121212] border-b border-[#333333] sticky top-0 z-10">
         {/* Table Controls */}
         <div className="px-4 py-3 border-b border-[#333333]">
         <div className="flex items-center justify-between gap-4">
@@ -1532,22 +1530,22 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
               </div>
             )}
             <select
-              className="bg-[#1D1F25] border border-[#333333] px-3 py-2 text-sm text-white focus:outline-none focus:border-[#336699]"
+              className="bg-[#0A0A0A] border border-[#333333] px-3 py-2 text-sm text-white focus:outline-none focus:border-[#336699]"
               value={selectedTradeId}
               onChange={(e) => setSelectedTradeId(e.target.value)}
             >
-              <option value="all" className="bg-[#1D1F25] text-white">All Cost Codes ({lineItems.length})</option>
+              <option value="all" className="bg-[#121212] text-white">All Cost Codes ({lineItems.length})</option>
               {Array.from(groupedTrades.entries()).map(([industryName, codes]) => (
                 <optgroup 
                   key={industryName} 
                   label={`━━━  ${industryName.toUpperCase()}  ━━━`}
-                  className="bg-[#1D1F25] text-gray-400 font-bold"
+                  className="bg-[#121212] text-gray-400 font-bold"
                 >
                   {codes.map(trade => (
                     <option 
                       key={trade.id} 
                       value={trade.id} 
-                      className="bg-[#1D1F25] text-white pl-4"
+                      className="bg-[#121212] text-white pl-4"
                     >
                       {trade.code} — {trade.name} ({lineItems.filter(item => item.cost_code_id === trade.id).length})
                     </option>
@@ -1561,7 +1559,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowNewLineItemModal(true)}
-              className="bg-white hover:bg-gray-100 text-black px-4 py-2 text-sm font-medium transition-colors flex items-center gap-2"
+              className="bg-[#336699] hover:bg-[#2a5580] text-white px-4 py-2 text-sm font-medium transition-colors flex items-center gap-2"
             >
               <Plus className="w-4 h-4" />
               <span>Add Item</span>
@@ -1573,7 +1571,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
                 setCondensed(newCondensed);
                 localStorage.setItem('pricebook-condensed', newCondensed.toString());
               }}
-              className="bg-[#1D1F25] border border-[#333333] p-2 text-white hover:bg-[#22272d] transition-colors"
+              className="border border-[#333333] p-2 text-gray-300 hover:bg-[#1E1E1E] hover:text-white transition-colors"
               title="Toggle compact view"
             >
               <LayoutGrid className="w-4 h-4" />
@@ -1582,16 +1580,16 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
             <div className="relative" ref={optionsMenuRef}>
               <button
                 onClick={() => setShowOptionsMenu(!showOptionsMenu)}
-                className="bg-[#1D1F25] border border-[#333333] p-2 text-white hover:bg-[#22272d] transition-colors"
+                className="border border-[#333333] p-2 text-gray-300 hover:bg-[#1E1E1E] hover:text-white transition-colors"
               >
                 <MoreVertical className="w-4 h-4" />
               </button>
               
               {showOptionsMenu && (
-                <div className="absolute top-full right-0 mt-2 w-48 bg-[#1D1F25] border border-[#333333] shadow-lg z-[9999] py-2">
+                <div className="absolute top-full right-0 mt-2 w-48 bg-[#1a1a1a] border border-[#333333] shadow-lg z-[9999] py-1">
                   <button
                     onClick={handleImportItems}
-                    className="w-full px-4 py-2 text-left text-sm text-white hover:bg-[#22272d] flex items-center gap-2"
+                    className="w-full px-4 py-2 text-left text-sm text-white hover:bg-[#252525] flex items-center gap-2"
                   >
                     <Upload className="w-4 h-4" />
                     Import Items
@@ -1599,14 +1597,14 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
                   <div className="border-t border-[#333333] my-1" />
                   <button
                     onClick={handleExportToCSV}
-                    className="w-full px-4 py-2 text-left text-sm text-white hover:bg-[#22272d] flex items-center gap-2"
+                    className="w-full px-4 py-2 text-left text-sm text-white hover:bg-[#252525] flex items-center gap-2"
                   >
                     <FileText className="w-4 h-4" />
                     Export to CSV
                   </button>
                   <button
                     onClick={handleExportToExcel}
-                    className="w-full px-4 py-2 text-left text-sm text-white hover:bg-[#22272d] flex items-center gap-2"
+                    className="w-full px-4 py-2 text-left text-sm text-white hover:bg-[#252525] flex items-center gap-2"
                   >
                     <FileSpreadsheet className="w-4 h-4" />
                     Export to Excel
@@ -1614,7 +1612,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
                   <div className="border-t border-[#333333] my-1" />
                   <button
                     onClick={handlePrintPriceBook}
-                    className="w-full px-4 py-2 text-left text-sm text-white hover:bg-[#22272d] flex items-center gap-2"
+                    className="w-full px-4 py-2 text-left text-sm text-white hover:bg-[#252525] flex items-center gap-2"
                   >
                     <FileText className="w-4 h-4" />
                     Print Cost Codes
@@ -1627,8 +1625,8 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
         </div>
 
         {/* Table Column Headers */}
-        <div className="px-4 py-2 bg-[#1D1F25]/80">
-        <div className="grid grid-cols-9 gap-4 text-xs font-medium text-gray-400 uppercase tracking-wider items-center">
+        <div className="px-6 py-2 bg-[#121212]">
+        <div className="grid grid-cols-9 gap-4 text-[11px] font-medium text-gray-500 uppercase tracking-wide items-center">
           <div className="col-span-1 flex items-center">
             <input
               type="checkbox"
@@ -1640,7 +1638,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
                   setSelectedLineItemIds([]);
                 }
               }}
-              className="w-4 h-4 rounded bg-[#333333] border-[#555555] text-[#336699] focus:ring-[#336699] focus:ring-offset-0"
+              className="w-4 h-4 rounded-none bg-transparent border-[#555555] text-[#336699] focus:ring-[#336699] focus:ring-offset-0"
             />
           </div>
           <div className="col-span-5">
@@ -1658,7 +1656,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
         {(isLoading || isLoadingCostCodes) ? (
           <div className="animate-pulse">
             {/* Industry Header Skeleton */}
-            <div className="px-6 py-3 bg-[#1D1F25] border-y border-[#333333]">
+            <div className="px-6 py-3 bg-[#121212] border-y border-[#333333]">
               <div className="h-4 bg-[#333333] rounded w-48 relative overflow-hidden">
                 <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-[#444444] to-transparent"></div>
               </div>
@@ -1707,7 +1705,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
             
             {/* Second Industry Skeleton */}
             <div className="mt-4">
-              <div className="px-6 py-3 bg-[#1D1F25] border-y border-[#333333]">
+              <div className="px-6 py-3 bg-[#121212] border-y border-[#333333]">
                 <div className="h-4 bg-[#333333] rounded w-56 relative overflow-hidden">
                   <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-[#444444] to-transparent"></div>
                 </div>
@@ -1762,7 +1760,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
             <p className="text-gray-400 mb-6 max-w-md">{error}</p>
             <button
               onClick={() => fetchLineItems()}
-              className="bg-white hover:bg-gray-100 text-black px-6 py-3 rounded-[8px] font-medium transition-colors"
+              className="bg-[#336699] hover:bg-[#2a5580] text-white px-6 py-3 font-medium transition-colors"
             >
               Try Again
             </button>
@@ -1777,7 +1775,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
           <button
             type="button"
             onClick={() => setTradeScope('all')}
-            className="bg-white hover:bg-gray-100 text-[#121212] px-6 py-3 rounded-[4px] font-medium transition-colors"
+            className="bg-[#336699] hover:bg-[#2a5580] text-white px-6 py-3 font-medium transition-colors"
           >
             Show all trades ({lineItems.length})
           </button>
@@ -1797,7 +1795,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
           </p>
           <button
             onClick={() => setShowNewLineItemModal(true)}
-              className="bg-white hover:bg-gray-100 text-[#121212] px-6 py-3 rounded-[4px] font-medium transition-colors"
+              className="bg-[#336699] hover:bg-[#2a5580] text-white px-6 py-3 font-medium transition-colors"
           >
             Add Your First Item
           </button>
@@ -1808,7 +1806,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
             <div
               key={lineItem.id}
               onClick={() => handleEditLineItem(lineItem)}
-              className={`grid grid-cols-9 gap-4 px-6 ${condensed ? 'py-2' : 'py-3'} items-center bg-[#1D1F25] hover:bg-[#22272d] transition-colors group relative cursor-pointer ${index < displayedItems.length - 1 ? 'border-b border-[#333333]/20' : ''}`}
+              className={`grid grid-cols-9 gap-4 px-6 ${condensed ? 'py-1.5' : 'py-2.5'} items-center bg-[#121212] hover:bg-[#1A1A1A] transition-colors group relative cursor-pointer ${index < displayedItems.length - 1 ? 'border-b border-[#262626]' : ''}`}
               >
                 {/* Checkbox Column */}
                 <div className="col-span-1 flex items-center">
@@ -1824,14 +1822,14 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
                       }
                     }}
                     onClick={(e) => e.stopPropagation()}
-                    className="w-4 h-4 rounded bg-[#333333] border-[#555555] text-[#336699] focus:ring-[#336699] focus:ring-offset-0"
+                    className="w-4 h-4 rounded-none bg-transparent border-[#555555] text-[#336699] focus:ring-[#336699] focus:ring-offset-0"
                   />
                 </div>
                 
                 {/* Item Column - reduced to make room */}
                 <div className="col-span-5 pr-4">
                   <div className="w-full overflow-hidden">
-                    <div className={`flex items-center gap-2 font-medium text-gray-100 ${condensed ? 'text-sm' : ''}`}>
+                    <div className="flex items-center gap-2 text-sm text-white">
                       <span className="truncate">{lineItem.name}</span>
                       {(lineItem.is_bundle || lineItem.is_package) && (
                         <span className="px-1.5 py-0.5 text-[10px] font-medium bg-blue-500/20 text-blue-400 rounded flex items-center gap-1">
@@ -1841,7 +1839,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
                       )}
                     </div>
                     {!condensed && lineItem.description && (
-                      <div className="text-xs text-gray-400 truncate mt-0.5" style={{ maxWidth: '100%' }}>
+                      <div className="text-xs text-gray-500 truncate mt-0.5" style={{ maxWidth: '100%' }}>
                         {lineItem.description}
                       </div>
                     )}
@@ -1851,7 +1849,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
                 {/* Price Column with strategy indicator - expanded to use available space */}
                 <div className="col-span-3 text-right">
                   <div className="flex flex-col items-end">
-                    <div className={`flex items-center justify-end gap-2 w-full ${condensed ? 'text-sm' : 'text-base'} ${
+                    <div className={`flex items-center justify-end gap-2 w-full text-sm ${
                       recentlyUpdatedId === lineItem.id ? 'price-updated' : ''
                     }`}>
                       <PriceRangeCompact
@@ -1863,7 +1861,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
                       />
                     </div>
                     {!condensed && (
-                      <span className="text-xs text-gray-400 capitalize mt-0.5">{lineItem.unit}</span>
+                      <span className="text-[11px] text-gray-500 mt-0.5">per {lineItem.unit || 'each'}</span>
                     )}
                   </div>
                 </div>

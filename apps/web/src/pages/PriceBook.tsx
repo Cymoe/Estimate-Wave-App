@@ -205,11 +205,11 @@ export const PriceBook: React.FC = () => {
               <button
                 onClick={handleAddClick}
                 disabled={isAddingItem}
-                className="bg-white hover:bg-gray-100 text-black px-5 py-2 text-sm font-medium transition-colors flex items-center gap-2 mr-4 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="bg-[#336699] hover:bg-[#2a5580] text-white px-5 py-2 text-sm font-medium transition-colors flex items-center gap-2 mr-4 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isAddingItem ? (
                   <>
-                    <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     <span>Loading...</span>
                   </>
                 ) : (
