@@ -861,7 +861,7 @@ describe("estimating from an assistant", () => {
       ["Dumpster, 20 yd", 450, false],
     ]);
     expect(drafted.text).toContain("Dumpster, 20 yd: 1 × $450.00 = $450.00 (custom line, not from the price book)");
-    expect(drafted.text).toContain("It's a draft: the person reviews it and sends it from Tolliver: https://app.example/estimates/");
+    expect(drafted.text).toContain("It's a draft for the person to review: https://app.example/estimates/");
 
     // The same phone, written differently, is the same client.
     await tool(t, accessToken, "create_estimate", { title: "Gutters", lines: [{ line_item_id: ids.vent }], client: { name: "L. Ortega", phone: "432-555-0188" } });
@@ -943,12 +943,106 @@ describe("estimating from an assistant", () => {
     expect((await tool(t, accessToken, "add_cost", { project_id: theirProject!._id, description: "x", amount: 1 })).isError).toBe(true);
   });
 
-  test("the estimating tools are listed, and none of them sends anything", async () => {
+  test("emails an estimate to the client only once confirmed, and marks it sent", async () => {
+    const { t, ids, accessToken } = await roofer();
+    const sent: Array<{ url: string; body: string }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        sent.push({ url, body: String(init.body) });
+        return { ok: true, status: 200, json: async () => ({ id: "em_1" }) };
+      }),
+    );
+    vi.stubEnv("RESEND_API_KEY", "re_test");
+    const draft = (client: Record<string, string>) =>
+      tool(t, accessToken, "create_estimate", { title: "Re-roof", lines: [{ line_item_id: ids.shingles, quantity: 20 }], client });
+    const noEmail = (await draft({ name: "Bo Diaz", phone: "432-555-0100" })).data.id;
+    const estimateId = (await draft({ name: "Ann Miller", email: "ann@example.com" })).data.id;
+
+    const unconfirmed = await tool(t, accessToken, "send_estimate", { estimate_id: estimateId, confirm: false });
+    expect(unconfirmed.text).toContain("Not sent. Ask the person to confirm: EST-");
+    expect(unconfirmed.text).toContain("$9,000.00 to Ann Miller at ann@example.com");
+    expect((await t.run((ctx) => ctx.db.get(estimateId as Id<"estimates">)))!.status).toBe("draft");
+    expect((await tool(t, accessToken, "send_estimate", { estimate_id: noEmail, confirm: true })).text).toContain("Add an email for this client first");
+
+    vi.useFakeTimers();
+    try {
+      const done = await tool(t, accessToken, "send_estimate", { estimate_id: estimateId, confirm: true, message: "Good talking today." });
+      expect(done.isError).toBe(false);
+      expect(done.text).toContain("Emailed EST-");
+      expect(done.text).toContain("to Ann Miller at ann@example.com");
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+    } finally {
+      vi.useRealTimers();
+    }
+    const email = JSON.parse(sent.find((x) => x.url.includes("resend"))!.body);
+    expect(email).toMatchObject({ to: ["ann@example.com"], subject: "Your estimate from Peak Roofing" });
+    expect(email.text).toContain("Hi Ann,\n\nGood talking today.\n\nHere's your Re-roof (EST-");
+    const estimate = (await t.run((ctx) => ctx.db.get(estimateId as Id<"estimates">)))!;
+    expect(estimate).toMatchObject({ status: "sent", sentAt: expect.any(String), lastEmailedAt: expect.any(String) });
+    expect(email.text).toContain(`https://app.example/share/estimate/${estimate.shareToken}`);
+    // Not twice in a row, and not once it's answered.
+    expect((await tool(t, accessToken, "send_estimate", { estimate_id: estimateId, confirm: true })).text).toContain("emailed a few minutes ago");
+    await t.run((ctx) => ctx.db.patch(estimateId as Id<"estimates">, { status: "accepted", lastEmailedAt: undefined }));
+    expect((await tool(t, accessToken, "send_estimate", { estimate_id: estimateId, confirm: true })).text).toContain("already answered");
+    // Without email set up, it says so instead.
+    vi.stubEnv("RESEND_API_KEY", "");
+    await t.run((ctx) => ctx.db.patch(estimateId as Id<"estimates">, { status: "sent" }));
+    expect((await tool(t, accessToken, "send_estimate", { estimate_id: estimateId, confirm: true })).text).toContain("Email isn't set up");
+  });
+
+  test("owners and admins add price book items; members can't", async () => {
+    const { t, owner, accessToken } = await roofer();
+    const bad = await tool(t, accessToken, "add_price_book_item", { name: "Ridge cap", unit: "linear ft", cap: 5, red_line: 6, cost_code: "RF200" });
+    expect(bad.text).toContain("red line can't be above the cap");
+    expect((await tool(t, accessToken, "add_price_book_item", { name: "Ridge cap", unit: "linear ft", cap: 6, red_line: 4, cost_code: "XX999" })).text).toContain("No cost code XX999");
+    const added = await tool(t, accessToken, "add_price_book_item", { name: "Ridge cap", unit: "linear ft", cap: 6, red_line: 4, cost_code: "rf 200" });
+    expect(added.text).toContain('Added "Ridge cap" to the price book: $6.00 per linear ft (red line $4.00) under RF200 Roof Installation');
+    const item = await t.run((ctx) => ctx.db.get(added.data.id as Id<"lineItems">));
+    expect(item).toMatchObject({ organization_id: owner.organizationId, cap_price: 6, red_line_price: 4, base_price: 4 });
+    expect((await tool(t, accessToken, "search_price_book", { query: "ridge cap" })).data.items[0]).toMatchObject({ name: "Ridge cap", source: "company" });
+
+    const crew = await signUp(t, "crew@peak.example");
+    await t.run((ctx) => ctx.db.insert("memberships", { organizationId: owner.organizationId, userId: crew.userId, role: "member", createdAt: new Date().toISOString() }));
+    const { accessToken: memberToken } = await connect(t, { ...crew, organizationId: owner.organizationId });
+    expect((await tool(t, memberToken, "add_price_book_item", { name: "Nope", unit: "each", cap: 2, red_line: 1, cost_code: "RF200" })).text).toContain(
+      "Only an owner or admin",
+    );
+  });
+
+  test("search and fetch, for ChatGPT, find the company's records and only those", async () => {
+    const { t, other, ids, accessToken } = await roofer();
+    const drafted = await tool(t, accessToken, "create_estimate", {
+      title: "Ortega re-roof",
+      lines: [{ line_item_id: ids.shingles, quantity: 20 }],
+      client: { name: "Luis Ortega", email: "luis@example.com" },
+    });
+    await other.as.mutation(api.clients.create, { organizationId: other.organizationId, data: { name: "Luis Ortega Rival" } });
+    const found = await tool(t, accessToken, "search", { query: "ortega" });
+    const { results } = JSON.parse(found.text);
+    expect(results.map((r: { title: string }) => r.title)).toEqual([expect.stringMatching(/^Estimate EST-.*: Ortega re-roof$/), "Client: Luis Ortega"]);
+    expect(results[0]).toMatchObject({ id: `estimate:${drafted.data.id}`, url: `https://app.example/estimates/${drafted.data.id}` });
+
+    const opened = JSON.parse((await tool(t, accessToken, "fetch", { id: results[0].id })).text);
+    expect(opened).toMatchObject({ id: results[0].id, url: results[0].url, metadata: { type: "estimate" } });
+    expect(opened.text).toContain("Total $9,000.00");
+    const client = JSON.parse((await tool(t, accessToken, "fetch", { id: results[1].id })).text);
+    expect(client).toMatchObject({ title: "Luis Ortega", text: "Luis Ortega\nluis@example.com" });
+
+    const theirs = await t.run((ctx) => ctx.db.query("clients").withIndex("by_organization", (q) => q.eq("organizationId", other.organizationId)).first());
+    expect((await tool(t, accessToken, "fetch", { id: `client:${theirs!._id}` })).isError).toBe(true);
+    expect((await tool(t, accessToken, "fetch", { id: "nonsense" })).isError).toBe(true);
+    expect(JSON.parse((await tool(t, accessToken, "search", { query: "" })).text).results).toEqual([]);
+  });
+
+  test("the estimating tools are listed; sending is marked as reaching the client", async () => {
     const { t, accessToken } = await roofer();
     const { tools } = (await rpc(t, accessToken, "tools/list")).body!.result as { tools: Array<{ name: string; annotations: any }> };
     const names = tools.map((x) => x.name);
-    expect(names).toEqual(expect.arrayContaining(["search_price_book", "list_estimates", "get_estimate", "create_estimate", "update_estimate", "list_projects", "get_project", "create_project", "add_cost"]));
-    expect(names.some((n) => /send/.test(n))).toBe(false);
+    expect(names).toEqual(
+      expect.arrayContaining(["search_price_book", "list_estimates", "get_estimate", "create_estimate", "update_estimate", "send_estimate", "add_price_book_item", "list_projects", "get_project", "create_project", "add_cost"]),
+    );
+    expect(tools.find((x) => x.name === "send_estimate")!.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true, openWorldHint: true });
     expect(tools.find((x) => x.name === "search_price_book")!.annotations.readOnlyHint).toBe(true);
     const init = await rpc(t, accessToken, "initialize", { protocolVersion: "2025-06-18" });
     expect(init.body!.result.instructions).toContain("Never price below an item's red line.");

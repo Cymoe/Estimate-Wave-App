@@ -35,7 +35,9 @@ jest.mock('../../../services/EstimateService', () => ({
     },
   },
 }));
+const emailToClient = jest.fn<Promise<{ to: string; link: string }>, [string]>(async () => ({ to: 'dan@example.com', link: 'https://app.example/share/estimate/tok123' }));
 jest.mock('../../../lib/api', () => ({
+  estimatesAPI: { emailToClient: (id: string) => emailToClient(id) },
   organizationsAPI: { getById: async () => null },
   clientsAPI: { list: async () => [{ id: 'c2', name: 'Priya Shah' }, { id: 'c1', name: 'Dan Shah' }] },
 }));
@@ -139,6 +141,17 @@ describe('estimate overview', () => {
     expect(share).toHaveBeenCalledWith(expect.objectContaining({ url: 'https://app.example/share/estimate/tok123' }));
     expect(update).toHaveBeenCalledWith('e1', { status: 'sent' });
     delete (navigator as { share?: unknown }).share;
+  });
+
+  it("Share can email the link to the client from Tolliver", async () => {
+    stored = { ...base, client: { name: 'Dan Shah', email: 'dan@example.com' } };
+    await openOverview();
+    await act(async () => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Share')!.click());
+    const email = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Email it to dan@example.com')!;
+    await act(async () => email.click());
+    await act(async () => {});
+    expect(emailToClient).toHaveBeenCalledWith('e1');
+    expect(document.body.querySelector('[role="dialog"] [role="status"]')!.textContent).toBe('Emailed to dan@example.com. Replies come to you.');
   });
 
   it('opens at once from the estimate already loaded, then shows the latest copy', async () => {

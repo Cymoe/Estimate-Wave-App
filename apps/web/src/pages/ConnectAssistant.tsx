@@ -109,7 +109,7 @@ export default function ConnectAssistant() {
             </select>
             <p className="text-sm text-gray-300 mb-2">It will be able to:</p>
             <ul className="text-sm text-gray-300 space-y-1 mb-4">
-              {['See your leads and update them', 'Log calls, texts and notes', 'Draft estimates, projects and job costs from your price book', 'Check your balance, bids and the Marketplace'].map((line) => (
+              {['See your leads and update them', 'Log calls, texts and notes', 'Draft estimates, projects and job costs from your price book, and email an estimate to your client when you say so', 'Check your balance, bids and the Marketplace'].map((line) => (
                 <li key={line} className="flex gap-2">
                   <Check className="w-4 h-4 mt-0.5 text-emerald-400 shrink-0" />
                   {line}

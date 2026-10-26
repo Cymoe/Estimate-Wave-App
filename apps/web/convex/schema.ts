@@ -252,6 +252,8 @@ export const estimateFields = {
   sentAt: v.optional(v.string()),
   remindersSent: v.optional(v.number()),
   lastReminderAt: v.optional(v.string()),
+  // When Tolliver last emailed the estimate to the client (convex/estimateEmail.ts).
+  lastEmailedAt: v.optional(v.string()),
   remindersOff: v.optional(v.boolean()),
 };
 

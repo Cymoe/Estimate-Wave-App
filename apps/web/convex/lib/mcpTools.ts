@@ -13,6 +13,7 @@ import { claimPrice, planIsActive } from "./plan";
 import { centralDay } from "./oauth";
 import { dollars, leadPriceCents } from "./wallet";
 import { ESTIMATING_TOOLS } from "./mcpEstimating";
+import { searchTools } from "./mcpSearch";
 
 // The connector's tools: what Claude or ChatGPT can do in Tolliver for
 // the person who connected it. Each runs the same code as the web app
@@ -30,8 +31,10 @@ export type Tool = {
   inputSchema: JsonSchema;
   /** Only reads (moving the "what's new" cursor doesn't count). */
   readOnly: boolean;
-  /** Spends from the balance. */
+  /** Spends from the balance, or does something that can't be taken back. */
   destructive?: boolean;
+  /** Reaches someone outside Tolliver (an email to a client). */
+  openWorld?: boolean;
   scope: "leads" | "spend";
   run: (ctx: MutationCtx, connection: Connection, args: Args) => Promise<ToolResult>;
 };
@@ -767,6 +770,8 @@ export const TOOLS: Tool[] = [
   },
   ...ESTIMATING_TOOLS,
 ];
+// search and fetch for ChatGPT, built on the tools above.
+TOOLS.push(...searchTools((name) => TOOLS.find((t) => t.name === name)));
 
 /**
  * Counts a charge against the connection's daily limit (Central time).

@@ -10,7 +10,7 @@ import {
 import { EstimateService, Estimate, EstimateItem } from '../../services/EstimateService';
 import { priceAt } from '../../utils/priceRange';
 import { formatCurrency } from '../../utils/format';
-import { clientsAPI, organizationsAPI } from '../../lib/api';
+import { clientsAPI, estimatesAPI, organizationsAPI } from '../../lib/api';
 import { Business, changesSinceSigned, contractFor } from '../../services/contract';
 import { CreateEstimateDrawer } from './CreateEstimateDrawer';
 import { MapModal } from '../common/MapModal';
@@ -85,6 +85,8 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   });
   const [loading, setLoading] = useState(() => !(id && EstimateService.cached(id)));
   const [showShareModal, setShowShareModal] = useState(false);
+  // Emailing it from the Share window: idle, sending, or what happened.
+  const [emailNote, setEmailNote] = useState<{ text: string; good: boolean } | 'sending' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showMapModal, setShowMapModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -107,6 +109,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   const [shareUrl, setShareUrl] = useState<string | null>(null);
 
   const openShareModal = async () => {
+    setEmailNote(null);
     setShowShareModal(true);
     if (shareUrl || !estimate?.id) return;
     try {
@@ -894,6 +897,35 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
             <p className="text-gray-400 mb-4">
               Anyone with this link can view the estimate and accept or decline it, without logging in.
             </p>
+
+            {estimate.client?.email && ['draft', 'sent', 'opened'].includes(estimate.status) && (
+              <div className="mb-4">
+                <button
+                  type="button"
+                  disabled={emailNote === 'sending'}
+                  onClick={async () => {
+                    setEmailNote('sending');
+                    try {
+                      const sent = await estimatesAPI.emailToClient(estimate.id!);
+                      setEmailNote({ text: `Emailed to ${sent.to}. Replies come to you.`, good: true });
+                      // Shows it as sent; a failed refresh doesn't undo the email.
+                      loadEstimate(true).catch(() => {});
+                    } catch (err) {
+                      setEmailNote({ text: err instanceof Error && err.message ? err.message : 'That didn’t send', good: false });
+                    }
+                  }}
+                  className="w-full px-4 py-2.5 bg-[#336699] hover:bg-[#2A5580] text-white transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+                >
+                  <Send className="w-4 h-4" />
+                  {emailNote === 'sending' ? 'Sending…' : `Email it to ${estimate.client.email}`}
+                </button>
+                {emailNote && emailNote !== 'sending' && (
+                  <p role="status" className={`mt-2 text-sm ${emailNote.good ? 'text-green-400' : 'text-red-400'}`}>
+                    {emailNote.text}
+                  </p>
+                )}
+              </div>
+            )}
             
             <div className="bg-[#121212] border border-[#333333] rounded-lg p-3 mb-4">
               <div className="text-xs text-gray-400 mb-1">Shareable Link</div>

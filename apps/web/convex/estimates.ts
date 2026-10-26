@@ -50,6 +50,7 @@ const serverOnly = new Set([
   "remindersSent",
   "lastReminderAt",
   "remindersOff",
+  "lastEmailedAt",
 ]);
 
 const MAX_DESIGN_BYTES = 10 * 1024 * 1024;

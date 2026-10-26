@@ -5,13 +5,14 @@ import { siteUrl } from "../delivery";
 import { createDef as createEstimateDef, listDef as listEstimatesDef, updateDef as updateEstimateDef } from "../estimates";
 import { createDef as createExpenseDef } from "../expenses";
 import { updateDef as updateLeadDef } from "../leads";
-import { listDef as listItemsDef } from "../lineItems";
+import { emailDef as emailEstimateDef } from "../estimateEmail";
+import { createDef as createItemDef, listDef as listItemsDef } from "../lineItems";
 import { createDef as createProjectDef } from "../projects";
-import { fail, getOwned } from "./access";
+import { fail, getOwned, requireMember } from "./access";
 import type { Connection, Tool, ToolResult } from "./mcpTools";
 
 // The connector's estimating tools: pricing a job from the company's price
-// book, drafts the person reviews and sends from Tolliver, projects and
+// book, drafts the person reviews (and has emailed to the client when they ask), projects and
 // their costs. Prices always come from the price book here, never from the
 // assistant: a line is the item's cap unless a price is given, and never
 // below its red line.
@@ -150,7 +151,7 @@ function estimateText(estimate: Doc<"estimates">, headline: string, clientName?:
     ...estimate.items.map(itemLine),
     `Total ${money(estimate.totalAmount)}. The lowest it can go is ${money(floorTotal(estimate.items))} (every line at its red line${custom ? ", custom lines as they are" : ""}).`,
     estimate.notes ? `Notes: ${estimate.notes}` : "",
-    estimate.status === "draft" ? `It's a draft: the person reviews it and sends it from Tolliver: ${app(`/estimates/${estimate._id}`)}` : `Open it: ${app(`/estimates/${estimate._id}`)}`,
+    estimate.status === "draft" ? `It's a draft for the person to review: ${app(`/estimates/${estimate._id}`)}. When they say to send it, send_estimate emails it to the client.` : `Open it: ${app(`/estimates/${estimate._id}`)}`,
   ];
   return {
     text: lines.filter(Boolean).join("\n"),
@@ -557,6 +558,94 @@ export const ESTIMATING_TOOLS: Tool[] = [
       }))!;
       const client = updated.clientId ? await ctx.db.get(updated.clientId) : null;
       return estimateText(updated, `Updated ${updated.estimateNumber}.`, clientName(client));
+    },
+  },
+  {
+    name: "send_estimate",
+    title: "Email an estimate to the client",
+    description:
+      "Emails the estimate to its client from the company, with the link where they view, accept and sign it, and marks it sent. Only when the person asks you to send it: first tell them who it goes to (name and email) and the total, and call this with confirm: true once they say yes. It can't be unsent. Needs an email on the client; otherwise give the person the link (get_estimate) to send themselves.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        estimate_id: { type: "string" },
+        confirm: { type: "boolean", description: "true once the person has said to send it to that client." },
+        message: { type: "string", description: "A short personal note from the person to put above the link, in their words." },
+      },
+      required: ["estimate_id", "confirm"],
+      additionalProperties: false,
+    },
+    readOnly: false,
+    destructive: true,
+    openWorld: true,
+    scope: "leads",
+    run: async (ctx, connection, args) => {
+      const estimate = await own(ctx, connection, "estimates", text(args, "estimate_id", { required: true }), "estimate");
+      const client = estimate.clientId ? await ctx.db.get(estimate.clientId) : null;
+      if (args.confirm !== true)
+        return {
+          text: `Not sent. Ask the person to confirm: ${estimate.estimateNumber} for ${money(estimate.totalAmount)} to ${clientName(client) ?? "the client"}${client?.email ? ` at ${client.email}` : " (no email on file)"}. Then call again with confirm: true.`,
+        };
+      const sent = await emailEstimateDef.handler(ctx, { id: estimate._id, message: text(args, "message", { max: 1000 }) });
+      return {
+        text: `Emailed ${estimate.estimateNumber} (${money(estimate.totalAmount)}) to ${clientName(client) ?? "the client"} at ${sent.to}, from the company, with the link to sign. Replies go to the company. Their link: ${sent.link}. Tolliver follows up if they don't sign.`,
+        data: { to: sent.to, link: sent.link },
+      };
+    },
+  },
+  {
+    name: "add_price_book_item",
+    title: "Add an item to the price book",
+    description:
+      "Adds an item to the company's own price book, for work or materials it prices often, so estimates can use it. Only an owner or admin of the company can. Confirm the name, unit, cap (the price that goes on an estimate) and red line (the lowest it can go) with the person first. cost_code is a code from search_price_book results, for example RF500.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "For example \"Ridge vent, shingle-over\"." },
+        unit: { type: "string", description: "What it's priced per: each, sq ft, linear ft, square, hour…" },
+        cap: { type: "number", description: "The price that goes on an estimate." },
+        red_line: { type: "number", description: "The lowest it can go. At most the cap." },
+        cost_code: { type: "string", description: "The cost code it files under, for example RF500 (Roofing Materials)." },
+        description: { type: "string" },
+      },
+      required: ["name", "unit", "cap", "red_line", "cost_code"],
+      additionalProperties: false,
+    },
+    readOnly: false,
+    scope: "leads",
+    run: async (ctx, connection, args) => {
+      const name = text(args, "name", { required: true, max: 200 })!;
+      const unit = text(args, "unit", { required: true, max: 40 })!;
+      const cap = number(args, "cap", { required: true })!;
+      const redLine = number(args, "red_line", { required: true })!;
+      if (redLine > cap) fail("INVALID", "The red line can't be above the cap");
+      try {
+        await requireMember(ctx, connection.organizationId, "admin");
+      } catch {
+        fail("FORBIDDEN", "Only an owner or admin of the company can add price book items. Ask one of them, or add it in Tolliver as an admin.");
+      }
+      const code = text(args, "cost_code", { required: true, max: 20 })!.toUpperCase().replace(/\s+/g, "");
+      const codes = [
+        ...(await ctx.db.query("costCodes").withIndex("by_organization", (q) => q.eq("organization_id", connection.organizationId)).take(500)),
+        ...(await ctx.db.query("costCodes").withIndex("by_organization", (q) => q.eq("organization_id", undefined)).take(2000)),
+      ];
+      const costCode = codes.find((c) => c.code.toUpperCase().replace(/\s+/g, "") === code);
+      if (!costCode) fail("INVALID", `No cost code ${code}. Use one shown by search_price_book, for example RF500.`);
+      const item = await createItemDef.handler(ctx, {
+        data: {
+          organization_id: connection.organizationId,
+          name,
+          unit,
+          description: text(args, "description", { max: 1000 }),
+          red_line_price: redLine,
+          cap_price: cap,
+          cost_code_id: costCode._id,
+        },
+      });
+      return {
+        text: `Added "${name}" to the price book: ${money(cap)} per ${unit} (red line ${money(redLine)}) under ${costCode.code} ${costCode.name}. id ${item._id}. It's ready to use on estimates: ${app("/price-book/items")}`,
+        data: { id: item._id },
+      };
     },
   },
   {

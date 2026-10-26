@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { queryDef } from "./lib/actor";
+import { mutationDef, queryDef } from "./lib/actor";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { fail, nowIso, pick, requireMember } from "./lib/access";
@@ -134,13 +134,16 @@ async function insertLineItem(ctx: MutationCtx, data: unknown) {
   });
 }
 
-export const create = mutation({
+/** Shared with the assistant connector (convex/lib/mcpEstimating.ts). */
+export const createDef = mutationDef({
   args: { data: v.any() },
   handler: async (ctx, { data }) => {
     const id = await insertLineItem(ctx, data);
     return await withCostCode(ctx, (await ctx.db.get(id))!);
   },
 });
+
+export const create = mutation(createDef);
 
 export const bulkCreate = mutation({
   args: { items: v.array(v.any()) },

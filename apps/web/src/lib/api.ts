@@ -393,6 +393,11 @@ export const estimatesAPI = {
   async shareLink(id: string): Promise<string> {
     return run('mutation', api.estimates.shareLink, { id });
   },
+
+  /** Emails the estimate's link to its client, from the company, and marks it sent. */
+  async emailToClient(id: string, message?: string): Promise<{ to: string; link: string }> {
+    return run('mutation', api.estimateEmail.email, defined({ id, message }));
+  },
 };
 
 /** The client's side of an estimate, through its link. No login needed. */

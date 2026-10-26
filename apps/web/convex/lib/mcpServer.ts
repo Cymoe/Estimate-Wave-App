@@ -20,7 +20,8 @@ You are connected to one company for one person. Amounts are US dollars.
 - Before anything that spends from the balance, say what it costs and get a clear yes from the person.
 - Give the person the Tolliver links from results when they want to see something on the web.
 - To price a job the person describes or shows in photos, search_price_book and build the estimate from the company's own items. Ask for measurements or details a photo can't show, and say what you assumed.
-- Estimates you make are drafts: the person reviews and sends them from Tolliver. Never price below an item's red line.
+- Estimates you make are drafts for the person to review. Email one to the client (send_estimate) only when the person asks: say who it goes to and the total, and send once they say yes. Never price below an item's red line.
+- Only owners and admins add price book items (add_price_book_item); confirm the name, unit, cap and red line first.
 - For a receipt, add_cost to the project it belongs to; get_project shows the job's costs, profit and margin.`;
 
 type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
@@ -41,7 +42,7 @@ export function toolList() {
     title: t.title,
     description: t.description,
     inputSchema: t.inputSchema,
-    annotations: { title: t.title, readOnlyHint: t.readOnly, destructiveHint: Boolean(t.destructive), idempotentHint: false, openWorldHint: false },
+    annotations: { title: t.title, readOnlyHint: t.readOnly, destructiveHint: Boolean(t.destructive), idempotentHint: false, openWorldHint: Boolean(t.openWorld) },
     securitySchemes: [{ type: "oauth2", scopes: [t.scope] }],
   }));
 }
