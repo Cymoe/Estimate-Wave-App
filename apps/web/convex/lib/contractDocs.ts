@@ -4,6 +4,7 @@
 // or Tolliver's built-in document. Attachments are the company's "always
 // include" PDFs (less any turned off for the job) plus the job's own.
 // The agreement and the attachments are what the client signs.
+import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 
@@ -129,10 +130,17 @@ export async function markSigned(ctx: MutationCtx, documents: SignedDocument[], 
   }
 }
 
+/** Has copies of the uploaded PDFs made with the signature page added, just after signing. */
+export async function stampSignedCopies(ctx: MutationCtx, estimateId: Id<"estimates">) {
+  const estimate = await ctx.db.get(estimateId);
+  if ((estimate?.contractSnapshot?.documents ?? []).some((d) => d.storageId))
+    await ctx.scheduler.runAfter(0, internal.stamping.stampEstimate, { estimateId });
+}
+
 /** A document for a page: its name, whose it is, and a link to the file when it's a PDF. */
 export async function forPage(
   ctx: QueryCtx,
-  d: { kind: ContractDocKind; source: "tolliver" | "upload"; name: string; fileName?: string; storageId?: Id<"_storage">; sha256?: string; size?: number; docId?: Id<"contractDocs"> },
+  d: { kind: ContractDocKind; source: "tolliver" | "upload"; name: string; fileName?: string; storageId?: Id<"_storage">; sha256?: string; size?: number; docId?: Id<"contractDocs">; signedCopyId?: Id<"_storage"> },
   origin: Origin | "signed",
 ) {
   return {
@@ -145,6 +153,8 @@ export async function forPage(
     sha256: d.sha256,
     size: d.size,
     url: d.storageId ? ((await ctx.storage.getUrl(d.storageId)) ?? undefined) : undefined,
+    // The copy with its signature page, once it's made (convex/stamping.ts).
+    signedUrl: d.signedCopyId ? ((await ctx.storage.getUrl(d.signedCopyId)) ?? undefined) : undefined,
   };
 }
 

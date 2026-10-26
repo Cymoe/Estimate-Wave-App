@@ -23,6 +23,7 @@ import {
   needsAcknowledgment,
   resolveDocuments,
   resolvedForPage,
+  stampSignedCopies,
 } from "./lib/contractDocs";
 import {
   assertLinksInOrg,
@@ -258,6 +259,7 @@ export const sign = mutation({
       updatedAt: now,
     });
     await askForDeposit(ctx, (await ctx.db.get(id))!, user._id);
+    await stampSignedCopies(ctx, id);
     await logActivity(ctx, {
       organizationId: doc.organizationId,
       userId: user._id,

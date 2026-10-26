@@ -6,6 +6,8 @@ export interface RecordDocument {
   size?: number;
   sha256?: string;
   url?: string;
+  /** The file with a signature page added at the end, once it's made. */
+  signedUrl?: string;
 }
 
 const KIND: Record<string, string> = {
@@ -72,11 +74,18 @@ export function SignedRecord({
                 <span className="font-medium">{d.name}</span>
                 <span className="text-gray-500"> · {KIND[d.kind] ?? d.kind}</span>
               </span>
-              {d.url && (
-                <a href={d.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline underline-offset-2 print:hidden">
-                  Open the signed file
-                </a>
-              )}
+              <span className="flex gap-3 print:hidden">
+                {d.signedUrl && (
+                  <a href={d.signedUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline underline-offset-2">
+                    Download with signature
+                  </a>
+                )}
+                {d.url && (
+                  <a href={d.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline underline-offset-2">
+                    {d.signedUrl ? 'Original' : 'Open the signed file'}
+                  </a>
+                )}
+              </span>
             </span>
             <span className="block text-xs text-gray-500 mt-0.5">
               {d.source === 'upload'

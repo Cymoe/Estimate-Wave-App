@@ -84,6 +84,19 @@ describe('client signoff page', () => {
     expect(document.body.querySelector('[data-testid="signoff-record"]')!.textContent).toContain('Signed by Ann Miller');
   });
 
+  it("once signed, the company's PDF can be downloaded with its signature page", async () => {
+    view = {
+      ...changeOrder,
+      status: 'signed',
+      signerName: 'Ann Miller',
+      signedAt: '2026-11-02T15:00:00Z',
+      document: { name: 'Peak Change Order', source: 'upload', fileName: 'co.pdf', url: 'https://files/co.pdf', signedUrl: 'https://files/co-signed.pdf' },
+    };
+    await open();
+    const link = Array.from(document.body.querySelectorAll('a')).find((a) => a.textContent === 'Download with signature');
+    expect(link?.getAttribute('href')).toBe('https://files/co-signed.pdf');
+  });
+
   it("the affidavit states the completion and what's paid, and the company's PDF must be ticked as read", async () => {
     view = {
       ...changeOrder,

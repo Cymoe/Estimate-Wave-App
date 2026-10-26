@@ -22,7 +22,7 @@ interface SignoffView {
   contractTotal: number;
   paid?: number;
   completionDate?: string;
-  document: { name: string; source: 'tolliver' | 'upload'; fileName?: string; url?: string; sha256?: string };
+  document: { name: string; source: 'tolliver' | 'upload'; fileName?: string; url?: string; sha256?: string; signedUrl?: string };
   signerName?: string;
   signature?: string;
   signedAt?: string;
@@ -163,6 +163,11 @@ export function SignoffPage() {
               Signed by {view.signerName} on {view.signedAt ? new Date(view.signedAt).toLocaleString(undefined, { dateStyle: 'long', timeStyle: 'short' }) : ''}.
             </p>
             {view.signature && <img src={view.signature} alt="Signature" className="mt-3 max-h-24 border border-gray-200 rounded p-2 bg-gray-50" />}
+            {view.document.signedUrl && (
+              <a href={view.document.signedUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-block text-sm text-blue-600 underline underline-offset-2">
+                Download with signature
+              </a>
+            )}
             {view.document.sha256 && <p className="mt-3 text-[11px] text-gray-500 font-mono break-all">{view.document.fileName} · SHA-256 {view.document.sha256}</p>}
           </section>
         ) : view.status === 'cancelled' ? (

@@ -195,6 +195,8 @@ export const signedDocument = v.object({
   storageId: v.optional(v.id("_storage")),
   sha256: v.optional(v.string()),
   size: v.optional(v.number()),
+  // A copy with a signature page added, made just after signing (convex/stamping.ts).
+  signedCopyId: v.optional(v.id("_storage")),
 });
 
 // This job's choice per document: a PDF, Tolliver's, or (absent) the company's.

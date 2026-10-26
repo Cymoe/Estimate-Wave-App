@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { fail, getOwned, logActivity, nowIso } from "./lib/access";
+import { internal } from "./_generated/api";
 import { markSigned, resolveDocuments, type SignedDocument } from "./lib/contractDocs";
 import { cents, contractTotal, invoicesFor, paymentSummary } from "./lib/invoicing";
 
@@ -169,6 +170,7 @@ export const get = query({
         fileName: signoff.document.fileName,
         url: signoff.document.storageId ? ((await ctx.storage.getUrl(signoff.document.storageId)) ?? undefined) : undefined,
         sha256: signoff.status === "signed" ? signoff.document.sha256 : undefined,
+        signedUrl: signoff.document.signedCopyId ? ((await ctx.storage.getUrl(signoff.document.signedCopyId)) ?? undefined) : undefined,
       },
       signerName: signoff.signerName,
       signature: signoff.signature,
@@ -200,6 +202,7 @@ export const sign = mutation({
       updatedAt: now,
     });
     await markSigned(ctx, [signoff.document], now);
+    if (signoff.document.storageId) await ctx.scheduler.runAfter(0, internal.stamping.stampSignoff, { signoffId: signoff._id });
     if (signoff.kind === "change_order" && signoff.items)
       await ctx.db.patch(estimate._id, {
         contractSnapshot: {

@@ -10,6 +10,7 @@ import {
   needsAcknowledgment,
   resolveDocuments,
   signedDocuments,
+  stampSignedCopies,
 } from "./lib/contractDocs";
 import {
   DEFAULT_PAYMENT_TERMS,
@@ -105,6 +106,10 @@ export const get = query({
         url: d.storageId
           ? ((await ctx.storage.getUrl(d.storageId)) ?? undefined)
           : undefined,
+        signedUrl:
+          signed && d.signedCopyId
+            ? ((await ctx.storage.getUrl(d.signedCopyId)) ?? undefined)
+            : undefined,
       })),
     );
     const clientAddress = signed
@@ -223,6 +228,7 @@ export const accept = mutation({
       updatedAt: now,
     });
     await askForDeposit(ctx, (await ctx.db.get(estimate._id))!, estimate.userId);
+    await stampSignedCopies(ctx, estimate._id);
     await logActivity(ctx, {
       organizationId: estimate.organizationId,
       userId: estimate.userId,

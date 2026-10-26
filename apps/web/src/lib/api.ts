@@ -158,6 +158,8 @@ export interface ContractDocument {
   sha256?: string;
   size?: number;
   url?: string;
+  /** Once signed: the file with a signature page added at the end. */
+  signedUrl?: string;
 }
 
 export interface EstimateDocuments {

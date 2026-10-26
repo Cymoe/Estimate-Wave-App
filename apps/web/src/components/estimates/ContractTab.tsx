@@ -277,9 +277,9 @@ export function ContractTab({
       </button>
     ) : null;
 
-  /** An uploaded document's row opens the PDF. */
+  /** An uploaded document's row opens the PDF (once signed, the copy with its signature page). */
   const pdfRow = (doc: ContractDocument, title: string, subtitle: string) => (
-    <a href={doc.url} target="_blank" rel="noopener noreferrer" className={rowButton}>
+    <a href={doc.signedUrl ?? doc.url} target="_blank" rel="noopener noreferrer" className={rowButton}>
       <FileText className="w-5 h-5 text-gray-400 flex-shrink-0" />
       <span className="flex-1 min-w-0">
         <span className="block text-sm font-medium text-white">{title}</span>
@@ -432,7 +432,7 @@ export function ContractTab({
               ? docs.attachments.map((d) => (
                   <li key={d.docId ?? d.name} className="px-4 py-2.5 flex items-center gap-3">
                     <FileText className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                    <a href={d.url} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-0 truncate text-sm text-white">
+                    <a href={d.signedUrl ?? d.url} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-0 truncate text-sm text-white">
                       {d.name}
                     </a>
                   </li>
@@ -461,7 +461,7 @@ export function ContractTab({
                   {jobAttachments.map((d) => (
                     <li key={d.docId} className="px-4 py-2.5 flex items-center gap-3">
                       <FileText className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                      <a href={d.url} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-0 truncate text-sm text-white">
+                      <a href={d.signedUrl ?? d.url} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-0 truncate text-sm text-white">
                         {d.name}
                       </a>
                       <span className="text-xs text-gray-500">this job</span>
