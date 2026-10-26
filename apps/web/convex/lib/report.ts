@@ -1,4 +1,5 @@
 import { dollars } from "./wallet";
+import { saleLabel } from "./foreclosures";
 
 // The Tolliver Report: a county's week in building permits, demand and
 // lead sales. Pure helpers; report.ts gathers the numbers, reportText
@@ -134,6 +135,15 @@ export type Report = {
     byTrade: Array<{ name: string; count: number; avgCents: number; topCents: number }>;
     medianHoursToSell: number | null;
   };
+  /** Midland's monthly courthouse foreclosure auction (kept by hand in Ops); only where there's a feed. */
+  auction?: {
+    next: { date: string; posted: number };
+    last?: { date: string; posted: number; sold: number; backToLender: number; cancelled: number };
+    /** Homes bought at the auction in the last 120 days (a count for everyone, the list on Pro). */
+    boughtCount: number;
+    /** Pro only. The buyer's name and phone only when it's a company. */
+    bought?: Array<{ address: string; saleDate: string; priceCents?: number; buyer: string; phone?: string }>;
+  };
   /** Pro only. */
   mine?: {
     permitsInMyTrades: number;
@@ -181,6 +191,22 @@ export function reportText(r: Report, links: { pro: string; web: string }): stri
       out.push(`${r.permits.inMyTrades} of them are in your trades. Addresses and what each job is are in the Pro report.`);
     }
     if (r.permits.syncedAt) out.push(`(City of Midland permit records, updated ${shortDay(r.permits.syncedAt)}.)`);
+  }
+
+  if (r.auction) {
+    const a = r.auction;
+    out.push("", "COURTHOUSE AUCTION");
+    out.push(`Next foreclosure auction ${saleLabel(a.next.date)}: ${a.next.posted ? `${a.next.posted} home${a.next.posted === 1 ? "" : "s"} posted` : "no homes posted yet"}.`);
+    if (a.last?.posted)
+      out.push(
+        `${saleLabel(a.last.date)}: ${[`${a.last.sold} sold`, `${a.last.backToLender} back to the lender`, a.last.cancelled ? `${a.last.cancelled} cancelled` : ""].filter(Boolean).join(", ")}.`,
+      );
+    if (r.pro && a.bought?.length) {
+      out.push("Bought at auction in the last 4 months (rehab work):");
+      for (const b of a.bought)
+        out.push(`- ${b.address} · ${saleLabel(b.saleDate)}${b.priceCents ? ` · ${dollars(b.priceCents)}` : ""} · ${b.buyer}${b.phone ? ` · ${b.phone}` : ""}`);
+    } else if (!r.pro && a.boughtCount)
+      out.push(`${a.boughtCount} home(s) were bought at auction in the last 4 months; the Pro report lists them with who bought, for the rehab work.`);
   }
 
   out.push("", "DEMAND");

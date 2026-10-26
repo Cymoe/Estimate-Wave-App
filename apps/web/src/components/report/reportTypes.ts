@@ -50,6 +50,12 @@ export interface TolliverReport {
     byTrade: Array<{ name: string; count: number; avgCents: number; topCents: number }>;
     medianHoursToSell: number | null;
   };
+  auction?: {
+    next: { date: string; posted: number };
+    last?: { date: string; posted: number; sold: number; backToLender: number; cancelled: number };
+    boughtCount: number;
+    bought?: Array<{ address: string; saleDate: string; priceCents?: number; buyer: string; phone?: string }>;
+  };
   mine?: {
     permitsInMyTrades: number;
     bids: Array<{ name: string; amountCents: number; winning: boolean; paused: boolean }>;

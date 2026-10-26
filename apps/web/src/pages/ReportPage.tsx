@@ -6,6 +6,7 @@ import { applicationsAPI, reportAPI } from '../lib/api';
 import { money } from '../components/market/wallet';
 import { PermitsNearYou } from '../components/market/PermitsNearYou';
 import { versus, type TolliverReport } from '../components/report/reportTypes';
+import { saleLabel } from '../../convex/lib/foreclosures';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 const telHref = (phone: string) => `tel:${phone.replace(/[^\d+]/g, '')}`;
@@ -236,6 +237,51 @@ const ReportPage: React.FC = () => {
                     </div>
                   ))}
                 </>
+              )}
+            </section>
+          )}
+
+          {r.auction && (
+            <section className={card} aria-label="Courthouse auction">
+              <h2 className="text-base font-semibold text-white mb-1">Courthouse auction</h2>
+              <p className="text-xs text-gray-500 mb-3">Midland's foreclosure sale, the first Tuesday of each month. Homes bought there need rehab work.</p>
+              <p className="text-sm text-gray-300" data-testid="auction-next">
+                {saleLabel(r.auction.next.date)}:{' '}
+                {r.auction.next.posted ? `${r.auction.next.posted} home${r.auction.next.posted === 1 ? '' : 's'} posted` : 'no homes posted yet'}
+                {r.auction.last?.posted
+                  ? ` · ${saleLabel(r.auction.last.date)}: ${[
+                      `${r.auction.last.sold} sold`,
+                      `${r.auction.last.backToLender} back to the lender`,
+                      r.auction.last.cancelled ? `${r.auction.last.cancelled} cancelled` : '',
+                    ]
+                      .filter(Boolean)
+                      .join(', ')}`
+                  : ''}
+              </p>
+              {!r.pro ? (
+                r.auction.boughtCount > 0 && (
+                  <div className="mt-3">
+                    <Locked>
+                      {r.auction.boughtCount} home{r.auction.boughtCount === 1 ? ' was' : 's were'} bought at auction in the last 4 months; Pro lists them with who bought.
+                    </Locked>
+                  </div>
+                )
+              ) : r.auction.bought && r.auction.bought.length > 0 ? (
+                <ul className="space-y-2 mt-3" data-testid="auction-bought">
+                  {r.auction.bought.map((b) => (
+                    <li key={`${b.saleDate}-${b.address}`} className="text-sm">
+                      <span className="text-white">{b.address}</span>
+                      <span className="text-gray-400">
+                        {' '}
+                        · {saleLabel(b.saleDate)}
+                        {b.priceCents ? ` · ${money(b.priceCents)}` : ''} · {b.buyer}
+                      </span>
+                      <Reach phone={b.phone} />
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-gray-500 mt-3">No homes bought at auction in the last 4 months yet.</p>
               )}
             </section>
           )}

@@ -24,6 +24,7 @@ import { normalizePhone } from "./lib/intake";
 import { cleanFields, findDuplicate } from "./intake";
 import { MIDLAND_PARCELS, ownerName, streetKey } from "./lib/parcels";
 import { DAY_MS } from "./lib/report";
+import { recentAuctions, saleLabel } from "./lib/foreclosures";
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -326,12 +327,14 @@ export const takeLead = mutation({
 
 // ---- Call lists ----
 
-const LIST_DAYS = { tradePermits: 30, recentBuyers: 540 };
+const LIST_DAYS = { tradePermits: 30, recentBuyers: 540, auctionBuyers: 120, foreclosure: 365 };
 const MAX_HOMES = 50;
 
 type Home = {
-  parcelId: Id<"parcels">;
+  parcelId?: Id<"parcels">;
   owner: string;
+  /** The number to call when we already have it (an auction buyer's). */
+  phone?: string;
   owner2?: string;
   address: string;
   street?: string;
@@ -341,14 +344,24 @@ type Home = {
   why: string;
 };
 
-/** Called in the last 30 days, or asked never to be called: not on any list. */
-async function leaveOff(ctx: QueryCtx, parcelId: Id<"parcels">, from: string) {
+/**
+ * Called in the last 30 days, or asked never to be called: not on any list.
+ * Nor is a home on Midland's foreclosure auction in the last year or coming
+ * up: its owner on the roll is the family losing it, and they're never called.
+ */
+async function leaveOff(ctx: QueryCtx, parcelId: Id<"parcels">, from: string, now: number) {
   const calls = await ctx.db
     .query("outboundCalls")
     .withIndex("by_parcel", (q) => q.eq("parcelId", parcelId))
     .order("desc")
     .take(20);
-  return calls.some((c) => c.at >= from || c.outcome === "do_not_call");
+  if (calls.some((c) => c.at >= from || c.outcome === "do_not_call")) return true;
+  const foreclosureSince = since(LIST_DAYS.foreclosure, now).slice(0, 10);
+  const foreclosures = await ctx.db
+    .query("foreclosures")
+    .withIndex("by_parcel", (q) => q.eq("parcelId", parcelId))
+    .collect();
+  return foreclosures.some((f) => f.saleDate >= foreclosureSince);
 }
 
 const homeOf = (p: Doc<"parcels">, why: string): Home => ({
@@ -370,13 +383,17 @@ const callable = (p: Doc<"parcels">) => p.ownerOccupied && !p.companyOwned;
  * - trade_permits: on Midland streets where that trade pulled permits in the
  *   last 30 days, busiest streets first (the neighbors of work going on);
  * - recent_buyers: bought in the last 18 months of the roll, newest first;
- * - street: everyone on one street.
- * Only owners who live there, never a company; a home called in the last 30
- * days, or that asked not to be called, is left off.
+ * - street: everyone on one street;
+ * - auction_buyers: homes bought at the courthouse foreclosure auction in the
+ *   last 120 days, called under the buyer's name and number (staff add them
+ *   in Ops), for the rehab work.
+ * Only owners who live there, never a company (auction buyers aside); a home
+ * called in the last 30 days, that asked not to be called, or that's on the
+ * foreclosure auction, is left off.
  */
 export const list = query({
   args: {
-    kind: v.union(v.literal("trade_permits"), v.literal("recent_buyers"), v.literal("street")),
+    kind: v.union(v.literal("trade_permits"), v.literal("recent_buyers"), v.literal("street"), v.literal("auction_buyers")),
     trade: v.optional(v.string()),
     street: v.optional(v.string()),
   },
@@ -390,7 +407,7 @@ export const list = query({
     const tradeName = trade?.name ?? (args.trade ? title(args.trade.replace(/-/g, " ")) : undefined);
     const homes: Home[] = [];
     const add = async (p: Doc<"parcels">, why: string) => {
-      if (homes.length >= MAX_HOMES || !callable(p) || (await leaveOff(ctx, p._id, calledSince))) return;
+      if (homes.length >= MAX_HOMES || !callable(p) || (await leaveOff(ctx, p._id, calledSince, now))) return;
       homes.push(homeOf(p, why));
     };
     const streetHomes = (street: string) =>
@@ -434,6 +451,39 @@ export const list = query({
       for (const p of recent) {
         const bought = new Date(`${p.deedDate}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
         await add(p, `Bought ${bought}: new owners often have work done`);
+      }
+      return { kind: args.kind, tradeName, homes };
+    }
+
+    if (args.kind === "auction_buyers") {
+      const from = since(LIST_DAYS.auctionBuyers, now).slice(0, 10);
+      for (const date of recentAuctions(now, 6).slice(1).filter((d) => d >= from)) {
+        const sold = (
+          await ctx.db
+            .query("foreclosures")
+            .withIndex("by_county_and_sale", (q) => q.eq("county", MIDLAND_PARCELS.county).eq("saleDate", date))
+            .collect()
+        ).filter((f) => f.status === "sold" && f.buyer?.phone);
+        for (const f of sold) {
+          if (homes.length >= MAX_HOMES) break;
+          const phone = f.buyer!.phone!;
+          const calls = await ctx.db
+            .query("outboundCalls")
+            .withIndex("by_phone", (q) => q.eq("phone", phone))
+            .collect();
+          if (calls.some((c) => c.at >= calledSince || c.outcome === "do_not_call")) continue;
+          const parcel = f.parcelId ? await ctx.db.get(f.parcelId) : null;
+          homes.push({
+            parcelId: f.parcelId,
+            owner: f.buyer!.name,
+            phone,
+            address: title(f.address),
+            street: parcel?.street ? title(parcel.street) : undefined,
+            zip: parcel?.mailing.zip?.slice(0, 5),
+            marketValueCents: parcel?.marketValueCents,
+            why: `Bought at the ${saleLabel(date)} courthouse auction${f.salePriceCents ? ` for $${Math.round(f.salePriceCents / 100).toLocaleString("en-US")}` : ""}`,
+          });
+        }
       }
       return { kind: args.kind, tradeName, homes };
     }

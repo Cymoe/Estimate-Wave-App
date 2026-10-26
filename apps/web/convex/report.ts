@@ -5,6 +5,7 @@ import { fail, requireMember } from "./lib/access";
 import { queryDef } from "./lib/actor";
 import { normalizeCounty } from "./lib/counties";
 import { MIDLAND } from "./lib/permits";
+import { recentAuctions } from "./lib/foreclosures";
 import { planIsActive } from "./lib/plan";
 import { isContractor } from "./lib/energov";
 import { DAY_MS, STREET_DAYS, hotStreets, isNewHome, median, weekWindow, type Report } from "./lib/report";
@@ -35,6 +36,41 @@ function homeCounty(bids: Doc<"standingBids">[]): string | undefined {
   const counts = new Map<string, number>();
   for (const b of bids) counts.set(b.county, (counts.get(b.county) ?? 0) + 1);
   return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+}
+
+const BOUGHT_DAYS = 120;
+const pretty = (digits?: string) => (digits && digits.length === 10 ? `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}` : digits);
+
+/** The next courthouse auction, how the last one went, and the homes bought at it lately. */
+async function auction(ctx: QueryCtx, county: string, now: number, pro: boolean): Promise<NonNullable<Report["auction"]>> {
+  const [next, ...past] = recentAuctions(now, 6);
+  const sale = (date: string) =>
+    ctx.db
+      .query("foreclosures")
+      .withIndex("by_county_and_sale", (q) => q.eq("county", county).eq("saleDate", date))
+      .collect();
+  const upcoming = await sale(next);
+  const last = past[0] ? await sale(past[0]) : [];
+  const since = new Date(now - BOUGHT_DAYS * DAY_MS).toISOString().slice(0, 10);
+  const bought = [];
+  for (const date of past.filter((d) => d >= since)) bought.push(...(await sale(date)).filter((f) => f.status === "sold"));
+  const count = (rows: Doc<"foreclosures">[], status: Doc<"foreclosures">["status"]) => rows.filter((f) => f.status === status).length;
+  return {
+    next: { date: next, posted: upcoming.length },
+    last: past[0]
+      ? { date: past[0], posted: last.length, sold: count(last, "sold"), backToLender: count(last, "back_to_lender"), cancelled: count(last, "cancelled") }
+      : undefined,
+    boughtCount: bought.length,
+    bought: pro
+      ? bought.map((f) => ({
+          address: f.address,
+          saleDate: f.saleDate,
+          priceCents: f.salePriceCents,
+          buyer: f.buyer?.company ? f.buyer.name : "a private buyer",
+          phone: f.buyer?.company ? pretty(f.buyer.phone) : undefined,
+        }))
+      : undefined,
+  };
 }
 
 export const reportDef = queryDef({
@@ -209,6 +245,8 @@ export const reportDef = queryDef({
         medianHoursToSell: median(hours),
       },
     };
+
+    if (feed) report.auction = await auction(ctx, place, now, pro);
 
     if (pro) {
       const standing = (await listStandingDef.handler(ctx, { organizationId })).filter((b) => b.county === place && inTrade([b.jobType]));

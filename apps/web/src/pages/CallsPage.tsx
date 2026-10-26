@@ -5,7 +5,7 @@ import { callsAPI, industriesAPI } from '../lib/api';
 import { consentLine } from '../../convex/lib/calls';
 import { Dialog, Field, input, primary, secondary } from '../components/ops/ui';
 
-type Kind = 'trade_permits' | 'recent_buyers' | 'street';
+type Kind = 'trade_permits' | 'recent_buyers' | 'street' | 'auction_buyers';
 type Trade = { id: string; name: string };
 
 interface Home {
@@ -37,6 +37,7 @@ const KINDS: Array<[Kind, string]> = [
   ['trade_permits', 'Near permits'],
   ['recent_buyers', 'Recent buyers'],
   ['street', 'A street'],
+  ['auction_buyers', 'Auction buyers'],
 ];
 
 const OUTCOME_BUTTONS: Array<[string, string]> = [
@@ -60,11 +61,14 @@ function Script({ caller, home, tradeName, kind }: { caller: string; home: Home;
       ? `A few homes on ${home.street} have had ${trade} work done lately, and I'm calling neighbors to see if you've been thinking about any ${trade} work.`
       : kind === 'recent_buyers'
         ? `Congratulations on the home. I'm calling to see if you've been planning any ${trade} work.`
-        : `I'm calling homeowners${home.street ? ` on ${home.street}` : ''} to see if you've been thinking about any ${trade} work.`;
+        : kind === 'auction_buyers'
+          ? `I saw you picked up ${home.address} at the courthouse auction. Are you planning any work on it? We have ${trade} companies ready to bid.`
+          : `I'm calling homeowners${home.street ? ` on ${home.street}` : ''} to see if you've been thinking about any ${trade} work.`;
   return (
     <div className="rounded border border-[#2A2A2A] bg-[#151515] p-3 text-sm text-gray-200 space-y-2" data-testid="call-script">
       <p>
-        "Hi, this is {caller} with Tolliver, a network of local contractors here in Midland. Am I speaking with the homeowner at {home.address}?"
+        "Hi, this is {caller} with Tolliver, a network of local contractors here in Midland.{' '}
+        {kind === 'auction_buyers' ? `Am I speaking with ${home.owner ?? 'the buyer'}?` : `Am I speaking with the homeowner at ${home.address}?`}"
       </p>
       <p>"{why}"</p>
       <p className="text-gray-400">If they're interested, ask what kind of work and when, then read this word for word:</p>
@@ -463,8 +467,10 @@ export default function CallsPage() {
             ? 'Neighbors on Midland streets where this trade pulled permits in the last 30 days, busiest streets first.'
             : kind === 'recent_buyers'
               ? 'Homes bought in the last 18 months of the appraisal roll, newest first.'
-              : 'Everyone on one street.'}{' '}
-          Only owners who live there. Homes called in the last 30 days are left off.
+              : kind === 'auction_buyers'
+                ? "Homes bought at Midland's courthouse foreclosure auction in the last 4 months, called under the buyer's name and number."
+                : 'Everyone on one street.'}{' '}
+          {kind === 'auction_buyers' ? 'Buyers called in the last 30 days are left off.' : 'Only owners who live there. Homes called in the last 30 days, or on the foreclosure auction, are left off.'}
         </p>
       </form>
 

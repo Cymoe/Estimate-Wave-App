@@ -149,6 +149,25 @@ describe('the Calls page', () => {
     expect(dialog.textContent).toContain('Callback note: After work');
   });
 
+  it('auction buyers are called under the buyer, with their number filled in', async () => {
+    list.mockResolvedValueOnce({
+      kind: 'auction_buyers',
+      tradeName: 'Roofing',
+      homes: [{ parcelId: 'p3', owner: 'Basin Flips LLC', phone: '4325550142', address: '2709 Howdy Dr', why: 'Bought at the Oct 6 courthouse auction for $145,000' }],
+    });
+    const page = await render();
+    await click(Array.from(page.querySelectorAll('[role="tab"]')).find((t) => t.textContent === 'Auction buyers')!);
+    expect(page.textContent).toContain("Homes bought at Midland's courthouse foreclosure auction in the last 4 months");
+    await click(button(page, 'Show homes'));
+    expect(list).toHaveBeenLastCalledWith({ kind: 'auction_buyers', trade: 'roofing', street: undefined });
+    await click(page.querySelector('[data-testid="homes"] button')!);
+    const dialog = document.body.querySelector('[role="dialog"]')!;
+    const script = dialog.querySelector('[data-testid="call-script"]')!.textContent!;
+    expect(script).toContain('Am I speaking with Basin Flips LLC?');
+    expect(script).toContain('I saw you picked up 2709 Howdy Dr at the courthouse auction. Are you planning any work on it?');
+    expect((dialog.querySelector('input[aria-label="Phone number"]') as HTMLInputElement).value).toBe('4325550142');
+  });
+
   it('a street list asks for the street', async () => {
     const page = await render();
     await click(Array.from(page.querySelectorAll('[role="tab"]')).find((t) => t.textContent === 'A street')!);

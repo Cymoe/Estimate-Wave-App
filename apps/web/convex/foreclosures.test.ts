@@ -104,3 +104,83 @@ describe("the auction list in Ops", () => {
     expect((await staff.as.query(api.foreclosures.sale, { saleDate: "2026-10-06" })).homes).toHaveLength(1);
   });
 });
+
+const proPlan = () => ({
+  monthlyCents: 9900,
+  claimsIncluded: 10,
+  extraClaimCents: 1500,
+  status: "active" as const,
+  periodStart: "2026-10-01T00:00:00.000Z",
+  nextChargeAt: "2026-11-01T00:00:00.000Z",
+  claimsThisPeriod: 0,
+});
+
+/** Three sales: Nov 3 (next) with 2 posted; Oct 6 with a company buyer, a private buyer and one back to the lender. */
+async function auctionMonth(t: ReturnType<typeof setup>, staff: Awaited<ReturnType<typeof signUp>>) {
+  const howdy = await addParcel(t, "2709 HOWDY DR", "COLE JANE");
+  await addParcel(t, "2711 HOWDY DR", "REYES SAMUEL");
+  await staff.as.mutation(api.foreclosures.addMany, { saleDate: "2026-11-03", kind: "mortgage", addresses: "2711 HOWDY DR\n900 Oak Av" });
+  await staff.as.mutation(api.foreclosures.addMany, { saleDate: "2026-10-06", kind: "mortgage", addresses: "2709 HOWDY DR\n410 Elm St\n12 Pine St" });
+  const homes = (await staff.as.query(api.foreclosures.sale, { saleDate: "2026-10-06" })).homes;
+  const id = (address: string) => homes.find((h) => h.address === address)!.id;
+  await staff.as.mutation(api.foreclosures.update, { id: id("2709 HOWDY DR"), status: "sold", buyer: { name: "Basin Flips LLC", company: true, phone: "4325550142" }, salePriceCents: 14_500_000 });
+  await staff.as.mutation(api.foreclosures.update, { id: id("410 Elm St"), status: "sold", buyer: { name: "Pat Moreno", company: false, phone: "4325550143" } });
+  await staff.as.mutation(api.foreclosures.update, { id: id("12 Pine St"), status: "back_to_lender" });
+  return { howdy };
+}
+
+describe("the auction in the Report and on the call lists", () => {
+  test("free sees the counts; Pro sees who bought, with a company's phone but never a private buyer's", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    const staff = await signUp(t, "ops@tolliver.example", { role: "staff" });
+    const roofer = await signUp(t, "owner@roof.example");
+    await auctionMonth(t, staff);
+
+    const free = await roofer.as.query(api.report.report, { organizationId: roofer.organizationId, county: "Midland" });
+    expect(free.auction).toEqual({
+      next: { date: "2026-11-03", posted: 2 },
+      last: { date: "2026-10-06", posted: 3, sold: 2, backToLender: 1, cancelled: 0 },
+      boughtCount: 2,
+      bought: undefined,
+    });
+    const { reportText } = await import("./lib/report");
+    const text = reportText(free, { pro: "https://x/vault", web: "https://x/report" });
+    expect(text).toContain("COURTHOUSE AUCTION\nNext foreclosure auction Nov 3: 2 homes posted.\nOct 6: 2 sold, 1 back to the lender.");
+    expect(text).toContain("2 home(s) were bought at auction in the last 4 months; the Pro report lists them");
+    expect(text).not.toContain("Basin Flips");
+
+    await t.run(async (ctx) => ctx.db.patch(roofer.organizationId, { plan: proPlan() }));
+    const pro = await roofer.as.query(api.report.report, { organizationId: roofer.organizationId, county: "Midland" });
+    expect(pro.auction!.bought).toEqual([
+      { address: "2709 HOWDY DR", saleDate: "2026-10-06", priceCents: 14_500_000, buyer: "Basin Flips LLC", phone: "(432) 555-0142" },
+      { address: "410 Elm St", saleDate: "2026-10-06", priceCents: undefined, buyer: "a private buyer", phone: undefined },
+    ]);
+    expect(reportText(pro, { pro: "", web: "" })).toContain("- 2709 HOWDY DR · Oct 6 · $145,000.00 · Basin Flips LLC · (432) 555-0142");
+
+    // Counties without the feed have no auction block.
+    expect((await roofer.as.query(api.report.report, { organizationId: roofer.organizationId, county: "Ector" })).auction).toBeUndefined();
+  });
+
+  test("callers get the auction buyers to call; the foreclosed homes never show on the other lists", async () => {
+    vi.useFakeTimers({ now: Date.parse("2026-10-27T19:00:00.000Z"), toFake: ["Date"] });
+    const t = setup();
+    const staff = await signUp(t, "ops@tolliver.example", { role: "staff" });
+    await auctionMonth(t, staff);
+    const neighbor = await addParcel(t, "2715 HOWDY DR", "HALL JAMES");
+
+    const buyers = await staff.as.query(api.calls.list, { kind: "auction_buyers", trade: "roofing" });
+    expect(buyers.homes.map((h) => [h.owner, h.phone, h.address, h.why])).toEqual([
+      ["Basin Flips LLC", "4325550142", "2709 Howdy Dr", "Bought at the Oct 6 courthouse auction for $145,000"],
+      ["Pat Moreno", "4325550143", "410 Elm St", "Bought at the Oct 6 courthouse auction"],
+    ]);
+
+    // The street list leaves off the sold home (2709) and the one posted for Nov 3 (2711): only the neighbor is left.
+    const street = await staff.as.query(api.calls.list, { kind: "street", street: "Howdy Dr" });
+    expect(street.homes.map((h) => h.parcelId)).toEqual([neighbor]);
+
+    // A buyer called recently drops off the auction list.
+    await staff.as.mutation(api.calls.log, { phone: "4325550142", outcome: "not_interested", address: "2709 Howdy Dr" });
+    expect((await staff.as.query(api.calls.list, { kind: "auction_buyers", trade: "roofing" })).homes.map((h) => h.owner)).toEqual(["Pat Moreno"]);
+  });
+});

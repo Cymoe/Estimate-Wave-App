@@ -151,6 +151,38 @@ describe('the Tolliver Report page', () => {
     expect(get).toHaveBeenLastCalledWith('o1', { county: 'Ector', trade: 'roofing' });
   });
 
+  it('the courthouse auction: counts for everyone, who bought on Pro', async () => {
+    const auction = {
+      next: { date: '2026-11-03', posted: 14 },
+      last: { date: '2026-10-06', posted: 13, sold: 9, backToLender: 4, cancelled: 0 },
+      boughtCount: 9,
+    };
+    report = { ...base, pro: false, auction };
+    let page = await render();
+    expect(page.querySelector('[data-testid="auction-next"]')!.textContent).toBe('Nov 3: 14 homes posted · Oct 6: 9 sold, 4 back to the lender');
+    expect(page.textContent).toContain('9 homes were bought at auction in the last 4 months; Pro lists them with who bought.');
+    expect(page.querySelector('[data-testid="auction-bought"]')).toBeNull();
+    document.body.innerHTML = '';
+
+    report = {
+      ...base,
+      pro: true,
+      auction: {
+        ...auction,
+        bought: [
+          { address: '2709 HOWDY DR', saleDate: '2026-10-06', priceCents: 14_500_000, buyer: 'Basin Flips LLC', phone: '(432) 555-0142' },
+          { address: '410 Elm St', saleDate: '2026-10-06', buyer: 'a private buyer' },
+        ],
+      },
+    };
+    page = await render();
+    const bought = page.querySelector('[data-testid="auction-bought"]')!;
+    expect(bought.textContent).toContain('2709 HOWDY DR · Oct 6 · $145,000.00 · Basin Flips LLC');
+    expect(bought.querySelector('a[href="tel:4325550142"]')).not.toBeNull();
+    expect(bought.textContent).toContain('410 Elm St · Oct 6 · a private buyer');
+    expect(bought.querySelectorAll('a[href^="tel:"]')).toHaveLength(1);
+  });
+
   it('a county with no permit feed says so', async () => {
     report = { ...base, county: 'Ector', pro: false, permits: { ...base.permits, feed: false }, demand: [], sold: { count: 0, prior: 0, byTrade: [], medianHoursToSell: null } };
     const page = await render();
