@@ -1090,6 +1090,38 @@ export default defineSchema({
     .index("by_organization", ["organizationId"])
     .index("by_client", ["clientId"]),
 
+  // A change order or the affidavit of completion, sent to the client for
+  // their signature after the estimate was signed (convex/signoffs.ts).
+  signoffs: defineTable({
+    organizationId: v.id("organizations"),
+    estimateId: v.id("estimates"),
+    kind: v.union(v.literal("change_order"), v.literal("affidavit")),
+    number: v.string(),
+    // The secret in its link (/share/signoff/:token).
+    token: v.string(),
+    status: v.union(v.literal("sent"), v.literal("signed"), v.literal("cancelled")),
+    // Change order: what changed since the contract was signed, and the new scope as sent.
+    changes: v.optional(v.array(v.object({ description: v.string(), before: v.optional(v.number()), after: v.optional(v.number()) }))),
+    items: v.optional(v.array(documentItem)),
+    previousTotal: v.optional(v.number()),
+    subtotal: v.optional(v.number()),
+    taxAmount: v.optional(v.number()),
+    newTotal: v.optional(v.number()),
+    // Affidavit: when the work was finished.
+    completionDate: v.optional(v.string()),
+    // The document signed: the company's PDF (with its fingerprint) or Tolliver's.
+    document: signedDocument,
+    signerName: v.optional(v.string()),
+    signature: v.optional(v.string()),
+    signedAt: v.optional(v.string()),
+    acknowledgedAt: v.optional(v.string()),
+    createdBy: v.id("users"),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_token", ["token"])
+    .index("by_estimate", ["estimateId"]),
+
   // Job photos: before and after, progress, what the client showed. On an
   // estimate or a project (a project also shows its estimates' photos).
   jobPhotos: defineTable({

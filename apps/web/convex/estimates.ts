@@ -198,8 +198,10 @@ export const remove = mutation({
       if (file && (await ctx.db.system.get(file.storageId)) !== null)
         await ctx.storage.delete(file.storageId);
     }
-    // Its invoices and photos go with it.
+    // Its invoices, photos and change orders go with it.
     await deletePhotos(ctx, { estimateId: id });
+    for (const signoff of await ctx.db.query("signoffs").withIndex("by_estimate", (q) => q.eq("estimateId", id)).take(100))
+      await ctx.db.delete(signoff._id);
     for (const invoice of await ctx.db.query("invoices").withIndex("by_estimate", (q) => q.eq("estimateId", id)).take(200))
       await ctx.db.delete(invoice._id);
     // The job's own contract PDFs go with it; the company's library stays.

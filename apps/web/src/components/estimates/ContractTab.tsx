@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronDown, ChevronRight, FileText, Plus, Trash2 } from 'lucide-react';
+import { SignoffControls } from './SignoffControls';
 import { contractDocsAPI, estimatesAPI, type ContractDocument, type EstimateDocuments, type SlotKind } from '../../lib/api';
 import type { Estimate } from '../../services/EstimateService';
 import { changesSinceSigned, ContractData } from '../../services/contract';
@@ -348,6 +349,7 @@ export function ContractTab({
           </div>
           {changeMenu('affidavit', affidavit)}
           {expanded === 'affidavit' && affidavit?.source !== 'upload' && <AffidavitPreview contract={contract} estimate={estimate} />}
+          {locked && <SignoffControls estimateId={id} kind="affidavit" clientName={estimate.client?.name} />}
         </div>
 
         {/* Change order: Tolliver's previews inline */}
@@ -380,6 +382,14 @@ export function ContractTab({
           {changeMenu('change_order', changeOrderDoc)}
           {expanded === 'change-order' && changeOrderDoc?.source !== 'upload' && (
             <ChangeOrderPreview contract={contract} estimate={estimate} changeOrder={changeOrder} />
+          )}
+          {locked && (
+            <SignoffControls
+              estimateId={id}
+              kind="change_order"
+              clientName={estimate.client?.name}
+              disabledReason={changeOrder && changeOrder.changes.length > 0 ? undefined : 'Change the line items first; the changes since signing go on the change order'}
+            />
           )}
         </div>
 

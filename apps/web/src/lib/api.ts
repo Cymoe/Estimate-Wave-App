@@ -265,6 +265,36 @@ export const photosAPI = {
   remove: (id: string) => run('mutation', api.photos.remove, { id }),
 };
 
+export type SignoffKind = 'change_order' | 'affidavit';
+export interface Signoff {
+  id: string;
+  kind: SignoffKind;
+  name: string;
+  number: string;
+  status: 'sent' | 'signed' | 'cancelled';
+  token: string;
+  changes?: Array<{ description: string; before?: number; after?: number }>;
+  previousTotal?: number;
+  newTotal?: number;
+  completionDate?: string;
+  signerName?: string;
+  signedAt?: string;
+  createdAt: string;
+  documentName: string;
+}
+
+/** Change orders and the affidavit of completion, signed by the client after the estimate. */
+export const signoffsAPI = {
+  forEstimate: (estimateId: string): Promise<Signoff[]> => run('query', api.signoffs.forEstimate, { estimateId }),
+  request: (estimateId: string, kind: SignoffKind, completionDate?: string): Promise<Signoff> =>
+    run('mutation', api.signoffs.request, defined({ estimateId, kind, completionDate })),
+  cancel: (id: string) => run('mutation', api.signoffs.cancel, { id }),
+  // The client's page (no sign-in).
+  get: (token: string) => run('query', api.signoffs.get, { token }),
+  sign: (token: string, signerName: string, signature: string, agreedToDocument?: boolean) =>
+    run('mutation', api.signoffs.sign, defined({ token, signerName, signature, agreedToDocument })),
+};
+
 export const estimatesAPI = {
   async list(organizationId: string, filters?: { clientId?: string; status?: string }) {
     return run('query', api.estimates.list, defined({ organizationId, clientId: filters?.clientId, status: filters?.status }));

@@ -10,6 +10,7 @@ import { PriceBook as PriceBookPage } from './pages/PriceBook';
 // Invoices removed - contractors use QuickBooks for invoicing
 import { EditEstimatePage } from './pages/EditEstimatePage';
 import { ShareableEstimate } from './components/estimates/ShareableEstimate';
+import { SignoffPage } from './pages/SignoffPage';
 import { EstimateContractView } from './components/contracts/EstimateContractView';
 import { SharedServiceOption } from './pages/SharedServiceOption';
 // Packages page removed as part of simplification
@@ -493,6 +494,8 @@ function AppRoutes() {
         path="/share/estimate/:token"
         element={<ShareableEstimate />}
       />
+      {/* Public page where a client signs a change order or the affidavit - no auth required */}
+      <Route path="/share/signoff/:token" element={<SignoffPage />} />
       {/* Public page a company pays through to load its lead balance - no auth required */}
       <Route path="/fund/:token" element={<FundAccountPage />} />
       {/* "Open it in Claude / ChatGPT" from a lead alert. */}
