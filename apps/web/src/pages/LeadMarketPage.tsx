@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useSearchParams } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { Building2, Check, ChevronDown, ChevronUp, Inbox, Link2, MapPin, Phone, Plus, Send, Tag, Trash2, X } from 'lucide-react';
 import { applicationsAPI, fundingAPI, industriesAPI, leadsAPI, marketplaceAPI, permitsAPI, walletAPI } from '../lib/api';
 import { copyText } from '../components/estimates/estimateActions';
@@ -14,8 +14,6 @@ import { OpsErrorBoundary } from '../components/ops/OpsErrorBoundary';
 import { isStaff, isSuperAdmin } from '../lib/roles';
 import { TeamCard } from '../components/ops/TeamCard';
 import { CallsCard } from '../components/ops/CallsCard';
-import { AuctionCard } from '../components/ops/AuctionCard';
-import { SellersCard } from '../components/ops/SellersCard';
 import { useConfirm } from '../components/common/ConfirmDialog';
 import { leadRoute } from '../components/market/leadRoute';
 import { Confirmed } from '../components/market/Confirmed';
@@ -201,8 +199,10 @@ interface CreditRequest {
   requestedAt: string;
 }
 
-type Tab = 'demand' | 'intake' | 'calls' | 'sellers' | 'forsale' | 'sold' | 'companies' | 'prices';
-const TABS: Tab[] = ['demand', 'intake', 'calls', 'sellers', 'forsale', 'sold', 'companies', 'prices'];
+type Tab = 'demand' | 'intake' | 'calls' | 'forsale' | 'sold' | 'companies' | 'prices';
+const TABS: Tab[] = ['demand', 'intake', 'calls', 'forsale', 'sold', 'companies', 'prices'];
+/** Tabs that moved to the Real estate side of Ops; old links forward there. */
+const REAL_ESTATE_TABS = ['sellers', 'auction', 'sources'];
 /** Old names in links that were already sent (emails, bookmarks) still open the right tab. */
 const OLD_TAB_NAMES: Record<string, Tab> = { delivered: 'sold', inbox: 'forsale', listed: 'forsale' };
 const isTab = (value: string | null): value is Tab => TABS.includes(value as Tab);
@@ -228,7 +228,6 @@ const TAB_TITLES: Record<Tab, string> = {
   demand: 'Demand',
   intake: 'Intake',
   calls: 'Calls',
-  sellers: 'Sellers',
   forsale: 'For sale',
   sold: 'Sold',
   companies: 'Companies',
@@ -273,7 +272,6 @@ function PermitsCard() {
       error?: string;
       details?: { at: string; looked: number; filled: number; failed: number; error?: string };
     } | null;
-    owners?: { syncedAt: string; fetched: number; lastAppliedAt?: string; error?: string } | null;
     last30Days: number;
     details?: { filled: number; total: number };
   };
@@ -297,21 +295,7 @@ function PermitsCard() {
       setBusy(false);
     }
   };
-  const syncOwners = async () => {
-    setBusy(true);
-    setNote(null);
-    try {
-      const r: { fetched: number; added: number; updated: number; error?: string } = await permitsAPI.syncOwners();
-      setNote(r.error ? `The city's service failed: ${r.error}` : `Read ${r.fetched.toLocaleString()} homes: ${r.added} new, ${r.updated} changed.`);
-      await load();
-    } catch (err) {
-      setNote(err instanceof Error ? err.message : "That didn't work");
-    } finally {
-      setBusy(false);
-    }
-  };
   const s = status?.source;
-  const o = status?.owners;
   return (
     <section className="border border-[#2A2A2A] rounded p-4 flex flex-wrap items-center justify-between gap-3" aria-label="Midland permits">
       <span className="min-w-0">
@@ -330,23 +314,11 @@ function PermitsCard() {
             {s?.details?.error ? ` · the city's portal failed: ${s.details.error}` : ''}
           </span>
         )}
-        {status && (
-          <span className="block text-xs text-gray-500 mt-0.5" data-testid="permit-owners">
-            {o
-              ? `Owners: ${o.fetched.toLocaleString()} Midland homes on the appraisal roll${o.lastAppliedAt ? ` · newest deed ${new Date(`${o.lastAppliedAt}T12:00:00`).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}` : ''} · read ${new Date(o.syncedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}${o.error ? ` · failed: ${o.error}` : ''}`
-              : 'Owners: not read yet. The deploy and a weekly job read them from the appraisal roll.'}
-          </span>
-        )}
         {note && <span className="block text-xs text-gray-300 mt-1">{note}</span>}
       </span>
-      <span className="flex gap-2">
-        <button type="button" onClick={sync} disabled={busy} className={secondary}>
-          {busy ? 'Pulling…' : 'Sync now'}
-        </button>
-        <button type="button" onClick={syncOwners} disabled={busy} className={secondary}>
-          Sync owners
-        </button>
-      </span>
+      <button type="button" onClick={sync} disabled={busy} className={secondary}>
+        {busy ? 'Pulling…' : 'Sync now'}
+      </button>
     </section>
   );
 }
@@ -1375,6 +1347,9 @@ const LeadMarketPage: React.FC = () => {
   if (!staff) {
     return <div className="p-8 text-gray-400">The Ops page is only for Tolliver staff.</div>;
   }
+  if (REAL_ESTATE_TABS.includes(searchParams.get('tab') ?? '')) {
+    return <Navigate to={`/ops/real-estate?tab=${searchParams.get('tab')}`} replace />;
+  }
 
   const summary = (() => {
     switch (tab) {
@@ -1404,8 +1379,6 @@ const LeadMarketPage: React.FC = () => {
       }
       case 'calls':
         return 'The Do Not Call lists callers are checked against, and how their week went';
-      case 'sellers':
-        return 'Motivated-seller lists from Midland public records, stacked per home';
       case 'forsale':
         return `${plural(inbox.available.length, 'lead')} for sale in the Marketplace · ${money(book.spent30dCents)} sold in 30 days`;
       case 'sold': {
@@ -1441,7 +1414,6 @@ const LeadMarketPage: React.FC = () => {
               ['demand', 'Demand', counts.demandOpen !== null ? `${counts.demandOpen}/${counts.demandTotal}` : ''],
               ['intake', 'Intake', counts.intake !== null ? `${counts.intake}` : ''],
               ['calls', 'Calls', ''],
-              ['sellers', 'Sellers', ''],
               ['forsale', 'For sale', `${inbox.available.length}`],
               ['sold', 'Sold', counts.overdue > 0 ? `${counts.overdue}` : ''],
               ['companies', 'Companies', `${companies.length}`, applications.length > 0 ? `${applications.length} applied` : ''],
@@ -1500,12 +1472,7 @@ const LeadMarketPage: React.FC = () => {
           onListed={setNotice}
         />
       ) : tab === 'calls' ? (
-        <div className="space-y-6">
-          <CallsCard />
-          <AuctionCard />
-        </div>
-      ) : tab === 'sellers' ? (
-        <SellersCard />
+        <CallsCard />
       ) : tab === 'demand' ? (
         <DemandBoard owner={owner} />
       ) : tab === 'sold' ? (

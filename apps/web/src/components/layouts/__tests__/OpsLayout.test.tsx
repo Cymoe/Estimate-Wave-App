@@ -18,14 +18,16 @@ import { OpsLayout } from '../OpsLayout';
 const flush = () => act(async () => { for (let i = 0; i < 3; i++) await Promise.resolve(); });
 const byText = (text: string) => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === text);
 
-async function render(page: ReactNode = <p>the page</p>) {
+async function render(page: ReactNode = <p>the page</p>, path = '/ops') {
   const container = document.createElement('div');
   document.body.appendChild(container);
   await act(async () =>
     createRoot(container).render(
-      <MemoryRouter initialEntries={['/ops']}>
+      <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="/ops" element={<OpsLayout>{page}</OpsLayout>} />
+          <Route path="/ops/real-estate" element={<OpsLayout><p>real estate lists</p></OpsLayout>} />
+          <Route path="/calls" element={<OpsLayout><p>calls</p></OpsLayout>} />
           <Route path="/leads" element={<p>company leads</p>} />
           <Route path="/profit-tracker" element={<p>old dashboard, sends staff back to Ops</p>} />
         </Routes>
@@ -41,6 +43,24 @@ afterEach(() => {
 });
 
 describe('the Ops frame', () => {
+  it('switches between the Leads and Real estate sides, for staff on Ops only', async () => {
+    await render();
+    const nav = () => document.body.querySelector('nav[aria-label="Ops workspace"]')!;
+    const link = (label: string) => Array.from(nav().querySelectorAll('a')).find((a) => a.textContent === label)!;
+    expect(link('Leads').getAttribute('aria-current')).toBe('page');
+    await act(async () => link('Real estate').click());
+    await flush();
+    expect(document.body.textContent).toContain('real estate lists');
+    expect(link('Real estate').getAttribute('aria-current')).toBe('page');
+    expect(link('Leads').getAttribute('aria-current')).toBeNull();
+    // Callers on the Calls page don't get the switch.
+    document.body.innerHTML = '';
+    user = { ...user, role: 'caller', isStaff: false };
+    await render(undefined, '/calls');
+    expect(document.body.querySelector('nav[aria-label="Ops workspace"]')).toBeNull();
+    user = { ...user, role: 'staff', isStaff: true };
+  });
+
   it('says plainly when balances are play money, and says nothing once Stripe is connected', async () => {
     payments = { playMoney: true };
     await render();

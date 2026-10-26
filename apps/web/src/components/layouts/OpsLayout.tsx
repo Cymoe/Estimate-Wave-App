@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Building2, ChevronDown, LogOut, Moon, Sun } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
-import { isSuperAdmin } from '../../lib/roles';
+import { isStaff, isSuperAdmin } from '../../lib/roles';
 import { usePaymentsMode } from '../../lib/live';
 import { OpsErrorBoundary } from '../ops/OpsErrorBoundary';
 import { HOME_PATH } from '../../config/features';
@@ -29,7 +29,11 @@ export const OpsLayout: React.FC<{ children: React.ReactNode }> = ({ children })
     return () => document.removeEventListener('mousedown', close);
   }, [open]);
 
+  const location = useLocation();
   const hasCompany = Boolean(user?.organizationId);
+  // Two sides of Ops: contractor leads, and the real-estate (investor) lists.
+  const realEstate = location.pathname.startsWith('/ops/real-estate');
+  const onOps = location.pathname.startsWith('/ops');
   const payments = usePaymentsMode<{ playMoney: boolean }>();
   const name = user?.name || user?.email || 'You';
 
@@ -40,8 +44,27 @@ export const OpsLayout: React.FC<{ children: React.ReactNode }> = ({ children })
           <span className="flex items-center gap-2 text-sm">
             <span className="font-semibold tracking-tight">Tolliver</span>
             <span className="text-xs px-1.5 py-0.5 rounded border border-[#336699]/60 bg-[#336699]/15 text-[#cfe2f5]">Ops</span>
-            <span className="hidden sm:inline text-gray-500">· {isSuperAdmin(user) ? 'platform owner' : user?.role === 'caller' ? 'caller' : 'staff'}</span>
+            <span className="hidden md:inline text-gray-500">· {isSuperAdmin(user) ? 'platform owner' : user?.role === 'caller' ? 'caller' : 'staff'}</span>
           </span>
+          {isStaff(user) && onOps && (
+            <nav className="flex rounded border border-[#333] overflow-hidden text-sm" aria-label="Ops workspace">
+              {(
+                [
+                  ['/ops', 'Leads', !realEstate],
+                  ['/ops/real-estate', 'Real estate', realEstate],
+                ] as const
+              ).map(([to, label, active]) => (
+                <Link
+                  key={to}
+                  to={to}
+                  aria-current={active ? 'page' : undefined}
+                  className={`px-3 py-1 whitespace-nowrap ${active ? 'bg-[#336699] text-white' : 'text-gray-300 [@media(hover:hover)]:hover:bg-[#222]'}`}
+                >
+                  {label}
+                </Link>
+              ))}
+            </nav>
+          )}
           <div className="relative" ref={menuRef}>
             <button
               type="button"

@@ -30,6 +30,7 @@ import { FEATURES } from './config/features';
 import LeadsPage from './pages/LeadsPage';
 import LeadMarketPage from './pages/LeadMarketPage';
 import CallsPage from './pages/CallsPage';
+import RealEstateOpsPage from './pages/RealEstateOpsPage';
 import BidsPage from './pages/BidsPage';
 import MarketplacePage from './pages/MarketplacePage';
 import PlanPage from './pages/PlanPage';
@@ -124,7 +125,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   // Staff have no company of their own: Ops is their whole app (and Calls, to make calls).
-  if (user.role === 'staff' && !user.organizationId && location.pathname !== '/ops' && location.pathname !== '/calls') {
+  if (user.role === 'staff' && !user.organizationId && !location.pathname.startsWith('/ops') && location.pathname !== '/calls') {
     return <Navigate to="/ops" replace />;
   }
   // Callers: the Calls page is all there is.
@@ -357,6 +358,16 @@ function AppRoutes() {
           <StaffRoute>
             <OpsLayout>
               <LeadMarketPage />
+            </OpsLayout>
+          </StaffRoute>
+        }
+      />
+      <Route
+        path="/ops/real-estate"
+        element={
+          <StaffRoute>
+            <OpsLayout>
+              <RealEstateOpsPage />
             </OpsLayout>
           </StaffRoute>
         }
