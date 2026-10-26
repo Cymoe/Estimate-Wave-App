@@ -243,7 +243,6 @@ html.light .text-amber-400 { color: #92400e; }
 html.light .text-blue-200 { color: #1d4ed8; }
 html.light .text-blue-300 { color: #1d4ed8; }
 html.light .text-blue-400 { color: #1d4ed8; }
-html.light .text-blue-400\/80 { color: rgba(29, 78, 216, 0.8); }
 html.light .text-cyan-400 { color: #0e7490; }
 html.light .text-emerald-200 { color: #047857; }
 html.light .text-emerald-300 { color: #047857; }
@@ -287,7 +286,6 @@ html.light .text-yellow-200 { color: #854d0e; }
 html.light .text-yellow-300 { color: #854d0e; }
 html.light .text-yellow-400 { color: #854d0e; }
 html.light .text-yellow-400\/70 { color: rgba(133, 77, 14, 0.7); }
-html.light .text-yellow-400\/80 { color: rgba(133, 77, 14, 0.8); }
 @media (hover: hover) {
   html.light .\[\@media\(hover\:hover\)\]\:hover\:bg-\[\#161616\]:hover { background-color: #FFFFFF; }
   html.light .\[\@media\(hover\:hover\)\]\:hover\:bg-\[\#181818\]:hover { background-color: #FFFFFF; }
