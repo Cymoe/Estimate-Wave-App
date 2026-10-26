@@ -499,7 +499,7 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
           </button>
           <button
             type="submit"
-            className="flex-1 px-3 py-1.5 bg-white text-black rounded text-sm hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 px-3 py-1.5 bg-[#336699] text-white text-sm hover:bg-[#2a5580] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={isSubmitting || (isSharedItem && !canEditPrices)}
           >
             {isSubmitting ? 'Saving...' : submitLabel}
