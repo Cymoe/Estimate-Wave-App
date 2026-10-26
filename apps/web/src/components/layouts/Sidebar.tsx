@@ -18,6 +18,7 @@ import {
   Plus
 } from 'lucide-react';
 import { NavShapeMark } from './NavShapes';
+import { orgInitials } from './orgInitials';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { FEATURES } from '../../config/features';
@@ -119,7 +120,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Sidebar - part of grid layout, not fixed */}
       <div className={`hidden md:flex ${isSidebarCollapsed ? 'w-12' : 'w-48'} h-[100dvh] bg-[#000000] border-l border-gray-700 flex-col transition-all duration-300`}>
         {/* Organization header and sidebar toggle */}
-        <div className="p-2 border-b border-[#333333] relative flex items-center justify-between flex-shrink-0 overflow-visible">
+        <div className={`p-2 border-b border-[#333333] relative flex ${isSidebarCollapsed ? 'flex-col gap-1' : ''} items-center justify-between flex-shrink-0 overflow-visible`}>
           <button
             onClick={() => setSidebarCollapsedWithLogging(!isSidebarCollapsed)}
             className={`${isSidebarCollapsed ? 'w-full' : 'w-8'} h-8 flex items-center justify-center rounded-[4px] bg-[#1E1E1E] text-[#9E9E9E] hover:text-white transition-colors`}
@@ -128,6 +129,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             {isSidebarCollapsed ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
           </button>
+          {/* Collapsed: the company's initials, which open the list beside the rail without expanding it. */}
+          {isSidebarCollapsed && (
+            <button
+              type="button"
+              onClick={() => setOrgDropdownOpen(!orgDropdownOpen)}
+              className="w-full h-8 flex items-center justify-center rounded-[4px] bg-[#1A1A1A] border border-[#2A2A2A] text-[11px] font-semibold text-white hover:bg-[#2A2A2A] transition-colors"
+              aria-label={`Switch company (now ${selectedOrg.name})`}
+              aria-expanded={orgDropdownOpen}
+              title={selectedOrg.name}
+            >
+              {orgInitials(selectedOrg.name)}
+            </button>
+          )}
           {!isSidebarCollapsed && (
             <button 
               onClick={() => setOrgDropdownOpen(!orgDropdownOpen)}
@@ -146,8 +160,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
           
           {/* Organization Dropdown */}
-          {orgDropdownOpen && !isSidebarCollapsed && (
-            <div className="absolute left-2 right-2 top-[calc(100%-8px)] mt-1 bg-[#1A1A1A] border border-[#2A2A2A] shadow-lg z-50 py-1 overflow-hidden">
+          {orgDropdownOpen && (
+            <div
+              className={`absolute ${isSidebarCollapsed ? 'right-full top-2 mr-1 w-56' : 'left-2 right-2 top-[calc(100%-8px)] mt-1'} bg-[#1A1A1A] border border-[#2A2A2A] shadow-lg z-50 py-1 overflow-hidden`}
+              role="menu"
+              aria-label="Companies"
+            >
               {organizations.map((org) => (
                 <button
                   key={org.id}
