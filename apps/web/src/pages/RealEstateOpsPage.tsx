@@ -19,6 +19,9 @@ const SUMMARY: Record<Tab, string> = {
   sources: 'Where the lists come from, and when each was last read',
 };
 
+/** The letters asking the county offices for foreclosure, lis pendens, probate, divorce and tax-delinquent records. */
+const RECORDS_REQUESTS = 'https://claude.ai/artifact/5474qEqQ25TmXB2y2WPrar';
+
 const errorText = (err: unknown) => (err instanceof Error && err.message ? err.message : 'server error');
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 
@@ -107,6 +110,15 @@ function SourcesCard() {
         <span className="block text-xs text-gray-500 mt-0.5">
           The courthouse auction is entered on the Auction tab. Tax-delinquent, probate, divorce, eviction and lien lists come next, as an upload here.
         </span>
+        <a
+          href={RECORDS_REQUESTS}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-block mt-2 text-sm text-[#7fb2e5] underline underline-offset-2"
+        >
+          Records request letters to the county
+        </a>
+        <span className="block text-xs text-gray-500 mt-0.5">Fill them in and send them; the files the offices send back are what the upload will take.</span>
       </section>
 
       {note && (

@@ -115,6 +115,9 @@ describe('Ops, the Real estate side', () => {
     await flush();
     expect(syncOwners).toHaveBeenCalled();
     expect(document.body.textContent).toContain('Read 52,220 homes: 0 new, 3 changed.');
+    const letters = Array.from(document.body.querySelectorAll('a')).find((a) => a.textContent === 'Records request letters to the county')!;
+    expect(letters.getAttribute('href')).toBe('https://claude.ai/artifact/5474qEqQ25TmXB2y2WPrar');
+    expect(letters.getAttribute('target')).toBe('_blank');
   });
 
   it('the courthouse auction card: paste a sale, then mark one sold with its buyer', async () => {
