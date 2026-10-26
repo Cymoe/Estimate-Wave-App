@@ -15,7 +15,15 @@ import {
   TrendingUp,
   Sun,
   Moon,
-  Plus
+  Plus,
+  Phone,
+  Gavel,
+  Tag,
+  Lock,
+  BarChart3,
+  FileText,
+  BookOpen,
+  HardHat
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -195,7 +203,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <>
                   <div className="relative z-10 flex flex-col items-center">
                     <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      <span className="text-base">📈</span>
+                      <TrendingUp className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />
                     </div>
                     {!isSidebarCollapsed && (
                       <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
@@ -221,7 +229,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {({ isActive }) => (
                 <div className="relative z-10 flex flex-col items-center">
                   <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                    <span className="text-base">📞</span>
+                    <Phone className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />
                   </div>
                   {!isSidebarCollapsed && (
                     <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
@@ -245,7 +253,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {({ isActive }) => (
                 <div className="relative z-10 flex flex-col items-center">
                   <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                    <span className="text-base">🔨</span>
+                    <Gavel className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />
                   </div>
                   {!isSidebarCollapsed && (
                     <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
@@ -268,7 +276,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {({ isActive }) => (
                 <div className="relative z-10 flex flex-col items-center">
                   <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                    <span className="text-base">🏷</span>
+                    <Tag className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />
                   </div>
                   {!isSidebarCollapsed && (
                     <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
@@ -291,7 +299,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {({ isActive }) => (
                 <div className="relative z-10 flex flex-col items-center">
                   <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                    <span className="text-base">🔐</span>
+                    <Lock className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />
                   </div>
                   {!isSidebarCollapsed && (
                     <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
@@ -314,7 +322,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {({ isActive }) => (
                 <div className="relative z-10 flex flex-col items-center">
                   <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                    <span className="text-base">📊</span>
+                    <BarChart3 className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />
                   </div>
                   {!isSidebarCollapsed && (
                     <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
@@ -338,7 +346,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <>
                   <div className="relative z-10 flex flex-col items-center">
                     <div className={`mb-1 ${isActive || location.pathname.startsWith('/work') || location.pathname.startsWith('/estimates') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      <span className="text-base">📝</span>
+                      <FileText className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />
                     </div>
                     {!isSidebarCollapsed && (
                       <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/work') || location.pathname.startsWith('/estimates') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
@@ -364,7 +372,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <>
                   <div className="relative z-10 flex flex-col items-center">
                     <div className={`mb-1 ${isActive || location.pathname.startsWith('/price-book') || location.pathname.startsWith('/items') || location.pathname.startsWith('/cost-codes') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      <span className="text-base">📒</span>
+                      <BookOpen className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />
                     </div>
                     {!isSidebarCollapsed && (
                       <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/price-book') || location.pathname.startsWith('/items') || location.pathname.startsWith('/cost-codes') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
@@ -391,7 +399,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <>
                   <div className="relative z-10 flex flex-col items-center">
                     <div className={`mb-1 ${isActive || location.pathname.startsWith('/projects') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      <span className="text-base">🏗</span>
+                      <HardHat className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />
                     </div>
                     {!isSidebarCollapsed && (
                       <span className={`text-xs font-medium ${isActive || location.pathname.startsWith('/projects') ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
