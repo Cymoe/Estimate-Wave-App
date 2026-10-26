@@ -41,7 +41,7 @@ const baseDocs = () => ({
 let docs: ReturnType<typeof baseDocs> = baseDocs();
 const setContractDoc = jest.fn(async () => null);
 const setAttachment = jest.fn(async () => null);
-const removeDoc = jest.fn(async () => ({ archived: false }));
+const removeDoc = jest.fn<Promise<{ archived: boolean }>, [string]>(async () => ({ archived: false }));
 const uploadContractDoc = jest.fn(async () => 'd1');
 jest.mock('../../../lib/api', () => ({
   organizationsAPI: { getById: async () => ({ name: 'Shah Builders', address: '9 Oak Ave', email: 'hi@shah.example' }) },
@@ -51,7 +51,7 @@ jest.mock('../../../lib/api', () => ({
     setContractDoc: (...args: unknown[]) => setContractDoc(...(args as [])),
     setAttachment: (...args: unknown[]) => setAttachment(...(args as [])),
   },
-  contractDocsAPI: { remove: (id: string) => removeDoc(id as never) },
+  contractDocsAPI: { remove: (id: string) => removeDoc(id) },
 }));
 jest.mock('../../../services/ContractDocsService', () => ({
   uploadContractDoc: (...args: unknown[]) => uploadContractDoc(...(args as [])),
@@ -225,5 +225,7 @@ describe('estimate contract tab', () => {
     expect(document.body.querySelector('button[aria-label^="Change"]')).toBeNull();
     expect(byText('Add a PDF to this job')).toBeUndefined();
     expect(document.body.querySelector('[aria-label="Also sent with this estimate"]')!.textContent).toContain('Warranty');
+    await act(async () => byText('Signed record')!.click());
+    expect(path).toBe('/estimates/e1/contract');
   });
 });

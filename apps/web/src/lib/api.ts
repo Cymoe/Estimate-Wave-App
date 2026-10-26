@@ -255,8 +255,8 @@ export const publicEstimatesAPI = {
     return run('mutation', api.publicEstimates.markOpened, { token });
   },
 
-  async accept(token: string, signature: string) {
-    return run('mutation', api.publicEstimates.accept, { token, signature });
+  async accept(token: string, signature: string, agreedToDocuments?: boolean) {
+    return run('mutation', api.publicEstimates.accept, defined({ token, signature, agreedToDocuments }));
   },
 
   async decline(token: string) {

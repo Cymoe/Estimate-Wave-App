@@ -13,8 +13,19 @@ jest.mock('../../../services/EstimateService', () => ({
   EstimateService: { getById: async () => stored, update: (id: string, changes: Record<string, unknown>) => update(id, changes) },
 }));
 const getOrganization = jest.fn(async (id: string) => ({ _id: id, name: 'Shah Builders', address: '9 Oak Ave', phone: '555-0100' }));
+const documents = jest.fn<Promise<unknown>, [string]>(async () => ({
+  locked: true,
+  acknowledgedAt: '2026-10-11T12:00:00Z',
+  agreement: { kind: 'agreement', source: 'upload', origin: 'signed', name: 'Shah Agreement', fileName: 'Shah Agreement.pdf', size: 2048, sha256: 'abc123', url: 'https://files/a' },
+  affidavit: { kind: 'affidavit', source: 'tolliver', origin: 'tolliver', name: 'Affidavit of Completion' },
+  changeOrder: { kind: 'change_order', source: 'tolliver', origin: 'tolliver', name: 'Change Order' },
+  attachments: [],
+  companyAttachments: [],
+  companyDefaults: {},
+}));
 jest.mock('../../../lib/api', () => ({
   organizationsAPI: { getById: (id: string) => getOrganization(id) },
+  estimatesAPI: { documents: (id: string) => documents(id) },
 }));
 
 import { EstimateContractView } from '../EstimateContractView';
@@ -31,12 +42,12 @@ const base = {
   items: [{ id: 'i1', description: 'Vanity', quantity: 1, unit_price: 900, total_price: 900 }],
 };
 
-async function render() {
+async function render(url = '/estimates/e1/contract') {
   const container = document.createElement('div');
   document.body.appendChild(container);
   await act(async () =>
     createRoot(container).render(
-      <MemoryRouter initialEntries={['/estimates/e1/contract']}>
+      <MemoryRouter initialEntries={[url]}>
         <Routes>
           <Route path="/estimates/:id/contract" element={<EstimateContractView />} />
         </Routes>
@@ -124,5 +135,25 @@ describe('contract page', () => {
     await render();
     expect(document.body.textContent).toContain('AGREED DESIGN');
     expect((document.body.querySelector('img[alt="plan.png"]') as HTMLImageElement).src).toBe('https://files.example/plan.png');
+  });
+
+  it('?record=1 shows the signed record: who signed, when, and the exact file', async () => {
+    stored = {
+      ...base,
+      status: 'accepted',
+      client_signature: 'data:image/png;base64,sig',
+      signed_at: '2026-10-11T12:00:00Z',
+      contract_locked_at: '2026-10-11T12:00:00Z',
+      contract_snapshot: { client: { name: 'Dan Shah' }, items: [], totalAmount: 900 },
+    };
+    await render('/estimates/e1/contract?record=1');
+    await act(async () => {});
+    expect(documents).toHaveBeenCalledWith('e1');
+    const record = document.body.querySelector('[data-testid="signed-record"]')!;
+    expect(record.textContent).toContain('Signed byDan Shah');
+    expect(record.textContent).toContain('Shah Agreement.pdf · 2 KB');
+    expect(record.textContent).toContain('SHA-256 abc123');
+    expect(record.querySelector('img')!.getAttribute('src')).toBe('data:image/png;base64,sig');
+    expect(document.body.textContent).toContain('Signed record - EST-2026-000001');
   });
 });

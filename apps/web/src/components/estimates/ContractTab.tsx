@@ -382,6 +382,20 @@ export function ContractTab({
             <ChangeOrderPreview contract={contract} estimate={estimate} changeOrder={changeOrder} />
           )}
         </div>
+
+        {/* Once signed: who signed what, with each uploaded file's fingerprint */}
+        {locked && (
+          <div>
+            <button type="button" onClick={() => navigate(`/estimates/${id}/contract?record=1`)} className={`w-full ${rowButton}`}>
+              <FileText className="w-5 h-5 text-gray-400 flex-shrink-0" />
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-medium text-white">Signed record</span>
+                <span className="block text-xs text-gray-400">Who signed, when, and the exact files signed</span>
+              </span>
+              <ChevronRight className="w-4 h-4 text-gray-500 flex-shrink-0" />
+            </button>
+          </div>
+        )}
       </div>
 
       {showAttachments && docs && (

@@ -3,8 +3,9 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, FileText, Edit, Save, Download } from 'lucide-react';
 import { EstimateService, Estimate } from '../../services/EstimateService';
 import { Business, ContractData, ContractTerms, contractFor, missingBusinessDetails } from '../../services/contract';
-import { organizationsAPI } from '../../lib/api';
+import { estimatesAPI, organizationsAPI, type EstimateDocuments } from '../../lib/api';
 import { AgreementTerms, ContractSignatures } from './AgreementTerms';
+import { SignedRecord } from './SignedRecord';
 export const EstimateContractView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -22,6 +23,9 @@ export const EstimateContractView: React.FC = () => {
   const [draftTerms, setDraftTerms] = useState<ContractTerms | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // ?record=1 shows the signed record instead: who signed and the exact files.
+  const showRecord = new URLSearchParams(location.search).get('record') === '1';
+  const [documents, setDocuments] = useState<EstimateDocuments | null>(null);
   const isEditing = draftTerms !== null;
 
   useEffect(() => {
@@ -61,6 +65,11 @@ export const EstimateContractView: React.FC = () => {
       cancelled = true;
     };
   }, [organizationId]);
+
+  useEffect(() => {
+    if (!showRecord || !id) return;
+    estimatesAPI.documents(id).then(setDocuments).catch(() => setDocuments(null));
+  }, [showRecord, id]);
 
   const contract: ContractData | null = estimate ? contractFor(estimate, business) : null;
   // While editing, show the terms being typed.
@@ -123,6 +132,43 @@ export const EstimateContractView: React.FC = () => {
           >
             Back to Estimate
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (showRecord) {
+    const snapshot = estimate.contract_snapshot as { client?: { name?: string } } | undefined;
+    return (
+      <div className="min-h-screen bg-[#000000] text-white">
+        <div className="bg-[#1a1a1a] border-b border-[#333333] px-6 py-4 flex items-center justify-between gap-4 print:hidden">
+          <div className="flex items-center gap-4">
+            <button onClick={backToEstimate} className="p-2 hover:bg-[#333333] rounded transition-colors" aria-label="Back">
+              <ArrowLeft className="w-5 h-5 text-gray-400" />
+            </button>
+            <h1 className="text-xl font-semibold text-white">Signed record - {estimate.estimate_number}</h1>
+          </div>
+          <button
+            onClick={() => window.print()}
+            className="flex items-center gap-2 px-4 py-2 bg-[#336699] text-white rounded-lg hover:bg-[#2A5580] transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            Print/PDF
+          </button>
+        </div>
+        <div className="max-w-4xl mx-auto px-6 py-8">
+          {documents === null ? (
+            <p className="text-sm text-gray-400">Loading…</p>
+          ) : (
+            <SignedRecord
+              estimateNumber={estimate.estimate_number ?? ''}
+              signerName={snapshot?.client?.name}
+              signature={estimate.client_signature}
+              signedAt={estimate.signed_at ?? estimate.contract_locked_at}
+              acknowledgedAt={documents.acknowledgedAt}
+              documents={[documents.agreement, ...documents.attachments]}
+            />
+          )}
         </div>
       </div>
     );

@@ -5,6 +5,7 @@ import { publicEstimatesAPI } from '../../lib/api';
 import { formatCurrency } from '../../utils/format';
 import { categoryTotals, type ContractData } from '../../services/contract';
 import { AgreementTerms } from '../contracts/AgreementTerms';
+import { SignedRecord, type RecordDocument } from '../contracts/SignedRecord';
 
 /** What the client sees, from the estimate's link (no login). */
 interface ClientEstimate {
@@ -34,6 +35,9 @@ interface ClientEstimate {
     warrantyPeriod: string;
   };
   locked_at?: string;
+  /** What's signed besides the estimate: the agreement and any attachments. */
+  documents: RecordDocument[];
+  acknowledged_at?: string;
   items: Array<{ id: string; description: string; quantity: number; unit_price: number; total_price: number; category?: string }>;
 }
 
@@ -59,6 +63,8 @@ function fromView(view: any): ClientEstimate {
     design: view.design,
     agreement: view.agreement,
     locked_at: view.lockedAt,
+    documents: view.documents ?? [],
+    acknowledged_at: view.acknowledgedAt,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     items: (view.items ?? []).map((item: any, i: number) => ({
       id: String(i),
@@ -101,6 +107,26 @@ function agreementFor(estimate: ClientEstimate): ContractData {
   };
 }
 
+/** One of the company's documents: its name and a link to open the PDF. */
+function DocumentCard({ doc }: { doc: RecordDocument }) {
+  return (
+    <a
+      href={doc.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-3 border border-gray-300 rounded-lg px-4 py-3 hover:bg-gray-50"
+      data-testid="document-card"
+    >
+      <FileText className="w-6 h-6 text-gray-500 flex-shrink-0" />
+      <span className="flex-1 min-w-0">
+        <span className="block font-medium text-gray-900 truncate">{doc.name}</span>
+        <span className="block text-xs text-gray-500">PDF · tap to open and read</span>
+      </span>
+      <span className="text-sm text-blue-600 font-medium">Open</span>
+    </a>
+  );
+}
+
 const OPEN_STATUSES = ['draft', 'sent', 'opened'];
 
 export const ShareableEstimate: React.FC = () => {
@@ -112,6 +138,8 @@ export const ShareableEstimate: React.FC = () => {
   const [signature, setSignature] = useState<string>('');
   const [actionError, setActionError] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  // The client confirms reading the company's own documents before signing.
+  const [agreed, setAgreed] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [lastPoint, setLastPoint] = useState<{ x: number; y: number } | null>(null);
 
@@ -200,12 +228,17 @@ export const ShareableEstimate: React.FC = () => {
     }
   };
 
+  const uploads = (estimate?.documents ?? []).filter((d) => d.source === 'upload');
+  const needsTick = uploads.length > 0;
+  const uploadedAgreement = uploads.find((d) => d.kind === 'agreement');
+  const attachments = uploads.filter((d) => d.kind === 'attachment');
+
   const handleAccept = async () => {
-    if (!token || !signature) return;
+    if (!token || !signature || (needsTick && !agreed)) return;
     setSigning(true);
     setActionError(null);
     try {
-      await publicEstimatesAPI.accept(token, signature);
+      await publicEstimatesAPI.accept(token, signature, needsTick || undefined);
       await loadEstimate();
     } catch (error) {
       console.error('Error accepting estimate:', error);
@@ -461,10 +494,39 @@ export const ShareableEstimate: React.FC = () => {
           </div>}
         </div>
 
-        {/* The agreement, signed together with the estimate (it includes the agreed design) */}
+        {/* The agreement, signed together with the estimate: the company's own PDF, or Tolliver's (with the agreed design) */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6 text-gray-900" data-testid="agreement">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Agreement</h3>
-          <AgreementTerms contract={agreementFor(estimate)} />
+          {uploadedAgreement ? (
+            <>
+              <DocumentCard doc={uploadedAgreement} />
+              <p className="text-sm text-gray-600 mt-3">
+                {estimate.design
+                  ? 'This estimate, its price and the agreed design are part of the agreement.'
+                  : 'This estimate and its price are part of the agreement.'}
+              </p>
+              {estimate.design && (
+                <p className="text-sm mt-2">
+                  Agreed design:{' '}
+                  <a href={estimate.design.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline underline-offset-2">
+                    {estimate.design.name}
+                  </a>
+                </p>
+              )}
+            </>
+          ) : (
+            <AgreementTerms contract={agreementFor(estimate)} />
+          )}
+          {attachments.length > 0 && (
+            <div className="mt-5" data-testid="attachments">
+              <h4 className="text-sm font-semibold text-gray-900 mb-2">Also part of this agreement</h4>
+              <div className="space-y-2">
+                {attachments.map((d, i) => (
+                  <DocumentCard key={i} doc={d} />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Terms and Notes */}
@@ -503,6 +565,18 @@ export const ShareableEstimate: React.FC = () => {
             <p className="text-sm text-gray-600">
               Signed on {new Date(estimate.signed_at!).toLocaleDateString()}
             </p>
+            {needsTick && (
+              <div className="mt-6">
+                <SignedRecord
+                  estimateNumber={estimate.estimate_number}
+                  signerName={estimate.client?.name}
+                  signature={estimate.client_signature}
+                  signedAt={estimate.signed_at}
+                  acknowledgedAt={estimate.acknowledged_at}
+                  documents={estimate.documents}
+                />
+              </div>
+            )}
           </div>
         ) : canSign ? (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
@@ -539,11 +613,25 @@ export const ShareableEstimate: React.FC = () => {
               </div>
             </div>
 
+            {needsTick && (
+              <label className="flex items-start gap-3 mb-4 text-sm text-gray-800">
+                <input
+                  type="checkbox"
+                  checked={agreed}
+                  onChange={(e) => setAgreed(e.target.checked)}
+                  className="mt-0.5 w-5 h-5 accent-green-600"
+                  aria-label="I've read and agree to the attached documents"
+                />
+                <span>
+                  I&rsquo;ve read and agree to the attached documents: {uploads.map((d) => d.name).join(', ')}.
+                </span>
+              </label>
+            )}
             {actionError && <p className="text-sm text-red-600 mb-3">{actionError}</p>}
             <div className="flex gap-4">
               <button
                 onClick={handleAccept}
-                disabled={!signature || signing}
+                disabled={!signature || signing || (needsTick && !agreed)}
                 className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
               >
                 <CheckCircle className="w-5 h-5" />

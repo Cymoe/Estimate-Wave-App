@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 let view: Record<string, unknown> | null = null;
 const markOpened = jest.fn(async () => {});
-const accept = jest.fn(async (_token: string, signature: string) => {
+const accept = jest.fn<Promise<void>, [string, string, boolean?]>(async (_token, signature) => {
   view = { ...view, status: 'accepted', clientSignature: signature, signedAt: '2026-10-11T12:00:00Z' };
 });
 const decline = jest.fn(async () => {
@@ -16,7 +16,7 @@ jest.mock('../../../lib/api', () => ({
   publicEstimatesAPI: {
     get: async () => view,
     markOpened: (token: string) => markOpened(token),
-    accept: (token: string, signature: string) => accept(token, signature),
+    accept: (token: string, signature: string, agreed?: boolean) => accept(token, signature, agreed),
     decline: (token: string) => decline(token),
   },
 }));
@@ -112,7 +112,7 @@ describe('client estimate page', () => {
       canvas.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
     });
     await act(async () => button('Accept & Sign')!.click());
-    expect(accept).toHaveBeenCalledWith('tok123', 'data:image/png;base64,sig');
+    expect(accept).toHaveBeenCalledWith('tok123', 'data:image/png;base64,sig', undefined);
     expect(document.body.textContent).toContain('Accepted & Signed');
   });
 
@@ -129,5 +129,57 @@ describe('client estimate page', () => {
     view = null;
     await open();
     expect(document.body.textContent).toContain('Estimate not found');
+  });
+
+  it("shows the company's own agreement and attachments, and signs only once they're confirmed read", async () => {
+    view = {
+      ...sent,
+      documents: [
+        { kind: 'agreement', source: 'upload', name: 'Shah Agreement', fileName: 'Shah Agreement.pdf', size: 20480, url: 'https://files/agreement' },
+        { kind: 'attachment', source: 'upload', name: 'Warranty', fileName: 'Warranty.pdf', size: 4096, url: 'https://files/warranty' },
+      ],
+    };
+    await open();
+    const agreement = document.body.querySelector('[data-testid="agreement"]')!;
+    const cards = Array.from(agreement.querySelectorAll('[data-testid="document-card"]'));
+    expect(cards.map((c) => [c.textContent?.includes('Shah Agreement') || c.textContent?.includes('Warranty'), c.getAttribute('href')])).toEqual([
+      [true, 'https://files/agreement'],
+      [true, 'https://files/warranty'],
+    ]);
+    // Tolliver's agreement wording isn't shown in place of theirs.
+    expect(agreement.textContent).not.toContain('Change Order Policy');
+    expect(agreement.textContent).toContain('This estimate and its price are part of the agreement.');
+
+    const canvas = document.body.querySelector('canvas') as HTMLCanvasElement;
+    canvas.toDataURL = () => 'data:image/png;base64,sig';
+    await act(async () => {
+      canvas.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      canvas.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    });
+    expect(button('Accept & Sign')!.disabled).toBe(true);
+    const tick = document.body.querySelector('input[aria-label="I\'ve read and agree to the attached documents"]') as HTMLInputElement;
+    expect(tick.parentElement!.textContent).toContain('Shah Agreement, Warranty');
+    await act(async () => tick.click());
+    expect(button('Accept & Sign')!.disabled).toBe(false);
+
+    // Once signed, the record shows the files and their fingerprints.
+    accept.mockImplementationOnce(async (_t: string, signature: string) => {
+      view = {
+        ...view,
+        status: 'accepted',
+        clientSignature: signature,
+        signedAt: '2026-10-11T12:00:00Z',
+        acknowledgedAt: '2026-10-11T12:00:00Z',
+        documents: (view!.documents as Array<Record<string, unknown>>).map((d, i) => ({ ...d, sha256: i ? 'bb22' : 'aa11' })),
+      };
+    });
+    await act(async () => button('Accept & Sign')!.click());
+    expect(accept).toHaveBeenCalledWith('tok123', 'data:image/png;base64,sig', true);
+    const record = document.body.querySelector('[data-testid="signed-record"]')!;
+    expect(record.textContent).toContain('Signed byDan Shah');
+    expect(record.textContent).toContain('Read and agreed to');
+    expect(record.textContent).toContain('Shah Agreement.pdf · 20 KB');
+    expect(record.textContent).toContain('SHA-256 aa11');
+    expect(record.textContent).toContain('SHA-256 bb22');
   });
 });
