@@ -5,6 +5,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { fail, logActivity, nowIso } from "./lib/access";
 import { withCategories } from "./lib/categories";
 import { lockContract } from "./lib/contract";
+import { askForDeposit, cents, contractTotal, invoicesFor, paymentSummary } from "./lib/invoicing";
 import {
   needsAcknowledgment,
   resolveDocuments,
@@ -40,6 +41,28 @@ async function requireByToken(
   const estimate = await byToken(ctx, token);
   if (estimate === null) fail("NOT_FOUND", "This estimate link isn't valid");
   return estimate;
+}
+
+/** What the client has been asked to pay and how, once they've signed. */
+async function clientPayments(ctx: QueryCtx, estimate: Doc<"estimates">, organization: Doc<"organizations"> | null) {
+  if (estimate.status !== "accepted") return undefined;
+  const invoices = (await invoicesFor(ctx, estimate._id)).filter((i) => i.status !== "cancelled");
+  if (invoices.length === 0) return undefined;
+  return {
+    invoices: invoices.map((i) => ({
+      number: i.invoiceNumber,
+      kind: i.kind ?? "other",
+      description: i.items[0]?.description ?? "",
+      total: i.totalAmount,
+      paid: i.amountPaid,
+      due: cents(i.totalAmount - i.amountPaid),
+      dueDate: i.dueDate,
+      paidDate: i.paidDate,
+    })),
+    ...paymentSummary(contractTotal(estimate), invoices),
+    payLink: organization?.payments?.payLink,
+    instructions: organization?.payments?.instructions,
+  };
 }
 
 export const get = query({
@@ -129,6 +152,7 @@ export const get = query({
         warrantyPeriod: terms.warrantyPeriod || DEFAULT_WARRANTY,
       },
       documents,
+      payments: await clientPayments(ctx, estimate, organization),
       acknowledgedAt: signed?.acknowledgedAt,
       lockedAt: estimate.contractLockedAt,
       clientSignature: estimate.clientSignature,
@@ -198,6 +222,7 @@ export const accept = mutation({
       ...lock,
       updatedAt: now,
     });
+    await askForDeposit(ctx, (await ctx.db.get(estimate._id))!, estimate.userId);
     await logActivity(ctx, {
       organizationId: estimate.organizationId,
       userId: estimate.userId,

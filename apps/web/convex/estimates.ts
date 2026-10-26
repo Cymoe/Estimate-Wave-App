@@ -13,6 +13,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { withCategories } from "./lib/categories";
 import { lockContract } from "./lib/contract";
+import { askForDeposit } from "./lib/invoicing";
 import {
   CHOICE_KEY,
   companyDocs,
@@ -165,6 +166,7 @@ export const updateDef = mutationDef({
       ...lock,
       updatedAt: now,
     });
+    if ("contractLockedAt" in lock) await askForDeposit(ctx, (await ctx.db.get(id))!, user._id);
     if (patch.status !== undefined && patch.status !== doc.status) {
       await logActivity(ctx, {
         organizationId: doc.organizationId,
@@ -189,6 +191,9 @@ export const remove = mutation({
       if (file && (await ctx.db.system.get(file.storageId)) !== null)
         await ctx.storage.delete(file.storageId);
     }
+    // Its invoices go with it.
+    for (const invoice of await ctx.db.query("invoices").withIndex("by_estimate", (q) => q.eq("estimateId", id)).take(200))
+      await ctx.db.delete(invoice._id);
     // The job's own contract PDFs go with it; the company's library stays.
     const jobDocs = await ctx.db
       .query("contractDocs")
@@ -242,6 +247,7 @@ export const sign = mutation({
       ...lock,
       updatedAt: now,
     });
+    await askForDeposit(ctx, (await ctx.db.get(id))!, user._id);
     await logActivity(ctx, {
       organizationId: doc.organizationId,
       userId: user._id,

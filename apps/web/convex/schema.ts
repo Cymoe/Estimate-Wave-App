@@ -247,6 +247,19 @@ export const estimateFields = {
   firstOpenedAt: v.optional(v.string()),
 };
 
+// A payment the company recorded on an invoice: check, cash, Zelle, a card
+// taken elsewhere. Card payments through Tolliver come later (Stripe Connect).
+export const invoicePayment = v.object({
+  _id: v.string(),
+  amount: v.number(),
+  method: v.string(),
+  // yyyy-mm-dd
+  paidAt: v.string(),
+  note: v.optional(v.string()),
+  recordedBy: v.optional(v.id("users")),
+  recordedAt: v.string(),
+});
+
 export const invoiceFields = {
   ...documentFields,
   estimateId: v.optional(v.id("estimates")),
@@ -255,7 +268,18 @@ export const invoiceFields = {
   dueDate: v.optional(v.string()),
   paidDate: v.optional(v.string()),
   amountPaid: v.number(),
+  // What it's for: the deposit asked at signing, the rest of the job, or another amount.
+  kind: v.optional(v.union(v.literal("deposit"), v.literal("balance"), v.literal("other"))),
+  payments: v.optional(v.array(invoicePayment)),
 };
+
+// How a company gets paid: the deposit asked when an estimate is signed,
+// and where the client pays (the company's own pay link and instructions).
+export const paymentSettings = v.object({
+  depositPercent: v.number(),
+  payLink: v.optional(v.string()),
+  instructions: v.optional(v.string()),
+});
 
 export const lineItemFields = {
   name: v.string(),
@@ -450,6 +474,8 @@ export default defineSchema({
     plan: v.optional(planFields),
     // Demo company added from the Lead Market; removable in one click.
     isSample: v.optional(v.boolean()),
+    // How clients pay the company (organizations.setPayments).
+    payments: v.optional(paymentSettings),
     ...timestamps,
   }).index("by_slug", ["slug"]),
 
@@ -1096,7 +1122,8 @@ export default defineSchema({
     ...timestamps,
   })
     .index("by_organization_and_issue_date", ["organizationId", "issueDate"])
-    .index("by_client", ["clientId"]),
+    .index("by_client", ["clientId"])
+    .index("by_estimate", ["estimateId"]),
 
   // Price book. organization_id is absent for shared industry items.
   lineItems: defineTable({

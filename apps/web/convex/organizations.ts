@@ -75,6 +75,39 @@ export const update = mutation({
 });
 
 /**
+ * How clients pay the company: the deposit asked when an estimate is
+ * signed (0 for none), the company's own pay link and instructions shown
+ * to the client. Owners and admins only.
+ */
+export const setPayments = mutation({
+  args: {
+    id: v.id("organizations"),
+    depositPercent: v.number(),
+    payLink: v.optional(v.string()),
+    instructions: v.optional(v.string()),
+  },
+  handler: async (ctx, { id, depositPercent, payLink, instructions }) => {
+    await requireMember(ctx, id, "admin");
+    if (!Number.isFinite(depositPercent) || depositPercent < 0 || depositPercent > 100) fail("INVALID", "The deposit is a percent from 0 to 100");
+    const link = payLink?.trim() || undefined;
+    if (link) {
+      let url: URL | null = null;
+      try {
+        url = new URL(link);
+      } catch {
+        url = null;
+      }
+      if (!url || url.protocol !== "https:") fail("INVALID", "The pay link must start with https://");
+    }
+    await ctx.db.patch(id, {
+      payments: { depositPercent: Math.round(depositPercent * 100) / 100, payLink: link, instructions: instructions?.trim().slice(0, 1000) || undefined },
+      updatedAt: nowIso(),
+    });
+    return (await ctx.db.get(id))!.payments;
+  },
+});
+
+/**
  * Deactivates the organization (owner only). Its data is kept so it can be
  * restored; it just stops appearing for its members.
  */
