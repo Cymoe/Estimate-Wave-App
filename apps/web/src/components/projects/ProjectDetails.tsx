@@ -5,7 +5,7 @@ import { ArrowUpRight, CalendarCheck, CalendarDays, DollarSign, Mail, MoreVertic
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { ProjectService, type Project, type ProjectStatus } from '../../services/ProjectService';
 import { ClientService, type Client } from '../../services/ClientService';
-import { ExpenseService, summarize, type Expense } from '../../services/ExpenseService';
+import { ExpenseService, paymentState, summarize, type Expense } from '../../services/ExpenseService';
 import { EstimateService, type Estimate } from '../../services/EstimateService';
 import { formatCurrency } from '../../utils/format';
 import { ExpensesList } from '../expenses/ExpensesList';
@@ -37,6 +37,114 @@ const dates = (project: Project) => {
   const end = formatProjectDate(project.end_date);
   if (start && end) return `${start} – ${end}`;
   return start ? `Starts ${start}` : end ? `Ends ${end}` : 'No dates';
+};
+
+/** What a job's costs look like once they're in, shown faded until the project has its own. */
+const EXAMPLE_COSTS = [
+  { category: 'Materials', amount: 7400 },
+  { category: 'Labor', amount: 5200 },
+  { category: 'Subcontractor', amount: 2800 },
+  { category: 'Permits', amount: 650 },
+];
+
+const byCategory = (expenses: Expense[]) => {
+  const totals = new Map<string, number>();
+  for (const e of expenses) totals.set(e.category || 'Other', (totals.get(e.category || 'Other') ?? 0) + e.amount);
+  return [...totals.entries()].map(([category, amount]) => ({ category, amount })).sort((a, b) => b.amount - a.amount);
+};
+
+const shortDate = (iso: string) => formatProjectDate(iso).replace(/, \d{4}$/, '');
+
+const PAID_PILL: Record<string, string> = {
+  paid: 'text-green-400',
+  pending: 'text-yellow-400',
+  unpaid: 'text-red-400',
+};
+
+/** Where the money goes: costs by type, the budget, and the latest costs. */
+const CostsOverview: React.FC<{ expenses: Expense[]; budget: number; onOpen: () => void; onAdd: () => void }> = ({ expenses, budget, onOpen, onAdd }) => {
+  const example = expenses.length === 0;
+  const rows = example ? EXAMPLE_COSTS : byCategory(expenses);
+  const total = rows.reduce((sum, r) => sum + r.amount, 0);
+  const largest = Math.max(...rows.map((r) => r.amount), 1);
+  const recent = [...expenses].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 5);
+  const left = budget - total;
+
+  return (
+    <>
+      <section className="bg-[#1a1a1a] border border-[#333] p-4" aria-label="Costs by type" data-testid="costs-by-type">
+        <div className="flex items-center justify-between mb-3 text-xs">
+          <h3 className="font-medium text-gray-400 uppercase tracking-wide">Costs by type</h3>
+          {example ? (
+            <span className="px-1.5 py-0.5 border border-[#333] text-gray-500">Example</span>
+          ) : (
+            <span className="text-gray-500">{formatCurrency(total)}</span>
+          )}
+        </div>
+        <ul className={`space-y-2.5 ${example ? 'opacity-50 select-none' : ''}`} aria-hidden={example || undefined}>
+          {rows.map((row) => (
+            <li key={row.category} className="grid grid-cols-[7rem_1fr_auto] items-center gap-3 text-sm">
+              <span className="text-gray-300 truncate">{row.category}</span>
+              <span className="h-2 bg-[#262626]">
+                <span className="block h-2 bg-[#336699]" style={{ width: `${Math.round((row.amount / largest) * 100)}%` }} />
+              </span>
+              <span className="font-mono tabular-nums text-white text-right w-36">
+                {formatCurrency(row.amount)}
+                <span className="text-gray-500"> · {Math.round((row.amount / total) * 100)}%</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+        {example ? (
+          <div className="mt-4 pt-3 border-t border-[#262626] flex items-center justify-between gap-3 text-sm">
+            <span className="text-gray-400">Log costs as you go to see where the money goes and what the job makes.</span>
+            <button type="button" onClick={onAdd} className="flex-shrink-0 px-3 py-1.5 bg-[#336699] hover:bg-[#2a5580] text-white">
+              Add a cost
+            </button>
+          </div>
+        ) : (
+          budget > 0 && (
+            <div className="mt-4 pt-3 border-t border-[#262626]" data-testid="budget">
+              <div className="flex items-center justify-between text-sm mb-1.5">
+                <span className="text-gray-400">Budget {formatCurrency(budget)}</span>
+                <span className={left >= 0 ? 'text-gray-300' : 'text-red-400'}>
+                  {left >= 0 ? `${formatCurrency(left)} left` : `${formatCurrency(-left)} over`}
+                </span>
+              </div>
+              <div className="h-1.5 bg-[#262626]">
+                <div className={`h-1.5 ${left >= 0 ? 'bg-[#336699]' : 'bg-red-400'}`} style={{ width: `${Math.min(100, Math.round((total / budget) * 100))}%` }} />
+              </div>
+            </div>
+          )
+        )}
+      </section>
+
+      {!example && (
+        <section className="bg-[#1a1a1a] border border-[#333]" aria-label="Recent costs">
+          <div className="flex items-center justify-between px-4 pt-4 pb-2 text-xs">
+            <h3 className="font-medium text-gray-400 uppercase tracking-wide">Recent costs</h3>
+            <button type="button" onClick={onOpen} className="text-[#336699] hover:text-white">
+              See all
+            </button>
+          </div>
+          <ul className="divide-y divide-[#262626]">
+            {recent.map((e) => (
+              <li key={e.id} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-4 py-2.5 text-sm">
+                <span className="min-w-0">
+                  <span className="block truncate text-white">{e.description}</span>
+                  <span className="block text-xs text-gray-500 truncate">
+                    {[e.category, e.vendor, shortDate(e.date)].filter(Boolean).join(' · ')}
+                  </span>
+                </span>
+                <span className={`text-xs capitalize ${PAID_PILL[paymentState(e.status)]}`}>{paymentState(e.status)}</span>
+                <span className="font-mono tabular-nums text-white">{formatCurrency(e.amount)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </>
+  );
 };
 
 const secondaryAction =
@@ -124,7 +232,8 @@ const ProjectFields: React.FC<{ project: Project; organizationId: string; onSave
 
 /**
  * One project, laid out like an estimate: a header with its status, tabs,
- * and an overview of what it's worth, what it has cost and what's left.
+ * an overview of what it's worth, what it has cost and what it makes, and
+ * those numbers pinned along the bottom.
  */
 export const ProjectPanel: React.FC<{
   projectId: string;
@@ -239,9 +348,9 @@ export const ProjectPanel: React.FC<{
   const summary = summarize(expenses);
   const budget = project.budget ?? 0;
   const contract = (estimates ?? []).filter((e) => e.status === 'accepted').reduce((sum, e) => sum + e.total_amount, 0);
-  // What's left is measured against what the client agreed to pay, or the budget before there's an agreement.
-  const against = contract > 0 ? contract : budget;
-  const left = against - summary.total;
+  // Profit is what the client agreed to pay, less what the job has cost so far.
+  const profit = contract - summary.total;
+  const margin = contract > 0 ? Math.round((profit / contract) * 100) : null;
   const spentShare = budget > 0 ? Math.min(100, Math.round((summary.total / budget) * 100)) : 0;
   const clientLabel = client ? client.company_name || client.name : project.client?.name;
 
@@ -331,7 +440,7 @@ export const ProjectPanel: React.FC<{
       <div className="flex-1 min-h-0 overflow-y-auto">
         {activeTab === 'overview' && (
           <div className="p-4 space-y-4">
-            {/* What it's worth, what it has cost, what's left */}
+            {/* What it's worth, what it has cost, what it makes */}
             <div className="bg-[#1a1a1a] border border-[#333] grid grid-cols-3 divide-x divide-[#333]" data-testid="project-summary">
               <div className="p-4 min-w-0">
                 <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Contract</div>
@@ -341,7 +450,7 @@ export const ProjectPanel: React.FC<{
                 <div className="text-xs text-gray-500 mt-0.5">{contract > 0 ? 'accepted estimates' : 'no accepted estimate'}</div>
               </div>
               <button type="button" onClick={() => openExpenses(false)} className="p-4 min-w-0 text-left hover:bg-[#222]">
-                <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Spent</div>
+                <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Costs</div>
                 <div className="text-lg font-semibold text-white truncate">{formatCurrency(summary.total)}</div>
                 {budget > 0 ? (
                   <>
@@ -355,17 +464,16 @@ export const ProjectPanel: React.FC<{
                 )}
               </button>
               <div className="p-4 min-w-0">
-                <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Left</div>
-                <div className={`text-lg font-semibold truncate ${against <= 0 ? 'text-gray-500' : left >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {against > 0 ? formatCurrency(left) : '—'}
+                <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Profit</div>
+                <div className={`text-lg font-semibold truncate ${margin === null ? 'text-gray-500' : profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {margin === null ? '—' : formatCurrency(profit)}
                 </div>
-                <div className="text-xs text-gray-500 mt-0.5">
-                  {against <= 0 ? 'add a budget or an estimate' : contract > 0 ? 'of the contract' : 'of the budget'}
-                </div>
+                <div className="text-xs text-gray-500 mt-0.5">{margin === null ? 'once an estimate is accepted' : `${margin}% margin`}</div>
               </div>
             </div>
 
             <ProjectFields key={project.id} project={project} organizationId={orgId} onSaved={saved} />
+            <CostsOverview expenses={expenses} budget={budget} onOpen={() => openExpenses(false)} onAdd={() => openExpenses(true)} />
           </div>
         )}
 
@@ -404,6 +512,27 @@ export const ProjectPanel: React.FC<{
             <ExpensesList projectId={project.id!} onChange={setExpenses} startAdding={addingExpense} />
           </div>
         )}
+      </div>
+
+      {/* The job's numbers, always in view, like an estimate's total bar. */}
+      <div className="flex-shrink-0 grid grid-cols-4 divide-x divide-[#333] border-t border-[#333] bg-[#1a1a1a] text-sm" data-testid="project-totals">
+        <div className="px-4 py-3 text-gray-400">
+          {summary.count} cost{summary.count === 1 ? '' : 's'}
+        </div>
+        <div className="px-4 py-3 text-right">
+          <div className="text-[11px] text-gray-500 uppercase tracking-wide">Contract</div>
+          <div className="font-mono tabular-nums text-white">{contract > 0 ? formatCurrency(contract) : '—'}</div>
+        </div>
+        <div className="px-4 py-3 text-right">
+          <div className="text-[11px] text-gray-500 uppercase tracking-wide">{budget > 0 ? `Costs · ${spentShare}% of budget` : 'Costs'}</div>
+          <div className="font-mono tabular-nums text-white">{formatCurrency(summary.total)}</div>
+        </div>
+        <div className="px-4 py-3 text-right">
+          <div className="text-[11px] text-gray-500 uppercase tracking-wide">Profit{margin !== null ? ` · ${margin}%` : ''}</div>
+          <div className={`font-mono tabular-nums ${margin === null ? 'text-gray-500' : profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            {margin === null ? '—' : formatCurrency(profit)}
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -103,7 +103,7 @@ describe('Project drawer', () => {
     onSaved.mockClear();
   });
 
-  it('opens as a drawer as wide as the estimate, with the contract, spending and what is left', async () => {
+  it('opens as a drawer as wide as the estimate, with the contract, costs and profit', async () => {
     expenses = [
       { id: 'x1', description: 'Lumber', amount: 600, category: 'Materials', date: '2026-10-02', status: 'paid' },
       { id: 'x2', description: 'Nails', amount: 100, category: 'Materials', date: '2026-10-03', status: 'pending' },
@@ -115,8 +115,17 @@ describe('Project drawer', () => {
     expect(dialog.textContent).toContain('Ann Miller • Oct 1, 2026 – Jan 1, 2099');
     expect(Array.from(dialog.querySelectorAll('[role="tab"]')).map((t) => t.textContent)).toEqual(['Overview', 'Estimates1', 'Expenses2']);
     expect(summary()).toContain('Contract$3,000.00accepted estimates');
-    expect(summary()).toContain('Spent$700.00of $1,000.00 budget');
-    expect(summary()).toContain('Left$2,300.00of the contract');
+    expect(summary()).toContain('Costs$700.00of $1,000.00 budget');
+    expect(summary()).toContain('Profit$2,300.0077% margin');
+    // Where the money went, the budget, the latest costs, and the numbers pinned at the bottom.
+    const types = dialog.querySelector('[data-testid="costs-by-type"]')!;
+    expect(types.textContent).toContain('Materials$700.00 · 100%');
+    expect(types.textContent).not.toContain('Example');
+    expect(dialog.querySelector('[data-testid="budget"]')!.textContent).toBe('Budget $1,000.00$300.00 left');
+    expect(dialog.querySelector('[aria-label="Recent costs"]')!.textContent).toContain('NailsMaterials · Oct 3pending$100.00');
+    expect(dialog.querySelector('[data-testid="project-totals"]')!.textContent).toBe(
+      '2 costsContract$3,000.00Costs · 70% of budget$700.00Profit · 77%$2,300.00',
+    );
     expect(dialog.textContent).not.toContain('Project Health');
     expect(dialog.textContent).not.toContain('Most Used');
     // The client's phone is one tap away.
@@ -139,7 +148,8 @@ describe('Project drawer', () => {
       expect.objectContaining({ organization_id: 'org1', project_id: 'p1', description: 'Dumpster', amount: 450, status: 'pending' }),
     );
     await click('Overview');
-    expect(summary()).toContain('Spent$1,050.00of $1,000.00 budget');
+    expect(summary()).toContain('Costs$1,050.00of $1,000.00 budget');
+    expect(document.body.querySelector('[data-testid="budget"]')!.textContent).toBe('Budget $1,000.00$50.00 over');
   });
 
   it('edits the details in place, and tells the list behind', async () => {
@@ -154,6 +164,18 @@ describe('Project drawer', () => {
     });
     expect(updateProject).toHaveBeenCalledWith('p1', { budget: '2500' });
     expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1', budget: 2500 }));
+  });
+
+  it('shows example costs, faded, until the project has its own', async () => {
+    expenses = [];
+    await render();
+    const types = document.body.querySelector('[data-testid="costs-by-type"]')!;
+    expect(types.textContent).toContain('Example');
+    expect(types.textContent).toContain('Materials$7,400.00');
+    expect(types.querySelector('ul')!.className).toContain('opacity-50');
+    expect(document.body.querySelector('[aria-label="Recent costs"]')).toBeNull();
+    await click('Add a cost');
+    expect(document.body.querySelector('input[aria-label="What did you pay for?"]')).not.toBeNull();
   });
 
   it('lists the estimates on their own tab', async () => {
