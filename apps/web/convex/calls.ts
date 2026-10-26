@@ -196,13 +196,9 @@ async function onDoNotCall(ctx: Ctx, phone: string, lists: Awaited<ReturnType<ty
 async function blockedReason(ctx: Ctx, phone: string, now = Date.now()): Promise<string | undefined> {
   const hours = callingHours(now);
   if (!hours.open) return hours.reason;
-  const lists = await listsState(ctx);
-  for (const l of lists)
-    if (!l.current)
-      return l.uploadedAt
-        ? `The ${l.label} is out of date. Staff upload this month's in Ops, Calls.`
-        : `Staff need to upload the ${l.label} in Ops, Calls, before anyone calls.`;
-  const listed = await onDoNotCall(ctx, phone, lists);
+  // The national and Texas lists aren't required (the owner chose not to use them);
+  // our own "don't call again" list always applies, and an uploaded list would too.
+  const listed = await onDoNotCall(ctx, phone, await listsState(ctx));
   if (listed) return listed;
   const recent = await ctx.db
     .query("outboundCalls")

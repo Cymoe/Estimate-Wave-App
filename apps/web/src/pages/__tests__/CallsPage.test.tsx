@@ -5,10 +5,6 @@ import { act } from 'react';
 
 type Check = { ok: true; phone: string } | { ok: false; reason: string };
 let checkResult: Check = { ok: true, phone: '4325550123' };
-let lists = [
-  { list: 'national', label: 'National Do Not Call list', current: true },
-  { list: 'texas', label: 'Texas no-call list', current: true },
-];
 const list = jest.fn<Promise<unknown>, [{ kind: string; trade?: string; street?: string }]>(async () => ({
   kind: 'trade_permits',
   tradeName: 'Roofing',
@@ -32,7 +28,6 @@ const myDay = jest.fn(async () => ({
 jest.mock('../../lib/api', () => ({
   industriesAPI: { list: async () => [{ id: 'roofing', name: 'Roofing' }, { id: 'hvac', name: 'HVAC' }] },
   callsAPI: {
-    dncStatus: async () => lists,
     myDay: () => myDay(),
     list: (args: { kind: string; trade?: string; street?: string }) => list(args),
     check: (phone: string) => check(phone),
@@ -68,7 +63,6 @@ afterEach(() => {
   document.body.innerHTML = '';
   jest.clearAllMocks();
   checkResult = { ok: true, phone: '4325550123' };
-  lists = lists.map((l) => ({ ...l, current: true }));
 });
 
 describe('the Calls page', () => {
@@ -139,10 +133,8 @@ describe('the Calls page', () => {
     expect(page.textContent).toContain("Lead taken: Cole Jane. It's in Ops for someone to confirm.");
   });
 
-  it('says calling is stopped when a Do Not Call list is out of date, and opens a callback with its number', async () => {
-    lists = [lists[0], { ...lists[1], current: false }];
+  it('opens a callback with its number and note', async () => {
     const page = await render();
-    expect(page.querySelector('[data-testid="calls-stopped"]')!.textContent).toBe('Calling is stopped until staff upload the Texas no-call list in Ops.');
     await click(Array.from(page.querySelectorAll('section[aria-label="Callbacks"] button'))[0]);
     const dialog = document.body.querySelector('[role="dialog"]')!;
     expect((dialog.querySelector('input[aria-label="Phone number"]') as HTMLInputElement).value).toBe('4325550177');

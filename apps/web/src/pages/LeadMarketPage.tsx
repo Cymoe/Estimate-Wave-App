@@ -14,6 +14,7 @@ import { OpsErrorBoundary } from '../components/ops/OpsErrorBoundary';
 import { isStaff, isSuperAdmin } from '../lib/roles';
 import { TeamCard } from '../components/ops/TeamCard';
 import { CallsCard } from '../components/ops/CallsCard';
+import CallsPage from './CallsPage';
 import { useConfirm } from '../components/common/ConfirmDialog';
 import { leadRoute } from '../components/market/leadRoute';
 import { Confirmed } from '../components/market/Confirmed';
@@ -1378,7 +1379,7 @@ const LeadMarketPage: React.FC = () => {
         return `${rows.length} to confirm${duplicates > 0 ? ` · ${plural(duplicates, 'possible duplicate')}` : ''}`;
       }
       case 'calls':
-        return 'The Do Not Call lists callers are checked against, and how their week went';
+        return "Call homeowners from the lists, and how each caller's week went";
       case 'forsale':
         return `${plural(inbox.available.length, 'lead')} for sale in the Marketplace · ${money(book.spent30dCents)} sold in 30 days`;
       case 'sold': {
@@ -1472,7 +1473,10 @@ const LeadMarketPage: React.FC = () => {
           onListed={setNotice}
         />
       ) : tab === 'calls' ? (
-        <CallsCard />
+        <div className="space-y-6">
+          <CallsPage embedded />
+          <CallsCard />
+        </div>
       ) : tab === 'demand' ? (
         <DemandBoard owner={owner} />
       ) : tab === 'sold' ? (

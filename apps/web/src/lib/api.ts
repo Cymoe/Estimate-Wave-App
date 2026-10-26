@@ -538,13 +538,8 @@ export const permitsAPI = {
   syncOwners: () => run('action', api.parcels.syncNow, {}),
 };
 
-/** Tolliver callers: Do Not Call lists, the dial check, call outcomes and call lists. */
+/** Tolliver callers: the dial check, call outcomes, call lists and the tally. */
 export const callsAPI = {
-  dncStatus: () => run('query', api.calls.dncStatus, {}),
-  startDncImport: (list: 'national' | 'texas', fileName?: string) => run('mutation', api.calls.startDncImport, defined({ list, fileName })),
-  importDncChunk: (batchId: string, numbers: string[]) => run('mutation', api.calls.importDncChunk, { batchId, numbers }),
-  finishDncImport: (batchId: string) => run('mutation', api.calls.finishDncImport, { batchId }),
-  addDoNotCall: (phone: string, note?: string) => run('mutation', api.calls.addDoNotCall, defined({ phone, note })),
   tally: (days?: number) => run('query', api.calls.tally, defined({ days })),
   check: (phone: string) => run('query', api.calls.check, { phone }),
   log: (args: { phone: string; outcome: string; address: string; parcelId?: string; owner?: string; trade?: string; note?: string; callbackAt?: string }) =>

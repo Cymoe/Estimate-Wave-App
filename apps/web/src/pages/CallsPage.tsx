@@ -31,7 +31,6 @@ interface MyDay {
   callbacks: Array<{ id: string; parcelId?: string; phone: string; address: string; owner?: string; trade?: string; callbackAt: string; note?: string }>;
 }
 
-type ListStatus = { list: string; label: string; current: boolean; uploadedAt?: string };
 
 const KINDS: Array<[Kind, string]> = [
   ['trade_permits', 'Near permits'],
@@ -316,12 +315,12 @@ function HomeCall({
 
 /**
  * The Calls page, for Tolliver callers (and staff): pick a trade and a call
- * list, tap a home, check the number (Do Not Call lists, Texas hours, how
+ * list, tap a home, check the number (our don't-call list, Texas hours, how
  * often it was tried), dial from your own phone, then log how it went. A
  * homeowner who wants the work and says yes to the consent line becomes a
  * lead in the Ops intake queue, which someone else confirms.
  */
-export default function CallsPage() {
+export default function CallsPage({ embedded = false }: { embedded?: boolean }) {
   const { user } = useAuth();
   const caller = (user?.name || user?.email || 'your name').split(/[\s@]/)[0];
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -331,7 +330,6 @@ export default function CallsPage() {
   const [homes, setHomes] = useState<Home[] | null>(null);
   const [streets, setStreets] = useState<Array<{ street: string; permits: number }>>([]);
   const [day, setDay] = useState<MyDay | null>(null);
-  const [lists, setLists] = useState<ListStatus[] | null>(null);
   const [open, setOpen] = useState<Home | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -349,7 +347,6 @@ export default function CallsPage() {
         setTrade((current) => current || t[0]?.id || '');
       })
       .catch(() => setTrades([]));
-    callsAPI.dncStatus().then(setLists).catch(() => setLists([]));
     loadDay();
   }, [loadDay]);
 
@@ -378,23 +375,21 @@ export default function CallsPage() {
   };
 
   const current = trades.find((t) => t.id === trade) ?? { id: trade, name: trade };
-  const stopped = lists?.filter((l) => !l.current) ?? [];
 
   return (
-    <div className="px-4 md:px-6 py-5 text-white max-w-3xl">
-      <p className="text-xs uppercase tracking-wide text-gray-500">Tolliver</p>
-      <h1 className="text-xl font-semibold">Calls</h1>
+    <div className={embedded ? 'text-white max-w-3xl' : 'px-4 md:px-6 py-5 text-white max-w-3xl'}>
+      {!embedded && (
+        <>
+          <p className="text-xs uppercase tracking-wide text-gray-500">Tolliver</p>
+          <h1 className="text-xl font-semibold">Calls</h1>
+        </>
+      )}
       <p className="text-sm text-gray-400" data-testid="my-day">
         {day
           ? `Today: ${day.calls} call${day.calls === 1 ? '' : 's'} · ${day.answered} answered · ${day.leads} lead${day.leads === 1 ? '' : 's'}${day.hours.open ? '' : ` · ${day.hours.reason}`}`
           : 'Loading…'}
       </p>
 
-      {stopped.length > 0 && (
-        <p className="mt-3 px-3 py-2 rounded border border-red-500/40 bg-red-500/10 text-sm text-red-200" role="alert" data-testid="calls-stopped">
-          Calling is stopped until staff upload the {stopped.map((l) => l.label).join(' and the ')} in Ops.
-        </p>
-      )}
       {notice && (
         <p className="mt-3 px-3 py-2 rounded border border-[#336699]/50 bg-[#336699]/10 text-sm text-[#cfe2f5]" role="status">
           {notice}

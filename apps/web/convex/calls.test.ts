@@ -206,20 +206,12 @@ describe("calling rules", () => {
     expect(listDue("national", "2026-09-01T00:00:00.000Z", OPEN).current).toBe(false);
   });
 
-  test("no number is dialable until both lists are current; listed and asked numbers never are", async () => {
+  test("numbers are dialable without the national or Texas lists; asked numbers and after-hours never are", async () => {
     vi.useFakeTimers({ now: OPEN, toFake: ["Date"] });
     const t = setup();
     const { staff, caller } = await team(t);
-    expect(await caller.as.query(api.calls.check, { phone: "432-555-0199" })).toEqual({
-      ok: false,
-      reason: "Staff need to upload the National Do Not Call list in Ops, Calls, before anyone calls.",
-    });
-    // Callers can't upload; staff can.
-    await expect(caller.as.mutation(api.calls.startDncImport, { list: "national" })).rejects.toThrow(/staff/);
-    await uploadLists(staff, ["4325550100"], ["4325550101"]);
+    // No lists uploaded: calling isn't held up.
     expect(await caller.as.query(api.calls.check, { phone: "(432) 555-0199" })).toEqual({ ok: true, phone: "4325550199" });
-    expect(await caller.as.query(api.calls.check, { phone: "4325550100" })).toEqual({ ok: false, reason: "This number is on the National Do Not Call list." });
-    expect(await caller.as.query(api.calls.check, { phone: "4325550101" })).toEqual({ ok: false, reason: "This number is on the Texas no-call list." });
     expect((await caller.as.query(api.calls.check, { phone: "555" })).ok).toBe(false);
 
     // Someone who says "don't call again" is on our own list for good.
@@ -228,18 +220,13 @@ describe("calling rules", () => {
     await staff.as.mutation(api.calls.addDoNotCall, { phone: "4325550188", note: "Called in to complain" });
     expect((await caller.as.query(api.calls.check, { phone: "4325550188" })).ok).toBe(false);
 
+    // An uploaded list still counts, should one ever be uploaded.
+    await uploadLists(staff, ["4325550100"], ["4325550101"]);
+    expect(await caller.as.query(api.calls.check, { phone: "4325550100" })).toEqual({ ok: false, reason: "This number is on the National Do Not Call list." });
+
     // Outside hours, nothing is dialable.
     vi.setSystemTime(Date.parse("2026-10-28T02:30:00.000Z"));
     expect(await caller.as.query(api.calls.check, { phone: "4325550177" })).toEqual({ ok: false, reason: "Calls are allowed 9am to 9pm, Central time." });
-
-    // A month later the national list is out of date until this month's is uploaded.
-    vi.setSystemTime(OPEN + 32 * 24 * 60 * 60 * 1000);
-    expect(await caller.as.query(api.calls.check, { phone: "4325550177" })).toEqual({
-      ok: false,
-      reason: "The National Do Not Call list is out of date. Staff upload this month's in Ops, Calls.",
-    });
-    const status = await caller.as.query(api.calls.dncStatus, {});
-    expect(status.map((s) => [s.list, s.count, s.current])).toEqual([["national", 1, false], ["texas", 1, true]]);
   });
 
   test("a new upload replaces the last one, and the old numbers are cleared out", async () => {

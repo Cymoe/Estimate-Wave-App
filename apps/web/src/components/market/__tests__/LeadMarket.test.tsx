@@ -24,16 +24,6 @@ const setPlan = jest.fn(async () => undefined);
 let staffInvites: Array<{ id: string; email: string; role?: string; createdAt: string }> = [];
 const inviteStaff = jest.fn(async (email: string, role = 'staff') => { staffInvites = [...staffInvites, { id: `i${staffInvites.length + 1}`, email, role, createdAt: '2026-10-22' }]; return { status: 'invited' }; });
 
-let dncLists: Array<{ list: string; label: string; count: number; uploadedAt?: string; dueAt?: string; current: boolean }> = [
-  { list: 'national', label: 'National Do Not Call list', count: 0, current: false },
-  { list: 'texas', label: 'Texas no-call list', count: 12, uploadedAt: '2026-10-01T15:00:00.000Z', dueAt: '2027-01-01T15:00:00.000Z', current: true },
-];
-const dncChunk = jest.fn<Promise<{ added: number }>, [string, string[]]>(async () => ({ added: 0 }));
-const dncFinish = jest.fn<Promise<{ count: number }>, [string]>(async () => {
-  dncLists = dncLists.map((l) => (l.list === 'national' ? { ...l, count: 7000, uploadedAt: '2026-10-27T15:00:00.000Z', dueAt: '2026-11-27T15:00:00.000Z', current: true } : l));
-  return { count: 7000 };
-});
-const dncAdd = jest.fn<Promise<null>, [string, string | undefined]>(async () => null);
 
 let intakeRows: unknown[] = [];
 let intakeLog: unknown[] = [];
@@ -114,12 +104,9 @@ jest.mock('../../../lib/api', () => ({
     remove: async () => undefined,
   },
   callsAPI: {
-    dncStatus: async () => dncLists,
     tally: async () => [{ callerId: 'u9', name: 'Dana', email: 'dana@tolliver.example', calls: 41, answered: 12, leads: 3, confirmed: 2, sold: 1 }],
-    startDncImport: async () => 'b1',
-    importDncChunk: (batchId: string, numbers: string[]) => dncChunk(batchId, numbers),
-    finishDncImport: (batchId: string) => dncFinish(batchId),
-    addDoNotCall: (phone: string, note?: string) => dncAdd(phone, note),
+    myDay: async () => ({ calls: 2, answered: 1, leads: 0, hours: { open: true }, callbacks: [] }),
+    list: async () => ({ kind: 'trade_permits', homes: [] }),
   },
   permitsAPI: { status: async () => permitStatus, syncNow: async () => ({ fetched: 0, added: 0, updated: 0 }) },
   marketplaceAPI: {
@@ -335,33 +322,12 @@ describe('Lead Market', () => {
     }
   });
 
-  it('the Calls tab: Do Not Call lists stop calling until uploaded, upload in chunks, and the caller tally', async () => {
+  it('the Calls tab is the calling screen itself, with the caller tally under it', async () => {
     await render(<MemoryRouter initialEntries={['/ops?tab=calls']}><LeadMarketPage /></MemoryRouter>, false);
-    const national = () => document.body.querySelector('[data-testid="dnc-national"]')!;
-    expect(national().textContent).toContain('Not uploaded: calling is stopped.');
-    expect(document.body.querySelector('[data-testid="dnc-texas"]')!.textContent).toContain('12 numbers · uploaded Oct 1, 2026 · due again by Jan 1, 2027');
+    expect(document.body.querySelector('[data-testid="my-day"]')!.textContent).toBe('Today: 2 calls · 1 answered · 0 leads');
+    expect(document.body.querySelector('form[aria-label="Call list"]')).not.toBeNull();
     expect(document.body.querySelector('table[aria-label="Caller tally"]')!.textContent).toContain('Dana41123');
-
-    // 7,000 numbers go up as two chunks, then the upload is finished.
-    const lines = Array.from({ length: 7000 }, (_, i) => `432,${String(5000000 + i)}`).join('\n');
-    const file = new File([lines], 'dnc-432.txt', { type: 'text/plain' });
-    if (!file.text) Object.defineProperty(file, 'text', { value: async () => lines });
-    const picker = national().querySelector('input[type="file"]') as HTMLInputElement;
-    Object.defineProperty(picker, 'files', { value: [file], configurable: true });
-    await act(async () => picker.dispatchEvent(new Event('change', { bubbles: true })));
-    await flush();
-    await flush();
-    expect(dncChunk.mock.calls.map(([, n]) => n.length)).toEqual([5000, 2000]);
-    expect(dncChunk.mock.calls[0][1][0]).toBe('4325000000');
-    expect(dncFinish).toHaveBeenCalledWith('b1');
-    expect(document.body.textContent).toContain('The National Do Not Call list is in: 7,000 numbers.');
-    expect(national().textContent).toContain('7,000 numbers · uploaded Oct 27, 2026 · due again by Nov 27, 2026');
-
-    const never = document.body.querySelector('input[aria-label="Number to never call"]') as HTMLInputElement;
-    await act(async () => type(never, '432-555-0199'));
-    await act(async () => (never.form!.querySelector('button[type="submit"]') as HTMLButtonElement).click());
-    await flush();
-    expect(dncAdd).toHaveBeenCalledWith('432-555-0199', 'Added in Ops');
+    expect(document.body.textContent).not.toContain('Do Not Call');
   });
 
   it('sends old links to the Sellers and Auction tabs over to the Real estate side', async () => {
