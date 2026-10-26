@@ -12,7 +12,7 @@ export const MIDLAND_PARCELS = {
 } as const;
 
 /** Bumped when what a stored parcel holds changes: the deploy then reads the roll again instead of skipping. */
-export const PARCEL_VERSION = 3;
+export const PARCEL_VERSION = 4;
 
 /** The appraisal district's residential use codes: single-family, mobile home, condo and townhome. */
 export const RESIDENTIAL_USE = ["A1", "A2", "A3", "A4", "A5"] as const;
@@ -138,10 +138,12 @@ export function ownerOccupied(site: string, mailing: string | undefined): boolea
   return sa.length >= 2 && sa[0] === sb[0] && sa[1] === sb[1];
 }
 
-/** "10/11/2021" → "2021-10-11". */
-export function deedIso(value: unknown): string | undefined {
+/** "10/11/2021" → "2021-10-11". A typo'd year on the roll ("9/2/9202", or one before 1850) is no date at all. */
+export function deedIso(value: unknown, now = Date.now()): string | undefined {
   const m = typeof value === "string" ? value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/) : null;
   if (!m) return undefined;
+  const year = Number(m[3]);
+  if (year < 1850 || year > new Date(now).getUTCFullYear()) return undefined;
   return `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
 }
 

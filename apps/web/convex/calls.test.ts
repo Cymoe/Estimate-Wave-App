@@ -58,6 +58,8 @@ describe("Midland owners (the appraisal roll)", () => {
     expect(isCompanyOwner("HERNANDEZ CONRAD JR")).toBe(false);
     expect(deedIso("6/7/2010")).toBe("2010-06-07");
     expect(deedIso("")).toBeUndefined();
+    expect(deedIso("9/2/9202")).toBeUndefined();
+    expect(deedIso("1/5/1066")).toBeUndefined();
     expect(ownerName("LOZANO ZUNIGA CESAR E")).toBe("Lozano Zuniga Cesar E");
   });
 
