@@ -1,11 +1,12 @@
 import React, { useContext, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Building2, Hammer, Users, Bell, Shield, Bot } from 'lucide-react';
+import { ArrowLeft, Building2, Hammer, Users, Bell, Shield, Bot, FileText } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { BusinessDetailsForm } from '../components/settings/BusinessDetailsForm';
 import { TradesEditor } from '../components/settings/TradesEditor';
 import { NotificationsSettings } from '../components/settings/NotificationsSettings';
 import { ConnectedAssistants } from '../components/settings/ConnectedAssistants';
+import { ContractsSettings } from '../components/settings/ContractsSettings';
 
 export default function OrganizationSettings() {
   const navigate = useNavigate();
@@ -17,6 +18,7 @@ export default function OrganizationSettings() {
   const tabs = [
     { id: 'general', label: 'General', icon: Building2 },
     { id: 'trades', label: 'Trades', icon: Hammer },
+    { id: 'contracts', label: 'Contracts', icon: FileText },
     { id: 'team', label: 'Team & Permissions', icon: Users },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'assistants', label: 'Assistants', icon: Bot },
@@ -114,6 +116,13 @@ export default function OrganizationSettings() {
               <div className="bg-[#1A1A1A] rounded-lg p-6">
                 <h2 className="text-lg font-semibold text-white mb-1">What work do you do?</h2>
                 <TradesEditor organizationId={selectedOrg.id} />
+              </div>
+            )}
+
+            {activeTab === 'contracts' && (
+              <div className="bg-[#1A1A1A] rounded-lg p-6">
+                <h2 className="text-lg font-semibold text-white mb-1">Your contracts</h2>
+                <ContractsSettings organizationId={selectedOrg.id} />
               </div>
             )}
 

@@ -1,4 +1,5 @@
 import { clientsAPI, estimatesAPI, projectsAPI } from '../lib/api';
+import { uploadFile } from './uploads';
 
 export interface EstimateItem {
   id?: string;
@@ -279,14 +280,7 @@ export class EstimateService {
 
   /** Uploads an image or PDF and attaches it as the estimate's agreed design. */
   static async uploadDesign(id: string, file: File): Promise<Estimate> {
-    const uploadUrl = await estimatesAPI.designUploadUrl(id);
-    const response = await fetch(uploadUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': file.type || 'application/octet-stream' },
-      body: file,
-    });
-    if (!response.ok) throw new Error('Upload failed');
-    const { storageId } = await response.json();
+    const storageId = await uploadFile(await estimatesAPI.designUploadUrl(id), file);
     return toLegacy(await estimatesAPI.setDesign(id, storageId, file.name));
   }
 

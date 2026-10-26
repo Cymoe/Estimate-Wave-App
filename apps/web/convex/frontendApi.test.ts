@@ -15,7 +15,7 @@ const { setConvexClient, clientsAPI, estimatesAPI, costCodesAPI, organizationsAP
 );
 const { MongoLineItemService } = await import("../src/services/MongoLineItemService");
 const { EstimateService } = await import("../src/services/EstimateService");
-const { leadsAPI } = await import("../src/lib/api");
+const { leadsAPI, contractDocsAPI } = await import("../src/lib/api");
 
 let t: ReturnType<typeof setup>;
 
@@ -139,5 +139,21 @@ describe("src/lib/api.ts on Convex", () => {
 
     const [listed] = await leadsAPI.list(organizationId);
     expect(listed).toMatchObject({ status: "quoted", clientId, estimate: { id: estimate.id, totalAmount: 11500 } });
+  });
+
+  test("contractDocsAPI and estimatesAPI.documents: a company PDF becomes the estimate's agreement", async () => {
+    const { as, organizationId } = await signUp(t, "a@example.com");
+    setConvexClient(as);
+    const estimate = await estimatesAPI.create({ organizationId, title: "Roof" });
+    const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["%PDF"], { type: "application/pdf" })));
+    const id = await contractDocsAPI.add({ organizationId, kind: "agreement", storageId, fileName: "Ours.pdf" });
+    const [listed] = await contractDocsAPI.list(organizationId);
+    expect(listed).toMatchObject({ id, kind: "agreement", name: "Ours", active: true, url: expect.any(String) });
+    const docs = await estimatesAPI.documents(estimate.id);
+    expect(docs.agreement).toMatchObject({ source: "upload", origin: "company", name: "Ours" });
+    await estimatesAPI.setContractDoc(estimate.id, "agreement", "tolliver");
+    expect((await estimatesAPI.documents(estimate.id)).agreement.source).toBe("tolliver");
+    await contractDocsAPI.useTolliver(organizationId, "agreement");
+    expect((await contractDocsAPI.remove(id)).archived).toBe(false);
   });
 });

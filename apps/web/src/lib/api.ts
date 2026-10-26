@@ -133,6 +133,59 @@ export const clientsAPI = {
 };
 
 // Estimates API
+export type SlotKind = 'agreement' | 'affidavit' | 'change_order';
+export type ContractDocKind = SlotKind | 'attachment';
+
+/** One contract document as a page shows it: Tolliver's, or an uploaded PDF (with its link). */
+export interface ContractDocument {
+  kind: ContractDocKind;
+  source: 'tolliver' | 'upload';
+  /** job: chosen for this estimate; company: the company's default; signed: as signed. */
+  origin: 'job' | 'company' | 'tolliver' | 'signed';
+  name: string;
+  docId?: string;
+  fileName?: string;
+  sha256?: string;
+  size?: number;
+  url?: string;
+}
+
+export interface EstimateDocuments {
+  locked: boolean;
+  acknowledgedAt?: string;
+  agreement: ContractDocument;
+  affidavit: ContractDocument;
+  changeOrder: ContractDocument;
+  attachments: ContractDocument[];
+  companyAttachments: Array<{ docId: string; name: string; included: boolean }>;
+  companyDefaults: { agreement?: string; affidavit?: string; changeOrder?: string };
+}
+
+/** A PDF in the company's contract library (Settings → Contracts). */
+export interface LibraryDoc {
+  id: string;
+  kind: ContractDocKind;
+  name: string;
+  fileName: string;
+  size: number;
+  active: boolean;
+  archived: boolean;
+  signed: boolean;
+  uploadedAt: string;
+  url?: string;
+}
+
+/** A company's own contract PDFs: its library, and PDFs uploaded for one job. */
+export const contractDocsAPI = {
+  list: (organizationId: string): Promise<LibraryDoc[]> => run('query', api.contractDocs.list, { organizationId }),
+  uploadUrl: (organizationId: string): Promise<string> => run('mutation', api.contractDocs.uploadUrl, { organizationId }),
+  add: (args: { organizationId: string; kind: ContractDocKind; storageId: string; fileName: string; estimateId?: string }) =>
+    run('mutation', api.contractDocs.add, defined(args)),
+  setActive: (id: string) => run('mutation', api.contractDocs.setActive, { id }),
+  useTolliver: (organizationId: string, kind: SlotKind) => run('mutation', api.contractDocs.useTolliver, { organizationId, kind }),
+  remove: (id: string): Promise<{ archived: boolean }> => run('mutation', api.contractDocs.remove, { id }),
+};
+
 export const estimatesAPI = {
   async list(organizationId: string, filters?: { clientId?: string; status?: string }) {
     return run('query', api.estimates.list, defined({ organizationId, clientId: filters?.clientId, status: filters?.status }));
@@ -154,8 +207,23 @@ export const estimatesAPI = {
     return run('mutation', api.estimates.remove, { id });
   },
 
-  async sign(id: string, signature: string) {
-    return run('mutation', api.estimates.sign, { id, signature });
+  async sign(id: string, signature: string, agreedToDocuments?: boolean) {
+    return run('mutation', api.estimates.sign, defined({ id, signature, agreedToDocuments }));
+  },
+
+  /** The contract documents the estimate uses (its Contract tab). */
+  async documents(id: string): Promise<EstimateDocuments> {
+    return run('query', api.estimates.documents, { id });
+  },
+
+  /** This job's choice for one document: a PDF's id, 'tolliver', or null for the company's. */
+  async setContractDoc(id: string, kind: SlotKind, choice: string | null) {
+    return run('mutation', api.estimates.setContractDoc, { id, kind, choice });
+  },
+
+  /** Sends, or stops sending, one of the company's attachments with this job. */
+  async setAttachment(id: string, docId: string, included: boolean) {
+    return run('mutation', api.estimates.setAttachment, { id, docId, included });
   },
 
   /** A one-time URL to upload a design file to. */
