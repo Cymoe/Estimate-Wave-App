@@ -52,6 +52,7 @@ import { ActivityPage } from './pages/ActivityPage';
 import { WhoWeServe } from './pages/WhoWeServe';
 // import { ServicesPackages } from './pages/ServicesPackages'; // Removed - using line items only
 import Marketing from './pages/Marketing';
+import { PrivacyPage, TermsPage } from './pages/Legal';
 
 // Lazy load the Experience page
 const Experience = React.lazy(() => import('./pages/Experience').then(module => ({ default: module.Experience })));
@@ -197,6 +198,8 @@ function AppRoutes() {
       <Route path="/auth/test" element={<TestAuth />} />
       <Route path="/marketing/projects" element={<Projects />} />
       <Route path="/who-we-serve" element={<WhoWeServe />} />
+      <Route path="/terms" element={<TermsPage />} />
+      <Route path="/privacy" element={<PrivacyPage />} />
       
       {/* Marketing page with Pixi.js - lazy loaded */}
       <Route path="/marketing" element={

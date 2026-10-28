@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { LegalLinks } from './Legal';
 import { CheckCircle, FileText } from 'lucide-react';
 import { signoffsAPI } from '../lib/api';
 import { formatCurrency } from '../utils/format';
@@ -203,6 +204,7 @@ export function SignoffPage() {
             {view.company.email ? ` · ${view.company.email}` : ''}
           </p>
         )}
+        <LegalLinks className="text-xs text-gray-400" />
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
+import { LegalLinks } from '../../pages/Legal';
 import { CheckCircle, XCircle, Mail, Phone, MapPin, FileText, ChevronDown } from 'lucide-react';
 import { publicEstimatesAPI } from '../../lib/api';
 import { formatCurrency } from '../../utils/format';
@@ -716,6 +717,7 @@ export const ShareableEstimate: React.FC = () => {
             </p>
           </div>
         )}
+        <LegalLinks className="text-xs text-gray-400 mt-8" />
       </div>
     </div>
   );

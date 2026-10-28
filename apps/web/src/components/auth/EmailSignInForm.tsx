@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { convexConfigured, convexHost } from "../../lib/convex";
 
@@ -164,6 +164,17 @@ export const EmailSignInForm = ({ onDone }: { onDone?: () => void }) => {
           )}
         </p>
       )}
+      <p className="text-xs text-gray-500">
+        By continuing you agree to the{' '}
+        <Link to="/terms" className="underline">
+          Terms
+        </Link>{' '}
+        and{' '}
+        <Link to="/privacy" className="underline">
+          Privacy Policy
+        </Link>
+        .
+      </p>
       <button
         type="submit"
         disabled={isSubmitting}

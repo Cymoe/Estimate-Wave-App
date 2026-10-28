@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowDown, ArrowRight, Check, PhoneCall, Megaphone, Smartphone } from 'lucide-react';
 import { applicationsAPI } from '../lib/api';
 import { AuthButtons } from '../components/auth/AuthButtons';
@@ -212,9 +212,17 @@ const LeadsLanding: React.FC<{ scrollTo?: 'apply' }> = ({ scrollTo: target }) =>
       <footer className="border-t border-white/10">
         <div className="max-w-6xl mx-auto px-4 py-8 flex flex-wrap items-center justify-between gap-3 text-sm text-white/50">
           <span>Tolliver · Midland, Texas</span>
-          <a href="mailto:leads@fieldquote.app" className="hover:text-white">
-            leads@fieldquote.app
-          </a>
+          <span className="flex items-center gap-4">
+            <Link to="/terms" className="hover:text-white">
+              Terms
+            </Link>
+            <Link to="/privacy" className="hover:text-white">
+              Privacy
+            </Link>
+            <a href="mailto:leads@fieldquote.app" className="hover:text-white">
+              leads@fieldquote.app
+            </a>
+          </span>
         </div>
       </footer>
 
@@ -396,7 +404,17 @@ function ApplySection() {
             <button type="submit" disabled={state === 'sending'} className="w-full sm:w-auto bg-emerald-400 text-black font-semibold rounded-full px-6 py-3 hover:bg-emerald-300 disabled:opacity-50">
               {state === 'sending' ? 'Sending…' : 'Apply for leads'}
             </button>
-            <p className="text-xs text-white/50">By applying you agree to a call and a text from Tolliver about your account. Nothing is charged until you load a balance.</p>
+            <p className="text-xs text-white/50">
+              By applying you agree to a call and a text from Tolliver about your account. Nothing is charged until you load a balance.{' '}
+              <Link to="/terms" className="underline hover:text-white">
+                Terms
+              </Link>{' '}
+              and{' '}
+              <Link to="/privacy" className="underline hover:text-white">
+                Privacy
+              </Link>
+              .
+            </p>
           </form>
         )}
       </div>

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Bot, Check } from 'lucide-react';
 import { assistantsAPI, type AssistantRequest } from '../lib/api';
 import { input, primary, secondary } from '../components/ops/ui';
@@ -153,6 +153,17 @@ export default function ConnectAssistant() {
             {busy ? 'Connecting…' : 'Connect'}
           </button>
         </div>
+        <p className="mt-4 text-xs text-gray-500 text-center">
+          Covered by Tolliver&rsquo;s{' '}
+          <Link to="/terms" className="underline">
+            Terms
+          </Link>{' '}
+          and{' '}
+          <Link to="/privacy" className="underline">
+            Privacy Policy
+          </Link>
+          .
+        </p>
       </form>
     </Shell>
   );

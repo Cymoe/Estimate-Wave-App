@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
+import { LegalLinks } from './Legal';
 import { Check, CheckCircle2, Lock, ShieldCheck } from 'lucide-react';
 import { fundingAPI } from '../lib/api';
 import { useFundingPage } from '../lib/live';
@@ -298,6 +299,7 @@ const FundAccountPage: React.FC = () => {
             )}
           </div>
         )}
+        <LegalLinks className="text-xs text-gray-400 mt-6" />
       </div>
     </div>
   );
