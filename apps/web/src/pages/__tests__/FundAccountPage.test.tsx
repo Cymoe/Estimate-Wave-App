@@ -126,6 +126,15 @@ describe('funding page', () => {
     expect(assign).toHaveBeenCalledWith('/fund/tok?paid=1');
   });
 
+  it('with no Stripe key and a real company, says payments are not set up and offers no Pay button', async () => {
+    page = { ...open, playMoney: false, paymentsOff: true };
+    await render();
+    await act(async () => byText('Continue')!.click());
+    expect(document.body.querySelector('[data-testid="payments-off"]')?.textContent).toContain('aren’t set up yet');
+    expect(byText('Pay $10,000')).toBeUndefined();
+    expect(checkout).not.toHaveBeenCalled();
+  });
+
   it('comes back to the amount step with no charge when they leave Stripe', async () => {
     page = { ...open, amountCents: 750000, bonusCents: 37500 };
     await render('/fund/tok?cancelled=1');

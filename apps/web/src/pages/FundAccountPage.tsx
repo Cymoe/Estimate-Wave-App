@@ -15,8 +15,10 @@ interface FundingPage {
   tiers: Array<{ amountCents: number; bonusPercent: number; bonusCents: number; popular?: boolean }>;
   typicalLeadCents: number;
   paid: boolean;
-  /** No Stripe key on the deployment: Pay loads play money on the spot. */
+  /** No Stripe key on the deployment and a sample company: Pay loads play money on the spot. */
   playMoney: boolean;
+  /** Stripe isn't connected yet, so nothing can be paid. */
+  paymentsOff?: boolean;
 }
 
 type Step = 'amount' | 'pay';
@@ -265,6 +267,11 @@ const FundAccountPage: React.FC = () => {
                   </button>
                 </div>
 
+                {page.paymentsOff ? (
+                  <p role="note" className="text-center text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-3" data-testid="payments-off">
+                    Online payments aren&rsquo;t set up yet. Tolliver can add funds to your account for you: reply to your lead alert or email support.
+                  </p>
+                ) : (
                 <button
                   type="button"
                   disabled={submitting}
@@ -275,7 +282,8 @@ const FundAccountPage: React.FC = () => {
                     ? page.playMoney ? 'Adding…' : 'Opening secure checkout…'
                     : page.playMoney ? `Add ${money(amountCents)} in play money` : `Pay ${money(amountCents)}`}
                 </button>
-                {page.playMoney ? (
+                )}
+                {page.paymentsOff ? null : page.playMoney ? (
                   <p role="note" className="text-center text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3">
                     Test mode: no card is charged. Real payments switch on once Stripe is connected to the deployment.
                   </p>

@@ -3372,11 +3372,16 @@ describe("funding links and the lead feed", () => {
     expect(page).toMatchObject({ companyName: "roofer@example.com Co", status: "open", minimumCents: 500000, paid: false });
     expect(page!.tiers.map((tier) => tier.bonusCents)).toEqual([0, 37500, 100000]);
 
-    // No Stripe key on the deployment: Pay loads play money on the spot, labelled as such.
+    // No Stripe key on the deployment: a real company can't pay yet, and the page says so.
     vi.stubEnv("STRIPE_SECRET_KEY", "");
-    expect(page!.playMoney).toBe(true);
+    expect(page).toMatchObject({ playMoney: false, paymentsOff: true });
     const rivalToken = await rival.as.mutation(api.funding.createLink, { organizationId: rival.organizationId });
     const rivalBefore = await balance(rival);
+    await expect(t.action(api.funding.checkout, { token: rivalToken, amountCents: 1_000_000 })).rejects.toThrow(/aren't set up yet/);
+    expect(await balance(rival)).toBe(rivalBefore);
+    // A sample company gets play money on the spot, labelled as such, so the owner can walk the flow.
+    await t.run((ctx) => ctx.db.patch(rival.organizationId, { isSample: true }));
+    expect(await t.query(api.funding.get, { token: rivalToken })).toMatchObject({ playMoney: true, paymentsOff: false });
     expect(await t.action(api.funding.checkout, { token: rivalToken, amountCents: 1_000_000 })).toEqual({ url: `/fund/${rivalToken}?paid=1` });
     expect(await balance(rival)).toBe(rivalBefore + 1_100_000);
     expect(await t.query(api.funding.get, { token: rivalToken })).toMatchObject({ status: "confirmed", paid: true, amountCents: 1_000_000, bonusCents: 100_000 });
@@ -3393,6 +3398,7 @@ describe("funding links and the lead feed", () => {
     vi.stubEnv("STRIPE_SECRET_KEY", "");
     expect(await admin.as.query(api.funding.mode, {})).toEqual({ playMoney: true });
     expect((await rival.as.query(api.marketplace.wallet, { organizationId: rival.organizationId })).playMoney).toBe(true);
+    expect((await roofer.as.query(api.marketplace.wallet, { organizationId: roofer.organizationId })).playMoney).toBe(false);
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_x");
     vi.stubEnv("SITE_URL", "https://app.example/");
     await expect(t.action(api.funding.checkout, { token, amountCents: 499999 })).rejects.toThrow(/minimum/);

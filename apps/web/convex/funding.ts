@@ -25,11 +25,13 @@ import { dollars, pricingFor, postTransaction, typicalLeadCents } from "./lib/wa
 //   STRIPE_SECRET_KEY       set on the deployment (test mode first)
 //   STRIPE_WEBHOOK_SECRET   from the Stripe endpoint pointing at /stripe/webhook
 //
-// With no STRIPE_SECRET_KEY the page pays with play money: the amount lands
-// on the balance the moment Pay is tapped, marked as such, so the owner can
-// walk the whole flow before Stripe is connected. Setting the key turns it off.
+// With no STRIPE_SECRET_KEY, sample companies pay with play money: the amount
+// lands on the balance the moment Pay is tapped, marked as such, so the owner
+// can walk the whole flow before Stripe is connected. Real companies can't add
+// funds until the key is set. Setting the key turns play money off.
 
-const playMoney = () => !process.env.STRIPE_SECRET_KEY;
+const stripeOff = () => !process.env.STRIPE_SECRET_KEY;
+const playMoney = (organization: Doc<"organizations"> | null | undefined) => stripeOff() && Boolean(organization?.isSample);
 
 async function byToken(
   ctx: QueryCtx | MutationCtx,
@@ -73,7 +75,7 @@ export const mode = query({
   args: {},
   handler: async (ctx) => {
     await requireStaff(ctx);
-    return { playMoney: playMoney() };
+    return { playMoney: stripeOff() };
   },
 });
 
@@ -99,7 +101,9 @@ export const get = query({
         await Promise.all((organization?.leadTrades?.length ? organization.leadTrades : [undefined]).map((t) => pricingFor(ctx, t))),
       ),
       paid: request.status === "confirmed",
-      playMoney: playMoney(),
+      playMoney: playMoney(organization),
+      // Stripe isn't connected and this isn't a sample company: nothing can be paid yet.
+      paymentsOff: stripeOff() && !playMoney(organization),
     };
   },
 });
@@ -123,6 +127,7 @@ export const prepare = internalMutation({
       organizationId: request.organizationId,
       companyName: organization?.name ?? "Your company",
       bonusCents,
+      playMoney: playMoney(organization),
     };
   },
 });
@@ -146,7 +151,8 @@ export const checkout = action({
     const prepared = await ctx.runMutation(internal.funding.prepare, { token, amountCents });
     const secretKey = process.env.STRIPE_SECRET_KEY;
     if (!secretKey) {
-      // Test mode: no Stripe. Credit now and send the page where Stripe would have.
+      // No Stripe yet. A sample company gets play money on the spot; anyone else waits.
+      if (!prepared.playMoney) fail("INVALID", "Payments aren't set up yet. Tolliver can add funds to your account for you.");
       await ctx.runMutation(internal.funding.playMoneyPay, { requestId: prepared.requestId });
       return { url: `/fund/${token}?paid=1` };
     }
@@ -283,9 +289,9 @@ export const fulfill = internalMutation({
 export const playMoneyPay = internalMutation({
   args: { requestId: v.id("fundingRequests") },
   handler: async (ctx, { requestId }) => {
-    if (!playMoney()) fail("INVALID", "Play money is off: this deployment takes real payments");
     const request = await ctx.db.get(requestId);
     if (request === null) fail("NOT_FOUND", "This payment link isn't valid");
+    if (!playMoney(await ctx.db.get(request.organizationId))) fail("INVALID", "Play money is only for sample companies while Stripe is off");
     return await credit(ctx, request, { sessionId: `play-money:${requestId}`, amountCents: request.amountCents ?? 0, method: "Play money" });
   },
 });
