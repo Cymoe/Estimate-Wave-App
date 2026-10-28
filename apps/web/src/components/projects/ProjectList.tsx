@@ -7,7 +7,7 @@ import { ProjectExportService } from '../../services/ProjectExportService';
 import { formatCurrency } from '../../utils/format';
 import { TableSkeleton } from '../skeletons/TableSkeleton';
 import { PROJECT_STATUSES, formatProjectDate, projectStatusInfo } from './projectStatus';
-import { CreateProjectWizard } from './CreateProjectWizard';
+import { NewProjectDrawer } from './NewProjectDrawer';
 import { ProjectDetailsDrawer } from './ProjectDetails';
 import { ScheduleView } from './Schedule';
 
@@ -309,9 +309,9 @@ export const ProjectList: React.FC = () => {
       )}
 
       {creating && (
-        <CreateProjectWizard
+        <NewProjectDrawer
           onClose={() => navigate('/projects', { replace: true })}
-          onProjectCreated={(project) => setProjects((current) => [project, ...current])}
+          onCreated={(project) => setProjects((current) => [project, ...current])}
         />
       )}
     </div>
