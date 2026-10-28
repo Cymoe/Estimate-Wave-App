@@ -6,13 +6,13 @@
  * signed-in user and Convex checks organization membership on the server.
  */
 
-import { ConvexError } from "convex/values";
-import type { FunctionReference } from "convex/server";
-import { api } from "../../convex/_generated/api";
-import type { Id } from "../../convex/_generated/dataModel";
-import type { PlanSummary } from "../components/market/wallet";
-import { convex } from "./convex";
-import { withId } from "./withId";
+import { ConvexError } from 'convex/values';
+import type { FunctionReference } from 'convex/server';
+import { api } from '../../convex/_generated/api';
+import type { Id } from '../../convex/_generated/dataModel';
+import type { PlanSummary } from '../components/market/wallet';
+import { convex } from './convex';
+import { withId } from './withId';
 
 export { withId };
 
@@ -20,7 +20,7 @@ class APIError extends Error {
   constructor(
     message: string,
     public status: number,
-    public data?: any
+    public data?: any,
   ) {
     super(message);
     this.name = 'APIError';
@@ -35,8 +35,8 @@ const STATUS_BY_CODE: Record<string, number> = {
 };
 
 interface ConvexCaller {
-  query(ref: FunctionReference<"query">, args: any): Promise<any>;
-  mutation(ref: FunctionReference<"mutation">, args: any): Promise<any>;
+  query(ref: FunctionReference<'query'>, args: any): Promise<any>;
+  mutation(ref: FunctionReference<'mutation'>, args: any): Promise<any>;
 }
 
 let client: ConvexCaller = convex;
@@ -49,7 +49,7 @@ export function setConvexClient(next: ConvexCaller) {
 function toAPIError(error: unknown): APIError {
   if (error instanceof ConvexError) {
     const data = error.data as { code?: string; message?: string } | string;
-    const message = typeof data === 'string' ? data : data?.message ?? 'Request failed';
+    const message = typeof data === 'string' ? data : (data?.message ?? 'Request failed');
     const code = typeof data === 'string' ? undefined : data?.code;
     return new APIError(message, (code && STATUS_BY_CODE[code]) || 400, data);
   }
@@ -58,7 +58,6 @@ function toAPIError(error: unknown): APIError {
   const status = /ArgumentValidationError|Value does not match validator/.test(message) ? 400 : 500;
   return new APIError(message, status);
 }
-
 
 async function run<T = any>(kind: 'query' | 'mutation' | 'action', ref: FunctionReference<any>, args: Record<string, unknown>): Promise<T> {
   try {
@@ -199,7 +198,13 @@ export const contractDocsAPI = {
 };
 
 export type InvoiceKind = 'deposit' | 'balance' | 'other';
-export interface InvoicePayment { _id: string; amount: number; method: string; paidAt: string; note?: string }
+export interface InvoicePayment {
+  _id: string;
+  amount: number;
+  method: string;
+  paidAt: string;
+  note?: string;
+}
 export interface InvoiceView {
   id: string;
   number: string;
@@ -215,7 +220,13 @@ export interface InvoiceView {
   paidDate?: string;
   payments: InvoicePayment[];
 }
-export interface PaymentSummary { contract: number; invoiced: number; paid: number; due: number; toInvoice: number }
+export interface PaymentSummary {
+  contract: number;
+  invoiced: number;
+  paid: number;
+  due: number;
+  toInvoice: number;
+}
 export interface EstimatePayments {
   signed: boolean;
   invoices: InvoiceView[];
@@ -223,7 +234,11 @@ export interface EstimatePayments {
   depositPercent: number;
   methods: string[];
 }
-export interface PaymentSettings { depositPercent: number; payLink?: string; instructions?: string }
+export interface PaymentSettings {
+  depositPercent: number;
+  payLink?: string;
+  instructions?: string;
+}
 
 /** Getting paid for a signed estimate: deposits, the balance and payments recorded by hand. */
 export const invoicesAPI = {
@@ -256,19 +271,41 @@ export const followUpsAPI = {
   setForEstimate: (estimateId: string, on: boolean) => run('mutation', api.followUps.setForEstimate, { estimateId, on }),
 };
 
-export interface JobPhoto { id: string; url?: string; fileName: string; caption?: string; createdAt: string; estimateId?: string; projectId?: string; from?: string }
+export interface JobPhoto {
+  id: string;
+  url?: string;
+  fileName: string;
+  caption?: string;
+  createdAt: string;
+  estimateId?: string;
+  projectId?: string;
+  from?: string;
+}
 
 /** Job photos on an estimate or a project. */
 export const photosAPI = {
   list: (target: { estimateId?: string; projectId?: string }): Promise<JobPhoto[]> => run('query', api.photos.list, defined(target)),
   uploadUrl: (organizationId: string): Promise<string> => run('mutation', api.photos.uploadUrl, { organizationId }),
-  add: (args: { storageId: string; fileName: string; estimateId?: string; projectId?: string; caption?: string }) => run('mutation', api.photos.add, defined(args)),
+  add: (args: { storageId: string; fileName: string; estimateId?: string; projectId?: string; caption?: string }) =>
+    run('mutation', api.photos.add, defined(args)),
   setCaption: (id: string, caption: string) => run('mutation', api.photos.setCaption, { id, caption }),
   remove: (id: string) => run('mutation', api.photos.remove, { id }),
 };
 
-export interface CrewMember { id: string; name: string; phone?: string; email?: string; trade?: string; archived: boolean }
-export interface CrewInput { name: string; phone?: string; email?: string; trade?: string }
+export interface CrewMember {
+  id: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  trade?: string;
+  archived: boolean;
+}
+export interface CrewInput {
+  name: string;
+  phone?: string;
+  email?: string;
+  trade?: string;
+}
 
 /** The people a company puts on its jobs. */
 export const crewAPI = {
@@ -290,12 +327,22 @@ export interface ProjectTask {
   crew: Array<{ id: string; name: string; phone?: string; trade?: string }>;
   order: number;
 }
-export interface ScheduledTask extends ProjectTask { projectName: string; address?: string }
+export interface ScheduledTask extends ProjectTask {
+  projectName: string;
+  address?: string;
+}
 export interface Schedule {
   tasks: ScheduledTask[];
   projects: Array<{ id: string; name: string; status: string; startDate: string; endDate?: string }>;
 }
-export interface TaskInput { title?: string; notes?: string; startDate?: string | null; endDate?: string | null; crewIds?: string[]; done?: boolean }
+export interface TaskInput {
+  title?: string;
+  notes?: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  crewIds?: string[];
+  done?: boolean;
+}
 
 /** The work on a project, and the company's schedule across projects. */
 export const tasksAPI = {
@@ -304,6 +351,34 @@ export const tasksAPI = {
   update: (id: string, data: TaskInput) => run('mutation', api.tasks.update, defined({ id, ...data })),
   remove: (id: string) => run('mutation', api.tasks.remove, { id }),
   schedule: (organizationId: string, from: string, to: string): Promise<Schedule> => run('query', api.tasks.schedule, { organizationId, from, to }),
+};
+
+/** A kind of job saved from a project: its estimate lines, tasks and length. */
+export interface ProjectTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  category?: string;
+  days?: number;
+  total: number;
+  itemCount: number;
+  taskCount: number;
+  usageCount: number;
+  updatedAt: string;
+}
+export const templatesAPI = {
+  list: (organizationId: string): Promise<ProjectTemplate[]> => run('query', api.projectTemplates.list, { organizationId }),
+  saveFromProject: (projectId: string, name: string, description?: string): Promise<ProjectTemplate> =>
+    run('mutation', api.projectTemplates.saveFromProject, defined({ projectId, name, description })),
+  update: (id: string, data: { name?: string; description?: string | null; days?: number | null }): Promise<ProjectTemplate> =>
+    run('mutation', api.projectTemplates.update, { id, data }),
+  remove: (id: string) => run('mutation', api.projectTemplates.remove, { id }),
+  /** The project, its draft estimate (if the template has lines) and its tasks, in one go. */
+  start: (
+    id: string,
+    data: { name: string; clientId?: string; startDate?: string; endDate?: string; budget?: number; description?: string },
+  ): Promise<{ project: Record<string, unknown> & { _id: string }; estimateId: string | null }> =>
+    run('mutation', api.projectTemplates.start, { id, data: defined(data) }),
 };
 
 export type SignoffKind = 'change_order' | 'affidavit';
@@ -445,12 +520,16 @@ export const projectsAPI = {
 // Activity Logs API
 export const activityLogsAPI = {
   async list(organizationId: string, filters?: { userId?: string; resourceType?: string; limit?: number }) {
-    return run('query', api.activityLogs.list, defined({
-      organizationId,
-      userId: filters?.userId,
-      resourceType: filters?.resourceType,
-      limit: filters?.limit,
-    }));
+    return run(
+      'query',
+      api.activityLogs.list,
+      defined({
+        organizationId,
+        userId: filters?.userId,
+        resourceType: filters?.resourceType,
+        limit: filters?.limit,
+      }),
+    );
   },
 
   async getById(id: string) {
@@ -464,21 +543,28 @@ export const activityLogsAPI = {
 
 // Line Items (Price Book) API 🎯
 export const lineItemsAPI = {
-  async list(organizationId: string, filters?: {
-    costCodeId?: string;
-    category?: string;
-    search?: string;
-    isActive?: boolean;
-    includeShared?: boolean;
-  }) {
-    return run('query', api.lineItems.list, defined({
-      organizationId,
-      costCodeId: filters?.costCodeId,
-      category: filters?.category,
-      search: filters?.search,
-      isActive: filters?.isActive,
-      includeShared: filters?.includeShared,
-    }));
+  async list(
+    organizationId: string,
+    filters?: {
+      costCodeId?: string;
+      category?: string;
+      search?: string;
+      isActive?: boolean;
+      includeShared?: boolean;
+    },
+  ) {
+    return run(
+      'query',
+      api.lineItems.list,
+      defined({
+        organizationId,
+        costCodeId: filters?.costCodeId,
+        category: filters?.category,
+        search: filters?.search,
+        isActive: filters?.isActive,
+        includeShared: filters?.includeShared,
+      }),
+    );
   },
 
   async getById(id: string) {
@@ -504,16 +590,16 @@ export const lineItemsAPI = {
 
 // Cost Codes API
 export const costCodesAPI = {
-  async list(filters?: {
-    industryId?: string;
-    category?: string;
-    isActive?: boolean;
-  }) {
-    return run('query', api.costCodes.list, defined({
-      industryId: filters?.industryId,
-      category: filters?.category,
-      isActive: filters?.isActive,
-    }));
+  async list(filters?: { industryId?: string; category?: string; isActive?: boolean }) {
+    return run(
+      'query',
+      api.costCodes.list,
+      defined({
+        industryId: filters?.industryId,
+        category: filters?.category,
+        isActive: filters?.isActive,
+      }),
+    );
   },
 
   async getById(id: string) {
@@ -593,8 +679,7 @@ export const leadsAPI = {
   },
 
   /** A call or text (counted), or a note typed on the card (stamped with the day). */
-  logContact: (id: string, kind: 'call' | 'text' | 'note', note?: string) =>
-    run('mutation', api.leads.logContact, defined({ id, kind, note })),
+  logContact: (id: string, kind: 'call' | 'text' | 'note', note?: string) => run('mutation', api.leads.logContact, defined({ id, kind, note })),
   /** "Got it, calling now" on a lead Tolliver sent. Returns when it was acknowledged. */
   acknowledge: (id: string): Promise<string> => run('mutation', api.leads.acknowledge, { id }),
   /** Which of your companies a lead is in (for an alert link opened under another company), or null. */
@@ -657,8 +742,7 @@ export const marketplaceAPI = {
   companies: () => run('query', api.marketplace.companiesOverview, {}),
   createCompany: (data: any) => run('mutation', api.marketplace.createCompany, { data }),
   removeCompany: (organizationId: string) => run('mutation', api.marketplace.removeCompany, { organizationId }),
-  setCompanyOwner: (organizationId: string, email: string) =>
-    run('mutation', api.marketplace.setCompanyOwner, { organizationId, email }),
+  setCompanyOwner: (organizationId: string, email: string) => run('mutation', api.marketplace.setCompanyOwner, { organizationId, email }),
   setCompanyTrades: (organizationId: string, leadTrades: string[]) =>
     run('mutation', api.marketplace.setCompanyTrades, { organizationId, leadTrades }),
   setPlan: (
@@ -682,18 +766,17 @@ export const walletAPI = {
   feed: (organizationId: string) => run('query', api.marketplace.feed, { organizationId }),
   buy: (leadId: string, organizationId: string) => run('mutation', api.marketplace.buy, { leadId, organizationId }),
   /** A standing offer: buys the lead on its own once its price drops to `max` dollars. */
-  placeBid: (leadId: string, organizationId: string, max: number) =>
-    run('mutation', api.marketplace.placeBid, { leadId, organizationId, max }),
+  placeBid: (leadId: string, organizationId: string, max: number) => run('mutation', api.marketplace.placeBid, { leadId, organizationId, max }),
   cancelBid: (bidId: string) => run('mutation', api.marketplace.cancelBid, { bidId }),
   bids: (organizationId: string) => run('query', api.marketplace.bids, { organizationId }),
-  requestCredit: (leadId: string, reason: string, note?: string) =>
-    run('mutation', api.marketplace.requestCredit, defined({ leadId, reason, note })),
+  requestCredit: (leadId: string, reason: string, note?: string) => run('mutation', api.marketplace.requestCredit, defined({ leadId, reason, note })),
   /** Older leads: Marketplace leads nobody bought in a week, for companies on the plan. */
   olderLeads: (organizationId: string) => run('query', api.marketplace.olderLeads, { organizationId }),
   claim: (leadId: string, organizationId: string) => run('mutation', api.marketplace.claim, { leadId, organizationId }),
   /** The monthly plan, paid from the lead balance. */
   ensurePlan: (organizationId: string) => run('mutation', api.marketplace.ensurePlan, { organizationId }),
-  startPlan: (organizationId: string): Promise<PlanSummary & { chargedCents: number }> => run('mutation', api.marketplace.startPlan, { organizationId }),
+  startPlan: (organizationId: string): Promise<PlanSummary & { chargedCents: number }> =>
+    run('mutation', api.marketplace.startPlan, { organizationId }),
   cancelPlan: (organizationId: string) => run('mutation', api.marketplace.cancelPlan, { organizationId }),
 };
 
@@ -765,22 +848,46 @@ export const permitsAPI = {
 export const callsAPI = {
   tally: (days?: number) => run('query', api.calls.tally, defined({ days })),
   check: (phone: string) => run('query', api.calls.check, { phone }),
-  log: (args: { phone: string; outcome: string; address: string; parcelId?: string; owner?: string; trade?: string; note?: string; callbackAt?: string }) =>
-    run('mutation', api.calls.log, defined(args)),
-  list: (args: { kind: 'trade_permits' | 'recent_buyers' | 'street'; trade?: string; street?: string }) => run('query', api.calls.list, defined(args)),
+  log: (args: {
+    phone: string;
+    outcome: string;
+    address: string;
+    parcelId?: string;
+    owner?: string;
+    trade?: string;
+    note?: string;
+    callbackAt?: string;
+  }) => run('mutation', api.calls.log, defined(args)),
+  list: (args: { kind: 'trade_permits' | 'recent_buyers' | 'street'; trade?: string; street?: string }) =>
+    run('query', api.calls.list, defined(args)),
   myDay: () => run('query', api.calls.myDay, {}),
   takeLead: (args: {
-    parcelId?: string; phone: string; name: string; address: string; zip?: string; jobType: string;
-    scope?: string; timeline?: string; notes?: string; isOwner: boolean; consented: boolean;
+    parcelId?: string;
+    phone: string;
+    name: string;
+    address: string;
+    zip?: string;
+    jobType: string;
+    scope?: string;
+    timeline?: string;
+    notes?: string;
+    isOwner: boolean;
+    consented: boolean;
   }) => run('mutation', api.calls.takeLead, defined(args)),
 };
 
 /** Midland's monthly courthouse foreclosure auction, kept by hand in Ops. */
 export const foreclosuresAPI = {
   sale: (saleDate?: string) => run('query', api.foreclosures.sale, defined({ saleDate })),
-  addMany: (saleDate: string, kind: 'mortgage' | 'tax', addresses: string) => run('mutation', api.foreclosures.addMany, { saleDate, kind, addresses }),
-  update: (args: { id: string; status?: string; buyer?: { name: string; company: boolean; phone?: string }; salePriceCents?: number; note?: string }) =>
-    run('mutation', api.foreclosures.update, defined(args)),
+  addMany: (saleDate: string, kind: 'mortgage' | 'tax', addresses: string) =>
+    run('mutation', api.foreclosures.addMany, { saleDate, kind, addresses }),
+  update: (args: {
+    id: string;
+    status?: string;
+    buyer?: { name: string; company: boolean; phone?: string };
+    salePriceCents?: number;
+    note?: string;
+  }) => run('mutation', api.foreclosures.update, defined(args)),
   remove: (id: string) => run('mutation', api.foreclosures.remove, { id }),
 };
 
@@ -789,7 +896,11 @@ export const sellersAPI = {
   sellers: (args: { lists?: string[]; minLists?: number; limit?: number }) => run('query', api.signals.sellers, defined(args)),
   /** One page of every home matching the filters, for the CSV; read until isDone. */
   exportPage: (args: { lists?: string[]; minLists?: number; cursor: string | null }) =>
-    run('query', api.signals.sellersExport, defined({ lists: args.lists, minLists: args.minLists, paginationOpts: { numItems: 400, cursor: args.cursor } })),
+    run(
+      'query',
+      api.signals.sellersExport,
+      defined({ lists: args.lists, minLists: args.minLists, paginationOpts: { numItems: 400, cursor: args.cursor } }),
+    ),
   home: (parcelId: string) => run('query', api.signals.home, { parcelId }),
   status: () => run('query', api.signals.status, {}),
   syncNow: () => run('action', api.signals.syncNow, {}),
@@ -864,8 +975,7 @@ export type AssistantConnection = {
 
 /** Claude and ChatGPT connected to Tolliver: approving a connection and managing them in Settings. */
 export const assistantsAPI = {
-  request: (clientId: string, redirectUri: string): Promise<AssistantRequest> =>
-    run('query', api.oauth.request, { clientId, redirectUri }),
+  request: (clientId: string, redirectUri: string): Promise<AssistantRequest> => run('query', api.oauth.request, { clientId, redirectUri }),
   approve: (args: {
     clientId: string;
     redirectUri: string;
@@ -878,8 +988,7 @@ export const assistantsAPI = {
   }): Promise<string> => run('mutation', api.oauth.approve, defined(args)),
   connections: (organizationId: string): Promise<{ canSpend: boolean; connections: AssistantConnection[] }> =>
     run('query', api.oauth.myConnections, { organizationId }),
-  update: (id: string, spending: boolean, dailyCap?: number) =>
-    run('mutation', api.oauth.updateConnection, defined({ id, spending, dailyCap })),
+  update: (id: string, spending: boolean, dailyCap?: number) => run('mutation', api.oauth.updateConnection, defined({ id, spending, dailyCap })),
   disconnect: (id: string) => run('mutation', api.oauth.disconnect, { id }),
 };
 

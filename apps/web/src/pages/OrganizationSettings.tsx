@@ -1,12 +1,13 @@
 import React, { useContext, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Building2, Hammer, Users, Bell, Shield, Bot, FileText, Wallet } from 'lucide-react';
+import { ArrowLeft, Building2, Hammer, Users, Bell, Shield, Bot, FileText, Wallet, LayoutTemplate } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { BusinessDetailsForm } from '../components/settings/BusinessDetailsForm';
 import { TradesEditor } from '../components/settings/TradesEditor';
 import { NotificationsSettings } from '../components/settings/NotificationsSettings';
 import { ConnectedAssistants } from '../components/settings/ConnectedAssistants';
 import { ContractsSettings } from '../components/settings/ContractsSettings';
+import { TemplatesSettings } from '../components/settings/TemplatesSettings';
 import { PaymentsSettings } from '../components/settings/PaymentsSettings';
 import { ClientRemindersSettings } from '../components/settings/ClientRemindersSettings';
 
@@ -20,6 +21,7 @@ export default function OrganizationSettings() {
   const tabs = [
     { id: 'general', label: 'General', icon: Building2 },
     { id: 'trades', label: 'Trades', icon: Hammer },
+    { id: 'templates', label: 'Templates', icon: LayoutTemplate },
     { id: 'contracts', label: 'Contracts', icon: FileText },
     { id: 'payments', label: 'Payments', icon: Wallet },
     { id: 'team', label: 'Team & Permissions', icon: Users },
@@ -42,10 +44,7 @@ export default function OrganizationSettings() {
       <div className="bg-[#0A0A0A] border-b border-[#333333]">
         <div className="px-6 py-4">
           <div className="flex items-center gap-4">
-            <button
-              onClick={() => navigate(-1)}
-              className="p-2 hover:bg-[#252525] rounded-lg transition-colors"
-            >
+            <button onClick={() => navigate(-1)} className="p-2 hover:bg-[#252525] rounded-lg transition-colors">
               <ArrowLeft className="w-5 h-5 text-gray-400" />
             </button>
             <div>
@@ -88,9 +87,7 @@ export default function OrganizationSettings() {
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
-                    activeTab === tab.id
-                      ? 'bg-[#252525] text-white'
-                      : 'text-gray-400 hover:bg-[#1A1A1A] hover:text-white'
+                    activeTab === tab.id ? 'bg-[#252525] text-white' : 'text-gray-400 hover:bg-[#1A1A1A] hover:text-white'
                   }`}
                 >
                   <Icon className="w-5 h-5" />
@@ -114,11 +111,17 @@ export default function OrganizationSettings() {
               </div>
             )}
 
-
             {activeTab === 'trades' && (
               <div className="bg-[#1A1A1A] rounded-lg p-6">
                 <h2 className="text-lg font-semibold text-white mb-1">What work do you do?</h2>
                 <TradesEditor organizationId={selectedOrg.id} />
+              </div>
+            )}
+
+            {activeTab === 'templates' && (
+              <div className="bg-[#1A1A1A] rounded-lg p-6">
+                <h2 className="text-lg font-semibold text-white mb-3">Project templates</h2>
+                <TemplatesSettings organizationId={selectedOrg.id} />
               </div>
             )}
 

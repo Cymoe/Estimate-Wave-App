@@ -1094,6 +1094,31 @@ export default defineSchema({
     .index("by_organization", ["organizationId"])
     .index("by_client", ["clientId"]),
 
+  // A kind of job the company does, saved from a real project: the estimate
+  // lines, the tasks (as days from the start) and how long it takes. Starting
+  // a project from one fills all of that in (convex/projectTemplates.ts).
+  projectTemplates: defineTable({
+    organizationId: v.id("organizations"),
+    userId: v.id("users"),
+    name: v.string(),
+    description: v.optional(v.string()),
+    category: v.optional(v.string()),
+    // Typical length in days, start to end.
+    days: v.optional(v.number()),
+    items: v.array(documentItem),
+    tasks: v.array(
+      v.object({
+        title: v.string(),
+        notes: v.optional(v.string()),
+        // Days after the project's start the task begins, and how many it runs.
+        startOffset: v.optional(v.number()),
+        days: v.optional(v.number()),
+      }),
+    ),
+    usageCount: v.number(),
+    ...timestamps,
+  }).index("by_organization", ["organizationId"]),
+
   // A change order or the affidavit of completion, sent to the client for
   // their signature after the estimate was signed (convex/signoffs.ts).
   signoffs: defineTable({

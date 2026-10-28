@@ -21,7 +21,11 @@ const createExpense = jest.fn(async (e: Record<string, unknown>) => {
   expenses = [row, ...expenses];
   return row;
 });
-const updateProject = jest.fn(async (_id: string, patch: Record<string, unknown>) => ({ ...project, ...patch, budget: Number(patch.budget ?? project.budget) }));
+const updateProject = jest.fn(async (_id: string, patch: Record<string, unknown>) => ({
+  ...project,
+  ...patch,
+  budget: Number(patch.budget ?? project.budget),
+}));
 
 jest.mock('../../../services/ProjectService', () => ({
   ProjectService: {
@@ -54,6 +58,7 @@ jest.mock('../../../services/ExpenseService', () => {
     },
   };
 });
+const saveTemplate = jest.fn(async (_projectId: string, name: string) => ({ id: 'tpl1', name }));
 jest.mock('../../../lib/api', () => ({
   invoicesAPI: { forProject: jest.fn(async () => ({ invoiced: 900, paid: 900, due: 0 })) },
   tasksAPI: {
@@ -65,6 +70,7 @@ jest.mock('../../../lib/api', () => ({
   crewAPI: { list: jest.fn(async () => []) },
   costCodesAPI: { list: jest.fn(async () => []) },
   industriesAPI: { forOrganization: jest.fn(async () => []) },
+  templatesAPI: { saveFromProject: (...args: unknown[]) => saveTemplate(...(args as [string, string])) },
 }));
 jest.mock('../../layouts/DashboardLayout', () => {
   const { createContext } = jest.requireActual('react');
@@ -121,7 +127,13 @@ describe('Project drawer', () => {
     expect(dialog.className).toContain('md:w-[720px]');
     expect(dialog.querySelector('h1')!.textContent).toBe('Kitchen trim');
     expect(dialog.textContent).toContain('Ann Miller • Oct 1, 2026 – Jan 1, 2099');
-    expect(Array.from(dialog.querySelectorAll('[role="tab"]')).map((t) => t.textContent)).toEqual(['Overview', 'Tasks1', 'Estimates1', 'Expenses2', 'Photos']);
+    expect(Array.from(dialog.querySelectorAll('[role="tab"]')).map((t) => t.textContent)).toEqual([
+      'Overview',
+      'Tasks1',
+      'Estimates1',
+      'Expenses2',
+      'Photos',
+    ]);
     // The next open tasks, with their crew and day.
     const nextUp = dialog.querySelector('[data-testid="next-up"]')!.textContent;
     expect(nextUp).toContain('Tear-off');
@@ -199,6 +211,17 @@ describe('Project drawer', () => {
     expect(list.textContent).toContain('EST-1');
     expect(list.textContent).toContain('accepted');
     expect(list.textContent).toContain('$3,000.00');
+  });
+
+  it('saves the project as a template from the ⋯ menu, and says where to find it', async () => {
+    expenses = [];
+    await render();
+    jest.spyOn(window, 'prompt').mockReturnValue(' Re-roof ');
+    await act(async () => (document.body.querySelector('button[aria-label="More actions"]') as HTMLButtonElement).click());
+    await click('Save as template');
+    await act(async () => {});
+    expect(saveTemplate).toHaveBeenCalledWith('p1', 'Re-roof');
+    expect(document.body.textContent).toContain('Saved “Re-roof”. Pick it under Template when starting a project.');
   });
 
   it('closes with the X', async () => {

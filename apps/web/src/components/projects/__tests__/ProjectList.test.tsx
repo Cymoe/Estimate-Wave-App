@@ -18,11 +18,16 @@ jest.mock('../../../services/ProjectService', () => ({
     updateStatus: jest.fn(),
     delete: jest.fn(),
   },
+  toProject: (doc: Record<string, unknown>) => ({ id: doc._id, name: doc.name, status: 'planned' }),
 }));
 jest.mock('../../../services/ClientService', () => ({
   ClientService: { list: jest.fn(async () => [{ id: 'c1', name: 'Ann Miller', phone: '432-555-0100' }]) },
 }));
 const createEstimate = jest.fn(async (e: Record<string, unknown>) => ({ ...e, id: 'e-new' }));
+const startTemplate = jest.fn(async (_id: string, data: Record<string, unknown>) => ({
+  project: { _id: 'p-new', name: data.name },
+  estimateId: 'e-new',
+}));
 jest.mock('../../../services/EstimateService', () => ({
   EstimateService: { getByProject: jest.fn(async () => []), create: (e: Record<string, unknown>) => createEstimate(e) },
 }));
@@ -31,21 +36,22 @@ jest.mock('../../../lib/api', () => ({
     forOrganization: jest.fn(async () => [{ id: 'roofing', slug: 'roofing', name: 'Roofing' }]),
     list: jest.fn(async () => []),
   },
-  lineItemsAPI: {
+  templatesAPI: {
     list: jest.fn(async () => [
       {
-        _id: 'li1',
-        name: 'Shingle Roof Package',
-        description: 'Tear-off, underlayment and architectural shingles',
-        is_package: true,
-        is_active: true,
-        red_line_price: 9000,
-        cap_price: 12000,
-        estimated_hours: 24,
-        cost_code: { code: 'RF200', industry_id: 'roofing' },
+        id: 'tpl1',
+        name: 'Re-roof, 20 squares',
+        description: 'Tear-off and architectural shingles',
+        category: 'Roof Replacement',
+        days: 5,
+        total: 8100,
+        itemCount: 2,
+        taskCount: 3,
+        usageCount: 1,
+        updatedAt: '2026-10-01',
       },
-      { _id: 'li2', name: 'Nails', is_package: false, is_active: true, base_price: 10, cost_code: { industry_id: 'roofing' } },
     ]),
+    start: (...args: unknown[]) => startTemplate(...(args as [string, Record<string, unknown>])),
   },
 }));
 jest.mock('../../clients/NewClientModal', () => ({ NewClientModal: () => null }));
@@ -89,6 +95,7 @@ describe('ProjectList', () => {
     document.body.innerHTML = '';
     create.mockClear();
     createEstimate.mockClear();
+    startTemplate.mockClear();
     update.mockClear();
   });
 
@@ -154,44 +161,31 @@ describe('ProjectList', () => {
     expect(document.body.textContent).toContain('project page');
   });
 
-  it('a price-book package template names the project, sets the budget and end date, and creates a draft estimate holding it', async () => {
+  it('a saved template names the project, fills budget, end date and description, and starts it with its lines and tasks', async () => {
     rows = [];
     await render('/projects?new=1');
     const options = Array.from(document.body.querySelectorAll('select#new-project-template option')).map((o) => o.textContent);
-    expect(options).toContain('Shingle Roof Package · $12,000.00');
-    expect(options).not.toContain(expect.stringContaining('Nails'));
+    expect(options).toContain('Re-roof, 20 squares · $8,100.00');
     await type('Start date', '2026-11-02');
-    await select('new-project-template', 'li1');
+    await select('new-project-template', 'tpl1');
     await select('new-project-client', 'c1');
-    expect((document.body.querySelector('[aria-label="Project name"]') as HTMLInputElement).value).toBe('Shingle Roof Package – Ann Miller');
-    expect((document.body.querySelector('[aria-label="Budget"]') as HTMLInputElement).value).toBe('12000');
-    expect(document.body.textContent).toContain('Creates a draft estimate with this package');
+    const value = (label: string) => (document.body.querySelector(`[aria-label="${label}"]`) as HTMLInputElement).value;
+    expect(value('Project name')).toBe('Re-roof, 20 squares – Ann Miller');
+    expect(value('Budget')).toBe('8100');
+    expect(value('End date')).toBe('2026-11-06');
+    expect(value('Description')).toBe('Tear-off and architectural shingles');
+    expect(document.body.textContent).toContain('2 estimate lines · 3 tasks · 5 days');
+    expect(document.body.textContent).toContain('Creates the project, its draft estimate and its tasks.');
     await click('Create project');
-    expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: 'Shingle Roof Package – Ann Miller',
-        client_id: 'c1',
-        budget: 12000,
-        end_date: '2026-11-05',
-        category: 'Roofing',
-      }),
-    );
-    expect(createEstimate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        project_id: 'p-new',
-        client_id: 'c1',
-        total_amount: 12000,
-        items: [
-          expect.objectContaining({
-            product_id: 'li1',
-            description: 'Shingle Roof Package',
-            unit_price: 12000,
-            red_line_price: 9000,
-            cap_price: 12000,
-          }),
-        ],
-      }),
-    );
+    expect(startTemplate).toHaveBeenCalledWith('tpl1', {
+      name: 'Re-roof, 20 squares – Ann Miller',
+      clientId: 'c1',
+      startDate: '2026-11-02',
+      endDate: '2026-11-06',
+      budget: 8100,
+      description: 'Tear-off and architectural shingles',
+    });
+    expect(create).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain('project page');
   });
 
@@ -206,7 +200,7 @@ describe('ProjectList', () => {
     expect((document.body.querySelector('[aria-label="Project name"]') as HTMLInputElement).value).toBe('The Miller place');
     await click('Create project');
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: 'The Miller place', category: 'Roof Replacement', budget: undefined }));
-    expect(createEstimate).not.toHaveBeenCalled();
+    expect(startTemplate).not.toHaveBeenCalled();
   });
 
   it('a project needs a name, and the sheet says so instead of creating it', async () => {

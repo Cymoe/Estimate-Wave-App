@@ -1,19 +1,20 @@
 import React, { useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { ArrowUpRight, CalendarCheck, CalendarDays, DollarSign, Mail, MoreVertical, Phone, Trash2, User, X } from 'lucide-react';
+import { ArrowUpRight, CalendarCheck, CalendarDays, DollarSign, LayoutTemplate, Mail, MoreVertical, Phone, Trash2, User, X } from 'lucide-react';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { ProjectService, type Project, type ProjectStatus } from '../../services/ProjectService';
 import { ClientService, type Client } from '../../services/ClientService';
 import { ExpenseService, paymentState, summarize, type Expense } from '../../services/ExpenseService';
 import { EstimateService, type Estimate } from '../../services/EstimateService';
 import { formatCurrency } from '../../utils/format';
-import { invoicesAPI, tasksAPI, type ProjectTask } from '../../lib/api';
+import { invoicesAPI, tasksAPI, templatesAPI, type ProjectTask } from '../../lib/api';
 import { ExpensesList } from '../expenses/ExpensesList';
 import { JobPhotos } from '../common/JobPhotos';
 import { ProjectTasks } from './ProjectTasks';
 import { taskDays } from './taskDates';
 import { NoteDate, NoteRow, SaveStatus, noteInput, noteSelect, noteTextarea, useNoteFields, useSlideIn } from '../common/StructuredNote';
+import { Toast, useToast } from '../common/Notice';
 import { PROJECT_STATUSES, formatProjectDate, projectStatusInfo } from './projectStatus';
 
 type TabType = 'overview' | 'tasks' | 'estimates' | 'expenses' | 'photos';
@@ -66,7 +67,12 @@ const PAID_PILL: Record<string, string> = {
 };
 
 /** Where the money goes: costs by type, the budget, and the latest costs. */
-const CostsOverview: React.FC<{ expenses: Expense[]; budget: number; onOpen: () => void; onAdd: () => void }> = ({ expenses, budget, onOpen, onAdd }) => {
+const CostsOverview: React.FC<{ expenses: Expense[]; budget: number; onOpen: () => void; onAdd: () => void }> = ({
+  expenses,
+  budget,
+  onOpen,
+  onAdd,
+}) => {
   const example = expenses.length === 0;
   const rows = example ? EXAMPLE_COSTS : byCategory(expenses);
   const total = rows.reduce((sum, r) => sum + r.amount, 0);
@@ -116,7 +122,10 @@ const CostsOverview: React.FC<{ expenses: Expense[]; budget: number; onOpen: () 
                 </span>
               </div>
               <div className="h-1.5 bg-[#262626]">
-                <div className={`h-1.5 ${left >= 0 ? 'bg-[#336699]' : 'bg-red-400'}`} style={{ width: `${Math.min(100, Math.round((total / budget) * 100))}%` }} />
+                <div
+                  className={`h-1.5 ${left >= 0 ? 'bg-[#336699]' : 'bg-red-400'}`}
+                  style={{ width: `${Math.min(100, Math.round((total / budget) * 100))}%` }}
+                />
               </div>
             </div>
           )
@@ -167,7 +176,9 @@ const ProjectFields: React.FC<{ project: Project; organizationId: string; onSave
   );
 
   useEffect(() => {
-    ClientService.list(organizationId).then(setClients).catch(() => setClients([]));
+    ClientService.list(organizationId)
+      .then(setClients)
+      .catch(() => setClients([]));
   }, [organizationId]);
 
   return (
@@ -193,7 +204,12 @@ const ProjectFields: React.FC<{ project: Project; organizationId: string; onSave
             ))}
           </select>
           {draft.client_id && (
-            <button type="button" onClick={() => navigate(`/clients/${draft.client_id}`)} className="p-1 text-gray-500 hover:text-white" aria-label="Open client">
+            <button
+              type="button"
+              onClick={() => navigate(`/clients/${draft.client_id}`)}
+              className="p-1 text-gray-500 hover:text-white"
+              aria-label="Open client"
+            >
               <ArrowUpRight className="w-4 h-4" />
             </button>
           )}
@@ -259,6 +275,7 @@ export const ProjectPanel: React.FC<{
   const [collected, setCollected] = useState<{ paid: number; due: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const { toast, show: showToast } = useToast();
   const [tasks, setTasks] = useState<ProjectTask[] | null>(null);
   const [openTasks, setOpenTasks] = useState<number | undefined>(undefined);
 
@@ -318,7 +335,9 @@ export const ProjectPanel: React.FC<{
       setClient(null);
       return;
     }
-    ClientService.getById(project.client_id).then(setClient).catch(() => setClient(null));
+    ClientService.getById(project.client_id)
+      .then(setClient)
+      .catch(() => setClient(null));
   }, [project?.client_id]);
 
   const saved = (next: Project) => {
@@ -335,6 +354,23 @@ export const ProjectPanel: React.FC<{
     } catch (err) {
       setProject(before);
       alert(err instanceof Error ? err.message : 'Could not change the status');
+    }
+  };
+
+  /** Keeps this job's estimate lines, tasks and length for the next one like it. */
+  const saveAsTemplate = async () => {
+    setShowMoreMenu(false);
+    if (!project?.id) return;
+    const name = window.prompt(
+      'Name this template. It keeps the estimate lines, the tasks and how long the job takes.',
+      project.category || project.name,
+    );
+    if (!name?.trim()) return;
+    try {
+      const template = await templatesAPI.saveFromProject(project.id, name.trim());
+      showToast(`Saved “${template.name}”. Pick it under Template when starting a project.`);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not save the template');
     }
   };
 
@@ -445,6 +481,10 @@ export const ProjectPanel: React.FC<{
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowMoreMenu(false)} />
                   <div className="absolute right-0 top-full mt-1 w-52 bg-[#1E1E1E] border border-[#333333] shadow-lg z-50 py-1">
+                    <button onClick={saveAsTemplate} className="w-full flex items-center px-3 py-2.5 text-sm text-gray-200 hover:bg-[#333333]">
+                      <LayoutTemplate className="w-4 h-4 mr-3" />
+                      Save as template
+                    </button>
                     <button onClick={deleteProject} className="w-full flex items-center px-3 py-2.5 text-sm text-red-400 hover:bg-[#333333]">
                       <Trash2 className="w-4 h-4 mr-3" />
                       Delete project
@@ -466,7 +506,9 @@ export const ProjectPanel: React.FC<{
               aria-selected={activeTab === tab.id}
               onClick={() => (tab.id === 'expenses' ? openExpenses(false) : setActiveTab(tab.id))}
               className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 ${
-                activeTab === tab.id ? 'text-white border-[#336699] bg-[#336699]/10' : 'text-gray-400 border-transparent hover:text-white hover:bg-[#2a2a2a]'
+                activeTab === tab.id
+                  ? 'text-white border-[#336699] bg-[#336699]/10'
+                  : 'text-gray-400 border-transparent hover:text-white hover:bg-[#2a2a2a]'
               }`}
             >
               {tab.label}
@@ -510,7 +552,9 @@ export const ProjectPanel: React.FC<{
               </button>
               <div className="p-4 min-w-0">
                 <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Profit</div>
-                <div className={`text-lg font-semibold truncate ${margin === null ? 'text-gray-500' : profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                <div
+                  className={`text-lg font-semibold truncate ${margin === null ? 'text-gray-500' : profit >= 0 ? 'text-green-400' : 'text-red-400'}`}
+                >
                   {margin === null ? '—' : formatCurrency(profit)}
                 </div>
                 <div className="text-xs text-gray-500 mt-0.5">{margin === null ? 'once an estimate is accepted' : `${margin}% margin`}</div>
@@ -533,7 +577,11 @@ export const ProjectPanel: React.FC<{
                 <ul className="divide-y divide-[#262626] border-t border-[#262626]">
                   {nextUp.map((t) => (
                     <li key={t.id}>
-                      <button type="button" onClick={() => setActiveTab('tasks')} className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-[#222]">
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('tasks')}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-[#222]"
+                      >
                         <span className="flex-1 min-w-0 truncate text-white">{t.title}</span>
                         <span className="text-xs text-gray-500 truncate max-w-[40%]">{t.crew.map((c) => c.name).join(', ')}</span>
                         <span className="text-xs text-gray-400 w-24 text-right">{taskDays(t) || 'No date'}</span>
@@ -616,6 +664,7 @@ export const ProjectPanel: React.FC<{
           </div>
         </div>
       </div>
+      <Toast text={toast} />
     </div>
   );
 };
@@ -634,7 +683,8 @@ export const ProjectDetailsDrawer: React.FC<{
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      const typing = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
+      const typing =
+        target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
       if (e.key === 'Escape' && !e.defaultPrevented && !typing) close();
     };
     window.addEventListener('keydown', onKey);
@@ -643,7 +693,10 @@ export const ProjectDetailsDrawer: React.FC<{
 
   return createPortal(
     <>
-      <div className={`fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity z-[10000] ${shown ? 'opacity-100' : 'opacity-0'}`} onClick={close} />
+      <div
+        className={`fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity z-[10000] ${shown ? 'opacity-100' : 'opacity-0'}`}
+        onClick={close}
+      />
       <div
         ref={panel}
         role="dialog"

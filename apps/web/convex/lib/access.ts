@@ -113,7 +113,7 @@ export async function organizationIdsFor(ctx: Ctx, userId: Id<"users">): Promise
  * "not found" so IDs from other tenants can't be probed.
  */
 export async function getOwned<
-  T extends "clients" | "projects" | "estimates" | "activityLogs" | "leads" | "expenses",
+  T extends "clients" | "projects" | "estimates" | "activityLogs" | "leads" | "expenses" | "projectTemplates",
 >(
   ctx: Ctx,
   table: T,
