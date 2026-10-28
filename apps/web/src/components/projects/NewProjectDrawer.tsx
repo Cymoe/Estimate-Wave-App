@@ -1,17 +1,62 @@
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { CalendarCheck, CalendarDays, DollarSign, Plus, User, X } from 'lucide-react';
+import { CalendarCheck, CalendarDays, DollarSign, LayoutTemplate, Plus, User, X } from 'lucide-react';
 import { OrganizationContext } from '../layouts/DashboardLayout';
+import { industriesAPI, lineItemsAPI } from '../../lib/api';
 import { Client, ClientService } from '../../services/ClientService';
 import { Project, ProjectService } from '../../services/ProjectService';
+import { EstimateService } from '../../services/EstimateService';
 import { NewClientModal } from '../clients/NewClientModal';
 import { NoteDate, NoteRow, noteInput, noteSelect, noteTextarea, noteTitle, useNoteFields, useSlideIn } from '../common/StructuredNote';
+import { priceRange } from '../../utils/priceRange';
+import { formatCurrency } from '../../utils/format';
+import { projectTypesFor } from './projectTypes';
+
+interface Trade {
+  id: string;
+  slug: string;
+  name: string;
+}
+
+/**
+ * Something a project can start from: a kind of job in one of the company's
+ * trades, or a package from the price book (one line item that bundles a
+ * whole job, with a red line and cap). A package also fills the budget and
+ * the end date, and creates a draft estimate holding it.
+ */
+type Template =
+  | { kind: 'type'; id: string; name: string; description: string; trade: Trade }
+  | {
+      kind: 'package';
+      id: string;
+      name: string;
+      description?: string;
+      trade?: Trade;
+      redLine: number;
+      cap: number;
+      costCode?: string;
+      days?: number;
+    };
+
+const todayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const plusDays = (iso: string, days: number) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  const date = new Date(y, m - 1, d + days);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
+
+/** The project name a template suggests, before the owner changes it. */
+const suggestedName = (template: Template | null, client: Client | undefined) =>
+  template ? [template.name, client?.name].filter(Boolean).join(' – ') : '';
 
 /**
  * A new project, started the way a new lead is: one sheet with a name, the
- * client, dates and budget. Creating it opens the project, where everything
- * else (estimates, tasks, crew, costs, photos) lives.
+ * client, dates and budget. A template fills it in; creating it opens the
+ * project, where everything else (estimates, tasks, crew, costs, photos) lives.
  */
 export const NewProjectDrawer: React.FC<{
   onClose: () => void;
@@ -22,17 +67,56 @@ export const NewProjectDrawer: React.FC<{
   const orgId: string | undefined = selectedOrg?.id;
   const { shown, slideOut } = useSlideIn();
   const [clients, setClients] = useState<Client[]>([]);
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [packages, setPackages] = useState<Extract<Template, { kind: 'package' }>[]>([]);
+  const [templateId, setTemplateId] = useState('');
   const [showNewClient, setShowNewClient] = useState(false);
   const { draft, set, choose, state, setState, error, setError } = useNoteFields(
-    { name: '', client_id: '', budget: '', start_date: '', end_date: '', description: '' },
+    { name: '', client_id: '', budget: '', start_date: todayIso(), end_date: '', description: '' },
     null,
   );
+  // The name the template last wrote, so a name the owner typed is kept.
+  const autoName = useRef('');
 
   useEffect(() => {
     if (!orgId) return;
-    ClientService.list(orgId)
-      .then(setClients)
-      .catch(() => setClients([]));
+    let cancelled = false;
+    (async () => {
+      const [mine, all, items, clientList] = await Promise.all([
+        industriesAPI.forOrganization(orgId).catch(() => []),
+        industriesAPI.list().catch(() => []),
+        lineItemsAPI.list(orgId).catch(() => []),
+        ClientService.list(orgId).catch(() => []),
+      ]);
+      if (cancelled) return;
+      // Without chosen trades, offer every trade rather than nothing.
+      const tradeList: Trade[] = (mine.length > 0 ? mine : all).map((t: Trade) => ({ id: t.id, slug: t.slug, name: t.name }));
+      setTrades(tradeList);
+      setPackages(
+        items
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .filter((item: any) => item.is_package && item.is_active !== false)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .map((item: any) => {
+            const range = priceRange(item);
+            return {
+              kind: 'package' as const,
+              id: item._id ?? item.id,
+              name: item.name,
+              description: item.description,
+              trade: tradeList.find((t) => t.slug === item.cost_code?.industry_id),
+              redLine: range.redLine,
+              cap: range.cap,
+              costCode: item.cost_code?.code,
+              days: item.estimated_hours ? Math.max(1, Math.ceil(item.estimated_hours / 8)) : undefined,
+            };
+          }),
+      );
+      setClients(clientList);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [orgId]);
 
   useEffect(() => {
@@ -42,6 +126,49 @@ export const NewProjectDrawer: React.FC<{
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
+
+  const templates = useMemo<Template[]>(
+    () => [
+      ...packages,
+      ...trades.flatMap((trade) =>
+        projectTypesFor(trade).map((type) => ({
+          kind: 'type' as const,
+          id: `${trade.slug}:${type.name}`,
+          name: type.name,
+          description: type.description,
+          trade,
+        })),
+      ),
+    ],
+    [packages, trades],
+  );
+  const template = templates.find((t) => t.id === templateId) ?? null;
+  const client = clients.find((c) => c.id === draft.client_id);
+
+  const renameFrom = (nextTemplate: Template | null, nextClient: Client | undefined) => {
+    const next = suggestedName(nextTemplate, nextClient);
+    if (!draft.name.trim() || draft.name === autoName.current) choose('name', next);
+    autoName.current = next;
+  };
+
+  const chooseTemplate = (id: string) => {
+    setTemplateId(id);
+    const chosen = templates.find((t) => t.id === id) ?? null;
+    renameFrom(chosen, client);
+    if (chosen?.kind === 'package') {
+      choose('budget', String(chosen.cap));
+      if (chosen.days && draft.start_date) choose('end_date', plusDays(draft.start_date, chosen.days));
+      if (chosen.description && !draft.description.trim()) choose('description', chosen.description);
+    }
+  };
+
+  const chooseClient = (id: string) => {
+    choose('client_id', id);
+    renameFrom(
+      template,
+      clients.find((c) => c.id === id),
+    );
+  };
 
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -67,8 +194,39 @@ export const NewProjectDrawer: React.FC<{
         start_date: draft.start_date || undefined,
         end_date: draft.end_date || undefined,
         budget: draft.budget ? Number(draft.budget) : undefined,
+        category: template ? (template.kind === 'type' ? template.name : (template.trade?.name ?? template.name)) : undefined,
       });
       onCreated(project);
+      if (template?.kind === 'package') {
+        // The package as the first line of a draft estimate, priced at its cap.
+        await EstimateService.create({
+          organization_id: orgId,
+          client_id: draft.client_id || undefined,
+          project_id: project.id,
+          title: `${name} - Estimate`,
+          description: draft.description.trim() || undefined,
+          status: 'draft',
+          issue_date: todayIso(),
+          expiry_date: plusDays(todayIso(), 30),
+          subtotal: template.cap,
+          tax_rate: 0,
+          tax_amount: 0,
+          total_amount: template.cap,
+          items: [
+            {
+              product_id: template.id,
+              description: template.name,
+              quantity: 1,
+              unit_price: template.cap,
+              total_price: template.cap,
+              red_line_price: template.redLine,
+              cap_price: template.cap,
+              cost_code: template.costCode,
+              display_order: 0,
+            },
+          ],
+        } as Parameters<typeof EstimateService.create>[0]);
+      }
       navigate(`/projects/${project.id}`, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create the project');
@@ -81,12 +239,14 @@ export const NewProjectDrawer: React.FC<{
     try {
       const created = await ClientService.create({ ...(data as Client), organization_id: orgId });
       setClients((list) => [...list, created].sort((a, b) => a.name.localeCompare(b.name)));
-      choose('client_id', created.id ?? '');
+      chooseClient(created.id ?? '');
       setShowNewClient(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not add the client');
     }
   };
+
+  const tradesWithTypes = trades.filter((trade) => templates.some((t) => t.kind === 'type' && t.trade.slug === trade.slug));
 
   return createPortal(
     <>
@@ -115,18 +275,56 @@ export const NewProjectDrawer: React.FC<{
           {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
 
           <div className="mt-6 space-y-0.5">
+            <NoteRow icon={LayoutTemplate} label="Template">
+              <select
+                id="new-project-template"
+                value={templateId}
+                onChange={(e) => chooseTemplate(e.target.value)}
+                aria-label="Template"
+                className={`${noteSelect} ${templateId ? '' : 'text-gray-600'}`}
+              >
+                <option value="">Start from scratch</option>
+                {packages.length > 0 && (
+                  <optgroup label="Packages from your price book">
+                    {packages.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} · {formatCurrency(p.cap)}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {tradesWithTypes.map((trade) => (
+                  <optgroup key={trade.slug} label={trade.name}>
+                    {templates
+                      .filter((t) => t.kind === 'type' && t.trade.slug === trade.slug)
+                      .map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                  </optgroup>
+                ))}
+              </select>
+            </NoteRow>
+            {template && (
+              <p className="pl-[8rem] -mt-0.5 pb-1 text-xs text-gray-500">
+                {template.kind === 'package'
+                  ? `${formatCurrency(template.redLine)} – ${formatCurrency(template.cap)}${template.trade ? ` · ${template.trade.name}` : ''}. Creates a draft estimate with this package.`
+                  : template.description || template.trade.name}
+              </p>
+            )}
             <NoteRow icon={User} label="Client">
               <select
                 id="new-project-client"
                 value={draft.client_id}
-                onChange={(e) => choose('client_id', e.target.value)}
+                onChange={(e) => chooseClient(e.target.value)}
                 aria-label="Client"
                 className={`${noteSelect} ${draft.client_id ? '' : 'text-gray-600'}`}
               >
                 <option value="">No client yet</option>
-                {clients.map((client) => (
-                  <option key={client.id} value={client.id}>
-                    {client.company_name ? `${client.company_name} (${client.name})` : client.name}
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.company_name ? `${c.company_name} (${c.name})` : c.name}
                   </option>
                 ))}
               </select>
@@ -173,7 +371,9 @@ export const NewProjectDrawer: React.FC<{
         </div>
 
         <div className="px-7 py-3.5 border-t border-[#222222] flex items-center justify-between text-sm">
-          <span className="text-gray-500">Add estimates, tasks and crew from the project.</span>
+          <span className="text-gray-500">
+            {template?.kind === 'package' ? 'Creates the project and its draft estimate.' : 'Add estimates, tasks and crew from the project.'}
+          </span>
           <button type="submit" disabled={state === 'saving'} className="px-4 py-2 bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50">
             {state === 'saving' ? 'Creating…' : 'Create project'}
           </button>

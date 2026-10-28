@@ -22,10 +22,32 @@ jest.mock('../../../services/ProjectService', () => ({
 jest.mock('../../../services/ClientService', () => ({
   ClientService: { list: jest.fn(async () => [{ id: 'c1', name: 'Ann Miller', phone: '432-555-0100' }]) },
 }));
+const createEstimate = jest.fn(async (e: Record<string, unknown>) => ({ ...e, id: 'e-new' }));
 jest.mock('../../../services/EstimateService', () => ({
-  EstimateService: { getByProject: jest.fn(async () => []) },
+  EstimateService: { getByProject: jest.fn(async () => []), create: (e: Record<string, unknown>) => createEstimate(e) },
 }));
-jest.mock('../../../lib/api', () => ({}));
+jest.mock('../../../lib/api', () => ({
+  industriesAPI: {
+    forOrganization: jest.fn(async () => [{ id: 'roofing', slug: 'roofing', name: 'Roofing' }]),
+    list: jest.fn(async () => []),
+  },
+  lineItemsAPI: {
+    list: jest.fn(async () => [
+      {
+        _id: 'li1',
+        name: 'Shingle Roof Package',
+        description: 'Tear-off, underlayment and architectural shingles',
+        is_package: true,
+        is_active: true,
+        red_line_price: 9000,
+        cap_price: 12000,
+        estimated_hours: 24,
+        cost_code: { code: 'RF200', industry_id: 'roofing' },
+      },
+      { _id: 'li2', name: 'Nails', is_package: false, is_active: true, base_price: 10, cost_code: { industry_id: 'roofing' } },
+    ]),
+  },
+}));
 jest.mock('../../clients/NewClientModal', () => ({ NewClientModal: () => null }));
 jest.mock('../../../services/ProjectExportService', () => ({ ProjectExportService: {} }));
 jest.mock('../../layouts/DashboardLayout', () => {
@@ -66,6 +88,7 @@ describe('ProjectList', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     create.mockClear();
+    createEstimate.mockClear();
     update.mockClear();
   });
 
@@ -124,9 +147,66 @@ describe('ProjectList', () => {
       start_date: '2026-11-02',
       end_date: undefined,
       budget: 12000,
+      category: undefined,
     });
+    expect(createEstimate).not.toHaveBeenCalled();
     // Then it opens the new project's page.
     expect(document.body.textContent).toContain('project page');
+  });
+
+  it('a price-book package template names the project, sets the budget and end date, and creates a draft estimate holding it', async () => {
+    rows = [];
+    await render('/projects?new=1');
+    const options = Array.from(document.body.querySelectorAll('select#new-project-template option')).map((o) => o.textContent);
+    expect(options).toContain('Shingle Roof Package · $12,000.00');
+    expect(options).not.toContain(expect.stringContaining('Nails'));
+    await type('Start date', '2026-11-02');
+    await select('new-project-template', 'li1');
+    await select('new-project-client', 'c1');
+    expect((document.body.querySelector('[aria-label="Project name"]') as HTMLInputElement).value).toBe('Shingle Roof Package – Ann Miller');
+    expect((document.body.querySelector('[aria-label="Budget"]') as HTMLInputElement).value).toBe('12000');
+    expect(document.body.textContent).toContain('Creates a draft estimate with this package');
+    await click('Create project');
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Shingle Roof Package – Ann Miller',
+        client_id: 'c1',
+        budget: 12000,
+        end_date: '2026-11-05',
+        category: 'Roofing',
+      }),
+    );
+    expect(createEstimate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        project_id: 'p-new',
+        client_id: 'c1',
+        total_amount: 12000,
+        items: [
+          expect.objectContaining({
+            product_id: 'li1',
+            description: 'Shingle Roof Package',
+            unit_price: 12000,
+            red_line_price: 9000,
+            cap_price: 12000,
+          }),
+        ],
+      }),
+    );
+    expect(document.body.textContent).toContain('project page');
+  });
+
+  it('a project type template names the project after the kind of job and its client', async () => {
+    rows = [];
+    await render('/projects?new=1');
+    await select('new-project-template', 'roofing:Roof Replacement');
+    expect((document.body.querySelector('[aria-label="Project name"]') as HTMLInputElement).value).toBe('Roof Replacement');
+    await type('Project name', 'The Miller place');
+    await select('new-project-client', 'c1');
+    // A name the owner typed stays.
+    expect((document.body.querySelector('[aria-label="Project name"]') as HTMLInputElement).value).toBe('The Miller place');
+    await click('Create project');
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: 'The Miller place', category: 'Roof Replacement', budget: undefined }));
+    expect(createEstimate).not.toHaveBeenCalled();
   });
 
   it('a project needs a name, and the sheet says so instead of creating it', async () => {
