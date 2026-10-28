@@ -39,6 +39,7 @@ import { Projects as ProjectsPage } from './pages/Projects';
 import { ActivityPage } from './pages/ActivityPage';
 // import { ServicesPackages } from './pages/ServicesPackages'; // Removed - using line items only
 import { PrivacyPage, TermsPage } from './pages/Legal';
+import { NotFound } from './pages/NotFound';
 
 // Lazy load the Experience page
 
@@ -522,7 +523,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      <Route path="*" element={<Navigate to="/" />} />
+      <Route path="*" element={<NotFound />} />
     </Routes>
     </>
   );
