@@ -12,7 +12,6 @@ import {
   HelpCircle,
   LogOut,
   Activity,
-  TrendingUp,
   Sun,
   Moon,
   Plus
@@ -64,13 +63,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setIsProjectsSidebarOpen,
   isProjectsSidebarLocked,
   recentProjects,
-  selectedTimePeriod,
-  setSelectedTimePeriod,
-  currentData,
-  timePeriodHeaders,
-  isLiveRevenuePopoverOpen,
-  setIsLiveRevenuePopoverOpen,
-  liveRevenueButtonRef,
   isProfileMenuOpen,
   setIsProfileMenuOpen,
   setShowHelpModal,
@@ -200,32 +192,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Grid navigation */}
           <div className={`${isSidebarCollapsed ? 'grid grid-cols-1' : 'grid grid-cols-2'} gap-0`}>
             {/* Profit Tracker (formerly Dashboard) */}
-            {FEATURES.profitTracker && (
-            <NavLink
-              to="/profit-tracker"
-              className={({ isActive }) =>
-                isActive
-                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center aspect-square relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
-                  : "bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center aspect-square hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95"
-              }
-              title={isSidebarCollapsed ? "Profit Tracker" : undefined}
-            >
-              {({ isActive }) => (
-                <>
-                  <div className="relative z-10 flex flex-col items-center">
-                    <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      <NavShapeMark shape="profit" />
-                    </div>
-                    {!isSidebarCollapsed && (
-                      <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                        Profit Tracker
-                      </span>
-                    )}
-                  </div>
-                </>
-              )}
-            </NavLink>
-            )}
 
             {/* Leads */}
             <NavLink
@@ -516,91 +482,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         
         <div className="mt-auto flex-shrink-0">
           {/* Live Revenue (part of the Profit Tracker, switched off for now) */}
-          {FEATURES.profitTracker && (
-          <div className="p-2">
-            {!isSidebarCollapsed ? (
-              <div className="bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md p-2.5 rounded-[2px] border border-[#336699]/50 shadow-[0_0_10px_rgba(51,102,153,0.15)]">
-                {/* Header */}
-                <div className="mb-2">
-                  <h3 className="text-white/90 text-[10px] font-medium mb-1.5 uppercase tracking-wide">{timePeriodHeaders[selectedTimePeriod]}</h3>
-                  
-                  {/* Main Revenue Amount */}
-                  <div className="text-white text-base font-bold mb-1.5 leading-tight">
-                    ${currentData.revenue.toLocaleString()}
-                  </div>
-                
-                  {/* Time Period Selector */}
-                  <div className="flex items-center justify-start space-x-1 mb-3">
-                    {(['D', 'W', 'M', 'Q', 'Y'] as const).map((period) => (
-                      <button
-                        key={period}
-                        onClick={() => setSelectedTimePeriod(period)}
-                        className={`w-7 h-7 rounded-[4px] flex items-center justify-center text-xs font-bold transition-colors ${
-                          selectedTimePeriod === period
-                            ? 'bg-[#336699] text-white border border-[#336699]'
-                            : 'bg-white/10 text-white/70 hover:bg-white/15'
-                        }`}
-                      >
-                        {period}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Stats Row */}
-                <div className="flex items-center justify-between text-sm mb-3">
-                  <div className="flex items-center text-green-300">
-                    <span className="mr-1">↗</span>
-                    <span className="text-[10px] leading-tight">up 12%</span>
-                  </div>
-                  <div className="text-white/90 text-[10px] leading-tight">
-                    Profit: ${currentData.profit.toLocaleString()}
-                  </div>
-                </div>
-
-                {/* Progress Bar */}
-                <div className="mb-3">
-                  <div className="w-full bg-white/20 rounded-full h-2">
-                    <div 
-                      className="bg-[#336699] h-2 rounded-full transition-all duration-300" 
-                      style={{width: `${currentData.percentage}%`}}
-                    ></div>
-                  </div>
-                </div>
-
-                {/* Goal Progress */}
-                <div className="text-center">
-                  <span className="text-white/90 text-[10px] leading-tight">{currentData.percentage}% of goal</span>
-                </div>
-              </div>
-            ) : (
-              <div 
-                ref={liveRevenueButtonRef}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsLiveRevenuePopoverOpen(!isLiveRevenuePopoverOpen);
-                }}
-                className="bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md p-2 rounded-[2px] border border-[#336699]/50 shadow-[0_0_10px_rgba(51,102,153,0.15)] cursor-pointer hover:from-[#336699]/30 hover:to-[#336699]/10 transition-all group"
-                title={`Revenue: $${currentData.revenue.toLocaleString()} (${currentData.percentage}% of goal)`}
-              >
-                <div className="flex flex-col items-center justify-center">
-                  <div className="text-[#336699] mb-1">
-                    <TrendingUp className="w-4 h-4" />
-                  </div>
-                  <div className="text-white text-[10px] font-bold">
-                    {currentData.percentage}%
-                  </div>
-                  <div className="w-full bg-white/20 rounded-full h-1 mt-1">
-                    <div 
-                      className="bg-[#336699] h-1 rounded-full transition-all duration-300" 
-                      style={{width: `${currentData.percentage}%`}}
-                    ></div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-          )}
 
           {/* Lead balance: always in view, opens the panel on the right */}
           <WalletTile organizationId={selectedOrg.id || undefined} collapsed={isSidebarCollapsed} />

@@ -4,8 +4,6 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { landingFor, isCaller, isStaff } from './lib/roles';
 import { ScrollRestoration } from './components/ScrollRestoration';
-import Dashboard from './pages/dashboard/Dashboard';
-import { TestAuth } from './components/auth/TestAuth';
 import { PriceBook as PriceBookPage } from './pages/PriceBook';
 // Invoices removed - contractors use QuickBooks for invoicing
 import { EditEstimatePage } from './pages/EditEstimatePage';
@@ -17,16 +15,11 @@ import { SharedServiceOption } from './pages/SharedServiceOption';
 import LeadsLanding from './pages/LeadsLanding';
 import ConnectAssistant from './pages/ConnectAssistant';
 import OpenInAssistant from './pages/OpenInAssistant';
-import Projects from './pages/marketing/Projects';
-import { BillsList } from './components/bills/BillsList';
 import { Callback } from './components/auth/Callback';
-import { PublicProfileView } from './components/settings/PublicProfileView';
 import { Toaster } from 'react-hot-toast';
-import LineItemTestPage from './pages/LineItemTestPage';
 import { DashboardLayout } from './components/layouts/DashboardLayout';
 import { OpsLayout } from './components/layouts/OpsLayout';
 import MarkdownViewer from './components/docs/MarkdownViewer';
-import Templates from './pages/Templates';
 import { FEATURES } from './config/features';
 import LeadsPage from './pages/LeadsPage';
 import LeadMarketPage from './pages/LeadMarketPage';
@@ -41,22 +34,15 @@ import { PlanGate } from './components/market/plan';
 import FundAccountPage from './pages/FundAccountPage';
 import OrganizationSettings from './pages/OrganizationSettings';
 import { Expenses } from './pages/Expenses';
-import { VendorDetailPage } from './pages/VendorDetailPage';
 import { ClientDetailPage } from './pages/ClientDetailPage';
-import { SubcontractorDetailPage } from './pages/SubcontractorDetailPage';
-import { TeamMemberDetailPage } from './pages/TeamMemberDetailPage';
-import { DebugData } from './pages/DebugData';
 import { Work } from './pages/Work';
 import { Projects as ProjectsPage } from './pages/Projects';
 import { ActivityPage } from './pages/ActivityPage';
 import { WhoWeServe } from './pages/WhoWeServe';
 // import { ServicesPackages } from './pages/ServicesPackages'; // Removed - using line items only
-import Marketing from './pages/Marketing';
 import { PrivacyPage, TermsPage } from './pages/Legal';
 
 // Lazy load the Experience page
-const Experience = React.lazy(() => import('./pages/Experience').then(module => ({ default: module.Experience })));
-const SimpleExperience = React.lazy(() => import('./pages/SimpleExperience').then(module => ({ default: module.SimpleExperience })));
 
 // Import debugging tools in development
 // COMMENTED OUT: These test utilities were running automatically and causing issues
@@ -195,34 +181,14 @@ function AppRoutes() {
       <Route path="/" element={renderLanding()} />
       <Route path="/apply" element={user && session && !isLoading ? <HomeRedirect /> : <LeadsLanding scrollTo="apply" />} />
       <Route path="/auth/callback" element={<Callback />} />
-      <Route path="/auth/test" element={<TestAuth />} />
-      <Route path="/marketing/projects" element={<Projects />} />
       <Route path="/who-we-serve" element={<WhoWeServe />} />
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/privacy" element={<PrivacyPage />} />
       
-      {/* Marketing page with Pixi.js - lazy loaded */}
-      <Route path="/marketing" element={
-        <React.Suspense fallback={<div className="min-h-screen bg-[#0A0A0A]" />}>
-          <Marketing />
-        </React.Suspense>
-      } />
       
-      {/* Experience page with elaborate scroll-driven Pixi.js - lazy loaded */}
-      <Route path="/experience" element={
-        <React.Suspense fallback={<div className="min-h-screen bg-[#0a0f1f]" />}>
-          <Experience />
-        </React.Suspense>
-      } />
       
 
       
-      {/* Simple scroll test */}
-      <Route path="/simple-experience" element={
-        <React.Suspense fallback={<div className="min-h-screen bg-blue-900" />}>
-          <SimpleExperience />
-        </React.Suspense>
-      } />
 
       {/* Protected routes */}
       {/* Claude or ChatGPT asking to connect: the person approves it here. */}
@@ -247,50 +213,6 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <HomeRedirect />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/profit-tracker"
-        element={
-          <ProtectedRoute>
-            {FEATURES.profitTracker ? (
-              <DashboardLayout>
-                <Dashboard />
-              </DashboardLayout>
-            ) : (
-              <HomeRedirect />
-            )}
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/vendors/:id"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <VendorDetailPage />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/subcontractors/:subcontractorId"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <SubcontractorDetailPage />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/team-members/:teamMemberId"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <TeamMemberDetailPage />
-            </DashboardLayout>
           </ProtectedRoute>
         }
       />
@@ -386,16 +308,6 @@ function AppRoutes() {
         }
       />
       <Route path="/lead-market" element={<LeadMarketRedirect />} />
-      <Route
-        path="/templates"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <Templates />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
       
       {/* The estimates list; /estimates/:id opens one estimate in a drawer over it.
           One layout route, so opening and closing an estimate keeps the list in place. */}
@@ -504,16 +416,6 @@ function AppRoutes() {
       {/* "Open it in Claude / ChatGPT" from a lead alert. */}
       <Route path="/open/:app/:leadId" element={<OpenInAssistant />} />
       {/* Packages route removed as part of simplification */}
-      <Route
-        path="/bills"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <BillsList />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
       {/* The profile page was removed; old links land in Company settings. */}
       <Route path="/profile" element={<Navigate to="/settings/organization" replace />} />
       
@@ -523,11 +425,6 @@ function AppRoutes() {
         element={<MarkdownViewer />}
       />
 
-      {/* Public Profile Route */}
-      <Route
-        path="/pro/:username"
-        element={<PublicProfileView />}
-      />
       
       
       <Route
@@ -610,26 +507,6 @@ function AppRoutes() {
       <Route
         path="/cost-codes"
         element={<Navigate to="/price-book/cost-codes" replace />}
-      />
-      <Route
-        path="/line-item-test"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <LineItemTestPage />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/debug"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <DebugData />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
       />
       {/* The old full-page trade settings: trades now live in Company settings. */}
       <Route path="/settings/industries" element={<Navigate to="/settings/organization?tab=trades" replace />} />

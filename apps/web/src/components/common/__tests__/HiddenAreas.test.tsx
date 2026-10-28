@@ -10,8 +10,8 @@ import { QuickCreateMenu } from '../QuickCreateMenu';
 import { FEATURES, HOME_PATH } from '../../../config/features';
 
 describe('areas switched on and off', () => {
-  it('Profit Tracker is off, Projects is back, and people land on Leads', () => {
-    expect(FEATURES).toEqual({ profitTracker: false, projects: true });
+  it('Projects is on and people land on Leads', () => {
+    expect(FEATURES).toEqual({ projects: true });
     expect(HOME_PATH).toBe('/leads');
   });
 

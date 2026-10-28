@@ -3,7 +3,6 @@ import { X, ChevronRight, User, Building, CreditCard, HelpCircle, LogOut, Plus }
 import { NavShapeMark } from './NavShapes';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { FEATURES } from '../../config/features';
 import { isStaff, isSuperAdmin } from '../../lib/roles';
 // Loaded when opened: it pulls in the application form and its backend calls.
 const AddCompanyDialog = lazy(() => import('../settings/AddCompanyDialog').then((m) => ({ default: m.AddCompanyDialog })));
@@ -109,22 +108,6 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
 
         {/* Navigation Links */}
         <nav className="p-4 space-y-2">
-          {FEATURES.profitTracker && (
-          <NavLink
-            to="/profit-tracker"
-            onClick={onClose}
-            className={({ isActive }) =>
-              `flex items-center gap-3 p-3 rounded-[4px] transition-colors ${
-                isActive
-                  ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border border-[#336699]/50 text-white'
-                  : 'hover:bg-[#333333] text-gray-300'
-              }`
-            }
-          >
-            <NavShapeMark shape="profit" className="w-5 h-5 shrink-0" />
-            <span>Profit Tracker</span>
-          </NavLink>
-          )}
 
 
           <NavLink
