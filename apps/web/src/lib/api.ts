@@ -379,6 +379,13 @@ export const templatesAPI = {
     data: { name: string; clientId?: string; startDate?: string; endDate?: string; budget?: number; description?: string },
   ): Promise<{ project: Record<string, unknown> & { _id: string }; estimateId: string | null }> =>
     run('mutation', api.projectTemplates.start, { id, data: defined(data) }),
+  /** The same, from a built-in package (convex/catalog/packages.ts). */
+  startPackage: (
+    organizationId: string,
+    packageId: string,
+    data: { name: string; clientId?: string; startDate?: string; endDate?: string; budget?: number; description?: string },
+  ): Promise<{ project: Record<string, unknown> & { _id: string }; estimateId: string | null }> =>
+    run('mutation', api.projectTemplates.startPackage, { organizationId, packageId, data: defined(data) }),
 };
 
 export type SignoffKind = 'change_order' | 'affidavit';

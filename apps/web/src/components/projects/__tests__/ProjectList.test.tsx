@@ -24,6 +24,10 @@ jest.mock('../../../services/ClientService', () => ({
   ClientService: { list: jest.fn(async () => [{ id: 'c1', name: 'Ann Miller', phone: '432-555-0100' }]) },
 }));
 const createEstimate = jest.fn(async (e: Record<string, unknown>) => ({ ...e, id: 'e-new' }));
+const startPackage = jest.fn(async (_org: string, _id: string, data: Record<string, unknown>) => ({
+  project: { _id: 'p-new', name: data.name },
+  estimateId: 'e-new',
+}));
 const startTemplate = jest.fn(async (_id: string, data: Record<string, unknown>) => ({
   project: { _id: 'p-new', name: data.name },
   estimateId: 'e-new',
@@ -52,6 +56,7 @@ jest.mock('../../../lib/api', () => ({
       },
     ]),
     start: (...args: unknown[]) => startTemplate(...(args as [string, Record<string, unknown>])),
+    startPackage: (...args: unknown[]) => startPackage(...(args as [string, string, Record<string, unknown>])),
   },
 }));
 jest.mock('../../clients/NewClientModal', () => ({ NewClientModal: () => null }));
@@ -96,6 +101,7 @@ describe('ProjectList', () => {
     create.mockClear();
     createEstimate.mockClear();
     startTemplate.mockClear();
+    startPackage.mockClear();
     update.mockClear();
   });
 
@@ -187,6 +193,40 @@ describe('ProjectList', () => {
     });
     expect(create).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain('project page');
+  });
+
+  it('a kind of job offers its built-in packages; one fills the sheet and starts the project with its lines and tasks', async () => {
+    rows = [];
+    await render('/projects?new=1');
+    expect(document.body.querySelector('select#new-project-package')).toBeNull();
+    await type('Start date', '2026-11-02');
+    await select('new-project-template', 'roofing:Roof Replacement');
+    const options = Array.from(document.body.querySelectorAll('select#new-project-package option')).map((o) => o.textContent);
+    expect(options).toEqual(['No package, just the job', 'Architectural Shingle Roof · $15,305.00', 'Standing Seam Metal Roof · $36,580.00']);
+    expect(document.body.textContent).toContain('2 ready-made packages');
+    await select('new-project-package', 'roofing/roof-replacement/architectural-shingle-roof');
+    await select('new-project-client', 'c1');
+    const value = (label: string) => (document.body.querySelector(`[aria-label="${label}"]`) as HTMLInputElement).value;
+    expect(value('Project name')).toBe('Architectural Shingle Roof – Ann Miller');
+    expect(value('Budget')).toBe('15305');
+    expect(value('End date')).toBe('2026-11-04');
+    expect(value('Description')).toContain('Tear off and replace a 25-square roof');
+    expect(document.body.textContent).toContain('9 estimate lines · 4 tasks · 3 days');
+    await click('Create project');
+    expect(startPackage).toHaveBeenCalledWith(
+      'org1',
+      'roofing/roof-replacement/architectural-shingle-roof',
+      expect.objectContaining({
+        name: 'Architectural Shingle Roof – Ann Miller',
+        clientId: 'c1',
+        startDate: '2026-11-02',
+        endDate: '2026-11-04',
+        budget: 15305,
+      }),
+    );
+    expect(create).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain('project page');
+    // Changing the kind of job drops the package.
   });
 
   it('a project type template names the project after the kind of job and its client', async () => {

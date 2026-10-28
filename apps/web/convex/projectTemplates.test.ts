@@ -2,6 +2,8 @@ import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { setup, signUp } from "./test.setup";
+import { BUILT_IN_PACKAGES, findPackage, packageTotal } from "./catalog/packages";
+import { PROJECT_TYPES } from "./catalog/projectTypes";
 
 type T = ReturnType<typeof setup>;
 
@@ -163,5 +165,74 @@ describe("project templates", () => {
     await expect(other.as.mutation(api.projectTemplates.update, { id: template._id, data: { name: "Mine now" } })).rejects.toThrow();
     await expect(other.as.mutation(api.projectTemplates.remove, { id: template._id })).rejects.toThrow();
     await expect(other.as.mutation(api.projectTemplates.saveFromProject, { projectId, name: "Theirs" })).rejects.toThrow();
+  });
+
+  test("a built-in package starts a project with its lines, tasks and length, for any member of the company", async () => {
+    const t = setup();
+    const { as, organizationId } = await signUp(t, "owner@peak.example");
+    const client = (await as.mutation(api.clients.create, { organizationId, data: { name: "Ann Miller" } }))!;
+    const kitchen = findPackage("general-construction/remodel/kitchen-remodel")!;
+    const { project, estimateId } = await as.mutation(api.projectTemplates.startPackage, {
+      organizationId,
+      packageId: kitchen.id,
+      data: { name: "Miller kitchen", clientId: client._id, startDate: "2026-11-02" },
+    });
+    expect(project).toMatchObject({
+      name: "Miller kitchen",
+      status: "planning",
+      category: "Remodel",
+      startDate: "2026-11-02",
+      endDate: "2026-11-21",
+      budget: packageTotal(kitchen),
+      description: kitchen.description,
+    });
+    const estimate = (await as.query(api.estimates.get, { id: estimateId! }))!;
+    expect(estimate.totalAmount).toBe(packageTotal(kitchen));
+    expect(estimate.items).toHaveLength(kitchen.lines.length);
+    // Units that matter ride along in the description; the red line and cap are kept for the pricing drawer.
+    expect(estimate.items[2]).toMatchObject({
+      description: "Semi-custom cabinets, supplied and installed, per lf",
+      quantity: 22,
+      unitPrice: 385,
+      redLinePrice: 327.25,
+      capPrice: 385,
+    });
+    expect(estimate.items[0].description).toBe("Demo and haul-off of existing cabinets, counters and flooring");
+    const tasks = await as.query(api.tasks.forProject, { projectId: project._id });
+    expect(tasks).toHaveLength(kitchen.tasks.length);
+    expect(tasks[0]).toMatchObject({ title: "Order cabinets and counters", startDate: "2026-11-02" });
+    expect(tasks[1]).toMatchObject({ title: "Demo", startDate: "2026-11-16", endDate: "2026-11-17" });
+
+    await expect(
+      as.mutation(api.projectTemplates.startPackage, { organizationId, packageId: "nope/nope/nope", data: { name: "X" } }),
+    ).rejects.toThrow(/package/);
+    const other = await signUp(t, "other@rival.example");
+    await expect(
+      as.mutation(api.projectTemplates.startPackage, { organizationId: other.organizationId, packageId: kitchen.id, data: { name: "X" } }),
+    ).rejects.toThrow();
+  });
+
+  test("every built-in package hangs off a real kind of job, has priced lines and a schedule that fits", () => {
+    const ids = new Set<string>();
+    for (const p of BUILT_IN_PACKAGES) {
+      expect(ids.has(p.id)).toBe(false);
+      ids.add(p.id);
+      expect(PROJECT_TYPES[p.trade]?.some((t) => t.name === p.type)).toBe(true);
+      expect(p.lines.length).toBeGreaterThan(0);
+      expect(p.days).toBeGreaterThanOrEqual(1);
+      for (const line of p.lines) {
+        expect(line.unitPrice).toBeGreaterThan(0);
+        expect(line.redLinePrice).toBeLessThanOrEqual(line.capPrice);
+        expect(line.capPrice).toBe(line.unitPrice);
+      }
+      for (const task of p.tasks) expect((task.startOffset ?? 0) + (task.days ?? 1)).toBeLessThanOrEqual(p.days + 60);
+    }
+    expect(BUILT_IN_PACKAGES.filter((p) => p.trade === "general-construction" && p.type === "Remodel").map((p) => p.name)).toEqual([
+      "Kitchen Remodel",
+      "Bathroom Remodel",
+      "Tub-to-Shower Conversion",
+      "Basement Finish",
+      "Garage Conversion",
+    ]);
   });
 });

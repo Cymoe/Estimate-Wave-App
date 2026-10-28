@@ -1,7 +1,7 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { CalendarCheck, CalendarDays, DollarSign, LayoutTemplate, Plus, User, X } from 'lucide-react';
+import { CalendarCheck, CalendarDays, DollarSign, LayoutTemplate, Package, Plus, User, X } from 'lucide-react';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { industriesAPI, templatesAPI, type ProjectTemplate } from '../../lib/api';
 import { Client, ClientService } from '../../services/ClientService';
@@ -11,6 +11,7 @@ import { NoteDate, NoteRow, noteInput, noteSelect, noteTextarea, noteTitle, useN
 import { formatCurrency } from '../../utils/format';
 import { projectTypesFor } from './projectTypes';
 import { templateSummary } from '../../lib/templates';
+import { packagesFor, packageTotal, type BuiltInPackage } from '../../../convex/catalog/packages';
 
 interface Trade {
   id: string;
@@ -36,8 +37,8 @@ const plusDays = (iso: string, days: number) => {
 };
 
 /** The project name a template suggests, before the owner changes it. */
-const suggestedName = (template: Template | null, client: Client | undefined) =>
-  template ? [template.name, client?.name].filter(Boolean).join(' – ') : '';
+const suggestedName = (from: { name: string } | null, client: Client | undefined) =>
+  from ? [from.name, client?.name].filter(Boolean).join(' – ') : '';
 
 /**
  * A new project, started the way a new lead is: one sheet with a name, the
@@ -56,6 +57,8 @@ export const NewProjectDrawer: React.FC<{
   const [trades, setTrades] = useState<Trade[]>([]);
   const [saved, setSaved] = useState<ProjectTemplate[]>([]);
   const [templateId, setTemplateId] = useState('');
+  // A built-in package under the chosen kind of job (convex/catalog/packages.ts).
+  const [packageId, setPackageId] = useState('');
   const [showNewClient, setShowNewClient] = useState(false);
   const { draft, set, choose, state, setState, error, setError } = useNoteFields(
     { name: '', client_id: '', budget: '', start_date: todayIso(), end_date: '', description: '' },
@@ -111,27 +114,40 @@ export const NewProjectDrawer: React.FC<{
   const template = templates.find((t) => t.id === templateId) ?? null;
   const client = clients.find((c) => c.id === draft.client_id);
 
-  const renameFrom = (nextTemplate: Template | null, nextClient: Client | undefined) => {
+  const renameFrom = (nextTemplate: { name: string } | null, nextClient: Client | undefined) => {
     const next = suggestedName(nextTemplate, nextClient);
     if (!draft.name.trim() || draft.name === autoName.current) choose('name', next);
     autoName.current = next;
   };
 
+  const packages = template?.kind === 'type' ? packagesFor(template.trade.slug, template.name) : [];
+  const chosenPackage = packages.find((p) => p.id === packageId) ?? null;
+
+  const fillFrom = (from: { total: number; days?: number; description?: string }) => {
+    if (from.total > 0) choose('budget', String(from.total));
+    if (from.days && draft.start_date) choose('end_date', plusDays(draft.start_date, from.days - 1));
+    if (from.description && !draft.description.trim()) choose('description', from.description);
+  };
+
+  const choosePackage = (id: string, from: BuiltInPackage[] = packages) => {
+    setPackageId(id);
+    const chosen = from.find((p) => p.id === id) ?? null;
+    renameFrom(chosen ?? template, client);
+    if (chosen) fillFrom({ total: packageTotal(chosen), days: chosen.days, description: chosen.description });
+  };
+
   const chooseTemplate = (id: string) => {
     setTemplateId(id);
+    setPackageId('');
     const chosen = templates.find((t) => t.id === id) ?? null;
     renameFrom(chosen, client);
-    if (chosen?.kind === 'saved') {
-      if (chosen.total > 0) choose('budget', String(chosen.total));
-      if (chosen.days && draft.start_date) choose('end_date', plusDays(draft.start_date, chosen.days - 1));
-      if (chosen.description && !draft.description.trim()) choose('description', chosen.description);
-    }
+    if (chosen?.kind === 'saved') fillFrom(chosen);
   };
 
   const chooseClient = (id: string) => {
     choose('client_id', id);
     renameFrom(
-      template,
+      chosenPackage ?? template,
       clients.find((c) => c.id === id),
     );
   };
@@ -152,17 +168,20 @@ export const NewProjectDrawer: React.FC<{
     setError(null);
     try {
       let project: Project;
-      if (template?.kind === 'saved') {
+      const sheet = {
+        name,
+        clientId: draft.client_id || undefined,
+        startDate: draft.start_date || undefined,
+        endDate: draft.end_date || undefined,
+        budget: draft.budget ? Number(draft.budget) : undefined,
+        description: draft.description.trim() || undefined,
+      };
+      if (chosenPackage) {
+        // The package brings its estimate lines and tasks along.
+        project = toProject((await templatesAPI.startPackage(orgId, chosenPackage.id, sheet)).project);
+      } else if (template?.kind === 'saved') {
         // The template brings its estimate lines and tasks along.
-        const started = await templatesAPI.start(template.id, {
-          name,
-          clientId: draft.client_id || undefined,
-          startDate: draft.start_date || undefined,
-          endDate: draft.end_date || undefined,
-          budget: draft.budget ? Number(draft.budget) : undefined,
-          description: draft.description.trim() || undefined,
-        });
-        project = toProject(started.project);
+        project = toProject((await templatesAPI.start(template.id, sheet)).project);
       } else {
         project = await ProjectService.create({
           organization_id: orgId,
@@ -266,6 +285,31 @@ export const NewProjectDrawer: React.FC<{
                 <p className="pl-[8rem] -mt-0.5 pb-1 text-xs text-gray-500">Save any project as a template from its ⋯ menu, and it shows up here.</p>
               )
             )}
+            {packages.length > 0 && (
+              <>
+                <NoteRow icon={Package} label="Package">
+                  <select
+                    id="new-project-package"
+                    value={packageId}
+                    onChange={(e) => choosePackage(e.target.value)}
+                    aria-label="Package"
+                    className={`${noteSelect} ${packageId ? '' : 'text-gray-600'}`}
+                  >
+                    <option value="">No package, just the job</option>
+                    {packages.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} · {formatCurrency(packageTotal(p))}
+                      </option>
+                    ))}
+                  </select>
+                </NoteRow>
+                <p className="pl-[8rem] -mt-0.5 pb-1 text-xs text-gray-500">
+                  {chosenPackage
+                    ? `${chosenPackage.description} ${chosenPackage.lines.length} estimate lines · ${chosenPackage.tasks.length} tasks · ${chosenPackage.days} day${chosenPackage.days === 1 ? '' : 's'}.`
+                    : `${packages.length} ready-made package${packages.length === 1 ? '' : 's'} with the estimate and schedule filled in.`}
+                </p>
+              </>
+            )}
             <NoteRow icon={User} label="Client">
               <select
                 id="new-project-client"
@@ -325,7 +369,7 @@ export const NewProjectDrawer: React.FC<{
 
         <div className="px-7 py-3.5 border-t border-[#222222] flex items-center justify-between text-sm">
           <span className="text-gray-500">
-            {template?.kind === 'saved' && template.itemCount > 0
+            {chosenPackage || (template?.kind === 'saved' && template.itemCount > 0)
               ? 'Creates the project, its draft estimate and its tasks.'
               : 'Add estimates, tasks and crew from the project.'}
           </span>

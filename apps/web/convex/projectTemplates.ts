@@ -5,6 +5,7 @@ import type { MutationCtx } from "./_generated/server";
 import { fail, getOwned, logActivity, nowIso, requireMember } from "./lib/access";
 import { withCategories } from "./lib/categories";
 import { assertLinksInOrg, documentNumber, normalizeItems, withTotals } from "./lib/documents";
+import { findPackage, type BuiltInPackage } from "./catalog/packages";
 
 /**
  * Project templates: a kind of job the company does, saved from a project
@@ -200,112 +201,172 @@ export const remove = mutation({
   },
 });
 
-/**
- * A project from a template: the project itself, a draft estimate with the
- * template's lines, and its tasks placed from the start date. The sheet's
- * own values (name, client, dates, budget, description) win over the
- * template's.
- */
-export const start = mutation({
-  args: {
-    id: v.id("projectTemplates"),
-    data: v.object({
-      name: v.string(),
-      clientId: v.optional(v.id("clients")),
-      startDate: v.optional(v.string()),
-      endDate: v.optional(v.string()),
-      budget: v.optional(v.number()),
-      description: v.optional(v.string()),
-    }),
-  },
-  handler: async (ctx, { id, data }) => {
-    const { doc: template, user } = await getOwned(ctx, "projectTemplates", id);
-    const organizationId = template.organizationId;
-    const name = data.name.trim();
-    if (!name) fail("INVALID", "Project name is required");
-    await assertLinksInOrg(ctx, organizationId, { clientId: data.clientId });
-    const startDate = data.startDate || undefined;
-    const endDate = data.endDate || (startDate && template.days ? addDays(startDate, template.days - 1) : undefined);
-    if (startDate && endDate && endDate < startDate) fail("INVALID", "The end date is before the start date");
-    const total = Math.round(template.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0) * 100) / 100;
-    const description = optionalText(data.description) ?? template.description;
-    const now = nowIso();
+const startArgs = v.object({
+  name: v.string(),
+  clientId: v.optional(v.id("clients")),
+  startDate: v.optional(v.string()),
+  endDate: v.optional(v.string()),
+  budget: v.optional(v.number()),
+  description: v.optional(v.string()),
+});
+type StartData = {
+  name: string;
+  clientId?: Id<"clients">;
+  startDate?: string;
+  endDate?: string;
+  budget?: number;
+  description?: string;
+};
+/** What a template and a built-in package have in common once chosen. */
+type Blueprint = {
+  name: string;
+  description?: string;
+  category?: string;
+  days?: number;
+  items: Doc<"projectTemplates">["items"];
+  tasks: Task[];
+};
 
-    const projectId = await ctx.db.insert("projects", {
-      name,
+/**
+ * A project from a blueprint: the project itself, a draft estimate with the
+ * blueprint's lines, and its tasks placed from the start date. The sheet's
+ * own values (name, client, dates, budget, description) win over the
+ * blueprint's.
+ */
+async function startFrom(
+  ctx: MutationCtx,
+  organizationId: Id<"organizations">,
+  user: Doc<"users">,
+  from: Blueprint,
+  data: StartData,
+  source: string,
+) {
+  const name = data.name.trim();
+  if (!name) fail("INVALID", "Project name is required");
+  await assertLinksInOrg(ctx, organizationId, { clientId: data.clientId });
+  const startDate = data.startDate || undefined;
+  const endDate = data.endDate || (startDate && from.days ? addDays(startDate, from.days - 1) : undefined);
+  if (startDate && endDate && endDate < startDate) fail("INVALID", "The end date is before the start date");
+  const total = Math.round(from.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0) * 100) / 100;
+  const description = optionalText(data.description) ?? from.description;
+  const now = nowIso();
+
+  const projectId = await ctx.db.insert("projects", {
+    name,
+    description,
+    clientId: data.clientId,
+    status: "planning",
+    budget: data.budget ?? (total > 0 ? total : undefined),
+    startDate,
+    endDate,
+    category: from.category,
+    organizationId,
+    userId: user._id,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await logActivity(ctx, {
+    organizationId,
+    userId: user._id,
+    action: "created",
+    resourceType: "project",
+    resourceId: projectId,
+    details: { name, template: source },
+  });
+
+  let estimateId: Id<"estimates"> | null = null;
+  if (from.items.length > 0) {
+    const estimate = withTotals({
+      status: "draft" as const,
+      issueDate: now.slice(0, 10),
+      expiryDate: addDays(now.slice(0, 10), 30),
+      subtotal: 0,
+      taxRate: 0,
+      taxAmount: 0,
+      totalAmount: 0,
+      estimateNumber: documentNumber("EST"),
+      title: `${name} - Estimate`,
       description,
       clientId: data.clientId,
-      status: "planning",
-      budget: data.budget ?? (total > 0 ? total : undefined),
-      startDate,
-      endDate,
-      category: template.category,
+      projectId,
+      items: from.items.map((item, index) => ({ ...item, _id: crypto.randomUUID(), displayOrder: index })),
       organizationId,
       userId: user._id,
       createdAt: now,
       updatedAt: now,
     });
+    estimateId = await ctx.db.insert("estimates", estimate);
     await logActivity(ctx, {
       organizationId,
       userId: user._id,
       action: "created",
-      resourceType: "project",
-      resourceId: projectId,
-      details: { name, template: template.name },
+      resourceType: "estimate",
+      resourceId: estimateId,
+      details: { estimateNumber: estimate.estimateNumber, totalAmount: estimate.totalAmount },
     });
+  }
 
-    let estimateId: Id<"estimates"> | null = null;
-    if (template.items.length > 0) {
-      const estimate = withTotals({
-        status: "draft" as const,
-        issueDate: now.slice(0, 10),
-        expiryDate: addDays(now.slice(0, 10), 30),
-        subtotal: 0,
-        taxRate: 0,
-        taxAmount: 0,
-        totalAmount: 0,
-        estimateNumber: documentNumber("EST"),
-        title: `${name} - Estimate`,
-        description,
-        clientId: data.clientId,
-        projectId,
-        items: template.items.map((item, index) => ({ ...item, _id: crypto.randomUUID(), displayOrder: index })),
-        organizationId,
-        userId: user._id,
-        createdAt: now,
-        updatedAt: now,
-      });
-      estimateId = await ctx.db.insert("estimates", estimate);
-      await logActivity(ctx, {
-        organizationId,
-        userId: user._id,
-        action: "created",
-        resourceType: "estimate",
-        resourceId: estimateId,
-        details: { estimateNumber: estimate.estimateNumber, totalAmount: estimate.totalAmount },
-      });
-    }
+  let order = 0;
+  for (const task of from.tasks) {
+    const taskStart = startDate && task.startOffset !== undefined ? addDays(startDate, task.startOffset) : undefined;
+    const taskEnd = taskStart && task.days && task.days > 1 ? addDays(taskStart, task.days - 1) : undefined;
+    await ctx.db.insert("projectTasks", {
+      organizationId,
+      projectId,
+      title: task.title,
+      notes: task.notes,
+      startDate: taskStart,
+      endDate: taskEnd,
+      crewIds: [],
+      order: ++order,
+      createdBy: user._id,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  return { project: (await ctx.db.get(projectId))!, estimateId };
+}
 
-    let order = 0;
-    for (const task of template.tasks) {
-      const taskStart = startDate && task.startOffset !== undefined ? addDays(startDate, task.startOffset) : undefined;
-      const taskEnd = taskStart && task.days && task.days > 1 ? addDays(taskStart, task.days - 1) : undefined;
-      await ctx.db.insert("projectTasks", {
-        organizationId,
-        projectId,
-        title: task.title,
-        notes: task.notes,
-        startDate: taskStart,
-        endDate: taskEnd,
-        crewIds: [],
-        order: ++order,
-        createdBy: user._id,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
+/** A project from one of the company's own templates. */
+export const start = mutation({
+  args: { id: v.id("projectTemplates"), data: startArgs },
+  handler: async (ctx, { id, data }) => {
+    const { doc: template, user } = await getOwned(ctx, "projectTemplates", id);
+    const started = await startFrom(ctx, template.organizationId, user, template, data, template.name);
+    await ctx.db.patch(id, { usageCount: template.usageCount + 1, updatedAt: nowIso() });
+    return started;
+  },
+});
 
-    await ctx.db.patch(id, { usageCount: template.usageCount + 1, updatedAt: now });
-    return { project: (await ctx.db.get(projectId))!, estimateId };
+/** A built-in package's lines as estimate lines; the unit rides along in the description where it matters. */
+export function packageItems(p: BuiltInPackage): Doc<"projectTemplates">["items"] {
+  const plain = new Set(["job", "each", "allowance", "set", "visit", "day", "zone"]);
+  return p.lines.map((line, index) => ({
+    _id: crypto.randomUUID(),
+    description: plain.has(line.unit) ? line.description : `${line.description}, per ${line.unit}`,
+    quantity: line.quantity,
+    unitPrice: line.unitPrice,
+    totalPrice: Math.round(line.quantity * line.unitPrice * 100) / 100,
+    redLinePrice: line.redLinePrice,
+    capPrice: line.capPrice,
+    displayOrder: index,
+  }));
+}
+
+/** A project from a built-in package (convex/catalog/packages.ts). */
+export const startPackage = mutation({
+  args: { organizationId: v.id("organizations"), packageId: v.string(), data: startArgs },
+  handler: async (ctx, { organizationId, packageId, data }) => {
+    const { user } = await requireMember(ctx, organizationId);
+    const p = findPackage(packageId);
+    if (!p) fail("NOT_FOUND", "That package isn't offered any more");
+    return await startFrom(
+      ctx,
+      organizationId,
+      user,
+      { name: p.name, description: p.description, category: p.type, days: p.days, items: packageItems(p), tasks: p.tasks },
+      data,
+      p.name,
+    );
   },
 });
