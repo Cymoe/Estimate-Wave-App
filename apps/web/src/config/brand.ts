@@ -1,6 +1,7 @@
 /** Product name and contact details shown in the UI. Change them here. */
 export const APP_NAME = 'Tolliver';
 
-// Still the old domain's addresses; update once Tolliver has its own domain.
-export const SUPPORT_EMAIL = 'support@billbreeze.com';
-export const CONTACT_EMAIL = 'contact@billbreeze.com';
+// The support address lives in convex/lib/support.ts, so the app and the
+// emails Tolliver sends always show the same one.
+export { SUPPORT_EMAIL, SUPPORT_PHONE } from '../../convex/lib/support';
+export { SUPPORT_EMAIL as CONTACT_EMAIL } from '../../convex/lib/support';

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { SUPPORT_EMAIL } from '../../convex/lib/support';
 import { ArrowDown, ArrowRight, Check, PhoneCall, Megaphone, Smartphone } from 'lucide-react';
 import { applicationsAPI } from '../lib/api';
 import { AuthButtons } from '../components/auth/AuthButtons';
@@ -219,8 +220,8 @@ const LeadsLanding: React.FC<{ scrollTo?: 'apply' }> = ({ scrollTo: target }) =>
             <Link to="/privacy" className="hover:text-white">
               Privacy
             </Link>
-            <a href="mailto:leads@fieldquote.app" className="hover:text-white">
-              leads@fieldquote.app
+            <a href={`mailto:${SUPPORT_EMAIL}`} className="hover:text-white">
+              {SUPPORT_EMAIL}
             </a>
           </span>
         </div>

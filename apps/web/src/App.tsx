@@ -19,7 +19,6 @@ import { Callback } from './components/auth/Callback';
 import { Toaster } from 'react-hot-toast';
 import { DashboardLayout } from './components/layouts/DashboardLayout';
 import { OpsLayout } from './components/layouts/OpsLayout';
-import MarkdownViewer from './components/docs/MarkdownViewer';
 import { FEATURES } from './config/features';
 import LeadsPage from './pages/LeadsPage';
 import LeadMarketPage from './pages/LeadMarketPage';
@@ -38,7 +37,6 @@ import { ClientDetailPage } from './pages/ClientDetailPage';
 import { Work } from './pages/Work';
 import { Projects as ProjectsPage } from './pages/Projects';
 import { ActivityPage } from './pages/ActivityPage';
-import { WhoWeServe } from './pages/WhoWeServe';
 // import { ServicesPackages } from './pages/ServicesPackages'; // Removed - using line items only
 import { PrivacyPage, TermsPage } from './pages/Legal';
 
@@ -181,7 +179,6 @@ function AppRoutes() {
       <Route path="/" element={renderLanding()} />
       <Route path="/apply" element={user && session && !isLoading ? <HomeRedirect /> : <LeadsLanding scrollTo="apply" />} />
       <Route path="/auth/callback" element={<Callback />} />
-      <Route path="/who-we-serve" element={<WhoWeServe />} />
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/privacy" element={<PrivacyPage />} />
       
@@ -419,11 +416,6 @@ function AppRoutes() {
       {/* The profile page was removed; old links land in Company settings. */}
       <Route path="/profile" element={<Navigate to="/settings/organization" replace />} />
       
-      {/* Documentation routes - publicly accessible */}
-      <Route
-        path="/docs/:filename"
-        element={<MarkdownViewer />}
-      />
 
       
       
