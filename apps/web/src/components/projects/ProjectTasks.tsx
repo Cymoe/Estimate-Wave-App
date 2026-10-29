@@ -166,7 +166,7 @@ const TaskRow: React.FC<{
             .filter((c) => c.phone)
             .slice(0, 2)
             .map((c) => (
-              <a key={c.id} href={textLink(c.phone!, task, place)} className="p-1.5 text-gray-400 hover:text-white" aria-label={`Text ${c.name}`} title={`Text ${c.name}`}>
+              <a key={c.id} href={textLink(c.phone!, task, place, c.language)} className="p-1.5 text-gray-400 hover:text-white" aria-label={`Text ${c.name}`} title={`Text ${c.name}`}>
                 <MessageSquare className="w-4 h-4" />
               </a>
             ))}
@@ -202,7 +202,7 @@ const TaskRow: React.FC<{
               {task.crew
                 .filter((c) => c.phone)
                 .map((c) => (
-                  <a key={c.id} href={textLink(c.phone!, task, place)} className={secondary}>
+                  <a key={c.id} href={textLink(c.phone!, task, place, c.language)} className={secondary}>
                     <MessageSquare className="w-4 h-4" />
                     Text {c.name.split(' ')[0]}
                   </a>

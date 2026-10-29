@@ -85,5 +85,9 @@ describe('task helpers', () => {
     expect(taskDays({})).toBe('');
     expect(taskDays({ startDate: '2026-11-03' })).toBe('Nov 3');
     expect(textLink('+1 432-555-0101', { title: 'Final walk-through' }, '')).toBe(`sms:+14325550101?&body=${encodeURIComponent('Final walk-through.')}`);
+    // A crew member who reads Spanish gets the text in Spanish, with the day in Spanish.
+    expect(decodeURIComponent(textLink('432-555-0101', { title: 'Tear-off', startDate: '2026-11-03', endDate: '2026-11-04' }, '12 Elm St', 'es').split('body=')[1])).toBe(
+      'Tear-off en 12 Elm St, 3 nov – 4 nov.',
+    );
   });
 });

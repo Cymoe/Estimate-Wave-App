@@ -1,3 +1,4 @@
+import { withLang } from '../../../convex/lib/i18n';
 import { EstimateService, Estimate } from '../../services/EstimateService';
 
 /** Copies text, falling back to a hidden textarea where the clipboard API isn't allowed. */
@@ -26,10 +27,13 @@ export async function sendEstimateLink(estimate: Estimate): Promise<string | nul
   if (typeof navigator.share === 'function') {
     try {
       const name = estimate.client?.name?.split(' ')[0];
+      const es = estimate.client?.language === 'es';
       await navigator.share({
-        title: `Estimate ${estimate.estimate_number ?? ''}`.trim(),
-        text: `${name ? `Hi ${name}, here` : 'Here'}'s your estimate. You can review and accept it here:`,
-        url,
+        title: es ? `Presupuesto ${estimate.estimate_number ?? ''}`.trim() : `Estimate ${estimate.estimate_number ?? ''}`.trim(),
+        text: es
+          ? `${name ? `Hola ${name}, aquí` : 'Aquí'} está tu presupuesto. Puedes revisarlo y aceptarlo aquí:`
+          : `${name ? `Hi ${name}, here` : 'Here'}'s your estimate. You can review and accept it here:`,
+        url: withLang(url, es ? 'es' : 'en'),
       });
       shared = true;
     } catch (err) {

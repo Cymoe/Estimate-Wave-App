@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { fail, nowIso, requireStaff } from "./lib/access";
+import { MESSAGES, langOf } from "./lib/i18n";
 import { dollars } from "./lib/wallet";
 import { tellStaff } from "./notify";
 import { badLeadLine } from "./lib/support";
@@ -104,6 +105,11 @@ function usMobile(raw: string | undefined): string | undefined {
   return digits.length === 10 ? `+1${digits}` : undefined;
 }
 
+/** The text to the homeowner once a company has their request, in their language. */
+export function homeownerText(r: { lead: { language?: string }; tradeName: string; company: { name: string; phone?: string } }) {
+  return MESSAGES[langOf(r.lead)].matched(r.tradeName.toLowerCase(), r.company.name, r.company.phone);
+}
+
 export const recipients = internalQuery({
   args: { orgLeadId: v.id("leads") },
   handler: async (ctx, { orgLeadId }) => {
@@ -151,6 +157,7 @@ export const recipients = internalQuery({
         city: lead.city,
         county: lead.county,
         notes: lead.notes,
+        language: lead.language,
         verified: lead.verified,
         pricePaidCents: lead.pricePaidCents ?? 0,
       },
@@ -314,7 +321,7 @@ export const sendLeadAlerts = internalAction({
           ...base,
           channel: "homeowner_sms",
           to,
-          ...(await sendSms(to, `Tolliver: your ${r.tradeName.toLowerCase()} request was matched. ${r.company.name} will call you${r.company.phone ? ` from ${r.company.phone}` : " shortly"}. Reply STOP to opt out`)),
+          ...(await sendSms(to, homeownerText(r))),
         });
     }
     await ctx.runMutation(internal.delivery.record, { rows });

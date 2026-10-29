@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { withLang } from '../../../convex/lib/i18n';
+import { useCallback, useEffect, useState } from 'react';
 import { Send } from 'lucide-react';
 import { signoffsAPI, type Signoff, type SignoffKind } from '../../lib/api';
 import { copyText } from './estimateActions';
@@ -12,12 +13,14 @@ const day = (iso?: string) => (iso ? new Date(iso).toLocaleDateString(undefined,
 const signoffLink = (token: string) => `${window.location.origin}/share/signoff/${token}`;
 
 /** Hands the client the link: the share sheet on a phone or iPad, else copied. */
-async function share(signoff: Signoff, clientName?: string) {
-  const url = signoffLink(signoff.token);
+async function share(signoff: Signoff, clientName?: string, lang: 'en' | 'es' = 'en') {
+  const url = withLang(signoffLink(signoff.token), lang);
   if (typeof navigator.share === 'function') {
     try {
       const first = clientName?.split(' ')[0];
-      await navigator.share({ title: `${signoff.name} ${signoff.number}`, text: `${first ? `Hi ${first}, here` : 'Here'}'s the ${signoff.name.toLowerCase()} to sign:`, url });
+      const what = lang === 'es' ? (signoff.kind === 'affidavit' ? 'declaración de finalización' : 'orden de cambio') : signoff.name.toLowerCase();
+      const text = lang === 'es' ? `${first ? `Hola ${first}, aquí` : 'Aquí'} está la ${what} para firmar:` : `${first ? `Hi ${first}, here` : 'Here'}'s the ${what} to sign:`;
+      await navigator.share({ title: `${signoff.name} ${signoff.number}`, text, url });
       return 'shared';
     } catch (err) {
       if ((err as Error)?.name === 'AbortError') return 'closed';
@@ -35,11 +38,13 @@ export function SignoffControls({
   estimateId,
   kind,
   clientName,
+  clientLanguage,
   disabledReason,
 }: {
   estimateId: string;
   kind: SignoffKind;
   clientName?: string;
+  clientLanguage?: 'en' | 'es';
   /** Why it can't be sent yet (for example, nothing has changed). */
   disabledReason?: string;
 }) {
@@ -66,7 +71,7 @@ export function SignoffControls({
     try {
       const sent = await signoffsAPI.request(estimateId, kind, kind === 'affidavit' ? completionDate : undefined);
       await load();
-      const how = await share(sent, clientName);
+      const how = await share(sent, clientName, clientLanguage);
       setNote(how === 'copied' ? 'Link copied. Paste it into a text or email to your client.' : how === 'shared' ? 'Sent.' : null);
     } catch (err) {
       setNote(errorText(err));
@@ -90,7 +95,7 @@ export function SignoffControls({
         </a>
       )}
       {latest?.status === 'sent' && (
-        <button type="button" disabled={busy} onClick={() => share(latest, clientName).then((how) => how === 'copied' && setNote('Link copied.'))} className="text-gray-300 hover:text-white underline underline-offset-2">
+        <button type="button" disabled={busy} onClick={() => share(latest, clientName, clientLanguage).then((how) => how === 'copied' && setNote('Link copied.'))} className="text-gray-300 hover:text-white underline underline-offset-2">
           Copy link
         </button>
       )}

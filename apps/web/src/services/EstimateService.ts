@@ -63,6 +63,7 @@ export interface Estimate {
     company_name?: string;
     address?: string;
     phone?: string;
+    language?: 'en' | 'es';
   };
   project?: {
     id: string;

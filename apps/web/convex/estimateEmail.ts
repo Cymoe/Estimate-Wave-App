@@ -5,6 +5,7 @@ import { siteUrl } from "./delivery";
 import { fail, getOwned, logActivity, nowIso } from "./lib/access";
 import { mutationDef } from "./lib/actor";
 import { sendEmail } from "./lib/email";
+import { MESSAGES, langOf, money, withLang, type Lang } from "./lib/i18n";
 
 // Emailing an estimate to the client: from the company's name, replies to
 // the company, with the link where they view and sign it. Used from the
@@ -15,24 +16,34 @@ const RESEND_GAP_MS = 10 * 60_000;
 
 const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-export function estimateEmail(r: { clientName?: string; company: string; number: string; title?: string; total: number; link: string; message?: string }) {
+/** The email, in the client's language; the link opens the page in it too. */
+export function estimateEmail(r: {
+  clientName?: string;
+  company: string;
+  number: string;
+  title?: string;
+  total: number;
+  link: string;
+  message?: string;
+  lang?: Lang;
+}) {
+  const m = MESSAGES[r.lang ?? "en"];
+  const link = withLang(r.link, r.lang ?? "en");
   const first = r.clientName?.split(/\s+/)[0];
-  const what = r.title ? `${r.title} (${r.number})` : `estimate ${r.number}`;
-  const total = `$${r.total.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const lines = [
-    first ? `Hi ${first},` : "Hi,",
+    m.hi(first),
     ...(r.message ? [r.message] : []),
-    `Here's your ${what} from ${r.company}, for ${total}. You can look it over, and accept and sign it, here:`,
-    r.link,
-    `Questions? Reply to this email and ${r.company} will get back to you.`,
+    m.estimateBody(m.estimateWhat(r.number, r.title), r.company, money(r.total)),
+    link,
+    m.questions(r.company),
   ];
-  const paragraphs = lines.filter((l) => l !== r.link);
+  const paragraphs = lines.filter((l) => l !== link);
   return {
-    subject: `Your estimate from ${r.company}`,
+    subject: m.estimateSubject(r.company),
     text: lines.join("\n\n"),
     html: [
       ...paragraphs.slice(0, -1).map((l) => `<p>${escape(l).replace(/\n/g, "<br>")}</p>`),
-      `<p><a href="${escape(r.link)}" style="display:inline-block;padding:10px 18px;background:#336699;color:#fff;text-decoration:none">View your estimate</a></p>`,
+      `<p><a href="${escape(link)}" style="display:inline-block;padding:10px 18px;background:#336699;color:#fff;text-decoration:none">${m.estimateButton}</a></p>`,
       `<p style="color:#666">${escape(paragraphs[paragraphs.length - 1])}</p>`,
     ].join(""),
   };
@@ -72,6 +83,7 @@ export const emailDef = mutationDef({
       total: estimate.totalAmount,
       link: `${siteUrl()}/share/estimate/${shareToken}`,
       message: message?.trim().slice(0, 1000) || undefined,
+      lang: langOf(client),
     });
     await ctx.scheduler.runAfter(0, internal.estimateEmail.deliver, { estimateId: id, to: client.email, replyTo: organization.email, ...email });
     await logActivity(ctx, {
@@ -82,7 +94,7 @@ export const emailDef = mutationDef({
       resourceId: id,
       details: { estimateNumber: estimate.estimateNumber, to: client.email },
     });
-    return { to: client.email, link: `${siteUrl()}/share/estimate/${shareToken}` };
+    return { to: client.email, link: withLang(`${siteUrl()}/share/estimate/${shareToken}`, langOf(client)) };
   },
 });
 

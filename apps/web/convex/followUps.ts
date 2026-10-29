@@ -5,6 +5,7 @@ import { internalAction, internalMutation, internalQuery, mutation, query } from
 import { siteUrl } from "./delivery";
 import { getOwned, logActivity, nowIso } from "./lib/access";
 import { sendEmail } from "./lib/email";
+import { MESSAGES, langOf, money, withLang, type Lang } from "./lib/i18n";
 
 // Reminders for estimates the client hasn't signed: an email to the client
 // some days after it was sent, and once more after the same wait. The
@@ -34,26 +35,26 @@ export function nextReminderAt(estimate: Doc<"estimates">, followUps: FollowUps,
 }
 
 /** The reminder email: from the company, with the estimate's link. */
-export function reminderEmail(r: { clientName?: string; company: string; number: string; title?: string; total: number; link: string; opened: boolean }) {
+export function reminderEmail(r: { clientName?: string; company: string; number: string; title?: string; total: number; link: string; opened: boolean; lang?: Lang }) {
+  const m = MESSAGES[r.lang ?? "en"];
+  const link = withLang(r.link, r.lang ?? "en");
   const first = r.clientName?.split(/\s+/)[0];
-  const what = r.title ? `${r.title} (${r.number})` : `estimate ${r.number}`;
-  const total = `$${r.total.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const lines = [
-    `${first ? `Hi ${first},` : "Hi,"}`,
-    `Just checking in on your ${what} from ${r.company}, for ${total}.`,
-    r.opened ? "When you're ready, you can accept and sign it here:" : "You can look it over and sign it here:",
-    r.link,
-    `Questions? Reply to this email and ${r.company} will get back to you.`,
+    m.hi(first),
+    m.reminderBody(m.estimateWhat(r.number, r.title), r.company, money(r.total)),
+    r.opened ? m.reminderOpened : m.reminderUnopened,
+    link,
+    m.questions(r.company),
   ];
   const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   return {
-    subject: `Your estimate from ${r.company}`,
+    subject: m.estimateSubject(r.company),
     text: lines.join("\n\n"),
     html: [
       `<p>${escape(lines[0])}</p>`,
       `<p>${escape(lines[1])}</p>`,
       `<p>${escape(lines[2])}</p>`,
-      `<p><a href="${escape(r.link)}" style="display:inline-block;padding:10px 18px;background:#336699;color:#fff;text-decoration:none">View your estimate</a></p>`,
+      `<p><a href="${escape(link)}" style="display:inline-block;padding:10px 18px;background:#336699;color:#fff;text-decoration:none">${m.estimateButton}</a></p>`,
       `<p style="color:#666">${escape(lines[4])}</p>`,
     ].join(""),
   };
@@ -88,6 +89,7 @@ export const due = internalQuery({
         title: estimate.title,
         total: estimate.totalAmount,
         opened: estimate.status === "opened",
+        lang: langOf(client),
         link: `${siteUrl()}/share/estimate/${estimate.shareToken}`,
         nth: (estimate.remindersSent ?? 0) + 1,
       });

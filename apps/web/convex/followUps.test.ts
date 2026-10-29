@@ -42,6 +42,17 @@ async function sentEstimate(t: T, client: Record<string, string> = { name: "Ann 
 const send = (t: T, now: number) => t.action(internal.followUps.send, { now, anyHour: true });
 
 describe("reminders for estimates nobody has signed", () => {
+  test("a client who reads Spanish gets the reminder in Spanish, with a link that opens the page in Spanish", async () => {
+    const t = setup();
+    const { token, sentAt } = await sentEstimate(t, { name: "Ana Ruiz", email: "ana@example.com", language: "es" });
+    expect(await send(t, sentAt + 3 * DAY + 1000)).toEqual({ sent: 1, failed: 0, skipped: 0 });
+    expect(emails[0]).toMatchObject({ to: ["ana@example.com"], subject: "Tu presupuesto de Peak Roofing" });
+    expect(emails[0].text).toContain("Hola Ana:");
+    expect(emails[0].text).toContain("Solo para dar seguimiento a tu Re-roof (EST-");
+    expect(emails[0].text).toContain(`https://app.example/share/estimate/${token}?lang=es`);
+    expect(emails[0].html).toContain("Ver tu presupuesto");
+  });
+
   test("emails the client 3 days after sending and once more 3 days later, then stops", async () => {
     const t = setup();
     const { as, estimateId, token, sentAt } = await sentEstimate(t);

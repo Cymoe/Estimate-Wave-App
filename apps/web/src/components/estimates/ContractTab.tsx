@@ -349,7 +349,7 @@ export function ContractTab({
           </div>
           {changeMenu('affidavit', affidavit)}
           {expanded === 'affidavit' && affidavit?.source !== 'upload' && <AffidavitPreview contract={contract} estimate={estimate} />}
-          {locked && <SignoffControls estimateId={id} kind="affidavit" clientName={estimate.client?.name} />}
+          {locked && <SignoffControls estimateId={id} kind="affidavit" clientName={estimate.client?.name} clientLanguage={estimate.client?.language} />}
         </div>
 
         {/* Change order: Tolliver's previews inline */}
@@ -388,6 +388,7 @@ export function ContractTab({
               estimateId={id}
               kind="change_order"
               clientName={estimate.client?.name}
+              clientLanguage={estimate.client?.language}
               disabledReason={changeOrder && changeOrder.changes.length > 0 ? undefined : 'Change the line items first; the changes since signing go on the change order'}
             />
           )}

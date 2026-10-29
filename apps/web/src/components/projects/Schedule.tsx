@@ -117,7 +117,7 @@ const TaskCard: React.FC<{ task: ScheduledTask; onOpen: (projectId: string) => v
         {task.crew
           .filter((c) => c.phone)
           .map((c) => (
-            <a key={c.id} href={textLink(c.phone!, task, task.address ?? '')} className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-white">
+            <a key={c.id} href={textLink(c.phone!, task, task.address ?? '', c.language)} className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-white">
               <MessageSquare className="w-3 h-3" />
               Text {c.name.split(' ')[0]}
             </a>

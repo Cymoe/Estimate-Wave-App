@@ -17,19 +17,22 @@ export const mondayOf = (day: string) => {
   return addDays(day, -((d.getDay() + 6) % 7));
 };
 
-/** "Nov 3" for a yyyy-mm-dd day, read as a local date. */
-export const shortDay = (day: string) => {
+type Lang = 'en' | 'es';
+
+/** "Nov 3" (or "3 nov") for a yyyy-mm-dd day, read as a local date. */
+export const shortDay = (day: string, lang: Lang = 'en') => {
   const [y, m, d] = day.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return new Date(y, m - 1, d).toLocaleDateString(lang === 'es' ? 'es-US' : 'en-US', { month: 'short', day: 'numeric' });
 };
 
 /** "Nov 3", "Nov 3 – Nov 5", or nothing for an undated task. */
-export const taskDays = (task: { startDate?: string; endDate?: string }) =>
-  task.startDate ? (task.endDate ? `${shortDay(task.startDate)} – ${shortDay(task.endDate)}` : shortDay(task.startDate)) : '';
+export const taskDays = (task: { startDate?: string; endDate?: string }, lang: Lang = 'en') =>
+  task.startDate ? (task.endDate ? `${shortDay(task.startDate, lang)} – ${shortDay(task.endDate, lang)}` : shortDay(task.startDate, lang)) : '';
 
-/** A text to one crew member about a task, opened in Messages. */
-export const textLink = (phone: string, task: { title: string; startDate?: string; endDate?: string }, place: string) => {
-  const when = taskDays(task);
-  const body = `${task.title}${place ? ` at ${place}` : ''}${when ? `, ${when}` : ''}.`;
+/** A text to one crew member about a task, opened in Messages, in their language. */
+export const textLink = (phone: string, task: { title: string; startDate?: string; endDate?: string }, place: string, lang: Lang = 'en') => {
+  const when = taskDays(task, lang);
+  const at = lang === 'es' ? ' en ' : ' at ';
+  const body = `${task.title}${place ? `${at}${place}` : ''}${when ? `, ${when}` : ''}.`;
   return `sms:${phone.replace(/[^\d+]/g, '')}?&body=${encodeURIComponent(body)}`;
 };
