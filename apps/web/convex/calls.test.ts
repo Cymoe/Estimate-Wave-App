@@ -204,6 +204,7 @@ describe("calling rules", () => {
     expect(new Date(centralMidnight(OPEN)).toISOString()).toBe("2026-10-27T05:00:00.000Z");
     expect(numbersIn("432,5550123\n1-432-555-0124\r\nheader line\n4325550123\n555")).toEqual(["4325550123", "4325550124"]);
     expect(consentLine("Roofing")).toBe("Is it okay if one local roofing company from the Webb Leads network calls or texts you at this number about this job?");
+    expect(consentLine("Roofing", "Permian Home Quotes")).toBe("Is it okay if one local roofing company from the Permian Home Quotes network calls or texts you at this number about this job?");
     expect(listDue("national", "2026-10-01T00:00:00.000Z", OPEN)).toEqual({ current: true, dueAt: "2026-11-01T00:00:00.000Z" });
     expect(listDue("national", "2026-09-01T00:00:00.000Z", OPEN).current).toBe(false);
   });

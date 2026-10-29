@@ -36,6 +36,7 @@ export interface IntakeRow {
   notes?: string;
   campaignName?: string;
   adsetName?: string;
+  adName?: string;
   consent?: { text?: string; value?: string; at?: string };
   duplicateOf?: string;
   attempts: Array<{ at: string; by: string; outcome: string; note?: string }>;
@@ -195,7 +196,7 @@ export const IntakePanel: React.FC<{
             <p className="text-xs text-gray-500 truncate">
               {SOURCE[row.source]}
               {row.takenBy ? ` by ${row.takenBy}` : ''} · in {ago(row.createdAt)}
-              {row.campaignName ? ` · ${row.campaignName}` : ''}
+              {row.campaignName ? ` · ${[row.campaignName, row.adsetName, row.adName].filter(Boolean).join(' › ')}` : ''}
               {row.status === 'closed' ? ` · not a lead: ${reasonLabel(row.disposition)}` : row.status === 'confirmed' ? ' · confirmed' : ''}
             </p>
           </div>

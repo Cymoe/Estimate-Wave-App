@@ -6,6 +6,7 @@ import { listLead } from "./lib/awards";
 import { buyersOf, fundedBidsFor } from "./lib/standing";
 import { pricingFor } from "./lib/wallet";
 import { normalizeCounty, TEXAS_COUNTIES } from "./lib/counties";
+import { consumerBrand } from "./lib/support";
 import { DUPLICATE_WINDOW_DAYS, fieldsFromPayload, intakeLabel, normalizePhone, parseCampaign, type IntakeFields } from "./lib/intake";
 import { langFromText, type Lang } from "./lib/i18n";
 import { intakeDisposition, intakeSource } from "./schema";
@@ -120,6 +121,7 @@ function summary(row: Doc<"intakeLeads">) {
     notes: row.notes,
     campaignName: row.campaignName,
     adsetName: row.adsetName,
+    adName: row.adName,
     consent: row.consent,
     duplicateOf: row.duplicateOf,
     attempts: row.attempts,
@@ -535,7 +537,7 @@ export async function seedDemoIntake(ctx: MutationCtx, user: Doc<"users">) {
         adsetName: "TX_MIDLAND_ROOFING_hail",
         adName: "video1",
         formId: "demo-form",
-        consent: { text: "I agree to be contacted by Webb Leads and one contractor", value: "true", at: ago(12) },
+        consent: { text: `I agree to be contacted by ${consumerBrand()} and one contractor`, value: "true", at: ago(12) },
       },
       {
         ...base(ago(45)),
@@ -555,7 +557,7 @@ export async function seedDemoIntake(ctx: MutationCtx, user: Doc<"users">) {
         externalId: "demo-leadgen-2",
         campaignName: "TX_MIDLAND_PAINTING_LG_202610",
         formId: "demo-form",
-        consent: { text: "I agree to be contacted by Webb Leads and one contractor", value: "true", at: ago(45) },
+        consent: { text: `I agree to be contacted by ${consumerBrand()} and one contractor`, value: "true", at: ago(45) },
       },
       {
         ...base(ago(180)),

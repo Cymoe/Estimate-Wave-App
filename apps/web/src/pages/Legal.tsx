@@ -200,6 +200,13 @@ export const PrivacyPage: React.FC = () => (
       <li>To prevent fraud, support you, and improve the service.</li>
     </ul>
 
+    <h2>Our homeowner-facing brands</h2>
+    <p>
+      Our ads and quote-request forms run under consumer names that {APP_NAME} owns and operates, and that name appears on the form, the consent line
+      and the texts a homeowner gets. A request made through one of them is a request to {APP_NAME}, is covered by this policy, and goes to one
+      contractor as described below.
+    </p>
+
     <h2>Texts and emails</h2>
     <p>
       Contractors who apply agree to a call and texts from {APP_NAME} about their account and new leads. Homeowners who request a quote may get a text

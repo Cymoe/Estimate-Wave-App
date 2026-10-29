@@ -3,6 +3,7 @@ import { Phone, PhoneOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { callsAPI, industriesAPI } from '../lib/api';
 import { consentLine } from '../../convex/lib/calls';
+import { APP_NAME } from '../config/brand';
 import { Dialog, Field, input, primary, secondary } from '../components/ops/ui';
 
 type Kind = 'trade_permits' | 'recent_buyers' | 'street' | 'auction_buyers';
@@ -29,6 +30,8 @@ interface MyDay {
   leads: number;
   hours: { open: boolean; reason?: string };
   callbacks: Array<{ id: string; parcelId?: string; phone: string; address: string; owner?: string; trade?: string; callbackAt: string; note?: string }>;
+  /** The name homeowners know (the consumer brand); what the caller says they're with. */
+  brand?: string;
 }
 
 
@@ -53,7 +56,7 @@ const monthYear = (date?: string) =>
 const pretty = (digits: string) => (digits.length === 10 ? `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}` : digits);
 
 /** What the caller says, filled in for this home. The consent line is read word for word. */
-function Script({ caller, home, tradeName, kind }: { caller: string; home: Home; tradeName: string; kind: Kind }) {
+function Script({ caller, home, tradeName, kind, brand }: { caller: string; home: Home; tradeName: string; kind: Kind; brand?: string }) {
   const trade = tradeName.toLowerCase();
   const why =
     kind === 'trade_permits' && home.street
@@ -66,13 +69,13 @@ function Script({ caller, home, tradeName, kind }: { caller: string; home: Home;
   return (
     <div className="rounded border border-[#2A2A2A] bg-[#151515] p-3 text-sm text-gray-200 space-y-2" data-testid="call-script">
       <p>
-        "Hi, this is {caller} with Webb Leads, a network of local contractors here in Midland.{' '}
+        "Hi, this is {caller} with {brand ?? APP_NAME}, a network of local contractors here in Midland.{' '}
         {kind === 'auction_buyers' ? `Am I speaking with ${home.owner ?? 'the buyer'}?` : `Am I speaking with the homeowner at ${home.address}?`}"
       </p>
       <p>"{why}"</p>
       <p className="text-gray-400">If they're interested, ask what kind of work and when, then read this word for word:</p>
       <p className="font-medium text-white" data-testid="consent-line">
-        "{consentLine(tradeName)}"
+        "{consentLine(tradeName, brand)}"
       </p>
       <p className="text-gray-400">If they ask not to be called again, say you'll make sure of it, and tap "Don't call again".</p>
     </div>
@@ -86,6 +89,7 @@ function HomeCall({
   trade,
   trades,
   caller,
+  brand,
   onDone,
   onClose,
 }: {
@@ -94,6 +98,8 @@ function HomeCall({
   trade: Trade;
   trades: Trade[];
   caller: string;
+  /** The consumer brand, from myDay; the caller's intro and the consent line name it. */
+  brand?: string;
   onDone: (message: string) => void;
   onClose: () => void;
 }) {
@@ -185,7 +191,7 @@ function HomeCall({
       <div className="space-y-4">
         {home.why && <p className="text-xs text-gray-400">{home.why}</p>}
         {home.callbackNote && <p className="text-xs text-amber-200/80">Callback note: {home.callbackNote}</p>}
-        <Script caller={caller} home={home} tradeName={trade.name} kind={kind} />
+        <Script caller={caller} home={home} tradeName={trade.name} kind={kind} brand={brand} />
 
         <div className="flex gap-2">
           <input
@@ -288,7 +294,7 @@ function HomeCall({
                 <label className="flex items-start gap-2 text-sm text-gray-300 py-1">
                   <input type="checkbox" className="mt-1" checked={lead.consented} onChange={(e) => setLead({ ...lead, consented: e.target.checked })} />
                   <span>
-                    They said yes to: <span className="text-white">"{consentLine(leadTrade.name)}"</span>
+                    They said yes to: <span className="text-white">"{consentLine(leadTrade.name, brand)}"</span>
                   </span>
                 </label>
                 <div className="flex gap-2 pt-2">
@@ -498,7 +504,7 @@ export default function CallsPage({ embedded = false }: { embedded?: boolean }) 
       )}
 
       {open && (
-        <HomeCall home={open} kind={kind} trade={current} trades={trades} caller={caller} onDone={done} onClose={() => setOpen(null)} />
+        <HomeCall home={open} kind={kind} trade={current} trades={trades} caller={caller} brand={day?.brand} onDone={done} onClose={() => setOpen(null)} />
       )}
     </div>
   );

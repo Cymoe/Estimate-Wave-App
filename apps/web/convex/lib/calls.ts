@@ -3,6 +3,8 @@
 // from an uploaded list, and the line read for consent. calls.ts applies them.
 
 // Kept free of server imports: the Ops page parses uploaded lists with numbersIn.
+import { consumerBrand } from "./support";
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type DncList = "national" | "texas";
@@ -101,7 +103,7 @@ export function numbersIn(text: string): string[] {
   return [...out];
 }
 
-/** The line a caller reads word for word, and that is stored with the lead. */
-export function consentLine(tradeName: string): string {
-  return `Is it okay if one local ${tradeName.toLowerCase()} company from the Webb Leads network calls or texts you at this number about this job?`;
+/** The line a caller reads word for word, and that is stored with the lead. The brand is the one homeowners know (consumerBrand). */
+export function consentLine(tradeName: string, brand = consumerBrand()): string {
+  return `Is it okay if one local ${tradeName.toLowerCase()} company from the ${brand} network calls or texts you at this number about this job?`;
 }

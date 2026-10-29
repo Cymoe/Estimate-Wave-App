@@ -53,4 +53,19 @@ describe("what a homeowner or client is sent, in their language", () => {
     expect(es.length).toBeLessThanOrEqual(160);
     expect(homeownerText({ ...r, company: { name: "Peak Roofing" }, lead: { language: "es" } })).toContain("te llamará pronto.");
   });
+
+  test("the text names the consumer brand once CONSUMER_BRAND is set, still under 160 characters", () => {
+    process.env.CONSUMER_BRAND = "Permian Home Quotes";
+    try {
+      const r = { tradeName: "Painting", company: { name: "Basin Painting Company", phone: "432-555-0100" } };
+      const en = homeownerText({ ...r, lead: {} });
+      const es = homeownerText({ ...r, lead: { language: "es" } });
+      expect(en.startsWith("Permian Home Quotes: your painting request was matched.")).toBe(true);
+      expect(es.startsWith("Permian Home Quotes: tu solicitud de painting fue asignada.")).toBe(true);
+      expect(en.length).toBeLessThanOrEqual(160);
+      expect(es.length).toBeLessThanOrEqual(160);
+    } finally {
+      delete process.env.CONSUMER_BRAND;
+    }
+  });
 });

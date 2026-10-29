@@ -150,6 +150,13 @@ export const PrivacyEs = () => (
       <li>Para prevenir fraudes, darte soporte y mejorar el servicio.</li>
     </ul>
 
+    <h2>Nuestras marcas para propietarios</h2>
+    <p>
+      Nuestros anuncios y formularios de solicitud de presupuesto funcionan bajo nombres de consumidor que {APP_NAME} posee y opera, y ese nombre
+      aparece en el formulario, en la línea de consentimiento y en los mensajes que recibe el propietario. Una solicitud hecha a través de uno de
+      ellos es una solicitud a {APP_NAME}, está cubierta por esta política y va a un solo contratista como se describe abajo.
+    </p>
+
     <h2>Mensajes de texto y correos</h2>
     <p>
       Los contratistas que solicitan una cuenta aceptan una llamada y mensajes de texto de {APP_NAME} sobre su cuenta y nuevas solicitudes. Los

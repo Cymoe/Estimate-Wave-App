@@ -22,6 +22,7 @@ const myDay = jest.fn(async () => ({
   answered: 1,
   leads: 0,
   hours: { open: true },
+  brand: 'Permian Home Quotes',
   callbacks: [{ id: 'c9', parcelId: 'p7', phone: '4325550177', address: '12 Elm St', owner: 'Hall James', trade: 'roofing', callbackAt: '2026-10-28T15:00:00.000Z', note: 'After work' }],
 }));
 
@@ -79,10 +80,10 @@ describe('the Calls page', () => {
     await click(homes.querySelector('button')!);
     const dialog = document.body.querySelector('[role="dialog"]')!;
     const script = dialog.querySelector('[data-testid="call-script"]')!.textContent!;
-    expect(script).toContain('Hi, this is Dana with Webb Leads');
+    expect(script).toContain('Hi, this is Dana with Permian Home Quotes');
     expect(script).toContain('A few homes on Howdy Dr have had roofing work done lately');
     expect(dialog.querySelector('[data-testid="consent-line"]')!.textContent).toBe(
-      '"Is it okay if one local roofing company from the Webb Leads network calls or texts you at this number about this job?"',
+      '"Is it okay if one local roofing company from the Permian Home Quotes network calls or texts you at this number about this job?"',
     );
 
     // Blocked: the reason, and no number to tap.

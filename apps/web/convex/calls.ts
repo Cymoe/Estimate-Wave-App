@@ -8,6 +8,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { fail, nowIso, requireCaller, requireStaff } from "./lib/access";
+import { consumerBrand } from "./lib/support";
 import {
   CALL_WINDOW_DAYS,
   DNC_LABEL,
@@ -524,6 +525,8 @@ export const myDay = query({
       leads: today.filter((c) => c.outcome === "lead_taken").length,
       callbacks,
       hours: callingHours(now),
+      // What the caller says they're with, and what the consent line names.
+      brand: consumerBrand(),
     };
   },
 });

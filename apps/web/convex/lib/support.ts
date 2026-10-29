@@ -3,6 +3,16 @@
 // phone number here and every one of them shows it.
 
 export const SUPPORT_EMAIL = "leads@webbleads.com";
+/**
+ * The name a homeowner sees: on the ads, the lead form, the consent line
+ * and the text after a sale. Webb Leads is the name contractors see. Set
+ * CONSUMER_BRAND on the deployment once the consumer brand is named; until
+ * then, and in the browser, it falls back to Webb Leads.
+ */
+export function consumerBrand(): string {
+  const env = typeof process !== "undefined" ? process.env : undefined;
+  return env?.CONSUMER_BRAND?.trim() || "Webb Leads";
+}
 /** A number companies can call or text, e.g. "(432) 555-0100". Empty: email only. */
 export const SUPPORT_PHONE = "";
 /** How long after a sale a bad lead can be reported for a credit. */
