@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { CalendarDays, Check, MessageSquare, Plus, Trash2, Users } from 'lucide-react';
 import { crewAPI, tasksAPI, type CrewMember, type ProjectTask } from '../../lib/api';
 import { taskDays, textLink } from './taskDates';
-import { LANGUAGE_OPTIONS } from '../../i18n';
+import { LANGUAGE_OPTIONS } from '../../i18n/lang';
 
 const field = 'bg-[#0A0A0A] border border-[#333] px-2.5 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#336699]';
 const secondary = 'inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-200 bg-[#1E1E1E] border border-[#333] hover:bg-[#2a2a2a] disabled:opacity-50';

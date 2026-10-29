@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 
 /** A box to sign in with a finger, pen or mouse; reports the drawing as a PNG data URL ('' when cleared). */
-export function SignaturePad({ onChange, label = 'Your signature' }: { onChange: (dataUrl: string) => void; label?: string }) {
+export function SignaturePad({ onChange, label = 'Your signature', clearLabel = 'Clear' }: { onChange: (dataUrl: string) => void; label?: string; clearLabel?: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
 
@@ -50,7 +50,7 @@ export function SignaturePad({ onChange, label = 'Your signature' }: { onChange:
       <div className="flex items-center justify-between mb-2">
         <span className="text-sm font-medium text-gray-700">{label}</span>
         <button type="button" onClick={clear} className="text-sm text-gray-500 underline underline-offset-2">
-          Clear
+          {clearLabel}
         </button>
       </div>
       <canvas

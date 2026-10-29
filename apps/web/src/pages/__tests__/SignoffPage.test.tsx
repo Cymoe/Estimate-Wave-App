@@ -12,8 +12,10 @@ jest.mock('../../lib/api', () => ({
   signoffsAPI: {
     get: async () => view,
     sign: (t: string, n: string, s: string, a?: boolean) => sign(t, n, s, a as never),
+    setLanguage: (t: string, l: string) => setLanguage(t, l),
   },
 }));
+const setLanguage = jest.fn(async () => {});
 jest.mock('../../components/contracts/SignaturePad', () => ({
   SignaturePad: ({ onChange }: { onChange: (v: string) => void }) => (
     <button type="button" onClick={() => onChange('data:image/png;base64,SIG')}>
@@ -46,12 +48,12 @@ const changeOrder = {
 };
 
 const button = (text: string) => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.startsWith(text)) as HTMLButtonElement;
-async function open() {
+async function open(path = '/share/signoff/abc') {
   const container = document.createElement('div');
   document.body.appendChild(container);
   await act(async () =>
     createRoot(container).render(
-      <MemoryRouter initialEntries={['/share/signoff/abc']}>
+      <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="/share/signoff/:token" element={<SignoffPage />} />
         </Routes>
@@ -63,6 +65,7 @@ async function open() {
 
 afterEach(() => {
   document.body.innerHTML = '';
+  window.localStorage.clear();
   jest.clearAllMocks();
 });
 
@@ -126,5 +129,46 @@ describe('client signoff page', () => {
     view = null;
     await open();
     expect(document.body.textContent).toContain("This link isn’t valid.");
+  });
+
+  it('reads in Spanish from a ?lang=es link, names the document in Spanish, and remembers a flip to English', async () => {
+    view = { ...changeOrder };
+    await open('/share/signoff/abc?lang=es');
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('Orden de cambio');
+    expect(text).toContain('CO-2026-000101 · del presupuesto EST-2026-000001');
+    expect(text).toContain('Skylight · agregado$1,200.00');
+    expect(text).toContain('Nuevo total del contrato$9,700.00');
+    expect(button('Firmar orden de cambio')).toBeTruthy();
+    await act(async () => button('draw').click());
+    await act(async () => button('Firmar orden de cambio').click());
+    await act(async () => {});
+    expect(document.body.querySelector('[data-testid="signoff-record"]')!.textContent).toContain('Firmado por Ann Miller el');
+    await act(async () => button('English').click());
+    expect(setLanguage).toHaveBeenCalledWith('abc', 'en');
+  });
+
+  it("the affidavit in the client's own language, with the date in Spanish", async () => {
+    view = {
+      ...changeOrder,
+      kind: 'affidavit',
+      name: 'Affidavit of Completion',
+      number: 'AFF-2026-1',
+      completionDate: '2026-11-20',
+      paid: 9700,
+      contractTotal: 9700,
+      propertyAddress: '1201 Elm St, Midland',
+      clientLanguage: 'es',
+    };
+    await open();
+    expect(document.body.textContent).toContain('Declaración de finalización');
+    expect(document.body.textContent).toContain(
+      'Confirmo que el trabajo del presupuesto EST-2026-000001 en 1201 Elm St, Midland fue terminado por Peak Roofing el 20 de noviembre de 2026, por un total de contrato de $9,700.00, del cual se han pagado $9,700.00.',
+    );
+    expect(button('Firmar declaración de finalización')).toBeTruthy();
+    view = null;
+    document.body.innerHTML = '';
+    await open('/share/signoff/abc?lang=es');
+    expect(document.body.textContent).toContain('Este enlace no es válido.');
   });
 });

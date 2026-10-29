@@ -4,7 +4,10 @@ import { LegalLinks } from '../../pages/Legal';
 import { CheckCircle, XCircle, Mail, Phone, MapPin, FileText, ChevronDown } from 'lucide-react';
 import { publicEstimatesAPI } from '../../lib/api';
 import { formatCurrency } from '../../utils/format';
-import { categoryTotals, type ContractData } from '../../services/contract';
+import { OTHER_CATEGORY, categoryTotals, type ContractData } from '../../services/contract';
+import { LangProvider, LangToggle } from '../../i18n';
+import { formatDay, useLang } from '../../i18n/lang';
+import { SHARE, refusalText } from '../../i18n/share';
 import { AgreementTerms } from '../contracts/AgreementTerms';
 import { SignedRecord, type RecordDocument } from '../contracts/SignedRecord';
 
@@ -24,7 +27,7 @@ interface ClientEstimate {
   terms?: string;
   client_signature?: string;
   signed_at?: string;
-  client?: { name: string };
+  client?: { name: string; language?: 'en' | 'es' };
   business?: { name?: string; email?: string; phone?: string; address?: string };
   design?: { url: string; name: string; contentType?: string };
   agreement?: {
@@ -92,12 +95,12 @@ function fromView(view: any): ClientEstimate {
 }
 
 /** What's due after signing: each invoice, what's been paid, and how to pay the company. */
-function PaymentsDue({ payments }: { payments: ClientPayments }) {
+function PaymentsDue({ payments, t }: { payments: ClientPayments; t: Strings }) {
   const settled = payments.due <= 0;
   return (
     <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-6" aria-label="Payment" data-testid="client-payments">
       <div className="flex items-baseline justify-between gap-3 mb-3">
-        <h3 className="text-lg font-semibold text-gray-900">{settled ? 'Paid in full so far' : 'Payment due'}</h3>
+        <h3 className="text-lg font-semibold text-gray-900">{settled ? t.paidInFull : t.paymentDue}</h3>
         {!settled && <span className="text-xl font-bold text-gray-900">{formatCurrency(payments.due)}</span>}
       </div>
       <ul className="divide-y divide-gray-200 border border-gray-200 rounded">
@@ -107,7 +110,7 @@ function PaymentsDue({ payments }: { payments: ClientPayments }) {
               <span className="block text-gray-900">{invoice.description}</span>
               <span className="block text-xs text-gray-500">
                 {invoice.number}
-                {invoice.due <= 0 ? ' · Paid' : invoice.paid > 0 ? ` · ${formatCurrency(invoice.paid)} paid` : ''}
+                {invoice.due <= 0 ? ` · ${t.paid}` : invoice.paid > 0 ? ` · ${t.paidAmount(formatCurrency(invoice.paid))}` : ''}
               </span>
             </span>
             <span className={`font-medium ${invoice.due <= 0 ? 'text-green-700' : 'text-gray-900'}`}>{formatCurrency(invoice.due <= 0 ? invoice.total : invoice.due)}</span>
@@ -121,12 +124,12 @@ function PaymentsDue({ payments }: { payments: ClientPayments }) {
           rel="noopener noreferrer"
           className="mt-4 inline-flex items-center justify-center w-full sm:w-auto px-6 py-3 rounded-lg bg-[#336699] hover:bg-[#2a5580] text-white font-medium"
         >
-          Pay {formatCurrency(payments.due)}
+          {t.pay(formatCurrency(payments.due))}
         </a>
       )}
       {!settled && payments.instructions && <p className="mt-4 text-sm text-gray-700 whitespace-pre-wrap">{payments.instructions}</p>}
       <p className="mt-3 text-xs text-gray-500">
-        {formatCurrency(payments.paid)} paid of {formatCurrency(payments.contract)}.
+        {t.paidOf(formatCurrency(payments.paid), formatCurrency(payments.contract))}
       </p>
     </section>
   );
@@ -163,7 +166,7 @@ function agreementFor(estimate: ClientEstimate): ContractData {
 }
 
 /** One of the company's documents: its name and a link to open the PDF. */
-function DocumentCard({ doc }: { doc: RecordDocument }) {
+function DocumentCard({ doc, t }: { doc: RecordDocument; t: Strings }) {
   return (
     <a
       href={doc.url}
@@ -175,17 +178,20 @@ function DocumentCard({ doc }: { doc: RecordDocument }) {
       <FileText className="w-6 h-6 text-gray-500 flex-shrink-0" />
       <span className="flex-1 min-w-0">
         <span className="block font-medium text-gray-900 truncate">{doc.name}</span>
-        <span className="block text-xs text-gray-500">PDF · tap to open and read</span>
+        <span className="block text-xs text-gray-500">{t.pdfOpen}</span>
       </span>
-      <span className="text-sm text-blue-600 font-medium">Open</span>
+      <span className="text-sm text-blue-600 font-medium">{t.open}</span>
     </a>
   );
 }
 
 const OPEN_STATUSES = ['draft', 'sent', 'opened'];
+type Strings = (typeof SHARE)['en'];
 
-export const ShareableEstimate: React.FC = () => {
+const ShareableEstimatePage: React.FC = () => {
   const { token } = useParams<{ token: string }>();
+  const { lang, adopt } = useLang();
+  const t = SHARE[lang];
   const [estimate, setEstimate] = useState<ClientEstimate | null>(null);
   const [loading, setLoading] = useState(true);
   const [signing, setSigning] = useState(false);
@@ -203,6 +209,7 @@ export const ShareableEstimate: React.FC = () => {
     try {
       const view = await publicEstimatesAPI.get(token);
       setEstimate(view ? fromView(view) : null);
+      if (view?.client?.language) adopt(view.client.language);
     } catch (error) {
       console.error('Error loading estimate:', error);
       setEstimate(null);
@@ -297,7 +304,7 @@ export const ShareableEstimate: React.FC = () => {
       await loadEstimate();
     } catch (error) {
       console.error('Error accepting estimate:', error);
-      setActionError(error instanceof Error ? error.message : "The estimate couldn't be accepted. Please try again.");
+      setActionError(refusalText(error, lang, t.acceptFailed));
     } finally {
       setSigning(false);
     }
@@ -305,14 +312,14 @@ export const ShareableEstimate: React.FC = () => {
 
   const handleReject = async () => {
     if (!token) return;
-    if (!confirm('Decline this estimate?')) return;
+    if (!confirm(t.declineConfirm)) return;
     setActionError(null);
     try {
       await publicEstimatesAPI.decline(token);
       await loadEstimate();
     } catch (error) {
       console.error('Error declining estimate:', error);
-      setActionError(error instanceof Error ? error.message : "The estimate couldn't be declined. Please try again.");
+      setActionError(refusalText(error, lang, t.declineFailed));
     }
   };
 
@@ -329,8 +336,9 @@ export const ShareableEstimate: React.FC = () => {
       <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
           <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">Estimate not found</h3>
-          <p className="text-gray-600">The estimate you're looking for doesn't exist or has been removed.</p>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">{t.notFoundTitle}</h3>
+          <p className="text-gray-600">{t.notFoundBody}</p>
+          <LangToggle className="text-xs text-gray-400 mt-6" />
         </div>
       </div>
     );
@@ -339,7 +347,15 @@ export const ShareableEstimate: React.FC = () => {
   const isExpired = estimate.expiry_date && new Date(estimate.expiry_date) < new Date();
   const canSign = OPEN_STATUSES.includes(estimate.status) && !isExpired;
   const statusLabel =
-    estimate.status === 'rejected' ? 'Declined' : OPEN_STATUSES.includes(estimate.status) ? 'Awaiting your approval' : estimate.status.charAt(0).toUpperCase() + estimate.status.slice(1);
+    estimate.status === 'rejected'
+      ? t.statusDeclined
+      : OPEN_STATUSES.includes(estimate.status)
+        ? t.statusAwaiting
+        : estimate.status === 'accepted'
+          ? t.statusAccepted
+          : estimate.status === 'expired'
+            ? t.statusExpired
+            : estimate.status.charAt(0).toUpperCase() + estimate.status.slice(1);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -349,9 +365,9 @@ export const ShareableEstimate: React.FC = () => {
           <div className="flex justify-between items-start mb-6">
             <div>
               <h1 className="text-3xl font-bold text-gray-900 mb-2">
-                {estimate.title || 'Estimate & Agreement'}
+                {estimate.title || t.titleFallback}
               </h1>
-              <p className="text-lg text-gray-600">Estimate &amp; Agreement · {estimate.estimate_number}</p>
+              <p className="text-lg text-gray-600">{t.subtitle(estimate.estimate_number)}</p>
             </div>
             
             <div className="text-right">
@@ -367,7 +383,7 @@ export const ShareableEstimate: React.FC = () => {
                 {statusLabel}
               </div>
               {isExpired && (
-                <p className="text-sm text-red-600 mt-1">Expired</p>
+                <p className="text-sm text-red-600 mt-1">{t.expired}</p>
               )}
             </div>
           </div>
@@ -375,9 +391,9 @@ export const ShareableEstimate: React.FC = () => {
           {/* From (the business) and For (the client) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">From:</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-3">{t.from}</h3>
               <div className="space-y-2">
-                <div className="text-gray-900 font-medium">{estimate.business?.name || 'Your contractor'}</div>
+                <div className="text-gray-900 font-medium">{estimate.business?.name || t.yourContractor}</div>
                 {estimate.business?.email && (
                   <a href={`mailto:${estimate.business.email}`} className="flex items-center gap-2 text-gray-600">
                     <Mail className="w-4 h-4 text-gray-400" />
@@ -398,27 +414,27 @@ export const ShareableEstimate: React.FC = () => {
                 )}
                 {estimate.client && (
                   <p className="pt-2 text-gray-600">
-                    Prepared for <span className="text-gray-900 font-medium">{estimate.client.name}</span>
+                    {t.preparedFor} <span className="text-gray-900 font-medium">{estimate.client.name}</span>
                   </p>
                 )}
               </div>
             </div>
 
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">Estimate Details:</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-3">{t.details}</h3>
               <div className="space-y-2">
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Issue Date:</span>
-                  <span className="text-gray-900">{new Date(estimate.issue_date).toLocaleDateString()}</span>
+                  <span className="text-gray-600">{t.issueDate}</span>
+                  <span className="text-gray-900">{formatDay(estimate.issue_date, lang)}</span>
                 </div>
                 {estimate.expiry_date && (
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Valid Until:</span>
-                    <span className="text-gray-900">{new Date(estimate.expiry_date).toLocaleDateString()}</span>
+                    <span className="text-gray-600">{t.validUntil}</span>
+                    <span className="text-gray-900">{formatDay(estimate.expiry_date, lang)}</span>
                   </div>
                 )}
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Total Amount:</span>
+                  <span className="text-gray-600">{t.totalAmount}</span>
                   <span className="text-xl font-bold text-gray-900">{formatCurrency(estimate.total_amount)}</span>
                 </div>
               </div>
@@ -429,20 +445,20 @@ export const ShareableEstimate: React.FC = () => {
         {/* Description */}
         {estimate.description && (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-3">Project Description</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-3">{t.description}</h3>
             <p className="text-gray-700 whitespace-pre-wrap">{estimate.description}</p>
           </div>
         )}
 
         {/* Summary by category: what the client reads first */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6" data-testid="category-summary">
-          <h3 className="text-lg font-semibold text-gray-900 mb-3">Summary</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-3">{t.summary}</h3>
           <table className="w-full text-gray-900">
             <tbody>
               {categoryTotals(estimate.items.map((item) => ({ category: item.category, total: item.total_price }))).map(
                 ({ category, total }) => (
                   <tr key={category} className="border-b border-gray-200">
-                    <td className="py-3 pr-4">{category}</td>
+                    <td className="py-3 pr-4">{category === OTHER_CATEGORY ? t.other : category}</td>
                     <td className="py-3 text-right whitespace-nowrap">{formatCurrency(total)}</td>
                   </tr>
                 ),
@@ -452,17 +468,17 @@ export const ShareableEstimate: React.FC = () => {
               {(estimate.tax_rate ?? 0) > 0 && (
                 <>
                   <tr>
-                    <td className="pt-3 text-gray-600">Subtotal</td>
+                    <td className="pt-3 text-gray-600">{t.subtotal}</td>
                     <td className="pt-3 text-right text-gray-600">{formatCurrency(estimate.subtotal)}</td>
                   </tr>
                   <tr>
-                    <td className="pt-1 text-gray-600">Tax ({estimate.tax_rate}%)</td>
+                    <td className="pt-1 text-gray-600">{t.tax(estimate.tax_rate ?? 0)}</td>
                     <td className="pt-1 text-right text-gray-600">{formatCurrency(estimate.tax_amount || 0)}</td>
                   </tr>
                 </>
               )}
               <tr>
-                <td className="pt-3 text-lg font-bold">Total</td>
+                <td className="pt-3 text-lg font-bold">{t.total}</td>
                 <td className="pt-3 text-right text-xl font-bold text-blue-600">{formatCurrency(estimate.total_amount)}</td>
               </tr>
             </tfoot>
@@ -477,7 +493,7 @@ export const ShareableEstimate: React.FC = () => {
             aria-expanded={showDetails}
             className="w-full px-6 py-4 flex items-center justify-between text-left"
           >
-            <h3 className="text-lg font-semibold text-gray-900">Line item details ({estimate.items.length})</h3>
+            <h3 className="text-lg font-semibold text-gray-900">{t.lineItems(estimate.items.length)}</h3>
             <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform ${showDetails ? 'rotate-180' : ''}`} />
           </button>
 
@@ -486,16 +502,16 @@ export const ShareableEstimate: React.FC = () => {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Description
+                    {t.colDescription}
                   </th>
                   <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Qty
+                    {t.colQty}
                   </th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Unit Price
+                    {t.colUnitPrice}
                   </th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Total
+                    {t.colTotal}
                   </th>
                 </tr>
               </thead>
@@ -520,7 +536,7 @@ export const ShareableEstimate: React.FC = () => {
               <tfoot className="bg-gray-50">
                 <tr>
                   <td colSpan={3} className="px-6 py-3 text-right text-sm font-medium text-gray-900">
-                    Subtotal:
+                    {t.subtotal}:
                   </td>
                   <td className="px-6 py-3 text-right text-sm font-medium text-gray-900">
                     {formatCurrency(estimate.subtotal)}
@@ -529,7 +545,7 @@ export const ShareableEstimate: React.FC = () => {
                 {(estimate.tax_rate ?? 0) > 0 && (
                   <tr>
                     <td colSpan={3} className="px-6 py-3 text-right text-sm font-medium text-gray-900">
-                      Tax ({estimate.tax_rate}%):
+                      {t.tax(estimate.tax_rate ?? 0)}:
                     </td>
                     <td className="px-6 py-3 text-right text-sm font-medium text-gray-900">
                       {formatCurrency(estimate.tax_amount || 0)}
@@ -538,7 +554,7 @@ export const ShareableEstimate: React.FC = () => {
                 )}
                 <tr>
                   <td colSpan={3} className="px-6 py-4 text-right text-lg font-bold text-gray-900">
-                    Total:
+                    {t.total}:
                   </td>
                   <td className="px-6 py-4 text-right text-xl font-bold text-blue-600">
                     {formatCurrency(estimate.total_amount)}
@@ -551,18 +567,18 @@ export const ShareableEstimate: React.FC = () => {
 
         {/* The agreement, signed together with the estimate: the company's own PDF, or Tolliver's (with the agreed design) */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6 text-gray-900" data-testid="agreement">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Agreement</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">{t.agreement}</h3>
           {uploadedAgreement ? (
             <>
-              <DocumentCard doc={uploadedAgreement} />
+              <DocumentCard doc={uploadedAgreement} t={t} />
               <p className="text-sm text-gray-600 mt-3">
                 {estimate.design
-                  ? 'This estimate, its price and the agreed design are part of the agreement.'
-                  : 'This estimate and its price are part of the agreement.'}
+                  ? t.partOfAgreementWithDesign
+                  : t.partOfAgreement}
               </p>
               {estimate.design && (
                 <p className="text-sm mt-2">
-                  Agreed design:{' '}
+                  {t.agreedDesign}{' '}
                   <a href={estimate.design.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline underline-offset-2">
                     {estimate.design.name}
                   </a>
@@ -570,14 +586,14 @@ export const ShareableEstimate: React.FC = () => {
               )}
             </>
           ) : (
-            <AgreementTerms contract={agreementFor(estimate)} />
+            <AgreementTerms contract={agreementFor(estimate)} lang={lang} />
           )}
           {attachments.length > 0 && (
             <div className="mt-5" data-testid="attachments">
-              <h4 className="text-sm font-semibold text-gray-900 mb-2">Also part of this agreement</h4>
+              <h4 className="text-sm font-semibold text-gray-900 mb-2">{t.alsoPart}</h4>
               <div className="space-y-2">
                 {attachments.map((d, i) => (
-                  <DocumentCard key={i} doc={d} />
+                  <DocumentCard key={i} doc={d} t={t} />
                 ))}
               </div>
             </div>
@@ -589,14 +605,14 @@ export const ShareableEstimate: React.FC = () => {
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
             {estimate.notes && (
               <div className="mb-4">
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">Notes</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">{t.notes}</h3>
                 <p className="text-gray-700 whitespace-pre-wrap">{estimate.notes}</p>
               </div>
             )}
             
             {estimate.terms && (
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">Terms & Conditions</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">{t.terms}</h3>
                 <p className="text-gray-700 whitespace-pre-wrap">{estimate.terms}</p>
               </div>
             )}
@@ -604,24 +620,24 @@ export const ShareableEstimate: React.FC = () => {
         )}
 
         {/* What's due, once signed */}
-        {estimate.status === 'accepted' && estimate.payments && <PaymentsDue payments={estimate.payments} />}
+        {estimate.status === 'accepted' && estimate.payments && <PaymentsDue payments={estimate.payments} t={t} />}
 
         {/* Signature Section */}
         {estimate.status === 'accepted' && estimate.client_signature ? (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
               <CheckCircle className="w-5 h-5 text-green-500 inline mr-2" />
-              Accepted &amp; Signed
+              {t.acceptedSigned}
             </h3>
             <div className="border border-gray-300 rounded-lg p-4 bg-gray-50 mb-4">
               <img 
                 src={estimate.client_signature} 
-                alt="Client Signature" 
+                alt={t.clientSignature} 
                 className="max-h-32 mx-auto"
               />
             </div>
             <p className="text-sm text-gray-600">
-              Signed on {new Date(estimate.signed_at!).toLocaleDateString()}
+              {t.signedOn(formatDay(estimate.signed_at, lang))}
             </p>
             {needsTick && (
               <div className="mt-6">
@@ -632,17 +648,18 @@ export const ShareableEstimate: React.FC = () => {
                   signedAt={estimate.signed_at}
                   acknowledgedAt={estimate.acknowledged_at}
                   documents={estimate.documents}
+                  lang={lang}
                 />
               </div>
             )}
           </div>
         ) : canSign ? (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Accept &amp; Sign</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">{t.acceptSign}</h3>
             
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Your signature
+                {t.yourSignature}
               </label>
               <div className="border border-gray-300 rounded-lg">
                 <canvas
@@ -661,12 +678,12 @@ export const ShareableEstimate: React.FC = () => {
                 />
               </div>
               <div className="flex justify-between items-center mt-2">
-                <p className="text-xs text-gray-500">By signing, you accept this estimate and agree to the terms above.</p>
+                <p className="text-xs text-gray-500">{t.bySigning}</p>
                 <button
                   onClick={clearSignature}
                   className="text-xs text-blue-600 hover:text-blue-800"
                 >
-                  Clear
+                  {t.clear}
                 </button>
               </div>
             </div>
@@ -678,10 +695,10 @@ export const ShareableEstimate: React.FC = () => {
                   checked={agreed}
                   onChange={(e) => setAgreed(e.target.checked)}
                   className="mt-0.5 w-5 h-5 accent-green-600"
-                  aria-label="I've read and agree to the attached documents"
+                  aria-label={t.readAgreeLabel}
                 />
                 <span>
-                  I&rsquo;ve read and agree to the attached documents: {uploads.map((d) => d.name).join(', ')}.
+                  {t.readAgree(uploads.map((d) => d.name).join(', '))}
                 </span>
               </label>
             )}
@@ -693,7 +710,7 @@ export const ShareableEstimate: React.FC = () => {
                 className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
               >
                 <CheckCircle className="w-5 h-5" />
-                {signing ? 'Signing...' : 'Accept & Sign'}
+                {signing ? t.signing : t.acceptSign}
               </button>
               
               <button
@@ -701,7 +718,7 @@ export const ShareableEstimate: React.FC = () => {
                 className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
               >
                 <XCircle className="w-5 h-5" />
-                Decline
+                {t.decline}
               </button>
             </div>
           </div>
@@ -709,16 +726,27 @@ export const ShareableEstimate: React.FC = () => {
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 text-center">
             <p className="text-gray-600">
               {estimate.status === 'rejected' 
-                ? 'You declined this estimate. Contact the contractor if you have questions.'
+                ? t.declined
                 : isExpired
-                ? 'This estimate has expired.'
-                : 'This estimate is no longer available for acceptance.'
+                ? t.expiredMessage
+                : t.unavailable
               }
             </p>
           </div>
         )}
-        <LegalLinks className="text-xs text-gray-400 mt-8" />
+        <LangToggle className="text-xs text-gray-400 mt-8" />
+        <LegalLinks className="text-xs text-gray-400 mt-2" />
       </div>
     </div>
+  );
+};
+
+/** The page in the homeowner's language; flipping it is remembered on their record. */
+export const ShareableEstimate: React.FC = () => {
+  const { token } = useParams<{ token: string }>();
+  return (
+    <LangProvider onChange={(lang) => token && publicEstimatesAPI.setLanguage(token, lang).catch(() => {})}>
+      <ShareableEstimatePage />
+    </LangProvider>
   );
 };

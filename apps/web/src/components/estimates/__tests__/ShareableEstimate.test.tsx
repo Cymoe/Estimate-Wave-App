@@ -12,12 +12,14 @@ const accept = jest.fn<Promise<void>, [string, string, boolean?]>(async (_token,
 const decline = jest.fn(async () => {
   view = { ...view, status: 'rejected' };
 });
+const setLanguage = jest.fn(async () => {});
 jest.mock('../../../lib/api', () => ({
   publicEstimatesAPI: {
     get: async () => view,
     markOpened: (token: string) => markOpened(token),
     accept: (token: string, signature: string, agreed?: boolean) => accept(token, signature, agreed),
     decline: (token: string) => decline(token),
+    setLanguage: (token: string, language: string) => setLanguage(token, language),
   },
 }));
 
@@ -36,12 +38,12 @@ const sent = {
   business: { name: 'Shah Builders', phone: '555-0100' },
 };
 
-async function open() {
+async function open(path = '/share/estimate/tok123') {
   const container = document.createElement('div');
   document.body.appendChild(container);
   await act(async () =>
     createRoot(container).render(
-      <MemoryRouter initialEntries={['/share/estimate/tok123']}>
+      <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="/share/estimate/:token" element={<ShareableEstimate />} />
         </Routes>
@@ -55,6 +57,7 @@ const button = (text: string) => Array.from(document.body.querySelectorAll('butt
 describe('client estimate page', () => {
   afterEach(() => {
     document.body.innerHTML = '';
+    window.localStorage.clear();
     jest.clearAllMocks();
   });
 
@@ -207,5 +210,52 @@ describe('client estimate page', () => {
     expect(record.textContent).toContain('Shah Agreement.pdf · 20 KB');
     expect(record.textContent).toContain('SHA-256 aa11');
     expect(record.textContent).toContain('SHA-256 bb22');
+  });
+
+  it('reads in Spanish from a ?lang=es link: the page, the agreement and the signing', async () => {
+    view = { ...sent, agreement: { propertyAddress: '12 Elm St', paymentTerms: 'Net 15', warrantyPeriod: '1 year' } };
+    await open('/share/estimate/tok123?lang=es');
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('Preparado para Dan Shah');
+    expect(text).toContain('Pendiente de tu aprobación');
+    expect(text).toContain('Al firmar, aceptas este presupuesto y los términos de arriba.');
+    const agreement = document.body.querySelector('[data-testid="agreement"]')!;
+    expect(agreement.textContent).toContain('Esta traducción al español se ofrece por conveniencia');
+    expect(agreement.textContent).toContain('Política de órdenes de cambio');
+    expect(agreement.textContent).toContain('12 Elm St');
+    expect(agreement.textContent).not.toContain('Change Order Policy');
+    expect(document.documentElement.lang).toBe('es');
+    expect(button('Aceptar y firmar')).toBeTruthy();
+    expect(button('Rechazar')).toBeTruthy();
+
+    // Flipping to English is remembered on the client's record.
+    await act(async () => button('English')!.click());
+    expect(setLanguage).toHaveBeenCalledWith('tok123', 'en');
+    expect(document.body.textContent).toContain('Prepared for Dan Shah');
+  });
+
+  it("opens in the client's language when the link says nothing, and says a refusal in it", async () => {
+    view = { ...sent, client: { name: 'Ana Ruiz', language: 'es' } };
+    accept.mockImplementationOnce(async () => {
+      const err = new Error('This estimate can no longer be accepted') as Error & { reason?: string };
+      err.reason = 'estimate_closed';
+      throw err;
+    });
+    await open();
+    expect(document.body.textContent).toContain('Preparado para Ana Ruiz');
+    const canvas = document.body.querySelector('canvas') as HTMLCanvasElement;
+    canvas.toDataURL = () => 'data:image/png;base64,sig';
+    await act(async () => {
+      canvas.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      canvas.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    });
+    await act(async () => button('Aceptar y firmar')!.click());
+    expect(document.body.textContent).toContain('Este presupuesto ya no se puede aceptar ni rechazar.');
+  });
+
+  it('says the link is not valid in Spanish too', async () => {
+    view = null;
+    await open('/share/estimate/tok123?lang=es');
+    expect(document.body.textContent).toContain('Presupuesto no encontrado');
   });
 });

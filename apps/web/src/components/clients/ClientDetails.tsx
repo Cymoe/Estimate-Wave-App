@@ -7,7 +7,7 @@ import { ProjectService, type Project } from '../../services/ProjectService';
 import { EstimateService, type Estimate } from '../../services/EstimateService';
 import { formatCurrency } from '../../utils/format';
 import { NoteRow, SaveStatus, noteInput, noteSelect, noteTextarea, noteTitle, useNoteFields } from '../common/StructuredNote';
-import { LANGUAGE_OPTIONS } from '../../i18n';
+import { LANGUAGE_OPTIONS } from '../../i18n/lang';
 import { projectStatusInfo } from '../projects/projectStatus';
 
 type Draft = {

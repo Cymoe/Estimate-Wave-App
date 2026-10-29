@@ -26,7 +26,7 @@ import { formatCurrency } from '../../utils/format';
 import { AppointmentField } from './AppointmentField';
 import { LeadCredit } from '../market/LeadCredit';
 import { KNOWN_CITIES, SOURCES, STATUSES, type Lead, type LeadStatus, type Trade } from './leadTypes';
-import { LANGUAGE_OPTIONS } from '../../i18n';
+import { LANGUAGE_OPTIONS } from '../../i18n/lang';
 
 /** The text fields, held as strings while editing. */
 interface Draft {
