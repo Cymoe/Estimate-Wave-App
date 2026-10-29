@@ -565,7 +565,7 @@ const ShareableEstimatePage: React.FC = () => {
           </div>}
         </div>
 
-        {/* The agreement, signed together with the estimate: the company's own PDF, or Tolliver's (with the agreed design) */}
+        {/* The agreement, signed together with the estimate: the company's own PDF, or Webb Leads' (with the agreed design) */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6 text-gray-900" data-testid="agreement">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">{t.agreement}</h3>
           {uploadedAgreement ? (

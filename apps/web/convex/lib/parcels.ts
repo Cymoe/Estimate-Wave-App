@@ -2,7 +2,7 @@
 // publishes it on its public ArcGIS (the same org as the permit feed). Owner
 // name, mailing address, value and deed date; no phone numbers. Pure
 // functions: parcels.ts fetches, these decide what each row means. Owner
-// names are only ever shown to Tolliver staff and callers.
+// names are only ever shown to Webb Leads staff and callers.
 
 export const MIDLAND_PARCELS = {
   source: "midland-parcels",

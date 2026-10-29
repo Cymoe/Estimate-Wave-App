@@ -1,6 +1,6 @@
 // A company's own contract PDFs. The library (Settings → Contracts) holds
 // its agreement, affidavit of completion and change order (each replacing
-// Tolliver's built-in one) and attachments sent with every estimate; an
+// Webb Leads' built-in one) and attachments sent with every estimate; an
 // estimate can also have PDFs of its own. A file that has been signed is
 // never deleted: removing it only archives it, so signed jobs keep it.
 import { v } from "convex/values";
@@ -129,8 +129,8 @@ export const setActive = mutation({
   },
 });
 
-/** The company goes back to Tolliver's built-in document of this kind. */
-export const useTolliver = mutation({
+/** The company goes back to Webb Leads' built-in document of this kind. */
+export const useBuiltIn = mutation({
   args: { organizationId: v.id("organizations"), kind: v.union(v.literal("agreement"), v.literal("affidavit"), v.literal("change_order")) },
   handler: async (ctx, { organizationId, kind }) => {
     await requireMember(ctx, organizationId, "admin");

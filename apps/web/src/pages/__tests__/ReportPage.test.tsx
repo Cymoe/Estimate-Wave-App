@@ -79,7 +79,7 @@ const base = {
   sold: { count: 2, prior: 1, byTrade: [{ name: 'Roofing', count: 2, avgCents: 30000, topCents: 32000 }], medianHoursToSell: 0.5 },
 };
 
-describe('the Tolliver Report page', () => {
+describe('the Webb Report page', () => {
   it('free: the numbers, with who is building, addresses and your week held back for Pro', async () => {
     report = { ...base, pro: false };
     const page = await render();

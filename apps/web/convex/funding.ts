@@ -152,7 +152,7 @@ export const checkout = action({
     const secretKey = process.env.STRIPE_SECRET_KEY;
     if (!secretKey) {
       // No Stripe yet. A sample company gets play money on the spot; anyone else waits.
-      if (!prepared.playMoney) fail("INVALID", "Payments aren't set up yet. Tolliver can add funds to your account for you.");
+      if (!prepared.playMoney) fail("INVALID", "Payments aren't set up yet. Webb Leads can add funds to your account for you.");
       await ctx.runMutation(internal.funding.playMoneyPay, { requestId: prepared.requestId });
       return { url: `/fund/${token}?paid=1` };
     }

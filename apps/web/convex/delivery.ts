@@ -240,7 +240,7 @@ type AlertParts = Pick<Recipients, "lead" | "tradeName"> & Partial<Pick<Recipien
 export function smsText(r: AlertParts, link: string, assistants: AssistantApp[] = []): string {
   const where = r.lead.city ?? (r.lead.county ? `${r.lead.county} County` : "your area");
   const ask = assistants[0] ? ` Ask ${ASSISTANT_NAMES[assistants[0]]}: ${assistantLink(assistants[0], r.lead.id, new URL(link).origin)}` : "";
-  const text = `Tolliver: new ${r.tradeName.toLowerCase()} lead in ${where}. ${firstName(r.lead.name)} ${r.lead.phone ?? ""}. Details: ${link}${ask} Reply STOP to opt out`;
+  const text = `Webb Leads: new ${r.tradeName.toLowerCase()} lead in ${where}. ${firstName(r.lead.name)} ${r.lead.phone ?? ""}. Details: ${link}${ask} Reply STOP to opt out`;
   return text.replace(/\s+/g, " ").trim();
 }
 
@@ -251,7 +251,7 @@ export function emailBody(r: AlertParts & Pick<Recipients, "lead">, link: string
     [r.lead.address, r.lead.city, r.lead.county ? `${r.lead.county} County` : undefined].filter(Boolean).join(", "),
     r.lead.email,
     r.lead.notes,
-    r.lead.verified ? `Confirmed with the homeowner by Tolliver${r.lead.verified.note ? `: ${r.lead.verified.note}` : ""}` : undefined,
+    r.lead.verified ? `Confirmed with the homeowner by Webb Leads${r.lead.verified.note ? `: ${r.lead.verified.note}` : ""}` : undefined,
     r.lead.pricePaidCents > 0 ? `Yours exclusively for ${dollars(r.lead.pricePaidCents)}.` : "Yours exclusively.",
   ].filter((l): l is string => Boolean(l));
   const support = badLeadLine();
@@ -267,7 +267,7 @@ ${lines.map((l) => `<p style="margin:0 0 6px">${esc(l).replace(/\n/g, "<br>")}</
 ${r.lead.phone ? `<p style="margin:12px 0"><a href="tel:${digits(r.lead.phone)}" style="display:inline-block;padding:10px 16px;background:#336699;color:#fff;text-decoration:none;border-radius:4px">Call ${esc(firstName(r.lead.name))}</a></p>` : ""}
 <p style="margin:12px 0"><a href="${link}" style="display:inline-block;padding:10px 16px;border:1px solid #336699;color:#336699;text-decoration:none;border-radius:4px">Got it, calling now</a></p>
 ${open.map((o) => `<p style="margin:0 0 6px"><a href="${o.url}" style="color:#336699">Open it in ${esc(o.name)}</a></p>`).join("\n")}
-<p style="color:#666;font-size:13px">Tolliver sends each lead to one company only. Tapping the button tells our team you have it.</p>
+<p style="color:#666;font-size:13px">Webb Leads sends each lead to one company only. Tapping the button tells our team you have it.</p>
 <p style="color:#666;font-size:13px">${esc(support)}</p>
 </div>`;
   return { subject, text, html };

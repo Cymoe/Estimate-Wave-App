@@ -6,7 +6,7 @@ import { input, primary, secondary } from '../components/ops/ui';
 import { goTo } from '../lib/goTo';
 
 /**
- * /connect: Claude or ChatGPT asks to use Tolliver. The person picks the
+ * /connect: Claude or ChatGPT asks to use Webb Leads. The person picks the
  * company it works in and whether it may spend from the balance (with a
  * daily limit), then goes back to the assistant with the approval.
  */
@@ -48,7 +48,7 @@ export default function ConnectAssistant() {
     return (
       <Shell>
         <h1 className="text-lg font-semibold text-white mb-2">This connection link isn't valid</h1>
-        <p className="text-sm text-gray-400">Go back to Claude or ChatGPT and start connecting Tolliver again.</p>
+        <p className="text-sm text-gray-400">Go back to Claude or ChatGPT and start connecting Webb Leads again.</p>
       </Shell>
     );
   }
@@ -91,7 +91,7 @@ export default function ConnectAssistant() {
   return (
     <Shell>
       <form onSubmit={submit}>
-        <h1 className="text-lg font-semibold text-white">{request.appName} wants to use Tolliver</h1>
+        <h1 className="text-lg font-semibold text-white">{request.appName} wants to use Webb Leads</h1>
         <p className="text-xs text-gray-500 mb-5">{request.domain}</p>
         {request.companies.length === 0 ? (
           <p className="text-sm text-gray-400 mb-5">You're not in a company yet, so there's nothing to connect.</p>
@@ -154,7 +154,7 @@ export default function ConnectAssistant() {
           </button>
         </div>
         <p className="mt-4 text-xs text-gray-500 text-center">
-          Covered by Tolliver&rsquo;s{' '}
+          Covered by the Webb Leads{' '}
           <Link to="/terms" className="underline">
             Terms
           </Link>{' '}

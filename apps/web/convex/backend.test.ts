@@ -389,13 +389,13 @@ describe("intake", () => {
         "which county is the home in?": "Midland County", "when do you want this done?": "Within a month",
         "do you own this home?": "Yes", campaign_name: "TX_MIDLAND_ROOFING_LG_202610", adset_name: "TX_MIDLAND_ROOFING_hail", ad_name: "video1",
         form_id: "1234", id: "9876543210123456", created_time: "2026-10-22T03:00:00+0000",
-        "I agree to be contacted by Tolliver and one contractor": "true",
+        "I agree to be contacted by Webb Leads and one contractor": "true",
       }),
     ).toEqual({
       name: "Dana Reyes", phone: "+14325550133", email: "dana@example.com", city: "Midland", zip: "79701", county: "Midland",
       timeline: "Within a month", isOwner: true, campaignName: "TX_MIDLAND_ROOFING_LG_202610", adsetName: "TX_MIDLAND_ROOFING_hail", adName: "video1",
       formId: "1234", externalId: "9876543210123456", createdTime: "2026-10-22T03:00:00+0000",
-      consent: { text: "iagreetobecontactedbytolliverandonecontractor", value: "true", at: "2026-10-22T03:00:00+0000" },
+      consent: { text: "iagreetobecontactedbywebbleadsandonecontractor", value: "true", at: "2026-10-22T03:00:00+0000" },
     });
     // Meta's raw lead read, with field_data and custom disclaimer responses.
     expect(
@@ -476,7 +476,7 @@ describe("intake", () => {
       expect(await post("/intake/lead?key=s3cret&source=meta", JSON.stringify({ full_name: "Dana Reyes", phone_number: "432-555-0133", campaign_name: "TX_MIDLAND_ROOFING_LG_202610", id: "L1" }))).toBe(201);
       expect(emails).toHaveLength(1);
       expect(emails[0].to.sort()).toEqual(["owner@fieldquote.example", "va@fieldquote.example"]);
-      expect(emails[0].subject).toBe("Tolliver Ops: New lead to confirm: Dana Reyes · 432-555-0133 · Midland County · roofing · TX_MIDLAND_ROOFING_LG_202610");
+      expect(emails[0].subject).toBe("Webb Leads Ops: New lead to confirm: Dana Reyes · 432-555-0133 · Midland County · roofing · TX_MIDLAND_ROOFING_LG_202610");
       expect(emails[0].text).toContain("A lead just came in from meta");
       expect(emails[0].text).toContain("https://app.example/ops?tab=intake");
       // Zapier retrying the same lead is not news.
@@ -485,7 +485,7 @@ describe("intake", () => {
       // A rejected hit: one email, and the retries in the next hour stay quiet.
       expect(await post("/intake/lead?key=wrong", "{}")).toBe(401);
       expect(emails).toHaveLength(2);
-      expect(emails[1].subject).toBe("Tolliver Ops: The intake webhook turned a lead away: Wrong key");
+      expect(emails[1].subject).toBe("Webb Leads Ops: The intake webhook turned a lead away: Wrong key");
       expect(emails[1].text).toContain("check the key and that the body is JSON");
       expect(await post("/intake/lead?key=wrong", "{}")).toBe(401);
       expect(await post("/intake/lead?key=s3cret", "not json")).toBe(400);
@@ -494,7 +494,7 @@ describe("intake", () => {
       vi.setSystemTime(new Date("2026-10-22T17:01:00Z"));
       expect(await post("/intake/lead?key=s3cret", "still not json")).toBe(400);
       expect(emails).toHaveLength(3);
-      expect(emails[2].subject).toBe("Tolliver Ops: The intake webhook turned a lead away: Send JSON");
+      expect(emails[2].subject).toBe("Webb Leads Ops: The intake webhook turned a lead away: Send JSON");
       expect(emails[2].text).toContain("What it sent: still not json");
     } finally {
       vi.useRealTimers();
@@ -626,11 +626,11 @@ describe("delivery", () => {
     const link = leadLink("l1" as any, "https://app.example");
     expect(link).toBe("https://app.example/leads?lead=l1&ack=1");
     const sms = smsText(r, link);
-    expect(sms).toBe("Tolliver: new roofing lead in Midland. Dana 432-555-0133. Details: https://app.example/leads?lead=l1&ack=1 Reply STOP to opt out");
+    expect(sms).toBe("Webb Leads: new roofing lead in Midland. Dana 432-555-0133. Details: https://app.example/leads?lead=l1&ack=1 Reply STOP to opt out");
     expect(sms.length).toBeLessThanOrEqual(160);
     // Someone who connected Claude also gets a link that opens the lead there.
     expect(smsText(r, link, ["claude"])).toBe(
-      "Tolliver: new roofing lead in Midland. Dana 432-555-0133. Details: https://app.example/leads?lead=l1&ack=1 Ask Claude: https://app.example/open/claude/l1 Reply STOP to opt out",
+      "Webb Leads: new roofing lead in Midland. Dana 432-555-0133. Details: https://app.example/leads?lead=l1&ack=1 Ask Claude: https://app.example/open/claude/l1 Reply STOP to opt out",
     );
     expect(emailBody({ ...r, assistants: ["claude", "chatgpt"] }, link).text).toContain(
       "Open it in Claude: https://app.example/open/claude/l1\nOpen it in ChatGPT: https://app.example/open/chatgpt/l1",
@@ -639,12 +639,12 @@ describe("delivery", () => {
     expect(email.text).not.toContain("/open/");
     expect(email.subject).toBe("New roofing lead: Dana Reyes in Midland");
     expect(email.text).toContain("12 Elm St, Midland, Midland County");
-    expect(email.text).toContain("Confirmed with the homeowner by Tolliver: Wants it this month");
+    expect(email.text).toContain("Confirmed with the homeowner by Webb Leads: Wants it this month");
     expect(email.text).toContain("Yours exclusively for $250.00.");
     expect(email.html).toContain('href="tel:4325550133"');
     expect(email.html).toContain("Got it, calling now");
     // Where to report a bad lead, in the email too.
-    expect(email.text).toContain("Wrong number or not a real job? Tell Tolliver within 3 days: leads@fieldquote.app");
+    expect(email.text).toContain("Wrong number or not a real job? Tell Webb Leads within 3 days: leads@webbleads.com");
   });
 
   test("a company hears by email when its balance cost it a lead (once per lead) and when its plan pauses", async () => {
@@ -673,7 +673,7 @@ describe("delivery", () => {
       await t.run(async (ctx) => ctx.db.patch(co.organizationId, { walletBalanceCents: 10000 }));
       await admin.as.mutation(api.marketplace.createLead, { data: { name: "Hail Roof", phone: "4325550142", city: "Midland", jobType: "roofing" } });
       await t.finishAllScheduledFunctions(vi.runAllTimers);
-      const missed = sent.filter((m) => m.subject === "Tolliver: You missed a Roofing lead in Midland County");
+      const missed = sent.filter((m) => m.subject === "Webb Leads: You missed a Roofing lead in Midland County");
       expect(missed).toHaveLength(1);
       expect(missed[0].to).toEqual(["owner@peak.example"]);
       expect(missed[0].text).toContain("your $250.00 bid was the one to win it, but your balance was $100.00");
@@ -691,7 +691,7 @@ describe("delivery", () => {
       await t.mutation(internal.marketplace.chargePlans, {});
       await t.mutation(internal.marketplace.chargePlans, {});
       await t.finishAllScheduledFunctions(vi.runAllTimers);
-      const paused = sent.filter((m) => m.subject === "Tolliver: Your Pro plan is paused");
+      const paused = sent.filter((m) => m.subject === "Webb Leads: Your Pro plan is paused");
       expect(paused).toHaveLength(1);
       expect(paused[0].text).toContain("$99.00 could not come off your lead balance ($50.00)");
     } finally {
@@ -798,7 +798,7 @@ describe("delivery", () => {
     expect(calls).toHaveLength(3);
     const toStaff = JSON.parse(calls[2].init.body as string);
     expect(toStaff.to).toEqual(["va@fieldquote.example"]);
-    expect(toStaff.subject).toBe("Tolliver Ops: The alert to Peak Roofing failed: Unverified number");
+    expect(toStaff.subject).toBe("Webb Leads Ops: The alert to Peak Roofing failed: Unverified number");
     expect(toStaff.text).toContain("Text to +14325550177: Unverified number");
     expect(toStaff.text).toContain("Call them on 432-555-0100");
     expect(toStaff.text).toContain("https://app.example/ops?tab=sold");
@@ -878,7 +878,7 @@ describe("delivery", () => {
       await t.finishAllScheduledFunctions(vi.runAllTimers);
       expect(emails).toHaveLength(1);
       expect(emails[0].to).toEqual(["va@fieldquote.example"]);
-      expect(emails[0].subject).toBe('Tolliver Ops: No "Got it" from Cole Roofing after 20 min: X');
+      expect(emails[0].subject).toBe('Webb Leads Ops: No "Got it" from Cole Roofing after 20 min: X');
       expect(emails[0].text).toContain("Call them on 432-555-0100");
       expect(emails[0].text).toContain("https://app.example/ops?tab=sold");
       expect(await t.mutation(internal.delivery.escalateOverdue, {})).toEqual({ escalated: 0 });
@@ -2545,7 +2545,7 @@ describe("lead market", () => {
     return { t, admin, roofer, painter, leadId: lead!._id };
   }
 
-  test("only Tolliver staff run the market, and only the owner touches money", async () => {
+  test("only Webb Leads staff run the market, and only the owner touches money", async () => {
     const { roofer, leadId } = await market();
     await expect(
       roofer.as.query(api.marketplace.listInbox, {}),
@@ -2625,7 +2625,7 @@ describe("lead market", () => {
     expect(leads).toHaveLength(1);
     expect(leads[0]).toMatchObject({
       name: "Jane Cole",
-      source: "Tolliver Lead",
+      source: "Webb Leads",
       status: "new",
       pricePaidCents: 28500,
       wonVia: "sent",
@@ -2740,7 +2740,7 @@ describe("lead market", () => {
       }),
     ).rejects.toThrow(/3 days/);
 
-    // The owner can credit it anyway: the company told Tolliver by phone. Once.
+    // The owner can credit it anyway: the company told Webb Leads by phone. Once.
     await expect(roofer.as.mutation(api.marketplace.creditLead, { orgLeadId: oldLead, reason: "duplicate" })).rejects.toThrow(/admins/);
     const before = (await roofer.as.query(api.marketplace.wallet, { organizationId: roofer.organizationId })).balanceCents;
     // "Old lead" has no trade, so it sold at the default $240: that is what comes back.
@@ -3521,7 +3521,7 @@ describe("funding links and the lead feed", () => {
         vi.useRealTimers();
       }
       expect(emails).toHaveLength(1);
-      expect(emails[0].subject).toBe("Tolliver Ops: A Stripe payment matched no payment link: cs_lost");
+      expect(emails[0].subject).toBe("Webb Leads Ops: A Stripe payment matched no payment link: cs_lost");
       expect(emails[0].text).toContain("$5,000.00");
       expect(emails[0].text).toContain("Record a payment");
       // Every payment is on record, once.
@@ -4102,7 +4102,7 @@ describe("standing bids and instant awards", () => {
     expect(theirs[0]).toMatchObject({
       name: "Patricia Nguyen",
       pricePaidCents: 25000,
-      source: "Tolliver Lead",
+      source: "Webb Leads",
       wonVia: "bid",
       county: "Midland",
     });
@@ -5149,8 +5149,8 @@ describe("landing page applications", () => {
     }
     const mine = await ana.as.query(api.organizations.list, {});
     expect(mine.map((o) => o.name).sort()).toEqual(["Basin Paint Co.", "Desert Air HVAC"]);
-    const approved = emails.find((e) => e.subject === "Basin Paint Co. is approved on Tolliver")!;
-    expect(approved.text).toContain("It's already in your Tolliver account: sign in at https://app.example as usual and pick Basin Paint Co. in the company list.");
+    const approved = emails.find((e) => e.subject === "Basin Paint Co. is approved on Webb Leads")!;
+    expect(approved.text).toContain("It's already in your Webb Leads account: sign in at https://app.example as usual and pick Basin Paint Co. in the company list.");
     expect(approved.text).not.toContain("Create an account");
   });
 
@@ -5206,7 +5206,7 @@ describe("landing page applications", () => {
       vi.unstubAllGlobals();
     }
     // Two emails went out: the owner's "someone applied" from the submit, and the applicant's approval.
-    expect(emails.map((e) => e.subject).sort()).toEqual(["Basin Paint Co. is approved on Tolliver", "New lead buyer: Basin Paint Co. · Midland"]);
+    expect(emails.map((e) => e.subject).sort()).toEqual(["Basin Paint Co. is approved on Webb Leads", "New lead buyer: Basin Paint Co. · Midland"]);
     const toOwner = emails.find((e) => e.subject.startsWith("New lead buyer"))!;
     expect(toOwner.to).toEqual(["owner@fieldquote.example"]);
     expect(toOwner.text).toContain("Approve or decline it: https://app.example/ops?tab=companies");

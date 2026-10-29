@@ -5,7 +5,7 @@ import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { applicationsAPI, reportAPI } from '../lib/api';
 import { money } from '../components/market/wallet';
 import { PermitsNearYou } from '../components/market/PermitsNearYou';
-import { versus, type TolliverReport } from '../components/report/reportTypes';
+import { versus, type WebbReport } from '../components/report/reportTypes';
 import { saleLabel } from '../../convex/lib/foreclosures';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -49,7 +49,7 @@ function Locked({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * The Tolliver Report: a county's last 7 days in building permits, who's
+ * The Webb Report: a county's last 7 days in building permits, who's
  * building, lead demand and what sold. The same report Claude and ChatGPT
  * read; without the Pro plan the names and addresses are held back.
  */
@@ -59,7 +59,7 @@ const ReportPage: React.FC = () => {
   const [county, setCounty] = useState<string | undefined>(undefined);
   const [trade, setTrade] = useState<string | undefined>(undefined);
   const [counties, setCounties] = useState<string[]>([]);
-  const [report, setReport] = useState<TolliverReport | null>(null);
+  const [report, setReport] = useState<WebbReport | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -74,7 +74,7 @@ const ReportPage: React.FC = () => {
     setError(null);
     reportAPI
       .get(organizationId, { county, trade })
-      .then((r: TolliverReport) => live && setReport(r))
+      .then((r: WebbReport) => live && setReport(r))
       .catch((err) => live && setError(err instanceof Error ? err.message : "The report couldn't be loaded"));
     return () => {
       live = false;
@@ -90,7 +90,7 @@ const ReportPage: React.FC = () => {
     <div className="p-4 md:p-6 max-w-5xl space-y-4" data-testid="report-page">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="font-mono text-xs text-emerald-400">The Tolliver Report</p>
+          <p className="font-mono text-xs text-emerald-400">The Webb Report</p>
           <h1 className="text-2xl font-semibold text-white">
             {r ? `${r.county} County${r.trade ? ` · ${r.trade.name}` : ''}` : 'Loading…'}
           </h1>
@@ -141,7 +141,7 @@ const ReportPage: React.FC = () => {
             <h2 className="text-base font-semibold text-white mb-3">Permits</h2>
             {!r.permits.feed ? (
               <p className="text-sm text-gray-400">
-                No public permit feed for {r.county} County yet. Tolliver reads Midland's today and is adding more counties.
+                No public permit feed for {r.county} County yet. Webb Leads reads Midland's today and is adding more counties.
               </p>
             ) : (
               <>
@@ -204,7 +204,7 @@ const ReportPage: React.FC = () => {
               {!r.pro ? (
                 <Locked>{r.permits.builderCount} builders and contractors pulled permits; Pro names them, with their phone and email.</Locked>
               ) : !r.permits.builders?.length && !r.permits.tradeContractors?.length ? (
-                <p className="text-sm text-gray-500">Builders show here as Tolliver reads them from the city's permit portal, within a day of a permit being filed.</p>
+                <p className="text-sm text-gray-500">Builders show here as Webb Leads reads them from the city's permit portal, within a day of a permit being filed.</p>
               ) : (
                 <>
                   {r.permits.builders && r.permits.builders.length > 0 && (
@@ -346,7 +346,7 @@ const ReportPage: React.FC = () => {
             ) : (
               <>
                 <p className="text-sm text-gray-300">
-                  {r.mine.permitsInMyTrades} permit(s) in your trades · {r.mine.newLeads} new lead(s) from Tolliver
+                  {r.mine.permitsInMyTrades} permit(s) in your trades · {r.mine.newLeads} new lead(s) from Webb Leads
                 </p>
                 {r.mine.bids.length ? (
                   <ul className="mt-2 space-y-1">

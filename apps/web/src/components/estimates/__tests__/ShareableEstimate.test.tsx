@@ -175,7 +175,7 @@ describe('client estimate page', () => {
       [true, 'https://files/agreement'],
       [true, 'https://files/warranty'],
     ]);
-    // Tolliver's agreement wording isn't shown in place of theirs.
+    // Webb Leads' agreement wording isn't shown in place of theirs.
     expect(agreement.textContent).not.toContain('Change Order Policy');
     expect(agreement.textContent).toContain('This estimate and its price are part of the agreement.');
 

@@ -35,14 +35,14 @@ describe('open a lead in an assistant', () => {
     await open('/open/claude/lead123');
     const claude = new URL(goTo.mock.calls[0][0]);
     expect(`${claude.origin}${claude.pathname}`).toBe('https://claude.ai/new');
-    expect(claude.searchParams.get('q')).toBe('Use Tolliver to show me my lead lead123, then help me call the homeowner.');
+    expect(claude.searchParams.get('q')).toBe('Use Webb Leads to show me my lead lead123, then help me call the homeowner.');
     document.body.innerHTML = '';
     const page = await open('/open/chatgpt/lead123');
-    expect(goTo.mock.calls[1][0]).toMatch(/^https:\/\/chatgpt\.com\/\?q=Use%20Tolliver/);
+    expect(goTo.mock.calls[1][0]).toMatch(/^https:\/\/chatgpt\.com\/\?q=Use%20Webb%20Leads/);
     expect(page.textContent).toContain('Opening ChatGPT');
   });
 
-  it('any other app opens the lead in Tolliver', async () => {
+  it('any other app opens the lead in Webb Leads', async () => {
     const page = await open('/open/other/lead123');
     expect(goTo).not.toHaveBeenCalled();
     expect(page.textContent).toBe('Leads page');

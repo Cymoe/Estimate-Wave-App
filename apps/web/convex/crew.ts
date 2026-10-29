@@ -5,7 +5,7 @@ import { fail, nowIso, requireMember } from "./lib/access";
 import { languageField } from "./schema";
 
 // A company's crew: the people it puts on jobs, its own and its subs. They
-// don't have Tolliver accounts; tasks are assigned to them and the company
+// don't have Webb Leads accounts; tasks are assigned to them and the company
 // can text them their work.
 
 const clean = (s: string | undefined, max: number) => s?.trim().slice(0, max) || undefined;

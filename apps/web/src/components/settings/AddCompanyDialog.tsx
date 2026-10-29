@@ -7,7 +7,7 @@ type Options = { trades: Array<{ slug: string; name: string }>; counties: string
 
 /**
  * "Add another company": an owner who runs a second business applies for it
- * from inside the app. It goes to Tolliver's Applications like any other,
+ * from inside the app. It goes to Webb Leads' Applications like any other,
  * with their name and email filled in. Once approved, it shows up in their
  * company list; no second account.
  */
@@ -56,8 +56,8 @@ export const AddCompanyDialog: React.FC<{ onClose: () => void }> = ({ onClose })
       <Dialog title="Add another company" onClose={onClose}>
         <p className="text-sm text-gray-300 mb-4" role="status">
           {done === 'sent'
-            ? `Sent. Tolliver reviews every new company before it can buy leads. Once ${form.companyName} is approved, it shows up in your company list, with its own balance and bids.`
-            : 'You already have a company waiting for review. Tolliver will be in touch about it soon.'}
+            ? `Sent. Webb Leads reviews every new company before it can buy leads. Once ${form.companyName} is approved, it shows up in your company list, with its own balance and bids.`
+            : 'You already have a company waiting for review. Webb Leads will be in touch about it soon.'}
         </p>
         <div className="flex justify-end">
           <button type="button" onClick={onClose} className={primary}>
@@ -72,7 +72,7 @@ export const AddCompanyDialog: React.FC<{ onClose: () => void }> = ({ onClose })
     <Dialog title="Add another company" onClose={onClose}>
       <form onSubmit={submit}>
         <p className="text-sm text-gray-400 mb-4">
-          Run more than one business? Each gets its own balance, bids and leads. Tolliver reviews it first, the same as your first company.
+          Run more than one business? Each gets its own balance, bids and leads. Webb Leads reviews it first, the same as your first company.
         </p>
         <Field label="Company name">
           <input required value={form.companyName} onChange={set('companyName')} className={input} placeholder="e.g. Basin Paint Co." />

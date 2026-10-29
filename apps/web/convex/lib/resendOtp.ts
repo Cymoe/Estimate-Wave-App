@@ -17,10 +17,10 @@ export const ResendOTP = Email({
   },
   async sendVerificationRequest({ identifier: email, token }) {
     const result = await sendEmail([email], {
-      subject: `${token} is your Tolliver code`,
-      text: `Your Tolliver sign-in code is ${token}. It works for 15 minutes.\n\nIf you did not ask for it, ignore this email.`,
+      subject: `${token} is your Webb Leads code`,
+      text: `Your Webb Leads sign-in code is ${token}. It works for 15 minutes.\n\nIf you did not ask for it, ignore this email.`,
       html: `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.5;color:#111">
-<p>Your Tolliver sign-in code is</p>
+<p>Your Webb Leads sign-in code is</p>
 <p style="font-size:28px;letter-spacing:6px;font-weight:600;margin:8px 0">${token}</p>
 <p style="color:#666">It works for 15 minutes. If you did not ask for it, ignore this email.</p>
 </div>`,

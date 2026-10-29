@@ -73,7 +73,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { user, signOut } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { plan, active: planActive } = usePlan(selectedOrg.id || undefined);
-  // "Add another company": owners apply for it (Tolliver approves); the platform owner adds it in Ops.
+  // "Add another company": owners apply for it (Webb Leads approves); the platform owner adds it in Ops.
   const [addingCompany, setAddingCompany] = useState(false);
   const addCompany = () => {
     setOrgDropdownOpen(false);
@@ -286,7 +286,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               )}
             </NavLink>
-            {/* The Tolliver Report: the county's week in permits, builders, demand and sales. Wide, it's the flagship. */}
+            {/* The Webb Report: the county's week in permits, builders, demand and sales. Wide, it's the flagship. */}
             <NavLink
               to="/report"
               className={({ isActive }) =>
@@ -294,7 +294,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center aspect-square relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]`
                   : `bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center aspect-square hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95`
               }
-              title={isSidebarCollapsed ? 'The Tolliver Report - Permits, builders and demand' : undefined}
+              title={isSidebarCollapsed ? 'The Webb Report - Permits, builders and demand' : undefined}
             >
               {({ isActive }) => (
                 <div className="relative z-10 flex flex-col items-center">
@@ -303,7 +303,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
                   {!isSidebarCollapsed && (
                     <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
-                      Tolliver Report
+                      Webb Report
                     </span>
                   )}
                 </div>

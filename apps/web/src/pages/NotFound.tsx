@@ -25,7 +25,7 @@ const NotFoundPage: React.FC = () => {
             : 'If a link brought you here, it may be old. The page may have moved, or the address has a typo.'}
         </p>
         <Link to={home} className="inline-block mt-6 px-5 py-2.5 text-sm font-medium bg-[#336699] hover:bg-[#2a5580] text-white">
-          {user ? (es ? 'Ir a Tolliver' : 'Go to Tolliver') : es ? 'Ir a la página principal' : 'Go to the home page'}
+          {user ? (es ? 'Ir a Webb Leads' : 'Go to Webb Leads') : es ? 'Ir a la página principal' : 'Go to the home page'}
         </Link>
         <LangToggle className="mt-8 text-xs text-gray-500 [&_button]:text-gray-400 [&_button[aria-pressed=true]]:text-white" />
       </div>

@@ -18,7 +18,7 @@ export const SOURCE_LABELS: Record<IntakeRow['source'], { label: string; icon: R
   call: { label: 'Call', icon: PhoneCall },
   manual: { label: 'Typed in', icon: Keyboard },
   api: { label: 'Webhook', icon: Webhook },
-  outbound: { label: 'Tolliver call', icon: PhoneOutgoing },
+  outbound: { label: 'Webb Leads call', icon: PhoneOutgoing },
 };
 
 export const ATTEMPT_LABELS: Record<string, string> = {

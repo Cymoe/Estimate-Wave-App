@@ -88,7 +88,7 @@ function SignoffContent() {
     }
   };
 
-  // Tolliver's own documents are named in the reader's language; an uploaded PDF keeps its name.
+  // Webb Leads' own documents are named in the reader's language; an uploaded PDF keeps its name.
   const name = t.names[view.kind] ?? view.name;
   const documentName = upload ? view.document.name : name;
   return (

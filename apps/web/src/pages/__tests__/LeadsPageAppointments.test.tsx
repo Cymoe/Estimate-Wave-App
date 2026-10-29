@@ -184,12 +184,12 @@ describe('Leads board', () => {
     await flush();
 
     const card = (who: string) => Array.from(container.querySelectorAll('[data-lead-card]')).find((el) => el.textContent?.includes(who))!;
-    // The tag says Tolliver and which way the lead came.
-    expect(card('Omar Haddad').textContent).toContain('Tolliver · Bid');
-    expect(card('Dana Ruiz').textContent).toContain('Tolliver · Marketplace');
-    expect(card('Rocky Vansau').textContent).not.toContain('Tolliver');
+    // The tag says Webb Leads and which way the lead came.
+    expect(card('Omar Haddad').textContent).toContain('Webb Leads · Bid');
+    expect(card('Dana Ruiz').textContent).toContain('Webb Leads · Marketplace');
+    expect(card('Rocky Vansau').textContent).not.toContain('Webb Leads');
 
-    // The lead's detail shows what it cost, and "Got it" tells Tolliver they have it.
+    // The lead's detail shows what it cost, and "Got it" tells Webb Leads they have it.
     act(() => click(Array.from(container.querySelectorAll('span')).find((el) => el.textContent === 'Omar Haddad')!));
     const credit = () => document.body.querySelector('[data-testid="lead-credit"]')!;
     expect(credit().textContent).toContain('Won with a bid · $250.00');
@@ -216,8 +216,8 @@ describe('Leads board', () => {
     expect(document.body.querySelector('[data-testid="acknowledged"]')).not.toBeNull();
     // Where a bad lead gets reported, with a link that opens an email.
     const support = document.body.querySelector('[data-testid="support-line"]')!;
-    expect(support.textContent).toBe('Wrong number or not a real job? Tell Tolliver within 3 days: leads@fieldquote.app');
-    expect(support.querySelector('a')?.getAttribute('href')).toBe('mailto:leads@fieldquote.app');
+    expect(support.textContent).toBe('Wrong number or not a real job? Tell Webb Leads within 3 days: leads@webbleads.com');
+    expect(support.querySelector('a')?.getAttribute('href')).toBe('mailto:leads@webbleads.com');
     rows = [own];
   });
 

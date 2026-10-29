@@ -6,7 +6,7 @@ import { act } from 'react';
 type Doc = { id: string; kind: string; name: string; fileName: string; size: number; active: boolean; archived: boolean; signed: boolean; uploadedAt: string; url?: string };
 let library: Doc[] = [];
 let role = 'owner';
-const useTolliver = jest.fn(async () => null);
+const useBuiltIn = jest.fn(async () => null);
 const setActive = jest.fn(async () => null);
 const remove = jest.fn(async () => ({ archived: true }));
 const upload = jest.fn(async (_org: string, kind: string, file: File) => {
@@ -20,7 +20,7 @@ const upload = jest.fn(async (_org: string, kind: string, file: File) => {
 jest.mock('../../../lib/api', () => ({
   contractDocsAPI: {
     list: async () => library,
-    useTolliver: (org: string, kind: string) => useTolliver(org, kind),
+    useBuiltIn: (org: string, kind: string) => useBuiltIn(org, kind),
     setActive: (id: string) => setActive(id),
     remove: (id: string) => remove(id),
   },
@@ -57,10 +57,10 @@ afterEach(() => {
 });
 
 describe('Settings → Contracts', () => {
-  it("starts on Tolliver's documents and uploads the company's agreement", async () => {
+  it("starts on the Webb Leads documents and uploads the company's agreement", async () => {
     await render();
-    expect(slot('agreement').textContent).toContain('Tolliver');
-    expect(slot('agreement').textContent).toContain("Tolliver's built-in, filled in from each estimate");
+    expect(slot('agreement').textContent).toContain('Webb Leads');
+    expect(slot('agreement').textContent).toContain('Webb Leads built-in, filled in from each estimate');
     expect(slot('affidavit').textContent).toContain('Affidavit of Completion');
 
     await act(async () => buttonIn(slot('agreement'), 'Upload your PDF')!.click());
@@ -72,9 +72,9 @@ describe('Settings → Contracts', () => {
     expect(slot('agreement').querySelector('a')!.getAttribute('href')).toBe('https://files/d9');
     expect(document.body.textContent).toContain('Basin Agreement.pdf is uploaded.');
 
-    await act(async () => buttonIn(slot('agreement'), 'Use Tolliver')!.click());
+    await act(async () => buttonIn(slot('agreement'), 'Use the Webb Leads built-in')!.click());
     await flush();
-    expect(useTolliver).toHaveBeenCalledWith('o1', 'agreement');
+    expect(useBuiltIn).toHaveBeenCalledWith('o1', 'agreement');
   });
 
   it('adds always-included attachments, removes them, and brings back an earlier version', async () => {

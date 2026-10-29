@@ -1,7 +1,7 @@
 // Which contract documents an estimate uses. Each of the agreement, the
 // affidavit of completion and the change order is, in order: the job's own
-// choice (a PDF uploaded for it, or Tolliver's), the company's uploaded PDF,
-// or Tolliver's built-in document. Attachments are the company's "always
+// choice (a PDF uploaded for it, or Webb Leads'), the company's uploaded PDF,
+// or Webb Leads' built-in document. Attachments are the company's "always
 // include" PDFs (less any turned off for the job) plus the job's own.
 // The agreement and the attachments are what the client signs.
 import { internal } from "../_generated/api";
@@ -15,8 +15,8 @@ export type SignedDocument = NonNullable<NonNullable<Doc<"estimates">["contractS
 export const SLOT_KINDS: SlotKind[] = ["agreement", "affidavit", "change_order"];
 export const MAX_CONTRACT_BYTES = 10 * 1024 * 1024;
 
-/** Tolliver's built-in documents, used when a company has none of its own. */
-export const TOLLIVER_NAMES: Record<SlotKind, string> = {
+/** Webb Leads' built-in documents, used when a company has none of its own. */
+export const BUILT_IN_NAMES: Record<SlotKind, string> = {
   agreement: "Service Contract Agreement",
   affidavit: "Affidavit of Completion",
   change_order: "Change Order",
@@ -69,7 +69,7 @@ export async function resolveDocuments(ctx: QueryCtx, estimate: Doc<"estimates">
 
   const slot = async (kind: SlotKind): Promise<Resolved> => {
     const choice = choices[CHOICE_KEY[kind]];
-    if (choice === "tolliver") return { kind, source: "tolliver", origin: "job", name: TOLLIVER_NAMES[kind] };
+    if (choice === "tolliver") return { kind, source: "tolliver", origin: "job", name: BUILT_IN_NAMES[kind] };
     if (choice !== undefined) {
       const doc = await ctx.db.get(choice);
       if (doc && doc.organizationId === estimate.organizationId && doc.kind === kind && doc.archivedAt === undefined)
@@ -77,7 +77,7 @@ export async function resolveDocuments(ctx: QueryCtx, estimate: Doc<"estimates">
     }
     const [company] = await companyDocs(ctx, estimate.organizationId, kind);
     if (company) return { kind, source: "upload", origin: "company", name: company.name, doc: company };
-    return { kind, source: "tolliver", origin: "tolliver", name: TOLLIVER_NAMES[kind] };
+    return { kind, source: "tolliver", origin: "tolliver", name: BUILT_IN_NAMES[kind] };
   };
 
   const hidden = new Set(choices.hiddenAttachments ?? []);

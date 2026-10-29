@@ -90,7 +90,7 @@ describe('the Ops frame', () => {
 
   it('shows nothing of a company: just the name, the page and a menu with sign out', async () => {
     await render();
-    expect(document.body.textContent).toContain('Tolliver');
+    expect(document.body.textContent).toContain('Webb Leads');
     expect(document.body.textContent).toContain('staff');
     expect(document.body.textContent).toContain('the page');
     expect(document.body.textContent).not.toContain('Marketplace');

@@ -79,10 +79,10 @@ describe('the Calls page', () => {
     await click(homes.querySelector('button')!);
     const dialog = document.body.querySelector('[role="dialog"]')!;
     const script = dialog.querySelector('[data-testid="call-script"]')!.textContent!;
-    expect(script).toContain('Hi, this is Dana with Tolliver');
+    expect(script).toContain('Hi, this is Dana with Webb Leads');
     expect(script).toContain('A few homes on Howdy Dr have had roofing work done lately');
     expect(dialog.querySelector('[data-testid="consent-line"]')!.textContent).toBe(
-      '"Is it okay if one local roofing company from the Tolliver network calls or texts you at this number about this job?"',
+      '"Is it okay if one local roofing company from the Webb Leads network calls or texts you at this number about this job?"',
     );
 
     // Blocked: the reason, and no number to tap.

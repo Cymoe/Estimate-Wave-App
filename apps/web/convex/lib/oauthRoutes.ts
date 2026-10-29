@@ -37,7 +37,7 @@ const oauthError = (error: string, description: string, status = 400) => json({ 
 
 /** A page for requests we can't send back to the assistant (unknown client or redirect). */
 const errorPage = (message: string) =>
-  new Response(`Tolliver couldn't start this connection: ${message}. Go back to the assistant and try connecting again.`, {
+  new Response(`Webb Leads couldn't start this connection: ${message}. Go back to the assistant and try connecting again.`, {
     status: 400,
     headers: { "content-type": "text/plain; charset=utf-8" },
   });
@@ -154,7 +154,7 @@ export function addOAuthRoutes(http: HttpRouter) {
       if (params.get("code_challenge_method") !== "S256" || !/^[A-Za-z0-9_-]{43,128}$/.test(challenge))
         return back("invalid_request", "PKCE with S256 is required");
       const resource = params.get("resource") ?? undefined;
-      if (!resourceOk(resource)) return back("invalid_target", "This server only signs in to the Tolliver connector");
+      if (!resourceOk(resource)) return back("invalid_target", "This server only signs in to the Webb Leads connector");
       return Response.redirect(
         withParams(`${siteUrl()}/connect`, { client_id: clientId, redirect_uri: redirectUri, state, code_challenge: challenge, resource }),
         302,

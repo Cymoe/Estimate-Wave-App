@@ -62,7 +62,7 @@ export const emailDef = mutationDef({
     if (estimate.items.length === 0 || estimate.totalAmount <= 0) fail("INVALID", "Add line items before sending");
     const client = estimate.clientId ? await ctx.db.get(estimate.clientId) : null;
     if (!client?.email) fail("INVALID", "Add an email for this client first, or share the link yourself");
-    if (!process.env.RESEND_API_KEY) fail("INVALID", "Email isn't set up for Tolliver yet. Share the link instead");
+    if (!process.env.RESEND_API_KEY) fail("INVALID", "Email isn't set up for Webb Leads yet. Share the link instead");
     const now = nowIso();
     if (estimate.lastEmailedAt && Date.parse(now) - Date.parse(estimate.lastEmailedAt) < RESEND_GAP_MS)
       fail("INVALID", "It was emailed a few minutes ago");

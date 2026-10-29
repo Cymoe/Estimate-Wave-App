@@ -384,7 +384,7 @@ const slotKind = v.union(
   v.literal("change_order"),
 );
 
-/** This job's choice for one document: a PDF, Tolliver's, or null for the company's. */
+/** This job's choice for one document: a PDF, Webb Leads', or null for the company's. */
 export const setContractDoc = mutation({
   args: {
     id: v.id("estimates"),

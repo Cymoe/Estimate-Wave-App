@@ -328,7 +328,7 @@ export const ESTIMATING_TOOLS: Tool[] = [
     name: "search_price_book",
     title: "Search the price book",
     description:
-      "Finds items in the company's price book (its own items first, then Tolliver's catalog) to price a job with. Each has a unit, a cap (the price that goes on an estimate) and a red line (the lowest it can go). Search with the words for the work, for example \"architectural shingles\", \"tear off\", \"interior wall paint\".",
+      "Finds items in the company's price book (its own items first, then the Webb Leads catalog) to price a job with. Each has a unit, a cap (the price that goes on an estimate) and a red line (the lowest it can go). Search with the words for the work, for example \"architectural shingles\", \"tear off\", \"interior wall paint\".",
     inputSchema: {
       type: "object",
       properties: {
@@ -385,7 +385,7 @@ export const ESTIMATING_TOOLS: Tool[] = [
           `${items.length} item(s) for "${query}" (cap is the price on the estimate, red line the lowest it can go):`,
           ...items.map(
             (i) =>
-              `- ${i.name}: ${money(i.cap)} per ${i.unit} (red line ${money(i.redLine)})${i.costCode ? ` · ${i.costCode}` : ""} · ${i.source === "company" ? "the company's item" : "Tolliver catalog"} · id ${i.id}`,
+              `- ${i.name}: ${money(i.cap)} per ${i.unit} (red line ${money(i.redLine)})${i.costCode ? ` · ${i.costCode}` : ""} · ${i.source === "company" ? "the company's item" : "Webb Leads catalog"} · id ${i.id}`,
           ),
         ].join("\n"),
         data: { items },
@@ -461,7 +461,7 @@ export const ESTIMATING_TOOLS: Tool[] = [
     name: "create_estimate",
     title: "Draft an estimate",
     description:
-      "Drafts an estimate from price book items (search_price_book first) for the job the person described or showed in photos. Prices come from the price book: each line is the item's cap unless a price is given, never below its red line. It stays a draft: the person reviews it and sends it from Tolliver. Put the scope and what you saw in the photos in notes, with any measurements you assumed.",
+      "Drafts an estimate from price book items (search_price_book first) for the job the person described or showed in photos. Prices come from the price book: each line is the item's cap unless a price is given, never below its red line. It stays a draft: the person reviews it and sends it from Webb Leads. Put the scope and what you saw in the photos in notes, with any measurements you assumed.",
     inputSchema: {
       type: "object",
       properties: {
@@ -500,7 +500,7 @@ export const ESTIMATING_TOOLS: Tool[] = [
     name: "update_estimate",
     title: "Change a draft estimate",
     description:
-      "Changes a draft: add lines (from the price book or custom), remove lines, change a line's quantity or price (between its red line and cap), or the title and notes. Line ids come from get_estimate. An estimate already sent or signed is changed in Tolliver instead.",
+      "Changes a draft: add lines (from the price book or custom), remove lines, change a line's quantity or price (between its red line and cap), or the title and notes. Line ids come from get_estimate. An estimate already sent or signed is changed in Webb Leads instead.",
     inputSchema: {
       type: "object",
       properties: {
@@ -529,7 +529,7 @@ export const ESTIMATING_TOOLS: Tool[] = [
     run: async (ctx, connection, args) => {
       const estimate = await own(ctx, connection, "estimates", text(args, "estimate_id", { required: true }), "estimate");
       if (estimate.status !== "draft" || estimate.contractLockedAt)
-        fail("INVALID", `${estimate.estimateNumber} has been ${ESTIMATE_STATUS[estimate.status]?.toLowerCase() ?? estimate.status}, so change it in Tolliver: ${app(`/estimates/${estimate._id}`)}`);
+        fail("INVALID", `${estimate.estimateNumber} has been ${ESTIMATE_STATUS[estimate.status]?.toLowerCase() ?? estimate.status}, so change it in Webb Leads: ${app(`/estimates/${estimate._id}`)}`);
       const removeArg = args.remove_lines ?? [];
       if (!Array.isArray(removeArg) || removeArg.some((x) => typeof x !== "string")) fail("INVALID", "remove_lines must be a list of line ids");
       const remove = new Set(removeArg as string[]);
@@ -588,7 +588,7 @@ export const ESTIMATING_TOOLS: Tool[] = [
         };
       const sent = await emailEstimateDef.handler(ctx, { id: estimate._id, message: text(args, "message", { max: 1000 }) });
       return {
-        text: `Emailed ${estimate.estimateNumber} (${money(estimate.totalAmount)}) to ${clientName(client) ?? "the client"} at ${sent.to}, from the company, with the link to sign. Replies go to the company. Their link: ${sent.link}. Tolliver follows up if they don't sign.`,
+        text: `Emailed ${estimate.estimateNumber} (${money(estimate.totalAmount)}) to ${clientName(client) ?? "the client"} at ${sent.to}, from the company, with the link to sign. Replies go to the company. Their link: ${sent.link}. Webb Leads follows up if they don't sign.`,
         data: { to: sent.to, link: sent.link },
       };
     },
@@ -622,7 +622,7 @@ export const ESTIMATING_TOOLS: Tool[] = [
       try {
         await requireMember(ctx, connection.organizationId, "admin");
       } catch {
-        fail("FORBIDDEN", "Only an owner or admin of the company can add price book items. Ask one of them, or add it in Tolliver as an admin.");
+        fail("FORBIDDEN", "Only an owner or admin of the company can add price book items. Ask one of them, or add it in Webb Leads as an admin.");
       }
       const code = text(args, "cost_code", { required: true, max: 20 })!.toUpperCase().replace(/\s+/g, "");
       const codes = [

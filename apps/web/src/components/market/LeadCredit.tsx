@@ -6,8 +6,8 @@ import { leadOrigin } from './leadRoute';
 import { SupportLine } from './SupportLine';
 
 /**
- * On a lead bought from Tolliver: what it cost, and the state of a credit
- * if one is already on file. Credits are handled by Tolliver, not asked
+ * On a lead bought from Webb Leads: what it cost, and the state of a credit
+ * if one is already on file. Credits are handled by Webb Leads, not asked
  * for from here.
  */
 export const LeadCredit: React.FC<{ lead: Lead; onAcknowledged?: (at: string) => void }> = ({ lead, onAcknowledged }) => {
@@ -21,7 +21,7 @@ export const LeadCredit: React.FC<{ lead: Lead; onAcknowledged?: (at: string) =>
     try {
       onAcknowledged?.(await leadsAPI.acknowledge(lead.id));
     } catch (err) {
-      setError(`That didn't reach Tolliver${err instanceof Error && err.message ? `: ${err.message}` : ''}. Tap Got it again.`);
+      setError(`That didn't reach Webb Leads${err instanceof Error && err.message ? `: ${err.message}` : ''}. Tap Got it again.`);
     } finally {
       setBusy(false);
     }

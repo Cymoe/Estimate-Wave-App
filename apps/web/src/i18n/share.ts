@@ -85,7 +85,7 @@ const en = {
     downloadSigned: 'Download with signature',
     original: 'Original',
     openSigned: 'Open the signed file',
-    builtIn: "Tolliver's built-in agreement, filled in from the estimate (shown above)",
+    builtIn: 'The Webb Leads built-in agreement, filled in from the estimate (shown above)',
     signature: 'Signature',
     kinds: {
       agreement: 'Agreement',
@@ -176,7 +176,7 @@ const es: typeof en = {
     downloadSigned: 'Descargar con firma',
     original: 'Original',
     openSigned: 'Abrir el archivo firmado',
-    builtIn: 'El contrato incluido de Tolliver, completado con el presupuesto (arriba)',
+    builtIn: 'El contrato incluido de Webb Leads, completado con el presupuesto (arriba)',
     signature: 'Firma',
     kinds: {
       agreement: 'Contrato',

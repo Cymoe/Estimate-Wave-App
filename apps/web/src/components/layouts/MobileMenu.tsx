@@ -182,7 +182,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
             }
           >
             <NavShapeMark shape="report" className="w-5 h-5 shrink-0" />
-            <span>Tolliver Report</span>
+            <span>Webb Report</span>
           </NavLink>
 
           <NavLink

@@ -15,7 +15,7 @@ const rowButton =
   'flex-1 min-w-0 flex items-center gap-3 px-4 py-3 text-left [@media(hover:hover)]:hover:bg-[#1E1E1E] active:bg-[#1E1E1E] transition-colors';
 const menuItem = 'w-full text-left px-4 py-2.5 text-sm text-gray-200 [@media(hover:hover)]:hover:bg-[#252525] disabled:opacity-50';
 
-/** "Your PDF" (the company's or this job's own) or "Tolliver" (the built-in one). */
+/** "Your PDF" (the company's or this job's own) or "Webb Leads" (the built-in one). */
 function SourceTag({ doc }: { doc?: ContractDocument }) {
   const upload = doc?.source === 'upload';
   return (
@@ -25,7 +25,7 @@ function SourceTag({ doc }: { doc?: ContractDocument }) {
       }`}
       data-testid="source-tag"
     >
-      {upload ? 'Your PDF' : 'Tolliver'}
+      {upload ? 'Your PDF' : 'Webb Leads'}
     </span>
   );
 }
@@ -163,7 +163,7 @@ function ChangeOrderPreview({ contract, estimate, changeOrder }: { contract: Con
 /**
  * The estimate's contract documents: the agreement (signed with the
  * estimate), the affidavit of completion and the change order, each
- * Tolliver's built-in one or the company's own PDF, with a per-job swap,
+ * Webb Leads' built-in one or the company's own PDF, with a per-job swap,
  * and the attachments sent with the estimate.
  */
 export function ContractTab({
@@ -229,13 +229,13 @@ export function ContractTab({
   const agreement = docs?.agreement;
   const affidavit = docs?.affidavit;
   const changeOrderDoc = docs?.changeOrder;
-  const usingTolliverOnly =
+  const usingBuiltInOnly =
     docs !== null &&
     [agreement, affidavit, changeOrderDoc].every((d) => d?.origin === 'tolliver') &&
     docs.companyAttachments.length === 0 &&
     docs.attachments.length === 0;
 
-  /** The row's "Change" menu: the company's, Tolliver's, or a PDF just for this job. */
+  /** The row's "Change" menu: the company's, Webb Leads', or a PDF just for this job. */
   const changeMenu = (kind: SlotKind, doc?: ContractDocument) => {
     if (menu !== kind || !docs) return null;
     const company = docs.companyDefaults[KEY[kind]];
@@ -244,13 +244,13 @@ export function ContractTab({
         {doc?.origin === 'job' && (
           <button type="button" role="menuitem" className={menuItem} disabled={busy !== null}
             onClick={() => act(`company-${kind}`, () => estimatesAPI.setContractDoc(id, kind, null))}>
-            Use the company&rsquo;s {company ? `(${company})` : "(Tolliver's)"}
+            Use the company&rsquo;s {company ? `(${company})` : "(the Webb Leads built-in)"}
           </button>
         )}
         {doc?.source !== 'tolliver' && (
           <button type="button" role="menuitem" className={menuItem} disabled={busy !== null}
-            onClick={() => act(`tolliver-${kind}`, () => estimatesAPI.setContractDoc(id, kind, 'tolliver'))}>
-            Use Tolliver&rsquo;s for this job
+            onClick={() => act(`builtin-${kind}`, () => estimatesAPI.setContractDoc(id, kind, 'tolliver'))}>
+            Use the Webb Leads built-in for this job
           </button>
         )}
         <button type="button" role="menuitem" className={menuItem} disabled={busy !== null || !organizationId} onClick={() => pick(kind)}>
@@ -297,7 +297,7 @@ export function ContractTab({
     <div className="space-y-3">
       <input ref={picker} type="file" accept="application/pdf,.pdf" className="hidden" onChange={onFile} data-testid="job-contract-file" />
       <div className="bg-[#1a1a1a] border border-[#333] divide-y divide-[#333]">
-        {/* The agreement: Tolliver's opens the full page (edit, Print/PDF); an uploaded one opens the PDF */}
+        {/* The agreement: Webb Leads' opens the full page (edit, Print/PDF); an uploaded one opens the PDF */}
         <div>
           <div className="flex items-stretch">
             {agreement?.source === 'upload' && agreement.url ? (
@@ -324,7 +324,7 @@ export function ContractTab({
           {changeMenu('agreement', agreement)}
         </div>
 
-        {/* Affidavit of Completion (lien release): Tolliver's previews inline */}
+        {/* Affidavit of Completion (lien release): Webb Leads' previews inline */}
         <div>
           <div className="flex items-stretch">
             {affidavit?.source === 'upload' && affidavit.url ? (
@@ -352,7 +352,7 @@ export function ContractTab({
           {locked && <SignoffControls estimateId={id} kind="affidavit" clientName={estimate.client?.name} clientLanguage={estimate.client?.language} />}
         </div>
 
-        {/* Change order: Tolliver's previews inline */}
+        {/* Change order: Webb Leads' previews inline */}
         <div>
           <div className="flex items-stretch">
             {changeOrderDoc?.source === 'upload' && changeOrderDoc.url ? (
@@ -486,9 +486,9 @@ export function ContractTab({
         </section>
       )}
 
-      {usingTolliverOnly && !locked && (
+      {usingBuiltInOnly && !locked && (
         <p className="text-xs text-gray-500">
-          Using Tolliver&rsquo;s documents. Have your own?{' '}
+          Using the Webb Leads built-in documents. Have your own?{' '}
           <button type="button" className="underline underline-offset-2 text-gray-300" onClick={() => navigate('/settings/organization?tab=contracts')}>
             Add them in Settings → Contracts
           </button>

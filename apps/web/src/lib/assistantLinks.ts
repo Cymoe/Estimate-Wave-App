@@ -1,5 +1,5 @@
 /** The question a new chat starts with when an alert's "Open it in Claude / ChatGPT" is tapped. */
-export const leadQuestion = (leadId: string) => `Use Tolliver to show me my lead ${leadId}, then help me call the homeowner.`;
+export const leadQuestion = (leadId: string) => `Use Webb Leads to show me my lead ${leadId}, then help me call the homeowner.`;
 
 /** A new Claude or ChatGPT chat with the question typed in; null for any other app. */
 export function assistantChatUrl(app: string | undefined, leadId: string): string | null {

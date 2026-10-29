@@ -143,7 +143,7 @@ describe('estimate overview', () => {
     delete (navigator as { share?: unknown }).share;
   });
 
-  it("Share can email the link to the client from Tolliver", async () => {
+  it("Share can email the link to the client from Webb Leads", async () => {
     stored = { ...base, client: { name: 'Dan Shah', email: 'dan@example.com' } };
     await openOverview();
     await act(async () => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Share')!.click());

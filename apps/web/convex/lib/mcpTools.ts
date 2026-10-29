@@ -15,7 +15,7 @@ import { dollars, leadPriceCents } from "./wallet";
 import { ESTIMATING_TOOLS } from "./mcpEstimating";
 import { searchTools } from "./mcpSearch";
 
-// The connector's tools: what Claude or ChatGPT can do in Tolliver for
+// The connector's tools: what Claude or ChatGPT can do in Webb Leads for
 // the person who connected it. Each runs the same code as the web app
 // (see lib/actor.ts), signed in as that person in the connected company.
 
@@ -33,7 +33,7 @@ export type Tool = {
   readOnly: boolean;
   /** Spends from the balance, or does something that can't be taken back. */
   destructive?: boolean;
-  /** Reaches someone outside Tolliver (an email to a client). */
+  /** Reaches someone outside Webb Leads (an email to a client). */
   openWorld?: boolean;
   scope: "leads" | "spend";
   run: (ctx: MutationCtx, connection: Connection, args: Args) => Promise<ToolResult>;
@@ -97,16 +97,16 @@ const ROUTES = {
   order: "Buy order filled",
   buy: "Bought in the Marketplace",
   claim: "Claimed from the Vault",
-  sent: "Sent by Tolliver",
+  sent: "Sent by Webb Leads",
 } as const;
 
-/** The source a sold lead is stored with; leads sold before the rename carry the old name. */
-const NETWORK_SOURCES = new Set(["Tolliver Lead", "FieldQuote Lead"]);
+/** The source a sold lead is stored with; leads sold before the renames carry the old names. */
+const NETWORK_SOURCES = new Set(["Webb Leads", "Tolliver Lead", "FieldQuote Lead"]);
 
 /** How a lead got to the company: "Won with a bid · $300.00", or "Added by hand · Referral". Same wording as the web app. */
 export function leadRoute(lead: Pick<Doc<"leads">, "marketplaceLeadId" | "wonVia" | "pricePaidCents" | "source">): string {
   if (lead.marketplaceLeadId) {
-    const how = lead.wonVia ? ROUTES[lead.wonVia] : "From Tolliver";
+    const how = lead.wonVia ? ROUTES[lead.wonVia] : "From Webb Leads";
     const price = lead.wonVia === "claim" && !lead.pricePaidCents ? "included in the plan" : dollars(lead.pricePaidCents ?? 0);
     return `${how} · ${price}`;
   }
@@ -161,7 +161,7 @@ export const TOOLS: Tool[] = [
     name: "my_company",
     title: "Company and balance",
     description:
-      "The connected Tolliver company: its balance, plan, trades, bids, and what this assistant is allowed to spend today. Call this first when you need context.",
+      "The connected Webb Leads company: its balance, plan, trades, bids, and what this assistant is allowed to spend today. Call this first when you need context.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     readOnly: true,
     scope: "leads",
@@ -196,16 +196,16 @@ export const TOOLS: Tool[] = [
         `${wallet.availableLeads} lead(s) for sale in the Marketplace in your trades; ${wallet.olderLeads} in the Vault.`,
         spending
           ? `You may buy and bid up to ${dollars(connection.dailyCapCents)} today (${dollars(spentToday)} spent so far). Always confirm with the person before spending.`
-          : "Buying and bidding are off for this assistant; the person can turn them on in Tolliver → Company settings → Assistants.",
+          : "Buying and bidding are off for this assistant; the person can turn them on in Webb Leads → Company settings → Assistants.",
       ];
       return { text: lines.join("\n"), data };
     },
   },
   {
-    name: "tolliver_report",
-    title: "The Tolliver Report",
+    name: "webb_report",
+    title: "The Webb Report",
     description:
-      "The Tolliver Report: a county's last 7 days in building permits (how many, by trade, new homes, where homes are going up, and who's building them, with builders' and contractors' business phone and email on Pro), lead demand (what bids win at, what's unsold) and what sold, plus the company's own week. Use it for market questions: \"what's happening in Midland roofing?\", \"is it worth bidding in Ector?\". Without the Pro plan some parts are held back, and it says so.",
+      "The Webb Report: a county's last 7 days in building permits (how many, by trade, new homes, where homes are going up, and who's building them, with builders' and contractors' business phone and email on Pro), lead demand (what bids win at, what's unsold) and what sold, plus the company's own week. Use it for market questions: \"what's happening in Midland roofing?\", \"is it worth bidding in Ector?\". Without the Pro plan some parts are held back, and it says so.",
     inputSchema: {
       type: "object",
       properties: {
@@ -338,14 +338,14 @@ export const TOOLS: Tool[] = [
         [lead.phone, lead.email].filter(Boolean).join(" · ") || "No phone or email",
         lead.address || lead.city ? `Address: ${[lead.address, lead.city].filter(Boolean).join(", ")}` : "",
         `Origin: ${leadRoute(lead)}`,
-        lead.verified ? `Tolliver confirmed it with the homeowner${lead.verified.note ? `: ${lead.verified.note}` : ""}` : "",
+        lead.verified ? `Webb Leads confirmed it with the homeowner${lead.verified.note ? `: ${lead.verified.note}` : ""}` : "",
         lead.followUpDate ? `Follow up: ${lead.followUpDate}` : "",
         lead.appointmentAt ? `Estimate visit: ${lead.appointmentAt}` : "",
         `Calls ${lead.contacts ?? 0}, texts ${lead.texts ?? 0}${lead.lastContactAt ? `, last ${lead.lastContactAt.slice(0, 10)}` : ""}`,
         lead.marketplaceLeadId && !lead.acknowledgedAt ? 'Not marked "Got it" yet.' : "",
         lead.creditRequest ? `Credit request: ${lead.creditRequest.status}` : "",
         lead.notes ? `Notes:\n${lead.notes}` : "",
-        `Open in Tolliver: ${leadLink(lead._id)}`,
+        `Open in Webb Leads: ${leadLink(lead._id)}`,
       ];
       return { text: lines.filter(Boolean).join("\n"), data };
     },
@@ -419,7 +419,7 @@ export const TOOLS: Tool[] = [
   {
     name: "acknowledge_lead",
     title: 'Mark "Got it"',
-    description: 'Tells Tolliver the company has a new lead and is calling the homeowner (the "Got it" on the alert). Do this once someone is on it.',
+    description: 'Tells Webb Leads the company has a new lead and is calling the homeowner (the "Got it" on the alert). Do this once someone is on it.',
     inputSchema: { type: "object", properties: leadIdArg, required: ["lead_id"], additionalProperties: false },
     readOnly: false,
     scope: "leads",
@@ -434,7 +434,7 @@ export const TOOLS: Tool[] = [
     name: "browse_marketplace",
     title: "Leads for sale",
     description:
-      "Leads for sale in the Tolliver Marketplace right now, with today's price (it drops every hour until someone buys), town and the job. Homeowner contact details show only after buying. The company's own trades come first.",
+      "Leads for sale in the Webb Leads Marketplace right now, with today's price (it drops every hour until someone buys), town and the job. Homeowner contact details show only after buying. The company's own trades come first.",
     inputSchema: {
       type: "object",
       properties: {
@@ -566,7 +566,7 @@ export const TOOLS: Tool[] = [
   {
     name: "request_credit",
     title: "Ask for a credit",
-    description: "Asks Tolliver to credit back a bad lead bought from Tolliver, within 3 days of getting it. Tolliver staff decide.",
+    description: "Asks Webb Leads to credit back a bad lead bought from Webb Leads, within 3 days of getting it. Webb Leads staff decide.",
     inputSchema: {
       type: "object",
       properties: {
@@ -584,7 +584,7 @@ export const TOOLS: Tool[] = [
       const lead = await ownLead(ctx, connection, leadId);
       const reason = oneOf(args, "reason", CREDIT_REASONS, { required: true })!;
       await requestCreditDef.handler(ctx, { leadId, reason, note: str(args, "note", { max: 500 }) });
-      return { text: `Credit requested for ${lead.name}. Tolliver will review it; whats_new reports the answer.`, data: { id: leadId } };
+      return { text: `Credit requested for ${lead.name}. Webb Leads will review it; whats_new reports the answer.`, data: { id: leadId } };
     },
   },
   {
@@ -736,7 +736,7 @@ export const TOOLS: Tool[] = [
       if (amountCents > connection.dailyCapCents)
         fail(
           "FORBIDDEN",
-          `A ${dollars(amountCents)} bid is above this assistant's ${dollars(connection.dailyCapCents)} daily limit. The person can raise it in Tolliver → Company settings → Assistants, or set the bid on the web.`,
+          `A ${dollars(amountCents)} bid is above this assistant's ${dollars(connection.dailyCapCents)} daily limit. The person can raise it in Webb Leads → Company settings → Assistants, or set the bid on the web.`,
         );
       const jobType = await tradeSlug(ctx, connection, str(args, "trade", { required: true })!);
       const id = await setStandingDef.handler(ctx, { organizationId: connection.organizationId, county, jobType, amount });
@@ -773,6 +773,12 @@ export const TOOLS: Tool[] = [
 // search and fetch for ChatGPT, built on the tools above.
 TOOLS.push(...searchTools((name) => TOOLS.find((t) => t.name === name)));
 
+/** Old tool names assistants connected before the rename may still call. Not listed, still answered. */
+const TOOL_ALIASES: Record<string, string> = { tolliver_report: "webb_report" };
+
+/** The tool with this name, or the one its old name now points to. */
+export const findTool = (name: string): Tool | undefined => TOOLS.find((t) => t.name === (TOOL_ALIASES[name] ?? name));
+
 /**
  * Counts a charge against the connection's daily limit (Central time).
  * Runs in the same mutation as the charge, so a refused or failed buy
@@ -784,7 +790,7 @@ async function spend(ctx: MutationCtx, connection: Connection, cents: number) {
   if (spent + cents > connection.dailyCapCents)
     fail(
       "FORBIDDEN",
-      `That's over today's ${dollars(connection.dailyCapCents)} limit for this assistant (${dollars(spent)} spent so far, this is ${dollars(cents)}). Nothing was spent. The person can raise the limit in Tolliver → Company settings → Assistants.`,
+      `That's over today's ${dollars(connection.dailyCapCents)} limit for this assistant (${dollars(spent)} spent so far, this is ${dollars(cents)}). Nothing was spent. The person can raise the limit in Webb Leads → Company settings → Assistants.`,
     );
   await ctx.db.patch(connection._id, { spendDay: today, spentTodayCents: spent + cents });
 }

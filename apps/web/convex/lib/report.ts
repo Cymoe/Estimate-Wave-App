@@ -1,7 +1,7 @@
 import { dollars } from "./wallet";
 import { saleLabel } from "./foreclosures";
 
-// The Tolliver Report: a county's week in building permits, demand and
+// The Webb Report: a county's week in building permits, demand and
 // lead sales. Pure helpers; report.ts gathers the numbers, reportText
 // writes them out (for Claude and ChatGPT now, an email later).
 
@@ -156,11 +156,11 @@ export type Report = {
 export function reportText(r: Report, links: { pro: string; web: string }): string {
   const out: string[] = [];
   const what = r.trade ? ` · ${r.trade.name}` : "";
-  out.push(`THE TOLLIVER REPORT · ${r.county} County${what} · ${weekLabel(r.week.from, r.week.to)}`);
+  out.push(`THE WEBB REPORT · ${r.county} County${what} · ${weekLabel(r.week.from, r.week.to)}`);
 
   out.push("", "PERMITS");
   if (!r.permits.feed) {
-    out.push(`No public permit feed for ${r.county} County yet. Tolliver reads Midland's today and is adding more counties.`);
+    out.push(`No public permit feed for ${r.county} County yet. Webb Leads reads Midland's today and is adding more counties.`);
   } else {
     out.push(`${r.permits.total} filed this week, ${versus(r.permits.total, r.permits.prior)}.`);
     if (!r.trade) out.push(`New homes: ${r.permits.newHomes} (${r.permits.newHomesPrior} the week before).`);
@@ -230,7 +230,7 @@ export function reportText(r: Report, links: { pro: string; web: string }): stri
 
   if (r.mine) {
     out.push("", "YOUR WEEK");
-    out.push(`${r.mine.permitsInMyTrades} permit(s) in your trades; ${r.mine.newLeads} new lead(s) from Tolliver.`);
+    out.push(`${r.mine.permitsInMyTrades} permit(s) in your trades; ${r.mine.newLeads} new lead(s) from Webb Leads.`);
     for (const b of r.mine.bids)
       out.push(`- Your ${b.name} bid, ${dollars(b.amountCents)}: ${b.paused ? "paused, the balance is below it" : b.winning ? "winning" : "not winning: another company bids more"}`);
     if (!r.mine.bids.length) out.push(`No standing bids in ${r.county} County.`);

@@ -148,7 +148,7 @@ export const clientsAPI = {
 export type SlotKind = 'agreement' | 'affidavit' | 'change_order';
 export type ContractDocKind = SlotKind | 'attachment';
 
-/** One contract document as a page shows it: Tolliver's, or an uploaded PDF (with its link). */
+/** One contract document as a page shows it: Webb Leads', or an uploaded PDF (with its link). */
 export interface ContractDocument {
   kind: ContractDocKind;
   source: 'tolliver' | 'upload';
@@ -196,7 +196,7 @@ export const contractDocsAPI = {
   add: (args: { organizationId: string; kind: ContractDocKind; storageId: string; fileName: string; estimateId?: string }) =>
     run('mutation', api.contractDocs.add, defined(args)),
   setActive: (id: string) => run('mutation', api.contractDocs.setActive, { id }),
-  useTolliver: (organizationId: string, kind: SlotKind) => run('mutation', api.contractDocs.useTolliver, { organizationId, kind }),
+  useBuiltIn: (organizationId: string, kind: SlotKind) => run('mutation', api.contractDocs.useBuiltIn, { organizationId, kind }),
   remove: (id: string): Promise<{ archived: boolean }> => run('mutation', api.contractDocs.remove, { id }),
 };
 
@@ -697,7 +697,7 @@ export const leadsAPI = {
 
   /** A call or text (counted), or a note typed on the card (stamped with the day). */
   logContact: (id: string, kind: 'call' | 'text' | 'note', note?: string) => run('mutation', api.leads.logContact, defined({ id, kind, note })),
-  /** "Got it, calling now" on a lead Tolliver sent. Returns when it was acknowledged. */
+  /** "Got it, calling now" on a lead Webb Leads sent. Returns when it was acknowledged. */
   acknowledge: (id: string): Promise<string> => run('mutation', api.leads.acknowledge, { id }),
   /** Which of your companies a lead is in (for an alert link opened under another company), or null. */
   companyOf: (id: string): Promise<{ organizationId: string; name: string } | null> => run('query', api.leads.companyOf, { id }),
@@ -773,7 +773,7 @@ export const marketplaceAPI = {
     run('mutation', api.marketplace.setLeadPrice, { jobType, price, ...(schedule ?? {}) }),
   pendingCredits: () => run('query', api.marketplace.pendingCredits, {}),
   reviewCredit: (orgLeadId: string, approve: boolean) => run('mutation', api.marketplace.reviewCredit, { orgLeadId, approve }),
-  /** The owner credits a bought lead back without a request: the company told Tolliver by phone. */
+  /** The owner credits a bought lead back without a request: the company told Webb Leads by phone. */
   creditLead: (orgLeadId: string, reason: string, note?: string): Promise<{ amountCents: number }> =>
     run('mutation', api.marketplace.creditLead, defined({ orgLeadId, reason, note })),
 };
@@ -861,7 +861,7 @@ export const permitsAPI = {
   syncOwners: () => run('action', api.parcels.syncNow, {}),
 };
 
-/** Tolliver callers: the dial check, call outcomes, call lists and the tally. */
+/** Webb Leads callers: the dial check, call outcomes, call lists and the tally. */
 export const callsAPI = {
   tally: (days?: number) => run('query', api.calls.tally, defined({ days })),
   check: (phone: string) => run('query', api.calls.check, { phone }),
@@ -923,7 +923,7 @@ export const sellersAPI = {
   syncNow: () => run('action', api.signals.syncNow, {}),
 };
 
-/** The Tolliver Report: a county's week in permits, builders, demand and sales (Pro adds the names). */
+/** The Webb Report: a county's week in permits, builders, demand and sales (Pro adds the names). */
 export const reportAPI = {
   get: (organizationId: string, opts: { county?: string; trade?: string } = {}) =>
     run('query', api.report.report, defined({ organizationId, county: opts.county, trade: opts.trade })),
@@ -990,7 +990,7 @@ export type AssistantConnection = {
   spentTodayCents: number;
 };
 
-/** Claude and ChatGPT connected to Tolliver: approving a connection and managing them in Settings. */
+/** Claude and ChatGPT connected to Webb Leads: approving a connection and managing them in Settings. */
 export const assistantsAPI = {
   request: (clientId: string, redirectUri: string): Promise<AssistantRequest> => run('query', api.oauth.request, { clientId, redirectUri }),
   approve: (args: {

@@ -1,5 +1,5 @@
 // Building permits near a company: pulled from the City of Midland's public
-// permit layer once a day, mapped to trades, and shown in the Tolliver
+// permit layer once a day, mapped to trades, and shown in the Webb Leads
 // Report as public-record intelligence (address, work, builder and value).
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -323,7 +323,7 @@ const recent = (ctx: QueryCtx, from: string) =>
 
 /**
  * Permits applied for near a company in the last `days` (7 to 90), newest
- * first, with which are in its trades: the Tolliver Report's permit list.
+ * first, with which are in its trades: the Webb Report's permit list.
  * Part of the Pro plan; without it the counts still show.
  */
 export const near = query({

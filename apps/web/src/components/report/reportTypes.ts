@@ -1,5 +1,5 @@
-/** The Tolliver Report as the backend sends it (convex/lib/report.ts). Money is in cents. */
-export interface TolliverReport {
+/** The Webb Report as the backend sends it (convex/lib/report.ts). Money is in cents. */
+export interface WebbReport {
   county: string;
   trade?: { slug: string; name: string };
   week: { from: string; to: string };

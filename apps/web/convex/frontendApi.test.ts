@@ -153,7 +153,7 @@ describe("src/lib/api.ts on Convex", () => {
     expect(docs.agreement).toMatchObject({ source: "upload", origin: "company", name: "Ours" });
     await estimatesAPI.setContractDoc(estimate.id, "agreement", "tolliver");
     expect((await estimatesAPI.documents(estimate.id)).agreement.source).toBe("tolliver");
-    await contractDocsAPI.useTolliver(organizationId, "agreement");
+    await contractDocsAPI.useBuiltIn(organizationId, "agreement");
     expect((await contractDocsAPI.remove(id)).archived).toBe(false);
   });
 });

@@ -104,14 +104,14 @@ describe('Ops, the Real estate side', () => {
     const tabs = Array.from(document.body.querySelectorAll('[role="tablist"][aria-label="Real estate tabs"] [role="tab"]'));
     expect(tabs.map((t) => t.textContent)).toEqual(['Sellers', 'Auction', 'Sources']);
     expect(tabs[0].getAttribute('aria-selected')).toBe('true');
-    expect(document.title).toBe('Sellers · Real estate · Ops · Tolliver');
+    expect(document.title).toBe('Sellers · Real estate · Ops · Webb Leads');
     await act(async () => (tabs[2] as HTMLButtonElement).click());
     await flush();
     expect(document.body.querySelector('[data-testid="real-estate-summary"]')!.textContent).toBe('Where the lists come from, and when each was last read');
     document.body.innerHTML = '';
     role = 'caller';
     await render('/ops/real-estate');
-    expect(document.body.textContent).toContain('The Ops page is only for Tolliver staff.');
+    expect(document.body.textContent).toContain('The Ops page is only for Webb Leads staff.');
   });
 
   it('Sources: the appraisal roll and the city records, each with a sync', async () => {

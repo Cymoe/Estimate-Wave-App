@@ -97,7 +97,7 @@ jobs:
         # aren't asked for a code. Safe to re-run: marked accounts are skipped.
         run: npx convex run users:keepEarlierPasswordAccounts
       - name: Pull Midland's permits
-        # The Tolliver Report's permits. Incremental after the first run.
+        # The Webb Report's permits. Incremental after the first run.
         run: npx convex run permits:syncMidland
       - name: Pull Midland's home owners
         # The appraisal roll callers work from. Skipped when a clean pass ran

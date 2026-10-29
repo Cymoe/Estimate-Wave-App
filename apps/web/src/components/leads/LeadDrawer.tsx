@@ -453,7 +453,7 @@ export const LeadDrawer: React.FC<{
             {lead?.verified && (
               <Row icon={ShieldCheck} label="Confirmed">
                 <span className="text-sm text-gray-200">
-                  {confirmedOn(lead.verified.at).replace('Confirmed ', '')} by Tolliver
+                  {confirmedOn(lead.verified.at).replace('Confirmed ', '')} by Webb Leads
                   {lead.verified.note ? <span className="text-gray-400"> · {lead.verified.note}</span> : null}
                 </span>
               </Row>

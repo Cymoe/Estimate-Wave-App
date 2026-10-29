@@ -44,10 +44,10 @@ describe("what a homeowner or client is sent, in their language", () => {
   test("the text once a company has their request, under 160 characters either way", () => {
     const r = { tradeName: "Roofing", company: { name: "Peak Roofing", phone: "432-555-0100" } };
     const en = homeownerText({ ...r, lead: {} });
-    expect(en).toBe("Tolliver: your roofing request was matched. Peak Roofing will call you from 432-555-0100. Reply STOP to opt out");
+    expect(en).toBe("Webb Leads: your roofing request was matched. Peak Roofing will call you from 432-555-0100. Reply STOP to opt out");
     const es = homeownerText({ ...r, lead: { language: "es" } });
     expect(es).toBe(
-      "Tolliver: tu solicitud de roofing fue asignada. Peak Roofing te llamará desde el 432-555-0100. Responde STOP para no recibir más mensajes",
+      "Webb Leads: tu solicitud de roofing fue asignada. Peak Roofing te llamará desde el 432-555-0100. Responde STOP para no recibir más mensajes",
     );
     expect(en.length).toBeLessThanOrEqual(160);
     expect(es.length).toBeLessThanOrEqual(160);

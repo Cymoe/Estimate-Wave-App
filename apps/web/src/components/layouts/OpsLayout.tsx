@@ -42,7 +42,7 @@ export const OpsLayout: React.FC<{ children: React.ReactNode }> = ({ children })
       <header className="sticky top-0 z-40 border-b border-[#2A2A2A] bg-[#0A0A0A]/95 backdrop-blur">
         <div className="flex items-center justify-between px-4 md:px-6 h-12">
           <span className="flex items-center gap-2 text-sm">
-            <span className="font-semibold tracking-tight">Tolliver</span>
+            <span className="font-semibold tracking-tight">Webb Leads</span>
             <span className="text-xs px-1.5 py-0.5 rounded border border-[#336699]/60 bg-[#336699]/15 text-[#cfe2f5]">Ops</span>
             <span className="hidden md:inline text-gray-500">· {isSuperAdmin(user) ? 'platform owner' : user?.role === 'caller' ? 'caller' : 'staff'}</span>
           </span>

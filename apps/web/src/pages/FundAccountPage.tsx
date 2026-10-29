@@ -31,7 +31,7 @@ const field =
   'w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-base text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-900';
 
 /**
- * The page a contractor pays through to load their Tolliver lead balance
+ * The page a contractor pays through to load their Webb Leads balance
  * (reached from a funding link, no login). They pick an amount here and pay
  * on Stripe's page; when Stripe says it cleared, the balance loads and this
  * page says so on its own.
@@ -80,7 +80,7 @@ const FundAccountPage: React.FC = () => {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
         <div className="text-center">
           <h1 className="text-xl font-semibold text-gray-900 mb-2">This payment link isn't valid</h1>
-          <p className="text-gray-600">Ask your Tolliver contact for a new one.</p>
+          <p className="text-gray-600">Ask your Webb Leads contact for a new one.</p>
         </div>
       </div>
     );
@@ -96,7 +96,7 @@ const FundAccountPage: React.FC = () => {
     <div className="min-h-screen bg-gray-50 text-gray-900">
       <div className="max-w-lg mx-auto px-4 py-8 sm:py-12">
         <div className="flex items-center justify-between mb-8">
-          <span className="text-lg font-semibold tracking-tight">Tolliver</span>
+          <span className="text-lg font-semibold tracking-tight">Webb Leads</span>
           <span className="inline-flex items-center gap-1.5 text-xs text-gray-500">
             <Lock className="w-3.5 h-3.5" /> Secure checkout
           </span>
@@ -270,7 +270,7 @@ const FundAccountPage: React.FC = () => {
 
                 {page.paymentsOff ? (
                   <p role="note" className="text-center text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-3" data-testid="payments-off">
-                    Online payments aren&rsquo;t set up yet. Tolliver can add funds to your account for you: reply to your lead alert or email support.
+                    Online payments aren&rsquo;t set up yet. Webb Leads can add funds to your account for you: reply to your lead alert or email support.
                   </p>
                 ) : (
                 <button

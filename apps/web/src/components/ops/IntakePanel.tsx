@@ -13,7 +13,7 @@ import { DISPOSITIONS, reasonLabel } from './intakeReasons';
 export interface IntakeRow {
   id: string;
   source: 'meta' | 'call' | 'manual' | 'api' | 'outbound';
-  /** The caller who took it, on a Tolliver call. */
+  /** The caller who took it, on a Webb Leads call. */
   takenBy?: string;
   status: 'new' | 'working' | 'confirmed' | 'closed';
   disposition?: string;
@@ -66,7 +66,7 @@ const ATTEMPTS: Array<[string, string]> = [
   ['wrong_number', 'Wrong number'],
 ];
 
-const SOURCE: Record<IntakeRow['source'], string> = { meta: 'Facebook form', call: 'Called in', manual: 'Typed in', api: 'Webhook', outbound: 'Tolliver call' };
+const SOURCE: Record<IntakeRow['source'], string> = { meta: 'Facebook form', call: 'Called in', manual: 'Typed in', api: 'Webhook', outbound: 'Webb Leads call' };
 
 /** One lead in the queue: call the homeowner, fix what the form got wrong, log what happened. */
 export const IntakePanel: React.FC<{

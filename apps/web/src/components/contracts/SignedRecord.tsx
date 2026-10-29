@@ -39,7 +39,7 @@ export function SignedRecord({
   lang?: Lang;
 }) {
   const t = SHARE[lang].record;
-  // Tolliver's built-in documents are named in the reader's language; an uploaded PDF keeps its own name.
+  // Webb Leads' built-in documents are named in the reader's language; an uploaded PDF keeps its own name.
   const nameOf = (d: RecordDocument) => (d.source === 'tolliver' && t.kinds[d.kind] ? t.kinds[d.kind] : d.name);
   return (
     <section className="bg-white text-gray-900 rounded-lg border border-gray-200 p-6 print:border-0" aria-label="Signed record" data-testid="signed-record">

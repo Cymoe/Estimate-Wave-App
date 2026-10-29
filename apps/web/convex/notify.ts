@@ -5,7 +5,7 @@ import { internalAction, internalQuery, type MutationCtx } from "./_generated/se
 import { sendEmail, siteUrl } from "./delivery";
 
 /**
- * Things that need a person at Tolliver, by email, the moment they happen:
+ * Things that need a person at Webb Leads, by email, the moment they happen:
  * a lead to confirm, a company that has not said "Got it", an alert that
  * failed to send, a webhook hit that was turned away. One short email each,
  * to the owner and staff, with a link to the tab where the work is. Sent
@@ -34,7 +34,7 @@ export const send = internalAction({
 ${lines.map((l) => `<p style="margin:0 0 8px">${esc(l)}</p>`).join("\n")}
 <p style="margin:12px 0"><a href="${link}" style="display:inline-block;padding:10px 16px;background:#336699;color:#fff;text-decoration:none;border-radius:4px">Open Ops</a></p>
 </div>`;
-    return await sendEmail(to, { subject: `Tolliver Ops: ${subject}`, text, html });
+    return await sendEmail(to, { subject: `Webb Leads Ops: ${subject}`, text, html });
   },
 });
 
@@ -70,7 +70,7 @@ export const company = internalAction({
 ${lines.map((l) => `<p style="margin:0 0 8px">${esc(l)}</p>`).join("\n")}
 <p style="margin:12px 0"><a href="${link}" style="display:inline-block;padding:10px 16px;background:#336699;color:#fff;text-decoration:none;border-radius:4px">${esc(button)}</a></p>
 </div>`;
-    return await sendEmail(to, { subject: `Tolliver: ${subject}`, text, html });
+    return await sendEmail(to, { subject: `Webb Leads: ${subject}`, text, html });
   },
 });
 

@@ -1,7 +1,7 @@
 import type { Lang } from '../../convex/lib/i18n';
 
 /**
- * Tolliver's built-in agreement, in both languages. `en` is the wording the
+ * Webb Leads' built-in agreement, in both languages. `en` is the wording the
  * contract page has always carried. The Spanish text is a courtesy
  * translation: the English version governs, and the Spanish says so.
  */

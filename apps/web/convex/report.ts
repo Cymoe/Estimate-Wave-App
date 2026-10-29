@@ -13,9 +13,9 @@ import { sameWorld } from "./lib/sales";
 import { computeSlots } from "./demand";
 import { listStandingDef } from "./bids";
 
-// The Tolliver Report for one company: a county's week in permits, demand
+// The Webb Report for one company: a county's week in permits, demand
 // and lead sales, with the company's own week on top for the Pro plan.
-// Read through the Claude / ChatGPT connector (tolliver_report).
+// Read through the Claude / ChatGPT connector (webb_report).
 
 async function tradeNames(ctx: QueryCtx) {
   const rows = await ctx.db.query("industries").take(200);

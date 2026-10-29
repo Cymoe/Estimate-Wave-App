@@ -9,7 +9,7 @@ import { DEFAULT_PLAN } from '../../convex/lib/plan';
 import { FUNDING_TIERS, MIN_FUNDING_CENTS, bonusFor } from '../../convex/lib/funding';
 
 /**
- * The page a contractor lands on from an ad: what Tolliver sells, the four
+ * The page a contractor lands on from an ad: what Webb Leads sells, the four
  * ways to buy, and a short form to apply. Signed-out visitors to / see it;
  * /apply opens it on the form. No self-serve sign-up: the owner approves an
  * application from Ops, which sets the company up and invites the applicant.
@@ -73,7 +73,7 @@ const LeadsLanding: React.FC<{ scrollTo?: 'apply' }> = ({ scrollTo: target }) =>
       <header className="sticky top-0 z-20 bg-[#0a0a0a]/85 backdrop-blur border-b border-white/10">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
           <a href="#top" className="font-semibold tracking-tight text-lg">
-            Tolliver<span className="text-emerald-400">.</span>
+            Webb Leads<span className="text-emerald-400">.</span>
           </a>
           <nav className="hidden md:flex items-center gap-6 text-sm text-white/70" aria-label="Ways to buy">
             {WAYS.map((w) => (
@@ -212,7 +212,7 @@ const LeadsLanding: React.FC<{ scrollTo?: 'apply' }> = ({ scrollTo: target }) =>
 
       <footer className="border-t border-white/10">
         <div className="max-w-6xl mx-auto px-4 py-8 flex flex-wrap items-center justify-between gap-3 text-sm text-white/50">
-          <span>Tolliver · Midland, Texas</span>
+          <span>Webb Leads · Midland, Texas</span>
           <span className="flex items-center gap-4">
             <Link to="/terms" className="hover:text-white">
               Terms
@@ -234,7 +234,7 @@ const LeadsLanding: React.FC<{ scrollTo?: 'apply' }> = ({ scrollTo: target }) =>
       )}
       {signIn && (
         <Dialog title={signInTitle} onClose={() => setSignIn(false)}>
-          <p className="text-sm text-gray-400 mb-4">For companies Tolliver has set up. Use the email we approved: continue with Google, or create an account with it. New here? Apply below instead.</p>
+          <p className="text-sm text-gray-400 mb-4">For companies Webb Leads has set up. Use the email we approved: continue with Google, or create an account with it. New here? Apply below instead.</p>
           <div className="bg-white rounded-lg p-4">
             <AuthButtons />
           </div>
@@ -298,7 +298,7 @@ function ApplySection() {
     <section id="apply" className="border-t border-white/10 scroll-mt-14">
       <div className="max-w-6xl mx-auto px-4 py-14 md:py-20 grid md:grid-cols-[1fr_1.4fr] gap-8 items-start">
         <div>
-          <p className="font-mono text-xs text-emerald-400 mb-2">Join the Tolliver Network</p>
+          <p className="font-mono text-xs text-emerald-400 mb-2">Join the Webb Leads Network</p>
           <h2 className="font-condensed font-bold uppercase text-3xl md:text-5xl tracking-tight">Get leads in your county</h2>
           <p className="mt-3 text-white/70">
             Tell us your trade and county. We call you within one business day, set up your account and send a link to load your balance. No contract, no monthly fee unless you want the Pro plan.
@@ -406,7 +406,7 @@ function ApplySection() {
               {state === 'sending' ? 'Sending…' : 'Apply for leads'}
             </button>
             <p className="text-xs text-white/50">
-              By applying you agree to a call and a text from Tolliver about your account. Nothing is charged until you load a balance.{' '}
+              By applying you agree to a call and a text from Webb Leads about your account. Nothing is charged until you load a balance.{' '}
               <Link to="/terms" className="underline hover:text-white">
                 Terms
               </Link>{' '}

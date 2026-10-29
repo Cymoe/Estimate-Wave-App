@@ -8,7 +8,7 @@ const errorText = (err: unknown) => (err instanceof Error && err.message ? err.m
 /**
  * How clients pay the company: the deposit asked when an estimate is
  * signed, and the pay link and instructions they see on their estimate.
- * Payments are recorded by hand for now; card payments through Tolliver
+ * Payments are recorded by hand for now; card payments through Webb Leads
  * come later.
  */
 export const PaymentsSettings: React.FC<{ organizationId: string }> = ({ organizationId }) => {
@@ -61,7 +61,7 @@ export const PaymentsSettings: React.FC<{ organizationId: string }> = ({ organiz
   return (
     <form onSubmit={save} className="space-y-5" aria-label="Payments">
       <p className="text-sm text-gray-400">
-        When a client signs an estimate, Tolliver asks for your deposit and shows them how to pay. You record payments as they come in
+        When a client signs an estimate, Webb Leads asks for your deposit and shows them how to pay. You record payments as they come in
         (check, cash, Zelle…) on the estimate&rsquo;s Payments tab.
       </p>
       {!canEdit && <p className="text-sm text-amber-200/90">Ask an owner or admin of the company to change these.</p>}

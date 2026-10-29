@@ -64,7 +64,7 @@ describe('an empty Leads page', () => {
   it('tells a company in the Lead Market where its leads come from, with Add funds and Set your bids', async () => {
     wallet = { ...base, leadTrades: ['roofing'] };
     const container = await render();
-    expect(container.textContent).toContain('Leads you buy from Tolliver land here. Add funds, then set your bids.');
+    expect(container.textContent).toContain('Leads you buy from Webb Leads land here. Add funds, then set your bids.');
     const labels = Array.from(container.querySelectorAll('button')).map((b) => b.textContent?.trim());
     expect(labels).toEqual(expect.arrayContaining(['Add funds', 'Set your bids', 'Add your first lead']));
   });
@@ -72,7 +72,7 @@ describe('an empty Leads page', () => {
   it('keeps the plain empty state once bids are set', async () => {
     wallet = { ...base, leadTrades: ['roofing'], standingBids: 2 };
     const container = await render();
-    expect(container.textContent).not.toContain('Leads you buy from Tolliver land here');
+    expect(container.textContent).not.toContain('Leads you buy from Webb Leads land here');
     expect(container.textContent).toContain('Log every call or message asking for a quote');
   });
 });

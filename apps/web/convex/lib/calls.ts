@@ -1,4 +1,4 @@
-// The rules a Tolliver caller works under, as pure functions: when calling
+// The rules a Webb Leads caller works under, as pure functions: when calling
 // is allowed, which Do Not Call lists must be current, how numbers are read
 // from an uploaded list, and the line read for consent. calls.ts applies them.
 
@@ -103,5 +103,5 @@ export function numbersIn(text: string): string[] {
 
 /** The line a caller reads word for word, and that is stored with the lead. */
 export function consentLine(tradeName: string): string {
-  return `Is it okay if one local ${tradeName.toLowerCase()} company from the Tolliver network calls or texts you at this number about this job?`;
+  return `Is it okay if one local ${tradeName.toLowerCase()} company from the Webb Leads network calls or texts you at this number about this job?`;
 }

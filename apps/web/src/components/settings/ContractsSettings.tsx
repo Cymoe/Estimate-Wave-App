@@ -15,7 +15,7 @@ const errorText = (err: unknown) => (err instanceof Error && err.message ? err.m
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 
 /**
- * The company's own contracts. Each document is Tolliver's built-in one until
+ * The company's own contracts. Each document is Webb Leads' built-in one until
  * the company uploads its PDF; attachments here go out with every estimate.
  * One estimate can still use something else (its Contract tab).
  */
@@ -77,7 +77,7 @@ export const ContractsSettings: React.FC<{ organizationId: string }> = ({ organi
   return (
     <div className="space-y-5">
       <p className="text-sm text-gray-400">
-        Use your own contracts instead of Tolliver&rsquo;s. Upload a PDF once and every estimate uses it; one estimate can still swap in a
+        Use your own contracts instead of the built-in ones from Webb Leads. Upload a PDF once and every estimate uses it; one estimate can still swap in a
         different PDF from its Contract tab. The client opens your PDF, confirms they&rsquo;ve read it, and signs it with the estimate.
       </p>
       {!canEdit && <p className="text-sm text-amber-200/90">Ask an owner or admin of the company to change these.</p>}
@@ -97,11 +97,11 @@ export const ContractsSettings: React.FC<{ organizationId: string }> = ({ organi
                       doc ? 'border-[#336699]/60 bg-[#336699]/15 text-[#cfe2f5]' : 'border-[#333] text-gray-400'
                     }`}
                   >
-                    {doc ? 'Your PDF' : 'Tolliver'}
+                    {doc ? 'Your PDF' : 'Webb Leads'}
                   </span>
                 </span>
                 <span className="block text-xs text-gray-400 mt-0.5">
-                  {doc ? `${doc.fileName} · uploaded ${day(doc.uploadedAt)}` : `Tolliver's built-in, filled in from each estimate · ${when.toLowerCase()}`}
+                  {doc ? `${doc.fileName} · uploaded ${day(doc.uploadedAt)}` : `Webb Leads built-in, filled in from each estimate · ${when.toLowerCase()}`}
                 </span>
               </span>
               <span className="flex flex-wrap gap-2">
@@ -121,9 +121,9 @@ export const ContractsSettings: React.FC<{ organizationId: string }> = ({ organi
                     type="button"
                     className={secondary}
                     disabled={busy !== null}
-                    onClick={() => act(`tolliver-${kind}`, () => contractDocsAPI.useTolliver(organizationId, kind), `Back to Tolliver's ${title.toLowerCase()}.`)}
+                    onClick={() => act(`builtin-${kind}`, () => contractDocsAPI.useBuiltIn(organizationId, kind), `Back to the Webb Leads ${title.toLowerCase()}.`)}
                   >
-                    Use Tolliver&rsquo;s instead
+                    Use the Webb Leads built-in instead
                   </button>
                 )}
               </span>

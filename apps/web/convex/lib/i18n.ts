@@ -45,7 +45,7 @@ const en = {
   reminderOpened: "When you're ready, you can accept and sign it here:",
   reminderUnopened: "You can look it over and sign it here:",
   matched: (trade: string, company: string, phone?: string) =>
-    `Tolliver: your ${trade} request was matched. ${company} will call you${phone ? ` from ${phone}` : " shortly"}. Reply STOP to opt out`,
+    `Webb Leads: your ${trade} request was matched. ${company} will call you${phone ? ` from ${phone}` : " shortly"}. Reply STOP to opt out`,
 };
 
 const es: typeof en = {
@@ -59,7 +59,7 @@ const es: typeof en = {
   reminderOpened: "Cuando estés listo, puedes aceptarlo y firmarlo aquí:",
   reminderUnopened: "Puedes revisarlo y firmarlo aquí:",
   matched: (trade, company, phone) =>
-    `Tolliver: tu solicitud de ${trade} fue asignada. ${company} te llamará${phone ? ` desde el ${phone}` : " pronto"}. Responde STOP para no recibir más mensajes`,
+    `Webb Leads: tu solicitud de ${trade} fue asignada. ${company} te llamará${phone ? ` desde el ${phone}` : " pronto"}. Responde STOP para no recibir más mensajes`,
 };
 
 export const MESSAGES: Record<Lang, typeof en> = { en, es };

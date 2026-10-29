@@ -300,7 +300,7 @@ function PermitsCard() {
   return (
     <section className="border border-[#2A2A2A] rounded p-4 flex flex-wrap items-center justify-between gap-3" aria-label="Midland permits">
       <span className="min-w-0">
-        <span className="block text-sm font-medium text-white">Midland permits · the Tolliver Report</span>
+        <span className="block text-sm font-medium text-white">Midland permits · the Webb Report</span>
         <span className="block text-xs text-gray-500 mt-0.5">
           {!status
             ? 'Loading…'
@@ -721,7 +721,7 @@ function CompanyPanel({
     setLinkUrl(url);
     if (typeof navigator.share === 'function') {
       try {
-        await navigator.share({ title: 'Load your Tolliver lead balance', text: `Here's the link to load ${company.name}'s lead balance:`, url });
+        await navigator.share({ title: 'Load your Webb Leads balance', text: `Here's the link to load ${company.name}'s lead balance:`, url });
         return;
       } catch (err) {
         if ((err as Error)?.name === 'AbortError') return;
@@ -809,7 +809,7 @@ function CompanyPanel({
               {money(wallet?.balanceCents ?? company.balanceCents)}
             </p>
             <p className="text-sm text-gray-400 mt-1">
-              {plural(company.leadsTotal, 'lead')} from Tolliver · {money(company.wonCents)} of jobs from them
+              {plural(company.leadsTotal, 'lead')} from Webb Leads · {money(company.wonCents)} of jobs from them
             </p>
           </section>
 
@@ -1009,7 +1009,7 @@ function CompanyPanel({
                 {credited}
               </p>
             )}
-            {bought.length > 0 && <p className="text-xs text-gray-500 mt-1">{bought.length} bought from Tolliver</p>}
+            {bought.length > 0 && <p className="text-xs text-gray-500 mt-1">{bought.length} bought from Webb Leads</p>}
           </section>
 
           <section>
@@ -1339,14 +1339,14 @@ const LeadMarketPage: React.FC = () => {
   useEffect(() => {
     if (!staff) return;
     const before = document.title;
-    document.title = `${counts.overdue > 0 ? `(${counts.overdue}) ` : ''}${TAB_TITLES[tab]} · Ops · Tolliver`;
+    document.title = `${counts.overdue > 0 ? `(${counts.overdue}) ` : ''}${TAB_TITLES[tab]} · Ops · Webb Leads`;
     return () => {
       document.title = before;
     };
   }, [staff, tab, counts.overdue]);
 
   if (!staff) {
-    return <div className="p-8 text-gray-400">The Ops page is only for Tolliver staff.</div>;
+    return <div className="p-8 text-gray-400">The Ops page is only for Webb Leads staff.</div>;
   }
   if (REAL_ESTATE_TABS.includes(searchParams.get('tab') ?? '')) {
     return <Navigate to={`/ops/real-estate?tab=${searchParams.get('tab')}`} replace />;

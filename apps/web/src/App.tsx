@@ -122,7 +122,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-/** Pages for Tolliver staff only. Everyone else lands back on their dashboard. */
+/** Pages for Webb Leads staff only. Everyone else lands back on their dashboard. */
 function StaffRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   return (
@@ -132,7 +132,7 @@ function StaffRoute({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** The Calls page: Tolliver callers, and staff and the owner. */
+/** The Calls page: Webb Leads callers, and staff and the owner. */
 function CallerRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   return (

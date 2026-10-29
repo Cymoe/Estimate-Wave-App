@@ -3,7 +3,7 @@ import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { fail } from "./lib/access";
 import { actAs } from "./lib/actor";
-import { TOOLS, type ToolResult } from "./lib/mcpTools";
+import { findTool, type ToolResult } from "./lib/mcpTools";
 import { roleIn } from "./oauth";
 
 // The connector's server side: checks a request's token and runs a tool
@@ -39,11 +39,11 @@ export const call = internalMutation({
   args: { accessHash: v.string(), name: v.string(), args: v.any() },
   handler: async (ctx, { accessHash, name, args }): Promise<ToolResult> => {
     const connection = await live(ctx, accessHash);
-    if (!connection) fail("UNAUTHENTICATED", "Sign in to Tolliver again");
-    const tool = TOOLS.find((t) => t.name === name);
+    if (!connection) fail("UNAUTHENTICATED", "Sign in to Webb Leads again");
+    const tool = findTool(name);
     if (!tool) fail("INVALID", `Unknown tool ${name}`);
     if (!connection.scopes.includes(tool.scope))
-      fail("FORBIDDEN", "Buying and bidding are off for this assistant. The person can turn them on in Tolliver → Company settings → Assistants.");
+      fail("FORBIDDEN", "Buying and bidding are off for this assistant. The person can turn them on in Webb Leads → Company settings → Assistants.");
     const now = Date.now();
     if (!connection.lastUsedAt || now - connection.lastUsedAt > TOUCH_EVERY_MS) await ctx.db.patch(connection._id, { lastUsedAt: now });
     const input = args && typeof args === "object" && !Array.isArray(args) ? (args as Record<string, unknown>) : {};

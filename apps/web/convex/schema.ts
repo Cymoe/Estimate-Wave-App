@@ -3,7 +3,7 @@ import { authTables } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 
 /**
- * Tolliver data model.
+ * Webb Leads data model.
  *
  * Field names deliberately match the old MongoDB/Express API (camelCase for
  * estimates/invoices/clients/projects, snake_case for the price book) so the
@@ -23,7 +23,7 @@ export const userRole = v.union(
 );
 
 /** Where an intake lead came from and where it is in the queue. */
-// "outbound": a Tolliver caller took it on a call from a call list (calls.ts).
+// "outbound": a Webb Leads caller took it on a call from a call list (calls.ts).
 export const intakeSource = v.union(v.literal("meta"), v.literal("call"), v.literal("manual"), v.literal("api"), v.literal("outbound"));
 export const intakeStatus = v.union(v.literal("new"), v.literal("working"), v.literal("confirmed"), v.literal("closed"));
 export const intakeDisposition = v.union(
@@ -181,7 +181,7 @@ export const estimateDesign = v.object({
   url: v.string(),
 });
 
-// A contract document a company uploaded (a PDF), or Tolliver's built-in one.
+// A contract document a company uploaded (a PDF), or Webb Leads' built-in one.
 export const contractDocKind = v.union(
   v.literal("agreement"),
   v.literal("affidavit"),
@@ -203,7 +203,7 @@ export const signedDocument = v.object({
   signedCopyId: v.optional(v.id("_storage")),
 });
 
-// This job's choice per document: a PDF, Tolliver's, or (absent) the company's.
+// This job's choice per document: a PDF, Webb Leads', or (absent) the company's.
 const contractDocChoice = v.union(v.id("contractDocs"), v.literal("tolliver"));
 export const estimateContractDocs = v.object({
   agreement: v.optional(contractDocChoice),
@@ -256,13 +256,13 @@ export const estimateFields = {
   sentAt: v.optional(v.string()),
   remindersSent: v.optional(v.number()),
   lastReminderAt: v.optional(v.string()),
-  // When Tolliver last emailed the estimate to the client (convex/estimateEmail.ts).
+  // When Webb Leads last emailed the estimate to the client (convex/estimateEmail.ts).
   lastEmailedAt: v.optional(v.string()),
   remindersOff: v.optional(v.boolean()),
 };
 
 // A payment the company recorded on an invoice: check, cash, Zelle, a card
-// taken elsewhere. Card payments through Tolliver come later (Stripe Connect).
+// taken elsewhere. Card payments through Webb Leads come later (Stripe Connect).
 export const invoicePayment = v.object({
   _id: v.string(),
   amount: v.number(),
@@ -658,7 +658,7 @@ export default defineSchema({
 
   // Who owns each Midland home: the appraisal roll from the city's public
   // ArcGIS (lib/parcels.ts), refreshed weekly. Public record, but only
-  // Tolliver staff and callers see it, never member companies. No phones.
+  // Webb Leads staff and callers see it, never member companies. No phones.
   parcels: defineTable({
     county: v.string(),
     // The appraisal district's property id ("R000029279"); the key we upsert on.
@@ -695,7 +695,7 @@ export default defineSchema({
     .index("by_county_and_street", ["county", "street"])
     .index("by_county_and_deed", ["county", "deedDate"]),
 
-  // Numbers a Tolliver caller must not dial (calls.ts): the national and
+  // Numbers a Webb Leads caller must not dial (calls.ts): the national and
   // Texas lists as uploaded in Ops (only the current upload of each counts),
   // and everyone who asked us not to call again, kept for good.
   doNotCall: defineTable({
@@ -722,7 +722,7 @@ export default defineSchema({
     fileName: v.optional(v.string()),
   }).index("by_list_and_current", ["list", "current"]),
 
-  // Every call a Tolliver caller made from a call list, and how it went.
+  // Every call a Webb Leads caller made from a call list, and how it went.
   outboundCalls: defineTable({
     parcelId: v.optional(v.id("parcels")),
     address: v.string(),
@@ -1145,7 +1145,7 @@ export default defineSchema({
     newTotal: v.optional(v.number()),
     // Affidavit: when the work was finished.
     completionDate: v.optional(v.string()),
-    // The document signed: the company's PDF (with its fingerprint) or Tolliver's.
+    // The document signed: the company's PDF (with its fingerprint) or Webb Leads'.
     document: signedDocument,
     signerName: v.optional(v.string()),
     signature: v.optional(v.string()),
@@ -1295,7 +1295,7 @@ export default defineSchema({
     // County, as the Lead Market knew it when it sold the lead (server-set).
     // Leads without one get it from their town when listed.
     county: v.optional(v.string()),
-    // Carried over from the Lead Market: when Tolliver confirmed the lead
+    // Carried over from the Lead Market: when Webb Leads confirmed the lead
     // with the homeowner, and what they said.
     verified: v.optional(
       v.object({ at: v.string(), note: v.optional(v.string()) }),

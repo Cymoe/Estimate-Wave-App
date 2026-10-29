@@ -1,4 +1,4 @@
-// Tolliver callers phone Midland homeowners from call lists built on the
+// Webb Leads callers phone Midland homeowners from call lists built on the
 // appraisal roll (parcels) and the permit feed. Before a number is shown
 // as dialable it is checked against the Do Not Call lists, Texas calling
 // hours and how often it was tried; every call's outcome is logged, and a
@@ -261,7 +261,7 @@ export const log = mutation({
 
 /**
  * The homeowner wants the work and said yes to the consent line: the lead
- * goes into the Ops intake queue as a Tolliver call, with the line they
+ * goes into the Ops intake queue as a Webb Leads call, with the line they
  * agreed to, for someone other than the caller to confirm and list.
  */
 export const takeLead = mutation({
@@ -301,7 +301,7 @@ export const takeLead = mutation({
       phoneNormalized: phone,
       consent: { text: consentLine(trade?.name ?? args.jobType), value: "Said yes on the call", at: now },
       duplicateOf,
-      attempts: [{ at: now, by: user._id, outcome: "reached", note: "Taken on a Tolliver call" }],
+      attempts: [{ at: now, by: user._id, outcome: "reached", note: "Taken on a Webb Leads call" }],
       createdBy: user._id,
       createdAt: now,
       updatedAt: now,

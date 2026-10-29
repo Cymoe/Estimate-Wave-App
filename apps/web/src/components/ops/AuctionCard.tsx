@@ -110,7 +110,7 @@ function HomeRow({ home, onSaved, onError }: { home: Home; onSaved: () => void; 
 /**
  * Midland's monthly courthouse foreclosure auction, kept by hand: paste the
  * homes posted for a sale, then mark what happened and who bought. Feeds
- * the Tolliver Report's auction line and the callers' "Auction buyers"
+ * the Webb Report's auction line and the callers' "Auction buyers"
  * list. The owners of posted homes are never called.
  */
 export function AuctionCard() {

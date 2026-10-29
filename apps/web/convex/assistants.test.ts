@@ -266,7 +266,7 @@ async function tool(t: T, accessToken: string, name: string, args: Record<string
   return { text: result.content[0].text, data: result.structuredContent, isError: Boolean(result.isError) };
 }
 
-/** A roofing company with a lead sent to it by Tolliver, and one for sale in the Marketplace. */
+/** A roofing company with a lead sent to it by Webb Leads, and one for sale in the Marketplace. */
 async function roofingCompany() {
   const t = setup();
   const admin = await signUp(t, "admin@fieldquote.example", { role: "super_admin" });
@@ -292,7 +292,7 @@ describe("the connector", () => {
 
     const { accessToken } = await connect(t, owner);
     const init = await rpc(t, accessToken, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude-ai", version: "1" } });
-    expect(init.body!.result).toMatchObject({ protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "tolliver", title: "Tolliver" } });
+    expect(init.body!.result).toMatchObject({ protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "webb-leads", title: "Webb Leads" } });
     expect((await rpc(t, accessToken, "initialize", { protocolVersion: "1999-01-01" })).body!.result.protocolVersion).toBe("2025-11-25");
 
     const notified = await t.fetch("/mcp", {
@@ -324,7 +324,7 @@ describe("the connector", () => {
     expect(news.text).toContain("New leads (1):");
     expect(news.text).toContain("Jane Cole");
     expect(news.text).toContain("432-555-0101");
-    expect(news.text).toContain("Sent by Tolliver");
+    expect(news.text).toContain("Sent by Webb Leads");
     expect(news.text).toContain('not marked "Got it" yet');
     expect((await tool(t, accessToken, "whats_new")).text).toBe("Nothing new since the last check.");
 
@@ -538,12 +538,13 @@ describe("lead origin wording after the rename", () => {
     const { leadRoute } = await import("./lib/mcpTools");
     expect(leadRoute({ source: "FieldQuote Lead" } as never)).toBe("Added by hand");
     expect(leadRoute({ source: "Tolliver Lead" } as never)).toBe("Added by hand");
+    expect(leadRoute({ source: "Webb Leads" } as never)).toBe("Added by hand");
     expect(leadRoute({ source: "Referral" } as never)).toBe("Added by hand · Referral");
-    expect(leadRoute({ marketplaceLeadId: "m1", wonVia: "sent", pricePaidCents: 4000, source: "FieldQuote Lead" } as never)).toBe("Sent by Tolliver · $40.00");
+    expect(leadRoute({ marketplaceLeadId: "m1", wonVia: "sent", pricePaidCents: 4000, source: "FieldQuote Lead" } as never)).toBe("Sent by Webb Leads · $40.00");
   });
 });
 
-describe("the Tolliver Report", () => {
+describe("the Webb Report", () => {
   async function market() {
     const { t, admin, roofer, forSaleId } = await roofingCompany();
     const rival = await signUp(t, "rival@example.com");
@@ -601,9 +602,15 @@ describe("the Tolliver Report", () => {
   test("free: the county's numbers, with the addresses, streets and own week held back for Pro", async () => {
     const { t, roofer } = await market();
     const { accessToken } = await connect(t, roofer);
-    const report = await tool(t, accessToken, "tolliver_report");
-    expect(report.text).toMatch(/^THE TOLLIVER REPORT · Midland County · /);
+    const report = await tool(t, accessToken, "webb_report");
+    expect(report.text).toMatch(/^THE WEBB REPORT · Midland County · /);
     expect(report.text).toContain("4 filed this week, up 300% on last week (1).");
+    // Assistants connected before the rename still call the tool by its old name; it is not listed.
+    expect((await tool(t, accessToken, "tolliver_report")).text).toBe(report.text);
+    const { body: listed } = await rpc(t, accessToken, "tools/list");
+    const names = (listed!.result as { tools: Array<{ name: string }> }).tools.map((x) => x.name);
+    expect(names).toContain("webb_report");
+    expect(names).not.toContain("tolliver_report");
     expect(report.text).toContain("New homes: 3 (1 the week before).");
     expect(report.text).toContain("By trade: Roofing 3 (yours) · Concrete 3 · Drywall 3 · General construction 3 · Window door 3 · Electrical 1");
     expect(report.text).toContain("Roofing (yours): leads win at $320.00 (1 funded bid)");
@@ -624,29 +631,29 @@ describe("the Tolliver Report", () => {
       await ctx.db.patch(roofer.organizationId, { plan: proPlan() });
     });
     const { accessToken } = await connect(t, roofer);
-    const report = await tool(t, accessToken, "tolliver_report");
+    const report = await tool(t, accessToken, "webb_report");
     expect(report.text).toContain("Where homes are going up (last 30 days): Rolling Plains Ln (3), Honey Locust Ln (2).");
     expect(report.text).toContain("- 2837 ROLLING PLAINS LN · New home · ");
     expect(report.text).not.toContain("100 MAIN ST");
     expect(report.text).toContain("YOUR WEEK");
-    expect(report.text).toContain("3 permit(s) in your trades; 1 new lead(s) from Tolliver.");
+    expect(report.text).toContain("3 permit(s) in your trades; 1 new lead(s) from Webb Leads.");
     expect(report.text).toContain("No standing bids in Midland County.");
     expect(report.text).not.toContain("Pro plan:");
     expect(JSON.stringify(report)).not.toContain("Rival");
 
     // One trade: only its permits; an electrical company would see the panel upgrade.
-    const electrical = await tool(t, accessToken, "tolliver_report", { trade: "Electrical" });
-    expect(electrical.text).toMatch(/^THE TOLLIVER REPORT · Midland County · Electrical · /);
+    const electrical = await tool(t, accessToken, "webb_report", { trade: "Electrical" });
+    expect(electrical.text).toMatch(/^THE WEBB REPORT · Midland County · Electrical · /);
     expect(electrical.text).toContain("1 filed this week");
     expect(electrical.text).toContain("100 MAIN ST · Electrical - Construction: Panel upgrade");
-    expect((await tool(t, accessToken, "tolliver_report", { trade: "Basket weaving" })).text).toBe("No trade called Basket weaving");
+    expect((await tool(t, accessToken, "webb_report", { trade: "Basket weaving" })).text).toBe("No trade called Basket weaving");
   });
 
   test("a county with no permit feed says so and still gives demand and sales", async () => {
     const { t, roofer } = await market();
     const { accessToken } = await connect(t, roofer);
-    const report = await tool(t, accessToken, "tolliver_report", { county: "ector county" });
-    expect(report.text).toMatch(/^THE TOLLIVER REPORT · Ector County · /);
+    const report = await tool(t, accessToken, "webb_report", { county: "ector county" });
+    expect(report.text).toMatch(/^THE WEBB REPORT · Ector County · /);
     expect(report.text).toContain("No public permit feed for Ector County yet.");
     expect(report.text).toContain("No bids or leads in Ector County yet.");
     expect(report.text).toContain("No leads sold this week.");
@@ -681,7 +688,7 @@ describe("the Tolliver Report", () => {
       }
     });
     const { accessToken } = await connect(t, roofer);
-    const free = await tool(t, accessToken, "tolliver_report");
+    const free = await tool(t, accessToken, "webb_report");
     expect(free.text).toContain("3 builders and contractors pulled permits this month; the Pro report names them and how to reach them.");
     expect(free.text).not.toContain("Betenbough");
     expect(JSON.stringify(free.data)).not.toContain("Betenbough");
@@ -689,7 +696,7 @@ describe("the Tolliver Report", () => {
     await t.run(async (ctx) => {
       await ctx.db.patch(roofer.organizationId, { plan: proPlan() });
     });
-    const pro = await tool(t, accessToken, "tolliver_report");
+    const pro = await tool(t, accessToken, "webb_report");
     expect(pro.text).toContain("Who's building new homes (last 30 days):");
     expect(pro.text).toContain("- Betenbough Homes: 3 new homes, $800,850.00 in permits · (806) 891-1607 · permitting@betenbough.com");
     expect(pro.text).toContain("- Hogan Homes: 1 new home, $310,000.00 in permits");
@@ -809,7 +816,7 @@ describe("builders from Midland's permit portal", () => {
 });
 
 describe("estimating from an assistant", () => {
-  /** A roofer with Tolliver's shingle item, the company's own vent, and another company's item. */
+  /** A roofer with Webb Leads' shingle item, the company's own vent, and another company's item. */
   async function roofer() {
     const t = setup();
     const owner = await signUp(t, "ana@peak.example");
@@ -834,7 +841,7 @@ describe("estimating from an assistant", () => {
   test("finds items in the company's price book with their cap and red line, never another company's", async () => {
     const { t, ids, accessToken } = await roofer();
     const found = await tool(t, accessToken, "search_price_book", { query: "architectural shingles" });
-    expect(found.text).toContain(`- Architectural Shingle Roof: $450.00 per square (red line $300.00) · RF200 Roof Installation · Tolliver catalog · id ${ids.shingles}`);
+    expect(found.text).toContain(`- Architectural Shingle Roof: $450.00 per square (red line $300.00) · RF200 Roof Installation · Webb Leads catalog · id ${ids.shingles}`);
     expect(found.text).not.toContain("Rival");
     const vents = await tool(t, accessToken, "search_price_book", { query: "ridge vents", trade: "Roofing" });
     expect(vents.data.items[0]).toMatchObject({ id: ids.vent, cap: 12, redLine: 8, source: "company" });
@@ -908,7 +915,7 @@ describe("estimating from an assistant", () => {
 
     await t.run((ctx) => ctx.db.patch(drafted.data.id, { status: "sent" }));
     const sent = await tool(t, accessToken, "update_estimate", { estimate_id: drafted.data.id, add_custom_lines: [{ description: "Extra", price: 1 }] });
-    expect(sent).toMatchObject({ isError: true, text: expect.stringContaining("has been sent, so change it in Tolliver") });
+    expect(sent).toMatchObject({ isError: true, text: expect.stringContaining("has been sent, so change it in Webb Leads") });
     expect((await tool(t, accessToken, "get_estimate", { estimate_id: drafted.data.id })).text).toContain("Total $9,750.00");
   });
 

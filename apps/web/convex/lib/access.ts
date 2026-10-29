@@ -32,7 +32,7 @@ export function isSuperAdmin(user: Doc<"users">): boolean {
 /** Throws unless the signed-in user owns the platform (money, prices, companies). */
 export async function requireSuperAdmin(ctx: Ctx): Promise<Doc<"users">> {
   const user = await requireUser(ctx);
-  if (!isSuperAdmin(user)) fail("FORBIDDEN", "Only Tolliver admins can do this");
+  if (!isSuperAdmin(user)) fail("FORBIDDEN", "Only Webb Leads admins can do this");
   return user;
 }
 
@@ -41,10 +41,10 @@ export function isStaff(user: Doc<"users">): boolean {
   return user.role === "staff" || isSuperAdmin(user);
 }
 
-/** Throws unless the signed-in user is Tolliver staff (or the owner). */
+/** Throws unless the signed-in user is Webb Leads staff (or the owner). */
 export async function requireStaff(ctx: Ctx): Promise<Doc<"users">> {
   const user = await requireUser(ctx);
-  if (!isStaff(user)) fail("FORBIDDEN", "Only Tolliver staff can do this");
+  if (!isStaff(user)) fail("FORBIDDEN", "Only Webb Leads staff can do this");
   return user;
 }
 
@@ -53,10 +53,10 @@ export function isCaller(user: Doc<"users">): boolean {
   return user.role === "caller" || isStaff(user);
 }
 
-/** Throws unless the signed-in user is a Tolliver caller (or staff, or the owner). */
+/** Throws unless the signed-in user is a Webb Leads caller (or staff, or the owner). */
 export async function requireCaller(ctx: Ctx): Promise<Doc<"users">> {
   const user = await requireUser(ctx);
-  if (!isCaller(user)) fail("FORBIDDEN", "Only Tolliver callers can do this");
+  if (!isCaller(user)) fail("FORBIDDEN", "Only Webb Leads callers can do this");
   return user;
 }
 
@@ -87,7 +87,7 @@ export async function requireMember(
 }
 
 /**
- * For reads only: a member of the company, or Tolliver staff, who look
+ * For reads only: a member of the company, or Webb Leads staff, who look
  * after every company from Ops (its balance, its leads). Changing anything
  * still goes through requireMember or the owner-only guards.
  */

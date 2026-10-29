@@ -28,12 +28,12 @@ jest.mock('../../../lib/supabase', () => {
   chain.then = (resolve: (v: unknown) => void) => resolve({ data: [], error: null });
   return { supabase: chain };
 });
-const tolliver = (kind: string, name: string) => ({ kind, source: 'tolliver', origin: 'tolliver', name });
+const builtIn = (kind: string, name: string) => ({ kind, source: 'tolliver', origin: 'tolliver', name });
 const baseDocs = () => ({
   locked: false,
-  agreement: tolliver('agreement', 'Service Contract Agreement'),
-  affidavit: tolliver('affidavit', 'Affidavit of Completion'),
-  changeOrder: tolliver('change_order', 'Change Order'),
+  agreement: builtIn('agreement', 'Service Contract Agreement'),
+  affidavit: builtIn('affidavit', 'Affidavit of Completion'),
+  changeOrder: builtIn('change_order', 'Change Order'),
   attachments: [] as unknown[],
   companyAttachments: [] as unknown[],
   companyDefaults: {} as Record<string, string>,
@@ -157,10 +157,10 @@ describe('estimate contract tab', () => {
     expect(document.body.textContent).toMatch(/Change Order Amount\$50\.00/);
   });
 
-  it("tags each document Tolliver's until the company has its own, and points to Settings", async () => {
+  it("tags each document Webb Leads until the company has its own, and points to Settings", async () => {
     await openContractTab();
-    expect(Array.from(document.body.querySelectorAll('[data-testid="source-tag"]')).map((t) => t.textContent)).toEqual(['Tolliver', 'Tolliver', 'Tolliver']);
-    expect(document.body.textContent).toContain("Using Tolliver’s documents. Have your own?");
+    expect(Array.from(document.body.querySelectorAll('[data-testid="source-tag"]')).map((t) => t.textContent)).toEqual(['Webb Leads', 'Webb Leads', 'Webb Leads']);
+    expect(document.body.textContent).toContain("Using the Webb Leads built-in documents. Have your own?");
     await act(async () => byText('Add them in Settings')!.click());
     expect(path).toBe('/settings/organization');
   });
@@ -176,8 +176,8 @@ describe('estimate contract tab', () => {
 
     await act(async () => (document.body.querySelector('button[aria-label="Change agreement"]') as HTMLButtonElement).click());
     const menu = () => Array.from(document.body.querySelectorAll('[role="menu"] button')).map((b) => b.textContent);
-    expect(menu()).toEqual(['Use Tolliver’s for this job', 'Upload a PDF for this job', 'Manage company contracts']);
-    await act(async () => byText('Use Tolliver’s for this job')!.click());
+    expect(menu()).toEqual(['Use the Webb Leads built-in for this job', 'Upload a PDF for this job', 'Manage company contracts']);
+    await act(async () => byText('Use the Webb Leads built-in for this job')!.click());
     expect(setContractDoc).toHaveBeenCalledWith('e1', 'agreement', 'tolliver');
 
     // A job's own choice offers the company's back.

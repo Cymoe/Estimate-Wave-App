@@ -1,7 +1,7 @@
 import React from 'react';
 import { ShieldCheck } from 'lucide-react';
 
-/** "Confirmed Oct 20": the day a person at Tolliver called the homeowner. */
+/** "Confirmed Oct 20": the day a person at Webb Leads called the homeowner. */
 export const confirmedOn = (at: string) =>
   `Confirmed ${new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
 

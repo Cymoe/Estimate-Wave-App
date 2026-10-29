@@ -183,16 +183,16 @@ afterEach(() => {
 });
 
 describe('Lead Market', () => {
-  it('is only for Tolliver staff; staff see leads and companies but not prices, demo data or money', async () => {
+  it('is only for Webb Leads staff; staff see leads and companies but not prices, demo data or money', async () => {
     role = 'user';
     await render(<LeadMarketPage />);
-    expect(document.body.textContent).toContain('only for Tolliver staff');
+    expect(document.body.textContent).toContain('only for Webb Leads staff');
 
     document.body.innerHTML = '';
     role = 'staff';
     await render(<LeadMarketPage />);
     // No role pill by the heading: the top bar already says who you are.
-    expect(document.body.textContent).not.toContain('Tolliver staff');
+    expect(document.body.textContent).not.toContain('Webb Leads staff');
     expect(Array.from(document.body.querySelectorAll('[role="tablist"][aria-label="Ops tabs"] [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand (0/0)', 'Intake (0)', 'Calls', 'For sale (1)', 'Sold', 'Companies (3)']);
     expect(document.body.textContent).not.toContain('Add 20 sample leads');
     expect(document.body.querySelector('[data-testid="team-card"]')).toBeNull();
@@ -254,7 +254,7 @@ describe('Lead Market', () => {
     const summary = () => document.body.querySelector('[data-testid="ops-summary"]')!.textContent;
     expect(heading()).toBe('Intake');
     expect(summary()).toBe('2 to confirm · 1 possible duplicate');
-    expect(document.title).toBe('Intake · Ops · Tolliver');
+    expect(document.title).toBe('Intake · Ops · Webb Leads');
     expect(Array.from(document.body.querySelectorAll('[role="tablist"][aria-label="Ops tabs"] [role="tab"]')).map((t) => t.textContent)).toEqual(['Demand (0/0)', 'Intake (2)', 'Calls', 'For sale (1)', 'Sold', 'Companies (3)', 'Prices']);
     expect(document.body.textContent).not.toContain('sell on their own');
     const open = async (name: string) => {
@@ -273,7 +273,7 @@ describe('Lead Market', () => {
     await open('Prices');
     expect(heading()).toBe('Prices');
     expect(summary()).toBe('Start and floor price for 2 trades');
-    expect(document.title).toBe('Prices · Ops · Tolliver');
+    expect(document.title).toBe('Prices · Ops · Webb Leads');
   });
 
   it('keeps the tab and the open company in the address, so Back works and a link opens the right panel', async () => {
@@ -542,16 +542,16 @@ describe('Lead Market', () => {
     await act(async () => Array.from(document.body.querySelectorAll('tr')).find((r) => r.textContent?.includes('Peak Roofing'))!.click());
     await flush();
     const panel = document.body.querySelector('[role="dialog"]')!;
-    // Each lead says how it got there, not just "From Tolliver".
+    // Each lead says how it got there, not just "From Webb Leads".
     const row = (name: string) => Array.from(panel.querySelectorAll('li')).find((li) => li.textContent?.includes(name))!;
     expect(row('Dana Reyes').textContent).toContain('Won with a bid · $285.00');
     expect(row('Market Buy').textContent).toContain('Bought in the Marketplace · $40.00');
     expect(row('Vault Claim').textContent).toContain('Claimed from the Vault · included in the plan');
-    expect(row('Hand Sent').textContent).toContain('Sent by Tolliver · $40.00');
+    expect(row('Hand Sent').textContent).toContain('Sent by Webb Leads · $40.00');
     expect(row('Own Lead').textContent).toContain('Added by hand · Referral');
     // The stage on the right is the job, never confused with how the lead was got.
     expect(row('Own Lead').textContent).toContain('Job sold');
-    expect(row('Already Done').textContent).toContain('From Tolliver · $200.00');
+    expect(row('Already Done').textContent).toContain('From Webb Leads · $200.00');
     const creditButtons = Array.from(panel.querySelectorAll('button')).filter((b) => b.textContent === 'Credit it back');
     // Only the bought leads that aren't credited yet offer it.
     expect(creditButtons).toHaveLength(4);
@@ -704,7 +704,7 @@ describe("a company's lead balance", () => {
       assignedAt: new Date().toISOString(),
     };
     await render(<LeadCredit lead={lead} />);
-    expect(document.body.textContent).toContain('From Tolliver · $85.00');
+    expect(document.body.textContent).toContain('From Webb Leads · $85.00');
     expect(byText('Request credit')).toBeUndefined();
     expect(requestCredit).not.toHaveBeenCalled();
 
@@ -848,10 +848,10 @@ describe('standing bids in Admin', () => {
   });
 
   it("says which part of Ops couldn't load instead of loading forever", async () => {
-    liveErrors = { 'intake:queue': 'Only Tolliver staff can do this' };
+    liveErrors = { 'intake:queue': 'Only Webb Leads staff can do this' };
     await render(<MemoryRouter initialEntries={['/ops']}><LeadMarketPage /></MemoryRouter>, false);
     const alerts = Array.from(document.body.querySelectorAll('[role="alert"]')).map((a) => a.textContent);
-    expect(alerts).toContain("Couldn't load the intake queue: Only Tolliver staff can do this");
+    expect(alerts).toContain("Couldn't load the intake queue: Only Webb Leads staff can do this");
   });
 
   it('keeps an unknown county visible, asks before closing with unsaved edits, and says where a confirmed lead went', async () => {
@@ -1084,10 +1084,10 @@ describe('standing bids in Admin', () => {
     const tab = Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Sold'))!;
     expect(tab.textContent).toBe('Sold 1');
     expect(tab.querySelector('span')!.className).toContain('bg-red-500');
-    expect(document.title).toBe('(1) Intake · Ops · Tolliver');
+    expect(document.title).toBe('(1) Intake · Ops · Webb Leads');
     await act(async () => tab.click());
     await flush();
-    expect(document.title).toBe('(1) Sold · Ops · Tolliver');
+    expect(document.title).toBe('(1) Sold · Ops · Webb Leads');
     const list = document.body.querySelector('[aria-label="Sold"]')!;
     expect(document.body.textContent).toContain('1 not acknowledged after 15 minutes: call the company.');
     const items = Array.from(list.querySelectorAll(':scope > li'));

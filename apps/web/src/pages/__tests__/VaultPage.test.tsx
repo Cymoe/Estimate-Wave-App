@@ -86,7 +86,7 @@ describe('The Vault', () => {
     expect(document.body.textContent).toContain('$15.00 each after that');
   });
 
-  it('is the Vault\'s leads only: permits live in the Tolliver Report', async () => {
+  it('is the Vault\'s leads only: permits live in the Webb Report', async () => {
     pool = { locked: false, count: 0, plan: trial, leads: [] };
     await render();
     expect(document.body.querySelector('[role="tablist"]')).toBeNull();

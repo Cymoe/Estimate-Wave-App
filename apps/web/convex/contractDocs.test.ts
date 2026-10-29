@@ -52,7 +52,7 @@ describe("company contract documents", () => {
     await expect(upload(t, other.as, { organizationId, kind: "attachment", estimateId })).rejects.toThrow();
   });
 
-  test("each document is the job's choice, else the company's PDF, else Tolliver's", async () => {
+  test("each document is the job's choice, else the company's PDF, else Webb Leads'", async () => {
     const t = setup();
     const { as, organizationId, estimateId } = await company(t);
     const docs = () => as.query(api.estimates.documents, { id: estimateId });
@@ -81,7 +81,7 @@ describe("company contract documents", () => {
     await as.mutation(api.contractDocs.setActive, { id: agreement });
     expect((await docs()).agreement.name).toBe("Basin Agreement");
 
-    // This job uses Tolliver's; another goes back to the company's.
+    // This job uses Webb Leads'; another goes back to the company's.
     await as.mutation(api.estimates.setContractDoc, { id: estimateId, kind: "agreement", choice: "tolliver" });
     expect((await docs()).agreement).toMatchObject({ source: "tolliver", origin: "job" });
     await as.mutation(api.estimates.setContractDoc, { id: estimateId, kind: "agreement", choice: null });
@@ -99,8 +99,8 @@ describe("company contract documents", () => {
     expect(d.attachments.map((a) => [a.name, a.origin])).toEqual([["HOA form", "job"]]);
     expect(d.companyAttachments).toEqual([{ docId: warranty, name: "Warranty", included: false }]);
 
-    // The company goes back to Tolliver's agreement: it has no default left.
-    await as.mutation(api.contractDocs.useTolliver, { organizationId, kind: "agreement" });
+    // The company goes back to Webb Leads' agreement: it has no default left.
+    await as.mutation(api.contractDocs.useBuiltIn, { organizationId, kind: "agreement" });
     expect((await docs()).companyDefaults.agreement).toBeUndefined();
     expect(library.find((x) => x.id === newer)!.active).toBe(true);
   });
@@ -152,7 +152,7 @@ describe("company contract documents", () => {
     ]);
   });
 
-  test("Tolliver's own documents need no tick, and the owner signs on the device the same way", async () => {
+  test("Webb Leads' own documents need no tick, and the owner signs on the device the same way", async () => {
     const t = setup();
     const { as, organizationId, estimateId, token } = await company(t);
     await t.mutation(api.publicEstimates.accept, { token, signature: "data:image/png;base64,x" });

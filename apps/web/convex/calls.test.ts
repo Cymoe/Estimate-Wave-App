@@ -203,7 +203,7 @@ describe("calling rules", () => {
     expect(callingHours(Date.parse("2026-11-01T18:30:00.000Z")).open).toBe(true); // Sun 12:30pm
     expect(new Date(centralMidnight(OPEN)).toISOString()).toBe("2026-10-27T05:00:00.000Z");
     expect(numbersIn("432,5550123\n1-432-555-0124\r\nheader line\n4325550123\n555")).toEqual(["4325550123", "4325550124"]);
-    expect(consentLine("Roofing")).toBe("Is it okay if one local roofing company from the Tolliver network calls or texts you at this number about this job?");
+    expect(consentLine("Roofing")).toBe("Is it okay if one local roofing company from the Webb Leads network calls or texts you at this number about this job?");
     expect(listDue("national", "2026-10-01T00:00:00.000Z", OPEN)).toEqual({ current: true, dueAt: "2026-11-01T00:00:00.000Z" });
     expect(listDue("national", "2026-09-01T00:00:00.000Z", OPEN).current).toBe(false);
   });
@@ -340,7 +340,7 @@ describe("calling rules", () => {
 });
 
 describe("leads taken on a call", () => {
-  test("a yes goes to intake with the consent line; someone else confirms it and it lists as a Tolliver Call", async () => {
+  test("a yes goes to intake with the consent line; someone else confirms it and it lists as a Webb Leads Call", async () => {
     vi.useFakeTimers({ now: OPEN, toFake: ["Date"] });
     const t = setup();
     const { staff, caller } = await team(t);
@@ -368,7 +368,7 @@ describe("leads taken on a call", () => {
       isOwner: true,
       takenBy: "dana",
       consent: {
-        text: "Is it okay if one local roofing company from the Tolliver network calls or texts you at this number about this job?",
+        text: "Is it okay if one local roofing company from the Webb Leads network calls or texts you at this number about this job?",
         value: "Said yes on the call",
       },
     });
@@ -385,7 +385,7 @@ describe("leads taken on a call", () => {
     const confirmed = await staff.as.mutation(api.intake.confirm, { id, checks });
     await t.run(async (ctx) => {
       const listed = (await ctx.db.get(confirmed.leadId as never)) as { source?: string } | null;
-      expect(listed?.source).toBe("Tolliver Call");
+      expect(listed?.source).toBe("Webb Leads Call");
     });
     expect((await staff.as.query(api.calls.tally, {}))[0]).toMatchObject({ leads: 1, confirmed: 1 });
 

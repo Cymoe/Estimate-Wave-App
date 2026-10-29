@@ -54,7 +54,7 @@ export async function stampSignature(pdf: ArrayBuffer | Uint8Array, input: Stamp
 
   const sig = signatureBytes(input.signature);
   const image = sig ? await (sig.kind === "png" ? doc.embedPng(sig.bytes) : doc.embedJpg(sig.bytes)).catch(() => null) : null;
-  if (!image) line("Signature on file in Tolliver.", { color: muted });
+  if (!image) line("Signature on file in Webb Leads.", { color: muted });
   if (image) {
     const scale = Math.min(300 / image.width, 100 / image.height, 1);
     const w = image.width * scale;
@@ -64,7 +64,7 @@ export async function stampSignature(pdf: ArrayBuffer | Uint8Array, input: Stamp
     y -= h + 28;
   }
 
-  line("This page was added by Tolliver when the document was signed. The pages before it are the", { size: 9, color: muted });
+  line("This page was added by Webb Leads when the document was signed. The pages before it are the", { size: 9, color: muted });
   line("document exactly as uploaded; its original file can be matched by this fingerprint:", { size: 9, color: muted });
   if (input.fileName) line(input.fileName, { size: 9, color: muted });
   if (input.sha256) line(`SHA-256 ${input.sha256}`, { size: 8, color: muted });

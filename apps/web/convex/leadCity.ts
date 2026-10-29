@@ -77,7 +77,7 @@ export const lookup = internalAction({
     });
     try {
       const response = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, {
-        headers: { "User-Agent": "Tolliver lead city lookup" },
+        headers: { "User-Agent": "Webb Leads city lookup" },
       });
       if (!response.ok) return;
       const city = cityFromSearch(await response.json());

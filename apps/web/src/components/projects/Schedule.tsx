@@ -38,7 +38,7 @@ const CrewManager: React.FC<{ organizationId: string; crew: CrewMember[]; onChan
           <X className="w-4 h-4" />
         </button>
       </div>
-      <p className="text-sm text-gray-400">The people you put on jobs, your own and your subs. They don&rsquo;t need a Tolliver login; you can text them their work.</p>
+      <p className="text-sm text-gray-400">The people you put on jobs, your own and your subs. They don&rsquo;t need a Webb Leads login; you can text them their work.</p>
       {crew.length > 0 && (
         <ul className="divide-y divide-[#262626] border border-[#262626]">
           {crew.map((person) => (

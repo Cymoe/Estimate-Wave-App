@@ -144,13 +144,13 @@ export default function RealEstateOpsPage() {
 
   useEffect(() => {
     const before = document.title;
-    document.title = `${title} · Real estate · Ops · Tolliver`;
+    document.title = `${title} · Real estate · Ops · Webb Leads`;
     return () => {
       document.title = before;
     };
   }, [title]);
 
-  if (!isStaff(user)) return <div className="p-8 text-gray-400">The Ops page is only for Tolliver staff.</div>;
+  if (!isStaff(user)) return <div className="p-8 text-gray-400">The Ops page is only for Webb Leads staff.</div>;
 
   return (
     <div className="px-4 md:px-6 py-5 text-white">
