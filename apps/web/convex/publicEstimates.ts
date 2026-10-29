@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { fail, logActivity, nowIso } from "./lib/access";
+import { isLang, langOf } from "./lib/i18n";
 import { withCategories } from "./lib/categories";
 import { lockContract } from "./lib/contract";
 import { askForDeposit, cents, contractTotal, invoicesFor, paymentSummary } from "./lib/invoicing";
@@ -40,7 +41,7 @@ async function requireByToken(
   token: string,
 ): Promise<Doc<"estimates">> {
   const estimate = await byToken(ctx, token);
-  if (estimate === null) fail("NOT_FOUND", "This estimate link isn't valid");
+  if (estimate === null) fail("NOT_FOUND", "This estimate link isn't valid", "link_invalid");
   return estimate;
 }
 
@@ -162,7 +163,7 @@ export const get = query({
       lockedAt: estimate.contractLockedAt,
       clientSignature: estimate.clientSignature,
       signedAt: estimate.signedAt,
-      client: client ? { name: client.name } : undefined,
+      client: client ? { name: client.name, language: langOf(client) } : undefined,
       business: organization
         ? {
             name: organization.name,
@@ -200,9 +201,9 @@ export const accept = mutation({
   handler: async (ctx, { token, signature, agreedToDocuments }) => {
     const estimate = await requireByToken(ctx, token);
     if (!OPEN.has(estimate.status))
-      fail("INVALID", "This estimate can no longer be accepted");
+      fail("INVALID", "This estimate can no longer be accepted", "estimate_closed");
     if (!signature.trim())
-      fail("INVALID", "Please sign to accept the estimate");
+      fail("INVALID", "Please sign to accept the estimate", "signature_required");
     const now = nowIso();
     const lock: Partial<Awaited<ReturnType<typeof lockContract>>> =
       estimate.contractLockedAt
@@ -219,7 +220,7 @@ export const accept = mutation({
       needsAcknowledgment(lock.contractSnapshot.documents) &&
       !agreedToDocuments
     )
-      fail("INVALID", "Please confirm you've read the attached documents");
+      fail("INVALID", "Please confirm you've read the attached documents", "documents_unread");
     await ctx.db.patch(estimate._id, {
       clientSignature: signature,
       signedAt: now,
@@ -245,7 +246,7 @@ export const decline = mutation({
   handler: async (ctx, { token }) => {
     const estimate = await requireByToken(ctx, token);
     if (!OPEN.has(estimate.status))
-      fail("INVALID", "This estimate can no longer be declined");
+      fail("INVALID", "This estimate can no longer be declined", "estimate_closed");
     await ctx.db.patch(estimate._id, {
       status: "rejected",
       updatedAt: nowIso(),
@@ -258,5 +259,22 @@ export const decline = mutation({
       resourceId: estimate._id,
       details: { estimateNumber: estimate.estimateNumber },
     });
+  },
+});
+
+/**
+ * The client flipped the page to English or Spanish: remember it on their
+ * record, so their emails and texts come in that language too.
+ */
+export const setLanguage = mutation({
+  args: { token: v.string(), language: v.string() },
+  handler: async (ctx, { token, language }) => {
+    if (!isLang(language)) fail("INVALID", "Pick English or Spanish");
+    const estimate = await requireByToken(ctx, token);
+    if (!estimate.clientId) return null;
+    const client = await ctx.db.get(estimate.clientId);
+    if (client && client.language !== language)
+      await ctx.db.patch(client._id, { language, updatedAt: nowIso() });
+    return null;
   },
 });

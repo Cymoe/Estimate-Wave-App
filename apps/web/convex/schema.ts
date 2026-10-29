@@ -119,6 +119,9 @@ export const organizationFields = {
   isActive: v.boolean(),
 };
 
+// The language a person reads: their estimate link, emails and texts come in it.
+export const languageField = v.optional(v.union(v.literal("en"), v.literal("es")));
+
 export const clientFields = {
   name: v.string(),
   email: v.optional(v.string()),
@@ -129,6 +132,7 @@ export const clientFields = {
   state: v.optional(v.string()),
   zip: v.optional(v.string()),
   notes: v.optional(v.string()),
+  language: languageField,
 };
 
 export const projectFields = {
@@ -357,6 +361,7 @@ export const leadFields = {
   notes: v.optional(v.string()),
   status: leadStatus,
   lostReason: v.optional(v.string()),
+  language: languageField,
 };
 
 export const marketplaceLeadStatus = v.union(
@@ -503,6 +508,7 @@ export default defineSchema({
     jobType: v.optional(v.string()),
     source: v.optional(v.string()),
     notes: v.optional(v.string()),
+    language: languageField,
     status: marketplaceLeadStatus,
     // Legacy: set while a lead sat in a timed bidding round.
     round: v.optional(v.object({ opensAt: v.string(), closesAt: v.string() })),
@@ -973,6 +979,7 @@ export default defineSchema({
     timeline: v.optional(v.string()),
     isOwner: v.optional(v.boolean()),
     notes: v.optional(v.string()),
+    language: languageField,
     // Meta's leadgen id (or any outside id) so the same lead isn't taken twice.
     externalId: v.optional(v.string()),
     campaignName: v.optional(v.string()),
@@ -1177,6 +1184,7 @@ export default defineSchema({
     email: v.optional(v.string()),
     // What they do: "Framer", "Electrician (sub)".
     trade: v.optional(v.string()),
+    language: languageField,
     // Taken off the list; kept so past tasks still show who did them.
     archivedAt: v.optional(v.string()),
     createdAt: v.string(),

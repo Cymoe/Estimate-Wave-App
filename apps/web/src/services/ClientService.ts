@@ -15,6 +15,8 @@ export interface Client {
   company_name?: string;
   website?: string;
   notes?: string;
+  /** The language their estimate link, emails and texts come in. */
+  language?: 'en' | 'es';
   created_at?: string;
   updated_at?: string;
 }
@@ -48,6 +50,7 @@ export function toConvexClient(client: Partial<Client>) {
   set('state', client.state);
   set('zip', client.zip);
   set('notes', client.notes);
+  set('language', client.language);
   return out;
 }
 

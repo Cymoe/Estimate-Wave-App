@@ -97,6 +97,7 @@ export function toLegacyClient(client: Doc) {
     state: client.state,
     zip: client.zip,
     notes: client.notes,
+    language: client.language,
     organization_id: client.organizationId,
   };
 }

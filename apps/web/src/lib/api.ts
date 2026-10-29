@@ -17,6 +17,8 @@ import { withId } from './withId';
 export { withId };
 
 class APIError extends Error {
+  /** A stable word for a refusal on a public page, so it can be shown in the reader's language. */
+  public reason?: string;
   constructor(
     message: string,
     public status: number,
@@ -24,6 +26,7 @@ class APIError extends Error {
   ) {
     super(message);
     this.name = 'APIError';
+    this.reason = data && typeof data === 'object' ? data.reason : undefined;
   }
 }
 
@@ -298,6 +301,8 @@ export interface CrewMember {
   phone?: string;
   email?: string;
   trade?: string;
+  /** The language their task texts come in. */
+  language?: 'en' | 'es';
   archived: boolean;
 }
 export interface CrewInput {
@@ -305,6 +310,7 @@ export interface CrewInput {
   phone?: string;
   email?: string;
   trade?: string;
+  language?: 'en' | 'es';
 }
 
 /** The people a company puts on its jobs. */
@@ -324,7 +330,7 @@ export interface ProjectTask {
   endDate?: string;
   done: boolean;
   doneAt?: string;
-  crew: Array<{ id: string; name: string; phone?: string; trade?: string }>;
+  crew: Array<{ id: string; name: string; phone?: string; trade?: string; language?: 'en' | 'es' }>;
   order: number;
 }
 export interface ScheduledTask extends ProjectTask {
@@ -416,6 +422,7 @@ export const signoffsAPI = {
   get: (token: string) => run('query', api.signoffs.get, { token }),
   sign: (token: string, signerName: string, signature: string, agreedToDocument?: boolean) =>
     run('mutation', api.signoffs.sign, defined({ token, signerName, signature, agreedToDocument })),
+  setLanguage: (token: string, language: 'en' | 'es') => run('mutation', api.signoffs.setLanguage, { token, language }),
 };
 
 export const estimatesAPI = {
@@ -495,6 +502,9 @@ export const publicEstimatesAPI = {
   async accept(token: string, signature: string, agreedToDocuments?: boolean) {
     return run('mutation', api.publicEstimates.accept, defined({ token, signature, agreedToDocuments }));
   },
+
+  /** The client flipped the page's language; remembered on their record. */
+  setLanguage: (token: string, language: 'en' | 'es') => run('mutation', api.publicEstimates.setLanguage, { token, language }),
 
   async decline(token: string) {
     return run('mutation', api.publicEstimates.decline, { token });

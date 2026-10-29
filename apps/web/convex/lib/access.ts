@@ -8,8 +8,13 @@ type MemberRole = Doc<"memberships">["role"];
 
 const ROLE_RANK: Record<MemberRole, number> = { member: 0, admin: 1, owner: 2 };
 
-export function fail(code: "UNAUTHENTICATED" | "FORBIDDEN" | "NOT_FOUND" | "INVALID", message: string): never {
-  throw new ConvexError({ code, message });
+/**
+ * Refuses with a message for the app. A `reason` is a stable word for the
+ * pages a homeowner sees (no sign-in, maybe in Spanish), so they can show
+ * the refusal in the reader's language instead of this English message.
+ */
+export function fail(code: "UNAUTHENTICATED" | "FORBIDDEN" | "NOT_FOUND" | "INVALID", message: string, reason?: string): never {
+  throw new ConvexError(reason ? { code, message, reason } : { code, message });
 }
 
 export async function requireUser(ctx: Ctx): Promise<Doc<"users">> {

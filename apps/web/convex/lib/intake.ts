@@ -28,6 +28,7 @@ export interface IntakeFields {
   timeline?: string;
   isOwner?: boolean;
   notes?: string;
+  language?: string;
   externalId?: string;
   campaignName?: string;
   adsetName?: string;
@@ -50,6 +51,7 @@ const KEYS: Record<keyof Omit<IntakeFields, "consent" | "isOwner">, string[]> = 
   scope: ["scope", "projecttype", "whatkindofwork"],
   timeline: ["timeline", "whendoyouwantthisdone", "whendoyouneedit", "timing"],
   notes: ["notes", "description", "details", "message", "comments"],
+  language: ["language", "preferredlanguage", "idioma", "lenguaje", "whatlanguage"],
   externalId: ["leadgenid", "leadid", "id"],
   campaignName: ["campaignname", "campaign"],
   adsetName: ["adsetname", "adset"],
@@ -65,6 +67,7 @@ const CONTAINS: Partial<Record<keyof typeof KEYS, string[]>> = {
   zip: ["zip"],
   jobType: ["whatservice", "whatdoyouneed", "typeofwork", "trade"],
   notes: ["describe", "tellus", "details"],
+  language: ["language", "idioma"],
 };
 
 const squash = (key: string) => key.toLowerCase().replace(/[^a-z0-9]/g, "");

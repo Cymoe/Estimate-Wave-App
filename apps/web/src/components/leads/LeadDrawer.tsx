@@ -4,6 +4,7 @@ import {
   Building2,
   CalendarDays,
   Clock,
+  Languages,
   DollarSign,
   FileText,
   Globe,
@@ -25,6 +26,7 @@ import { formatCurrency } from '../../utils/format';
 import { AppointmentField } from './AppointmentField';
 import { LeadCredit } from '../market/LeadCredit';
 import { KNOWN_CITIES, SOURCES, STATUSES, type Lead, type LeadStatus, type Trade } from './leadTypes';
+import { LANGUAGE_OPTIONS } from '../../i18n';
 
 /** The text fields, held as strings while editing. */
 interface Draft {
@@ -39,6 +41,7 @@ interface Draft {
   followUpDate: string;
   notes: string;
   lostReason: string;
+  language: string;
 }
 type Field = keyof Draft;
 
@@ -54,6 +57,7 @@ const draftOf = (lead: Lead | null): Draft => ({
   followUpDate: lead?.followUpDate ?? '',
   notes: lead?.notes ?? '',
   lostReason: lead?.lostReason ?? '',
+  language: lead?.language ?? 'en',
 });
 
 /** A draft value as the server stores it: trimmed, empty as null, value as a number. */
@@ -393,6 +397,23 @@ export const LeadDrawer: React.FC<{
             </Row>
             <Row icon={CalendarDays} label="Appointment">
               <AppointmentField value={appointment} onChange={changeAppointment} plain className="flex-1 text-[15px]" />
+            </Row>
+            <Row icon={Languages} label="Language">
+              <select
+                value={draft.language}
+                onChange={(e) => {
+                  setDraft((current) => ({ ...current, language: e.target.value }));
+                  commit('language', e.target.value);
+                }}
+                aria-label="Language"
+                className={plainSelect}
+              >
+                {LANGUAGE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value} className="bg-[#1E1E1E] text-white">
+                    {o.label}
+                  </option>
+                ))}
+              </select>
             </Row>
             <Row icon={Clock} label="Follow up">
               <label className="relative flex-1 min-w-0 py-1 cursor-pointer">

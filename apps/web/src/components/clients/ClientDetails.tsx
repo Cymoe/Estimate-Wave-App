@@ -1,12 +1,13 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Building2, FileText, FolderOpen, Mail, MapPin, Navigation, Phone, PhoneCall, Trash2 } from 'lucide-react';
+import { ArrowLeft, Building2, FileText, FolderOpen, Languages, Mail, MapPin, Navigation, Phone, PhoneCall, Trash2 } from 'lucide-react';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { ClientService, type Client } from '../../services/ClientService';
 import { ProjectService, type Project } from '../../services/ProjectService';
 import { EstimateService, type Estimate } from '../../services/EstimateService';
 import { formatCurrency } from '../../utils/format';
-import { NoteRow, SaveStatus, noteInput, noteTextarea, noteTitle, useNoteFields } from '../common/StructuredNote';
+import { NoteRow, SaveStatus, noteInput, noteSelect, noteTextarea, noteTitle, useNoteFields } from '../common/StructuredNote';
+import { LANGUAGE_OPTIONS } from '../../i18n';
 import { projectStatusInfo } from '../projects/projectStatus';
 
 type Draft = {
@@ -19,6 +20,7 @@ type Draft = {
   state: string;
   zip: string;
   notes: string;
+  language: 'en' | 'es';
 };
 
 const draftOf = (client: Client | null): Draft => ({
@@ -31,6 +33,7 @@ const draftOf = (client: Client | null): Draft => ({
   state: client?.state ?? '',
   zip: client?.zip ?? '',
   notes: client?.notes ?? '',
+  language: client?.language ?? 'en',
 });
 
 const ESTIMATE_PILL: Record<string, string> = {
@@ -74,7 +77,7 @@ const ClientNote: React.FC<{ client: Client | null }> = ({ client }) => {
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [estimates, setEstimates] = useState<Estimate[] | null>(null);
 
-  const { draft, set, commit, state, setState, error, setError } = useNoteFields<Draft>(
+  const { draft, set, choose, commit, state, setState, error, setError } = useNoteFields<Draft>(
     draftOf(client),
     client?.id ? async (patch) => void (await ClientService.update(client.id!, patch)) : null,
     ['name'],
@@ -182,6 +185,16 @@ const ClientNote: React.FC<{ client: Client | null }> = ({ client }) => {
             {field('state', 'State')}
             {field('zip', 'Zip')}
           </div>
+        </NoteRow>
+        <NoteRow icon={Languages} label="Language">
+          <select value={draft.language} onChange={(e) => choose('language', e.target.value as 'en' | 'es')} aria-label="Language" className={noteSelect}>
+            {LANGUAGE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          {draft.language === 'es' && <span className="text-xs text-gray-500 whitespace-nowrap">Estimate link, emails and texts in Spanish</span>}
         </NoteRow>
       </div>
 

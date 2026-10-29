@@ -80,6 +80,7 @@ export async function sellLead(
       city: lead.city,
       county: lead.county,
       jobType: lead.jobType,
+      language: lead.language,
       notes: lead.notes,
       source: "Tolliver Lead",
       status: "new",

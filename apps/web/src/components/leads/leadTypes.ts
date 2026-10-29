@@ -21,6 +21,8 @@ export interface Lead {
   notes?: string;
   status: LeadStatus;
   lostReason?: string;
+  /** The language their texts and emails come in. */
+  language?: 'en' | 'es';
   clientId?: string;
   isSample?: boolean;
   createdAt?: string;

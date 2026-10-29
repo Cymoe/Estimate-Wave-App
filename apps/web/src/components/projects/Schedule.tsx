@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, MessageSquare, Pencil, Users, X } from 'luci
 import { crewAPI, tasksAPI, type CrewMember, type Schedule as ScheduleData, type ScheduledTask } from '../../lib/api';
 import { AddCrewForm } from './ProjectTasks';
 import { addDays, fromIso, isoDay, mondayOf, textLink } from './taskDates';
+import { LANGUAGE_OPTIONS } from '../../i18n';
 
 const field = 'bg-[#0A0A0A] border border-[#333] px-2.5 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#336699]';
 const secondary = 'inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-200 bg-[#1E1E1E] border border-[#333] hover:bg-[#2a2a2a] disabled:opacity-50';
@@ -18,7 +19,7 @@ const CrewManager: React.FC<{ organizationId: string; crew: CrewMember[]; onChan
   onClose,
 }) => {
   const [editing, setEditing] = useState<string | null>(null);
-  const [draft, setDraft] = useState({ name: '', phone: '', trade: '' });
+  const [draft, setDraft] = useState({ name: '', phone: '', trade: '', language: 'en' as 'en' | 'es' });
   const [error, setError] = useState<string | null>(null);
   const act = async (work: () => Promise<unknown>) => {
     setError(null);
@@ -48,7 +49,7 @@ const CrewManager: React.FC<{ organizationId: string; crew: CrewMember[]; onChan
                   onSubmit={(e) => {
                     e.preventDefault();
                     act(async () => {
-                      await crewAPI.update(person.id, { name: draft.name, phone: draft.phone || undefined, trade: draft.trade || undefined });
+                      await crewAPI.update(person.id, { name: draft.name, phone: draft.phone || undefined, trade: draft.trade || undefined, language: draft.language });
                       setEditing(null);
                     });
                   }}
@@ -56,6 +57,13 @@ const CrewManager: React.FC<{ organizationId: string; crew: CrewMember[]; onChan
                   <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} aria-label="Name" className={`${field} flex-1 min-w-[8rem]`} />
                   <input value={draft.phone} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} aria-label="Phone" inputMode="tel" className={`${field} w-32`} />
                   <input value={draft.trade} onChange={(e) => setDraft({ ...draft, trade: e.target.value })} aria-label="Trade" className={`${field} w-36`} />
+                  <select value={draft.language} onChange={(e) => setDraft({ ...draft, language: e.target.value as 'en' | 'es' })} aria-label="Language" className={`${field} w-28`}>
+                    {LANGUAGE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
                   <button type="submit" className={secondary}>
                     Save
                   </button>
@@ -64,14 +72,14 @@ const CrewManager: React.FC<{ organizationId: string; crew: CrewMember[]; onChan
                 <div className="flex items-center gap-3">
                   <span className="flex-1 min-w-0 truncate text-white">
                     {person.name}
-                    <span className="text-gray-500">{[person.trade, person.phone].filter(Boolean).map((x) => ` · ${x}`).join('')}</span>
+                    <span className="text-gray-500">{[person.trade, person.phone, person.language === 'es' ? 'Español' : undefined].filter(Boolean).map((x) => ` · ${x}`).join('')}</span>
                   </span>
                   <button
                     type="button"
                     aria-label={`Edit ${person.name}`}
                     onClick={() => {
                       setEditing(person.id);
-                      setDraft({ name: person.name, phone: person.phone ?? '', trade: person.trade ?? '' });
+                      setDraft({ name: person.name, phone: person.phone ?? '', trade: person.trade ?? '', language: person.language ?? 'en' });
                     }}
                     className="p-1 text-gray-400 hover:text-white"
                   >

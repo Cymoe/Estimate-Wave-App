@@ -47,7 +47,7 @@ async function view(ctx: QueryCtx, task: Doc<"projectTasks">, people: Map<string
   for (const id of task.crewIds) {
     if (!people.has(id)) people.set(id, await ctx.db.get(id));
     const person = people.get(id);
-    if (person) crew.push({ id: person._id, name: person.name, phone: person.phone, trade: person.trade });
+    if (person) crew.push({ id: person._id, name: person.name, phone: person.phone, trade: person.trade, language: person.language });
   }
   return {
     id: task._id,

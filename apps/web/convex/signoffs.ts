@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { fail, getOwned, logActivity, nowIso } from "./lib/access";
+import { isLang, langOf } from "./lib/i18n";
 import { internal } from "./_generated/api";
 import { markSigned, resolveDocuments, type SignedDocument } from "./lib/contractDocs";
 import { cents, contractTotal, invoicesFor, paymentSummary } from "./lib/invoicing";
@@ -156,6 +157,7 @@ export const get = query({
       title: estimate.title,
       propertyAddress: estimate.contractSnapshot?.terms?.propertyAddress || estimate.contractSnapshot?.client?.address,
       clientName: client?.name ?? estimate.contractSnapshot?.client?.name,
+      clientLanguage: langOf(client),
       company: organization ? { name: organization.name, phone: organization.phone, email: organization.email } : undefined,
       changes: signoff.changes,
       previousTotal: signoff.previousTotal,
@@ -185,13 +187,14 @@ export const sign = mutation({
   args: { token: v.string(), signerName: v.string(), signature: v.string(), agreedToDocument: v.optional(v.boolean()) },
   handler: async (ctx, { token, signerName, signature, agreedToDocument }) => {
     const signoff = await byToken(ctx, token);
-    if (signoff === null) fail("NOT_FOUND", "This link isn't valid");
-    if (signoff.status !== "sent") fail("INVALID", signoff.status === "signed" ? "This has already been signed" : "This was withdrawn");
-    if (!signature.trim()) fail("INVALID", "Please sign");
-    if (!signerName.trim()) fail("INVALID", "Please type your name");
-    if (signoff.document.source === "upload" && !agreedToDocument) fail("INVALID", "Please confirm you've read the attached document");
+    if (signoff === null) fail("NOT_FOUND", "This link isn't valid", "link_invalid");
+    if (signoff.status !== "sent")
+      fail("INVALID", signoff.status === "signed" ? "This has already been signed" : "This was withdrawn", signoff.status === "signed" ? "already_signed" : "withdrawn");
+    if (!signature.trim()) fail("INVALID", "Please sign", "signature_required");
+    if (!signerName.trim()) fail("INVALID", "Please type your name", "name_required");
+    if (signoff.document.source === "upload" && !agreedToDocument) fail("INVALID", "Please confirm you've read the attached document", "documents_unread");
     const estimate = await ctx.db.get(signoff.estimateId);
-    if (estimate === null || !estimate.contractSnapshot) fail("NOT_FOUND", "This link isn't valid");
+    if (estimate === null || !estimate.contractSnapshot) fail("NOT_FOUND", "This link isn't valid", "link_invalid");
     const now = nowIso();
     await ctx.db.patch(signoff._id, {
       status: "signed",
@@ -226,3 +229,17 @@ export const sign = mutation({
   },
 });
 
+/** The client flipped the page to English or Spanish: remember it on their record. */
+export const setLanguage = mutation({
+  args: { token: v.string(), language: v.string() },
+  handler: async (ctx, { token, language }) => {
+    if (!isLang(language)) fail("INVALID", "Pick English or Spanish");
+    const signoff = await byToken(ctx, token);
+    if (signoff === null) fail("NOT_FOUND", "This link isn't valid", "link_invalid");
+    const estimate = await ctx.db.get(signoff.estimateId);
+    if (!estimate?.clientId) return null;
+    const client = await ctx.db.get(estimate.clientId);
+    if (client && client.language !== language) await ctx.db.patch(client._id, { language, updatedAt: nowIso() });
+    return null;
+  },
+});

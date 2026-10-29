@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { CalendarDays, Check, MessageSquare, Plus, Trash2, Users } from 'lucide-react';
 import { crewAPI, tasksAPI, type CrewMember, type ProjectTask } from '../../lib/api';
 import { taskDays, textLink } from './taskDates';
+import { LANGUAGE_OPTIONS } from '../../i18n';
 
 const field = 'bg-[#0A0A0A] border border-[#333] px-2.5 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#336699]';
 const secondary = 'inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-200 bg-[#1E1E1E] border border-[#333] hover:bg-[#2a2a2a] disabled:opacity-50';
@@ -17,6 +18,7 @@ export const AddCrewForm: React.FC<{ organizationId: string; onAdded: (person: C
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [trade, setTrade] = useState('');
+  const [language, setLanguage] = useState<'en' | 'es'>('en');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const save = async (e: React.FormEvent) => {
@@ -24,12 +26,13 @@ export const AddCrewForm: React.FC<{ organizationId: string; onAdded: (person: C
     setBusy(true);
     setError(null);
     try {
-      const data = { name: name.trim(), phone: phone.trim() || undefined, trade: trade.trim() || undefined };
+      const data = { name: name.trim(), phone: phone.trim() || undefined, trade: trade.trim() || undefined, language };
       const id = await crewAPI.add(organizationId, data);
       onAdded({ id, ...data, archived: false });
       setName('');
       setPhone('');
       setTrade('');
+      setLanguage('en');
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -41,6 +44,13 @@ export const AddCrewForm: React.FC<{ organizationId: string; onAdded: (person: C
       <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" aria-label="Crew member name" className={`${field} flex-1 min-w-[8rem]`} />
       <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" inputMode="tel" aria-label="Crew member phone" className={`${field} w-32`} />
       <input value={trade} onChange={(e) => setTrade(e.target.value)} placeholder="Trade (e.g. Roofer)" aria-label="Crew member trade" className={`${field} w-40`} />
+      <select value={language} onChange={(e) => setLanguage(e.target.value as 'en' | 'es')} aria-label="Crew member language" className={`${field} w-28`}>
+        {LANGUAGE_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
       <button type="submit" disabled={busy || !name.trim()} className={primary}>
         Add
       </button>

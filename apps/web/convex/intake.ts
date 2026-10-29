@@ -7,6 +7,7 @@ import { buyersOf, fundedBidsFor } from "./lib/standing";
 import { pricingFor } from "./lib/wallet";
 import { normalizeCounty, TEXAS_COUNTIES } from "./lib/counties";
 import { DUPLICATE_WINDOW_DAYS, fieldsFromPayload, intakeLabel, normalizePhone, parseCampaign, type IntakeFields } from "./lib/intake";
+import { langFromText, type Lang } from "./lib/i18n";
 import { intakeDisposition, intakeSource } from "./schema";
 import { tellStaff } from "./notify";
 
@@ -56,22 +57,33 @@ export const fieldArgs = {
   timeline: v.optional(v.string()),
   isOwner: v.optional(v.boolean()),
   notes: v.optional(v.string()),
+  language: v.optional(v.string()),
 };
 
-type FieldArgs = {
+// As the form or the app sends them (a language answer is free text)…
+type RawFields = {
   [K in keyof typeof fieldArgs]?: K extends "isOwner" ? boolean : string;
+};
+// …and once cleaned.
+type FieldArgs = {
+  [K in keyof typeof fieldArgs]?: K extends "isOwner" ? boolean : K extends "language" ? Lang : string;
 };
 
 /** Trims text, drops blanks, checks the county and trade. */
-export async function cleanFields(ctx: QueryCtx | MutationCtx, fields: FieldArgs): Promise<FieldArgs> {
+export async function cleanFields(ctx: QueryCtx | MutationCtx, fields: RawFields): Promise<FieldArgs> {
   const out: FieldArgs = {};
-  for (const [key, value] of Object.entries(fields) as Array<[keyof FieldArgs, unknown]>) {
+  for (const [key, value] of Object.entries(fields) as Array<[keyof RawFields, unknown]>) {
     if (value === undefined || value === null) continue;
     if (key === "isOwner") {
       out.isOwner = Boolean(value);
       continue;
     }
     if (typeof value !== "string") fail("INVALID", `${key} must be text`);
+    if (key === "language") {
+      const lang = langFromText(value);
+      if (lang) out.language = lang;
+      continue;
+    }
     const trimmed = value.trim();
     if (trimmed) (out as Record<string, string>)[key] = trimmed;
   }
@@ -104,6 +116,7 @@ function summary(row: Doc<"intakeLeads">) {
     scope: row.scope,
     timeline: row.timeline,
     isOwner: row.isOwner,
+    language: row.language,
     notes: row.notes,
     campaignName: row.campaignName,
     adsetName: row.adsetName,
@@ -158,6 +171,7 @@ export const receive = internalMutation({
       scope: fields.scope,
       timeline: fields.timeline,
       isOwner: fields.isOwner,
+      language: langFromText(fields.language),
       notes: fields.notes,
       externalId: fields.externalId,
       campaignName: fields.campaignName,
@@ -448,6 +462,7 @@ export const confirm = mutation({
         city: merged.city,
         county: merged.county,
         jobType: merged.jobType,
+        language: merged.language,
         notes: lines.length ? lines.join("\n") : undefined,
         verified: { at: now, note: note?.trim() || undefined, by: user._id },
       },

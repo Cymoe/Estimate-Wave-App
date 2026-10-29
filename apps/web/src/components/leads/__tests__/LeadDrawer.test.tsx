@@ -80,6 +80,18 @@ describe('LeadDrawer', () => {
     expect(update).not.toHaveBeenCalled();
   });
 
+  it('saves the language the lead reads, so their texts and emails come in it', async () => {
+    const { onChanged } = open();
+    const select = field('Language') as unknown as HTMLSelectElement;
+    expect(select.value).toBe('en');
+    await act(async () => {
+      select.value = 'es';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(update).toHaveBeenCalledWith('l1', { language: 'es' });
+    expect(onChanged).toHaveBeenCalledWith(lead, { language: 'es' });
+  });
+
   it('keeps the name when it is cleared, and saves typing that was not left before closing', async () => {
     open();
     act(() => type(field('Name'), '  '));
@@ -106,7 +118,15 @@ describe('LeadDrawer', () => {
   it('lists every stage in the dropdown with the current one selected', () => {
     open();
     const stage = document.body.querySelector('select[aria-label="Stage"]') as HTMLSelectElement;
-    expect(Array.from(stage.options).map((o) => o.text)).toEqual(['New', 'No Answer', 'Contacted', 'Estimate Scheduled', 'Estimate Sent', 'Job sold', 'Lost']);
+    expect(Array.from(stage.options).map((o) => o.text)).toEqual([
+      'New',
+      'No Answer',
+      'Contacted',
+      'Estimate Scheduled',
+      'Estimate Sent',
+      'Job sold',
+      'Lost',
+    ]);
     expect(stage.value).toBe('scheduled');
     expect(document.body.querySelector('[role="group"][aria-label="Stage"]')).toBeNull();
   });
@@ -127,7 +147,11 @@ describe('LeadDrawer', () => {
     const buttons = () => Array.from(document.body.querySelectorAll('form button'));
     // No estimate yet: the typed value plus a way to create one.
     expect(field('Estimated value')).toBeTruthy();
-    act(() => buttons().find((b) => b.textContent?.includes('Create estimate'))!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    act(() =>
+      buttons()
+        .find((b) => b.textContent?.includes('Create estimate'))!
+        .dispatchEvent(new MouseEvent('click', { bubbles: true })),
+    );
     expect(onEstimate).toHaveBeenCalledWith(lead);
     // Delete is the last thing in the drawer, after the notes.
     const del = buttons().find((b) => b.textContent?.includes('Delete lead'))!;
