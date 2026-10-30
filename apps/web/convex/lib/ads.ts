@@ -73,11 +73,20 @@ export interface HookRow {
   lastUsedAt?: string;
 }
 
-/** The week's hooks: active, least used first, never a family that already has an ad live. */
+/**
+ * The week's hooks: active, families with nothing live first (so the mix
+ * stays wide), then least used, then longest since used. A family already
+ * live is a reason to go last, never a reason to draft nothing.
+ */
 export function pickHooks<H extends HookRow>(hooks: H[], liveFamilies: Set<Family>, n: number): H[] {
   return hooks
-    .filter((h) => h.active && !liveFamilies.has(h.family))
-    .sort((a, b) => a.uses - b.uses || (a.lastUsedAt ?? "").localeCompare(b.lastUsedAt ?? ""))
+    .filter((h) => h.active)
+    .sort(
+      (a, b) =>
+        Number(liveFamilies.has(a.family)) - Number(liveFamilies.has(b.family)) ||
+        a.uses - b.uses ||
+        (a.lastUsedAt ?? "").localeCompare(b.lastUsedAt ?? ""),
+    )
     .slice(0, Math.max(0, n));
 }
 
@@ -186,10 +195,10 @@ export interface Candidate {
   imageUrl?: string;
 }
 
-const RULES = (brand: string) => [
+const RULES = (brand: string, town: string) => [
   `- The voice speaks only as ${brand}, never as a homeowner or customer. No testimonials, no "I hired", no invented reviews or names.`,
   "- No prices, dollar amounts, discounts, percentages off, warranties, guarantees, or promised completion times. A cost-education hook may say prices vary by size and condition and that a quote is free.",
-  '- Do not address the viewer by a personal attribute (no "is your home in...", no age, income or ethnicity). Say "Midland homeowners" style phrasing instead.',
+  `- Do not address the viewer by a personal attribute (no "is your home in...", no age, income or ethnicity). Say "${town} homeowners" style phrasing instead.`,
   "- Close the last shot with a plain ask: get a quote.",
 ];
 
@@ -261,7 +270,7 @@ export function shotListPrompt(
   footage: Candidate[],
   inScope: boolean,
   examples: Example[] = [],
-  town = "Midland",
+  town = "your town",
   playbook?: string,
 ): string {
   const list = footage.map((f, i) => {
@@ -298,7 +307,7 @@ export function shotListPrompt(
     "- A before must be immediately followed by its after (same pair).",
     "- 55 to 75 words of voice in total, about 25 seconds read aloud.",
     `- Each on-screen line is at most 6 words and ${ON_SCREEN_MAX} characters.`,
-    ...RULES(brand),
+    ...RULES(brand, town),
     `- If this footage can't carry the hook honestly (for example a cabinets hook with no cabinets in sight), don't force it.`,
     "",
     "Return only JSON, one of:",
@@ -466,7 +475,12 @@ export interface Brand {
   name: string;
   primaryColor: string;
   accentColor: string;
+  /** The owner's markets; the first is home. On the end card. */
+  markets: string[];
 }
+
+/** "Midland and Odessa", "Midland", or nothing. */
+export const marketsLine = (markets: string[]): string => markets.slice(0, 2).filter(Boolean).join(" and ");
 
 const SIZES = { "9x16": { width: 1080, height: 1920 }, "4x5": { width: 1080, height: 1350 } } as const;
 export const END_CARD_SEC = 3;
@@ -567,7 +581,7 @@ export function shotstackEdit(input: {
             {
               asset: {
                 type: "html",
-                html: `<p class="a">Get a quote</p><p class="b">${escapeHtml(brand.name)} · Midland and Odessa</p>`,
+                html: `<p class="a">Get a quote</p><p class="b">${escapeHtml([brand.name, marketsLine(brand.markets)].filter(Boolean).join(" · "))}</p>`,
                 css: `.a{font-family:'Roboto Condensed',sans-serif;font-weight:700;font-size:84px;color:#fff;text-align:center}.b{font-family:'Roboto',sans-serif;font-size:36px;color:${brand.accentColor};text-align:center}`,
                 width: 1000,
                 height: 500,
@@ -880,7 +894,7 @@ export function tagSwipePrompt(
     '  "creative": "what the visual is, in one line",',
     `  "area": "the market the ad names, or empty" (the owner's markets are ${markets.join(", ")}),`,
     '  "cta": "the button text",',
-    '  "adaptation": "one sentence: how a Midland lead service could use this angle honestly",',
+    `  "adaptation": "one sentence: how a ${markets[0] ?? "local"} lead service could use this angle honestly",`,
     '  "claims": ["each price, discount, warranty, deadline, time promise or named person, as written"],',
     `  "opening": ${OPENINGS.map((o) => `"${o}"`).join("|")},`,
     `  "footage": [${FOOTAGE_KINDS.map((f) => `"${f}"`).join("|")}],`,

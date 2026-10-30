@@ -7,6 +7,7 @@ import {
   useAdsLibrary,
   useAdsLive,
   useAdsPlaybooks,
+  useAdsReadiness,
   useAdsResearchRuns,
   useAdsSettings,
   useAdsSwipes,
@@ -28,7 +29,7 @@ const SECTIONS: Array<[Section, string]> = [
   ['live', 'Live'],
   ['library', 'Library'],
   ['hooks', 'Hooks'],
-  ['swipes', 'Swipe file'],
+  ['swipes', 'Competitors'],
   ['settings', 'Settings'],
 ];
 
@@ -61,7 +62,19 @@ export interface AdCreative {
   createdAt: string;
   activatedAt?: string;
   retiredAt?: string;
+  /** Why the daily pull suggests retiring this one. */
+  suggestRetire?: string;
 }
+
+export interface Readiness {
+  key: string;
+  label: string;
+  ok: boolean;
+  hard: boolean;
+  tab: Section;
+  detail: string;
+}
+
 export interface AdBatch {
   id: string;
   weekOf: string;
@@ -179,8 +192,33 @@ export const AdsCard: React.FC<{ owner: boolean }> = ({ owner }) => {
       setError(describeError(err, "That didn't go through"));
     }
   };
+  const checks = useAdsReadiness<Readiness[]>();
+  const blocked = checks?.find((c) => c.hard && !c.ok);
   return (
     <div className="space-y-4">
+      {checks && (
+        <div className="border border-[#2A2A2A] rounded px-3 py-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs" aria-label="Ready for Monday">
+          <span className={blocked ? 'text-amber-300' : 'text-emerald-300'}>
+            {blocked ? `Monday will skip: ${blocked.label}. ${blocked.detail}.` : 'Monday will draft.'}
+          </span>
+          {checks.map((c) => (
+            <button
+              key={c.key}
+              type="button"
+              title={c.detail}
+              onClick={() => {
+                setSection(c.tab);
+                setHookStart(null);
+              }}
+              className={`inline-flex items-center gap-1 ${c.ok ? 'text-gray-400' : c.hard ? 'text-amber-300' : 'text-gray-500'}`}
+            >
+              <span aria-hidden="true">{c.ok ? '✓' : '✗'}</span>
+              <span className="underline decoration-dotted">{c.label}</span>
+              <span className="sr-only">{c.ok ? 'ready' : 'not ready'}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div role="tablist" aria-label="Ads" className="flex gap-1 flex-wrap">
         {SECTIONS.map(([value, label]) => (
           <button
@@ -275,9 +313,9 @@ const ThisWeek: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
             {b.creatives.length === 0 ? (
               <p className="px-4 py-3 text-xs text-gray-500">Nothing drafted for this week.</p>
             ) : (
-              <ul className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
-                {b.creatives.map((c) => (
-                  <CreativeCard key={c.id} c={c} act={act} />
+              <ul className="grid gap-3 p-4 lg:grid-cols-2">
+                {groupByHook(b.creatives).map((g) => (
+                  <HookGroup key={g.key} group={g} act={act} />
                 ))}
               </ul>
             )}
@@ -285,6 +323,77 @@ const ThisWeek: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
         ))
       )}
     </div>
+  );
+};
+
+/** A batch's creatives, two sizes to a hook, in the order they were drafted. */
+function groupByHook(creatives: AdCreative[]): Array<{ key: string; hook: AdCreative['hook']; items: AdCreative[] }> {
+  const groups: Array<{ key: string; hook: AdCreative['hook']; items: AdCreative[] }> = [];
+  for (const c of creatives) {
+    const key = c.hook?.id ?? c.id;
+    const g = groups.find((x) => x.key === key);
+    if (g) g.items.push(c);
+    else groups.push({ key, hook: c.hook, items: [c] });
+  }
+  return groups;
+}
+
+/** One hook's drafts: the hook, both sizes side by side, the shot list once, and approve or reject for the pair. */
+const HookGroup: React.FC<{ group: { key: string; hook: AdCreative['hook']; items: AdCreative[] }; act: Act }> = ({ group, act }) => {
+  const reviewable = group.items.filter((c) => (c.status === 'paused' || c.status === 'rendered') && c.meta?.adId);
+  const rejectable = group.items.filter((c) => c.status === 'paused' || c.status === 'rendered');
+  const first = group.items[0];
+  return (
+    <li className="border border-[#2A2A2A] rounded p-3 space-y-3" data-testid="hook-group">
+      {group.hook && (
+        <p className="text-sm text-white">
+          <span className="text-xs text-gray-500">
+            {group.hook.familyLabel} · {group.hook.scope} ·{' '}
+          </span>
+          {group.hook.textEn}
+        </p>
+      )}
+      <ul className="grid gap-3 grid-cols-2">
+        {group.items.map((c) => (
+          <CreativeCard key={c.id} c={c} act={act} />
+        ))}
+      </ul>
+      <details className="text-xs text-gray-500">
+        <summary className="cursor-pointer">Shots</summary>
+        {first.shots && first.shots.length > 0 ? (
+          <ol className="mt-1 space-y-1.5" aria-label="Shot list">
+            {first.shots.map((shot, i) => (
+              <li key={i}>
+                <span className="text-gray-300">
+                  {i + 1}. {shot.fileName}
+                  {shot.start !== undefined && shot.end !== undefined ? ` · ${shot.start.toFixed(1)}–${shot.end.toFixed(1)}s` : ''}
+                </span>
+                <br />“{shot.voice}”
+                <br />
+                <span className="text-gray-400">On screen: {shot.onScreen}</span>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="mt-1 whitespace-pre-wrap">{first.script.voice}</p>
+        )}
+      </details>
+      {rejectable.length > 1 && (
+        <div className="flex gap-2">
+          <button
+            type="button"
+            className={`${primary} flex-1`}
+            disabled={reviewable.length !== rejectable.length}
+            onClick={() => act(() => Promise.all(reviewable.map((c) => adsAPI.activate(c.id))), 'Both sizes are live.')}
+          >
+            Approve both
+          </button>
+          <button type="button" className={secondary} onClick={() => act(() => Promise.all(rejectable.map((c) => adsAPI.reject(c.id))))}>
+            Reject both
+          </button>
+        </div>
+      )}
+    </li>
   );
 };
 
@@ -306,33 +415,8 @@ const CreativeCard: React.FC<{ c: AdCreative; act: Act }> = ({ c, act }) => (
           {STATUS_LABELS[c.status]}
         </span>
       </p>
-      {c.hook && (
-        <p className="text-xs text-gray-400">
-          {c.hook.familyLabel} · {c.hook.scope}
-        </p>
-      )}
       <p className="text-sm text-white">{c.script.headline}</p>
       <p className="text-xs text-gray-400">{c.script.primaryText}</p>
-      <details className="text-xs text-gray-500">
-        <summary className="cursor-pointer">Shots</summary>
-        {c.shots && c.shots.length > 0 ? (
-          <ol className="mt-1 space-y-1.5" aria-label="Shot list">
-            {c.shots.map((shot, i) => (
-              <li key={i}>
-                <span className="text-gray-300">
-                  {i + 1}. {shot.fileName}
-                  {shot.start !== undefined && shot.end !== undefined ? ` · ${shot.start.toFixed(1)}–${shot.end.toFixed(1)}s` : ''}
-                </span>
-                <br />“{shot.voice}”
-                <br />
-                <span className="text-gray-400">On screen: {shot.onScreen}</span>
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <p className="mt-1 whitespace-pre-wrap">{c.script.voice}</p>
-        )}
-      </details>
       {c.error && <p className="text-xs text-red-300">{c.error}</p>}
       <p className="text-[10px] text-gray-600 break-all">{c.name}</p>
     </div>
@@ -389,6 +473,11 @@ const Live: React.FC<{ act: Act }> = ({ act }) => {
               <td className="px-3 py-2">
                 <span className={chip}>{STATUS_LABELS[r.status]}</span>
                 {r.fatigued && <span className={`${chip} ml-1 text-amber-300 border-amber-900`}>fatigued</span>}
+                {r.suggestRetire && (
+                  <span className={`${chip} ml-1 text-amber-300 border-amber-900`} title={r.suggestRetire}>
+                    retire?
+                  </span>
+                )}
               </td>
               <td className="px-3 py-2 text-right text-gray-300">{r.week ? money(r.week.spendCents) : '—'}</td>
               <td className="px-3 py-2 text-right text-gray-300">{r.week ? pct(r.week.ctr) : '—'}</td>
@@ -914,6 +1003,8 @@ const Playbooks: React.FC<{ act: Act }> = ({ act }) => {
 const Swipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft) => void }> = ({ act, owner, onMakeHook }) => {
   const swipes = useAdsSwipes<Swipe[]>();
   const runs = useAdsResearchRuns<ResearchRun[]>();
+  const settings = useAdsSettings<AdSettings>();
+  const minDays = settings?.researchMinDays ?? 90;
   const [type, setType] = useState('All');
   const [onlyLocal, setOnlyLocal] = useState(false);
   const [onlyLong, setOnlyLong] = useState(false);
@@ -946,7 +1037,7 @@ const Swipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft
     (x) =>
       (type === 'All' || x.paintingType === type) &&
       (!onlyLocal || x.local) &&
-      (!onlyLong || (x.daysRunning ?? 0) >= 90) &&
+      (!onlyLong || (x.daysRunning ?? 0) >= minDays) &&
       (!needle || [x.company, x.hook, x.offer, x.creative, x.adaptation, x.adCopy ?? '', x.area].join(' ').toLowerCase().includes(needle)),
   );
   const lastRun = runs?.[0];
@@ -975,24 +1066,27 @@ const Swipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft
           </span>
         )}
       </div>
-      <div className="flex flex-wrap gap-2 items-center">
-        {swipes.length === 0 && (
-          <button type="button" className={secondary} onClick={() => act(() => adsAPI.seedSwipes(), 'The October 10 research is in.')}>
-            Load the October 10 research
-          </button>
-        )}
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".csv,text/csv"
-          multiple
-          aria-label="Import research CSV files"
-          className="text-xs text-gray-400"
-          disabled={importing}
-          onChange={(e) => void importCsv(e.target.files)}
-        />
-        <span className="text-xs text-gray-500">Download each tab of the research sheet as CSV and pick them all at once.</span>
-      </div>
+      <details className="text-xs text-gray-400" open={swipes.length === 0}>
+        <summary className="cursor-pointer">Other ways to add ads</summary>
+        <div className="flex flex-wrap gap-2 items-center mt-2">
+          {swipes.length === 0 && (
+            <button type="button" className={secondary} onClick={() => act(() => adsAPI.seedSwipes(), 'The October 10 research is in.')}>
+              Load the October 10 research
+            </button>
+          )}
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,text/csv"
+            multiple
+            aria-label="Import research CSV files"
+            className="text-xs text-gray-400"
+            disabled={importing}
+            onChange={(e) => void importCsv(e.target.files)}
+          />
+          <span className="text-xs text-gray-500">Download each tab of the research sheet as CSV and pick them all at once.</span>
+        </div>
+      </details>
       {imported && (
         <p role="status" className="text-sm text-emerald-300">
           {imported}
@@ -1027,7 +1121,7 @@ const Swipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft
             onClick={() => setOnlyLong((v) => !v)}
             className={`px-2 py-1 text-xs rounded border ${onlyLong ? 'border-white text-white' : 'border-[#333] text-gray-400'}`}
           >
-            90+ days
+            {minDays}+ days
           </button>
           <input
             type="search"
@@ -1266,7 +1360,7 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
               aria-label="Search words"
             />
           </Field>
-          <Field label="Your markets" hint="Comma-separated">
+          <Field label="Your markets" hint="Comma-separated; the first is home and goes in the ads">
             <input
               value={form.researchMarkets.join(', ')}
               onChange={(e) => setForm({ ...form, researchMarkets: e.target.value.split(',').map((w) => w.trim()) })}

@@ -91,6 +91,7 @@ export const useAdsHooks = <T>(on = true) => useLive<T>(q('ads:listHooks'), on ?
 export const useAdsSettings = <T>(on = true) => useLive<T>(q('ads:settings'), on ? {} : 'skip');
 export const useAdsSwipes = <T>(on = true) => useLive<T>(q('ads:listSwipes'), on ? {} : 'skip');
 export const useAdsPlaybooks = <T>(on = true) => useLive<T>(q('ads:listPlaybooks'), on ? {} : 'skip');
+export const useAdsReadiness = <T>(on = true) => useLive<T>(q('ads:readiness'), on ? {} : 'skip');
 export const useAdsResearchRuns = <T>(on = true) => useLive<T>(q('ads:listResearchRuns'), on ? {} : 'skip');
 /** The intake queue for one filter. */
 export const useIntakeQueue = <T>(status: 'open' | 'closed' | 'confirmed') => useLive<T>(q('intake:queue'), { status });

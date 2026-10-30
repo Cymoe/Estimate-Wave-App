@@ -50,7 +50,7 @@ afterEach(() => {
 });
 
 describe("the pure parts", () => {
-  test("hooks: active, least used first, never a family already live", () => {
+  test("hooks: active, families with nothing live first, then least used; with every family live it still drafts", () => {
     const hooks = [
       { _id: "a", family: "before_after" as const, scope: "cabinets", active: true, uses: 2 },
       { _id: "b", family: "education" as const, scope: "interior", active: true, uses: 0, lastUsedAt: "2026-10-01" },
@@ -59,6 +59,7 @@ describe("the pure parts", () => {
     ];
     expect(pickHooks(hooks, new Set(["seasonal"]), 2).map((h) => h._id)).toEqual(["b", "a"]);
     expect(pickHooks(hooks, new Set(), 2).map((h) => h._id)).toEqual(["c", "b"]);
+    expect(pickHooks(hooks, new Set(["before_after", "education", "seasonal"]), 2).map((h) => h._id)).toEqual(["c", "b"]);
   });
 
   test("footage: pairs first, then least used and newest; never reused in a week; a fallback is flagged", () => {
@@ -192,7 +193,7 @@ describe("the pure parts", () => {
   });
 
   test("the Shotstack edit: each shot starts on its line, its words sit on it, an after wipes over its before, short clips repeat", () => {
-    const brand = { name: "Permian Home Quotes", primaryColor: "#336699", accentColor: "#8fb6e0" };
+    const brand = { name: "Permian Home Quotes", primaryColor: "#336699", accentColor: "#8fb6e0", markets: ["Midland", "Odessa"] };
     const before = { url: "https://x/before.jpg", kind: "photo" as const, tags: ["cabinets", "before"], pairKey: "k" };
     const after = { url: "https://x/after.jpg", kind: "photo" as const, tags: ["cabinets", "after"], pairKey: "k" };
     const clip = { url: "https://x/clip.mp4", kind: "video" as const, tags: ["process"], durationSec: 3 };
@@ -415,6 +416,8 @@ describe("niche research's pure parts", () => {
     ]);
     const hook = { textEn: "Paint them, don't replace them.", family: "before_after" as const, scope: "cabinets" };
     const text = shotListPrompt(hook, "B", [], true, [], "Midland", "Open with the owner, then the before/after.");
+    expect(text).toContain('Say "Midland homeowners"');
+    expect(shotListPrompt(hook, "B", [], true, [], "Odessa")).toContain('Say "Odessa homeowners"');
     expect(text).toContain(
       "What works in this category, from competitor ads that have run for months. Follow the shape and the kind of opening; never their claims:",
     );
@@ -1080,8 +1083,8 @@ describe("the weekly run", () => {
     const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
     await library(t, owner);
     const now = new Date().toISOString();
-    const { creativeId, name } = await t.run(async (ctx) => {
-      const hook = (await ctx.db.query("adHooks").take(1))[0];
+    const { creativeId, name, weakId, hookId, weakHookId } = await t.run(async (ctx) => {
+      const [hook, weakHook] = await ctx.db.query("adHooks").take(2);
       const batchId = await ctx.db.insert("adBatches", { weekOf: "2026-11-02", status: "ready", createdAt: now });
       const name = "WL_abc123_916_20261102";
       const creativeId = await ctx.db.insert("adCreatives", {
@@ -1095,6 +1098,19 @@ describe("the weekly run", () => {
         createdAt: now,
         activatedAt: now,
         meta: { adId: "ad9" },
+      });
+      // A batch mate on another hook that Meta reports clicking far less.
+      const weakId = await ctx.db.insert("adCreatives", {
+        batchId,
+        hookId: weakHook._id,
+        ratio: "9x16",
+        name: "WL_weak_916_20261102",
+        script: GOOD,
+        assetIds: [],
+        status: "live",
+        createdAt: now,
+        activatedAt: now,
+        meta: { adId: "ad8" },
       });
       const sold = await ctx.db.insert("marketplaceLeads", {
         name: "Ana",
@@ -1128,7 +1144,7 @@ describe("the weekly run", () => {
         createdAt: now,
         updatedAt: now,
       } as any);
-      return { creativeId: creativeId as Id<"adCreatives">, name };
+      return { creativeId: creativeId as Id<"adCreatives">, name, weakId: weakId as Id<"adCreatives">, hookId: hook._id, weakHookId: weakHook._id };
     });
     vi.stubEnv("META_ACCESS_TOKEN", "m");
     const day = (date: string, extra: Record<string, unknown> = {}) => ({
@@ -1147,17 +1163,28 @@ describe("the weekly run", () => {
       vi.fn(async (input: string) => {
         const url = String(input);
         const incremented = url.includes("time_increment=1");
+        const weak = url.includes("/ad8/");
         return new Response(
           JSON.stringify({
             data: incremented
               ? [day("2026-11-03"), day("2026-11-04")]
-              : [{ spend: "25.00", impressions: "1200", clicks: "18", ctr: "1.5", frequency: "1.3", actions: [{ action_type: "lead", value: "2" }] }],
+              : [
+                  {
+                    spend: "25.00",
+                    impressions: "1200",
+                    clicks: weak ? "6" : "18",
+                    ctr: weak ? "0.5" : "1.5",
+                    frequency: "1.3",
+                    actions: [{ action_type: "lead", value: "2" }],
+                  },
+                ],
           }),
         );
       }),
     );
     await t.action(internal.ads.pullInsights, {});
-    let [row] = await owner.as.query(api.ads.live, {});
+    const liveRow = async () => (await owner.as.query(api.ads.live, {})).find((r) => r.id === creativeId)!;
+    let row = await liveRow();
     expect(row).toMatchObject({
       id: creativeId,
       name,
@@ -1166,9 +1193,60 @@ describe("the weekly run", () => {
       baselineCtr: 1.5,
       fatigued: false,
     });
-    expect((await t.run((ctx) => ctx.db.query("adStats").collect())).map((s) => [s.day, s.spendCents, s.leadsMeta])).toEqual([
+    expect(
+      (await t.run((ctx) => ctx.db.query("adStats").collect()))
+        .filter((s) => s.creativeId === creativeId)
+        .map((s) => [s.day, s.spendCents, s.leadsMeta]),
+    ).toEqual([
       ["2026-11-03", 1250, 1],
       ["2026-11-04", 1250, 1],
+    ]);
+    // Hooks learned on their own: the stronger ad's hook won, the weaker one's lost, each scored once.
+    const hookScore = async () => {
+      const hooks = await owner.as.query(api.ads.listHooks, {});
+      return [hooks.find((h) => h.id === hookId)!, hooks.find((h) => h.id === weakHookId)!].map((h) => [h.wins, h.losses]);
+    };
+    expect(await hookScore()).toEqual([
+      [1, 0],
+      [0, 1],
+    ]);
+    await t.action(internal.ads.pullInsights, {});
+    expect(await hookScore()).toEqual([
+      [1, 0],
+      [0, 1],
+    ]);
+    // Two live, target six: nothing to retire. A third goes live against a target of two: the weakest is flagged, not paused.
+    expect((await owner.as.query(api.ads.live, {})).every((r) => !r.suggestRetire)).toBe(true);
+    await owner.as.mutation(api.ads.saveSettings, { weeklyEnabled: false, hooksPerWeek: 2, liveTarget: 2 });
+    await t.run(async (ctx) => {
+      const batchId = (await ctx.db.query("adBatches").take(1))[0]._id;
+      await ctx.db.insert("adCreatives", {
+        batchId,
+        hookId,
+        ratio: "4x5",
+        name: "WL_third_45_20261102",
+        script: GOOD,
+        assetIds: [],
+        status: "live",
+        createdAt: now,
+        activatedAt: now,
+        meta: { adId: "ad7" },
+      });
+    });
+    await t.action(internal.ads.pullInsights, {});
+    const flagged = (await owner.as.query(api.ads.live, {})).filter((r) => r.suggestRetire);
+    expect(flagged.map((r) => r.id)).toEqual([weakId]);
+    expect(flagged[0].suggestRetire).toBe("3 live, the target is 2; this one has the lowest click-through this week");
+    expect(flagged[0].status).toBe("live");
+    // Retiring it clears the flag and doesn't score the hook again.
+    await owner.as.mutation(api.ads.retire, { id: weakId });
+    const retired = (await owner.as.query(api.ads.live, {})).find((r) => r.id === weakId)!;
+    expect(retired.status).toBe("retired");
+    expect(retired.suggestRetire).toBeUndefined();
+    // The third ad scored its hook once on arrival (a second win); retiring scored nothing.
+    expect(await hookScore()).toEqual([
+      [2, 0],
+      [0, 1],
     ]);
     // A week later people have seen it three times and click half as much: fatigued, and the baseline stays the first week's.
     vi.stubGlobal(
@@ -1179,7 +1257,7 @@ describe("the weekly run", () => {
       ),
     );
     await t.action(internal.ads.pullInsights, {});
-    [row] = await owner.as.query(api.ads.live, {});
+    row = await liveRow();
     expect(row).toMatchObject({ fatigued: true, baselineCtr: 1.5, week: { frequency: 3.1 } });
   });
 });
@@ -1320,10 +1398,21 @@ describe("niche research", () => {
       playbook: { ...PLAYBOOK_REPLY, text: "Cabinets winners open on the owner." },
       basis: { ads: 5, local: 1, oldestDays: 300 },
     });
+    await t.mutation(internal.ads.savePlaybookAuto, {
+      scope: "general",
+      playbook: { ...PLAYBOOK_REPLY, text: "Across painting, the long-runners open on a question." },
+      basis: { ads: 12, local: 2, oldestDays: 400 },
+    });
     vi.stubEnv("ANTHROPIC_API_KEY", "a");
     vi.stubEnv("ELEVENLABS_API_KEY", "e");
     vi.stubEnv("SHOTSTACK_API_KEY", "s");
-    await owner.as.mutation(api.ads.saveSettings, { voiceId: "ven", weeklyEnabled: true, hooksPerWeek: 1, liveTarget: 6 });
+    await owner.as.mutation(api.ads.saveSettings, {
+      voiceId: "ven",
+      weeklyEnabled: true,
+      hooksPerWeek: 2,
+      liveTarget: 6,
+      researchMarkets: ["Odessa", "Midland"],
+    });
     const calls: Array<{ url: string; body?: string }> = [];
     stubServices(calls);
     vi.useFakeTimers();
@@ -1336,7 +1425,74 @@ describe("niche research", () => {
     const cabinets = prompts.find((p) => p.includes("Scope: cabinets."))!;
     expect(cabinets).toContain("What works in this category");
     expect(cabinets).toContain("Cabinets winners open on the owner.");
-    const other = prompts.find((p) => p.startsWith("You write one short") && !p.includes("Scope: cabinets."));
-    if (other) expect(other).not.toContain("What works in this category");
+    // The home market from Settings, not a hardcoded town.
+    expect(cabinets).toContain("a service in Odessa, Texas");
+    expect(cabinets).toContain('Say "Odessa homeowners"');
+    // A scope with no playbook of its own writes to the general one.
+    const interior = prompts.find((p) => p.includes("Scope: interior."))!;
+    expect(interior).toContain("Across painting, the long-runners open on a question.");
+    expect(interior).not.toContain("Cabinets winners");
+    // The end card names the markets.
+    const render = calls.find((c) => c.url.endsWith("/render"))!;
+    expect(render.body).toContain("Odessa and Midland");
+    expect(render.body).not.toContain("Midland and Odessa");
+  });
+
+  test("readiness says what Monday needs; the live target stops a batch; Draft now refuses while one is drafting", async () => {
+    const t = setup();
+    const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
+    let checks = await owner.as.query(api.ads.readiness, {});
+    expect(checks.map((c) => [c.key, c.ok, c.hard])).toEqual([
+      ["keys", false, true],
+      ["library", false, true],
+      ["hooks", false, true],
+      ["playbook", false, false],
+      ["meta", false, false],
+    ]);
+    expect(checks[0].detail).toBe("Set ANTHROPIC_API_KEY, ELEVENLABS_API_KEY, SHOTSTACK_API_KEY on the deployment");
+    expect(checks[1].detail).toBe("0 of at least 3 files");
+    vi.stubEnv("ANTHROPIC_API_KEY", "a");
+    vi.stubEnv("ELEVENLABS_API_KEY", "e");
+    vi.stubEnv("SHOTSTACK_API_KEY", "s");
+    await library(t, owner);
+    checks = await owner.as.query(api.ads.readiness, {});
+    expect(checks.filter((c) => c.hard).every((c) => c.ok)).toBe(true);
+    expect(checks.find((c) => c.key === "library")!.detail).toBe("3 files, 2 tagged by room");
+    expect(checks.find((c) => c.key === "meta")).toMatchObject({ ok: false, tab: "settings" });
+
+    // Two live ads against a target of two: Monday says so instead of spending.
+    await owner.as.mutation(api.ads.saveSettings, { weeklyEnabled: true, hooksPerWeek: 2, liveTarget: 2 });
+    await t.run(async (ctx) => {
+      const hook = (await ctx.db.query("adHooks").take(1))[0];
+      const batchId = await ctx.db.insert("adBatches", { weekOf: "2026-10-26", status: "done", createdAt: new Date().toISOString() });
+      for (const ratio of ["9x16", "4x5"] as const)
+        await ctx.db.insert("adCreatives", {
+          batchId,
+          hookId: hook._id,
+          ratio,
+          name: `WL_live_${ratio}`,
+          script: GOOD,
+          assetIds: [],
+          status: "live",
+          createdAt: new Date().toISOString(),
+          meta: { adId: `ad-${ratio}` },
+        });
+    });
+    const calls: Array<{ url: string; body?: string }> = [];
+    stubServices(calls);
+    vi.useFakeTimers();
+    await owner.as.mutation(api.ads.draftNow, {});
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    vi.useRealTimers();
+    const [batch] = await owner.as.query(api.ads.batches, {});
+    expect(batch).toMatchObject({
+      status: "failed",
+      error: "2 ads are live and the target is 2. Retire one under Live, or raise the target in Settings.",
+    });
+    expect(calls.filter((c) => c.url.includes("api.anthropic.com") && c.body?.includes("You write one short")).length).toBe(0);
+
+    // A batch still drafting blocks a second Draft now.
+    await t.run((ctx) => ctx.db.insert("adBatches", { weekOf: "2026-11-02", status: "drafting", createdAt: new Date().toISOString() }));
+    await expect(owner.as.mutation(api.ads.draftNow, {})).rejects.toThrow("already drafting");
   });
 });

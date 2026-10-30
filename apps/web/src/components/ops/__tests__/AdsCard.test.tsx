@@ -8,6 +8,7 @@ import {
   type AdSettings,
   type LiveAd,
   type Playbook,
+  type Readiness,
   type ResearchRun,
   type Swipe,
 } from '../AdsCard';
@@ -19,6 +20,7 @@ let hooks: AdHook[] = [];
 let swipes: Swipe[] = [];
 let playbooks: Playbook[] = [];
 let runs: ResearchRun[] = [];
+let readiness: Readiness[] | undefined;
 let settings: AdSettings | undefined;
 
 const activate = jest.fn(async () => undefined);
@@ -70,6 +72,7 @@ jest.mock('../../../lib/live', () => ({
   useAdsSwipes: () => swipes,
   useAdsPlaybooks: () => playbooks,
   useAdsResearchRuns: () => runs,
+  useAdsReadiness: () => readiness,
 }));
 
 const flush = () =>
@@ -145,10 +148,31 @@ beforeEach(() => {
   swipes = [];
   playbooks = [];
   runs = [];
+  readiness = undefined;
 });
 
 describe('Ops → Ads', () => {
-  it("shows the week's batch, approves a paused creative and rejects another; Draft now is the owner's", async () => {
+  it('the readiness strip says whether Monday will draft, and each check opens the tab that fixes it', async () => {
+    readiness = [
+      { key: 'keys', label: 'Keys', ok: true, hard: true, tab: 'settings', detail: 'Claude, ElevenLabs and Shotstack are set' },
+      { key: 'library', label: 'Library', ok: true, hard: true, tab: 'library', detail: '5 files, 3 tagged by room' },
+      { key: 'hooks', label: 'Hooks', ok: false, hard: true, tab: 'hooks', detail: '1 active, need 2' },
+      { key: 'playbook', label: 'Playbook', ok: false, hard: false, tab: 'swipes', detail: 'None yet: load or search competitor ads' },
+      { key: 'meta', label: 'Meta', ok: false, hard: false, tab: 'settings', detail: 'Token, ad account, page and ad set needed' },
+    ];
+    await render();
+    const strip = document.body.querySelector('[aria-label="Ready for Monday"]')!;
+    expect(strip.textContent).toContain('Monday will skip: Hooks. 1 active, need 2.');
+    await act(async () => (Array.from(strip.querySelectorAll('button')).find((b) => b.textContent?.includes('Hooks')) as HTMLButtonElement).click());
+    expect(document.body.querySelector('form[aria-label="New hook"]')).not.toBeNull();
+
+    readiness = readiness.map((c) => ({ ...c, ok: true }));
+    document.body.innerHTML = '';
+    await render();
+    expect(document.body.querySelector('[aria-label="Ready for Monday"]')!.textContent).toContain('Monday will draft.');
+  });
+
+  it("shows the week's batch grouped by hook, approves both sizes at once or one at a time, rejects; Draft now is the owner's", async () => {
     batches = [
       {
         id: 'b1',
@@ -169,6 +193,9 @@ describe('Ops → Ads', () => {
       },
     ];
     await render();
+    const groups = document.body.querySelectorAll('[data-testid="hook-group"]');
+    expect(groups.length).toBe(1);
+    expect(groups[0].textContent).toContain('Before / after · cabinets · Paint them');
     const cards = document.body.querySelectorAll('[data-testid="creative"]');
     expect(cards.length).toBe(2);
     expect(cards[1].textContent).toContain('4x5');
@@ -177,15 +204,21 @@ describe('Ops → Ads', () => {
     expect(document.body.querySelector('[aria-label="Passed over"]')!.textContent).toBe(
       'Passed over "Get the outside painted before the first freeze": Claude passed: no exterior in this footage',
     );
-    const shots = cards[0].querySelector('[aria-label="Shot list"]')!.querySelectorAll('li');
+    const shots = groups[0].querySelector('[aria-label="Shot list"]')!.querySelectorAll('li');
     expect(Array.from(shots).map((li) => li.textContent)).toEqual([
       '1. kitchen-before.jpg · 0.0–2.4s“Dark oak cabinets, worn at the edges.”On screen: Before',
       '2. kitchen-after.jpg · 2.6–4.8s“Same kitchen, painted white.”On screen: After',
     ]);
+    await act(async () => byText('Approve both')!.click());
+    await flush();
+    expect(activate).toHaveBeenCalledWith('c1');
+    expect(activate).toHaveBeenCalledWith('c2');
+    expect(document.body.querySelector('[role="status"]')?.textContent).toBe('Both sizes are live.');
+    activate.mockClear();
     await act(async () => (cards[0].querySelector('button') as HTMLButtonElement).click());
     await flush();
     expect(activate).toHaveBeenCalledWith('c1');
-    expect(document.body.querySelector('[role="status"]')?.textContent).toContain('is live');
+    expect(activate).not.toHaveBeenCalledWith('c2');
     await act(async () =>
       Array.from(cards[1].querySelectorAll('button'))
         .find((b) => b.textContent === 'Reject')!
@@ -222,6 +255,7 @@ describe('Ops → Ads', () => {
       {
         ...creative({ status: 'live' }),
         fatigued: true,
+        suggestRetire: '7 live, the target is 6; this one has the lowest click-through this week',
         week: { at: '', spendCents: 2500, impressions: 1200, clicks: 18, frequency: 3.1, ctr: 0.67, leadsMeta: 2 },
         intake: { leads: 3, confirmed: 2, sold: 1, revenueCents: 6500 },
       },
@@ -234,6 +268,8 @@ describe('Ops → Ads', () => {
     expect(rows[0].textContent).toContain('$25.00');
     expect(rows[0].textContent).toContain('0.67%');
     expect(rows[0].textContent).toContain('fatigued');
+    expect(rows[0].textContent).toContain('retire?');
+    expect(rows[1].textContent).not.toContain('retire?');
     expect(rows[0].textContent).toContain('$65.00');
     expect(rows[1].textContent).toContain('—');
     await act(async () =>
@@ -356,9 +392,9 @@ describe('Ops → Ads', () => {
     );
   });
 
-  it('Swipe file loads the research, filters and searches, stars one, and starts a hook from an angle', async () => {
+  it('Competitors loads the research, filters and searches, stars one, and starts a hook from an angle', async () => {
     await render();
-    await tab('Swipe file');
+    await tab('Competitors');
     await act(async () => byText('Load the October 10 research')!.click());
     expect(seedSwipes).toHaveBeenCalled();
     expect(document.body.querySelector('[role="status"]')?.textContent).toBe('The October 10 research is in.');
@@ -398,7 +434,7 @@ describe('Ops → Ads', () => {
     ];
     document.body.innerHTML = '';
     await render();
-    await tab('Swipe file');
+    await tab('Competitors');
     expect(byText('Load the October 10 research')).toBeUndefined();
     const cards = () => Array.from(document.body.querySelectorAll('[data-testid="swipe"]'));
     expect(cards().length).toBe(2);
@@ -430,7 +466,7 @@ describe('Ops → Ads', () => {
     expect((selects[1] as HTMLSelectElement).value).toBe('cabinets');
   });
 
-  it('Swipe file: the owner searches the niche, the last run shows, Local filters, the playbook is edited and rewritten', async () => {
+  it('Competitors: the owner searches the niche, the last run shows, Local filters, the playbook is edited and rewritten', async () => {
     swipes = [
       {
         id: 's1',
@@ -504,7 +540,7 @@ describe('Ops → Ads', () => {
       },
     ];
     await render();
-    await tab('Swipe file');
+    await tab('Competitors');
     expect(document.body.querySelector('[data-testid="research-run"]')!.textContent).toBe(
       'Oct 30 · scanned 760 · 48 past the bar · 31 new · 9 junk dropped · 2 unreadable',
     );
@@ -546,14 +582,14 @@ describe('Ops → Ads', () => {
 
     document.body.innerHTML = '';
     await render(false);
-    await tab('Swipe file');
+    await tab('Competitors');
     expect(byText('Search the niche')).toBeUndefined();
   });
 
-  it('Swipe file imports the research sheet from its CSV tabs, merged by #', async () => {
+  it('Competitors imports the research sheet from its CSV tabs, merged by #, under "Other ways to add ads"', async () => {
     swipes = [];
     await render();
-    await tab('Swipe file');
+    await tab('Competitors');
     const fileInput = document.body.querySelector('input[type="file"]') as HTMLInputElement;
     const ads = new File(
       [

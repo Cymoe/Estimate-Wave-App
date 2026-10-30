@@ -1584,6 +1584,10 @@ export default defineSchema({
     createdAt: v.string(),
     activatedAt: v.optional(v.string()),
     retiredAt: v.optional(v.string()),
+    // Its hook was scored (win or loss against the batch) from this week's numbers.
+    scoredAt: v.optional(v.string()),
+    // Why the daily pull suggests retiring this one (over the live target, weakest week).
+    suggestRetire: v.optional(v.string()),
     // The last 7 days as Meta reports them (pullInsights), and the first week's CTR to judge fatigue against.
     week: v.optional(v.object({ at: v.string(), spendCents: v.number(), impressions: v.number(), clicks: v.number(), frequency: v.number(), ctr: v.number(), leadsMeta: v.number() })),
     baselineCtr: v.optional(v.number()),

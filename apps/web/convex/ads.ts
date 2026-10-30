@@ -540,7 +540,8 @@ export const removeSwipe = mutation({
 // markets); video ads get a transcript from ElevenLabs; then the playbook for
 // each scope is rewritten from what qualifies.
 
-const PLAYBOOK_SCOPES = ["cabinets", "interior", "exterior"];
+// "general" is written from every qualifying ad and stands in for hooks whose scope (crew, process) has no playbook of its own.
+const PLAYBOOK_SCOPES = ["cabinets", "interior", "exterior", "general"];
 const PLAYBOOK_MIN_ADS = 3;
 const PER_KEYWORD = 200;
 
@@ -838,10 +839,11 @@ export const playbookInputs = internalQuery({
     const playbooks = await ctx.db.query("adPlaybooks").take(20);
     const byScope: Record<string, typeof swipes> = {};
     for (const x of swipes) {
-      if (!x.scope || (x.quality !== undefined && x.quality < 20)) continue;
+      if (x.quality !== undefined && x.quality < 20) continue;
       // Qualifies: past the longevity bar, or starred, or the VA's own research (its dates may be unreadable).
       if (!(x.starred || (x.daysRunning ?? 0) >= minDays || x.source === RESEARCH_SOURCE)) continue;
-      (byScope[x.scope] ??= []).push(x);
+      (byScope.general ??= []).push(x);
+      if (x.scope) (byScope[x.scope] ??= []).push(x);
     }
     return { markets, libraryTags, byScope, playbooks };
   },
@@ -1083,6 +1085,7 @@ async function creativeView(ctx: QueryCtx, c: Doc<"adCreatives">, hooks: Map<str
     createdAt: c.createdAt,
     activatedAt: c.activatedAt,
     retiredAt: c.retiredAt,
+    suggestRetire: c.suggestRetire,
   };
 }
 
@@ -1151,6 +1154,80 @@ export const live = query({
   },
 });
 
+/**
+ * Whether Monday can draft, check by check. The hard checks stop a batch;
+ * the soft ones only change what it can do (no Meta: renders wait here).
+ */
+async function readinessChecks(ctx: QueryCtx) {
+  const k = keys();
+  const row = await settingsRow(ctx);
+  const assets = await ctx.db.query("adAssets").take(500);
+  const tagged = assets.filter((a) => a.tags.some((t) => ["cabinets", "interior", "exterior"].includes(t))).length;
+  const hooks = (
+    await ctx.db
+      .query("adHooks")
+      .withIndex("by_active", (q) => q.eq("active", true))
+      .collect()
+  ).length;
+  const playbooks = (await ctx.db.query("adPlaybooks").take(20)).length;
+  const meta = Boolean(k.meta && row?.adAccountId && row?.pageId && row?.adsetId);
+  const missingKeys = [
+    k.anthropic ? "" : "ANTHROPIC_API_KEY",
+    k.elevenlabs ? "" : "ELEVENLABS_API_KEY",
+    k.shotstack ? "" : "SHOTSTACK_API_KEY",
+  ].filter(Boolean);
+  return [
+    {
+      key: "keys",
+      label: "Keys",
+      ok: missingKeys.length === 0,
+      hard: true,
+      tab: "settings",
+      detail: missingKeys.length ? `Set ${missingKeys.join(", ")} on the deployment` : "Claude, ElevenLabs and Shotstack are set",
+    },
+    {
+      key: "library",
+      label: "Library",
+      ok: assets.length >= 3 && tagged > 0,
+      hard: true,
+      tab: "library",
+      detail:
+        assets.length < 3
+          ? `${assets.length} of at least 3 files`
+          : tagged === 0
+            ? "Nothing tagged cabinets, interior or exterior"
+            : `${assets.length} files, ${tagged} tagged by room`,
+    },
+    { key: "hooks", label: "Hooks", ok: hooks >= 2, hard: true, tab: "hooks", detail: hooks >= 2 ? `${hooks} active` : `${hooks} active, need 2` },
+    {
+      key: "playbook",
+      label: "Playbook",
+      ok: playbooks > 0,
+      hard: false,
+      tab: "swipes",
+      detail: playbooks > 0 ? `${playbooks} written` : "None yet: load or search competitor ads",
+    },
+    {
+      key: "meta",
+      label: "Meta",
+      ok: meta,
+      hard: false,
+      tab: "settings",
+      detail: meta ? "Ads go to Meta paused" : "Token, ad account, page and ad set needed; until then renders wait here",
+    },
+  ];
+}
+
+export const readiness = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireStaff(ctx);
+    return await readinessChecks(ctx);
+  },
+});
+
+export const readinessState = internalQuery({ args: {}, handler: async (ctx) => await readinessChecks(ctx) });
+
 /** "Draft now": this week's batch, without waiting for Monday. */
 export const draftNow = mutation({
   args: {},
@@ -1159,6 +1236,9 @@ export const draftNow = mutation({
     const k = keys();
     if (!k.anthropic || !k.elevenlabs || !k.shotstack)
       fail("INVALID", "Set ANTHROPIC_API_KEY, ELEVENLABS_API_KEY and SHOTSTACK_API_KEY on the deployment first");
+    const newest = (await ctx.db.query("adBatches").order("desc").take(1))[0];
+    if (newest && newest.status === "drafting" && Date.now() - new Date(newest.createdAt).getTime() < 30 * 60_000)
+      fail("INVALID", "A batch is already drafting; it shows under This week as each piece finishes");
     await ctx.scheduler.runAfter(0, internal.ads.weeklyRun, { startedBy: user._id, force: true });
   },
 });
@@ -1183,26 +1263,65 @@ export const activate = mutation({
   },
 });
 
-/** Pauses a live ad in Meta and scores its hook. */
+/** Pauses a live ad in Meta. Its hook is scored from the daily numbers (scoreHooks), not from this. */
 export const retire = mutation({
   args: { id: v.id("adCreatives") },
   handler: async (ctx, { id }) => {
     await requireStaff(ctx);
-    const c = await setStatus(ctx, id, "retired", { retiredAt: nowIso() });
+    const c = await setStatus(ctx, id, "retired", { retiredAt: nowIso(), suggestRetire: undefined });
     if (c.meta?.adId) await ctx.scheduler.runAfter(0, internal.ads.setAdStatus, { id, status: "PAUSED" });
-    // A hook wins when its ad's week beat the batch's median click-through.
-    const siblings = (
-      await ctx.db
-        .query("adCreatives")
-        .withIndex("by_batch", (q) => q.eq("batchId", c.batchId))
-        .collect()
-    ).filter((s) => s.week && s._id !== id);
-    const hook = await ctx.db.get(c.hookId);
-    if (hook && c.week && siblings.length > 0) {
-      const ctrs = siblings.map((s) => s.week!.ctr).sort((a, b) => a - b);
+  },
+});
+
+/** A week with this many impressions is enough to judge an ad by. */
+const SCORE_IMPRESSIONS = 1000;
+
+/**
+ * Hooks learn on their own: once an ad has a week with enough impressions,
+ * it wins or loses against the median click-through of its batch mates
+ * that also have a week. Each ad is scored once.
+ */
+export const scoreHooks = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const rows = (await ctx.db.query("adCreatives").take(1000)).filter((c) => c.week && c.week.impressions >= SCORE_IMPRESSIONS);
+    const byBatch = new Map<string, typeof rows>();
+    for (const c of rows) byBatch.set(c.batchId, [...(byBatch.get(c.batchId) ?? []), c]);
+    let scored = 0;
+    for (const c of rows) {
+      if (c.scoredAt) continue;
+      const mates = (byBatch.get(c.batchId) ?? []).filter((m) => m._id !== c._id);
+      if (mates.length === 0) continue;
+      const ctrs = mates.map((m) => m.week!.ctr).sort((a, b) => a - b);
       const median = ctrs[Math.floor(ctrs.length / 2)];
-      await ctx.db.patch(hook._id, c.week.ctr >= median ? { wins: hook.wins + 1 } : { losses: hook.losses + 1 });
+      const hook = await ctx.db.get(c.hookId);
+      if (hook) await ctx.db.patch(hook._id, c.week!.ctr >= median ? { wins: hook.wins + 1 } : { losses: hook.losses + 1 });
+      await ctx.db.patch(c._id, { scoredAt: nowIso() });
+      scored += 1;
     }
+    return scored;
+  },
+});
+
+/** Over the live target: the weakest live ad (lowest week click-through, enough impressions) is marked "retire?". Nothing is paused by itself. */
+export const rankLive = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const target = (await settingsRow(ctx))?.liveTarget ?? DEFAULTS.liveTarget;
+    const live = await ctx.db
+      .query("adCreatives")
+      .withIndex("by_status", (q) => q.eq("status", "live"))
+      .collect();
+    const judged = live.filter((c) => c.week && c.week.impressions >= SCORE_IMPRESSIONS).sort((a, b) => a.week!.ctr - b.week!.ctr);
+    const weakest = live.length > target && judged.length > 0 ? judged[0] : null;
+    for (const c of live) {
+      const reason =
+        weakest && c._id === weakest._id
+          ? `${live.length} live, the target is ${target}; this one has the lowest click-through this week`
+          : undefined;
+      if ((c.suggestRetire ?? undefined) !== reason) await ctx.db.patch(c._id, { suggestRetire: reason });
+    }
+    return weakest?._id ?? null;
   },
 });
 
@@ -1222,7 +1341,13 @@ export const config = internalQuery({
   handler: async (ctx) => {
     const row = await settingsRow(ctx);
     return {
-      brand: { name: consumerBrand(), primaryColor: row?.primaryColor ?? "#336699", accentColor: row?.accentColor ?? "#8fb6e0" },
+      brand: {
+        name: consumerBrand(),
+        primaryColor: row?.primaryColor ?? "#336699",
+        accentColor: row?.accentColor ?? "#8fb6e0",
+        markets: research(row).researchMarkets,
+      },
+      liveTarget: row?.liveTarget ?? DEFAULTS.liveTarget,
       adAccountId: row?.adAccountId,
       pageId: row?.pageId,
       leadFormId: row?.leadFormId,
@@ -1240,10 +1365,11 @@ export const plan = internalQuery({
   args: { hooksPerWeek: v.number() },
   handler: async (ctx, { hooksPerWeek }) => {
     const liveFamilies = new Set<Family>();
-    for (const c of await ctx.db
+    const liveAds = await ctx.db
       .query("adCreatives")
       .withIndex("by_status", (q) => q.eq("status", "live"))
-      .collect()) {
+      .collect();
+    for (const c of liveAds) {
       const h = await ctx.db.get(c.hookId);
       if (h) liveFamilies.add(h.family);
     }
@@ -1274,6 +1400,7 @@ export const plan = internalQuery({
       hooks,
       examples,
       playbooks,
+      liveCount: liveAds.length,
       assets: await Promise.all(
         assets.map(async (a) => ({
           _id: a._id,
@@ -1509,14 +1636,17 @@ export const weeklyRun = internalAction({
   handler: async (ctx, { startedBy, force }) => {
     const cfg = await ctx.runQuery(internal.ads.config, {});
     if (!cfg.weeklyEnabled && !force) return;
-    const k = keys();
     const batchId = await ctx.runMutation(internal.ads.openBatch, { weekOf: weekOf(new Date()), startedBy });
     const skipped: string[] = [];
+    const town = cfg.researchMarkets[0] ?? "your town";
     try {
-      if (!k.anthropic || !k.elevenlabs || !k.shotstack)
-        throw new Error("Set ANTHROPIC_API_KEY, ELEVENLABS_API_KEY and SHOTSTACK_API_KEY on the deployment");
-      const { hooks, assets, examples, playbooks } = await ctx.runQuery(internal.ads.plan, { hooksPerWeek: 100 });
-      if (hooks.length === 0) throw new Error("No active hook whose family isn't already live. Add or switch on hooks in Ops → Ads → Hooks.");
+      const checks: Array<{ label: string; ok: boolean; hard: boolean; detail: string }> = await ctx.runQuery(internal.ads.readinessState, {});
+      const blocked = checks.find((c) => c.hard && !c.ok);
+      if (blocked) throw new Error(`${blocked.label}: ${blocked.detail}`);
+      const { hooks, assets, examples, playbooks, liveCount } = await ctx.runQuery(internal.ads.plan, { hooksPerWeek: 100 });
+      if (liveCount >= cfg.liveTarget)
+        throw new Error(`${liveCount} ads are live and the target is ${cfg.liveTarget}. Retire one under Live, or raise the target in Settings.`);
+      if (hooks.length === 0) throw new Error("No active hooks. Add or switch on hooks in Ops → Ads → Hooks.");
       if (assets.length === 0) throw new Error("The library is empty. Upload photos or clips in Ops → Ads → Library.");
       const used = new Set<string>();
       let made = 0;
@@ -1524,7 +1654,7 @@ export const weeklyRun = internalAction({
       for (const hook of hooks) {
         if (made >= cfg.hooksPerWeek) break;
         const label = `"${hook.textEn.slice(0, 50)}${hook.textEn.length > 50 ? "…" : ""}"`;
-        const playbook = playbooks[hook.scope];
+        const playbook = playbooks[hook.scope] ?? playbooks.general;
         const picked = pickAssets(assets, hook.scope, used, undefined, playbook?.footagePrefs ?? []);
         if (picked.assets.length === 0) {
           skipped.push(`${label}: nothing tagged ${hook.scope}, and no process or crew footage left`);
@@ -1532,7 +1662,7 @@ export const weeklyRun = internalAction({
         }
         let script: Script;
         try {
-          script = await writeShotList(hook, cfg.brand.name, picked.assets, picked.inScope, examples[hook.scope] ?? [], playbook?.text);
+          script = await writeShotList(hook, cfg.brand.name, picked.assets, picked.inScope, examples[hook.scope] ?? [], town, playbook?.text);
         } catch (e) {
           skipped.push(`${label}: ${errText(e)}`);
           continue;
@@ -1563,9 +1693,10 @@ async function writeShotList(
   footage: Array<Candidate & { _id: string }>,
   inScope: boolean,
   examples: Example[],
+  town: string,
   playbook?: string,
 ): Promise<Script> {
-  const content: unknown[] = [{ type: "text", text: shotListPrompt(hook, brand, footage, inScope, examples, undefined, playbook) }];
+  const content: unknown[] = [{ type: "text", text: shotListPrompt(hook, brand, footage, inScope, examples, town, playbook) }];
   footage.forEach((f, i) => {
     if (!f.imageUrl) return;
     content.push({ type: "text", text: `Footage ${i + 1}:` }, { type: "image", source: { type: "url", url: f.imageUrl } });
@@ -1896,5 +2027,7 @@ export const pullInsights = internalAction({
         console.error("insights", ad.adId, errText(e));
       }
     }
+    await ctx.runMutation(internal.ads.scoreHooks, {});
+    await ctx.runMutation(internal.ads.rankLive, {});
   },
 });
