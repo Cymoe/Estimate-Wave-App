@@ -51,5 +51,7 @@ crons.hourly("remind clients about estimates", { minuteUTC: 23 }, internal.follo
 // Ads on autopilot (ads.ts): Monday 6am Central drafts the week's ads; every morning pulls what Meta reports on the live ones.
 crons.weekly("draft the week's ads", { dayOfWeek: "monday", hourUTC: 12, minuteUTC: 0 }, internal.ads.weeklyRun, {});
 crons.daily("pull ad insights", { hourUTC: 9, minuteUTC: 35 }, internal.ads.pullInsights, {});
+// The 1st of the month: search the painting niche in Meta's Ad Library (only when the switch in Ops → Ads → Settings is on).
+crons.monthly("niche research", { day: 1, hourUTC: 10, minuteUTC: 0 }, internal.ads.researchRun, {});
 
 export default crons;

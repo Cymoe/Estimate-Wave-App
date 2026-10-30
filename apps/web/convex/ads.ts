@@ -6,28 +6,40 @@ import { fail, nowIso, requireStaff, requireSuperAdmin } from "./lib/access";
 import { adScript } from "./schema";
 import {
   ASSET_TAGS,
+  DEFAULT_APIFY_ACTOR,
   DESCRIBE_PROMPT,
   FAMILY_LABELS,
   PAINTING_HOOKS,
   SCOPES,
+  apifyInput,
   composeScript,
   creativeName,
-  pickExamples,
+  fromApifyItem,
   isFatigued,
+  isLocal,
   metaCents,
   parseJson,
   pickAssets,
+  pickExamples,
   pickHooks,
+  playbookPrompt,
+  qualifies,
+  readPlaybook,
+  readSwipeTags,
   scriptProblems,
   shotListPrompt,
   shotPlanProblems,
   shotTimings,
   shotstackEdit,
+  swipeScore,
+  tagSwipePrompt,
   weekOf,
   type Alignment,
   type Candidate,
   type Example,
   type Family,
+  type Playbook,
+  type ScrapedAd,
   type Script,
   type ShotPlan,
 } from "./lib/ads";
@@ -51,6 +63,8 @@ import { tellStaff } from "./notify";
 //   ELEVENLABS_API_KEY    voice
 //   SHOTSTACK_API_KEY     rendering; SHOTSTACK_ENV=stage for a sandbox key (default v1)
 //   META_ACCESS_TOKEN     a system user token with ads_management on the ad account
+//   APIFY_TOKEN           niche research: searches Meta's Ad Library through an Apify actor
+//                         (APIFY_ACTOR overrides which one)
 //   CONSUMER_BRAND        the name homeowners see (lib/support.ts)
 
 const MAX_PHOTO = 15 * 1024 * 1024;
@@ -67,9 +81,31 @@ const keys = () => ({
   elevenlabs: Boolean(process.env.ELEVENLABS_API_KEY),
   shotstack: Boolean(process.env.SHOTSTACK_API_KEY),
   meta: Boolean(process.env.META_ACCESS_TOKEN),
+  apify: Boolean(process.env.APIFY_TOKEN),
 });
 
 const DEFAULTS = { weeklyEnabled: false, hooksPerWeek: 2, liveTarget: 6 };
+const RESEARCH = {
+  keywords: ["cabinet painting", "interior painting", "exterior house painting", "house painter"],
+  markets: ["Midland", "Odessa", "Permian Basin", "West Texas"],
+  minDays: 90,
+  monthly: false,
+};
+
+/** The research settings with their defaults filled in. */
+const research = (row: Doc<"adSettings"> | null) => ({
+  researchKeywords: row?.researchKeywords?.length ? row.researchKeywords : RESEARCH.keywords,
+  researchMarkets: row?.researchMarkets?.length ? row.researchMarkets : RESEARCH.markets,
+  researchMinDays: row?.researchMinDays ?? RESEARCH.minDays,
+  researchMonthly: row?.researchMonthly ?? RESEARCH.monthly,
+});
+
+/** Days since a date as the sheet or the scrape wrote it; undefined when it can't be read. */
+function daysSince(startedAt: string | undefined, now = new Date()): number | undefined {
+  if (!startedAt) return undefined;
+  const d = new Date(startedAt);
+  return Number.isNaN(d.getTime()) ? undefined : Math.max(0, Math.floor((now.getTime() - d.getTime()) / 86_400_000));
+}
 
 async function settingsRow(ctx: QueryCtx | MutationCtx): Promise<Doc<"adSettings"> | null> {
   return (await ctx.db.query("adSettings").take(1))[0] ?? null;
@@ -377,11 +413,13 @@ async function upsertSwipes(ctx: MutationCtx, rows: Record<string, unknown>[], s
           .withIndex("by_meta_ad", (q) => q.eq("metaAdId", row.metaAdId))
           .first()
       : null;
+    const longevity = { daysRunning: daysSince(row.startedAt) };
     if (existing) {
-      await ctx.db.patch(existing._id, { ...row, source, importedAt: nowIso() });
+      await ctx.db.patch(existing._id, { ...row, ...longevity, source, importedAt: nowIso() });
       updated += 1;
     } else {
-      await ctx.db.insert("adSwipes", { ...row, starred: false, source, importedAt: nowIso() });
+      const id = await ctx.db.insert("adSwipes", { ...row, ...longevity, starred: false, source, importedAt: nowIso() });
+      await ctx.scheduler.runAfter(added * 1500, internal.ads.tagSwipe, { id });
       added += 1;
     }
   }
@@ -404,7 +442,14 @@ export const seedSwipes = mutation({
       if (existing) continue;
       const row = { ...seed };
       delete (row as { n?: number }).n;
-      await ctx.db.insert("adSwipes", { ...row, starred: false, source: RESEARCH_SOURCE, importedAt: nowIso() });
+      const id = await ctx.db.insert("adSwipes", {
+        ...row,
+        daysRunning: daysSince(seed.startedAt),
+        starred: false,
+        source: RESEARCH_SOURCE,
+        importedAt: nowIso(),
+      });
+      await ctx.scheduler.runAfter(added * 1500, internal.ads.tagSwipe, { id });
       added += 1;
     }
     return added;
@@ -448,8 +493,24 @@ export const listSwipes = query({
         durationSec: x.durationSec,
         starred: x.starred,
         source: x.source,
+        pageLikes: x.pageLikes,
+        daysRunning: x.daysRunning,
+        variants: x.variants,
+        title: x.title,
+        landing: x.landing,
+        imageUrl: x.imageUrl,
+        posterUrl: x.posterUrl,
+        mediaType: x.mediaType,
+        family: x.family,
+        claims: x.claims,
+        opening: x.opening,
+        footage: x.footage,
+        quality: x.quality,
+        local: x.local,
+        tagError: x.tagError,
+        score: swipeScore(x),
       }))
-      .sort((a, b) => Number(b.starred) - Number(a.starred) || a.company.localeCompare(b.company));
+      .sort((a, b) => Number(b.starred) - Number(a.starred) || b.score - a.score || a.company.localeCompare(b.company));
   },
 });
 
@@ -467,6 +528,468 @@ export const removeSwipe = mutation({
   handler: async (ctx, { id }) => {
     await requireStaff(ctx);
     if ((await ctx.db.get(id)) !== null) await ctx.db.delete(id);
+  },
+});
+
+// ---------------------------------------------------------- Niche research
+//
+// "Search the niche": each keyword goes to Meta's Ad Library through an Apify
+// actor (Meta's own API carries no US commercial ads). Ads still running after
+// the longevity bar come in as swipes; Claude reads each one (angle, family,
+// offer, claims never to copy, quality, whether it names one of the owner's
+// markets); video ads get a transcript from ElevenLabs; then the playbook for
+// each scope is rewritten from what qualifies.
+
+const PLAYBOOK_SCOPES = ["cabinets", "interior", "exterior"];
+const PLAYBOOK_MIN_ADS = 3;
+const PER_KEYWORD = 200;
+
+export const researchNow = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const me = await requireSuperAdmin(ctx);
+    const k = keys();
+    if (!k.apify) fail("INVALID", "Set APIFY_TOKEN on the Convex deployment first (an Apify account comes with free credit)");
+    if (!k.anthropic) fail("INVALID", "Set ANTHROPIC_API_KEY on the Convex deployment first");
+    const open = (await ctx.db.query("adResearchRuns").order("desc").take(1))[0];
+    if (open && !open.finishedAt && Date.now() - new Date(open.startedAt).getTime() < 30 * 60_000) fail("INVALID", "A search is already running");
+    await ctx.scheduler.runAfter(0, internal.ads.researchRun, { startedBy: me._id, force: true });
+  },
+});
+
+export const openResearch = internalMutation({
+  args: { keywords: v.array(v.string()), startedBy: v.optional(v.id("users")) },
+  handler: async (ctx, { keywords, startedBy }) =>
+    await ctx.db.insert("adResearchRuns", { startedAt: nowIso(), keywords, scanned: 0, kept: 0, added: 0, junk: 0, unreadable: 0, startedBy }),
+});
+
+/** Stores scraped ads: new rows are inserted untagged, known ones (by Meta ad id) get their longevity refreshed. */
+export const addScraped = internalMutation({
+  args: { ads: v.array(v.any()), source: v.string(), markets: v.array(v.string()) },
+  handler: async (ctx, { ads, source, markets }) => {
+    const added: Id<"adSwipes">[] = [];
+    for (const raw of ads as ScrapedAd[]) {
+      const existing = await ctx.db
+        .query("adSwipes")
+        .withIndex("by_meta_ad", (q) => q.eq("metaAdId", raw.metaAdId))
+        .first();
+      const scraped = {
+        pageId: raw.pageId,
+        pageLikes: raw.pageLikes,
+        daysRunning: raw.daysRunning,
+        active: raw.active,
+        variants: raw.variants,
+        platforms: raw.platforms,
+        title: raw.title,
+        landing: raw.landing,
+        imageUrl: raw.imageUrl,
+        videoUrl: raw.videoUrl,
+        posterUrl: raw.posterUrl,
+        mediaType: raw.mediaType,
+        startedAt: raw.startedAt,
+        status: raw.active ? "Active" : "Inactive",
+      };
+      if (existing) {
+        await ctx.db.patch(existing._id, { ...scraped, adCopy: existing.adCopy || raw.adCopy || undefined });
+        continue;
+      }
+      const text = [raw.pageName, raw.title, raw.adCopy, raw.landing].filter(Boolean).join(" ");
+      const id = await ctx.db.insert("adSwipes", {
+        ...scraped,
+        company: raw.pageName,
+        paintingType: "General painting",
+        hook: (raw.title || raw.adCopy || raw.pageName).replace(/\s+/g, " ").trim().slice(0, 80),
+        offer: "",
+        creative: raw.mediaType,
+        area: "",
+        cta: raw.cta ?? "",
+        adaptation: "",
+        pageUrl: raw.pageId ? `https://www.facebook.com/${raw.pageId}/` : undefined,
+        destination: raw.landing,
+        metaAdId: raw.metaAdId,
+        adCopy: raw.adCopy || undefined,
+        local: isLocal(text, markets),
+        starred: false,
+        source,
+        importedAt: nowIso(),
+      });
+      added.push(id);
+    }
+    return added;
+  },
+});
+
+export const finishResearch = internalMutation({
+  args: {
+    runId: v.id("adResearchRuns"),
+    scanned: v.number(),
+    kept: v.number(),
+    added: v.number(),
+    unreadable: v.number(),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, { runId, error, ...counts }) => {
+    await ctx.db.patch(runId, { ...counts, error, finishedAt: nowIso() });
+    await tellStaff(
+      ctx,
+      error ? `The niche search didn't finish: ${error.slice(0, 80)}` : `Niche search done: ${counts.added} new competitor ads`,
+      [
+        `Scanned ${counts.scanned} ads, ${counts.kept} still running past the longevity bar, ${counts.added} new to the swipe file.`,
+        counts.unreadable ? `${counts.unreadable} came back without an id or start date and were skipped.` : "",
+        error ? `Stopped on: ${error}` : "Claude is reading the new ones now; the playbooks follow in Ops → Ads → Swipe file.",
+      ].filter(Boolean),
+      "/ops?tab=ads",
+    );
+  },
+});
+
+export const countJunk = internalMutation({
+  args: { runId: v.id("adResearchRuns") },
+  handler: async (ctx, { runId }) => {
+    const run = await ctx.db.get(runId);
+    if (run) await ctx.db.patch(runId, { junk: run.junk + 1 });
+  },
+});
+
+/** The monthly search, or the button (force). One Apify call per keyword, each under the actor's five-minute cap. */
+export const researchRun = internalAction({
+  args: { startedBy: v.optional(v.id("users")), force: v.optional(v.boolean()) },
+  handler: async (ctx, { startedBy, force }) => {
+    const cfg = await ctx.runQuery(internal.ads.config, {});
+    if (!cfg.researchMonthly && !force) return;
+    const runId: Id<"adResearchRuns"> = await ctx.runMutation(internal.ads.openResearch, { keywords: cfg.researchKeywords, startedBy });
+    const counts = { scanned: 0, kept: 0, added: 0, unreadable: 0 };
+    const source = `research ${nowIso().slice(0, 10)}`;
+    let delay = 0;
+    try {
+      if (!process.env.APIFY_TOKEN || !process.env.ANTHROPIC_API_KEY) throw new Error("Set APIFY_TOKEN and ANTHROPIC_API_KEY on the deployment");
+      const actor = process.env.APIFY_ACTOR || DEFAULT_APIFY_ACTOR;
+      const seen = new Set<string>();
+      for (const keyword of cfg.researchKeywords) {
+        const res = await fetch(
+          `https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items?token=${encodeURIComponent(process.env.APIFY_TOKEN)}`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(apifyInput(keyword, cfg.researchMinDays, new Date(), PER_KEYWORD)),
+          },
+        );
+        const items = await readJson(res, "Apify");
+        if (!Array.isArray(items)) throw new Error("Apify: the actor didn't return a list of ads");
+        counts.scanned += items.length;
+        const fresh: ScrapedAd[] = [];
+        for (const item of items) {
+          const ad = fromApifyItem(item);
+          if (!ad) {
+            counts.unreadable += 1;
+            continue;
+          }
+          if (!qualifies(ad, cfg.researchMinDays) || seen.has(ad.metaAdId)) continue;
+          seen.add(ad.metaAdId);
+          counts.kept += 1;
+          fresh.push(ad);
+        }
+        const ids: Id<"adSwipes">[] = await ctx.runMutation(internal.ads.addScraped, { ads: fresh, source, markets: cfg.researchMarkets });
+        counts.added += ids.length;
+        for (const id of ids) {
+          await ctx.scheduler.runAfter(delay, internal.ads.tagSwipe, { id, runId });
+          delay += 1500;
+        }
+      }
+      await ctx.runMutation(internal.ads.finishResearch, { runId, ...counts });
+    } catch (e) {
+      await ctx.runMutation(internal.ads.finishResearch, { runId, ...counts, error: errText(e) });
+    }
+  },
+});
+
+/** Swipes Claude hasn't read yet. When it reaches zero the playbooks are rewritten. */
+export const untaggedCount = internalQuery({
+  args: {},
+  handler: async (ctx) => (await ctx.db.query("adSwipes").take(1000)).filter((x) => !x.taggedAt).length,
+});
+
+export const swipeForTag = internalQuery({
+  args: { id: v.id("adSwipes") },
+  handler: async (ctx, { id }) => {
+    const x = await ctx.db.get(id);
+    return x ? { swipe: x, markets: research(await settingsRow(ctx)).researchMarkets } : null;
+  },
+});
+
+export const saveTags = internalMutation({
+  args: { id: v.id("adSwipes"), tags: v.optional(v.any()), error: v.optional(v.string()), markets: v.array(v.string()) },
+  handler: async (ctx, { id, tags, error, markets }) => {
+    const x = await ctx.db.get(id);
+    if (!x) return "gone" as const;
+    if (!tags) {
+      await ctx.db.patch(id, { tagError: error ?? "Claude's answer couldn't be read", taggedAt: nowIso() });
+      return "error" as const;
+    }
+    const t = tags as NonNullable<ReturnType<typeof readSwipeTags>>;
+    if (!t.painting || t.quality < 20) {
+      await ctx.db.delete(id);
+      return "junk" as const;
+    }
+    // The VA's own reading of an ad stands; Claude fills what was blank.
+    const vaWritten = x.adaptation !== "";
+    const text = [x.company, x.title, x.adCopy, x.landing, x.transcript, x.area, t.area].filter(Boolean).join(" ");
+    await ctx.db.patch(id, {
+      paintingType: vaWritten ? x.paintingType : t.paintingType,
+      scope: x.scope ?? t.scope,
+      hook: vaWritten ? x.hook : t.hook,
+      offer: x.offer || t.offer,
+      creative: vaWritten ? x.creative : t.creative,
+      area: x.area || t.area,
+      cta: x.cta || t.cta,
+      adaptation: x.adaptation || t.adaptation,
+      family: t.family,
+      claims: t.claims,
+      opening: t.opening,
+      footage: t.footage,
+      quality: t.quality,
+      local: isLocal(text, markets),
+      tagError: undefined,
+      taggedAt: nowIso(),
+    });
+    return "tagged" as const;
+  },
+});
+
+/** Claude reads one competitor ad (with its still when there is one); junk is dropped. Video ads go on to be transcribed. */
+export const tagSwipe = internalAction({
+  args: { id: v.id("adSwipes"), runId: v.optional(v.id("adResearchRuns")) },
+  handler: async (ctx, { id, runId }) => {
+    if (!process.env.ANTHROPIC_API_KEY) return;
+    const found = await ctx.runQuery(internal.ads.swipeForTag, { id });
+    if (!found) return;
+    const { swipe, markets } = found;
+    const prompt = { type: "text", text: tagSwipePrompt({ ...swipe, pageName: swipe.company }, markets) };
+    const image = swipe.posterUrl ?? swipe.imageUrl;
+    let tags: ReturnType<typeof readSwipeTags> = null;
+    let error: string | undefined;
+    try {
+      let reply: string;
+      try {
+        reply = await claude(image ? [{ type: "image", source: { type: "url", url: image } }, prompt] : [prompt], 700);
+      } catch (e) {
+        // A still Claude can't take (too big, gone, not an image): read the words alone.
+        if (!image) throw e;
+        reply = await claude([prompt], 700);
+      }
+      tags = readSwipeTags(reply);
+    } catch (e) {
+      error = errText(e);
+    }
+    const outcome = await ctx.runMutation(internal.ads.saveTags, { id, tags: tags ?? undefined, error, markets });
+    if (outcome === "junk" && runId) await ctx.runMutation(internal.ads.countJunk, { runId });
+    if (outcome === "tagged" && swipe.videoUrl && !swipe.transcript && process.env.ELEVENLABS_API_KEY)
+      await ctx.scheduler.runAfter(0, internal.ads.transcribeSwipe, { id });
+    // The last ad read in a batch brings the playbooks up to date.
+    if ((await ctx.runQuery(internal.ads.untaggedCount, {})) === 0) await ctx.scheduler.runAfter(0, internal.ads.rebuildPlaybooks, {});
+  },
+});
+
+export const saveTranscript = internalMutation({
+  args: { id: v.id("adSwipes"), transcript: v.string(), durationSec: v.optional(v.number()) },
+  handler: async (ctx, { id, transcript, durationSec }) => {
+    if ((await ctx.db.get(id)) !== null) await ctx.db.patch(id, { transcript, durationSec });
+  },
+});
+
+/** ElevenLabs writes down what a competitor's video says, from the video URL the scrape gave (those expire, so soon after). */
+export const transcribeSwipe = internalAction({
+  args: { id: v.id("adSwipes") },
+  handler: async (ctx, { id }) => {
+    const found = await ctx.runQuery(internal.ads.swipeForTag, { id });
+    if (!found?.swipe.videoUrl || found.swipe.transcript || !process.env.ELEVENLABS_API_KEY) return;
+    try {
+      const form = new FormData();
+      form.set("model_id", "scribe_v2");
+      form.set("source_url", found.swipe.videoUrl);
+      form.set("timestamps_granularity", "word");
+      form.set("tag_audio_events", "false");
+      const res = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
+        method: "POST",
+        headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY },
+        body: form,
+      });
+      const body = await readJson(res, "ElevenLabs");
+      const text = String(body?.text ?? "").trim();
+      if (!text) return;
+      const ends = (Array.isArray(body?.words) ? body.words : []).map((w: { end?: number }) => Number(w.end) || 0);
+      const durationSec = ends.length ? Math.max(...ends) : undefined;
+      await ctx.runMutation(internal.ads.saveTranscript, { id, transcript: text.slice(0, 4000), durationSec });
+    } catch (e) {
+      console.error("transcribe swipe", id, errText(e));
+    }
+  },
+});
+
+/** What each scope's playbook is written from: the swipes that qualify, the library's tag counts, the markets. */
+export const playbookInputs = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const row = await settingsRow(ctx);
+    const { researchMarkets: markets, researchMinDays: minDays } = research(row);
+    const swipes = await ctx.db.query("adSwipes").take(1000);
+    const libraryTags: Record<string, number> = {};
+    for (const a of await ctx.db.query("adAssets").take(500)) for (const t of a.tags) libraryTags[t] = (libraryTags[t] ?? 0) + 1;
+    const playbooks = await ctx.db.query("adPlaybooks").take(20);
+    const byScope: Record<string, typeof swipes> = {};
+    for (const x of swipes) {
+      if (!x.scope || (x.quality !== undefined && x.quality < 20)) continue;
+      // Qualifies: past the longevity bar, or starred, or the VA's own research (its dates may be unreadable).
+      if (!(x.starred || (x.daysRunning ?? 0) >= minDays || x.source === RESEARCH_SOURCE)) continue;
+      (byScope[x.scope] ??= []).push(x);
+    }
+    return { markets, libraryTags, byScope, playbooks };
+  },
+});
+
+export const savePlaybookAuto = internalMutation({
+  args: {
+    scope: v.string(),
+    playbook: v.any(),
+    basis: v.object({ ads: v.number(), local: v.number(), oldestDays: v.number() }),
+    force: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { scope, playbook, basis, force }) => {
+    const p = playbook as Playbook;
+    const existing = await ctx.db
+      .query("adPlaybooks")
+      .withIndex("by_scope", (q) => q.eq("scope", scope))
+      .first();
+    // A human's edit holds until someone asks for a rewrite.
+    if (existing?.editedAt && !force) return false;
+    const data = { scope, ...p, basis, writtenAt: nowIso(), editedAt: undefined };
+    if (existing) await ctx.db.patch(existing._id, data);
+    else await ctx.db.insert("adPlaybooks", data);
+    return true;
+  },
+});
+
+/** Claude distills each scope's qualifying swipes into its playbook. */
+export const rebuildPlaybooks = internalAction({
+  args: { scope: v.optional(v.string()), force: v.optional(v.boolean()) },
+  handler: async (ctx, { scope, force }) => {
+    if (!process.env.ANTHROPIC_API_KEY) return;
+    const inputs: {
+      markets: string[];
+      libraryTags: Record<string, number>;
+      byScope: Record<string, Doc<"adSwipes">[]>;
+      playbooks: Doc<"adPlaybooks">[];
+    } = await ctx.runQuery(internal.ads.playbookInputs, {});
+    const { markets, libraryTags, byScope, playbooks } = inputs;
+    for (const sc of scope ? [scope] : PLAYBOOK_SCOPES) {
+      const rows = (byScope[sc] ?? []).sort((a, b) => swipeScore(b) - swipeScore(a)).slice(0, 25);
+      if (rows.length < PLAYBOOK_MIN_ADS) continue;
+      const current = playbooks.find((p) => p.scope === sc);
+      if (current?.editedAt && !force) continue;
+      // Two ads finishing together both ask for a rewrite; one is enough.
+      if (current && !force && Date.now() - new Date(current.writtenAt).getTime() < 30_000) continue;
+      try {
+        const summary = rows.map((x) => ({
+          company: x.company,
+          hook: x.hook,
+          family: x.family,
+          offer: x.offer,
+          opening: x.opening,
+          footage: x.footage,
+          daysRunning: x.daysRunning,
+          local: x.local,
+          transcript: x.transcript,
+          adCopy: x.adCopy,
+          durationSec: x.durationSec,
+        }));
+        const playbook = readPlaybook(await claude([{ type: "text", text: playbookPrompt(sc, summary, markets, libraryTags) }], 1200));
+        if (!playbook) throw new Error("the reply wasn't a playbook");
+        await ctx.runMutation(internal.ads.savePlaybookAuto, {
+          scope: sc,
+          playbook,
+          basis: { ads: rows.length, local: rows.filter((x) => x.local).length, oldestDays: Math.max(0, ...rows.map((x) => x.daysRunning ?? 0)) },
+          force,
+        });
+      } catch (e) {
+        console.error("playbook", sc, errText(e));
+      }
+    }
+  },
+});
+
+export const listPlaybooks = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireStaff(ctx);
+    return (await ctx.db.query("adPlaybooks").take(20))
+      .map((p) => ({
+        id: p._id,
+        scope: p.scope,
+        text: p.text,
+        footagePrefs: p.footagePrefs,
+        angleFamilies: p.angleFamilies,
+        localCompetitors: p.localCompetitors,
+        missingFootage: p.missingFootage,
+        basis: p.basis,
+        writtenAt: p.writtenAt,
+        editedAt: p.editedAt,
+      }))
+      .sort((a, b) => PLAYBOOK_SCOPES.indexOf(a.scope) - PLAYBOOK_SCOPES.indexOf(b.scope));
+  },
+});
+
+/** A human rewrites the text; it then holds until "Rewrite". */
+export const savePlaybook = mutation({
+  args: { scope: v.string(), text: v.string() },
+  handler: async (ctx, { scope, text }) => {
+    await requireStaff(ctx);
+    const clean = text.trim().slice(0, 1600);
+    if (clean.length < 20) fail("INVALID", "Write at least a sentence");
+    const existing = await ctx.db
+      .query("adPlaybooks")
+      .withIndex("by_scope", (q) => q.eq("scope", scope))
+      .first();
+    if (existing) await ctx.db.patch(existing._id, { text: clean, editedAt: nowIso() });
+    else
+      await ctx.db.insert("adPlaybooks", {
+        scope,
+        text: clean,
+        footagePrefs: [],
+        angleFamilies: [],
+        localCompetitors: [],
+        missingFootage: [],
+        basis: { ads: 0, local: 0, oldestDays: 0 },
+        writtenAt: nowIso(),
+        editedAt: nowIso(),
+      });
+  },
+});
+
+export const rewritePlaybook = mutation({
+  args: { scope: v.optional(v.string()) },
+  handler: async (ctx, { scope }) => {
+    await requireStaff(ctx);
+    if (!keys().anthropic) fail("INVALID", "Set ANTHROPIC_API_KEY on the Convex deployment first");
+    await ctx.scheduler.runAfter(0, internal.ads.rebuildPlaybooks, { scope, force: true });
+  },
+});
+
+export const listResearchRuns = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireStaff(ctx);
+    return (await ctx.db.query("adResearchRuns").order("desc").take(5)).map((r) => ({
+      id: r._id,
+      startedAt: r.startedAt,
+      finishedAt: r.finishedAt,
+      keywords: r.keywords,
+      scanned: r.scanned,
+      kept: r.kept,
+      added: r.added,
+      junk: r.junk,
+      unreadable: r.unreadable,
+      error: r.error,
+    }));
   },
 });
 
@@ -490,6 +1013,7 @@ export const settings = query({
       weeklyEnabled: row?.weeklyEnabled ?? DEFAULTS.weeklyEnabled,
       hooksPerWeek: row?.hooksPerWeek ?? DEFAULTS.hooksPerWeek,
       liveTarget: row?.liveTarget ?? DEFAULTS.liveTarget,
+      ...research(row),
     };
   },
 });
@@ -506,16 +1030,24 @@ export const saveSettings = mutation({
     weeklyEnabled: v.boolean(),
     hooksPerWeek: v.number(),
     liveTarget: v.number(),
+    researchKeywords: v.optional(v.array(v.string())),
+    researchMarkets: v.optional(v.array(v.string())),
+    researchMinDays: v.optional(v.number()),
+    researchMonthly: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     await requireSuperAdmin(ctx);
     const trimmed = Object.fromEntries(
       Object.entries(args).map(([k, val]) => [k, typeof val === "string" ? val.trim().replace(/^act_/, "") || undefined : val]),
     );
+    const words = (list: string[] | undefined) => [...new Set((list ?? []).map((w) => w.trim()).filter(Boolean))].slice(0, 12);
     const data = {
       ...trimmed,
       hooksPerWeek: Math.min(4, Math.max(1, Math.round(args.hooksPerWeek))),
       liveTarget: Math.min(12, Math.max(2, Math.round(args.liveTarget))),
+      researchKeywords: words(args.researchKeywords),
+      researchMarkets: words(args.researchMarkets),
+      researchMinDays: args.researchMinDays === undefined ? undefined : Math.min(365, Math.max(30, Math.round(args.researchMinDays))),
       updatedAt: nowIso(),
     } as Omit<Doc<"adSettings">, "_id" | "_creationTime">;
     const row = await settingsRow(ctx);
@@ -698,6 +1230,7 @@ export const config = internalQuery({
       voiceId: row?.voiceId,
       weeklyEnabled: row?.weeklyEnabled ?? DEFAULTS.weeklyEnabled,
       hooksPerWeek: row?.hooksPerWeek ?? DEFAULTS.hooksPerWeek,
+      ...research(row),
     };
   },
 });
@@ -735,9 +1268,12 @@ export const plan = internalQuery({
         adCopy: x.adCopy,
         durationSec: x.durationSec,
       }));
+    const playbooks: Record<string, { text: string; footagePrefs: string[] }> = {};
+    for (const p of await ctx.db.query("adPlaybooks").take(20)) playbooks[p.scope] = { text: p.text, footagePrefs: p.footagePrefs };
     return {
       hooks,
       examples,
+      playbooks,
       assets: await Promise.all(
         assets.map(async (a) => ({
           _id: a._id,
@@ -979,7 +1515,7 @@ export const weeklyRun = internalAction({
     try {
       if (!k.anthropic || !k.elevenlabs || !k.shotstack)
         throw new Error("Set ANTHROPIC_API_KEY, ELEVENLABS_API_KEY and SHOTSTACK_API_KEY on the deployment");
-      const { hooks, assets, examples } = await ctx.runQuery(internal.ads.plan, { hooksPerWeek: 100 });
+      const { hooks, assets, examples, playbooks } = await ctx.runQuery(internal.ads.plan, { hooksPerWeek: 100 });
       if (hooks.length === 0) throw new Error("No active hook whose family isn't already live. Add or switch on hooks in Ops → Ads → Hooks.");
       if (assets.length === 0) throw new Error("The library is empty. Upload photos or clips in Ops → Ads → Library.");
       const used = new Set<string>();
@@ -988,14 +1524,15 @@ export const weeklyRun = internalAction({
       for (const hook of hooks) {
         if (made >= cfg.hooksPerWeek) break;
         const label = `"${hook.textEn.slice(0, 50)}${hook.textEn.length > 50 ? "…" : ""}"`;
-        const picked = pickAssets(assets, hook.scope, used);
+        const playbook = playbooks[hook.scope];
+        const picked = pickAssets(assets, hook.scope, used, undefined, playbook?.footagePrefs ?? []);
         if (picked.assets.length === 0) {
           skipped.push(`${label}: nothing tagged ${hook.scope}, and no process or crew footage left`);
           continue;
         }
         let script: Script;
         try {
-          script = await writeShotList(hook, cfg.brand.name, picked.assets, picked.inScope, examples[hook.scope] ?? []);
+          script = await writeShotList(hook, cfg.brand.name, picked.assets, picked.inScope, examples[hook.scope] ?? [], playbook?.text);
         } catch (e) {
           skipped.push(`${label}: ${errText(e)}`);
           continue;
@@ -1026,8 +1563,9 @@ async function writeShotList(
   footage: Array<Candidate & { _id: string }>,
   inScope: boolean,
   examples: Example[],
+  playbook?: string,
 ): Promise<Script> {
-  const content: unknown[] = [{ type: "text", text: shotListPrompt(hook, brand, footage, inScope, examples) }];
+  const content: unknown[] = [{ type: "text", text: shotListPrompt(hook, brand, footage, inScope, examples, undefined, playbook) }];
   footage.forEach((f, i) => {
     if (!f.imageUrl) return;
     content.push({ type: "text", text: `Footage ${i + 1}:` }, { type: "image", source: { type: "url", url: f.imageUrl } });

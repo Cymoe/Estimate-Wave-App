@@ -1,7 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ExternalLink, Film, Image as ImageIcon, Play, Star, Trash2, Upload } from 'lucide-react';
 import { adsAPI } from '../../lib/api';
-import { useAdsBatches, useAdsHooks, useAdsLibrary, useAdsLive, useAdsSettings, useAdsSwipes } from '../../lib/live';
+import {
+  useAdsBatches,
+  useAdsHooks,
+  useAdsLibrary,
+  useAdsLive,
+  useAdsPlaybooks,
+  useAdsResearchRuns,
+  useAdsSettings,
+  useAdsSwipes,
+} from '../../lib/live';
 import { familyOfAngle, mergeSwipeCsvs } from '../../../convex/lib/ads';
 import { money } from '../market/wallet';
 import { ErrorLine, Field, ago, describeError, input, primary, secondary, tap } from './ui';
@@ -97,7 +106,7 @@ export interface AdHook {
 }
 export interface AdSettings {
   brand: string;
-  keys: { anthropic: boolean; elevenlabs: boolean; shotstack: boolean; meta: boolean };
+  keys: { anthropic: boolean; elevenlabs: boolean; shotstack: boolean; meta: boolean; apify: boolean };
   adAccountId?: string;
   pageId?: string;
   leadFormId?: string;
@@ -108,6 +117,36 @@ export interface AdSettings {
   weeklyEnabled: boolean;
   hooksPerWeek: number;
   liveTarget: number;
+  researchKeywords: string[];
+  researchMarkets: string[];
+  researchMinDays: number;
+  researchMonthly: boolean;
+}
+
+export interface Playbook {
+  id: string;
+  scope: string;
+  text: string;
+  footagePrefs: string[];
+  angleFamilies: string[];
+  localCompetitors: Array<{ company: string; angle: string; daysRunning: number }>;
+  missingFootage: string[];
+  basis: { ads: number; local: number; oldestDays: number };
+  writtenAt: string;
+  editedAt?: string;
+}
+
+export interface ResearchRun {
+  id: string;
+  startedAt: string;
+  finishedAt?: string;
+  keywords: string[];
+  scanned: number;
+  kept: number;
+  added: number;
+  junk: number;
+  unreadable: number;
+  error?: string;
 }
 
 const STATUS_LABELS: Record<AdCreative['status'], string> = {
@@ -175,6 +214,7 @@ export const AdsCard: React.FC<{ owner: boolean }> = ({ owner }) => {
       ) : section === 'swipes' ? (
         <Swipes
           act={act}
+          owner={owner}
           onMakeHook={(draft) => {
             setHookStart(draft);
             setSection('hooks');
@@ -744,6 +784,22 @@ export interface Swipe {
   durationSec?: number;
   starred: boolean;
   source: string;
+  pageLikes?: number;
+  daysRunning?: number;
+  variants?: number;
+  title?: string;
+  landing?: string;
+  imageUrl?: string;
+  posterUrl?: string;
+  mediaType?: string;
+  family?: string;
+  claims?: string[];
+  opening?: string;
+  footage?: string[];
+  quality?: number;
+  local?: boolean;
+  tagError?: string;
+  score?: number;
 }
 
 const readText = (file: File) =>
@@ -757,9 +813,110 @@ const readText = (file: File) =>
       });
 
 /** Competitor ads kept for inspiration: browse, star, turn an angle into a hook, import more research. */
-const Swipes: React.FC<{ act: Act; onMakeHook: (draft: HookDraft) => void }> = ({ act, onMakeHook }) => {
+const runLine = (r: ResearchRun) => {
+  const when = new Date(r.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (r.error) return `${when} · stopped: ${r.error}`;
+  if (!r.finishedAt) return `${when} · searching ${r.keywords.join(', ')}…`;
+  return `${when} · scanned ${r.scanned} · ${r.kept} past the bar · ${r.added} new${r.junk ? ` · ${r.junk} junk dropped` : ''}${
+    r.unreadable ? ` · ${r.unreadable} unreadable` : ''
+  }`;
+};
+
+const FOOTAGE_LABELS: Record<string, string> = {
+  owner_to_camera: 'owner to camera',
+  before_after: 'before / after',
+  process: 'process',
+  crew: 'crew',
+  finished: 'finished work',
+  graphic: 'graphic',
+};
+
+/** The playbooks: what the long-running ads in each scope have in common, editable, rewritable. */
+const Playbooks: React.FC<{ act: Act }> = ({ act }) => {
+  const playbooks = useAdsPlaybooks<Playbook[]>();
+  const [editing, setEditing] = useState<{ scope: string; text: string } | null>(null);
+  if (!playbooks || playbooks.length === 0) return null;
+  return (
+    <div className="grid gap-3 lg:grid-cols-3" aria-label="Playbooks">
+      {playbooks.map((p) => (
+        <section key={p.scope} className="border border-[#2A2A2A] rounded p-4 space-y-2 text-sm" data-testid="playbook">
+          <div className="flex items-start gap-2">
+            <h3 className="flex-1 text-white font-medium capitalize">{p.scope} playbook</h3>
+            <span className="text-xs text-gray-500">
+              {p.basis.ads} ads{p.basis.local ? ` · ${p.basis.local} local` : ''}
+              {p.editedAt ? ' · edited' : ''}
+            </span>
+          </div>
+          {editing?.scope === p.scope ? (
+            <form
+              aria-label={`Edit ${p.scope} playbook`}
+              onSubmit={(e) => {
+                e.preventDefault();
+                void act(
+                  () => adsAPI.savePlaybook(p.scope, editing.text).then(() => setEditing(null)),
+                  'Playbook saved. It holds until you ask for a rewrite.',
+                );
+              }}
+              className="space-y-2"
+            >
+              <textarea value={editing.text} onChange={(e) => setEditing({ scope: p.scope, text: e.target.value })} rows={8} className={input} />
+              <div className="flex gap-2">
+                <button type="submit" className={primary}>
+                  Save
+                </button>
+                <button type="button" className={secondary} onClick={() => setEditing(null)}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : (
+            <p className="whitespace-pre-wrap text-gray-200">{p.text}</p>
+          )}
+          {p.footagePrefs.length > 0 && (
+            <p className="text-xs text-gray-400">
+              <span className="text-gray-500">Footage the winners use: </span>
+              {p.footagePrefs.join(', ')}
+            </p>
+          )}
+          {p.missingFootage.length > 0 && (
+            <ul className="text-xs text-amber-300 list-disc pl-4" aria-label="Footage you're missing">
+              {p.missingFootage.map((m) => (
+                <li key={m}>{m}</li>
+              ))}
+            </ul>
+          )}
+          {p.localCompetitors.length > 0 && (
+            <p className="text-xs text-gray-400">
+              <span className="text-gray-500">Advertising in your markets: </span>
+              {p.localCompetitors.map((c) => `${c.company} (${c.angle}${c.daysRunning ? `, ${c.daysRunning} days` : ''})`).join('; ')}
+            </p>
+          )}
+          {editing?.scope !== p.scope && (
+            <div className="flex gap-2 text-xs">
+              <button type="button" className={secondary} onClick={() => setEditing({ scope: p.scope, text: p.text })}>
+                Edit
+              </button>
+              <button
+                type="button"
+                className={secondary}
+                onClick={() => act(() => adsAPI.rewritePlaybook(p.scope), `Claude is rewriting the ${p.scope} playbook.`)}
+              >
+                Rewrite
+              </button>
+            </div>
+          )}
+        </section>
+      ))}
+    </div>
+  );
+};
+
+const Swipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft) => void }> = ({ act, owner, onMakeHook }) => {
   const swipes = useAdsSwipes<Swipe[]>();
+  const runs = useAdsResearchRuns<ResearchRun[]>();
   const [type, setType] = useState('All');
+  const [onlyLocal, setOnlyLocal] = useState(false);
+  const [onlyLong, setOnlyLong] = useState(false);
   const [search, setSearch] = useState('');
   const [importing, setImporting] = useState(false);
   const [imported, setImported] = useState<string | null>(null);
@@ -788,14 +945,36 @@ const Swipes: React.FC<{ act: Act; onMakeHook: (draft: HookDraft) => void }> = (
   const shown = swipes.filter(
     (x) =>
       (type === 'All' || x.paintingType === type) &&
+      (!onlyLocal || x.local) &&
+      (!onlyLong || (x.daysRunning ?? 0) >= 90) &&
       (!needle || [x.company, x.hook, x.offer, x.creative, x.adaptation, x.adCopy ?? '', x.area].join(' ').toLowerCase().includes(needle)),
   );
+  const lastRun = runs?.[0];
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-400">
-        Competitor ads from the research, kept here for inspiration. Star the ones you like: the Monday writer is shown starred ads in the hook's
-        category as examples of tone and shape, never of claims. "Make a hook" starts a hook from an ad's angle.
+        Competitor ads, kept here for inspiration. "Search the niche" pulls the ads still running after months from Meta's Ad Library; Claude reads
+        each one and writes a playbook per category that the Monday writer follows. Star the ones you like: they lead the examples the writer sees, as
+        tone and shape, never as claims. "Make a hook" starts a hook from an ad's angle.
       </p>
+      <Playbooks act={act} />
+      <div className="flex flex-wrap gap-2 items-center">
+        {owner && (
+          <button
+            type="button"
+            className={primary}
+            disabled={Boolean(lastRun && !lastRun.finishedAt)}
+            onClick={() => act(() => adsAPI.researchNow(), 'Searching the niche. The new ads and the playbooks land here as Claude reads them.')}
+          >
+            Search the niche
+          </button>
+        )}
+        {lastRun && (
+          <span className="text-xs text-gray-400" data-testid="research-run">
+            {runLine(lastRun)}
+          </span>
+        )}
+      </div>
       <div className="flex flex-wrap gap-2 items-center">
         {swipes.length === 0 && (
           <button type="button" className={secondary} onClick={() => act(() => adsAPI.seedSwipes(), 'The October 10 research is in.')}>
@@ -834,6 +1013,22 @@ const Swipes: React.FC<{ act: Act; onMakeHook: (draft: HookDraft) => void }> = (
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            aria-pressed={onlyLocal}
+            onClick={() => setOnlyLocal((v) => !v)}
+            className={`px-2 py-1 text-xs rounded border ${onlyLocal ? 'border-emerald-400 text-emerald-300' : 'border-[#333] text-gray-400'}`}
+          >
+            Local
+          </button>
+          <button
+            type="button"
+            aria-pressed={onlyLong}
+            onClick={() => setOnlyLong((v) => !v)}
+            className={`px-2 py-1 text-xs rounded border ${onlyLong ? 'border-white text-white' : 'border-[#333] text-gray-400'}`}
+          >
+            90+ days
+          </button>
           <input
             type="search"
             value={search}
@@ -851,13 +1046,35 @@ const Swipes: React.FC<{ act: Act; onMakeHook: (draft: HookDraft) => void }> = (
         {shown.map((x) => (
           <li key={x.id} className="border border-[#2A2A2A] rounded p-4 space-y-2" data-testid="swipe">
             <div className="flex items-start gap-2">
+              {(x.posterUrl || x.imageUrl) && (
+                <img src={x.posterUrl ?? x.imageUrl} alt="" className="w-16 h-16 object-cover rounded bg-[#111] flex-none" loading="lazy" />
+              )}
               <div className="flex-1 min-w-0">
                 <p className="text-xs text-gray-500">
-                  {x.company} · {x.paintingType} · {x.area}
+                  {x.company} · {x.paintingType}
+                  {x.area ? ` · ${x.area}` : ''}
                   {x.startedAt ? ` · since ${x.startedAt}` : ''}
-                  {x.status ? ` · ${x.status}` : ''}
+                  {x.daysRunning ? ` · ${x.daysRunning} days` : ''}
+                  {x.variants && x.variants > 1 ? ` · ${x.variants} versions` : ''}
+                  {x.pageLikes ? ` · ${x.pageLikes.toLocaleString('en-US')} page likes` : ''}
                 </p>
-                <p className="text-sm text-white font-medium">{x.hook}</p>
+                <p className="text-sm text-white font-medium">
+                  {x.local && <span className={`${chip} text-emerald-300 border-emerald-900 mr-1`}>Local</span>}
+                  {x.hook}
+                </p>
+                {(x.family || x.opening || x.footage?.length) && (
+                  <p className="text-xs text-gray-500">
+                    {[
+                      x.family ? FAMILIES.find(([v]) => v === x.family)?.[1] : '',
+                      x.opening ? `opens with ${x.opening.replace('_', ' / ')}` : '',
+                      x.footage?.length ? x.footage.map((f) => FOOTAGE_LABELS[f] ?? f).join(', ') : '',
+                      x.score !== undefined ? `score ${x.score}` : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
+                )}
+                {x.tagError && <p className="text-xs text-amber-300">Claude couldn't read this one: {x.tagError}</p>}
               </div>
               <button
                 type="button"
@@ -878,6 +1095,12 @@ const Swipes: React.FC<{ act: Act; onMakeHook: (draft: HookDraft) => void }> = (
               <dd className="text-gray-200">{x.cta}</dd>
               <dt className="text-gray-500">For us</dt>
               <dd className="text-gray-200">{x.adaptation}</dd>
+              {x.claims && x.claims.length > 0 && (
+                <>
+                  <dt className="text-gray-500">Never copy</dt>
+                  <dd className="text-amber-200/80">{x.claims.join(' · ')}</dd>
+                </>
+              )}
             </dl>
             {x.adCopy && (
               <details className="text-sm">
@@ -967,7 +1190,11 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
       aria-label="Ad settings"
       onSubmit={(e) => {
         e.preventDefault();
-        const rest: Record<string, unknown> = { ...form };
+        const rest: Record<string, unknown> = {
+          ...form,
+          researchKeywords: form.researchKeywords.filter(Boolean),
+          researchMarkets: form.researchMarkets.filter(Boolean),
+        };
         delete rest.brand;
         delete rest.keys;
         void act(() => adsAPI.saveSettings(rest), 'Settings saved.');
@@ -979,6 +1206,7 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
         {key(form.keys.elevenlabs, 'ELEVENLABS_API_KEY')}
         {key(form.keys.shotstack, 'SHOTSTACK_API_KEY')}
         {key(form.keys.meta, 'META_ACCESS_TOKEN')}
+        {key(form.keys.apify, 'APIFY_TOKEN')}
       </div>
       <div className="grid sm:grid-cols-2 gap-3">
         {text('adAccountId', 'Ad account id', 'Digits only; the act_ prefix is dropped')}
@@ -1022,6 +1250,54 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
         />{' '}
         Draft a batch every Monday
       </label>
+      <fieldset className="border border-[#2A2A2A] rounded p-4 space-y-3">
+        <legend className="text-sm text-gray-300 px-1">Niche research</legend>
+        <p className="text-xs text-gray-500">
+          "Search the niche" looks these words up in Meta's Ad Library (US) and keeps the ads still running past the bar. Ads that name one of your
+          markets are flagged Local.
+        </p>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Field label="Search words" hint="Comma-separated">
+            <input
+              value={form.researchKeywords.join(', ')}
+              onChange={(e) => setForm({ ...form, researchKeywords: e.target.value.split(',').map((w) => w.trim()) })}
+              className={input}
+              disabled={!owner}
+              aria-label="Search words"
+            />
+          </Field>
+          <Field label="Your markets" hint="Comma-separated">
+            <input
+              value={form.researchMarkets.join(', ')}
+              onChange={(e) => setForm({ ...form, researchMarkets: e.target.value.split(',').map((w) => w.trim()) })}
+              className={input}
+              disabled={!owner}
+              aria-label="Your markets"
+            />
+          </Field>
+          <Field label="Days an ad must have run">
+            <input
+              type="number"
+              min={30}
+              max={365}
+              value={form.researchMinDays}
+              onChange={(e) => setForm({ ...form, researchMinDays: Number(e.target.value) })}
+              className={input}
+              disabled={!owner}
+              aria-label="Days an ad must have run"
+            />
+          </Field>
+        </div>
+        <label className="text-sm text-gray-300 inline-flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={form.researchMonthly}
+            onChange={(e) => setForm({ ...form, researchMonthly: e.target.checked })}
+            disabled={!owner}
+          />{' '}
+          Search the niche on the 1st of every month
+        </label>
+      </fieldset>
       {owner && (
         <div>
           <button type="submit" className={primary}>

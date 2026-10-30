@@ -105,8 +105,16 @@ export function pickAssets<A extends AssetRow>(
   scope: string,
   used: Set<string>,
   max = MAX_CANDIDATES,
+  prefer: string[] = [],
 ): { assets: A[]; inScope: boolean } {
-  const fresh = assets.filter((a) => !used.has(a._id)).sort((a, b) => (a.uses ?? 0) - (b.uses ?? 0) || b.createdAt.localeCompare(a.createdAt));
+  // The playbook's footage preferences: an asset carrying an earlier preferred tag sorts first, then least used, then newest.
+  const preference = (a: A) => {
+    const ranks = a.tags.map((t) => prefer.indexOf(t)).filter((i) => i >= 0);
+    return ranks.length ? Math.min(...ranks) : prefer.length;
+  };
+  const fresh = assets
+    .filter((a) => !used.has(a._id))
+    .sort((a, b) => preference(a) - preference(b) || (a.uses ?? 0) - (b.uses ?? 0) || b.createdAt.localeCompare(a.createdAt));
   const inScopeAssets = fresh.filter((a) => a.tags.includes(scope));
   const inScope = inScopeAssets.length > 0;
   const pool = inScope ? inScopeAssets : fresh.filter((a) => a.tags.includes("process") || a.tags.includes("crew"));
@@ -198,13 +206,32 @@ export interface Example {
 
 export const MAX_EXAMPLES = 4;
 
-/** Which swipes to show the writer for a hook: its scope first (general ones fill in), starred, with a script, newest. */
-export function pickExamples<S extends { scope?: string; starred: boolean; transcript?: string; importedAt: string }>(
+export interface Scored {
+  starred: boolean;
+  quality?: number;
+  daysRunning?: number;
+  local?: boolean;
+}
+
+/**
+ * How much a swipe is worth learning from, 0–100: Claude's quality (0–60),
+ * how long it has run (up to 25 for a year), and 15 when it names one of
+ * the owner's markets. Untagged rows count as middling quality.
+ */
+export function swipeScore(s: Scored): number {
+  const quality = Math.max(0, Math.min(60, s.quality ?? 30));
+  const longevity = Math.min(25, Math.round(((s.daysRunning ?? 0) / 365) * 25));
+  return quality + longevity + (s.local ? 15 : 0);
+}
+
+/** Which swipes to show the writer for a hook: its scope first (general ones fill in), starred, highest score, with a script, newest. */
+export function pickExamples<S extends Scored & { scope?: string; transcript?: string; importedAt: string }>(
   swipes: S[],
   scope: string,
   max = MAX_EXAMPLES,
 ): S[] {
-  const rank = (x: S) => (x.scope === scope ? 0 : x.scope ? 2 : 1) * 100 + (x.starred ? 0 : 10) + (x.transcript ? 0 : 1);
+  const rank = (x: S) =>
+    (x.scope === scope ? 0 : x.scope ? 2 : 1) * 1000 + (x.starred ? 0 : 500) + (100 - swipeScore(x)) * 2 + (x.transcript ? 0 : 1);
   return [...swipes].sort((a, b) => rank(a) - rank(b) || b.importedAt.localeCompare(a.importedAt)).slice(0, max);
 }
 
@@ -235,6 +262,7 @@ export function shotListPrompt(
   inScope: boolean,
   examples: Example[] = [],
   town = "Midland",
+  playbook?: string,
 ): string {
   const list = footage.map((f, i) => {
     const bits = [
@@ -256,6 +284,13 @@ export function shotListPrompt(
       ? ""
       : `None of this footage is tagged ${hook.scope}; it is general crew and process footage. Only go ahead if the ad still works honestly with it.`,
     "",
+    ...(playbook
+      ? [
+          "What works in this category, from competitor ads that have run for months. Follow the shape and the kind of opening; never their claims:",
+          playbook.trim(),
+          "",
+        ]
+      : []),
     ...examplesText(examples),
     "Write a shot list: the footage to show, in order, and the voice-over line spoken while each one is on screen.",
     "- Use 2 to 4 shots (1 if only one piece of footage is offered). Use each footage number at most once.",
@@ -680,6 +715,317 @@ export function mergeSwipeCsvs(files: string[]): { rows: SwipeRow[]; tabs: strin
     };
   });
   return { rows: rowsOut, tabs };
+}
+
+// ------------------------------------------------------------ Niche research
+
+/** One ad as the Ad Library scrape gives it, in our words. */
+export interface ScrapedAd {
+  metaAdId: string;
+  pageId?: string;
+  pageName: string;
+  pageLikes?: number;
+  /** ISO date the ad started running. */
+  startedAt: string;
+  daysRunning: number;
+  active: boolean;
+  variants: number;
+  platforms: string[];
+  adCopy: string;
+  title?: string;
+  cta?: string;
+  landing?: string;
+  imageUrl?: string;
+  videoUrl?: string;
+  posterUrl?: string;
+  mediaType: "video" | "image" | "carousel" | "other";
+}
+
+/** The Apify actor that searches the Ad Library (overridable with APIFY_ACTOR). */
+export const DEFAULT_APIFY_ACTOR = "igolaizola~facebook-ad-library-scraper";
+
+/** The actor's input for one keyword: active US ads that started at least minDays ago. */
+export function apifyInput(keyword: string, minDays: number, now = new Date(), maxItems = 200) {
+  const maxDate = new Date(now.getTime() - minDays * 86_400_000).toISOString().slice(0, 10);
+  return { query: keyword, country: "US", activeStatus: "active", mediaType: "all", sortBy: "mostRecent", maxDate, maxItems };
+}
+
+type Loose = Record<string, unknown>;
+const obj = (x: unknown): Loose => (x && typeof x === "object" ? (x as Loose) : {});
+const first = (o: Loose, ...keys: string[]): unknown => {
+  for (const k of keys) if (o[k] !== undefined && o[k] !== null && o[k] !== "") return o[k];
+  return undefined;
+};
+const str = (x: unknown): string | undefined => (typeof x === "string" && x.trim() ? x.trim() : typeof x === "number" ? String(x) : undefined);
+
+/** A start date as the scrape gives it: unix seconds, unix milliseconds or a date string. */
+function startDate(raw: unknown): Date | null {
+  if (raw === undefined || raw === null || raw === "") return null;
+  const n = typeof raw === "number" ? raw : /^\d+$/.test(String(raw)) ? Number(raw) : NaN;
+  const d = Number.isFinite(n) ? new Date(n > 1e12 ? n : n * 1000) : new Date(String(raw));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Reads one scraped item, whichever spelling the actor uses (Meta's own
+ * snake_case or the camelCase some actors rewrite to). Null when there is no
+ * ad id or no readable start date, since longevity is the whole point.
+ */
+export function fromApifyItem(raw: unknown, now = new Date()): ScrapedAd | null {
+  const o = obj(raw);
+  const snap = obj(o.snapshot);
+  const metaAdId = str(first(o, "ad_archive_id", "adArchiveID", "adArchiveId", "ad_id", "adId", "id"));
+  const started = startDate(first(o, "start_date", "startDate", "startDateFormatted", "ad_delivery_start_time"));
+  if (!metaAdId || !started) return null;
+  const cards = Array.isArray(snap.cards) ? snap.cards.map(obj) : [];
+  const videos = Array.isArray(snap.videos) ? snap.videos.map(obj) : [];
+  const images = Array.isArray(snap.images) ? snap.images.map(obj) : [];
+  const video = videos[0] ?? cards.find((c) => first(c, "video_hd_url", "videoHdUrl", "video_sd_url", "videoSdUrl"));
+  const videoUrl = video ? str(first(video, "video_hd_url", "videoHdUrl", "video_sd_url", "videoSdUrl")) : undefined;
+  const posterUrl = video ? str(first(video, "video_preview_image_url", "videoPreviewImageUrl")) : undefined;
+  const image = images[0] ?? cards.find((c) => first(c, "original_image_url", "originalImageUrl", "resized_image_url", "resizedImageUrl"));
+  const imageUrl = image ? str(first(image, "original_image_url", "originalImageUrl", "resized_image_url", "resizedImageUrl")) : undefined;
+  const body = obj(snap.body);
+  const adCopy = str(body.text) ?? str(snap.body) ?? str(first(obj(cards[0] ?? {}), "body")) ?? "";
+  const end = first(o, "end_date", "endDate", "endDateFormatted");
+  const active = first(o, "is_active", "isActive");
+  const variants = Number(first(o, "collation_count", "collationCount") ?? 1);
+  const platforms = first(o, "publisher_platform", "publisherPlatform", "publisher_platforms", "publisherPlatforms");
+  return {
+    metaAdId,
+    pageId: str(first(o, "page_id", "pageID", "pageId")),
+    pageName: str(first(o, "page_name", "pageName")) ?? str(first(snap, "page_name", "pageName")) ?? "Unknown page",
+    pageLikes: Number(first(snap, "page_like_count", "pageLikeCount")) || undefined,
+    startedAt: started.toISOString().slice(0, 10),
+    daysRunning: Math.max(0, Math.floor((now.getTime() - started.getTime()) / 86_400_000)),
+    active: typeof active === "boolean" ? active : end === undefined || end === null,
+    variants: Number.isFinite(variants) && variants > 0 ? variants : 1,
+    platforms: Array.isArray(platforms) ? platforms.map(String) : [],
+    adCopy,
+    title: str(first(snap, "title")) ?? str(first(obj(cards[0] ?? {}), "title")),
+    cta: str(first(snap, "cta_text", "ctaText")) ?? str(first(obj(cards[0] ?? {}), "cta_text", "ctaText")),
+    landing: str(first(snap, "link_url", "linkUrl")) ?? str(first(obj(cards[0] ?? {}), "link_url", "linkUrl")),
+    imageUrl,
+    videoUrl,
+    posterUrl,
+    mediaType: videoUrl ? "video" : cards.length > 1 ? "carousel" : imageUrl ? "image" : "other",
+  };
+}
+
+/** Still running, and for long enough to mean something. */
+export const qualifies = (ad: { active: boolean; daysRunning: number }, minDays: number): boolean => ad.active && ad.daysRunning >= minDays;
+
+/** Whether the ad names one of the owner's markets (whole words, any case). */
+export function isLocal(text: string, markets: string[]): boolean {
+  return markets.some((m) => m.trim() && new RegExp(`\\b${m.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(text));
+}
+
+export const OPENINGS = ["question", "owner", "claim", "before_after", "offer", "other"] as const;
+export const FOOTAGE_KINDS = ["owner_to_camera", "before_after", "process", "crew", "finished", "graphic"] as const;
+
+/** What Claude answers when it reads one competitor ad. */
+export interface SwipeTags {
+  painting: boolean;
+  paintingType: string;
+  scope?: string;
+  hook: string;
+  family: Family;
+  offer: string;
+  creative: string;
+  area: string;
+  cta: string;
+  adaptation: string;
+  claims: string[];
+  opening: (typeof OPENINGS)[number];
+  footage: Array<(typeof FOOTAGE_KINDS)[number]>;
+  quality: number;
+}
+
+export const TAG_MARK = "Is this an ad for a residential painting service";
+
+/** The text Claude gets with one competitor ad (and its still, when there is one). */
+export function tagSwipePrompt(
+  ad: {
+    pageName: string;
+    adCopy?: string;
+    title?: string;
+    cta?: string;
+    landing?: string;
+    transcript?: string;
+    daysRunning?: number;
+    mediaType?: string;
+  },
+  markets: string[],
+): string {
+  return [
+    "You read a competitor's Facebook ad for a service that matches homeowners with local painting contractors.",
+    `Advertiser: ${ad.pageName}${ad.daysRunning ? ` · running ${ad.daysRunning} days` : ""}${ad.mediaType ? ` · ${ad.mediaType}` : ""}`,
+    ad.title ? `Headline: ${ad.title}` : "",
+    `Copy: ${(ad.adCopy ?? "").slice(0, 1500) || "(none)"}`,
+    ad.transcript ? `Spoken: ${ad.transcript.slice(0, 1500)}` : "",
+    ad.cta ? `Button: ${ad.cta}` : "",
+    ad.landing ? `Landing page: ${ad.landing}` : "",
+    "",
+    `${TAG_MARK} (house painting, cabinets, interior or exterior)? Painting classes, art, cars, commercial-only or unrelated ads are not.`,
+    "Answer only JSON:",
+    "{",
+    '  "painting": true|false,',
+    '  "paintingType": "Interior"|"Exterior"|"Cabinets"|"General painting",',
+    '  "scope": "interior"|"exterior"|"cabinets"|null,',
+    '  "hook": "the angle in 3 to 6 words",',
+    `  "family": ${Object.keys(FAMILY_LABELS)
+      .map((f) => `"${f}"`)
+      .join("|")},`,
+    '  "offer": "what they offer, in one line",',
+    '  "creative": "what the visual is, in one line",',
+    `  "area": "the market the ad names, or empty" (the owner's markets are ${markets.join(", ")}),`,
+    '  "cta": "the button text",',
+    '  "adaptation": "one sentence: how a Midland lead service could use this angle honestly",',
+    '  "claims": ["each price, discount, warranty, deadline, time promise or named person, as written"],',
+    `  "opening": ${OPENINGS.map((o) => `"${o}"`).join("|")},`,
+    `  "footage": [${FOOTAGE_KINDS.map((f) => `"${f}"`).join("|")}],`,
+    '  "quality": 0-60 (how clear, specific and well-made the ad is as an ad; 60 is excellent)',
+    "}",
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
+}
+
+/** Cleans Claude's tag reply; null when it isn't usable. */
+export function readSwipeTags(reply: string): SwipeTags | null {
+  const out = parseJson<Partial<SwipeTags>>(reply);
+  if (!out || typeof out.painting !== "boolean") return null;
+  const family = (Object.keys(FAMILY_LABELS) as Family[]).includes(out.family as Family) ? (out.family as Family) : "proof";
+  const scope = SCOPES.includes(out.scope as Scope) ? out.scope : undefined;
+  const clean = (x: unknown, max = 200) =>
+    String(x ?? "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, max);
+  return {
+    painting: out.painting,
+    paintingType: clean(out.paintingType, 40) || "General painting",
+    scope,
+    hook: clean(out.hook, 80) || "Unclear angle",
+    family,
+    offer: clean(out.offer),
+    creative: clean(out.creative),
+    area: clean(out.area, 80),
+    cta: clean(out.cta, 40),
+    adaptation: clean(out.adaptation, 300),
+    claims: Array.isArray(out.claims)
+      ? out.claims
+          .map((c) => clean(c, 120))
+          .filter(Boolean)
+          .slice(0, 8)
+      : [],
+    opening: OPENINGS.includes(out.opening as (typeof OPENINGS)[number]) ? (out.opening as (typeof OPENINGS)[number]) : "other",
+    footage: Array.isArray(out.footage)
+      ? (out.footage.filter((f) => FOOTAGE_KINDS.includes(f as (typeof FOOTAGE_KINDS)[number])) as SwipeTags["footage"])
+      : [],
+    quality: Math.max(0, Math.min(60, Math.round(Number(out.quality) || 0))),
+  };
+}
+
+/** One swipe as the playbook writer sees it. */
+export interface PlaybookInput {
+  company: string;
+  hook: string;
+  family?: string;
+  offer: string;
+  opening?: string;
+  footage?: string[];
+  daysRunning?: number;
+  local?: boolean;
+  transcript?: string;
+  adCopy?: string;
+  durationSec?: number;
+}
+
+export interface Playbook {
+  text: string;
+  footagePrefs: string[];
+  angleFamilies: Family[];
+  localCompetitors: Array<{ company: string; angle: string; daysRunning: number }>;
+  missingFootage: string[];
+}
+
+export const PLAYBOOK_MARK = "Distill what these ads have in common";
+
+/** The text Claude gets to write one scope's playbook from the ads that qualify. */
+export function playbookPrompt(scope: string, swipes: PlaybookInput[], markets: string[], libraryTags: Record<string, number>): string {
+  const lines = swipes.map((x, i) => {
+    const spoken = x.transcript
+      ? `spoken (${x.durationSec ? Math.round(x.durationSec) : "?"}s): ${x.transcript
+          .replace(/\[\d\d:\d\d\]\s*/g, "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 240)}`
+      : x.adCopy
+        ? `copy: ${x.adCopy.replace(/\s+/g, " ").trim().slice(0, 200)}`
+        : "";
+    return [
+      `${i + 1}. ${x.company}${x.daysRunning ? ` · ${x.daysRunning} days` : ""}${x.local ? " · LOCAL" : ""}`,
+      `angle: ${x.hook}${x.family ? ` (${FAMILY_LABELS[x.family as Family] ?? x.family})` : ""}`,
+      `offer: ${x.offer}`,
+      x.opening ? `opens with: ${x.opening}` : "",
+      x.footage?.length ? `footage: ${x.footage.join(", ")}` : "",
+      spoken,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  });
+  const tags = Object.entries(libraryTags)
+    .map(([t, n]) => `${t} ${n}`)
+    .join(", ");
+  return [
+    `You advise a service in ${markets[0] ?? "Midland"}, Texas that matches homeowners with one vetted local painting contractor. It runs short video ads on Facebook and Instagram, cut from its own photo and clip library, in the "${scope}" category.`,
+    `Below are competitor ads in this category that have been running for months (longevity is the only public signal; it hints that the ad pays for itself). The owner's markets are ${markets.join(", ")}; ads marked LOCAL name one of them.`,
+    "",
+    ...lines,
+    "",
+    `The owner's library, by tag: ${tags || "empty"}.`,
+    "",
+    `${PLAYBOOK_MARK}, in plain language a business owner reads in a minute. Describe offers generically (a free quote, a consultation), never a competitor's price, discount, warranty, deadline or named person. Answer only JSON:`,
+    "{",
+    '  "text": "at most 1,200 characters: the dominant angles with counts, how the long-runners open, the offers they lean on (generic), the footage they rely on, typical length, and what nobody in the owner’s markets is doing",',
+    `  "footagePrefs": [the library tags the winners rely on most, in order, from: ${ASSET_TAGS.join(", ")}],`,
+    `  "angleFamilies": [the concept families that dominate, in order, from: ${Object.keys(FAMILY_LABELS).join(", ")}],`,
+    '  "localCompetitors": [{"company":"...","angle":"...","daysRunning":123} for each LOCAL ad],',
+    '  "missingFootage": ["each kind of footage the winners rely on that the library lacks or has little of, as a plain request to the owner"]',
+    "}",
+  ].join("\n");
+}
+
+/** Cleans Claude's playbook reply; null when it isn't usable. */
+export function readPlaybook(reply: string): Playbook | null {
+  const out = parseJson<Partial<Playbook>>(reply);
+  if (!out || typeof out.text !== "string" || !out.text.trim()) return null;
+  const families = Object.keys(FAMILY_LABELS) as Family[];
+  return {
+    text: out.text.trim().slice(0, 1600),
+    footagePrefs: Array.isArray(out.footagePrefs) ? [...new Set(out.footagePrefs.map(String))].filter((t) => ASSET_TAGS.includes(t)) : [],
+    angleFamilies: Array.isArray(out.angleFamilies)
+      ? [...new Set(out.angleFamilies.map(String))].filter((f): f is Family => families.includes(f as Family))
+      : [],
+    localCompetitors: Array.isArray(out.localCompetitors)
+      ? out.localCompetitors
+          .map((c) => obj(c))
+          .filter((c) => str(c.company))
+          .map((c) => ({
+            company: String(c.company).slice(0, 80),
+            angle: String(c.angle ?? "").slice(0, 120),
+            daysRunning: Math.max(0, Math.round(Number(c.daysRunning) || 0)),
+          }))
+          .slice(0, 12)
+      : [],
+    missingFootage: Array.isArray(out.missingFootage)
+      ? out.missingFootage
+          .map((m) => String(m).slice(0, 160))
+          .filter(Boolean)
+          .slice(0, 6)
+      : [],
+  };
 }
 
 /** The concept family a competitor's angle most likely belongs to, for "Make a hook". */

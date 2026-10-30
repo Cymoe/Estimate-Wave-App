@@ -1,12 +1,24 @@
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
-import { AdsCard, type AdAsset, type AdBatch, type AdHook, type AdSettings, type LiveAd, type Swipe } from '../AdsCard';
+import {
+  AdsCard,
+  type AdAsset,
+  type AdBatch,
+  type AdHook,
+  type AdSettings,
+  type LiveAd,
+  type Playbook,
+  type ResearchRun,
+  type Swipe,
+} from '../AdsCard';
 
 let batches: AdBatch[] = [];
 let live: LiveAd[] = [];
 let assets: AdAsset[] = [];
 let hooks: AdHook[] = [];
 let swipes: Swipe[] = [];
+let playbooks: Playbook[] = [];
+let runs: ResearchRun[] = [];
 let settings: AdSettings | undefined;
 
 const activate = jest.fn(async () => undefined);
@@ -22,6 +34,9 @@ const uploadUrl = jest.fn(async () => 'https://upload.example/u1');
 const seedSwipes = jest.fn(async () => 30);
 const importSwipes = jest.fn(async () => ({ added: 1, updated: 1 }));
 const starSwipe = jest.fn(async () => undefined);
+const researchNow = jest.fn(async () => undefined);
+const savePlaybook = jest.fn(async () => undefined);
+const rewritePlaybook = jest.fn(async () => undefined);
 
 jest.mock('../../../lib/api', () => ({
   adsAPI: {
@@ -41,6 +56,9 @@ jest.mock('../../../lib/api', () => ({
     importSwipes: (...args: unknown[]) => importSwipes(...args),
     starSwipe: (...args: unknown[]) => starSwipe(...args),
     removeSwipe: async () => undefined,
+    researchNow: () => researchNow(),
+    savePlaybook: (...args: unknown[]) => savePlaybook(...args),
+    rewritePlaybook: (...args: unknown[]) => rewritePlaybook(...args),
   },
 }));
 jest.mock('../../../lib/live', () => ({
@@ -50,6 +68,8 @@ jest.mock('../../../lib/live', () => ({
   useAdsHooks: () => hooks,
   useAdsSettings: () => settings,
   useAdsSwipes: () => swipes,
+  useAdsPlaybooks: () => playbooks,
+  useAdsResearchRuns: () => runs,
 }));
 
 const flush = () =>
@@ -111,13 +131,20 @@ beforeEach(() => {
   swipes = [];
   settings = {
     brand: 'Permian Home Quotes',
-    keys: { anthropic: true, elevenlabs: true, shotstack: false, meta: false },
+    keys: { anthropic: true, elevenlabs: true, shotstack: false, meta: false, apify: false },
     primaryColor: '#336699',
     accentColor: '#8fb6e0',
     weeklyEnabled: false,
     hooksPerWeek: 2,
     liveTarget: 6,
+    researchKeywords: ['cabinet painting', 'house painter'],
+    researchMarkets: ['Midland', 'Odessa'],
+    researchMinDays: 90,
+    researchMonthly: false,
   };
+  swipes = [];
+  playbooks = [];
+  runs = [];
 });
 
 describe('Ops → Ads', () => {
@@ -403,6 +430,126 @@ describe('Ops → Ads', () => {
     expect((selects[1] as HTMLSelectElement).value).toBe('cabinets');
   });
 
+  it('Swipe file: the owner searches the niche, the last run shows, Local filters, the playbook is edited and rewritten', async () => {
+    swipes = [
+      {
+        id: 's1',
+        company: 'Jesse McCandless Painting',
+        paintingType: 'Cabinets',
+        scope: 'cabinets',
+        hook: 'Owner to camera',
+        offer: 'Free quote',
+        creative: 'video',
+        area: 'Midland, TX',
+        cta: 'Get quote',
+        adaptation: 'Open on the owner.',
+        metaAdId: '9001',
+        starred: false,
+        source: 'research 2026-10-30',
+        daysRunning: 140,
+        variants: 3,
+        pageLikes: 1200,
+        posterUrl: 'https://img.example/9001.jpg',
+        family: 'owner_story',
+        opening: 'owner',
+        footage: ['owner_to_camera', 'before_after'],
+        claims: ['$500 off this month'],
+        quality: 48,
+        local: true,
+        score: 72,
+      },
+      {
+        id: 's2',
+        company: 'Lubbock Cabinet Co',
+        paintingType: 'Cabinets',
+        scope: 'cabinets',
+        hook: 'Paint, do not replace',
+        offer: 'Quote',
+        creative: 'image',
+        area: '',
+        cta: 'Learn more',
+        adaptation: '',
+        metaAdId: '9002',
+        starred: false,
+        source: 'research 2026-10-30',
+        daysRunning: 40,
+        local: false,
+        score: 44,
+      },
+    ];
+    playbooks = [
+      {
+        id: 'p1',
+        scope: 'cabinets',
+        text: 'Winners open on the owner, then a before/after.',
+        footagePrefs: ['before', 'after'],
+        angleFamilies: ['owner_story'],
+        localCompetitors: [{ company: 'Jesse McCandless Painting', angle: 'owner story', daysRunning: 140 }],
+        missingFootage: ['A clip of the owner talking to camera'],
+        basis: { ads: 5, local: 1, oldestDays: 300 },
+        writtenAt: new Date().toISOString(),
+      },
+    ];
+    runs = [
+      {
+        id: 'r1',
+        startedAt: '2026-10-30T06:00:00Z',
+        finishedAt: '2026-10-30T06:04:00Z',
+        keywords: ['cabinet painting'],
+        scanned: 760,
+        kept: 48,
+        added: 31,
+        junk: 9,
+        unreadable: 2,
+      },
+    ];
+    await render();
+    await tab('Swipe file');
+    expect(document.body.querySelector('[data-testid="research-run"]')!.textContent).toBe(
+      'Oct 30 · scanned 760 · 48 past the bar · 31 new · 9 junk dropped · 2 unreadable',
+    );
+    await act(async () => byText('Search the niche')!.click());
+    expect(researchNow).toHaveBeenCalled();
+
+    const card = document.body.querySelector('[data-testid="playbook"]')!;
+    expect(card.textContent).toContain('cabinets playbook');
+    expect(card.textContent).toContain('Winners open on the owner, then a before/after.');
+    expect(card.textContent).toContain('Footage the winners use: before, after');
+    expect(card.textContent).toContain('A clip of the owner talking to camera');
+    expect(card.textContent).toContain('Advertising in your markets: Jesse McCandless Painting (owner story, 140 days)');
+    await act(async () => (Array.from(card.querySelectorAll('button')).find((b) => b.textContent === 'Rewrite') as HTMLButtonElement).click());
+    expect(rewritePlaybook).toHaveBeenCalledWith('cabinets');
+    await act(async () => (Array.from(card.querySelectorAll('button')).find((b) => b.textContent === 'Edit') as HTMLButtonElement).click());
+    const form = document.body.querySelector('form[aria-label="Edit cabinets playbook"]')!;
+    const textarea = form.querySelector('textarea') as HTMLTextAreaElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'Our read: owner first, then the kitchen.');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    await flush();
+    expect(savePlaybook).toHaveBeenCalledWith('cabinets', 'Our read: owner first, then the kitchen.');
+
+    const cards = () => Array.from(document.body.querySelectorAll('[data-testid="swipe"]'));
+    expect(cards().length).toBe(2);
+    expect(cards()[0].textContent).toContain('Jesse McCandless Painting · Cabinets · Midland, TX · 140 days · 3 versions · 1,200 page likes');
+    expect(cards()[0].textContent).toContain('Local');
+    expect(cards()[0].textContent).toContain('Owner story · opens with owner · owner to camera, before / after · score 72');
+    expect(cards()[0].textContent).toContain('Never copy$500 off this month');
+    expect(cards()[0].querySelector('img')!.getAttribute('src')).toBe('https://img.example/9001.jpg');
+    await act(async () => byText('Local')!.click());
+    expect(cards().length).toBe(1);
+    await act(async () => byText('Local')!.click());
+    await act(async () => byText('90+ days')!.click());
+    expect(cards().length).toBe(1);
+    expect(cards()[0].textContent).toContain('Jesse McCandless Painting');
+
+    document.body.innerHTML = '';
+    await render(false);
+    await tab('Swipe file');
+    expect(byText('Search the niche')).toBeUndefined();
+  });
+
   it('Swipe file imports the research sheet from its CSV tabs, merged by #', async () => {
     swipes = [];
     await render();
@@ -443,6 +590,23 @@ describe('Ops → Ads', () => {
     await flush();
     expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ adAccountId: 'act_123', weeklyEnabled: true, hooksPerWeek: 2 }));
     expect(saveSettings.mock.calls[0][0]).not.toHaveProperty('keys');
+    expect(document.body.textContent).toContain('APIFY_TOKEN: missing');
+    await act(async () =>
+      type(document.body.querySelector('input[aria-label="Search words"]') as HTMLInputElement, 'cabinet painting, deck staining,'),
+    );
+    await act(async () => type(document.body.querySelector('input[aria-label="Your markets"]') as HTMLInputElement, 'Midland'));
+    await act(async () =>
+      document.body.querySelector('form[aria-label="Ad settings"]')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
+    );
+    await flush();
+    expect(saveSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        researchKeywords: ['cabinet painting', 'deck staining'],
+        researchMarkets: ['Midland'],
+        researchMinDays: 90,
+        researchMonthly: false,
+      }),
+    );
 
     document.body.innerHTML = '';
     await render(false);

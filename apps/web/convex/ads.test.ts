@@ -2,17 +2,26 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import {
+  PLAYBOOK_MARK,
+  TAG_MARK,
+  apifyInput,
   composeScript,
   creativeName,
   familyOfAngle,
+  fromApifyItem,
   isFatigued,
+  isLocal,
   mergeSwipeCsvs,
   parseCsv,
   parseJson,
   pickAssets,
   pickExamples,
   pickHooks,
+  qualifies,
+  readPlaybook,
+  readSwipeTags,
   scriptProblems,
+  swipeScore,
   shotListPrompt,
   shotPlanProblems,
   shotTimings,
@@ -315,6 +324,119 @@ describe("the swipe file's pure parts", () => {
   });
 });
 
+describe("niche research's pure parts", () => {
+  test("the Apify input asks for active US ads that started before the bar; items are read whichever way they're spelled", () => {
+    const now = new Date("2026-10-30T12:00:00Z");
+    expect(apifyInput("cabinet painting", 90, now)).toEqual({
+      query: "cabinet painting",
+      country: "US",
+      activeStatus: "active",
+      mediaType: "all",
+      sortBy: "mostRecent",
+      maxDate: "2026-08-01",
+      maxItems: 200,
+    });
+    const snake = fromApifyItem(APIFY_CABINETS[0], now)!;
+    expect(snake).toMatchObject({
+      metaAdId: "9001",
+      pageId: "p1",
+      pageName: "Jesse McCandless Painting",
+      pageLikes: 1200,
+      active: true,
+      variants: 3,
+      platforms: ["FACEBOOK", "INSTAGRAM"],
+      title: "Cabinets, painted",
+      cta: "Get quote",
+      landing: "https://jmpainting.example/cabinets",
+      videoUrl: "https://video.example/9001.mp4",
+      posterUrl: "https://img.example/9001.jpg",
+      mediaType: "video",
+    });
+    expect(snake.daysRunning).toBeGreaterThanOrEqual(139);
+    expect(snake.adCopy).toContain("Midland homeowners");
+    const camel = fromApifyItem(APIFY_CABINETS[1], now)!;
+    expect(camel).toMatchObject({
+      metaAdId: "9002",
+      pageName: "Lubbock Cabinet Co",
+      imageUrl: "https://img.example/9002.jpg",
+      mediaType: "image",
+      variants: 1,
+    });
+    expect(fromApifyItem(APIFY_CABINETS[3], now)).toBeNull();
+    expect(fromApifyItem({ ad_archive_id: "x", page_name: "p" }, now)).toBeNull();
+    expect(fromApifyItem({ ad_archive_id: "x", page_name: "p", start_date: "2026-01-01T00:00:00.000Z", end_date: 1 }, now)).toMatchObject({
+      active: false,
+    });
+    expect(qualifies({ active: true, daysRunning: 90 }, 90)).toBe(true);
+    expect(qualifies({ active: true, daysRunning: 89 }, 90)).toBe(false);
+    expect(qualifies({ active: false, daysRunning: 400 }, 90)).toBe(false);
+  });
+
+  test("local means a market named as a whole word; the score weighs quality, longevity and local; the writer's examples follow it", () => {
+    const markets = ["Midland", "Odessa", "Permian Basin"];
+    expect(isLocal("Painting homes in midland, TX", markets)).toBe(true);
+    expect(isLocal("Serving the Permian Basin since 2009", markets)).toBe(true);
+    expect(isLocal("Midlands UK decorators", markets)).toBe(false);
+    expect(isLocal("", markets)).toBe(false);
+    expect(swipeScore({ starred: false })).toBe(30);
+    expect(swipeScore({ starred: false, quality: 48, daysRunning: 365, local: true })).toBe(88);
+    expect(swipeScore({ starred: false, quality: 99, daysRunning: 9999 })).toBe(85);
+    const sw = (
+      id: string,
+      over: Partial<{ scope?: string; starred: boolean; transcript?: string; quality?: number; daysRunning?: number; local?: boolean }>,
+    ) => ({
+      id,
+      starred: false,
+      importedAt: "2026-10-10",
+      ...over,
+    });
+    const picked = pickExamples(
+      [
+        sw("cab-low", { scope: "cabinets", quality: 20 }),
+        sw("cab-local", { scope: "cabinets", quality: 40, local: true }),
+        sw("cab-old", { scope: "cabinets", quality: 40, daysRunning: 400 }),
+        sw("cab-star", { scope: "cabinets", quality: 10, starred: true }),
+        sw("ext-great", { scope: "exterior", quality: 60, daysRunning: 400, local: true }),
+        sw("general", { quality: 55 }),
+      ],
+      "cabinets",
+    ).map((x) => x.id);
+    expect(picked).toEqual(["cab-star", "cab-old", "cab-local", "cab-low"]);
+  });
+
+  test("the footage picker leans toward the playbook's preferred tags; the prompt carries the playbook before the examples", () => {
+    const a = (id: string, tags: string[], uses = 0) => ({ _id: id, kind: "photo" as const, tags, createdAt: "2026-10-01", uses });
+    const assets = [a("int-plain", ["interior"]), a("int-crew", ["interior", "crew"]), a("int-process", ["interior", "process"], 1)];
+    expect(pickAssets(assets, "interior", new Set(), 6).assets.map((x) => x._id)).toEqual(["int-plain", "int-crew", "int-process"]);
+    expect(pickAssets(assets, "interior", new Set(), 6, ["process", "crew"]).assets.map((x) => x._id)).toEqual([
+      "int-process",
+      "int-crew",
+      "int-plain",
+    ]);
+    const hook = { textEn: "Paint them, don't replace them.", family: "before_after" as const, scope: "cabinets" };
+    const text = shotListPrompt(hook, "B", [], true, [], "Midland", "Open with the owner, then the before/after.");
+    expect(text).toContain(
+      "What works in this category, from competitor ads that have run for months. Follow the shape and the kind of opening; never their claims:",
+    );
+    expect(text.indexOf("Open with the owner")).toBeLessThan(text.indexOf("Write a shot list"));
+    expect(shotListPrompt(hook, "B", [], true)).not.toContain("What works in this category");
+  });
+
+  test("Claude's tag and playbook replies are cleaned: unknown families, tags and openings fall away; junk is junk", () => {
+    const tags = readSwipeTags(
+      JSON.stringify({ ...tagReplyFor("Advertiser: Acme cabinet"), family: "bogus", opening: "weird", footage: ["before_after", "x"], quality: 99 }),
+    )!;
+    expect(tags).toMatchObject({ painting: true, scope: "cabinets", family: "proof", opening: "other", footage: ["before_after"], quality: 60 });
+    expect(readSwipeTags("not json")).toBeNull();
+    expect(readSwipeTags(JSON.stringify({ paintingType: "Interior" }))).toBeNull();
+    const pb = readPlaybook("```json\n" + JSON.stringify(PLAYBOOK_REPLY) + "\n```")!;
+    expect(pb.footagePrefs).toEqual(["before", "after", "crew"]);
+    expect(pb.angleFamilies).toEqual(["before_after", "owner_story"]);
+    expect(pb.localCompetitors).toEqual([{ company: "Jesse McCandless Painting", angle: "owner story", daysRunning: 140 }]);
+    expect(readPlaybook(JSON.stringify({ text: "" }))).toBeNull();
+  });
+});
+
 describe("the library, hooks and settings", () => {
   test("staff file photos and clips with tags; tags are cleaned; removing deletes the file; members can't", async () => {
     const t = setup();
@@ -527,9 +649,25 @@ describe("the library, hooks and settings", () => {
       weeklyEnabled: false,
       hooksPerWeek: 2,
       liveTarget: 6,
-      keys: { shotstack: true, anthropic: false },
+      keys: { shotstack: true, anthropic: false, apify: false },
+      researchKeywords: ["cabinet painting", "interior painting", "exterior house painting", "house painter"],
+      researchMarkets: ["Midland", "Odessa", "Permian Basin", "West Texas"],
+      researchMinDays: 90,
+      researchMonthly: false,
     });
-    const data = { adAccountId: "act_123", pageId: "77", leadFormId: "", adsetId: "900", weeklyEnabled: true, hooksPerWeek: 9, liveTarget: 1 };
+    const data = {
+      adAccountId: "act_123",
+      pageId: "77",
+      leadFormId: "",
+      adsetId: "900",
+      weeklyEnabled: true,
+      hooksPerWeek: 9,
+      liveTarget: 1,
+      researchKeywords: ["cabinet painting", " cabinet painting", "", "deck staining"],
+      researchMarkets: ["Midland"],
+      researchMinDays: 7,
+      researchMonthly: true,
+    };
     await expect(staff.as.mutation(api.ads.saveSettings, data)).rejects.toThrow("Only Webb Leads admins");
     await owner.as.mutation(api.ads.saveSettings, data);
     expect(await staff.as.query(api.ads.settings, {})).toMatchObject({
@@ -539,6 +677,10 @@ describe("the library, hooks and settings", () => {
       weeklyEnabled: true,
       hooksPerWeek: 4,
       liveTarget: 2,
+      researchKeywords: ["cabinet painting", "deck staining"],
+      researchMarkets: ["Midland"],
+      researchMinDays: 30,
+      researchMonthly: true,
     });
   });
 });
@@ -570,6 +712,104 @@ type StubOpts = {
   renderFails?: boolean;
 };
 
+/** Claude's read of a competitor ad, from what the prompt names. */
+function tagReplyFor(prompt: string) {
+  const junk = prompt.includes("Advertiser: Kids Art Studio");
+  // Only the ad's own lines, not the instructions (which name every market and scope).
+  const text = prompt
+    .split("\n")
+    .filter((l) => /^(Advertiser|Headline|Copy|Spoken):/.test(l))
+    .join(" ")
+    .toLowerCase();
+  const scope = text.includes("cabinet") ? "cabinets" : text.includes("exterior") || text.includes("siding") ? "exterior" : "interior";
+  return {
+    painting: !junk,
+    paintingType: scope === "cabinets" ? "Cabinets" : scope === "exterior" ? "Exterior" : "Interior",
+    scope,
+    hook: junk ? "Art classes" : `${scope} angle`,
+    family: scope === "cabinets" ? "before_after" : "owner_story",
+    offer: "Free quote",
+    creative: "Owner to camera",
+    area: text.includes("midland") ? "Midland, TX" : "",
+    cta: "Get quote",
+    adaptation: "Open with the owner and show the prep.",
+    claims: ["$500 off this month", "10-year warranty"],
+    opening: "owner",
+    footage: ["owner_to_camera", "before_after"],
+    quality: junk ? 10 : 48,
+  };
+}
+
+const PLAYBOOK_REPLY = {
+  text: "Most long-runners open with the owner on camera, then a before/after. Offers are a free quote or a colour consultation. Nobody in Midland runs a cabinets ad.",
+  footagePrefs: ["before", "after", "crew", "nonsense"],
+  angleFamilies: ["before_after", "owner_story", "bogus"],
+  localCompetitors: [{ company: "Jesse McCandless Painting", angle: "owner story", daysRunning: 140 }],
+  missingFootage: ["A clip of the owner talking to camera for 10 seconds"],
+};
+
+const DAY = 86_400;
+const unix = (daysAgo: number) => Math.floor(Date.now() / 1000) - daysAgo * DAY;
+
+/** The scrape as Meta's own JSON spells it (snake_case), for the cabinets keyword. */
+const APIFY_CABINETS = [
+  {
+    ad_archive_id: "9001",
+    page_id: "p1",
+    page_name: "Jesse McCandless Painting",
+    is_active: true,
+    start_date: unix(140),
+    collation_count: 3,
+    publisher_platform: ["FACEBOOK", "INSTAGRAM"],
+    snapshot: {
+      body: { text: "Midland homeowners: your cabinets painted in a week, by a local crew. $500 off this month." },
+      title: "Cabinets, painted",
+      cta_text: "Get quote",
+      link_url: "https://jmpainting.example/cabinets",
+      page_like_count: 1200,
+      images: [],
+      videos: [{ video_hd_url: "https://video.example/9001.mp4", video_preview_image_url: "https://img.example/9001.jpg" }],
+    },
+  },
+  {
+    adArchiveID: "9002",
+    pageID: "p2",
+    pageName: "Lubbock Cabinet Co",
+    isActive: true,
+    startDate: unix(200),
+    collationCount: 1,
+    publisherPlatform: ["FACEBOOK"],
+    snapshot: {
+      body: { text: "Paint them, don't replace them. Lubbock's cabinet painters." },
+      ctaText: "Learn more",
+      linkUrl: "https://lcc.example",
+      images: [{ original_image_url: "https://img.example/9002.jpg" }],
+      videos: [],
+    },
+  },
+  {
+    ad_archive_id: "9003",
+    page_name: "Too Young Painting",
+    is_active: true,
+    start_date: unix(10),
+    snapshot: { body: { text: "Cabinets painted fast" } },
+  },
+  { page_name: "No Id Painting", is_active: true, start_date: unix(300), snapshot: { body: { text: "cabinets" } } },
+];
+
+/** The house keyword: one ad already seen, one that isn't painting at all. */
+const APIFY_HOUSE = [
+  APIFY_CABINETS[0],
+  {
+    ad_archive_id: "9004",
+    page_id: "p4",
+    page_name: "Kids Art Studio",
+    is_active: true,
+    start_date: unix(400),
+    snapshot: { body: { text: "Painting classes for kids every Saturday" }, cta_text: "Sign up", images: [], videos: [] },
+  },
+];
+
 /** What each outside service answers during a weekly run. */
 function stubServices(calls: Array<{ url: string; body?: string }>, opts: StubOpts = {}) {
   vi.stubGlobal(
@@ -580,15 +820,32 @@ function stubServices(calls: Array<{ url: string; body?: string }>, opts: StubOp
       calls.push({ url, body });
       if (url.includes("api.anthropic.com")) {
         const content = JSON.parse(body!).messages[0].content as Array<{ type: string; text?: string }>;
-        const prompt = content[0].text ?? "";
+        const prompt = content.find((c) => c.type === "text")?.text ?? "";
         const retry = content.some((c) => c.text?.startsWith("Your last shot list had these problems"));
         let reply: unknown;
-        if (opts.passOnScope && prompt.includes(`Scope: ${opts.passOnScope}.`))
+        if (prompt.includes(TAG_MARK)) reply = tagReplyFor(prompt);
+        else if (prompt.includes(PLAYBOOK_MARK)) reply = PLAYBOOK_REPLY;
+        else if (opts.passOnScope && prompt.includes(`Scope: ${opts.passOnScope}.`))
           reply = { fits: false, reason: `no ${opts.passOnScope} in this footage` };
         else if (opts.scriptsFail) reply = shotListFor(prompt, "Only $999 this week");
         else if (opts.badFirst && !retry) reply = { ...shotListFor(prompt), shots: [] };
         else reply = shotListFor(prompt);
         return new Response(JSON.stringify({ content: [{ type: "text", text: "Here it is: " + JSON.stringify(reply) }] }));
+      }
+      if (url.includes("api.apify.com")) {
+        const query = JSON.parse(body!).query as string;
+        return new Response(JSON.stringify(query.includes("cabinet") ? APIFY_CABINETS : APIFY_HOUSE));
+      }
+      if (url.includes("api.elevenlabs.io/v1/speech-to-text")) {
+        return new Response(
+          JSON.stringify({
+            text: "Hey Midland, Jesse here. We paint it like it's our own house.",
+            words: [
+              { text: "Hey", start: 0, end: 0.4 },
+              { text: "house.", start: 11.2, end: 11.9 },
+            ],
+          }),
+        );
       }
       if (url.includes("api.elevenlabs.io")) {
         const text = JSON.parse(body!).text as string;
@@ -924,5 +1181,162 @@ describe("the weekly run", () => {
     await t.action(internal.ads.pullInsights, {});
     [row] = await owner.as.query(api.ads.live, {});
     expect(row).toMatchObject({ fatigued: true, baselineCtr: 1.5, week: { frequency: 3.1 } });
+  });
+});
+
+describe("niche research", () => {
+  test("a search keeps the long-runners, drops junk after Claude reads it, flags local ads, transcribes video and writes the playbook", async () => {
+    const t = setup();
+    const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
+    const staff = await signUp(t, "ops@tolliver.example", { role: "staff" });
+    await expect(owner.as.mutation(api.ads.researchNow, {})).rejects.toThrow("APIFY_TOKEN");
+    vi.stubEnv("APIFY_TOKEN", "ap");
+    vi.stubEnv("ANTHROPIC_API_KEY", "a");
+    vi.stubEnv("ELEVENLABS_API_KEY", "e");
+    await owner.as.mutation(api.ads.saveSettings, {
+      weeklyEnabled: false,
+      hooksPerWeek: 2,
+      liveTarget: 6,
+      researchKeywords: ["cabinet painting", "house painter"],
+      researchMarkets: ["Midland", "Odessa"],
+      researchMinDays: 90,
+    });
+    await owner.as.mutation(api.ads.addAsset, { storageId: await store(t), fileName: "before.jpg", tags: ["cabinets", "before"], pairKey: "k" });
+    const calls: Array<{ url: string; body?: string }> = [];
+    stubServices(calls);
+    vi.useFakeTimers();
+    await expect(staff.as.mutation(api.ads.researchNow, {})).rejects.toThrow("Only Webb Leads admins");
+    await owner.as.mutation(api.ads.researchNow, {});
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    vi.useRealTimers();
+
+    const [run] = await staff.as.query(api.ads.listResearchRuns, {});
+    // 4 + 2 items scanned; the young one and the id-less one fall out; 9001 is seen twice; the kids' class is read and dropped.
+    expect(run).toMatchObject({ scanned: 6, kept: 3, added: 3, junk: 1, unreadable: 1, keywords: ["cabinet painting", "house painter"] });
+    expect(run.finishedAt).toBeTruthy();
+    expect(run.error).toBeUndefined();
+    const apifyBodies = calls.filter((c) => c.url.includes("api.apify.com")).map((c) => JSON.parse(c.body!));
+    expect(apifyBodies.map((b) => b.query)).toEqual(["cabinet painting", "house painter"]);
+    expect(apifyBodies[0]).toMatchObject({ country: "US", activeStatus: "active", maxItems: 200 });
+
+    const swipes = await staff.as.query(api.ads.listSwipes, {});
+    expect(swipes.map((x) => x.company).sort()).toEqual(["Jesse McCandless Painting", "Lubbock Cabinet Co"]);
+    const jesse = swipes.find((x) => x.company === "Jesse McCandless Painting")!;
+    expect(jesse).toMatchObject({
+      metaAdId: "9001",
+      scope: "cabinets",
+      paintingType: "Cabinets",
+      hook: "cabinets angle",
+      family: "before_after",
+      opening: "owner",
+      footage: ["owner_to_camera", "before_after"],
+      claims: ["$500 off this month", "10-year warranty"],
+      quality: 48,
+      local: true,
+      variants: 3,
+      pageLikes: 1200,
+      mediaType: "video",
+      transcript: "Hey Midland, Jesse here. We paint it like it's our own house.",
+      durationSec: 11.9,
+      source: `research ${new Date().toISOString().slice(0, 10)}`,
+    });
+    expect(jesse.daysRunning).toBeGreaterThanOrEqual(139);
+    const lubbock = swipes.find((x) => x.company === "Lubbock Cabinet Co")!;
+    expect(lubbock).toMatchObject({ local: false, mediaType: "image" });
+    expect(lubbock.transcript).toBeUndefined();
+    expect(swipes[0].company).toBe("Jesse McCandless Painting");
+
+    // The cabinets playbook was written from the two cabinet ads plus nothing else (interior and exterior have too few).
+    const playbooks = await staff.as.query(api.ads.listPlaybooks, {});
+    expect(playbooks.map((p) => p.scope)).toEqual([]);
+    // Three is the floor: one more cabinets ad, read, and the playbook appears.
+    vi.useFakeTimers();
+    await staff.as.mutation(api.ads.importSwipes, {
+      source: "VA extra",
+      rows: [
+        {
+          company: "Third Cabinet Co",
+          paintingType: "Cabinets",
+          scope: "cabinets",
+          hook: "Before / after",
+          offer: "Quote",
+          creative: "Carousel",
+          area: "Odessa",
+          cta: "Get quote",
+          adaptation: "Try it",
+          metaAdId: "9009",
+          startedAt: "2026-01-05",
+        },
+      ],
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    vi.useRealTimers();
+    const third = (await staff.as.query(api.ads.listSwipes, {})).find((x) => x.company === "Third Cabinet Co")!;
+    expect(third).toMatchObject({ local: true, scope: "cabinets", quality: 48, hook: "Before / after", area: "Odessa" });
+    const [cabinets] = await staff.as.query(api.ads.listPlaybooks, {});
+    expect(cabinets).toMatchObject({
+      scope: "cabinets",
+      text: PLAYBOOK_REPLY.text,
+      footagePrefs: ["before", "after", "crew"],
+      angleFamilies: ["before_after", "owner_story"],
+      localCompetitors: [{ company: "Jesse McCandless Painting", angle: "owner story", daysRunning: 140 }],
+      missingFootage: ["A clip of the owner talking to camera for 10 seconds"],
+      basis: { ads: 3, local: 2 },
+    });
+    expect(cabinets.editedAt).toBeUndefined();
+    const playbookPrompt = calls
+      .filter((c) => c.url.includes("api.anthropic.com"))
+      .map((c) => (JSON.parse(c.body!).messages[0].content as Array<{ type: string; text?: string }>).find((x) => x.type === "text")?.text ?? "")
+      .find((p) => p.includes(PLAYBOOK_MARK))!;
+    expect(playbookPrompt).toContain("Jesse McCandless Painting · 1");
+    expect(playbookPrompt).toContain("LOCAL");
+    expect(playbookPrompt).toContain("The owner's library, by tag: before 1, cabinets 1.");
+    expect(playbookPrompt).toContain("never a competitor's price");
+
+    // A human edit holds through the next automatic rewrite, and gives way to "Rewrite".
+    await staff.as.mutation(api.ads.savePlaybook, { scope: "cabinets", text: "Our own read: owner first, then the kitchen, then the ask." });
+    await staff.as.mutation(api.ads.starSwipe, { id: jesse.id, starred: true });
+    await t.mutation(internal.ads.savePlaybookAuto, { scope: "cabinets", playbook: PLAYBOOK_REPLY, basis: { ads: 3, local: 2, oldestDays: 200 } });
+    expect((await staff.as.query(api.ads.listPlaybooks, {}))[0]).toMatchObject({
+      text: "Our own read: owner first, then the kitchen, then the ask.",
+      editedAt: expect.any(String),
+    });
+    vi.useFakeTimers();
+    await staff.as.mutation(api.ads.rewritePlaybook, { scope: "cabinets" });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    vi.useRealTimers();
+    const rewritten = (await staff.as.query(api.ads.listPlaybooks, {}))[0];
+    expect(rewritten.text).toBe(PLAYBOOK_REPLY.text);
+    expect(rewritten.editedAt).toBeUndefined();
+    await expect(staff.as.mutation(api.ads.savePlaybook, { scope: "cabinets", text: "short" })).rejects.toThrow("at least a sentence");
+  });
+
+  test("the Monday writer follows the playbook: its text is in the prompt and the footage picker leans its way", async () => {
+    const t = setup();
+    const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
+    await library(t, owner);
+    await t.mutation(internal.ads.savePlaybookAuto, {
+      scope: "cabinets",
+      playbook: { ...PLAYBOOK_REPLY, text: "Cabinets winners open on the owner." },
+      basis: { ads: 5, local: 1, oldestDays: 300 },
+    });
+    vi.stubEnv("ANTHROPIC_API_KEY", "a");
+    vi.stubEnv("ELEVENLABS_API_KEY", "e");
+    vi.stubEnv("SHOTSTACK_API_KEY", "s");
+    await owner.as.mutation(api.ads.saveSettings, { voiceId: "ven", weeklyEnabled: true, hooksPerWeek: 1, liveTarget: 6 });
+    const calls: Array<{ url: string; body?: string }> = [];
+    stubServices(calls);
+    vi.useFakeTimers();
+    await owner.as.mutation(api.ads.draftNow, {});
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    vi.useRealTimers();
+    const prompts = calls
+      .filter((c) => c.url.includes("api.anthropic.com"))
+      .map((c) => (JSON.parse(c.body!).messages[0].content as Array<{ type: string; text?: string }>).find((x) => x.type === "text")?.text ?? "");
+    const cabinets = prompts.find((p) => p.includes("Scope: cabinets."))!;
+    expect(cabinets).toContain("What works in this category");
+    expect(cabinets).toContain("Cabinets winners open on the owner.");
+    const other = prompts.find((p) => p.startsWith("You write one short") && !p.includes("Scope: cabinets."));
+    if (other) expect(other).not.toContain("What works in this category");
   });
 });

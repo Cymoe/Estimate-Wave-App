@@ -233,6 +233,8 @@ const LIVE_LABELS: Record<string, string> = {
   'ads:listHooks': 'the hooks',
   'ads:settings': 'the ad settings',
   'ads:listSwipes': 'the swipe file',
+  'ads:listPlaybooks': 'the playbooks',
+  'ads:listResearchRuns': 'the niche searches',
   'marketplace:listInbox': 'the leads for sale',
   'delivery:recent': 'the sold leads',
   'marketplace:companiesOverview': 'the companies',

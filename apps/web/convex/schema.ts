@@ -1629,9 +1629,61 @@ export default defineSchema({
     starred: v.boolean(),
     source: v.string(),
     importedAt: v.string(),
+    // From the Ad Library scrape (ads.researchRun).
+    pageId: v.optional(v.string()),
+    pageLikes: v.optional(v.number()),
+    daysRunning: v.optional(v.number()),
+    active: v.optional(v.boolean()),
+    variants: v.optional(v.number()),
+    platforms: v.optional(v.array(v.string())),
+    title: v.optional(v.string()),
+    landing: v.optional(v.string()),
+    imageUrl: v.optional(v.string()),
+    videoUrl: v.optional(v.string()),
+    posterUrl: v.optional(v.string()),
+    mediaType: v.optional(v.string()),
+    // Claude's read of the ad (ads.tagSwipe).
+    family: v.optional(v.string()),
+    claims: v.optional(v.array(v.string())),
+    opening: v.optional(v.string()),
+    footage: v.optional(v.array(v.string())),
+    quality: v.optional(v.number()),
+    local: v.optional(v.boolean()),
+    tagError: v.optional(v.string()),
+    taggedAt: v.optional(v.string()),
   })
     .index("by_meta_ad", ["metaAdId"])
-    .index("by_scope", ["scope"]),
+    .index("by_scope", ["scope"])
+    .index("by_page", ["pageId"]),
+
+  // What the long-running ads in a scope have in common, distilled by Claude
+  // (ads.rebuildPlaybooks) and shown to the Monday writer. A human edit holds
+  // until someone asks for a rewrite.
+  adPlaybooks: defineTable({
+    scope: v.string(),
+    text: v.string(),
+    footagePrefs: v.array(v.string()),
+    angleFamilies: v.array(v.string()),
+    localCompetitors: v.array(v.object({ company: v.string(), angle: v.string(), daysRunning: v.number() })),
+    missingFootage: v.array(v.string()),
+    basis: v.object({ ads: v.number(), local: v.number(), oldestDays: v.number() }),
+    writtenAt: v.string(),
+    editedAt: v.optional(v.string()),
+  }).index("by_scope", ["scope"]),
+
+  // One row per niche search (the button or the monthly run).
+  adResearchRuns: defineTable({
+    startedAt: v.string(),
+    finishedAt: v.optional(v.string()),
+    keywords: v.array(v.string()),
+    scanned: v.number(),
+    kept: v.number(),
+    added: v.number(),
+    junk: v.number(),
+    unreadable: v.number(),
+    error: v.optional(v.string()),
+    startedBy: v.optional(v.id("users")),
+  }),
 
   adSettings: defineTable({
     adAccountId: v.optional(v.string()),
@@ -1642,6 +1694,11 @@ export default defineSchema({
     accentColor: v.optional(v.string()),
     voiceId: v.optional(v.string()),
     weeklyEnabled: v.boolean(),
+    // Niche research: Ad Library keywords, the owner's markets, the longevity bar, the monthly switch.
+    researchKeywords: v.optional(v.array(v.string())),
+    researchMarkets: v.optional(v.array(v.string())),
+    researchMinDays: v.optional(v.number()),
+    researchMonthly: v.optional(v.boolean()),
     hooksPerWeek: v.number(),
     liveTarget: v.number(),
     updatedAt: v.string(),
