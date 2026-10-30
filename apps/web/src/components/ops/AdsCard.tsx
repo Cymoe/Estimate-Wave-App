@@ -34,7 +34,6 @@ export interface AdCreative {
   id: string;
   batchId: string;
   name: string;
-  language: 'en' | 'es';
   ratio: '9x16' | '4x5';
   status: 'draft' | 'voiced' | 'rendering' | 'rendered' | 'paused' | 'live' | 'retired' | 'rejected' | 'failed';
   error?: string;
@@ -78,7 +77,6 @@ export interface AdHook {
   scope: string;
   trade: string;
   textEn: string;
-  textEs?: string;
   active: boolean;
   uses: number;
   wins: number;
@@ -90,12 +88,10 @@ export interface AdSettings {
   adAccountId?: string;
   pageId?: string;
   leadFormId?: string;
-  adsetEn?: string;
-  adsetEs?: string;
+  adsetId?: string;
   primaryColor: string;
   accentColor: string;
-  voiceEn?: string;
-  voiceEs?: string;
+  voiceId?: string;
   weeklyEnabled: boolean;
   hooksPerWeek: number;
   liveTarget: number;
@@ -175,8 +171,8 @@ const ThisWeek: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
         <p className="text-sm text-gray-400 flex-1 min-w-[16rem]">
-          Every Monday the app writes two hooks in English and Spanish, voices them, cuts a video per size from the library and creates each one
-          paused in Meta. Approve the ones to run.
+          Every Monday the app writes two hooks, voices them, cuts a video per size from the library and creates each one paused in Meta. Approve the
+          ones to run.
         </p>
         {owner && (
           <button
@@ -230,7 +226,6 @@ const CreativeCard: React.FC<{ c: AdCreative; act: Act }> = ({ c, act }) => (
     )}
     <div className="p-3 space-y-2 flex-1">
       <p className="flex flex-wrap gap-1 items-center">
-        <span className={chip}>{c.language === 'es' ? 'Español' : 'English'}</span>
         <span className={chip}>{c.ratio}</span>
         <span
           className={`${chip} ${c.status === 'live' ? 'text-emerald-300 border-emerald-900' : c.status === 'failed' ? 'text-red-300 border-red-900' : ''}`}
@@ -299,7 +294,7 @@ const Live: React.FC<{ act: Act }> = ({ act }) => {
             <tr key={r.id} data-testid="live-ad">
               <td className="px-3 py-2">
                 <p className="text-white">
-                  {r.hook?.familyLabel ?? 'Hook'} · {r.language === 'es' ? 'ES' : 'EN'} · {r.ratio}
+                  {r.hook?.familyLabel ?? 'Hook'} · {r.ratio}
                 </p>
                 <p className="text-[10px] text-gray-600 break-all">{r.name}</p>
               </td>
@@ -485,14 +480,14 @@ const AssetCard: React.FC<{ a: AdAsset; act: Act }> = ({ a, act }) => {
   );
 };
 
-const EMPTY_HOOK = { family: 'before_after', scope: 'cabinets', trade: 'painting', textEn: '', textEs: '', active: true };
+const EMPTY_HOOK = { family: 'before_after', scope: 'cabinets', trade: 'painting', textEn: '', active: true };
 
 const Hooks: React.FC<{ act: Act }> = ({ act }) => {
   const hooks = useAdsHooks<AdHook[]>();
   const [draft, setDraft] = useState<{ id?: string } & typeof EMPTY_HOOK>(EMPTY_HOOK);
   const set = (k: keyof typeof EMPTY_HOOK) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setDraft((d) => ({ ...d, [k]: e.target.value }));
-  const save = () => act(() => adsAPI.saveHook({ ...draft, textEs: draft.textEs || undefined }).then(() => setDraft(EMPTY_HOOK)), 'Hook saved.');
+  const save = () => act(() => adsAPI.saveHook(draft).then(() => setDraft(EMPTY_HOOK)), 'Hook saved.');
   if (hooks === undefined) return <p className="text-sm text-gray-500">Loading…</p>;
   return (
     <div className="space-y-4">
@@ -532,13 +527,8 @@ const Hooks: React.FC<{ act: Act }> = ({ act }) => {
           </select>
         </Field>
         <div className="sm:col-span-2">
-          <Field label="Hook (English)">
+          <Field label="Hook">
             <textarea value={draft.textEn} onChange={set('textEn')} rows={2} className={input} />
-          </Field>
-        </div>
-        <div className="sm:col-span-2">
-          <Field label="Hook (Spanish, optional)">
-            <textarea value={draft.textEs} onChange={set('textEs')} rows={2} className={input} />
           </Field>
         </div>
         <div className="sm:col-span-2 flex gap-2">
@@ -560,7 +550,6 @@ const Hooks: React.FC<{ act: Act }> = ({ act }) => {
                 {h.familyLabel} · {h.scope} · used {h.uses} · {h.wins} won · {h.losses} lost
               </p>
               <p className={`text-sm ${h.active ? 'text-white' : 'text-gray-500'}`}>{h.textEn}</p>
-              {h.textEs && <p className="text-xs text-gray-400">{h.textEs}</p>}
             </div>
             <label className="text-xs text-gray-300 inline-flex items-center gap-1">
               <input
@@ -574,7 +563,6 @@ const Hooks: React.FC<{ act: Act }> = ({ act }) => {
                       scope: h.scope,
                       trade: h.trade,
                       textEn: h.textEn,
-                      textEs: h.textEs,
                       active: e.target.checked,
                     }),
                   )
@@ -585,9 +573,7 @@ const Hooks: React.FC<{ act: Act }> = ({ act }) => {
             <button
               type="button"
               className="text-xs text-gray-400 underline"
-              onClick={() =>
-                setDraft({ id: h.id, family: h.family, scope: h.scope, trade: h.trade, textEn: h.textEn, textEs: h.textEs ?? '', active: h.active })
-              }
+              onClick={() => setDraft({ id: h.id, family: h.family, scope: h.scope, trade: h.trade, textEn: h.textEn, active: h.active })}
             >
               Edit
             </button>
@@ -652,10 +638,8 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
         {text('adAccountId', 'Ad account id', 'Digits only; the act_ prefix is dropped')}
         {text('pageId', 'Page id')}
         {text('leadFormId', 'Instant form id')}
-        {text('adsetEn', 'Ad set id (English)')}
-        {text('adsetEs', 'Ad set id (Spanish)', 'Falls back to the English one')}
-        {text('voiceEn', 'ElevenLabs voice id (English)')}
-        {text('voiceEs', 'ElevenLabs voice id (Spanish)', 'A Mexican-accent voice')}
+        {text('adsetId', 'Ad set id')}
+        {text('voiceId', 'ElevenLabs voice id')}
         {text('primaryColor', 'Brand colour')}
         {text('accentColor', 'Accent colour')}
         <Field label="Hooks per week">

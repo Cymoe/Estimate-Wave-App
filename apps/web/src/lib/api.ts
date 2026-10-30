@@ -838,7 +838,7 @@ export const adsAPI = {
     run('mutation', api.ads.addAsset, defined(args)),
   tagAsset: (id: string, tags: string[], pairKey?: string, note?: string) => run('mutation', api.ads.tagAsset, defined({ id, tags, pairKey, note })),
   removeAsset: (id: string) => run('mutation', api.ads.removeAsset, { id }),
-  saveHook: (args: { id?: string; family: string; scope: string; trade: string; textEn: string; textEs?: string; active: boolean }) =>
+  saveHook: (args: { id?: string; family: string; scope: string; trade: string; textEn: string; active: boolean }) =>
     run('mutation', api.ads.saveHook, defined(args)),
   removeHook: (id: string) => run('mutation', api.ads.removeHook, { id }),
   seedHooks: (): Promise<number> => run('mutation', api.ads.seedHooks, {}),

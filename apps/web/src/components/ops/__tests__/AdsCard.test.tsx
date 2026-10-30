@@ -72,8 +72,7 @@ async function render(owner = true) {
 const creative = (over: Partial<AdBatch['creatives'][number]>): AdBatch['creatives'][number] => ({
   id: 'c1',
   batchId: 'b1',
-  name: 'WL_abc123_EN_916_20261102',
-  language: 'en',
+  name: 'WL_abc123_916_20261102',
   ratio: '9x16',
   status: 'paused',
   script: {
@@ -121,9 +120,9 @@ describe('Ops → Ads', () => {
           creative({}),
           creative({
             id: 'c2',
-            language: 'es',
-            name: 'WL_abc123_ES_916_20261102',
-            script: { voice: 'Píntalos.', onScreen: ['Píntalos'], headline: 'Gabinetes pintados', primaryText: 'Un acabado nuevo.' },
+            ratio: '4x5',
+            name: 'WL_abc123_45_20261102',
+            script: { voice: 'Paint them.', onScreen: ['Paint them'], headline: 'Cabinets, kitchen transformed', primaryText: 'A fresh finish.' },
           }),
         ],
       },
@@ -131,8 +130,8 @@ describe('Ops → Ads', () => {
     await render();
     const cards = document.body.querySelectorAll('[data-testid="creative"]');
     expect(cards.length).toBe(2);
-    expect(cards[1].textContent).toContain('Español');
-    expect(cards[1].textContent).toContain('Gabinetes pintados');
+    expect(cards[1].textContent).toContain('4x5');
+    expect(cards[1].textContent).toContain('Cabinets, kitchen transformed');
     expect(document.body.textContent).toContain('Week of 2026-11-02');
     await act(async () => (cards[0].querySelector('button') as HTMLButtonElement).click());
     await flush();
@@ -177,7 +176,7 @@ describe('Ops → Ads', () => {
         week: { at: '', spendCents: 2500, impressions: 1200, clicks: 18, frequency: 3.1, ctr: 0.67, leadsMeta: 2 },
         intake: { leads: 3, confirmed: 2, sold: 1, revenueCents: 6500 },
       },
-      { ...creative({ id: 'c2', name: 'WL_x_ES_45', language: 'es', ratio: '4x5' }), intake: { leads: 0, confirmed: 0, sold: 0, revenueCents: 0 } },
+      { ...creative({ id: 'c2', name: 'WL_x_45', ratio: '4x5' }), intake: { leads: 0, confirmed: 0, sold: 0, revenueCents: 0 } },
     ];
     await render();
     await tab('Live');

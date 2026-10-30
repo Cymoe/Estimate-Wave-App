@@ -10,7 +10,7 @@ import {
   creativeName,
   isFatigued,
   metaCents,
-  parseScripts,
+  parseScript,
   pickAssets,
   pickHooks,
   scriptPrompt,
@@ -25,8 +25,8 @@ import { siteUrl } from "./delivery";
 import { tellStaff } from "./notify";
 
 // Ads on autopilot. Every Monday (or on "Draft now") a batch is drafted:
-// two hooks, scripts in English and Mexican Spanish from Claude, a voice
-// from ElevenLabs, a video per language and size from Shotstack cut from
+// two hooks, a script each from Claude, a voice from ElevenLabs, a video
+// per size from Shotstack cut from
 // the library, and a PAUSED ad in Meta for each. Staff approve them in
 // Ops → Ads; a daily pull of Meta's numbers plus the intake queue show what
 // each ad brought in. Each outside step is its own action, chained with
@@ -192,7 +192,6 @@ export const listHooks = query({
         scope: h.scope,
         trade: h.trade,
         textEn: h.textEn,
-        textEs: h.textEs,
         active: h.active,
         uses: h.uses,
         wins: h.wins,
@@ -210,7 +209,6 @@ export const saveHook = mutation({
     scope: v.string(),
     trade: v.string(),
     textEn: v.string(),
-    textEs: v.optional(v.string()),
     active: v.boolean(),
   },
   handler: async (ctx, { id, ...fields }) => {
@@ -224,7 +222,6 @@ export const saveHook = mutation({
       scope,
       trade: fields.trade.trim().toLowerCase() || "painting",
       textEn: textEn.slice(0, 300),
-      textEs: fields.textEs?.trim().slice(0, 300) || undefined,
       active: fields.active,
     };
     if (id) {
@@ -269,12 +266,10 @@ export const settings = query({
       adAccountId: row?.adAccountId,
       pageId: row?.pageId,
       leadFormId: row?.leadFormId,
-      adsetEn: row?.adsetEn,
-      adsetEs: row?.adsetEs,
+      adsetId: row?.adsetId,
       primaryColor: row?.primaryColor ?? "#336699",
       accentColor: row?.accentColor ?? "#8fb6e0",
-      voiceEn: row?.voiceEn,
-      voiceEs: row?.voiceEs,
+      voiceId: row?.voiceId,
       weeklyEnabled: row?.weeklyEnabled ?? DEFAULTS.weeklyEnabled,
       hooksPerWeek: row?.hooksPerWeek ?? DEFAULTS.hooksPerWeek,
       liveTarget: row?.liveTarget ?? DEFAULTS.liveTarget,
@@ -287,12 +282,10 @@ export const saveSettings = mutation({
     adAccountId: v.optional(v.string()),
     pageId: v.optional(v.string()),
     leadFormId: v.optional(v.string()),
-    adsetEn: v.optional(v.string()),
-    adsetEs: v.optional(v.string()),
+    adsetId: v.optional(v.string()),
     primaryColor: v.optional(v.string()),
     accentColor: v.optional(v.string()),
-    voiceEn: v.optional(v.string()),
-    voiceEs: v.optional(v.string()),
+    voiceId: v.optional(v.string()),
     weeklyEnabled: v.boolean(),
     hooksPerWeek: v.number(),
     liveTarget: v.number(),
@@ -322,7 +315,6 @@ async function creativeView(ctx: QueryCtx, c: Doc<"adCreatives">, hooks: Map<str
     id: c._id,
     batchId: c.batchId,
     name: c.name,
-    language: c.language,
     ratio: c.ratio,
     status: c.status,
     error: c.error,
@@ -478,10 +470,8 @@ export const config = internalQuery({
       adAccountId: row?.adAccountId,
       pageId: row?.pageId,
       leadFormId: row?.leadFormId,
-      adsetEn: row?.adsetEn,
-      adsetEs: row?.adsetEs,
-      voiceEn: row?.voiceEn,
-      voiceEs: row?.voiceEs,
+      adsetId: row?.adsetId,
+      voiceId: row?.voiceId,
       weeklyEnabled: row?.weeklyEnabled ?? DEFAULTS.weeklyEnabled,
       hooksPerWeek: row?.hooksPerWeek ?? DEFAULTS.hooksPerWeek,
     };
@@ -526,47 +516,30 @@ export const failBatch = internalMutation({
   },
 });
 
-/** Creates the week's creatives for one hook (two languages × two sizes) once its scripts are in. */
+/** Creates the week's creatives for one hook (two sizes) once its script is in. */
 export const addCreatives = internalMutation({
   args: {
     batchId: v.id("adBatches"),
     hookId: v.id("adHooks"),
-    scripts: v.object({
-      en: v.object({ voice: v.string(), onScreen: v.array(v.string()), headline: v.string(), primaryText: v.string() }),
-      es: v.object({ voice: v.string(), onScreen: v.array(v.string()), headline: v.string(), primaryText: v.string() }),
-    }),
+    script: v.object({ voice: v.string(), onScreen: v.array(v.string()), headline: v.string(), primaryText: v.string() }),
     assetIds: v.array(v.id("adAssets")),
   },
-  handler: async (ctx, { batchId, hookId, scripts, assetIds }) => {
+  handler: async (ctx, { batchId, hookId, script, assetIds }) => {
     const now = new Date();
-    const ids: Array<{ id: Id<"adCreatives">; language: "en" | "es" }> = [];
-    for (const language of ["en", "es"] as const)
-      for (const ratio of ["9x16", "4x5"] as const) {
-        let name = creativeName(hookId, language, ratio, now);
-        for (
-          let n = 2;
-          (await ctx.db
-            .query("adCreatives")
-            .withIndex("by_name", (q) => q.eq("name", name))
-            .first()) !== null;
-          n++
-        )
-          name = `${creativeName(hookId, language, ratio, now)}_${n}`;
-        ids.push({
-          id: await ctx.db.insert("adCreatives", {
-            batchId,
-            hookId,
-            language,
-            ratio,
-            name,
-            script: scripts[language],
-            assetIds,
-            status: "draft",
-            createdAt: nowIso(),
-          }),
-          language,
-        });
-      }
+    const ids: Id<"adCreatives">[] = [];
+    for (const ratio of ["9x16", "4x5"] as const) {
+      let name = creativeName(hookId, ratio, now);
+      for (
+        let n = 2;
+        (await ctx.db
+          .query("adCreatives")
+          .withIndex("by_name", (q) => q.eq("name", name))
+          .first()) !== null;
+        n++
+      )
+        name = `${creativeName(hookId, ratio, now)}_${n}`;
+      ids.push(await ctx.db.insert("adCreatives", { batchId, hookId, ratio, name, script, assetIds, status: "draft", createdAt: nowIso() }));
+    }
     const hook = await ctx.db.get(hookId);
     if (hook) await ctx.db.patch(hookId, { uses: hook.uses + 1, lastUsedAt: nowIso() });
     return ids;
@@ -677,7 +650,7 @@ async function readJson(res: Response, what: string): Promise<any> {
   return body;
 }
 
-/** Monday: picks the hooks, has Claude write them, and starts a creative for each language and size. */
+/** Monday: picks the hooks, has Claude write them, and starts a creative for each size. */
 export const weeklyRun = internalAction({
   args: { startedBy: v.optional(v.id("users")), force: v.optional(v.boolean()) },
   handler: async (ctx, { startedBy, force }) => {
@@ -697,18 +670,16 @@ export const weeklyRun = internalAction({
         const picked = pickAssets(assets, hook.scope, used);
         if (picked.length === 0) throw new Error(`Nothing in the library for a ${hook.scope} hook, and no process or crew footage to fall back on`);
         picked.forEach((a) => used.add(a._id));
-        const scripts = await writeScripts(hook, cfg.brand.name);
-        const ids: Array<{ id: Id<"adCreatives">; language: "en" | "es" }> = await ctx.runMutation(internal.ads.addCreatives, {
+        const script = await writeScript(hook, cfg.brand.name);
+        const ids: Id<"adCreatives">[] = await ctx.runMutation(internal.ads.addCreatives, {
           batchId,
           hookId: hook._id,
-          scripts,
+          script,
           assetIds: picked.map((a) => a._id as Id<"adAssets">),
         });
-        // One voice per language, shared by its two sizes.
-        for (const language of ["en", "es"] as const) {
-          await ctx.scheduler.runAfter(delay, internal.ads.voice, { ids: ids.filter((i) => i.language === language).map((i) => i.id), language });
-          delay += 1500;
-        }
+        // One voice per hook, shared by its two sizes.
+        await ctx.scheduler.runAfter(delay, internal.ads.voice, { ids });
+        delay += 1500;
       }
     } catch (e) {
       await ctx.runMutation(internal.ads.failBatch, { batchId, error: errText(e) });
@@ -716,32 +687,32 @@ export const weeklyRun = internalAction({
   },
 });
 
-async function writeScripts(hook: Doc<"adHooks">, brand: string): Promise<{ en: Script; es: Script }> {
+async function writeScript(hook: Doc<"adHooks">, brand: string): Promise<Script> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 1500, messages: [{ role: "user", content: scriptPrompt(hook, brand) }] }),
+    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 1000, messages: [{ role: "user", content: scriptPrompt(hook, brand) }] }),
   });
   const body = await readJson(res, "Claude");
   const reply = (body?.content ?? []).map((c: { text?: string }) => c.text ?? "").join("");
-  const parsed = parseScripts(reply);
-  const problems = [...scriptProblems(parsed?.en).map((p) => `English ${p}`), ...scriptProblems(parsed?.es).map((p) => `Spanish ${p}`)];
+  const parsed = parseScript(reply);
+  const problems = scriptProblems(parsed ?? undefined);
   if (!parsed || problems.length > 0)
     throw new Error(`Claude's script for "${hook.textEn.slice(0, 40)}…" didn't pass: ${problems.join("; ") || "no JSON"}`);
-  return { en: parsed.en as Script, es: parsed.es as Script };
+  return parsed as Script;
 }
 
-/** The voice-over for one language, from ElevenLabs, shared by both sizes. */
+/** The voice-over for one hook, from ElevenLabs, shared by both sizes. */
 export const voice = internalAction({
-  args: { ids: v.array(v.id("adCreatives")), language: v.union(v.literal("en"), v.literal("es")) },
-  handler: async (ctx, { ids, language }) => {
+  args: { ids: v.array(v.id("adCreatives")) },
+  handler: async (ctx, { ids }) => {
     if (ids.length === 0) return;
     const first = await ctx.runQuery(internal.ads.creativeInput, { id: ids[0] });
     if (!first) return;
     const cfg = await ctx.runQuery(internal.ads.config, {});
     try {
-      const voiceId = language === "es" ? cfg.voiceEs : cfg.voiceEn;
-      if (!voiceId) throw new Error(`No ${language === "es" ? "Spanish" : "English"} voice chosen in Ops → Ads → Settings`);
+      const voiceId = cfg.voiceId;
+      if (!voiceId) throw new Error("No ElevenLabs voice chosen in Ops → Ads → Settings");
       const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`, {
         method: "POST",
         headers: { "content-type": "application/json", "xi-api-key": process.env.ELEVENLABS_API_KEY! },
@@ -773,7 +744,7 @@ export const render = internalAction({
     const cfg = await ctx.runQuery(internal.ads.config, {});
     try {
       if (!c.audioUrl) throw new Error("No voice track");
-      // ElevenLabs doesn't say how long the audio runs; spoken English and Spanish average about 2.6 words a second.
+      // ElevenLabs doesn't say how long the audio runs; spoken English averages about 2.6 words a second.
       const durationSec = Math.max(10, Math.round(c.script.voice.split(/\s+/).length / 2.6));
       const edit = shotstackEdit({
         assets: c.assets,
@@ -782,7 +753,6 @@ export const render = internalAction({
         script: c.script,
         brand: cfg.brand,
         ratio: c.ratio,
-        language: c.language,
       });
       const res = await fetch(`${shotstackBase()}/render`, {
         method: "POST",
@@ -844,7 +814,7 @@ export const publishPaused = internalAction({
     const c = await ctx.runQuery(internal.ads.creativeInput, { id });
     if (!c || !c.videoUrl) return;
     const cfg = await ctx.runQuery(internal.ads.config, {});
-    const adsetId = c.language === "es" ? (cfg.adsetEs ?? cfg.adsetEn) : cfg.adsetEn;
+    const adsetId = cfg.adsetId;
     if (!process.env.META_ACCESS_TOKEN || !cfg.adAccountId || !cfg.pageId || !adsetId) {
       // Rendered and watchable in Ops; it goes to Meta by hand until the account is set up.
       await ctx.runMutation(internal.ads.patchCreative, {

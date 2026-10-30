@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { creativeName, isFatigued, parseScripts, pickAssets, pickHooks, scriptProblems, shotstackEdit, weekOf, type Script } from "./lib/ads";
+import { creativeName, isFatigued, parseScript, pickAssets, pickHooks, scriptProblems, shotstackEdit, weekOf, type Script } from "./lib/ads";
 import { setup, signUp } from "./test.setup";
 
 type T = ReturnType<typeof setup>;
@@ -46,9 +46,9 @@ describe("the pure parts", () => {
   });
 
   test("names, weeks and fatigue", () => {
-    expect(creativeName("k57abcdefgh;adHooks", "es", "9x16", new Date("2026-11-03T12:00:00Z"))).toMatch(/^WL_[a-z0-9]{6}_ES_916_20261103$/);
-    expect(creativeName("k57abcdefgh;adHooks", "en", "4x5", new Date("2026-11-03T12:00:00Z"))).toBe(
-      creativeName("k57abcdefgh;adHooks", "en", "4x5", new Date("2026-11-03T20:00:00Z")),
+    expect(creativeName("k57abcdefgh;adHooks", "9x16", new Date("2026-11-03T12:00:00Z"))).toMatch(/^WL_[a-z0-9]{6}_916_20261103$/);
+    expect(creativeName("k57abcdefgh;adHooks", "4x5", new Date("2026-11-03T12:00:00Z"))).toBe(
+      creativeName("k57abcdefgh;adHooks", "4x5", new Date("2026-11-03T20:00:00Z")),
     );
     expect(weekOf(new Date("2026-11-05T03:00:00Z"))).toBe("2026-11-02");
     expect(weekOf(new Date("2026-11-02T00:00:00Z"))).toBe("2026-11-02");
@@ -67,9 +67,8 @@ describe("the pure parts", () => {
     );
     expect(scriptProblems({ ...GOOD, onScreen: ["Is your home in Midland?"] })).toContain("mentions a personal attribute");
     expect(scriptProblems(undefined)).toEqual(["no script"]);
-    const parsed = parseScripts('Here you go:\n```json\n{"en":{"voice":"x"},"es":{"voice":"y"}}\n```');
-    expect(parsed).toEqual({ en: { voice: "x" }, es: { voice: "y" } });
-    expect(parseScripts("no json here")).toBeNull();
+    expect(parseScript('Here you go:\n```json\n{"voice":"x"}\n```')).toEqual({ voice: "x" });
+    expect(parseScript("no json here")).toBeNull();
   });
 
   test("the Shotstack edit: the right size, captions off the voice, a wipe only for a pair, the ask on the last card", () => {
@@ -85,7 +84,6 @@ describe("the pure parts", () => {
       script: GOOD,
       brand,
       ratio: "9x16",
-      language: "es",
     });
     expect(edit.output).toEqual({ format: "mp4", fps: 25, size: { width: 1080, height: 1920 } });
     const tracks = edit.timeline.tracks as Array<{ clips: any[] }>;
@@ -93,7 +91,7 @@ describe("the pure parts", () => {
     const media = tracks[3].clips;
     expect(media[1].transition).toEqual({ in: "wipeLeft" });
     expect(media[0].start + media[0].length).toBeCloseTo(media[1].start);
-    expect(tracks[2].clips[1].asset.html).toContain("Pide tu presupuesto");
+    expect(tracks[2].clips[1].asset.html).toContain("Get a quote");
     expect(tracks[4].clips[0]).toMatchObject({ alias: "voice", asset: { type: "audio", src: "https://x/voice.mp3" } });
 
     const single = shotstackEdit({
@@ -103,7 +101,6 @@ describe("the pure parts", () => {
       script: GOOD,
       brand,
       ratio: "4x5",
-      language: "en",
     });
     expect(single.output.size).toEqual({ width: 1080, height: 1350 });
     const clip = (single.timeline.tracks as Array<{ clips: any[] }>)[3].clips[0];
@@ -160,7 +157,7 @@ describe("the library, hooks and settings", () => {
     expect(await staff.as.mutation(api.ads.seedHooks, {})).toBe(0);
     const hooks = await staff.as.query(api.ads.listHooks, {});
     expect(hooks.map((h) => h.family).sort()).toEqual(["before_after", "education", "objection", "owner_story", "proof", "seasonal"]);
-    expect(hooks.every((h) => h.active && h.textEs && h.familyLabel)).toBe(true);
+    expect(hooks.every((h) => h.active && h.familyLabel)).toBe(true);
     const id = await staff.as.mutation(api.ads.saveHook, {
       family: "seasonal",
       scope: "exterior",
@@ -207,13 +204,13 @@ describe("the library, hooks and settings", () => {
       liveTarget: 6,
       keys: { shotstack: true, anthropic: false },
     });
-    const data = { adAccountId: "act_123", pageId: "77", leadFormId: "", adsetEn: "900", weeklyEnabled: true, hooksPerWeek: 9, liveTarget: 1 };
+    const data = { adAccountId: "act_123", pageId: "77", leadFormId: "", adsetId: "900", weeklyEnabled: true, hooksPerWeek: 9, liveTarget: 1 };
     await expect(staff.as.mutation(api.ads.saveSettings, data)).rejects.toThrow("Only Webb Leads admins");
     await owner.as.mutation(api.ads.saveSettings, data);
     expect(await staff.as.query(api.ads.settings, {})).toMatchObject({
       adAccountId: "123",
       pageId: "77",
-      adsetEn: "900",
+      adsetId: "900",
       weeklyEnabled: true,
       hooksPerWeek: 4,
       liveTarget: 2,
@@ -223,15 +220,6 @@ describe("the library, hooks and settings", () => {
 
 /** What each outside service answers during a weekly run. */
 function stubServices(calls: Array<{ url: string; body?: string }>, opts: { scriptsFail?: boolean; renderFails?: boolean } = {}) {
-  const scripts = {
-    en: GOOD,
-    es: {
-      ...GOOD,
-      headline: "Gabinetes pintados, cocina nueva",
-      primaryText: "Un acabado nuevo en tus gabinetes. Un pintor local verificado y un presupuesto gratis.",
-      voice: GOOD.voice.replace("Get a quote today", "Pide tu presupuesto hoy"),
-    },
-  };
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -246,9 +234,7 @@ function stubServices(calls: Array<{ url: string; body?: string }>, opts: { scri
             content: [
               {
                 type: "text",
-                text: opts.scriptsFail
-                  ? "Sure! " + JSON.stringify({ en: { ...GOOD, primaryText: "Only $999 this week" }, es: scripts.es })
-                  : JSON.stringify(scripts),
+                text: opts.scriptsFail ? "Sure! " + JSON.stringify({ ...GOOD, primaryText: "Only $999 this week" }) : JSON.stringify(GOOD),
               },
             ],
           }),
@@ -274,7 +260,6 @@ function stubServices(calls: Array<{ url: string; body?: string }>, opts: { scri
       return new Response("not stubbed " + url, { status: 500 });
     }),
   );
-  return scripts;
 }
 
 async function library(t: T, staff: Awaited<ReturnType<typeof signUp>>) {
@@ -285,7 +270,7 @@ async function library(t: T, staff: Awaited<ReturnType<typeof signUp>>) {
 }
 
 describe("the weekly run", () => {
-  test("drafts two hooks in two languages and two sizes, voices, renders and creates each PAUSED in Meta; the batch is ready and staff hear", async () => {
+  test("drafts two hooks in two sizes, voices, renders and creates each PAUSED in Meta; the batch is ready and staff hear", async () => {
     const t = setup();
     const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
     await library(t, owner);
@@ -298,10 +283,8 @@ describe("the weekly run", () => {
       adAccountId: "123",
       pageId: "77",
       leadFormId: "f1",
-      adsetEn: "900",
-      adsetEs: "901",
-      voiceEn: "ven",
-      voiceEs: "ves",
+      adsetId: "900",
+      voiceId: "ven",
       weeklyEnabled: true,
       hooksPerWeek: 2,
       liveTarget: 6,
@@ -314,23 +297,22 @@ describe("the weekly run", () => {
     vi.useRealTimers();
 
     const [batch] = await owner.as.query(api.ads.batches, {});
-    expect(batch).toMatchObject({ status: "ready", summary: "8 paused in Meta" });
-    expect(batch.creatives.length).toBe(8);
+    expect(batch).toMatchObject({ status: "ready", summary: "4 paused in Meta" });
+    expect(batch.creatives.length).toBe(4);
     expect(new Set(batch.creatives.map((c) => c.hook!.family)).size).toBe(2);
-    expect(batch.creatives.every((c) => c.status === "paused" && c.videoUrl && c.meta?.adId === "ad1")).toBe(true);
-    const es = batch.creatives.find((c) => c.language === "es" && c.ratio === "9x16")!;
-    expect(es.name).toMatch(/^WL_[a-z0-9]{6}_ES_916_\d{8}$/);
-    expect(es.script.headline).toBe("Gabinetes pintados, cocina nueva");
-    expect(es.meta?.adsetId).toBe("901");
+    expect(batch.creatives.every((c) => c.status === "paused" && c.videoUrl && c.meta?.adId === "ad1" && c.meta?.adsetId === "900")).toBe(true);
+    const tall = batch.creatives.find((c) => c.ratio === "9x16")!;
+    expect(tall.name).toMatch(/^WL_[a-z0-9]{6}_916_\d{8}$/);
+    expect(tall.script.headline).toBe(GOOD.headline);
     // The hooks were used once each; a pair went to the cabinets hook, the roller clip to the other.
     const hooks = await owner.as.query(api.ads.listHooks, {});
     expect(hooks.filter((h) => h.uses === 1).length).toBe(2);
-    // Claude twice (one per hook), ElevenLabs four times (hook × language), Shotstack eight renders, Meta three calls per creative.
+    // Claude once per hook, ElevenLabs once per hook, Shotstack four renders, Meta three calls per creative.
     expect(calls.filter((c) => c.url.includes("anthropic")).length).toBe(2);
-    expect(calls.filter((c) => c.url.includes("elevenlabs")).length).toBe(4);
-    expect(calls.filter((c) => c.url.endsWith("/render")).length).toBe(8);
+    expect(calls.filter((c) => c.url.includes("elevenlabs")).length).toBe(2);
+    expect(calls.filter((c) => c.url.endsWith("/render")).length).toBe(4);
     const ads = calls.filter((c) => c.url.endsWith("/ads"));
-    expect(ads.length).toBe(8);
+    expect(ads.length).toBe(4);
     expect(new URLSearchParams(ads[0].body).get("status")).toBe("PAUSED");
     const creative = JSON.parse(new URLSearchParams(calls.find((c) => c.url.endsWith("/adcreatives"))!.body).get("object_story_spec")!);
     expect(creative.video_data.call_to_action).toEqual({ type: "GET_QUOTE", value: { lead_gen_form_id: "f1" } });
@@ -340,21 +322,21 @@ describe("the weekly run", () => {
     expect(prompt).toContain("Permian Home Quotes");
     expect(prompt).toContain("never as a homeowner or customer");
 
-    // Approve one: live here, ACTIVE in Meta. Retire it: paused in Meta and the hook scored.
+    // Approve one: live here, ACTIVE in Meta.
     vi.useFakeTimers();
-    await owner.as.mutation(api.ads.activate, { id: es.id });
+    await owner.as.mutation(api.ads.activate, { id: tall.id });
     await t.finishAllScheduledFunctions(vi.runAllTimers);
     vi.useRealTimers();
     expect(new URLSearchParams(calls[calls.length - 1].body).get("status")).toBe("ACTIVE");
     expect(calls[calls.length - 1].url).toContain("/ad1");
-    // Live lists everything in Meta: the one approved and the seven still paused.
+    // Live lists everything in Meta: the one approved and the three still paused.
     const live = await owner.as.query(api.ads.live, {});
-    expect(live.length).toBe(8);
-    expect(live.find((r) => r.id === es.id)).toMatchObject({ status: "live", intake: { leads: 0, confirmed: 0, sold: 0, revenueCents: 0 } });
-    expect(live.filter((r) => r.status === "paused").length).toBe(7);
+    expect(live.length).toBe(4);
+    expect(live.find((r) => r.id === tall.id)).toMatchObject({ status: "live", intake: { leads: 0, confirmed: 0, sold: 0, revenueCents: 0 } });
+    expect(live.filter((r) => r.status === "paused").length).toBe(3);
     // A family that is live is skipped by the next pick.
     const plan = await t.query(internal.ads.plan, { hooksPerWeek: 4 });
-    expect(plan.hooks.some((h) => h.family === es.hook!.family)).toBe(false);
+    expect(plan.hooks.some((h) => h.family === tall.hook!.family)).toBe(false);
   });
 
   /** One hook a week, no Meta account, on a fresh backend. */
@@ -365,7 +347,7 @@ describe("the weekly run", () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "a");
     vi.stubEnv("ELEVENLABS_API_KEY", "e");
     vi.stubEnv("SHOTSTACK_API_KEY", "s");
-    await owner.as.mutation(api.ads.saveSettings, { voiceEn: "ven", voiceEs: "ves", weeklyEnabled: false, hooksPerWeek: 1, liveTarget: 6 });
+    await owner.as.mutation(api.ads.saveSettings, { voiceId: "ven", weeklyEnabled: false, hooksPerWeek: 1, liveTarget: 6 });
     const calls: Array<{ url: string; body?: string }> = [];
     const draft = async () => {
       vi.useFakeTimers();
@@ -380,7 +362,7 @@ describe("the weekly run", () => {
   test("a bad script fails the batch with the reason, and Monday with the switch off does nothing", async () => {
     const { t, owner, calls, draft } = await noMeta();
     stubServices(calls, { scriptsFail: true });
-    expect(await draft()).toMatchObject({ status: "failed", error: expect.stringContaining("English mentions a price or discount") });
+    expect(await draft()).toMatchObject({ status: "failed", error: expect.stringContaining("mentions a price or discount") });
     stubServices(calls);
     await t.action(internal.ads.weeklyRun, {});
     expect((await owner.as.query(api.ads.batches, {})).length).toBe(1);
@@ -390,7 +372,7 @@ describe("the weekly run", () => {
     const { calls, draft } = await noMeta();
     stubServices(calls, { renderFails: true });
     const batch = await draft();
-    expect(batch).toMatchObject({ status: "ready", summary: "0 paused in Meta · 4 failed" });
+    expect(batch).toMatchObject({ status: "ready", summary: "0 paused in Meta · 2 failed" });
     expect(batch.creatives.every((c) => c.status === "failed" && c.error?.includes("bad asset"))).toBe(true);
   });
 
@@ -398,7 +380,7 @@ describe("the weekly run", () => {
     const { owner, calls, draft } = await noMeta();
     stubServices(calls);
     const latest = await draft();
-    expect(latest).toMatchObject({ status: "ready", summary: "0 paused in Meta · 4 rendered but not in Meta" });
+    expect(latest).toMatchObject({ status: "ready", summary: "0 paused in Meta · 2 rendered but not in Meta" });
     expect(latest.creatives.every((c) => c.status === "rendered" && c.videoUrl && c.error?.includes("Meta isn't set up"))).toBe(true);
     await expect(owner.as.mutation(api.ads.activate, { id: latest.creatives[0].id })).rejects.toThrow("isn't in Meta yet");
     expect(calls.some((c) => c.url.includes("graph.facebook.com"))).toBe(false);
@@ -412,11 +394,10 @@ describe("the weekly run", () => {
     const { creativeId, name } = await t.run(async (ctx) => {
       const hook = (await ctx.db.query("adHooks").take(1))[0];
       const batchId = await ctx.db.insert("adBatches", { weekOf: "2026-11-02", status: "ready", createdAt: now });
-      const name = "WL_abc123_EN_916_20261102";
+      const name = "WL_abc123_916_20261102";
       const creativeId = await ctx.db.insert("adCreatives", {
         batchId,
         hookId: hook._id,
-        language: "en",
         ratio: "9x16",
         name,
         script: GOOD,
