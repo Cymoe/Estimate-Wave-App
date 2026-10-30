@@ -196,7 +196,6 @@ export const IntakePanel: React.FC<{
             <p className="text-xs text-gray-500 truncate">
               {SOURCE[row.source]}
               {row.takenBy ? ` by ${row.takenBy}` : ''} · in {ago(row.createdAt)}
-              {row.campaignName ? ` · ${[row.campaignName, row.adsetName, row.adName].filter(Boolean).join(' › ')}` : ''}
               {row.status === 'closed' ? ` · not a lead: ${reasonLabel(row.disposition)}` : row.status === 'confirmed' ? ' · confirmed' : ''}
             </p>
           </div>
@@ -226,6 +225,12 @@ export const IntakePanel: React.FC<{
                 {row.duplicate.confirmedLeadId ? ', already confirmed and sold' : row.duplicate.status === 'closed' ? ', marked not a lead' : ', still in the queue'}. One lead per homeowner in 45 days.
               </span>
             </div>
+          )}
+          {/* Which ad brought the lead in: the campaign, ad set and ad as Meta named them. */}
+          {row.campaignName && (
+            <p className="text-xs text-gray-500 break-words" data-testid="from-ad">
+              From the ad: {[row.campaignName, row.adsetName, row.adName].filter(Boolean).join(' › ')}
+            </p>
           )}
           {row.countyFromCampaign && row.county && row.countyFromCampaign !== row.county && (
             <p className="text-xs text-amber-200/80">The ad targeted {row.countyFromCampaign} County; the homeowner said {row.county}. The homeowner's answer wins.</p>

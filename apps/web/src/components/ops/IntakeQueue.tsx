@@ -114,6 +114,12 @@ export const IntakeQueue: React.FC<{
                     </span>
                     <span className="block text-xs text-gray-500">
                       {[tradeName(row.jobType) ?? 'Trade not set', row.county ? `${row.county} County` : 'County not set', row.city].filter(Boolean).join(' · ')}
+                      {/* The ad it came from, so a caller sees which creative is bringing people in. */}
+                      {(row.adName || row.adsetName) && (
+                        <span className="ml-2 text-[10px] text-gray-400 border border-[#333] rounded px-1" data-testid="intake-ad">
+                          {row.adName ?? row.adsetName}
+                        </span>
+                      )}
                     </span>
                     {/* Confirmed: where it went, at a glance. */}
                     {destinationLabel(row.listed) && (
