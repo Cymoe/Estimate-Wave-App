@@ -664,6 +664,8 @@ describe("the weekly run", () => {
     vi.useRealTimers();
 
     const [batch] = await owner.as.query(api.ads.batches, {});
+    // Named so a failed creative says why, not just that it failed.
+    expect(batch.creatives.map((c) => `${c.status}${c.error ? `: ${c.error}` : ""}`)).toEqual(["paused", "paused", "paused", "paused"]);
     expect(batch).toMatchObject({ status: "ready", summary: "4 paused in Meta" });
     expect(batch.creatives.length).toBe(4);
     expect(new Set(batch.creatives.map((c) => c.hook!.family)).size).toBe(2);
