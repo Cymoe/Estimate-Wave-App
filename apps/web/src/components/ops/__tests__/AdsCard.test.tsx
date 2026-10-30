@@ -226,7 +226,12 @@ describe('Ops → Ads', () => {
     (global as unknown as { fetch: unknown }).fetch = jest.fn(async () => ({ ok: true, json: async () => ({ storageId: 's1' }) }));
     await render();
     await tab('Library');
-    // "interior" is on by default; add "before", then upload.
+    // Nothing is on by default; light up "interior" and "before", then upload.
+    await act(async () =>
+      Array.from(document.body.querySelectorAll('[aria-label="Tags for the next upload"] button'))
+        .find((b) => b.textContent === 'interior')!
+        .click(),
+    );
     await act(async () =>
       Array.from(document.body.querySelectorAll('[aria-label="Tags for the next upload"] button'))
         .find((b) => b.textContent === 'before')!

@@ -311,6 +311,15 @@ describe("the library, hooks and settings", () => {
       tags: ["interior"],
       uses: 0,
     });
+    // An upload with no tags takes Claude's.
+    vi.useFakeTimers();
+    const untagged = await staff.as.mutation(api.ads.addAsset, { storageId: await store(t, "image/jpeg", "jpg2"), fileName: "IMG_2.jpg", tags: [] });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    vi.useRealTimers();
+    expect((await staff.as.query(api.ads.listAssets, {})).find((x) => x.id === untagged)).toMatchObject({
+      tags: ["cabinets", "after"],
+      suggestedTags: ["cabinets", "after"],
+    });
     expect(row.posterUrl).toEqual(expect.any(String));
     await expect(
       staff.as.mutation(api.ads.addAsset, {

@@ -428,7 +428,8 @@ async function uploadAsset(file: File, tags: string[], pairKey?: string, note?: 
 
 const Library: React.FC<{ act: Act }> = ({ act }) => {
   const assets = useAdsLibrary<AdAsset[]>();
-  const [tags, setTags] = useState<string[]>(['interior']);
+  // Nothing lit up by default: an upload with no tags takes the tags Claude suggests.
+  const [tags, setTags] = useState<string[]>([]);
   const [pairKey, setPairKey] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -450,8 +451,8 @@ const Library: React.FC<{ act: Act }> = ({ act }) => {
     <div className="space-y-4">
       <div className="border border-[#2A2A2A] rounded p-4 space-y-3">
         <p className="text-sm text-gray-400">
-          Your photos and clips. Tag each with what it shows; the Monday batch picks footage by the hook's scope, and a before and after with the same
-          pair key become a wipe.
+          Your photos and clips. Claude looks at each one and suggests tags; an upload with no tags takes them. Tag it yourself to override. A before
+          and after with the same pair key become a wipe.
         </p>
         <div className="flex flex-wrap gap-2" aria-label="Tags for the next upload">
           {[...SCOPES, 'before', 'after'].map((t) => (

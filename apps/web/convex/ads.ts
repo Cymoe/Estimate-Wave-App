@@ -169,8 +169,14 @@ export const assetForDescribe = internalQuery({
 export const saveDescription = internalMutation({
   args: { id: v.id("adAssets"), description: v.string(), suggestedTags: v.array(v.string()) },
   handler: async (ctx, { id, description, suggestedTags }) => {
-    if ((await ctx.db.get(id)) === null) return;
-    await ctx.db.patch(id, { description: description.slice(0, 300), suggestedTags });
+    const a = await ctx.db.get(id);
+    if (a === null) return;
+    // An upload nobody tagged takes Claude's tags; tags a person chose stay, with the suggestion shown beside them.
+    await ctx.db.patch(id, {
+      description: description.slice(0, 300),
+      suggestedTags,
+      ...(a.tags.length === 0 && suggestedTags.length > 0 ? { tags: suggestedTags } : {}),
+    });
   },
 });
 
