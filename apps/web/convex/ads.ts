@@ -12,6 +12,7 @@ import {
   SCOPES,
   composeScript,
   creativeName,
+  pickExamples,
   isFatigued,
   metaCents,
   parseJson,
@@ -25,11 +26,13 @@ import {
   weekOf,
   type Alignment,
   type Candidate,
+  type Example,
   type Family,
   type Script,
   type ShotPlan,
 } from "./lib/ads";
 import { consumerBrand } from "./lib/support";
+import { RESEARCH_SOURCE, SWIPE_SEEDS } from "./catalog/swipes";
 import { siteUrl } from "./delivery";
 import { tellStaff } from "./notify";
 
@@ -336,6 +339,137 @@ export const seedHooks = mutation({
   },
 });
 
+// -------------------------------------------------------------- Swipe file
+
+const swipeRow = v.object({
+  company: v.string(),
+  paintingType: v.string(),
+  scope: v.optional(v.string()),
+  hook: v.string(),
+  offer: v.string(),
+  creative: v.string(),
+  area: v.string(),
+  cta: v.string(),
+  adaptation: v.string(),
+  startedAt: v.optional(v.string()),
+  status: v.optional(v.string()),
+  pageUrl: v.optional(v.string()),
+  destination: v.optional(v.string()),
+  metaAdId: v.optional(v.string()),
+  adCopy: v.optional(v.string()),
+  transcript: v.optional(v.string()),
+  durationSec: v.optional(v.number()),
+});
+
+/** Stores competitor ads, updating any already known by their Meta ad id. */
+async function upsertSwipes(ctx: MutationCtx, rows: Record<string, unknown>[], source: string) {
+  let added = 0;
+  let updated = 0;
+  for (const raw of rows) {
+    const row = Object.fromEntries(Object.entries(raw).filter(([k, val]) => k !== "n" && val !== undefined && val !== "")) as Omit<
+      Doc<"adSwipes">,
+      "_id" | "_creationTime" | "starred" | "source" | "importedAt"
+    >;
+    if (!row.company) continue;
+    const existing = row.metaAdId
+      ? await ctx.db
+          .query("adSwipes")
+          .withIndex("by_meta_ad", (q) => q.eq("metaAdId", row.metaAdId))
+          .first()
+      : null;
+    if (existing) {
+      await ctx.db.patch(existing._id, { ...row, source, importedAt: nowIso() });
+      updated += 1;
+    } else {
+      await ctx.db.insert("adSwipes", { ...row, starred: false, source, importedAt: nowIso() });
+      added += 1;
+    }
+  }
+  return { added, updated };
+}
+
+/** Loads the October 10 research; ads already in the file (by Meta ad id) are left as they are. */
+export const seedSwipes = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireStaff(ctx);
+    let added = 0;
+    for (const seed of SWIPE_SEEDS) {
+      const existing = seed.metaAdId
+        ? await ctx.db
+            .query("adSwipes")
+            .withIndex("by_meta_ad", (q) => q.eq("metaAdId", seed.metaAdId))
+            .first()
+        : null;
+      if (existing) continue;
+      const row = { ...seed };
+      delete (row as { n?: number }).n;
+      await ctx.db.insert("adSwipes", { ...row, starred: false, source: RESEARCH_SOURCE, importedAt: nowIso() });
+      added += 1;
+    }
+    return added;
+  },
+});
+
+/** Rows merged in the browser from the research sheet's CSV tabs. */
+export const importSwipes = mutation({
+  args: { rows: v.array(swipeRow), source: v.string() },
+  handler: async (ctx, { rows, source }) => {
+    await requireStaff(ctx);
+    if (rows.length === 0)
+      fail("INVALID", "No ads found. Download the sheet's tabs as CSV (File → Download → Comma-separated values) and upload those.");
+    return await upsertSwipes(ctx, rows, source.trim().slice(0, 120) || "CSV import");
+  },
+});
+
+export const listSwipes = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireStaff(ctx);
+    return (await ctx.db.query("adSwipes").take(1000))
+      .map((x) => ({
+        id: x._id,
+        company: x.company,
+        paintingType: x.paintingType,
+        scope: x.scope,
+        hook: x.hook,
+        offer: x.offer,
+        creative: x.creative,
+        area: x.area,
+        cta: x.cta,
+        adaptation: x.adaptation,
+        startedAt: x.startedAt,
+        status: x.status,
+        pageUrl: x.pageUrl,
+        destination: x.destination,
+        metaAdId: x.metaAdId,
+        adCopy: x.adCopy,
+        transcript: x.transcript,
+        durationSec: x.durationSec,
+        starred: x.starred,
+        source: x.source,
+      }))
+      .sort((a, b) => Number(b.starred) - Number(a.starred) || a.company.localeCompare(b.company));
+  },
+});
+
+export const starSwipe = mutation({
+  args: { id: v.id("adSwipes"), starred: v.boolean() },
+  handler: async (ctx, { id, starred }) => {
+    await requireStaff(ctx);
+    if ((await ctx.db.get(id)) === null) fail("NOT_FOUND", "That ad isn't in the swipe file");
+    await ctx.db.patch(id, { starred });
+  },
+});
+
+export const removeSwipe = mutation({
+  args: { id: v.id("adSwipes") },
+  handler: async (ctx, { id }) => {
+    await requireStaff(ctx);
+    if ((await ctx.db.get(id)) !== null) await ctx.db.delete(id);
+  },
+});
+
 // --------------------------------------------------------------- Settings
 
 export const settings = query({
@@ -589,8 +723,21 @@ export const plan = internalQuery({
       hooksPerWeek,
     );
     const assets = await ctx.db.query("adAssets").take(500);
+    // What the writer is shown for each hook's scope: competitor ads, for tone and shape.
+    const swipes = await ctx.db.query("adSwipes").take(1000);
+    const examples: Record<string, Example[]> = {};
+    for (const scope of new Set(hooks.map((h) => h.scope)))
+      examples[scope] = pickExamples(swipes, scope).map((x) => ({
+        company: x.company,
+        hook: x.hook,
+        offer: x.offer,
+        transcript: x.transcript,
+        adCopy: x.adCopy,
+        durationSec: x.durationSec,
+      }));
     return {
       hooks,
+      examples,
       assets: await Promise.all(
         assets.map(async (a) => ({
           _id: a._id,
@@ -832,7 +979,7 @@ export const weeklyRun = internalAction({
     try {
       if (!k.anthropic || !k.elevenlabs || !k.shotstack)
         throw new Error("Set ANTHROPIC_API_KEY, ELEVENLABS_API_KEY and SHOTSTACK_API_KEY on the deployment");
-      const { hooks, assets } = await ctx.runQuery(internal.ads.plan, { hooksPerWeek: 100 });
+      const { hooks, assets, examples } = await ctx.runQuery(internal.ads.plan, { hooksPerWeek: 100 });
       if (hooks.length === 0) throw new Error("No active hook whose family isn't already live. Add or switch on hooks in Ops → Ads → Hooks.");
       if (assets.length === 0) throw new Error("The library is empty. Upload photos or clips in Ops → Ads → Library.");
       const used = new Set<string>();
@@ -848,7 +995,7 @@ export const weeklyRun = internalAction({
         }
         let script: Script;
         try {
-          script = await writeShotList(hook, cfg.brand.name, picked.assets, picked.inScope);
+          script = await writeShotList(hook, cfg.brand.name, picked.assets, picked.inScope, examples[hook.scope] ?? []);
         } catch (e) {
           skipped.push(`${label}: ${errText(e)}`);
           continue;
@@ -873,8 +1020,14 @@ export const weeklyRun = internalAction({
  * go in as image blocks, each after a "Footage N" label so the numbers in
  * the reply point at the right asset. One retry with the problems named.
  */
-async function writeShotList(hook: Doc<"adHooks">, brand: string, footage: Array<Candidate & { _id: string }>, inScope: boolean): Promise<Script> {
-  const content: unknown[] = [{ type: "text", text: shotListPrompt(hook, brand, footage, inScope) }];
+async function writeShotList(
+  hook: Doc<"adHooks">,
+  brand: string,
+  footage: Array<Candidate & { _id: string }>,
+  inScope: boolean,
+  examples: Example[],
+): Promise<Script> {
+  const content: unknown[] = [{ type: "text", text: shotListPrompt(hook, brand, footage, inScope, examples) }];
   footage.forEach((f, i) => {
     if (!f.imageUrl) return;
     content.push({ type: "text", text: `Footage ${i + 1}:` }, { type: "image", source: { type: "url", url: f.imageUrl } });

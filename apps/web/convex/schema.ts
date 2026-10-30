@@ -1604,6 +1604,35 @@ export default defineSchema({
     leadsMeta: v.number(),
   }).index("by_creative_day", ["creativeId", "day"]),
 
+  // The swipe file: competitor ads from Meta's Ad Library, as the VA's
+  // research recorded them, to browse for ideas and to show the writer the
+  // tone and shape of ads that run in a category (never their claims).
+  adSwipes: defineTable({
+    company: v.string(),
+    paintingType: v.string(),
+    // cabinets / interior / exterior; none for general painting.
+    scope: v.optional(v.string()),
+    hook: v.string(),
+    offer: v.string(),
+    creative: v.string(),
+    area: v.string(),
+    cta: v.string(),
+    adaptation: v.string(),
+    startedAt: v.optional(v.string()),
+    status: v.optional(v.string()),
+    pageUrl: v.optional(v.string()),
+    destination: v.optional(v.string()),
+    metaAdId: v.optional(v.string()),
+    adCopy: v.optional(v.string()),
+    transcript: v.optional(v.string()),
+    durationSec: v.optional(v.number()),
+    starred: v.boolean(),
+    source: v.string(),
+    importedAt: v.string(),
+  })
+    .index("by_meta_ad", ["metaAdId"])
+    .index("by_scope", ["scope"]),
+
   adSettings: defineTable({
     adAccountId: v.optional(v.string()),
     pageId: v.optional(v.string()),

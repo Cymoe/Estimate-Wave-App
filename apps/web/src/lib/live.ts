@@ -57,7 +57,13 @@ function useLive<T>(ref: FunctionReference<'query'>, args: Args): T | undefined 
       } catch (err) {
         // The query threw (signed out, no access): keep what we had, and say what broke.
         const raw = err instanceof Error ? err.message : String(err);
-        setLiveError(name, raw.replace(/^\[CONVEX[^\]]*\]\s*(\[Request ID:[^\]]*\]\s*)?/, '').replace(/^(Server Error\s*)?(Uncaught (Convex)?Error:\s*)?/, '').split('\n')[0] || 'server error');
+        setLiveError(
+          name,
+          raw
+            .replace(/^\[CONVEX[^\]]*\]\s*(\[Request ID:[^\]]*\]\s*)?/, '')
+            .replace(/^(Server Error\s*)?(Uncaught (Convex)?Error:\s*)?/, '')
+            .split('\n')[0] || 'server error',
+        );
       }
     };
     read();
@@ -73,50 +79,51 @@ const forOrg = (organizationId?: string): Args => (organizationId ? { organizati
 
 // Ops
 /** The demand board: every county and trade with a bid or a lead. */
-export const useDemandBoard = <T,>() => useLive<T>(q('demand:board'), {});
+export const useDemandBoard = <T>() => useLive<T>(q('demand:board'), {});
 /** One slot opened: who bids there and the leads it has seen. */
-export const useDemandSlot = <T,>(county: string, jobType: string) => useLive<T>(q('demand:slot'), { county, jobType });
+export const useDemandSlot = <T>(county: string, jobType: string) => useLive<T>(q('demand:slot'), { county, jobType });
 
 // Ads on autopilot (Ops → Ads).
-export const useAdsBatches = <T,>(on = true) => useLive<T>(q('ads:batches'), on ? {} : 'skip');
-export const useAdsLive = <T,>(on = true) => useLive<T>(q('ads:live'), on ? {} : 'skip');
-export const useAdsLibrary = <T,>(on = true) => useLive<T>(q('ads:listAssets'), on ? {} : 'skip');
-export const useAdsHooks = <T,>(on = true) => useLive<T>(q('ads:listHooks'), on ? {} : 'skip');
-export const useAdsSettings = <T,>(on = true) => useLive<T>(q('ads:settings'), on ? {} : 'skip');
+export const useAdsBatches = <T>(on = true) => useLive<T>(q('ads:batches'), on ? {} : 'skip');
+export const useAdsLive = <T>(on = true) => useLive<T>(q('ads:live'), on ? {} : 'skip');
+export const useAdsLibrary = <T>(on = true) => useLive<T>(q('ads:listAssets'), on ? {} : 'skip');
+export const useAdsHooks = <T>(on = true) => useLive<T>(q('ads:listHooks'), on ? {} : 'skip');
+export const useAdsSettings = <T>(on = true) => useLive<T>(q('ads:settings'), on ? {} : 'skip');
+export const useAdsSwipes = <T>(on = true) => useLive<T>(q('ads:listSwipes'), on ? {} : 'skip');
 /** The intake queue for one filter. */
-export const useIntakeQueue = <T,>(status: 'open' | 'closed' | 'confirmed') => useLive<T>(q('intake:queue'), { status });
+export const useIntakeQueue = <T>(status: 'open' | 'closed' | 'confirmed') => useLive<T>(q('intake:queue'), { status });
 /** The last 50 hits on the intake webhook: accepted, repeat or rejected, and why. */
-export const useIntakeLog = <T,>() => useLive<T>(q('intake:recentLog'), {});
+export const useIntakeLog = <T>() => useLive<T>(q('intake:recentLog'), {});
 /** Every awarded lead with what was sent and whether the company has it. */
-export const useDelivered = <T,>() => useLive<T>(q('delivery:recent'), {});
+export const useDelivered = <T>() => useLive<T>(q('delivery:recent'), {});
 /** Leads for sale, the Vault and the last ones sold: the Listed tab. */
-export const useInbox = <T,>(on = true) => useLive<T>(q('marketplace:listInbox'), on ? {} : 'skip');
+export const useInbox = <T>(on = true) => useLive<T>(q('marketplace:listInbox'), on ? {} : 'skip');
 /** Every company with its balance, this month's leads and spend, and its plan. */
-export const useCompanies = <T,>(on = true) => useLive<T>(q('marketplace:companiesOverview'), on ? {} : 'skip');
+export const useCompanies = <T>(on = true) => useLive<T>(q('marketplace:companiesOverview'), on ? {} : 'skip');
 /** Credit requests waiting on the owner. */
-export const usePendingCredits = <T,>(on = true) => useLive<T>(q('marketplace:pendingCredits'), on ? {} : 'skip');
+export const usePendingCredits = <T>(on = true) => useLive<T>(q('marketplace:pendingCredits'), on ? {} : 'skip');
 /** Companies that applied (from the landing page, or an owner adding another) and wait on a decision. */
-export const useApplications = <T,>(on = true) => useLive<T>(q('applications:list'), on ? {} : 'skip');
+export const useApplications = <T>(on = true) => useLive<T>(q('applications:list'), on ? {} : 'skip');
 /** Whether payments are in test mode (play money). Staff only; undefined while loading or signed out. */
-export const usePaymentsMode = <T,>() => useLive<T>(q('funding:mode'), {});
+export const usePaymentsMode = <T>() => useLive<T>(q('funding:mode'), {});
 /** The funding page behind a link: no login, the token is the key. Flips to paid when Stripe's webhook lands. */
-export const useFundingPage = <T,>(token?: string) => useLive<T>(q('funding:get'), token ? { token } : 'skip');
+export const useFundingPage = <T>(token?: string) => useLive<T>(q('funding:get'), token ? { token } : 'skip');
 /** Where a lead for this county and trade would go the moment it is listed. */
-export const useLeadDestination = <T,>(county?: string, jobType?: string) =>
+export const useLeadDestination = <T>(county?: string, jobType?: string) =>
   useLive<T>(q('intake:destination'), county && jobType ? { county, jobType } : 'skip');
 
 // Companies
 /** The company's lead balance, bids and plan. */
-export const useWallet = <T,>(organizationId?: string) => useLive<T>(q('marketplace:wallet'), forOrg(organizationId));
+export const useWallet = <T>(organizationId?: string) => useLive<T>(q('marketplace:wallet'), forOrg(organizationId));
 /** A company's leads, for its panel in Ops. */
-export const useCompanyLeads = <T,>(organizationId?: string) => useLive<T>(q('leads:list'), forOrg(organizationId));
+export const useCompanyLeads = <T>(organizationId?: string) => useLive<T>(q('leads:list'), forOrg(organizationId));
 /** Leads for sale right now, with their price schedules. */
-export const useMarketFeed = <T,>(organizationId?: string) => useLive<T>(q('marketplace:feed'), forOrg(organizationId));
+export const useMarketFeed = <T>(organizationId?: string) => useLive<T>(q('marketplace:feed'), forOrg(organizationId));
 /** The company's buy orders, open and settled. */
-export const useMyBuyOrders = <T,>(organizationId?: string) => useLive<T>(q('marketplace:bids'), forOrg(organizationId));
+export const useMyBuyOrders = <T>(organizationId?: string) => useLive<T>(q('marketplace:bids'), forOrg(organizationId));
 /** The Vault: leads nobody bought in a week, for companies on the plan. */
-export const useOlderLeads = <T,>(organizationId?: string) => useLive<T>(q('marketplace:olderLeads'), forOrg(organizationId));
+export const useOlderLeads = <T>(organizationId?: string) => useLive<T>(q('marketplace:olderLeads'), forOrg(organizationId));
 /** What the company's standing bids won and missed. */
-export const useBidResults = <T,>(organizationId?: string) => useLive<T>(q('bids:results'), forOrg(organizationId));
+export const useBidResults = <T>(organizationId?: string) => useLive<T>(q('bids:results'), forOrg(organizationId));
 /** The company's standing bids, with where each stands. */
-export const useStandingBids = <T,>(organizationId?: string) => useLive<T>(q('bids:listStanding'), forOrg(organizationId));
+export const useStandingBids = <T>(organizationId?: string) => useLive<T>(q('bids:listStanding'), forOrg(organizationId));

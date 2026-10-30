@@ -4,9 +4,13 @@ import type { Id } from "./_generated/dataModel";
 import {
   composeScript,
   creativeName,
+  familyOfAngle,
   isFatigued,
+  mergeSwipeCsvs,
+  parseCsv,
   parseJson,
   pickAssets,
+  pickExamples,
   pickHooks,
   scriptProblems,
   shotListPrompt,
@@ -17,6 +21,7 @@ import {
   type Script,
 } from "./lib/ads";
 import { setup, signUp } from "./test.setup";
+import { SWIPE_SEEDS } from "./catalog/swipes";
 
 type T = ReturnType<typeof setup>;
 const store = (t: T, type = "image/jpeg", body = "bytes") => t.run((ctx) => ctx.storage.store(new Blob([body], { type })));
@@ -232,6 +237,84 @@ describe("the pure parts", () => {
   });
 });
 
+describe("the swipe file's pure parts", () => {
+  test("CSV: quotes, doubled quotes, newlines inside quotes and a BOM", () => {
+    expect(parseCsv('\ufeffa,b\n1,"x, ""y""\nz"\n')).toEqual([
+      ["a", "b"],
+      ["1", 'x, "y"\nz'],
+    ]);
+  });
+
+  test("the three sheet tabs merge by their # column; types map to scopes; angles map to families", () => {
+    const ads =
+      "#,Company,Painting type,Hook / angle,Offer,Creative,Area evidence,CTA,Client adaptation,Started (Meta),Status when observed,Advertiser page,Destination,Ad ID\n1,Acme,Cabinets,Cost of new cabinets,Free quote,Before/after,Odessa,Get quote,Try it,2026-09-01,Active,https://fb/acme,https://acme.example,111\n2,Bee,General painting,Owner selfie,None,Selfie,Midland,Learn more,Try it,,,,,222";
+    const copy = '#,Company,Ad copy and card text\n1,Acme,"Tired of dark cabinets?\nWe paint them."';
+    const transcripts = '#,Company,Spoken transcript,Duration (seconds)\n1,Acme,"[00:00] Hi there. [00:03] Paint them.",14';
+    const merged = mergeSwipeCsvs([transcripts, copy, ads]);
+    expect(merged.tabs.sort()).toEqual(["ads", "copy", "transcripts"]);
+    expect(merged.rows).toEqual([
+      expect.objectContaining({
+        company: "Acme",
+        paintingType: "Cabinets",
+        scope: "cabinets",
+        hook: "Cost of new cabinets",
+        area: "Odessa",
+        adaptation: "Try it",
+        startedAt: "2026-09-01",
+        status: "Active",
+        pageUrl: "https://fb/acme",
+        destination: "https://acme.example",
+        metaAdId: "111",
+        adCopy: "Tired of dark cabinets?\nWe paint them.",
+        transcript: "[00:00] Hi there. [00:03] Paint them.",
+        durationSec: 14,
+      }),
+      expect.objectContaining({ company: "Bee", paintingType: "General painting", scope: undefined, transcript: undefined, metaAdId: "222" }),
+    ]);
+    expect(mergeSwipeCsvs([copy]).rows).toEqual([]);
+    expect(familyOfAngle("Cost of new cabinets")).toBe("education");
+    expect(familyOfAngle("Before/after transformation")).toBe("before_after");
+    expect(familyOfAngle("Owner selfie")).toBe("owner_story");
+    expect(familyOfAngle("Book before the new year")).toBe("seasonal");
+    expect(familyOfAngle("Clean, respectful crew")).toBe("objection");
+    expect(familyOfAngle("5-star reviews")).toBe("proof");
+  });
+
+  test("examples for the writer: the hook's scope first, starred first, those with a script first, then newest; four at most", () => {
+    const sw = (over: Partial<{ scope?: string; starred: boolean; transcript?: string; importedAt: string; id: string }>) => ({
+      id: "x",
+      starred: false,
+      importedAt: "2026-10-10",
+      ...over,
+    });
+    const swipes = [
+      sw({ id: "general-old", importedAt: "2026-01-01" }),
+      sw({ id: "ext", scope: "exterior", starred: true, transcript: "t" }),
+      sw({ id: "cab-plain", scope: "cabinets" }),
+      sw({ id: "cab-script", scope: "cabinets", transcript: "t" }),
+      sw({ id: "cab-star", scope: "cabinets", starred: true }),
+      sw({ id: "general-new", importedAt: "2026-10-20" }),
+      sw({ id: "cab-newer", scope: "cabinets", importedAt: "2026-10-30" }),
+    ];
+    expect(pickExamples(swipes, "cabinets").map((x) => x.id)).toEqual(["cab-star", "cab-script", "cab-newer", "cab-plain"]);
+    expect(pickExamples(swipes, "crew").map((x) => x.id)).toEqual(["general-new", "general-old", "ext", "cab-star"]);
+  });
+
+  test("the prompt carries the examples with the tone-only rule, scripts without their timestamps, copy cut to 300 characters", () => {
+    const hook = { textEn: "Paint them, don't replace them.", family: "before_after" as const, scope: "cabinets" };
+    const examples = [
+      { company: "Acme", hook: "Cost", offer: "Free quote", transcript: "[00:00] Hi there.\n[00:03] Paint them.", durationSec: 14.4 },
+      { company: "Bee", hook: "Selfie", offer: "None", adCopy: "x".repeat(400) },
+    ];
+    const text = shotListPrompt(hook, "B", [], true, examples);
+    expect(text).toContain("for tone and shape only. Never copy their claims, prices, discounts, names, warranties or deadlines.");
+    expect(text).toContain("Example 1 (Acme; angle: Cost; offer: Free quote) · spoken (14s): Hi there. Paint them.");
+    expect(text).toContain(`Example 2 (Bee; angle: Selfie; offer: None) · copy: ${"x".repeat(300)}`);
+    expect(text).not.toContain("x".repeat(301));
+    expect(shotListPrompt(hook, "B", [], true)).not.toContain("tone and shape");
+  });
+});
+
 describe("the library, hooks and settings", () => {
   test("staff file photos and clips with tags; tags are cleaned; removing deletes the file; members can't", async () => {
     const t = setup();
@@ -373,6 +456,65 @@ describe("the library, hooks and settings", () => {
     expect((await staff.as.query(api.ads.listHooks, {})).length).toBe(6);
   });
 
+  test("the swipe file: the research loads once, CSV rows update by Meta ad id, stars and removals stick, members can't look", async () => {
+    const t = setup();
+    const staff = await signUp(t, "ops@tolliver.example", { role: "staff" });
+    const member = await signUp(t, "painter@tolliver.example", {});
+    expect(await staff.as.mutation(api.ads.seedSwipes, {})).toBe(30);
+    expect(await staff.as.mutation(api.ads.seedSwipes, {})).toBe(0);
+    let swipes = await staff.as.query(api.ads.listSwipes, {});
+    expect(swipes.length).toBe(30);
+    expect(swipes.filter((x) => x.transcript).length).toBe(6);
+    expect(swipes.every((x) => x.adCopy && x.source === "research 2026-10-10" && !x.starred)).toBe(true);
+    const rodgers = swipes.find((x) => x.company === "Rodgers Painting")!;
+    expect(rodgers).toMatchObject({ scope: "cabinets", durationSec: expect.any(Number) });
+
+    // A later import: one row Meta already knows (updated), one new.
+    const known = SWIPE_SEEDS.find((x) => x.metaAdId)!;
+    const result = await staff.as.mutation(api.ads.importSwipes, {
+      source: "research 2026-11-14",
+      rows: [
+        {
+          company: known.company,
+          paintingType: known.paintingType,
+          scope: known.scope,
+          hook: "A fresher angle",
+          offer: known.offer,
+          creative: known.creative,
+          area: known.area,
+          cta: known.cta,
+          adaptation: known.adaptation,
+          metaAdId: known.metaAdId,
+        },
+        {
+          company: "New Coat Co",
+          paintingType: "Exterior",
+          scope: "exterior",
+          hook: "Stucco cracks",
+          offer: "Free quote",
+          creative: "Drone",
+          area: "Lubbock",
+          cta: "Get quote",
+          adaptation: "Try it",
+        },
+      ],
+    });
+    expect(result).toEqual({ added: 1, updated: 1 });
+    swipes = await staff.as.query(api.ads.listSwipes, {});
+    expect(swipes.length).toBe(31);
+    expect(swipes.find((x) => x.metaAdId === known.metaAdId)).toMatchObject({ hook: "A fresher angle", source: "research 2026-11-14" });
+    await expect(staff.as.mutation(api.ads.importSwipes, { source: "x", rows: [] })).rejects.toThrow("No ads found");
+
+    await staff.as.mutation(api.ads.starSwipe, { id: rodgers.id, starred: true });
+    swipes = await staff.as.query(api.ads.listSwipes, {});
+    expect(swipes[0]).toMatchObject({ id: rodgers.id, starred: true });
+    const gone = swipes.find((x) => x.company === "New Coat Co")!;
+    await staff.as.mutation(api.ads.removeSwipe, { id: gone.id });
+    expect((await staff.as.query(api.ads.listSwipes, {})).length).toBe(30);
+    await expect(member.as.query(api.ads.listSwipes, {})).rejects.toThrow();
+    await expect(member.as.mutation(api.ads.seedSwipes, {})).rejects.toThrow();
+  });
+
   test("settings: the owner saves the Meta ids (act_ dropped) and the Monday switch; staff only read; keys show as set or missing", async () => {
     const t = setup();
     const owner = await signUp(t, "owner@tolliver.example", { role: "super_admin" });
@@ -486,6 +628,9 @@ function stubServices(calls: Array<{ url: string; body?: string }>, opts: StubOp
 
 async function library(t: T, staff: Awaited<ReturnType<typeof signUp>>) {
   await staff.as.mutation(api.ads.seedHooks, {});
+  await staff.as.mutation(api.ads.seedSwipes, {});
+  const rodgers = (await staff.as.query(api.ads.listSwipes, {})).find((x) => x.company === "Rodgers Painting")!;
+  await staff.as.mutation(api.ads.starSwipe, { id: rodgers.id, starred: true });
   await staff.as.mutation(api.ads.addAsset, { storageId: await store(t), fileName: "before.jpg", tags: ["cabinets", "before"], pairKey: "k" });
   await staff.as.mutation(api.ads.addAsset, { storageId: await store(t), fileName: "after.jpg", tags: ["cabinets", "after"], pairKey: "k" });
   await staff.as.mutation(api.ads.addAsset, { storageId: await store(t, "video/mp4", "mp4"), fileName: "roller.mp4", tags: ["process"] });
@@ -525,6 +670,13 @@ describe("the weekly run", () => {
     expect(batch.creatives.every((c) => c.status === "paused" && c.videoUrl && c.meta?.adId === "ad1" && c.meta?.adsetId === "900")).toBe(true);
     const tall = batch.creatives.find((c) => c.ratio === "9x16")!;
     expect(tall.name).toMatch(/^WL_[a-z0-9]{6}_916_\d{8}$/);
+    // The cabinets writer saw the swipe file: the starred Rodgers ad first, as tone only.
+    const cabinetsPrompt = calls
+      .filter((c) => c.url.includes("api.anthropic.com"))
+      .map((c) => (JSON.parse(c.body!).messages[0].content as Array<{ text?: string }>)[0].text ?? "")
+      .find((p) => p.includes("Scope: cabinets."))!;
+    expect(cabinetsPrompt).toContain("for tone and shape only");
+    expect(cabinetsPrompt).toMatch(/Example 1 \(Rodgers Painting; [^)]*\) · spoken \(\d+s\)/);
     expect(tall.script.headline).toBe(GOOD.headline);
     // The hooks were used once each; the pair went to the cabinets hook, the roller clip to the other.
     const hooks = await owner.as.query(api.ads.listHooks, {});

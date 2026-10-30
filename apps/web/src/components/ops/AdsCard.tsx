@@ -1,22 +1,25 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Film, Image as ImageIcon, Play, Trash2, Upload } from 'lucide-react';
+import { ExternalLink, Film, Image as ImageIcon, Play, Star, Trash2, Upload } from 'lucide-react';
 import { adsAPI } from '../../lib/api';
-import { useAdsBatches, useAdsHooks, useAdsLibrary, useAdsLive, useAdsSettings } from '../../lib/live';
+import { useAdsBatches, useAdsHooks, useAdsLibrary, useAdsLive, useAdsSettings, useAdsSwipes } from '../../lib/live';
+import { familyOfAngle, mergeSwipeCsvs } from '../../../convex/lib/ads';
 import { money } from '../market/wallet';
-import { ErrorLine, Field, ago, describeError, input, primary, secondary } from './ui';
+import { ErrorLine, Field, ago, describeError, input, primary, secondary, tap } from './ui';
 
 /**
  * Ops → Ads: the week's drafted ads to approve, the live ones with what
  * they cost and brought in, the photo and clip library the ads are cut
- * from, the hooks they open with, and the Meta account they go to.
+ * from, the hooks they open with, the competitor ads kept for inspiration,
+ * and the Meta account they go to.
  */
 
-type Section = 'week' | 'live' | 'library' | 'hooks' | 'settings';
+type Section = 'week' | 'live' | 'library' | 'hooks' | 'swipes' | 'settings';
 const SECTIONS: Array<[Section, string]> = [
   ['week', 'This week'],
   ['live', 'Live'],
   ['library', 'Library'],
   ['hooks', 'Hooks'],
+  ['swipes', 'Swipe file'],
   ['settings', 'Settings'],
 ];
 
@@ -124,6 +127,8 @@ const pct = (n: number) => `${n.toFixed(2)}%`;
 
 export const AdsCard: React.FC<{ owner: boolean }> = ({ owner }) => {
   const [section, setSection] = useState<Section>('week');
+  // A hook started from a swipe: the Hooks form opens with it filled in.
+  const [hookStart, setHookStart] = useState<HookDraft | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const act = async (fn: () => Promise<unknown>, done?: string) => {
@@ -143,7 +148,10 @@ export const AdsCard: React.FC<{ owner: boolean }> = ({ owner }) => {
             key={value}
             role="tab"
             aria-selected={section === value}
-            onClick={() => setSection(value)}
+            onClick={() => {
+              setSection(value);
+              setHookStart(null);
+            }}
             className={`px-3 py-1.5 text-sm rounded ${section === value ? 'bg-[#222] text-white' : 'text-gray-400 [@media(hover:hover)]:hover:text-white'}`}
           >
             {label}
@@ -163,7 +171,15 @@ export const AdsCard: React.FC<{ owner: boolean }> = ({ owner }) => {
       ) : section === 'library' ? (
         <Library act={act} />
       ) : section === 'hooks' ? (
-        <Hooks act={act} />
+        <Hooks act={act} initial={hookStart ?? undefined} />
+      ) : section === 'swipes' ? (
+        <Swipes
+          act={act}
+          onMakeHook={(draft) => {
+            setHookStart(draft);
+            setSection('hooks');
+          }}
+        />
       ) : (
         <Settings owner={owner} act={act} />
       )}
@@ -595,9 +611,11 @@ const AssetCard: React.FC<{ a: AdAsset; act: Act }> = ({ a, act }) => {
 
 const EMPTY_HOOK = { family: 'before_after', scope: 'cabinets', trade: 'painting', textEn: '', active: true };
 
-const Hooks: React.FC<{ act: Act }> = ({ act }) => {
+type HookDraft = typeof EMPTY_HOOK;
+
+const Hooks: React.FC<{ act: Act; initial?: HookDraft }> = ({ act, initial }) => {
   const hooks = useAdsHooks<AdHook[]>();
-  const [draft, setDraft] = useState<{ id?: string } & typeof EMPTY_HOOK>(EMPTY_HOOK);
+  const [draft, setDraft] = useState<{ id?: string } & HookDraft>(initial ?? EMPTY_HOOK);
   const set = (k: keyof typeof EMPTY_HOOK) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setDraft((d) => ({ ...d, [k]: e.target.value }));
   const save = () => act(() => adsAPI.saveHook(draft).then(() => setDraft(EMPTY_HOOK)), 'Hook saved.');
@@ -698,6 +716,221 @@ const Hooks: React.FC<{ act: Act }> = ({ act }) => {
             >
               <Trash2 className="w-4 h-4" />
             </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+};
+
+export interface Swipe {
+  id: string;
+  company: string;
+  paintingType: string;
+  scope?: string;
+  hook: string;
+  offer: string;
+  creative: string;
+  area: string;
+  cta: string;
+  adaptation: string;
+  startedAt?: string;
+  status?: string;
+  pageUrl?: string;
+  destination?: string;
+  metaAdId?: string;
+  adCopy?: string;
+  transcript?: string;
+  durationSec?: number;
+  starred: boolean;
+  source: string;
+}
+
+const readText = (file: File) =>
+  typeof file.text === 'function'
+    ? file.text()
+    : new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result ?? ''));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsText(file);
+      });
+
+/** Competitor ads kept for inspiration: browse, star, turn an angle into a hook, import more research. */
+const Swipes: React.FC<{ act: Act; onMakeHook: (draft: HookDraft) => void }> = ({ act, onMakeHook }) => {
+  const swipes = useAdsSwipes<Swipe[]>();
+  const [type, setType] = useState('All');
+  const [search, setSearch] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [imported, setImported] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const importCsv = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setImporting(true);
+    try {
+      const texts = await Promise.all(Array.from(files).map(readText));
+      const { rows } = mergeSwipeCsvs(texts);
+      const source = Array.from(files)
+        .map((f) => f.name.replace(/\.csv$/i, ''))
+        .join(', ');
+      await act(async () => {
+        const { added, updated } = await adsAPI.importSwipes(rows as unknown as Record<string, unknown>[], source);
+        setImported(`${rows.length} ads read from ${files.length} file${files.length === 1 ? '' : 's'}: ${added} added, ${updated} updated.`);
+      });
+    } finally {
+      setImporting(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+  if (swipes === undefined) return <p className="text-sm text-gray-500">Loading…</p>;
+  const types = ['All', ...Array.from(new Set(swipes.map((x) => x.paintingType))).sort()];
+  const needle = search.trim().toLowerCase();
+  const shown = swipes.filter(
+    (x) =>
+      (type === 'All' || x.paintingType === type) &&
+      (!needle || [x.company, x.hook, x.offer, x.creative, x.adaptation, x.adCopy ?? '', x.area].join(' ').toLowerCase().includes(needle)),
+  );
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-gray-400">
+        Competitor ads from the research, kept here for inspiration. Star the ones you like: the Monday writer is shown starred ads in the hook's
+        category as examples of tone and shape, never of claims. "Make a hook" starts a hook from an ad's angle.
+      </p>
+      <div className="flex flex-wrap gap-2 items-center">
+        {swipes.length === 0 && (
+          <button type="button" className={secondary} onClick={() => act(() => adsAPI.seedSwipes(), 'The October 10 research is in.')}>
+            Load the October 10 research
+          </button>
+        )}
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".csv,text/csv"
+          multiple
+          aria-label="Import research CSV files"
+          className="text-xs text-gray-400"
+          disabled={importing}
+          onChange={(e) => void importCsv(e.target.files)}
+        />
+        <span className="text-xs text-gray-500">Download each tab of the research sheet as CSV and pick them all at once.</span>
+      </div>
+      {imported && (
+        <p role="status" className="text-sm text-emerald-300">
+          {imported}
+        </p>
+      )}
+      {swipes.length > 0 && (
+        <div className="flex flex-wrap gap-2 items-center">
+          <div role="group" aria-label="Painting type" className="flex gap-1 flex-wrap">
+            {types.map((t) => (
+              <button
+                key={t}
+                type="button"
+                aria-pressed={type === t}
+                onClick={() => setType(t)}
+                className={`px-2 py-1 text-xs rounded border ${type === t ? 'border-white text-white' : 'border-[#333] text-gray-400'}`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search company, angle, offer, copy"
+            aria-label="Search the swipe file"
+            className={`${input} max-w-xs`}
+          />
+          <span className="text-xs text-gray-500">
+            {shown.length} of {swipes.length}
+          </span>
+        </div>
+      )}
+      <ul className="space-y-3" aria-label="Swipe file">
+        {shown.map((x) => (
+          <li key={x.id} className="border border-[#2A2A2A] rounded p-4 space-y-2" data-testid="swipe">
+            <div className="flex items-start gap-2">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-gray-500">
+                  {x.company} · {x.paintingType} · {x.area}
+                  {x.startedAt ? ` · since ${x.startedAt}` : ''}
+                  {x.status ? ` · ${x.status}` : ''}
+                </p>
+                <p className="text-sm text-white font-medium">{x.hook}</p>
+              </div>
+              <button
+                type="button"
+                className={`${tap} ${x.starred ? 'text-amber-300' : 'text-gray-500'}`}
+                aria-label={x.starred ? `Unstar ${x.company}` : `Star ${x.company}`}
+                aria-pressed={x.starred}
+                onClick={() => act(() => adsAPI.starSwipe(x.id, !x.starred))}
+              >
+                <Star size={18} fill={x.starred ? 'currentColor' : 'none'} />
+              </button>
+            </div>
+            <dl className="grid gap-x-4 gap-y-1 sm:grid-cols-[6rem_1fr] text-sm">
+              <dt className="text-gray-500">Offer</dt>
+              <dd className="text-gray-200">{x.offer}</dd>
+              <dt className="text-gray-500">Creative</dt>
+              <dd className="text-gray-200">{x.creative}</dd>
+              <dt className="text-gray-500">Button</dt>
+              <dd className="text-gray-200">{x.cta}</dd>
+              <dt className="text-gray-500">For us</dt>
+              <dd className="text-gray-200">{x.adaptation}</dd>
+            </dl>
+            {x.adCopy && (
+              <details className="text-sm">
+                <summary className="cursor-pointer text-gray-300">Ad copy</summary>
+                <p className="whitespace-pre-wrap text-gray-200 mt-1">{x.adCopy}</p>
+              </details>
+            )}
+            {x.transcript && (
+              <details className="text-sm">
+                <summary className="cursor-pointer text-gray-300">Script{x.durationSec ? ` · ${Math.round(x.durationSec)}s` : ''}</summary>
+                <p className="whitespace-pre-wrap text-gray-200 mt-1">{x.transcript}</p>
+              </details>
+            )}
+            <div className="flex flex-wrap gap-2 items-center text-xs">
+              <button
+                type="button"
+                className={secondary}
+                onClick={() =>
+                  onMakeHook({
+                    ...EMPTY_HOOK,
+                    family: familyOfAngle(`${x.hook} ${x.creative}`),
+                    scope: x.scope ?? EMPTY_HOOK.scope,
+                    textEn: x.hook,
+                  })
+                }
+              >
+                Make a hook
+              </button>
+              {x.metaAdId && (
+                <a
+                  href={`https://www.facebook.com/ads/library/?id=${encodeURIComponent(x.metaAdId)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-gray-300 underline"
+                >
+                  View in Ad Library <ExternalLink size={12} />
+                </a>
+              )}
+              {x.pageUrl && (
+                <a href={x.pageUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-gray-300 underline">
+                  Their page <ExternalLink size={12} />
+                </a>
+              )}
+              <span className="text-gray-600">{x.source}</span>
+              <button
+                type="button"
+                className={`${tap} text-gray-500 ml-auto`}
+                aria-label={`Remove ${x.company}`}
+                onClick={() => act(() => adsAPI.removeSwipe(x.id))}
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
           </li>
         ))}
       </ul>

@@ -1,11 +1,12 @@
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
-import { AdsCard, type AdAsset, type AdBatch, type AdHook, type AdSettings, type LiveAd } from '../AdsCard';
+import { AdsCard, type AdAsset, type AdBatch, type AdHook, type AdSettings, type LiveAd, type Swipe } from '../AdsCard';
 
 let batches: AdBatch[] = [];
 let live: LiveAd[] = [];
 let assets: AdAsset[] = [];
 let hooks: AdHook[] = [];
+let swipes: Swipe[] = [];
 let settings: AdSettings | undefined;
 
 const activate = jest.fn(async () => undefined);
@@ -18,6 +19,9 @@ const saveSettings = jest.fn(async () => undefined);
 const tagAsset = jest.fn(async () => undefined);
 const addAsset = jest.fn(async () => 'a9');
 const uploadUrl = jest.fn(async () => 'https://upload.example/u1');
+const seedSwipes = jest.fn(async () => 30);
+const importSwipes = jest.fn(async () => ({ added: 1, updated: 1 }));
+const starSwipe = jest.fn(async () => undefined);
 
 jest.mock('../../../lib/api', () => ({
   adsAPI: {
@@ -33,6 +37,10 @@ jest.mock('../../../lib/api', () => ({
     uploadUrl: () => uploadUrl(),
     removeAsset: async () => undefined,
     removeHook: async () => undefined,
+    seedSwipes: () => seedSwipes(),
+    importSwipes: (...args: unknown[]) => importSwipes(...args),
+    starSwipe: (...args: unknown[]) => starSwipe(...args),
+    removeSwipe: async () => undefined,
   },
 }));
 jest.mock('../../../lib/live', () => ({
@@ -41,6 +49,7 @@ jest.mock('../../../lib/live', () => ({
   useAdsLibrary: () => assets,
   useAdsHooks: () => hooks,
   useAdsSettings: () => settings,
+  useAdsSwipes: () => swipes,
 }));
 
 const flush = () =>
@@ -99,6 +108,7 @@ beforeEach(() => {
   live = [];
   assets = [];
   hooks = [];
+  swipes = [];
   settings = {
     brand: 'Permian Home Quotes',
     keys: { anthropic: true, elevenlabs: true, shotstack: false, meta: false },
@@ -316,6 +326,106 @@ describe('Ops → Ads', () => {
     await flush();
     expect(saveHook).toHaveBeenLastCalledWith(
       expect.objectContaining({ family: 'before_after', scope: 'cabinets', textEn: 'Get the outside painted before the freeze.', active: true }),
+    );
+  });
+
+  it('Swipe file loads the research, filters and searches, stars one, and starts a hook from an angle', async () => {
+    await render();
+    await tab('Swipe file');
+    await act(async () => byText('Load the October 10 research')!.click());
+    expect(seedSwipes).toHaveBeenCalled();
+    expect(document.body.querySelector('[role="status"]')?.textContent).toBe('The October 10 research is in.');
+
+    const swipe = (over: Partial<Swipe>): Swipe => ({
+      id: 's1',
+      company: 'Rodgers Painting',
+      paintingType: 'Cabinets',
+      scope: 'cabinets',
+      hook: 'Cost of new cabinets vs painting',
+      offer: 'Free quote',
+      creative: 'Before/after reel',
+      area: 'Tulsa, OK',
+      cta: 'Get quote',
+      adaptation: 'Lead with the price gap.',
+      startedAt: '2026-09-01',
+      metaAdId: '111',
+      pageUrl: 'https://www.facebook.com/rodgers',
+      adCopy: 'Tired of dark cabinets? We paint them.',
+      transcript: '[00:00] Hi there. [00:03] Paint them.',
+      durationSec: 14,
+      starred: false,
+      source: 'research 2026-10-10',
+      ...over,
+    });
+    swipes = [
+      swipe({}),
+      swipe({
+        id: 's2',
+        company: 'Marian Painting',
+        paintingType: 'Exterior',
+        scope: 'exterior',
+        hook: 'Owner selfie walk-through',
+        transcript: undefined,
+        adCopy: 'Meet the owner.',
+      }),
+    ];
+    document.body.innerHTML = '';
+    await render();
+    await tab('Swipe file');
+    expect(byText('Load the October 10 research')).toBeUndefined();
+    const cards = () => Array.from(document.body.querySelectorAll('[data-testid="swipe"]'));
+    expect(cards().length).toBe(2);
+    const first = cards()[0];
+    expect(first.textContent).toContain('Rodgers Painting · Cabinets · Tulsa, OK · since 2026-09-01');
+    expect(first.textContent).toContain('Cost of new cabinets vs painting');
+    expect(first.textContent).toContain('Script · 14s');
+    expect(first.querySelector('a[href="https://www.facebook.com/ads/library/?id=111"]')).not.toBeNull();
+    expect(first.querySelector('a[href="https://www.facebook.com/rodgers"]')).not.toBeNull();
+
+    await act(async () => byText('Exterior')!.click());
+    expect(cards().length).toBe(1);
+    expect(cards()[0].textContent).toContain('Marian Painting');
+    await act(async () => byText('All')!.click());
+    type(document.body.querySelector('input[type="search"]') as HTMLInputElement, 'dark cabinets');
+    await flush();
+    expect(cards().length).toBe(1);
+    expect(cards()[0].textContent).toContain('Rodgers Painting');
+
+    await act(async () => (cards()[0].querySelector('[aria-label="Star Rodgers Painting"]') as HTMLButtonElement).click());
+    expect(starSwipe).toHaveBeenCalledWith('s1', true);
+
+    await act(async () => byText('Make a hook')!.click());
+    const form = document.body.querySelector('form[aria-label="New hook"]')!;
+    expect(form).not.toBeNull();
+    expect((form.querySelector('textarea') as HTMLTextAreaElement).value).toBe('Cost of new cabinets vs painting');
+    const selects = form.querySelectorAll('select');
+    expect((selects[0] as HTMLSelectElement).value).toBe('education');
+    expect((selects[1] as HTMLSelectElement).value).toBe('cabinets');
+  });
+
+  it('Swipe file imports the research sheet from its CSV tabs, merged by #', async () => {
+    swipes = [];
+    await render();
+    await tab('Swipe file');
+    const fileInput = document.body.querySelector('input[type="file"]') as HTMLInputElement;
+    const ads = new File(
+      [
+        '#,Company,Painting type,Hook / angle,Offer,Creative,Area evidence,CTA,Client adaptation,Started (Meta),Status when observed,Advertiser page,Destination,Ad ID\n1,Acme,Cabinets,Cost,Free quote,Reel,Odessa,Get quote,Try it,,,,,111',
+      ],
+      'Painting ads.csv',
+      { type: 'text/csv' },
+    );
+    const copy = new File(['#,Company,Ad copy and card text\n1,Acme,"Tired of dark cabinets?"'], 'Ad copy.csv', { type: 'text/csv' });
+    Object.defineProperty(fileInput, 'files', { value: [ads, copy] });
+    await act(async () => fileInput.dispatchEvent(new Event('change', { bubbles: true })));
+    await flush();
+    await flush();
+    expect(importSwipes).toHaveBeenCalledWith(
+      [expect.objectContaining({ company: 'Acme', scope: 'cabinets', metaAdId: '111', adCopy: 'Tired of dark cabinets?' })],
+      'Painting ads, Ad copy',
+    );
+    expect(Array.from(document.body.querySelectorAll('[role="status"]')).map((s) => s.textContent)).toContain(
+      '1 ads read from 2 files: 1 added, 1 updated.',
     );
   });
 

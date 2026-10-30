@@ -9,7 +9,19 @@ import { Dialog, ErrorLine, Field, ago, describeError, input, primary, secondary
 import { IntakeQueue } from '../components/ops/IntakeQueue';
 import { Delivered, type DeliveredRow } from '../components/ops/Delivered';
 import { DemandBoard, type DemandBoardData } from '../components/ops/DemandBoard';
-import { useApplications, useCompanies, useCompanyLeads, useDelivered, useDemandBoard, useInbox, useIntakeQueue, useLiveErrors, usePaymentsMode, usePendingCredits, useWallet } from '../lib/live';
+import {
+  useApplications,
+  useCompanies,
+  useCompanyLeads,
+  useDelivered,
+  useDemandBoard,
+  useInbox,
+  useIntakeQueue,
+  useLiveErrors,
+  usePaymentsMode,
+  usePendingCredits,
+  useWallet,
+} from '../lib/live';
 import { OpsErrorBoundary } from '../components/ops/OpsErrorBoundary';
 import { isStaff, isSuperAdmin } from '../lib/roles';
 import { TeamCard } from '../components/ops/TeamCard';
@@ -220,6 +232,7 @@ const LIVE_LABELS: Record<string, string> = {
   'ads:listAssets': 'the ad library',
   'ads:listHooks': 'the hooks',
   'ads:settings': 'the ad settings',
+  'ads:listSwipes': 'the swipe file',
   'marketplace:listInbox': 'the leads for sale',
   'delivery:recent': 'the sold leads',
   'marketplace:companiesOverview': 'the companies',
@@ -244,7 +257,6 @@ const TAB_TITLES: Record<Tab, string> = {
 
 const plural = (n: number, word: string) => `${n} ${n === 1 ? word : word === 'company' ? 'companies' : `${word}s`}`;
 const isToday = (iso: string) => new Date(iso).toDateString() === new Date().toDateString();
-
 
 function TradePicker({ trades, value, onChange }: { trades: Trade[]; value: string[]; onChange: (next: string[]) => void }) {
   return (
@@ -286,7 +298,14 @@ function PermitsCard() {
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
-  const load = useCallback(() => permitsAPI.status().then(setStatus).catch((err) => setNote(`The permit status couldn't be read: ${describeError(err, 'server error')}`)), []);
+  const load = useCallback(
+    () =>
+      permitsAPI
+        .status()
+        .then(setStatus)
+        .catch((err) => setNote(`The permit status couldn't be read: ${describeError(err, 'server error')}`)),
+    [],
+  );
   useEffect(() => {
     load();
   }, [load]);
@@ -318,7 +337,9 @@ function PermitsCard() {
         {status?.details && status.details.total > 0 && (
           <span className="block text-xs text-gray-500 mt-0.5" data-testid="permit-builders">
             {`Builders and job value: ${status.details.filled.toLocaleString()} of ${status.details.total.toLocaleString()} permits filled in`}
-            {s?.details ? ` · last run ${new Date(s.details.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ' · runs every hour'}
+            {s?.details
+              ? ` · last run ${new Date(s.details.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`
+              : ' · runs every hour'}
             {s?.details?.error ? ` · the city's portal failed: ${s.details.error}` : ''}
           </span>
         )}
@@ -358,7 +379,13 @@ function NewCompanyDialog({ trades, onClose, onSaved }: { trades: Trade[]; onClo
           <input value={draft.name} onChange={set('name')} className={input} autoFocus required />
         </Field>
         <Field label="Owner's email">
-          <input type="email" value={draft.ownerEmail} onChange={set('ownerEmail')} className={input} placeholder="They join this company when they sign up" />
+          <input
+            type="email"
+            value={draft.ownerEmail}
+            onChange={set('ownerEmail')}
+            className={input}
+            placeholder="They join this company when they sign up"
+          />
         </Field>
         <div className="grid grid-cols-3 gap-3">
           <Field label="Phone">
@@ -402,7 +429,8 @@ function SendToDialog({
   const [showOthers, setShowOthers] = useState(false);
   const takes = (c: Company) => Boolean(lead.jobType && c.leadTrades.includes(lead.jobType));
   const { buyers, others } = useMemo(() => {
-    const byFunds = (a: Company, b: Company) => Number(b.balanceCents >= lead.price) - Number(a.balanceCents >= lead.price) || a.name.localeCompare(b.name);
+    const byFunds = (a: Company, b: Company) =>
+      Number(b.balanceCents >= lead.price) - Number(a.balanceCents >= lead.price) || a.name.localeCompare(b.name);
     return { buyers: companies.filter(takes).sort(byFunds), others: companies.filter((c) => !takes(c)).sort(byFunds) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companies, lead]);
@@ -427,8 +455,8 @@ function SendToDialog({
   return (
     <Dialog title={`Send ${lead.name}`} onClose={onClose}>
       <p className="text-sm text-gray-400 mb-4">
-        {tradeName(lead.jobType)} lead · <span className="text-white font-medium">{money(lead.price)}</span> (its current price) comes off the company's balance, and any buy orders on it are closed.
-        Only one company gets it. Pick one, then confirm.
+        {tradeName(lead.jobType)} lead · <span className="text-white font-medium">{money(lead.price)}</span> (its current price) comes off the
+        company's balance, and any buy orders on it are closed. Only one company gets it. Pick one, then confirm.
       </p>
       <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" role="radiogroup" aria-label="Send to">
         {sorted.map((company) => {
@@ -464,8 +492,14 @@ function SendToDialog({
         <p className="text-xs text-gray-500 mt-2">No company buys {tradeName(lead.jobType)} yet, so this is everyone.</p>
       )}
       {buyers.length > 0 && others.length > 0 && (
-        <button type="button" onClick={() => setShowOthers((v) => !v)} className="mt-3 min-h-[44px] text-xs text-gray-400 underline underline-offset-2">
-          {showOthers ? `Hide the ${others.length} ${others.length === 1 ? 'company' : 'companies'} that don’t buy ${tradeName(lead.jobType)}` : `Show ${others.length} ${others.length === 1 ? 'company' : 'companies'} that don’t buy ${tradeName(lead.jobType)}`}
+        <button
+          type="button"
+          onClick={() => setShowOthers((v) => !v)}
+          className="mt-3 min-h-[44px] text-xs text-gray-400 underline underline-offset-2"
+        >
+          {showOthers
+            ? `Hide the ${others.length} ${others.length === 1 ? 'company' : 'companies'} that don’t buy ${tradeName(lead.jobType)}`
+            : `Show ${others.length} ${others.length === 1 ? 'company' : 'companies'} that don’t buy ${tradeName(lead.jobType)}`}
         </button>
       )}
       {/* Pinned to the bottom of the dialog: picking a company far down the list never means scrolling to send. */}
@@ -522,7 +556,8 @@ function PlanSection({ company }: { company: Company }) {
         <span className={`text-sm ${plan?.active ? 'text-emerald-300' : 'text-gray-400'}`}>{planLabel(plan)}</span>
         {plan && (
           <span className="text-xs text-gray-500">
-            · {plan.claimsLeft} of {plan.claimsIncluded} claims left · next {new Date(plan.nextChargeAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+            · {plan.claimsLeft} of {plan.claimsIncluded} claims left · next{' '}
+            {new Date(plan.nextChargeAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
           </span>
         )}
       </div>
@@ -551,15 +586,33 @@ function PlanSection({ company }: { company: Company }) {
       <div className="flex flex-wrap items-end gap-2">
         <label className="text-xs text-gray-500">
           $/month
-          <input aria-label="Monthly price" value={monthly} onChange={(e) => setMonthly(e.target.value)} inputMode="decimal" className="block w-20 bg-[#1A1A1A] border border-[#333] rounded px-2 py-1.5 text-sm text-white" />
+          <input
+            aria-label="Monthly price"
+            value={monthly}
+            onChange={(e) => setMonthly(e.target.value)}
+            inputMode="decimal"
+            className="block w-20 bg-[#1A1A1A] border border-[#333] rounded px-2 py-1.5 text-sm text-white"
+          />
         </label>
         <label className="text-xs text-gray-500">
           Claims included
-          <input aria-label="Claims included" value={claims} onChange={(e) => setClaims(e.target.value)} inputMode="numeric" className="block w-20 bg-[#1A1A1A] border border-[#333] rounded px-2 py-1.5 text-sm text-white" />
+          <input
+            aria-label="Claims included"
+            value={claims}
+            onChange={(e) => setClaims(e.target.value)}
+            inputMode="numeric"
+            className="block w-20 bg-[#1A1A1A] border border-[#333] rounded px-2 py-1.5 text-sm text-white"
+          />
         </label>
         <label className="text-xs text-gray-500">
           $/extra claim
-          <input aria-label="Extra claim price" value={extra} onChange={(e) => setExtra(e.target.value)} inputMode="decimal" className="block w-20 bg-[#1A1A1A] border border-[#333] rounded px-2 py-1.5 text-sm text-white" />
+          <input
+            aria-label="Extra claim price"
+            value={extra}
+            onChange={(e) => setExtra(e.target.value)}
+            inputMode="decimal"
+            className="block w-20 bg-[#1A1A1A] border border-[#333] rounded px-2 py-1.5 text-sm text-white"
+          />
         </label>
         <button type="button" disabled={busy} onClick={savePrices} className={secondary}>
           Save plan
@@ -745,7 +798,8 @@ function CompanyPanel({
   const linkStatus = (() => {
     const link = company.fundingLink;
     if (!link || link.status === 'cancelled') return null;
-    if (link.status === 'confirmed') return `Last payment link: paid ${money(link.amountCents ?? 0)}${link.confirmedAt ? ` ${ago(link.confirmedAt)}` : ''}`;
+    if (link.status === 'confirmed')
+      return `Last payment link: paid ${money(link.amountCents ?? 0)}${link.confirmedAt ? ` ${ago(link.confirmedAt)}` : ''}`;
     if (link.status === 'submitted') return `Payment link: they're at checkout${link.amountCents ? ` for ${money(link.amountCents)}` : ''}`;
     return `Payment link: sent ${ago(link.createdAt)}, not paid yet`;
   })();
@@ -827,7 +881,11 @@ function CompanyPanel({
                 Send payment link
               </button>
               {linkNote && <span className="text-xs text-emerald-300">{linkNote}</span>}
-              {linkStatus && <span className="text-xs text-gray-400" data-testid="link-status">{linkStatus}</span>}
+              {linkStatus && (
+                <span className="text-xs text-gray-400" data-testid="link-status">
+                  {linkStatus}
+                </span>
+              )}
             </div>
           )}
           {owner && linkUrl && (
@@ -841,31 +899,31 @@ function CompanyPanel({
           )}
 
           {owner && (
-          <form onSubmit={recordPayment} className="border border-[#2A2A2A] rounded p-4">
-            <h3 className="text-sm font-medium text-white mb-3">Record a payment</h3>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Amount received ($)">
-                <input inputMode="decimal" value={amount} onChange={(e) => changeAmount(e.target.value)} className={input} placeholder="5000" />
-              </Field>
-              <Field label="Bonus ($)">
-                <input inputMode="decimal" value={bonus} onChange={(e) => setBonus(e.target.value)} className={input} placeholder="0" />
-              </Field>
-              <Field label="Paid by">
-                <select value={method} onChange={(e) => setMethod(e.target.value)} className={input}>
-                  {['Zelle', 'Check', 'Card', 'Cash', 'Bank transfer', 'Other'].map((m) => (
-                    <option key={m}>{m}</option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Note">
-                <input value={note} onChange={(e) => setNote(e.target.value)} className={input} />
-              </Field>
-            </div>
-            {error && <p className="text-sm text-red-400 mb-3">{error}</p>}
-            <button type="submit" disabled={busy || !(Number(amount) > 0)} className={`${primary} w-full`}>
-              Add {amount && Number(amount) > 0 ? money(Math.round((Number(amount) + (Number(bonus) || 0)) * 100)) : 'funds'} to balance
-            </button>
-          </form>
+            <form onSubmit={recordPayment} className="border border-[#2A2A2A] rounded p-4">
+              <h3 className="text-sm font-medium text-white mb-3">Record a payment</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Amount received ($)">
+                  <input inputMode="decimal" value={amount} onChange={(e) => changeAmount(e.target.value)} className={input} placeholder="5000" />
+                </Field>
+                <Field label="Bonus ($)">
+                  <input inputMode="decimal" value={bonus} onChange={(e) => setBonus(e.target.value)} className={input} placeholder="0" />
+                </Field>
+                <Field label="Paid by">
+                  <select value={method} onChange={(e) => setMethod(e.target.value)} className={input}>
+                    {['Zelle', 'Check', 'Card', 'Cash', 'Bank transfer', 'Other'].map((m) => (
+                      <option key={m}>{m}</option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Note">
+                  <input value={note} onChange={(e) => setNote(e.target.value)} className={input} />
+                </Field>
+              </div>
+              {error && <p className="text-sm text-red-400 mb-3">{error}</p>}
+              <button type="submit" disabled={busy || !(Number(amount) > 0)} className={`${primary} w-full`}>
+                Add {amount && Number(amount) > 0 ? money(Math.round((Number(amount) + (Number(bonus) || 0)) * 100)) : 'funds'} to balance
+              </button>
+            </form>
           )}
 
           {owner && mine.length > 0 && (
@@ -929,7 +987,9 @@ function CompanyPanel({
             {owner ? (
               <TradePicker trades={trades} value={leadTrades} onChange={saveTrades} />
             ) : (
-              <p className="text-sm text-gray-300">{leadTrades.map((id) => trades.find((t) => t.id === id)?.name ?? id).join(', ') || 'No trades picked yet'}</p>
+              <p className="text-sm text-gray-300">
+                {leadTrades.map((id) => trades.find((t) => t.id === id)?.name ?? id).join(', ') || 'No trades picked yet'}
+              </p>
             )}
             {confirmDialog}
           </section>
@@ -971,7 +1031,13 @@ function CompanyPanel({
                           <span className="block text-sm text-white truncate">{lead.name}</span>
                           <span className="block text-xs text-gray-500">
                             {leadRoute(lead)}
-                            {creditState === 'approved' ? ' · credited back' : creditState === 'denied' ? ' · credit declined' : creditState === 'pending' ? ' · credit requested' : ''}
+                            {creditState === 'approved'
+                              ? ' · credited back'
+                              : creditState === 'denied'
+                                ? ' · credit declined'
+                                : creditState === 'pending'
+                                  ? ' · credit requested'
+                                  : ''}
                           </span>
                         </span>
                         <span className="flex items-center gap-2">
@@ -989,16 +1055,29 @@ function CompanyPanel({
                       </div>
                       {crediting === lead.id && (
                         <div className="mt-2 rounded border border-[#2A2A2A] bg-[#161616] p-3 space-y-2" data-testid="credit-form">
-                          <p className="text-xs text-gray-400">Puts {money(lead.pricePaidCents ?? 0)} back on their balance. The lead stays with them, marked credited.</p>
+                          <p className="text-xs text-gray-400">
+                            Puts {money(lead.pricePaidCents ?? 0)} back on their balance. The lead stays with them, marked credited.
+                          </p>
                           <div className="flex flex-wrap gap-2">
-                            <select value={creditReason} onChange={(e) => setCreditReason(e.target.value)} aria-label="Why" className={`${input} py-1.5 text-sm w-auto`}>
+                            <select
+                              value={creditReason}
+                              onChange={(e) => setCreditReason(e.target.value)}
+                              aria-label="Why"
+                              className={`${input} py-1.5 text-sm w-auto`}
+                            >
                               {Object.entries(CREDIT_REASON_LABELS).map(([value, label]) => (
                                 <option key={value} value={value}>
                                   {label}
                                 </option>
                               ))}
                             </select>
-                            <input value={creditNote} onChange={(e) => setCreditNote(e.target.value)} placeholder="Note (optional)" aria-label="Credit note" className={`${input} py-1.5 text-sm flex-1 min-w-[10rem]`} />
+                            <input
+                              value={creditNote}
+                              onChange={(e) => setCreditNote(e.target.value)}
+                              placeholder="Note (optional)"
+                              aria-label="Credit note"
+                              className={`${input} py-1.5 text-sm flex-1 min-w-[10rem]`}
+                            />
                           </div>
                           <button type="button" disabled={busy} onClick={() => creditLead(lead)} className={primary}>
                             Credit {money(lead.pricePaidCents ?? 0)} back
@@ -1089,7 +1168,10 @@ function PricesTab({ trades }: { trades: Trade[] }) {
   const load = useCallback(async () => {
     setLoadError(null);
     try {
-      const result = (await marketplaceAPI.prices()) as { defaultCents: number; prices: Array<{ jobType: string; priceCents: number; floorCents?: number; dropCents?: number; dropEveryMinutes?: number }> };
+      const result = (await marketplaceAPI.prices()) as {
+        defaultCents: number;
+        prices: Array<{ jobType: string; priceCents: number; floorCents?: number; dropCents?: number; dropEveryMinutes?: number }>;
+      };
       const next: Record<string, PriceDraft> = { default: { ...emptyDraft, price: String(result.defaultCents / 100) } };
       for (const row of result.prices) next[row.jobType] = fromRow(row);
       setDrafts(next);
@@ -1179,7 +1261,8 @@ function PricesTab({ trades }: { trades: Trade[] }) {
   return (
     <div className="max-w-3xl">
       <p className="text-sm text-gray-400 mb-3">
-        A lead with a standing bid for its county and trade is sold to the highest bidder the moment it's confirmed. The rest go up for sale at the start price ($200 or more) and drop to the floor over the day, where they stay until bought. Trades left blank use the default row.
+        A lead with a standing bid for its county and trade is sold to the highest bidder the moment it's confirmed. The rest go up for sale at the
+        start price ($200 or more) and drop to the floor over the day, where they stay until bought. Trades left blank use the default row.
       </p>
       {error && <p className="text-sm text-red-400 mb-3">{error}</p>}
       {loadError ? (
@@ -1196,7 +1279,6 @@ function PricesTab({ trades }: { trades: Trade[] }) {
         {row('default', 'Default (every other trade)', '200')}
         {trades.map((t) => row(t.id, t.name, drafts.default?.price ?? ''))}
       </ul>
-
     </div>
   );
 }
@@ -1214,8 +1296,7 @@ const LeadMarketPage: React.FC = () => {
   // refresh keeps the tab, and a link in an email opens the right panel.
   const creating = searchParams.get('new');
   const tabParam = OLD_TAB_NAMES[searchParams.get('tab') ?? ''] ?? searchParams.get('tab');
-  const tab: Tab =
-    isTab(tabParam) && (tabParam !== 'prices' || owner) ? tabParam : creating === 'company' ? 'companies' : 'intake';
+  const tab: Tab = isTab(tabParam) && (tabParam !== 'prices' || owner) ? tabParam : creating === 'company' ? 'companies' : 'intake';
   const openCompanyId = searchParams.get('company');
   const liveProblems = Object.entries(useLiveErrors());
   const go = (changes: { tab?: Tab; company?: string | null }, { replace = false } = {}) => {
@@ -1276,7 +1357,7 @@ const LeadMarketPage: React.FC = () => {
     if (!approve) {
       const yes = await confirmAction({
         title: `Decline ${application.companyName}?`,
-        message: "They come off the list. Nothing is emailed to them: call them if they should hear why.",
+        message: 'They come off the list. Nothing is emailed to them: call them if they should hear why.',
         confirmLabel: 'Decline',
         cancelLabel: 'Keep it',
       });
@@ -1301,7 +1382,10 @@ const LeadMarketPage: React.FC = () => {
 
   useEffect(() => {
     if (!staff) return;
-    industriesAPI.list().then(setTrades).catch(() => setTrades([]));
+    industriesAPI
+      .list()
+      .then(setTrades)
+      .catch(() => setTrades([]));
   }, [staff]);
 
   useEffect(() => {
@@ -1331,7 +1415,9 @@ const LeadMarketPage: React.FC = () => {
       leads30d: sum((c) => c.leads30d),
       spent30dCents: sum((c) => c.spent30dCents),
       wonCents: sum((c) => c.wonCents),
-      plans: PLAN_STATES.filter((state) => mix[state]).map((state) => `${mix[state]} ${state}`).join(' · '),
+      plans: PLAN_STATES.filter((state) => mix[state])
+        .map((state) => `${mix[state]} ${state}`)
+        .join(' · '),
     };
   }, [companies]);
 
@@ -1471,284 +1557,291 @@ const LeadMarketPage: React.FC = () => {
 
       {/* A tab that crashes stays inside this box: the tabs above keep working. */}
       <OpsErrorBoundary key={tab} onHome={() => go({ tab: 'intake' })}>
-      {loading ? (
-        <p className="text-sm text-gray-500">Loading…</p>
-      ) : tab === 'intake' ? (
-        <IntakeQueue
-          trades={trades}
-          openNew={creating === 'lead'}
-          onCloseNew={closeCreate}
-          onListed={setNotice}
-        />
-      ) : tab === 'ads' ? (
-        <AdsCard owner={owner} />
-      ) : tab === 'calls' ? (
-        <div className="space-y-6">
-          <CallsPage embedded />
-          <CallsCard />
-        </div>
-      ) : tab === 'demand' ? (
-        <DemandBoard owner={owner} />
-      ) : tab === 'sold' ? (
-        <Delivered tradeName={tradeName} />
-      ) : tab === 'forsale' ? (
-        <div className="space-y-6">
-          {inbox.available.length === 0 ? (
-            <div className="border border-dashed border-[#333] rounded p-8 text-center">
-              <Inbox className="w-8 h-8 mx-auto text-gray-500 mb-2" />
-              <p className="text-sm text-gray-400">Nothing for sale. Leads get here from Intake once a call confirms them.</p>
-            </div>
-          ) : (
-            <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="For sale">
-              {inbox.available.map((lead) => (
-                <li key={lead.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-                  <div className="flex-1 min-w-[12rem]">
-                    <p className="text-sm font-medium text-white">{lead.name}</p>
-                    <p className="text-xs text-gray-400 flex flex-wrap gap-x-3">
-                      <span className="inline-flex items-center gap-1">
-                        <Tag className="w-3 h-3" />
-                        {tradeName(lead.jobType)}
-                      </span>
-                      {(lead.city || lead.county) && (
+        {loading ? (
+          <p className="text-sm text-gray-500">Loading…</p>
+        ) : tab === 'intake' ? (
+          <IntakeQueue trades={trades} openNew={creating === 'lead'} onCloseNew={closeCreate} onListed={setNotice} />
+        ) : tab === 'ads' ? (
+          <AdsCard owner={owner} />
+        ) : tab === 'calls' ? (
+          <div className="space-y-6">
+            <CallsPage embedded />
+            <CallsCard />
+          </div>
+        ) : tab === 'demand' ? (
+          <DemandBoard owner={owner} />
+        ) : tab === 'sold' ? (
+          <Delivered tradeName={tradeName} />
+        ) : tab === 'forsale' ? (
+          <div className="space-y-6">
+            {inbox.available.length === 0 ? (
+              <div className="border border-dashed border-[#333] rounded p-8 text-center">
+                <Inbox className="w-8 h-8 mx-auto text-gray-500 mb-2" />
+                <p className="text-sm text-gray-400">Nothing for sale. Leads get here from Intake once a call confirms them.</p>
+              </div>
+            ) : (
+              <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="For sale">
+                {inbox.available.map((lead) => (
+                  <li key={lead.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                    <div className="flex-1 min-w-[12rem]">
+                      <p className="text-sm font-medium text-white">{lead.name}</p>
+                      <p className="text-xs text-gray-400 flex flex-wrap gap-x-3">
                         <span className="inline-flex items-center gap-1">
-                          <MapPin className="w-3 h-3" />
-                          {[lead.city, lead.county ? `${lead.county} County` : ''].filter(Boolean).join(', ')}
+                          <Tag className="w-3 h-3" />
+                          {tradeName(lead.jobType)}
                         </span>
-                      )}
-                      {lead.phone && (
-                        <span className="inline-flex items-center gap-1">
-                          <Phone className="w-3 h-3" />
-                          {lead.phone}
+                        {(lead.city || lead.county) && (
+                          <span className="inline-flex items-center gap-1">
+                            <MapPin className="w-3 h-3" />
+                            {[lead.city, lead.county ? `${lead.county} County` : ''].filter(Boolean).join(', ')}
+                          </span>
+                        )}
+                        {lead.phone && (
+                          <span className="inline-flex items-center gap-1">
+                            <Phone className="w-3 h-3" />
+                            {lead.phone}
+                          </span>
+                        )}
+                      </p>
+                      {lead.notes && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{lead.notes}</p>}
+                      <Confirmed verified={lead.verified} className="mt-1" />
+                    </div>
+                    <span className="text-right">
+                      <span className="block text-sm text-gray-300">{money(lead.price)}</span>
+                      {lead.floorCents != null && (
+                        <span className="block text-xs text-gray-500 whitespace-nowrap">
+                          floor {money(lead.floorCents)}
+                          {lead.floorAt && Date.parse(lead.floorAt) > Date.now() ? ` · ${untilFloor(lead.floorAt)} left` : ''}
+                          {lead.openBids ? ` · ${lead.openBids} order${lead.openBids === 1 ? '' : 's'}` : ''}
                         </span>
-                      )}
-                    </p>
-                    {lead.notes && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{lead.notes}</p>}
-                    <Confirmed verified={lead.verified} className="mt-1" />
-                  </div>
-                  <span className="text-right">
-                    <span className="block text-sm text-gray-300">{money(lead.price)}</span>
-                    {lead.floorCents != null && (
-                      <span className="block text-xs text-gray-500 whitespace-nowrap">
-                        floor {money(lead.floorCents)}
-                        {lead.floorAt && Date.parse(lead.floorAt) > Date.now() ? ` · ${untilFloor(lead.floorAt)} left` : ''}
-                        {lead.openBids ? ` · ${lead.openBids} order${lead.openBids === 1 ? '' : 's'}` : ''}
-                      </span>
-                    )}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setSending(lead)}
-                    title="Send to a company by hand (the exception: the Marketplace sells leads on its own)"
-                    aria-label={`Send ${lead.name} to a company`}
-                    className={`${tap} text-gray-400 hover:text-white`}
-                  >
-                    <Send className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Delete ${lead.name}`}
-                    onClick={async () => {
-                      const yes = await confirmAction({
-                        title: `Delete ${lead.name}?`,
-                        message: 'It leaves the Marketplace for good. Any company with a buy order on it sees the order closed.',
-                        confirmLabel: 'Delete',
-                      });
-                      if (!yes) return;
-                      await attempt(`${lead.name} wasn't deleted`, async () => {
-                        await marketplaceAPI.removeLead(lead.id);
-                        setNotice(`${lead.name} deleted.`);
-                      });
-                    }}
-                    className={`${tap} text-gray-500 hover:text-red-400`}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          {(inbox.older?.length ?? 0) > 0 && (
-            <section>
-              <h2 className="text-sm font-medium text-gray-300 mb-2">
-                The Vault · {inbox.older!.length}
-                <span className="text-xs text-gray-500 font-normal"> · a week or more old, claimable on the plan. They stay until someone claims them.</span>
-              </h2>
-              <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="The Vault">
-                {inbox.older!.map((lead) => (
-                  <li key={lead.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
-                    <span className="min-w-0">
-                      <span className="block text-sm text-white truncate">{lead.name}</span>
-                      <span className="block text-xs text-gray-500">
-                        {tradeName(lead.jobType)}
-                        {lead.county ? ` · ${lead.county} County` : lead.city ? ` · ${lead.city}` : ''} · for sale since{' '}
-                        {new Date(lead.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                      </span>
-                      {/* Confirmed once, in Intake. Staff don't call Vault leads again: the company that claims one calls it. */}
-                      {lead.verified ? (
-                        <Confirmed verified={lead.verified} className="mt-0.5" />
-                      ) : (
-                        <span className="block text-xs text-gray-500 mt-0.5">Not confirmed</span>
                       )}
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => setSending(lead)}
+                      title="Send to a company by hand (the exception: the Marketplace sells leads on its own)"
+                      aria-label={`Send ${lead.name} to a company`}
+                      className={`${tap} text-gray-400 hover:text-white`}
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Delete ${lead.name}`}
+                      onClick={async () => {
+                        const yes = await confirmAction({
+                          title: `Delete ${lead.name}?`,
+                          message: 'It leaves the Marketplace for good. Any company with a buy order on it sees the order closed.',
+                          confirmLabel: 'Delete',
+                        });
+                        if (!yes) return;
+                        await attempt(`${lead.name} wasn't deleted`, async () => {
+                          await marketplaceAPI.removeLead(lead.id);
+                          setNotice(`${lead.name} deleted.`);
+                        });
+                      }}
+                      className={`${tap} text-gray-500 hover:text-red-400`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </li>
                 ))}
               </ul>
-            </section>
-          )}
-          <PermitsCard />
-        </div>
-      ) : tab === 'companies' ? (
-        <div className="space-y-3">
-          {owner && (
-            <div className="flex justify-end">
-              <button type="button" onClick={openNewCompany} className={secondary}>
-                <Plus className="w-4 h-4" />
-                New company
-              </button>
-            </div>
-          )}
-          {owner && applications.length > 0 && (
-            <section aria-label="Applications" className="border border-emerald-500/40 bg-emerald-500/5 rounded">
-              <h2 className="px-4 pt-3 pb-1 text-sm font-medium text-emerald-200">
-                {applications.length} {applications.length === 1 ? 'company' : 'companies'} applied to buy leads
-              </h2>
-              <ul className="divide-y divide-[#2A2A2A]">
-                {applications.map((a) => (
-                  <li key={a.id} className="px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-white">
-                        {a.companyName} <span className="text-gray-400">· {a.contactName}</span>
-                      </p>
-                      <p className="text-xs text-gray-400">
-                        {a.trades.map(tradeName).join(', ')} · {a.county} County
-                        {a.jobsPerMonth ? ` · ${a.jobsPerMonth} jobs a month` : ''} · {ago(a.createdAt)}
-                      </p>
-                      <p className="text-xs text-gray-400">
-                        <a href={`tel:${a.phone}`} className="underline">{a.phone}</a> · <a href={`mailto:${a.email}`} className="underline">{a.email}</a>
-                      </p>
-                      {a.notes && <p className="text-xs text-gray-500 mt-1">{a.notes}</p>}
-                      {(a.existingCompanies?.length ?? 0) > 0 && (
-                        <p className="text-xs text-sky-300 mt-1" data-testid="existing-customer">
-                          Already a customer: runs {a.existingCompanies!.join(', ')}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <button type="button" disabled={deciding === a.id} onClick={() => decideApplication(a, false)} className={secondary}>
-                        Decline
-                      </button>
-                      <button type="button" disabled={deciding === a.id} onClick={() => decideApplication(a, true)} className={primary}>
-                        {deciding === a.id ? 'Setting up…' : 'Approve'}
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-          {companies.length === 0 ? (
-            <div className="border border-dashed border-[#333] rounded p-8 text-center">
-              <Building2 className="w-8 h-8 mx-auto text-gray-500 mb-2" />
-              <p className="text-sm text-gray-400">
-                {owner ? 'No companies yet. Tap New company, or approve an application above when one comes in.' : 'No companies yet.'}
-              </p>
-            </div>
-          ) : (
-          <div className="border border-[#2A2A2A] rounded overflow-x-auto">
-            <table className="w-full text-sm" aria-label="Companies">
-              <thead className="text-xs text-gray-500 uppercase tracking-wide">
-                <tr className="border-b border-[#2A2A2A]">
-                  <SortHeading label="Company" column="name" sort={companySort} onSort={sortCompaniesBy} align="left" />
-                  <SortHeading label="Balance" column="balance" sort={companySort} onSort={sortCompaniesBy} align="right" />
-                  <SortHeading label="Leads (30d)" column="leads" sort={companySort} onSort={sortCompaniesBy} align="right" className="hidden sm:table-cell" />
-                  <SortHeading label="Spent (30d)" column="spent" sort={companySort} onSort={sortCompaniesBy} align="right" className="hidden sm:table-cell" />
-                  <SortHeading label="Plan" column="plan" sort={companySort} onSort={sortCompaniesBy} align="left" />
-                  <SortHeading label="Jobs won, all time" column="won" sort={companySort} onSort={sortCompaniesBy} align="right" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#2A2A2A]">
-                {sortedCompanies.map((company) => (
-                  <tr
-                    key={company.id}
-                    onClick={() => setOpenCompanyId(company.id)}
-                    className="cursor-pointer [@media(hover:hover)]:hover:bg-[#1A1A1A] active:bg-[#1A1A1A]"
-                  >
-                    <td className="px-4 py-3">
-                      {/* A real button, so the row opens from the keyboard too. */}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setOpenCompanyId(company.id);
-                        }}
-                        className="block text-left text-white [@media(hover:hover)]:hover:underline underline-offset-2"
-                      >
-                        {company.name}
-                      </button>
-                      <span className="block text-xs text-gray-500 truncate max-w-[16rem]">
-                        {company.leadTrades.length ? company.leadTrades.map(tradeName).join(', ') : 'No trades set'}
-                        {company.pendingCredits > 0 ? ` · ${company.pendingCredits} credit request` : ''}
+            )}
+
+            {(inbox.older?.length ?? 0) > 0 && (
+              <section>
+                <h2 className="text-sm font-medium text-gray-300 mb-2">
+                  The Vault · {inbox.older!.length}
+                  <span className="text-xs text-gray-500 font-normal">
+                    {' '}
+                    · a week or more old, claimable on the plan. They stay until someone claims them.
+                  </span>
+                </h2>
+                <ul className="divide-y divide-[#2A2A2A] border border-[#2A2A2A] rounded" aria-label="The Vault">
+                  {inbox.older!.map((lead) => (
+                    <li key={lead.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                      <span className="min-w-0">
+                        <span className="block text-sm text-white truncate">{lead.name}</span>
+                        <span className="block text-xs text-gray-500">
+                          {tradeName(lead.jobType)}
+                          {lead.county ? ` · ${lead.county} County` : lead.city ? ` · ${lead.city}` : ''} · for sale since{' '}
+                          {new Date(lead.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                        </span>
+                        {/* Confirmed once, in Intake. Staff don't call Vault leads again: the company that claims one calls it. */}
+                        {lead.verified ? (
+                          <Confirmed verified={lead.verified} className="mt-0.5" />
+                        ) : (
+                          <span className="block text-xs text-gray-500 mt-0.5">Not confirmed</span>
+                        )}
                       </span>
-                    </td>
-                    <td className={`px-4 py-3 text-right ${company.balanceCents > 0 ? 'text-emerald-300' : 'text-gray-500'}`}>
-                      {money(company.balanceCents)}
-                    </td>
-                    <td className="px-4 py-3 text-right text-gray-300 hidden sm:table-cell">{company.leads30d}</td>
-                    <td className="px-4 py-3 text-right text-gray-300 hidden sm:table-cell">{money(company.spent30dCents)}</td>
-                    <td className={`px-4 py-3 whitespace-nowrap ${company.plan?.active ? 'text-white' : 'text-gray-500'}`}>{planLabel(company.plan)}</td>
-                    <td className="px-4 py-3 text-right text-gray-300">{money(company.wonCents)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot className="border-t border-[#2A2A2A] bg-[#151515] text-white">
-                <tr data-testid="companies-totals">
-                  <td className="px-4 py-3">
-                    <span className="block">Total</span>
-                    <span className="block text-xs text-gray-500">{plural(companies.length, 'company')}</span>
-                  </td>
-                  <td className={`px-4 py-3 text-right ${book.balanceCents > 0 ? 'text-emerald-300' : 'text-gray-500'}`}>
-                    {money(book.balanceCents)}
-                    {playMoney && <span className="block text-[10px] text-amber-300">play money</span>}
-                  </td>
-                  <td className="px-4 py-3 text-right hidden sm:table-cell">{book.leads30d}</td>
-                  <td className="px-4 py-3 text-right hidden sm:table-cell">{money(book.spent30dCents)}</td>
-                  <td className="px-4 py-3 text-gray-300 text-xs sm:text-sm whitespace-nowrap">{book.plans}</td>
-                  <td className="px-4 py-3 text-right">{money(book.wonCents)}</td>
-                </tr>
-              </tfoot>
-            </table>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            <PermitsCard />
           </div>
-          )}
-          {owner && <TeamCard />}
-        </div>
-      ) : owner ? (
-        <PricesTab trades={trades} />
-      ) : null}
+        ) : tab === 'companies' ? (
+          <div className="space-y-3">
+            {owner && (
+              <div className="flex justify-end">
+                <button type="button" onClick={openNewCompany} className={secondary}>
+                  <Plus className="w-4 h-4" />
+                  New company
+                </button>
+              </div>
+            )}
+            {owner && applications.length > 0 && (
+              <section aria-label="Applications" className="border border-emerald-500/40 bg-emerald-500/5 rounded">
+                <h2 className="px-4 pt-3 pb-1 text-sm font-medium text-emerald-200">
+                  {applications.length} {applications.length === 1 ? 'company' : 'companies'} applied to buy leads
+                </h2>
+                <ul className="divide-y divide-[#2A2A2A]">
+                  {applications.map((a) => (
+                    <li key={a.id} className="px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-white">
+                          {a.companyName} <span className="text-gray-400">· {a.contactName}</span>
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          {a.trades.map(tradeName).join(', ')} · {a.county} County
+                          {a.jobsPerMonth ? ` · ${a.jobsPerMonth} jobs a month` : ''} · {ago(a.createdAt)}
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          <a href={`tel:${a.phone}`} className="underline">
+                            {a.phone}
+                          </a>{' '}
+                          ·{' '}
+                          <a href={`mailto:${a.email}`} className="underline">
+                            {a.email}
+                          </a>
+                        </p>
+                        {a.notes && <p className="text-xs text-gray-500 mt-1">{a.notes}</p>}
+                        {(a.existingCompanies?.length ?? 0) > 0 && (
+                          <p className="text-xs text-sky-300 mt-1" data-testid="existing-customer">
+                            Already a customer: runs {a.existingCompanies!.join(', ')}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <button type="button" disabled={deciding === a.id} onClick={() => decideApplication(a, false)} className={secondary}>
+                          Decline
+                        </button>
+                        <button type="button" disabled={deciding === a.id} onClick={() => decideApplication(a, true)} className={primary}>
+                          {deciding === a.id ? 'Setting up…' : 'Approve'}
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            {companies.length === 0 ? (
+              <div className="border border-dashed border-[#333] rounded p-8 text-center">
+                <Building2 className="w-8 h-8 mx-auto text-gray-500 mb-2" />
+                <p className="text-sm text-gray-400">
+                  {owner ? 'No companies yet. Tap New company, or approve an application above when one comes in.' : 'No companies yet.'}
+                </p>
+              </div>
+            ) : (
+              <div className="border border-[#2A2A2A] rounded overflow-x-auto">
+                <table className="w-full text-sm" aria-label="Companies">
+                  <thead className="text-xs text-gray-500 uppercase tracking-wide">
+                    <tr className="border-b border-[#2A2A2A]">
+                      <SortHeading label="Company" column="name" sort={companySort} onSort={sortCompaniesBy} align="left" />
+                      <SortHeading label="Balance" column="balance" sort={companySort} onSort={sortCompaniesBy} align="right" />
+                      <SortHeading
+                        label="Leads (30d)"
+                        column="leads"
+                        sort={companySort}
+                        onSort={sortCompaniesBy}
+                        align="right"
+                        className="hidden sm:table-cell"
+                      />
+                      <SortHeading
+                        label="Spent (30d)"
+                        column="spent"
+                        sort={companySort}
+                        onSort={sortCompaniesBy}
+                        align="right"
+                        className="hidden sm:table-cell"
+                      />
+                      <SortHeading label="Plan" column="plan" sort={companySort} onSort={sortCompaniesBy} align="left" />
+                      <SortHeading label="Jobs won, all time" column="won" sort={companySort} onSort={sortCompaniesBy} align="right" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#2A2A2A]">
+                    {sortedCompanies.map((company) => (
+                      <tr
+                        key={company.id}
+                        onClick={() => setOpenCompanyId(company.id)}
+                        className="cursor-pointer [@media(hover:hover)]:hover:bg-[#1A1A1A] active:bg-[#1A1A1A]"
+                      >
+                        <td className="px-4 py-3">
+                          {/* A real button, so the row opens from the keyboard too. */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenCompanyId(company.id);
+                            }}
+                            className="block text-left text-white [@media(hover:hover)]:hover:underline underline-offset-2"
+                          >
+                            {company.name}
+                          </button>
+                          <span className="block text-xs text-gray-500 truncate max-w-[16rem]">
+                            {company.leadTrades.length ? company.leadTrades.map(tradeName).join(', ') : 'No trades set'}
+                            {company.pendingCredits > 0 ? ` · ${company.pendingCredits} credit request` : ''}
+                          </span>
+                        </td>
+                        <td className={`px-4 py-3 text-right ${company.balanceCents > 0 ? 'text-emerald-300' : 'text-gray-500'}`}>
+                          {money(company.balanceCents)}
+                        </td>
+                        <td className="px-4 py-3 text-right text-gray-300 hidden sm:table-cell">{company.leads30d}</td>
+                        <td className="px-4 py-3 text-right text-gray-300 hidden sm:table-cell">{money(company.spent30dCents)}</td>
+                        <td className={`px-4 py-3 whitespace-nowrap ${company.plan?.active ? 'text-white' : 'text-gray-500'}`}>
+                          {planLabel(company.plan)}
+                        </td>
+                        <td className="px-4 py-3 text-right text-gray-300">{money(company.wonCents)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="border-t border-[#2A2A2A] bg-[#151515] text-white">
+                    <tr data-testid="companies-totals">
+                      <td className="px-4 py-3">
+                        <span className="block">Total</span>
+                        <span className="block text-xs text-gray-500">{plural(companies.length, 'company')}</span>
+                      </td>
+                      <td className={`px-4 py-3 text-right ${book.balanceCents > 0 ? 'text-emerald-300' : 'text-gray-500'}`}>
+                        {money(book.balanceCents)}
+                        {playMoney && <span className="block text-[10px] text-amber-300">play money</span>}
+                      </td>
+                      <td className="px-4 py-3 text-right hidden sm:table-cell">{book.leads30d}</td>
+                      <td className="px-4 py-3 text-right hidden sm:table-cell">{money(book.spent30dCents)}</td>
+                      <td className="px-4 py-3 text-gray-300 text-xs sm:text-sm whitespace-nowrap">{book.plans}</td>
+                      <td className="px-4 py-3 text-right">{money(book.wonCents)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+            {owner && <TeamCard />}
+          </div>
+        ) : owner ? (
+          <PricesTab trades={trades} />
+        ) : null}
       </OpsErrorBoundary>
 
       {confirmActionDialog}
       {owner && creating === 'company' && <NewCompanyDialog trades={trades} onClose={closeCreate} onSaved={() => setNotice('Company added.')} />}
-      {sending && (
-        <SendToDialog
-          lead={sending}
-          companies={companies}
-          tradeName={tradeName}
-          onClose={() => setSending(null)}
-          onSent={setNotice}
-        />
-      )}
-      {openCompany && (
-        <CompanyPanel
-          company={openCompany}
-          owner={owner}
-          trades={trades}
-          credits={credits}
-          onClose={() => setOpenCompanyId(null)}
-        />
-      )}
+      {sending && <SendToDialog lead={sending} companies={companies} tradeName={tradeName} onClose={() => setSending(null)} onSent={setNotice} />}
+      {openCompany && <CompanyPanel company={openCompany} owner={owner} trades={trades} credits={credits} onClose={() => setOpenCompanyId(null)} />}
       {notice && (
-        <div role="status" className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[10060] bg-[#1D1F25] border border-[#336699] px-4 py-2 text-sm text-white shadow-lg rounded">
+        <div
+          role="status"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[10060] bg-[#1D1F25] border border-[#336699] px-4 py-2 text-sm text-white shadow-lg rounded"
+        >
           {notice}
         </div>
       )}

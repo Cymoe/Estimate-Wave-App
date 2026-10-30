@@ -186,11 +186,54 @@ const RULES = (brand: string) => [
 ];
 
 /** The text that goes before the images: the hook, the footage list, the rules and the shape to answer in. */
+/** A competitor ad the writer is shown for tone and shape. */
+export interface Example {
+  company: string;
+  hook: string;
+  offer: string;
+  transcript?: string;
+  adCopy?: string;
+  durationSec?: number;
+}
+
+export const MAX_EXAMPLES = 4;
+
+/** Which swipes to show the writer for a hook: its scope first (general ones fill in), starred, with a script, newest. */
+export function pickExamples<S extends { scope?: string; starred: boolean; transcript?: string; importedAt: string }>(
+  swipes: S[],
+  scope: string,
+  max = MAX_EXAMPLES,
+): S[] {
+  const rank = (x: S) => (x.scope === scope ? 0 : x.scope ? 2 : 1) * 100 + (x.starred ? 0 : 10) + (x.transcript ? 0 : 1);
+  return [...swipes].sort((a, b) => rank(a) - rank(b) || b.importedAt.localeCompare(a.importedAt)).slice(0, max);
+}
+
+/** The example block of the prompt. Only the first 300 characters of ad copy when there is no spoken script. */
+export function examplesText(examples: Example[]): string[] {
+  if (examples.length === 0) return [];
+  return [
+    "Ads that run in this category, for tone and shape only. Never copy their claims, prices, discounts, names, warranties or deadlines.",
+    ...examples.map((e, i) => {
+      const text = e.transcript
+        ? `spoken (${e.durationSec ? Math.round(e.durationSec) : "?"}s): ${e.transcript
+            .replace(/\[\d\d:\d\d\]\s*/g, "")
+            .replace(/\s+/g, " ")
+            .trim()}`
+        : e.adCopy
+          ? `copy: ${e.adCopy.replace(/\s+/g, " ").trim().slice(0, 300)}`
+          : "";
+      return `Example ${i + 1} (${e.company}; angle: ${e.hook}; offer: ${e.offer})${text ? ` · ${text}` : ""}`;
+    }),
+    "",
+  ];
+}
+
 export function shotListPrompt(
   hook: { textEn: string; family: Family; scope: string },
   brand: string,
   footage: Candidate[],
   inScope: boolean,
+  examples: Example[] = [],
   town = "Midland",
 ): string {
   const list = footage.map((f, i) => {
@@ -213,6 +256,7 @@ export function shotListPrompt(
       ? ""
       : `None of this footage is tagged ${hook.scope}; it is general crew and process footage. Only go ahead if the ad still works honestly with it.`,
     "",
+    ...examplesText(examples),
     "Write a shot list: the footage to show, in order, and the voice-over line spoken while each one is on screen.",
     "- Use 2 to 4 shots (1 if only one piece of footage is offered). Use each footage number at most once.",
     "- Each voice line must fit what is visibly in that footage. Do not name colours, rooms, materials or details you cannot see.",
@@ -511,6 +555,142 @@ export function shotstackEdit(input: {
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// ------------------------------------------------------------ Swipe file
+
+/** Parses a CSV the way Google Sheets writes one: quoted fields, doubled quotes, newlines inside quotes. */
+export function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  const src = text.replace(/^\uFEFF/, "");
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (quoted) {
+      if (ch === '"' && src[i + 1] === '"') {
+        cell += '"';
+        i++;
+      } else if (ch === '"') quoted = false;
+      else cell += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ",") {
+      row.push(cell);
+      cell = "";
+    } else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && src[i + 1] === "\n") i++;
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+    } else cell += ch;
+  }
+  if (cell !== "" || row.length) {
+    row.push(cell);
+    rows.push(row);
+  }
+  return rows;
+}
+
+export interface SwipeRow {
+  company: string;
+  paintingType: string;
+  scope?: string;
+  hook: string;
+  offer: string;
+  creative: string;
+  area: string;
+  cta: string;
+  adaptation: string;
+  startedAt?: string;
+  status?: string;
+  pageUrl?: string;
+  destination?: string;
+  metaAdId?: string;
+  adCopy?: string;
+  transcript?: string;
+  durationSec?: number;
+}
+
+export const scopeOfType = (paintingType: string): string | undefined =>
+  ({ cabinets: "cabinets", interior: "interior", exterior: "exterior" })[paintingType.trim().toLowerCase()];
+
+/** A tab's rows as objects keyed by the header, from the "#" row on. Returns null when no "#" header is found. */
+function tabRows(rows: string[][]): Array<Record<string, string>> | null {
+  const hi = rows.findIndex((r) => (r[0] ?? "").trim() === "#");
+  if (hi < 0) return null;
+  const header = rows[hi].map((h) => h.trim());
+  return rows
+    .slice(hi + 1)
+    .filter((r) => (r[0] ?? "").trim() !== "")
+    .map((r) => Object.fromEntries(header.map((h, i) => [h, (r[i] ?? "").trim()])));
+}
+
+/**
+ * The three tabs of the research sheet (ads, ad copy, video transcripts),
+ * each saved as its own CSV, merged by the "#" column. Tabs are told apart by
+ * their header; a file with none of the three headers is ignored.
+ */
+export function mergeSwipeCsvs(files: string[]): { rows: SwipeRow[]; tabs: string[] } {
+  let ads: Array<Record<string, string>> = [];
+  const copy = new Map<string, string>();
+  const video = new Map<string, { transcript: string; durationSec?: number }>();
+  const tabs: string[] = [];
+  for (const text of files) {
+    const rows = tabRows(parseCsv(text));
+    if (!rows) continue;
+    const keys = Object.keys(rows[0] ?? {});
+    if (keys.includes("Painting type")) {
+      ads = rows;
+      tabs.push("ads");
+    } else if (keys.includes("Ad copy and card text")) {
+      for (const r of rows) copy.set(r["#"], r["Ad copy and card text"]);
+      tabs.push("copy");
+    } else if (keys.some((k) => k.startsWith("Spoken transcript"))) {
+      const col = keys.find((k) => k.startsWith("Spoken transcript"))!;
+      for (const r of rows) if (r[col]) video.set(r["#"], { transcript: r[col], durationSec: Number(r["Duration (seconds)"]) || undefined });
+      tabs.push("transcripts");
+    }
+  }
+  const num = (s: string) => String(parseInt(s, 10));
+  const rowsOut: SwipeRow[] = ads.map((r) => {
+    const n = num(r["#"]);
+    const v = video.get(n) ?? [...video.entries()].find(([k]) => num(k) === n)?.[1];
+    const c = copy.get(n) ?? [...copy.entries()].find(([k]) => num(k) === n)?.[1];
+    const opt = (x: string | undefined) => (x && x.trim() ? x.trim() : undefined);
+    return {
+      company: r["Company"] ?? "",
+      paintingType: r["Painting type"] ?? "",
+      scope: scopeOfType(r["Painting type"] ?? ""),
+      hook: r["Hook / angle"] ?? "",
+      offer: r["Offer"] ?? "",
+      creative: r["Creative"] ?? "",
+      area: r["Area evidence"] ?? "",
+      cta: r["CTA"] ?? "",
+      adaptation: r["Client adaptation"] ?? "",
+      startedAt: opt(r["Started (Meta)"]),
+      status: opt(r["Status when observed"]),
+      pageUrl: opt(r["Advertiser page"]),
+      destination: opt(r["Destination"]),
+      metaAdId: opt(r["Ad ID"]),
+      adCopy: opt(c),
+      transcript: v?.transcript,
+      durationSec: v?.durationSec,
+    };
+  });
+  return { rows: rowsOut, tabs };
+}
+
+/** The concept family a competitor's angle most likely belongs to, for "Make a hook". */
+export function familyOfAngle(angle: string): Family {
+  const a = angle.toLowerCase();
+  if (/cost|price|budget|afford|cheap|expens/.test(a)) return "education";
+  if (/before\s*(\/|&|and|-|to)?\s*after|transform|makeover|instead|replace/.test(a)) return "before_after";
+  if (/owner|founder|selfie|my name|i own/.test(a)) return "owner_story";
+  if (/season|fall|winter|spring|summer|urgency|book|schedul|fresh start|new year/.test(a)) return "seasonal";
+  if (/disrupt|respect|clean|protect|guest|house|process|prep/.test(a)) return "objection";
+  return "proof";
 }
 
 /** Fatigued: people are seeing it often and clicking less than they first did. */
