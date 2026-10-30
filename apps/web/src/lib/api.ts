@@ -831,6 +831,24 @@ export const demandAPI = {
   setPlanCpl: (jobType: string, cents: number | null) => run('mutation', api.demand.setPlanCpl, { jobType, cents }),
 };
 
+/** Ads on autopilot: the library, hooks, settings and each week's batch (staff). */
+export const adsAPI = {
+  uploadUrl: (): Promise<string> => run('mutation', api.ads.uploadUrl, {}),
+  addAsset: (args: { storageId: string; fileName: string; tags: string[]; pairKey?: string; note?: string; durationSec?: number }) =>
+    run('mutation', api.ads.addAsset, defined(args)),
+  tagAsset: (id: string, tags: string[], pairKey?: string, note?: string) => run('mutation', api.ads.tagAsset, defined({ id, tags, pairKey, note })),
+  removeAsset: (id: string) => run('mutation', api.ads.removeAsset, { id }),
+  saveHook: (args: { id?: string; family: string; scope: string; trade: string; textEn: string; textEs?: string; active: boolean }) =>
+    run('mutation', api.ads.saveHook, defined(args)),
+  removeHook: (id: string) => run('mutation', api.ads.removeHook, { id }),
+  seedHooks: (): Promise<number> => run('mutation', api.ads.seedHooks, {}),
+  saveSettings: (args: Record<string, unknown>) => run('mutation', api.ads.saveSettings, defined(args)),
+  draftNow: () => run('mutation', api.ads.draftNow, {}),
+  activate: (id: string) => run('mutation', api.ads.activate, { id }),
+  retire: (id: string) => run('mutation', api.ads.retire, { id }),
+  reject: (id: string) => run('mutation', api.ads.reject, { id }),
+};
+
 /** Lead alerts: what was sent to whom when a lead was awarded (staff). */
 export const deliveryAPI = {
   recent: () => run('query', api.delivery.recent, {}),

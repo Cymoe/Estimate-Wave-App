@@ -48,4 +48,8 @@ crons.daily(
 // Reminder emails to clients who haven't signed their estimate (followUps.ts).
 crons.hourly("remind clients about estimates", { minuteUTC: 23 }, internal.followUps.send, {});
 
+// Ads on autopilot (ads.ts): Monday 6am Central drafts the week's ads; every morning pulls what Meta reports on the live ones.
+crons.weekly("draft the week's ads", { dayOfWeek: "monday", hourUTC: 12, minuteUTC: 0 }, internal.ads.weeklyRun, {});
+crons.daily("pull ad insights", { hourUTC: 9, minuteUTC: 35 }, internal.ads.pullInsights, {});
+
 export default crons;

@@ -14,6 +14,7 @@ import { OpsErrorBoundary } from '../components/ops/OpsErrorBoundary';
 import { isStaff, isSuperAdmin } from '../lib/roles';
 import { TeamCard } from '../components/ops/TeamCard';
 import { CallsCard } from '../components/ops/CallsCard';
+import { AdsCard } from '../components/ops/AdsCard';
 import CallsPage from './CallsPage';
 import { useConfirm } from '../components/common/ConfirmDialog';
 import { leadRoute } from '../components/market/leadRoute';
@@ -200,8 +201,8 @@ interface CreditRequest {
   requestedAt: string;
 }
 
-type Tab = 'demand' | 'intake' | 'calls' | 'forsale' | 'sold' | 'companies' | 'prices';
-const TABS: Tab[] = ['demand', 'intake', 'calls', 'forsale', 'sold', 'companies', 'prices'];
+type Tab = 'demand' | 'intake' | 'ads' | 'calls' | 'forsale' | 'sold' | 'companies' | 'prices';
+const TABS: Tab[] = ['demand', 'intake', 'ads', 'calls', 'forsale', 'sold', 'companies', 'prices'];
 /** Tabs that moved to the Real estate side of Ops; old links forward there. */
 const REAL_ESTATE_TABS = ['sellers', 'auction', 'sources'];
 /** Old names in links that were already sent (emails, bookmarks) still open the right tab. */
@@ -214,6 +215,11 @@ const LIVE_LABELS: Record<string, string> = {
   'demand:slot': 'this county and trade',
   'intake:queue': 'the intake queue',
   'intake:recentLog': 'the webhook log',
+  'ads:batches': "this week's ads",
+  'ads:live': 'the live ads',
+  'ads:listAssets': 'the ad library',
+  'ads:listHooks': 'the hooks',
+  'ads:settings': 'the ad settings',
   'marketplace:listInbox': 'the leads for sale',
   'delivery:recent': 'the sold leads',
   'marketplace:companiesOverview': 'the companies',
@@ -228,6 +234,7 @@ const LIVE_LABELS: Record<string, string> = {
 const TAB_TITLES: Record<Tab, string> = {
   demand: 'Demand',
   intake: 'Intake',
+  ads: 'Ads',
   calls: 'Calls',
   forsale: 'For sale',
   sold: 'Sold',
@@ -1414,6 +1421,7 @@ const LeadMarketPage: React.FC = () => {
             [
               ['demand', 'Demand', counts.demandOpen !== null ? `${counts.demandOpen}/${counts.demandTotal}` : ''],
               ['intake', 'Intake', counts.intake !== null ? `${counts.intake}` : ''],
+              ['ads', 'Ads', ''],
               ['calls', 'Calls', ''],
               ['forsale', 'For sale', `${inbox.available.length}`],
               ['sold', 'Sold', counts.overdue > 0 ? `${counts.overdue}` : ''],
@@ -1472,6 +1480,8 @@ const LeadMarketPage: React.FC = () => {
           onCloseNew={closeCreate}
           onListed={setNotice}
         />
+      ) : tab === 'ads' ? (
+        <AdsCard owner={owner} />
       ) : tab === 'calls' ? (
         <div className="space-y-6">
           <CallsPage embedded />

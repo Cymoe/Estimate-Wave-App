@@ -1471,4 +1471,120 @@ export default defineSchema({
     .index("by_refresh", ["refreshHash"])
     .index("by_user", ["userId"])
     .index("by_organization", ["organizationId"]),
+
+  // Ads on autopilot (ads.ts, lib/ads.ts): the photos and clips the ads are
+  // cut from, the hooks they open with, each Monday's batch of creatives,
+  // what Meta reports on them, and the account they go to. Staff-only.
+  adAssets: defineTable({
+    storageId: v.id("_storage"),
+    kind: v.union(v.literal("photo"), v.literal("video")),
+    fileName: v.string(),
+    contentType: v.string(),
+    size: v.number(),
+    durationSec: v.optional(v.number()),
+    // Scope (interior, exterior, cabinets, crew, process), before/after, trade slug.
+    tags: v.array(v.string()),
+    // Links a before and an after of the same spot.
+    pairKey: v.optional(v.string()),
+    // Where it was shot and whose permission we have.
+    note: v.optional(v.string()),
+    uploadedBy: v.id("users"),
+    createdAt: v.string(),
+  })
+    .index("by_kind", ["kind"])
+    .index("by_pair", ["pairKey"]),
+
+  adHooks: defineTable({
+    family: v.union(
+      v.literal("owner_story"),
+      v.literal("before_after"),
+      v.literal("proof"),
+      v.literal("education"),
+      v.literal("objection"),
+      v.literal("seasonal"),
+    ),
+    scope: v.string(),
+    trade: v.string(),
+    textEn: v.string(),
+    textEs: v.optional(v.string()),
+    active: v.boolean(),
+    lastUsedAt: v.optional(v.string()),
+    uses: v.number(),
+    wins: v.number(),
+    losses: v.number(),
+    createdAt: v.string(),
+  }).index("by_active", ["active"]),
+
+  adBatches: defineTable({
+    weekOf: v.string(),
+    status: v.union(v.literal("drafting"), v.literal("rendering"), v.literal("ready"), v.literal("done"), v.literal("failed")),
+    error: v.optional(v.string()),
+    summary: v.optional(v.string()),
+    startedBy: v.optional(v.id("users")),
+    createdAt: v.string(),
+  }).index("by_week", ["weekOf"]),
+
+  adCreatives: defineTable({
+    batchId: v.id("adBatches"),
+    hookId: v.id("adHooks"),
+    language: v.union(v.literal("en"), v.literal("es")),
+    ratio: v.union(v.literal("9x16"), v.literal("4x5")),
+    // Also the ad's name in Meta, so a lead's adName joins back here.
+    name: v.string(),
+    script: v.object({ voice: v.string(), onScreen: v.array(v.string()), headline: v.string(), primaryText: v.string() }),
+    assetIds: v.array(v.id("adAssets")),
+    audioStorageId: v.optional(v.id("_storage")),
+    videoStorageId: v.optional(v.id("_storage")),
+    renderId: v.optional(v.string()),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("voiced"),
+      v.literal("rendering"),
+      v.literal("rendered"),
+      v.literal("paused"),
+      v.literal("live"),
+      v.literal("retired"),
+      v.literal("rejected"),
+      v.literal("failed"),
+    ),
+    error: v.optional(v.string()),
+    meta: v.optional(v.object({ videoId: v.optional(v.string()), creativeId: v.optional(v.string()), adId: v.optional(v.string()), adsetId: v.optional(v.string()) })),
+    createdAt: v.string(),
+    activatedAt: v.optional(v.string()),
+    retiredAt: v.optional(v.string()),
+    // The last 7 days as Meta reports them (pullInsights), and the first week's CTR to judge fatigue against.
+    week: v.optional(v.object({ at: v.string(), spendCents: v.number(), impressions: v.number(), clicks: v.number(), frequency: v.number(), ctr: v.number(), leadsMeta: v.number() })),
+    baselineCtr: v.optional(v.number()),
+  })
+    .index("by_batch", ["batchId"])
+    .index("by_name", ["name"])
+    .index("by_status", ["status"]),
+
+  adStats: defineTable({
+    creativeId: v.id("adCreatives"),
+    day: v.string(),
+    spendCents: v.number(),
+    impressions: v.number(),
+    reach: v.number(),
+    clicks: v.number(),
+    frequency: v.number(),
+    ctr: v.number(),
+    leadsMeta: v.number(),
+  }).index("by_creative_day", ["creativeId", "day"]),
+
+  adSettings: defineTable({
+    adAccountId: v.optional(v.string()),
+    pageId: v.optional(v.string()),
+    leadFormId: v.optional(v.string()),
+    adsetEn: v.optional(v.string()),
+    adsetEs: v.optional(v.string()),
+    primaryColor: v.optional(v.string()),
+    accentColor: v.optional(v.string()),
+    voiceEn: v.optional(v.string()),
+    voiceEs: v.optional(v.string()),
+    weeklyEnabled: v.boolean(),
+    hooksPerWeek: v.number(),
+    liveTarget: v.number(),
+    updatedAt: v.string(),
+  }),
 });

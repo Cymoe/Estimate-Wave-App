@@ -76,6 +76,13 @@ const forOrg = (organizationId?: string): Args => (organizationId ? { organizati
 export const useDemandBoard = <T,>() => useLive<T>(q('demand:board'), {});
 /** One slot opened: who bids there and the leads it has seen. */
 export const useDemandSlot = <T,>(county: string, jobType: string) => useLive<T>(q('demand:slot'), { county, jobType });
+
+// Ads on autopilot (Ops → Ads).
+export const useAdsBatches = <T,>(on = true) => useLive<T>(q('ads:batches'), on ? {} : 'skip');
+export const useAdsLive = <T,>(on = true) => useLive<T>(q('ads:live'), on ? {} : 'skip');
+export const useAdsLibrary = <T,>(on = true) => useLive<T>(q('ads:listAssets'), on ? {} : 'skip');
+export const useAdsHooks = <T,>(on = true) => useLive<T>(q('ads:listHooks'), on ? {} : 'skip');
+export const useAdsSettings = <T,>(on = true) => useLive<T>(q('ads:settings'), on ? {} : 'skip');
 /** The intake queue for one filter. */
 export const useIntakeQueue = <T,>(status: 'open' | 'closed' | 'confirmed') => useLive<T>(q('intake:queue'), { status });
 /** The last 50 hits on the intake webhook: accepted, repeat or rejected, and why. */
