@@ -34,6 +34,25 @@ const SECTIONS: Array<[Section, string]> = [
 ];
 
 const SCOPES = ['interior', 'exterior', 'cabinets', 'crew', 'process'];
+/** The room or subject a hook (or footage) is about, in the owner's words. */
+const SCOPE_LABELS: Record<string, string> = {
+  interior: 'Interior',
+  exterior: 'Exterior',
+  cabinets: 'Cabinets',
+  crew: 'The crew',
+  process: 'The work in progress',
+  general: 'all painting',
+};
+const scopeLabel = (s: string) => SCOPE_LABELS[s] ?? s;
+/** How a competitor's ad starts, in plain words. */
+const OPENING_LABELS: Record<string, string> = {
+  question: 'a question',
+  owner: 'the owner talking',
+  claim: 'a bold claim',
+  before_after: 'a before/after',
+  offer: 'the offer',
+  other: 'something else',
+};
 const FAMILIES: Array<[string, string]> = [
   ['owner_story', 'Owner story'],
   ['before_after', 'Before / after'],
@@ -348,7 +367,7 @@ const HookGroup: React.FC<{ group: { key: string; hook: AdCreative['hook']; item
       {group.hook && (
         <p className="text-sm text-white">
           <span className="text-xs text-gray-500">
-            {group.hook.familyLabel} · {group.hook.scope} ·{' '}
+            {group.hook.familyLabel} · {scopeLabel(group.hook.scope)} ·{' '}
           </span>
           {group.hook.textEn}
         </p>
@@ -466,7 +485,7 @@ const Live: React.FC<{ act: Act }> = ({ act }) => {
             <tr key={r.id} data-testid="live-ad">
               <td className="px-3 py-2">
                 <p className="text-white">
-                  {r.hook?.familyLabel ?? 'Hook'} · {r.ratio}
+                  {r.hook ? `${r.hook.familyLabel} · ${scopeLabel(r.hook.scope)}` : 'Hook'} · {r.ratio}
                 </p>
                 <p className="text-[10px] text-gray-600 break-all">{r.name}</p>
               </td>
@@ -752,8 +771,8 @@ const Hooks: React.FC<{ act: Act; initial?: HookDraft }> = ({ act, initial }) =>
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-400">
-        The ideas an ad opens with. Monday takes the least-used active hooks from families that aren't already live. Wins and losses come from how
-        each hook's ads did against the batch.
+        The ideas an ad opens with. Monday picks the least-used active hooks, spreading the types of angle so two of a kind don't run at once. Wins
+        and losses come from how each hook's ads did against the batch.
       </p>
       {hooks.length === 0 && (
         <button type="button" className={secondary} onClick={() => act(() => adsAPI.seedHooks(), 'Six painting hooks added.')}>
@@ -768,7 +787,7 @@ const Hooks: React.FC<{ act: Act; initial?: HookDraft }> = ({ act, initial }) =>
           void save();
         }}
       >
-        <Field label="Family">
+        <Field label="Type of angle">
           <select value={draft.family} onChange={set('family')} className={input}>
             {FAMILIES.map(([v, l]) => (
               <option key={v} value={v}>
@@ -777,11 +796,11 @@ const Hooks: React.FC<{ act: Act; initial?: HookDraft }> = ({ act, initial }) =>
             ))}
           </select>
         </Field>
-        <Field label="Scope">
+        <Field label="Room or subject">
           <select value={draft.scope} onChange={set('scope')} className={input}>
             {SCOPES.map((s) => (
               <option key={s} value={s}>
-                {s}
+                {scopeLabel(s)}
               </option>
             ))}
           </select>
@@ -807,7 +826,7 @@ const Hooks: React.FC<{ act: Act; initial?: HookDraft }> = ({ act, initial }) =>
           <li key={h.id} className="px-4 py-3 flex flex-wrap items-start gap-3" data-testid="hook">
             <div className="flex-1 min-w-[14rem]">
               <p className="text-xs text-gray-500">
-                {h.familyLabel} · {h.scope} · used {h.uses} · {h.wins} won · {h.losses} lost
+                {h.familyLabel} · {scopeLabel(h.scope)} · used {h.uses} · {h.wins} won · {h.losses} lost
               </p>
               <p className={`text-sm ${h.active ? 'text-white' : 'text-gray-500'}`}>{h.textEn}</p>
             </div>
@@ -930,7 +949,7 @@ const Playbooks: React.FC<{ act: Act }> = ({ act }) => {
       {playbooks.map((p) => (
         <section key={p.scope} className="border border-[#2A2A2A] rounded p-4 space-y-2 text-sm" data-testid="playbook">
           <div className="flex items-start gap-2">
-            <h3 className="flex-1 text-white font-medium capitalize">{p.scope} playbook</h3>
+            <h3 className="flex-1 text-white font-medium">What works: {scopeLabel(p.scope).toLowerCase()}</h3>
             <span className="text-xs text-gray-500">
               {p.basis.ads} ads{p.basis.local ? ` · ${p.basis.local} local` : ''}
               {p.editedAt ? ' · edited' : ''}
@@ -938,7 +957,7 @@ const Playbooks: React.FC<{ act: Act }> = ({ act }) => {
           </div>
           {editing?.scope === p.scope ? (
             <form
-              aria-label={`Edit ${p.scope} playbook`}
+              aria-label={`Edit what works: ${scopeLabel(p.scope).toLowerCase()}`}
               onSubmit={(e) => {
                 e.preventDefault();
                 void act(
@@ -988,7 +1007,7 @@ const Playbooks: React.FC<{ act: Act }> = ({ act }) => {
               <button
                 type="button"
                 className={secondary}
-                onClick={() => act(() => adsAPI.rewritePlaybook(p.scope), `Claude is rewriting the ${p.scope} playbook.`)}
+                onClick={() => act(() => adsAPI.rewritePlaybook(p.scope), `Claude is rewriting what works for ${scopeLabel(p.scope).toLowerCase()}.`)}
               >
                 Rewrite
               </button>
@@ -1160,9 +1179,9 @@ const Swipes: React.FC<{ act: Act; owner: boolean; onMakeHook: (draft: HookDraft
                   <p className="text-xs text-gray-500">
                     {[
                       x.family ? FAMILIES.find(([v]) => v === x.family)?.[1] : '',
-                      x.opening ? `opens with ${x.opening.replace('_', ' / ')}` : '',
+                      x.opening ? `Opens with: ${OPENING_LABELS[x.opening] ?? x.opening}` : '',
                       x.footage?.length ? x.footage.map((f) => FOOTAGE_LABELS[f] ?? f).join(', ') : '',
-                      x.score !== undefined ? `score ${x.score}` : '',
+                      x.score !== undefined ? `fit ${x.score}/100` : '',
                     ]
                       .filter(Boolean)
                       .join(' · ')}
@@ -1310,7 +1329,7 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
         {text('voiceId', 'ElevenLabs voice id')}
         {text('primaryColor', 'Brand colour')}
         {text('accentColor', 'Accent colour')}
-        <Field label="Hooks per week">
+        <Field label="Ads to write each Monday">
           <input
             type="number"
             min={1}
@@ -1319,10 +1338,10 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
             onChange={(e) => setForm({ ...form, hooksPerWeek: Number(e.target.value) })}
             className={input}
             disabled={!owner}
-            aria-label="Hooks per week"
+            aria-label="Ads to write each Monday"
           />
         </Field>
-        <Field label="Ads to keep live">
+        <Field label="Most ads running at once">
           <input
             type="number"
             min={2}
@@ -1331,7 +1350,7 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
             onChange={(e) => setForm({ ...form, liveTarget: Number(e.target.value) })}
             className={input}
             disabled={!owner}
-            aria-label="Ads to keep live"
+            aria-label="Most ads running at once"
           />
         </Field>
       </div>

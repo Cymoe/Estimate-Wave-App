@@ -1179,7 +1179,7 @@ async function readinessChecks(ctx: QueryCtx) {
   return [
     {
       key: "keys",
-      label: "Keys",
+      label: "Services",
       ok: missingKeys.length === 0,
       hard: true,
       tab: "settings",
@@ -1201,7 +1201,7 @@ async function readinessChecks(ctx: QueryCtx) {
     { key: "hooks", label: "Hooks", ok: hooks >= 2, hard: true, tab: "hooks", detail: hooks >= 2 ? `${hooks} active` : `${hooks} active, need 2` },
     {
       key: "playbook",
-      label: "Playbook",
+      label: "What works",
       ok: playbooks > 0,
       hard: false,
       tab: "swipes",
@@ -1209,7 +1209,7 @@ async function readinessChecks(ctx: QueryCtx) {
     },
     {
       key: "meta",
-      label: "Meta",
+      label: "Meta account",
       ok: meta,
       hard: false,
       tab: "settings",

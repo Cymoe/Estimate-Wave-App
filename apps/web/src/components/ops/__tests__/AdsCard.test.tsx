@@ -154,11 +154,11 @@ beforeEach(() => {
 describe('Ops → Ads', () => {
   it('the readiness strip says whether Monday will draft, and each check opens the tab that fixes it', async () => {
     readiness = [
-      { key: 'keys', label: 'Keys', ok: true, hard: true, tab: 'settings', detail: 'Claude, ElevenLabs and Shotstack are set' },
+      { key: 'keys', label: 'Services', ok: true, hard: true, tab: 'settings', detail: 'Claude, ElevenLabs and Shotstack are set' },
       { key: 'library', label: 'Library', ok: true, hard: true, tab: 'library', detail: '5 files, 3 tagged by room' },
       { key: 'hooks', label: 'Hooks', ok: false, hard: true, tab: 'hooks', detail: '1 active, need 2' },
-      { key: 'playbook', label: 'Playbook', ok: false, hard: false, tab: 'swipes', detail: 'None yet: load or search competitor ads' },
-      { key: 'meta', label: 'Meta', ok: false, hard: false, tab: 'settings', detail: 'Token, ad account, page and ad set needed' },
+      { key: 'playbook', label: 'What works', ok: false, hard: false, tab: 'swipes', detail: 'None yet: load or search competitor ads' },
+      { key: 'meta', label: 'Meta account', ok: false, hard: false, tab: 'settings', detail: 'Token, ad account, page and ad set needed' },
     ];
     await render();
     const strip = document.body.querySelector('[aria-label="Ready for Monday"]')!;
@@ -195,7 +195,7 @@ describe('Ops → Ads', () => {
     await render();
     const groups = document.body.querySelectorAll('[data-testid="hook-group"]');
     expect(groups.length).toBe(1);
-    expect(groups[0].textContent).toContain('Before / after · cabinets · Paint them');
+    expect(groups[0].textContent).toContain('Before / after · Cabinets · Paint them');
     const cards = document.body.querySelectorAll('[data-testid="creative"]');
     expect(cards.length).toBe(2);
     expect(cards[1].textContent).toContain('4x5');
@@ -376,7 +376,7 @@ describe('Ops → Ads', () => {
     await tab('Hooks');
     expect(byText('Add the six painting hooks')).toBeUndefined();
     const row = document.body.querySelector('[data-testid="hook"]')!;
-    expect(row.textContent).toContain('Cost education · interior · used 1 · 1 won · 0 lost');
+    expect(row.textContent).toContain('Cost education · Interior · used 1 · 1 won · 0 lost');
     await act(async () => (row.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
     expect(saveHook).toHaveBeenCalledWith(expect.objectContaining({ id: 'h1', active: false }));
     const form = document.body.querySelector('form[aria-label="New hook"]')!;
@@ -548,7 +548,7 @@ describe('Ops → Ads', () => {
     expect(researchNow).toHaveBeenCalled();
 
     const card = document.body.querySelector('[data-testid="playbook"]')!;
-    expect(card.textContent).toContain('cabinets playbook');
+    expect(card.textContent).toContain('What works: cabinets');
     expect(card.textContent).toContain('Winners open on the owner, then a before/after.');
     expect(card.textContent).toContain('Footage the winners use: before, after');
     expect(card.textContent).toContain('A clip of the owner talking to camera');
@@ -556,7 +556,7 @@ describe('Ops → Ads', () => {
     await act(async () => (Array.from(card.querySelectorAll('button')).find((b) => b.textContent === 'Rewrite') as HTMLButtonElement).click());
     expect(rewritePlaybook).toHaveBeenCalledWith('cabinets');
     await act(async () => (Array.from(card.querySelectorAll('button')).find((b) => b.textContent === 'Edit') as HTMLButtonElement).click());
-    const form = document.body.querySelector('form[aria-label="Edit cabinets playbook"]')!;
+    const form = document.body.querySelector('form[aria-label="Edit what works: cabinets"]')!;
     const textarea = form.querySelector('textarea') as HTMLTextAreaElement;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'Our read: owner first, then the kitchen.');
@@ -570,7 +570,7 @@ describe('Ops → Ads', () => {
     expect(cards().length).toBe(2);
     expect(cards()[0].textContent).toContain('Jesse McCandless Painting · Cabinets · Midland, TX · 140 days · 3 versions · 1,200 page likes');
     expect(cards()[0].textContent).toContain('Local');
-    expect(cards()[0].textContent).toContain('Owner story · opens with owner · owner to camera, before / after · score 72');
+    expect(cards()[0].textContent).toContain('Owner story · Opens with: the owner talking · owner to camera, before / after · fit 72/100');
     expect(cards()[0].textContent).toContain('Never copy$500 off this month');
     expect(cards()[0].querySelector('img')!.getAttribute('src')).toBe('https://img.example/9001.jpg');
     await act(async () => byText('Local')!.click());
