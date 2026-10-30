@@ -1,7 +1,21 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { creativeName, isFatigued, parseScript, pickAssets, pickHooks, scriptProblems, shotstackEdit, weekOf, type Script } from "./lib/ads";
+import {
+  composeScript,
+  creativeName,
+  isFatigued,
+  parseJson,
+  pickAssets,
+  pickHooks,
+  scriptProblems,
+  shotListPrompt,
+  shotPlanProblems,
+  shotTimings,
+  shotstackEdit,
+  weekOf,
+  type Script,
+} from "./lib/ads";
 import { setup, signUp } from "./test.setup";
 
 type T = ReturnType<typeof setup>;
@@ -33,16 +47,108 @@ describe("the pure parts", () => {
     expect(pickHooks(hooks, new Set(), 2).map((h) => h._id)).toEqual(["c", "b"]);
   });
 
-  test("footage: the scope's before/after pair first, then newest, never reused; process footage when nothing fits", () => {
+  test("footage: pairs first, then least used and newest; never reused in a week; a fallback is flagged", () => {
     const assets = [
-      { _id: "p1", kind: "photo" as const, tags: ["cabinets", "before"], pairKey: "k", createdAt: "2026-10-01" },
-      { _id: "p2", kind: "photo" as const, tags: ["cabinets", "after"], pairKey: "k", createdAt: "2026-10-02" },
-      { _id: "v1", kind: "video" as const, tags: ["cabinets"], createdAt: "2026-10-05" },
-      { _id: "v2", kind: "video" as const, tags: ["process"], createdAt: "2026-10-06" },
+      { _id: "p1", kind: "photo" as const, tags: ["cabinets", "before"], pairKey: "k", createdAt: "2026-10-01", uses: 0 },
+      { _id: "p2", kind: "photo" as const, tags: ["cabinets", "after"], pairKey: "k", createdAt: "2026-10-02", uses: 0 },
+      { _id: "v1", kind: "video" as const, tags: ["cabinets"], createdAt: "2026-10-05", uses: 3 },
+      { _id: "v3", kind: "video" as const, tags: ["cabinets"], createdAt: "2026-10-04", uses: 0 },
+      { _id: "v2", kind: "video" as const, tags: ["process"], createdAt: "2026-10-06", uses: 0 },
     ];
-    expect(pickAssets(assets, "cabinets", new Set()).map((a) => a._id)).toEqual(["p1", "p2", "v1"]);
-    expect(pickAssets(assets, "cabinets", new Set(["v1"])).map((a) => a._id)).toEqual(["p1", "p2"]);
-    expect(pickAssets(assets, "exterior", new Set()).map((a) => a._id)).toEqual(["v2"]);
+    // The pair, then the unused cabinets clip ahead of the newer but used one.
+    expect(pickAssets(assets, "cabinets", new Set())).toEqual({ assets: [assets[0], assets[1], assets[3], assets[2]], inScope: true });
+    expect(pickAssets(assets, "cabinets", new Set(["v1"])).assets.map((a) => a._id)).toEqual(["p1", "p2", "v3"]);
+    expect(pickAssets(assets, "exterior", new Set())).toEqual({ assets: [assets[4]], inScope: false });
+    // Two pairs: the less used pair goes first.
+    const two = [
+      ...assets.slice(0, 2).map((a) => ({ ...a, uses: 2 })),
+      { _id: "q1", kind: "photo" as const, tags: ["cabinets", "before"], pairKey: "m", createdAt: "2026-09-01", uses: 0 },
+      { _id: "q2", kind: "photo" as const, tags: ["cabinets", "after"], pairKey: "m", createdAt: "2026-09-01", uses: 0 },
+    ];
+    expect(pickAssets(two, "cabinets", new Set()).assets.map((a) => a._id)).toEqual(["q1", "q2", "p1", "p2"]);
+  });
+
+  test("the shot-list prompt lists the footage by number, says when it's only fallback footage, and carries the rules", () => {
+    const hook = { textEn: "Paint them, don't replace them.", family: "before_after" as const, scope: "cabinets" };
+    const footage = [
+      { kind: "photo" as const, tags: ["cabinets", "before"], pairKey: "k", description: "Dark oak kitchen cabinets", imageUrl: "https://x/1.jpg" },
+      { kind: "video" as const, tags: ["process"], durationSec: 7.6 },
+    ];
+    const text = shotListPrompt(hook, "Permian Home Quotes", footage, false);
+    expect(text).toContain('Footage 1: photo · tags: cabinets, before · pair "k" · looks like: Dark oak kitchen cabinets · (image attached below)');
+    expect(text).toContain("Footage 2: video (8s) · tags: process · (no image available; rely on the tags)");
+    expect(text).toContain("None of this footage is tagged cabinets");
+    expect(text).toContain("never as a homeowner or customer");
+    expect(text).toContain("A before must be immediately followed by its after");
+    expect(shotListPrompt(hook, "B", footage, true)).not.toContain("None of this footage");
+  });
+
+  test("a shot list is checked against the footage it was offered, then becomes the stored script", () => {
+    const footage = [{ tags: ["cabinets", "before"], pairKey: "k" }, { tags: ["cabinets", "after"], pairKey: "k" }, { tags: ["process"] }];
+    const line = (n: number) => Array.from({ length: n }, () => "word").join(" ");
+    const good = {
+      fits: true,
+      shots: [
+        { footage: 1, voice: `These cabinets ${line(18)}`, onScreen: "Before" },
+        { footage: 2, voice: `and after ${line(18)}`, onScreen: "After" },
+        { footage: 3, voice: `get a quote ${line(18)}`, onScreen: "Get a quote" },
+      ],
+      headline: "Cabinets, transformed",
+      primaryText: "One vetted local painter.",
+    };
+    expect(shotPlanProblems(good, footage)).toEqual([]);
+    expect(shotPlanProblems({ ...good, shots: [good.shots[0], good.shots[2], good.shots[1]] }, footage)).toContain(
+      "the before in footage 1 isn't followed by its after",
+    );
+    expect(shotPlanProblems({ ...good, shots: [good.shots[0], { ...good.shots[1], footage: 1 }] }, footage)).toEqual(
+      expect.arrayContaining(["footage 1 used twice"]),
+    );
+    expect(shotPlanProblems({ ...good, shots: [{ ...good.shots[0], footage: 9 }, good.shots[1]] }, footage)).toContain("shot 1 names footage 9");
+    expect(
+      shotPlanProblems(
+        {
+          ...good,
+          shots: [
+            { ...good.shots[0], voice: "Short." },
+            { ...good.shots[1], voice: "Too." },
+          ],
+        },
+        footage,
+      ),
+    ).toContain("2 words of voice (write 55 to 75)");
+    expect(shotPlanProblems({ ...good, shots: [{ ...good.shots[0], onScreen: "x".repeat(41) }, good.shots[1]] }, footage)).toEqual(
+      expect.arrayContaining(["shot 1 on-screen line over 40 characters"]),
+    );
+    const script = composeScript(good, ["a1", "a2", "a3"]);
+    expect(script.shots!.map((x) => [x.assetId, x.onScreen])).toEqual([
+      ["a1", "Before"],
+      ["a2", "After"],
+      ["a3", "Get a quote"],
+    ]);
+    expect(script.voice).toBe(good.shots.map((x) => x.voice).join(" "));
+    expect(script.onScreen).toEqual(["Before", "After", "Get a quote"]);
+  });
+
+  test("shot timings come from ElevenLabs' character times, or an even estimate without them", () => {
+    const lines = ["Paint them.", "Not replace."];
+    const text = lines.join(" ");
+    const alignment = {
+      characters: [...text],
+      character_start_times_seconds: [...text].map((_, i) => i * 0.1),
+      character_end_times_seconds: [...text].map((_, i) => i * 0.1 + 0.1),
+    };
+    // "Paint them." is characters 0–10; "Not replace." starts at 12.
+    expect(shotTimings(lines, alignment, 99)).toEqual({
+      shots: [
+        { start: 0, end: 1.1 },
+        { start: 1.2, end: 2.4 },
+      ],
+      durationSec: 2.4,
+    });
+    const est = shotTimings(lines, null, 10);
+    expect(est.durationSec).toBe(10);
+    expect(est.shots[0].start).toBe(0);
+    expect(est.shots[1].start).toBeCloseTo(est.shots[0].end, 2);
   });
 
   test("names, weeks and fatigue", () => {
@@ -67,47 +173,62 @@ describe("the pure parts", () => {
     );
     expect(scriptProblems({ ...GOOD, onScreen: ["Is your home in Midland?"] })).toContain("mentions a personal attribute");
     expect(scriptProblems(undefined)).toEqual(["no script"]);
-    expect(parseScript('Here you go:\n```json\n{"voice":"x"}\n```')).toEqual({ voice: "x" });
-    expect(parseScript("no json here")).toBeNull();
+    expect(parseJson('Here you go:\n```json\n{"fits":false,"reason":"x"}\n```')).toEqual({ fits: false, reason: "x" });
+    expect(parseJson("no json here")).toBeNull();
   });
 
-  test("the Shotstack edit: the right size, captions off the voice, a wipe only for a pair, the ask on the last card", () => {
+  test("the Shotstack edit: each shot starts on its line, its words sit on it, an after wipes over its before, short clips repeat", () => {
     const brand = { name: "Permian Home Quotes", primaryColor: "#336699", accentColor: "#8fb6e0" };
-    const pair = [
-      { url: "https://x/before.jpg", kind: "photo" as const, tags: ["cabinets", "before"], pairKey: "k" },
-      { url: "https://x/after.jpg", kind: "photo" as const, tags: ["cabinets", "after"], pairKey: "k" },
-    ];
+    const before = { url: "https://x/before.jpg", kind: "photo" as const, tags: ["cabinets", "before"], pairKey: "k" };
+    const after = { url: "https://x/after.jpg", kind: "photo" as const, tags: ["cabinets", "after"], pairKey: "k" };
+    const clip = { url: "https://x/clip.mp4", kind: "video" as const, tags: ["process"], durationSec: 3 };
     const edit = shotstackEdit({
-      assets: pair,
+      shots: [
+        { asset: before, onScreen: "Before", start: 0.2, end: 6 },
+        { asset: after, onScreen: "After", start: 6.4, end: 12 },
+        { asset: clip, onScreen: "Get a quote", start: 12.5, end: 20 },
+      ],
       audioUrl: "https://x/voice.mp3",
-      durationSec: 24,
-      script: GOOD,
+      audioDurationSec: 20,
       brand,
       ratio: "9x16",
     });
     expect(edit.output).toEqual({ format: "mp4", fps: 25, size: { width: 1080, height: 1920 } });
     const tracks = edit.timeline.tracks as Array<{ clips: any[] }>;
-    expect(tracks[0].clips[0].asset).toMatchObject({ type: "caption", src: "alias://voice" });
-    const media = tracks[3].clips;
-    expect(media[1].transition).toEqual({ in: "wipeLeft" });
-    expect(media[0].start + media[0].length).toBeCloseTo(media[1].start);
-    expect(tracks[2].clips[1].asset.html).toContain("Get a quote");
-    expect(tracks[4].clips[0]).toMatchObject({ alias: "voice", asset: { type: "audio", src: "https://x/voice.mp3" } });
+    const [captions, lines, brandTrack, media, audio] = tracks;
+    expect(captions.clips[0]).toMatchObject({ asset: { type: "caption", src: "alias://voice" }, start: 0, length: 20.4 });
+    // Clips: 0–6.4 before, 6.4–12.5 after (wipe), then the 3s clip three times to fill 12.5–20.4.
+    expect(media.clips.map((c) => [c.asset.src, c.start, c.length, c.transition?.in])).toEqual([
+      ["https://x/before.jpg", 0, 6.4, undefined],
+      ["https://x/after.jpg", 6.4, 6.1, "wipeLeft"],
+      ["https://x/clip.mp4", 12.5, 3, undefined],
+      ["https://x/clip.mp4", 15.5, 3, undefined],
+      ["https://x/clip.mp4", 18.5, 1.9, undefined],
+    ]);
+    // Each on-screen line sits on its own shot.
+    expect(lines.clips.map((c) => [c.asset.html, c.start, c.length])).toEqual([
+      ["<p>Before</p>", 0, 6.4],
+      ["<p>After</p>", 6.4, 6.1],
+      ["<p>Get a quote</p>", 12.5, 7.9],
+    ]);
+    // End card after the voice, 3 seconds.
+    expect(brandTrack.clips[1]).toMatchObject({ start: 20.4, length: 3 });
+    expect(brandTrack.clips[1].asset.html).toContain("Get a quote");
+    expect(audio.clips[0]).toMatchObject({ alias: "voice", asset: { src: "https://x/voice.mp3" }, start: 0, length: 20 });
 
-    const single = shotstackEdit({
-      assets: [{ url: "https://x/clip.mp4", kind: "video", tags: ["exterior"] }],
+    // No wipe when the after doesn't follow its own before.
+    const swapped = shotstackEdit({
+      shots: [
+        { asset: after, onScreen: "A", start: 0, end: 3 },
+        { asset: before, onScreen: "B", start: 3, end: 6 },
+      ],
       audioUrl: "https://x/v.mp3",
-      durationSec: 60,
-      script: GOOD,
+      audioDurationSec: 6,
       brand,
       ratio: "4x5",
     });
-    expect(single.output.size).toEqual({ width: 1080, height: 1350 });
-    const clip = (single.timeline.tracks as Array<{ clips: any[] }>)[3].clips[0];
-    expect(clip.transition).toBeUndefined();
-    expect(clip.asset).toEqual({ type: "video", src: "https://x/clip.mp4", volume: 0 });
-    // Capped at 30 seconds however long the voice runs.
-    expect(clip.length + 3).toBe(30);
+    expect(swapped.output.size).toEqual({ width: 1080, height: 1350 });
+    expect((swapped.timeline.tracks as Array<{ clips: any[] }>)[3].clips.some((c) => c.transition)).toBe(false);
   });
 });
 
@@ -148,6 +269,59 @@ describe("the library, hooks and settings", () => {
     await staff.as.mutation(api.ads.removeAsset, { id: clip });
     expect(await t.run(async (ctx) => await ctx.db.system.get(storageId))).toBeNull();
     expect((await staff.as.query(api.ads.listAssets, {})).length).toBe(1);
+  });
+
+  test("an upload with a still: Claude describes it and suggests tags from the list; the still is removed with it", async () => {
+    const t = setup();
+    const staff = await signUp(t, "ops@tolliver.example", { role: "staff" });
+    vi.stubEnv("ANTHROPIC_API_KEY", "a");
+    const asks: Array<any> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        asks.push(JSON.parse(String(init!.body)).messages[0].content);
+        return new Response(
+          JSON.stringify({
+            content: [
+              {
+                type: "text",
+                text: '{"description":"White shaker cabinets, freshly painted, in a bright kitchen.","tags":["Cabinets","after","garage"]}',
+              },
+            ],
+          }),
+        );
+      }),
+    );
+    const poster = await store(t, "image/jpeg", "still");
+    vi.useFakeTimers();
+    const id = await staff.as.mutation(api.ads.addAsset, {
+      storageId: await store(t, "image/heic", "heic"),
+      fileName: "IMG_1.HEIC",
+      tags: ["interior"],
+      posterStorageId: poster,
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    vi.useRealTimers();
+    // Claude looked at the JPEG still, not the HEIC it can't read.
+    expect(asks[0][0]).toMatchObject({ type: "image", source: { type: "url" } });
+    const [row] = await staff.as.query(api.ads.listAssets, {});
+    expect(row).toMatchObject({
+      description: "White shaker cabinets, freshly painted, in a bright kitchen.",
+      suggestedTags: ["cabinets", "after"],
+      tags: ["interior"],
+      uses: 0,
+    });
+    expect(row.posterUrl).toEqual(expect.any(String));
+    await expect(
+      staff.as.mutation(api.ads.addAsset, {
+        storageId: await store(t),
+        fileName: "x.jpg",
+        tags: [],
+        posterStorageId: await store(t, "image/jpeg", "x".repeat(5 * 1024 * 1024 + 1)),
+      }),
+    ).rejects.toThrow("still for this file");
+    await staff.as.mutation(api.ads.removeAsset, { id });
+    expect(await t.run(async (ctx) => await ctx.db.system.get(poster))).toBeNull();
   });
 
   test("the six painting hooks seed once; hooks are edited, switched off and removed", async () => {
@@ -218,28 +392,67 @@ describe("the library, hooks and settings", () => {
   });
 });
 
+/** A valid shot list for however much footage the request offered, 60 words in all. */
+function shotListFor(prompt: string, primaryText = GOOD.primaryText) {
+  const count = Math.min(4, (prompt.match(/^Footage \d+:/gm) ?? []).length);
+  const words = GOOD.voice.split(/\s+/).slice(0, 52).concat(["Get", "a", "quote", "today", "from", "a", "local", "painter."]);
+  const per = Math.ceil(words.length / count);
+  return {
+    fits: true,
+    shots: Array.from({ length: count }, (_, i) => ({
+      footage: i + 1,
+      voice: words.slice(i * per, (i + 1) * per).join(" "),
+      onScreen: `Shot ${i + 1}`,
+    })),
+    headline: GOOD.headline,
+    primaryText,
+  };
+}
+
+type StubOpts = {
+  /** Every shot list carries a price. */
+  scriptsFail?: boolean;
+  /** The first shot list for each hook breaks a rule; the retry is fine. */
+  badFirst?: boolean;
+  /** Claude passes on hooks whose prompt names this scope. */
+  passOnScope?: string;
+  renderFails?: boolean;
+};
+
 /** What each outside service answers during a weekly run. */
-function stubServices(calls: Array<{ url: string; body?: string }>, opts: { scriptsFail?: boolean; renderFails?: boolean } = {}) {
+function stubServices(calls: Array<{ url: string; body?: string }>, opts: StubOpts = {}) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input instanceof Request ? input.url : input);
-      calls.push({
-        url,
-        body: typeof init?.body === "string" ? init.body : init?.body instanceof URLSearchParams ? init.body.toString() : undefined,
-      });
-      if (url.includes("api.anthropic.com"))
+      const body = typeof init?.body === "string" ? init.body : init?.body instanceof URLSearchParams ? init.body.toString() : undefined;
+      calls.push({ url, body });
+      if (url.includes("api.anthropic.com")) {
+        const content = JSON.parse(body!).messages[0].content as Array<{ type: string; text?: string }>;
+        const prompt = content[0].text ?? "";
+        const retry = content.some((c) => c.text?.startsWith("Your last shot list had these problems"));
+        let reply: unknown;
+        if (opts.passOnScope && prompt.includes(`Scope: ${opts.passOnScope}.`))
+          reply = { fits: false, reason: `no ${opts.passOnScope} in this footage` };
+        else if (opts.scriptsFail) reply = shotListFor(prompt, "Only $999 this week");
+        else if (opts.badFirst && !retry) reply = { ...shotListFor(prompt), shots: [] };
+        else reply = shotListFor(prompt);
+        return new Response(JSON.stringify({ content: [{ type: "text", text: "Here it is: " + JSON.stringify(reply) }] }));
+      }
+      if (url.includes("api.elevenlabs.io")) {
+        const text = JSON.parse(body!).text as string;
+        const chars = [...text];
         return new Response(
           JSON.stringify({
-            content: [
-              {
-                type: "text",
-                text: opts.scriptsFail ? "Sure! " + JSON.stringify({ ...GOOD, primaryText: "Only $999 this week" }) : JSON.stringify(GOOD),
-              },
-            ],
+            audio_base64: btoa("mp3"),
+            alignment: {
+              characters: chars,
+              character_start_times_seconds: chars.map((_, i) => i * 0.06),
+              character_end_times_seconds: chars.map((_, i) => i * 0.06 + 0.06),
+            },
           }),
         );
-      if (url.includes("api.elevenlabs.io")) return new Response(new Blob(["mp3"], { type: "audio/mpeg" }));
+      }
       if (url.includes("shotstack.io") && url.endsWith("/render")) return new Response(JSON.stringify({ response: { id: `r-${calls.length}` } }));
       if (url.includes("shotstack.io/edit/v1/render/"))
         return new Response(
@@ -304,9 +517,21 @@ describe("the weekly run", () => {
     const tall = batch.creatives.find((c) => c.ratio === "9x16")!;
     expect(tall.name).toMatch(/^WL_[a-z0-9]{6}_916_\d{8}$/);
     expect(tall.script.headline).toBe(GOOD.headline);
-    // The hooks were used once each; a pair went to the cabinets hook, the roller clip to the other.
+    // The hooks were used once each; the pair went to the cabinets hook, the roller clip to the other.
     const hooks = await owner.as.query(api.ads.listHooks, {});
     expect(hooks.filter((h) => h.uses === 1).length).toBe(2);
+    const cabinets = batch.creatives.find((c) => c.hook!.scope === "cabinets" && c.ratio === "9x16")!;
+    const other = batch.creatives.find((c) => c.hook!.scope !== "cabinets" && c.ratio === "9x16")!;
+    // Each creative carries its shot list, timed from ElevenLabs' character times.
+    expect(cabinets.shots.map((x) => [x.fileName, x.onScreen])).toEqual([
+      ["before.jpg", "Shot 1"],
+      ["after.jpg", "Shot 2"],
+    ]);
+    expect(cabinets.shots[0].start).toBe(0);
+    expect(cabinets.shots[1].start).toBeGreaterThan(cabinets.shots[0].end! - 0.1);
+    expect(other.shots.map((x) => x.fileName)).toEqual(["roller.mp4"]);
+    // Every file was cut into one ad, so next week fresher footage goes first.
+    expect((await owner.as.query(api.ads.listAssets, {})).map((a) => a.uses)).toEqual([1, 1, 1]);
     // Claude once per hook, ElevenLabs once per hook, Shotstack four renders, Meta three calls per creative.
     expect(calls.filter((c) => c.url.includes("anthropic")).length).toBe(2);
     expect(calls.filter((c) => c.url.includes("elevenlabs")).length).toBe(2);
@@ -316,11 +541,28 @@ describe("the weekly run", () => {
     expect(new URLSearchParams(ads[0].body).get("status")).toBe("PAUSED");
     const creative = JSON.parse(new URLSearchParams(calls.find((c) => c.url.endsWith("/adcreatives"))!.body).get("object_story_spec")!);
     expect(creative.video_data.call_to_action).toEqual({ type: "GET_QUOTE", value: { lead_gen_form_id: "f1" } });
-    expect(calls.find((c) => c.url.includes("elevenlabs"))!.url).toContain("/text-to-speech/ven");
-    // The prompt carried the brand and the guardrails.
-    const prompt = JSON.parse(calls.find((c) => c.url.includes("anthropic"))!.body!).messages[0].content as string;
-    expect(prompt).toContain("Permian Home Quotes");
-    expect(prompt).toContain("never as a homeowner or customer");
+    expect(calls.find((c) => c.url.includes("elevenlabs"))!.url).toContain("/text-to-speech/ven/with-timestamps");
+    // Claude saw the footage: the cabinets request carries both photos as images, each after its "Footage N" label.
+    const asks = calls.filter((c) => c.url.includes("anthropic")).map((c) => JSON.parse(c.body!).messages[0].content as Array<any>);
+    const cabinetsAsk = asks.find((a) => a[0].text.includes("Scope: cabinets."))!;
+    expect(cabinetsAsk[0].text).toContain("Permian Home Quotes");
+    expect(cabinetsAsk[0].text).toContain("never as a homeowner or customer");
+    expect(cabinetsAsk.slice(1).map((b) => (b.type === "text" ? b.text : b.source.type))).toEqual(["Footage 1:", "url", "Footage 2:", "url"]);
+    // The other hook only had the roller clip, which isn't in its scope and has no still: Claude is told both.
+    const otherAsk = asks.find((a) => a !== cabinetsAsk)!;
+    expect(otherAsk[0].text).toContain("None of this footage is tagged");
+    expect(otherAsk[0].text).toContain("(no image available; rely on the tags)");
+    expect(otherAsk.length).toBe(1);
+    // The cabinets render: the after wipes over the before, each on-screen line on its own shot, cut where its line starts.
+    const renders = calls.filter((c) => c.url.endsWith("/render")).map((c) => JSON.parse(c.body!));
+    const cabinetsRender = renders.find((r) => r.timeline.tracks[3].clips.length === 2)!;
+    const [first, second] = cabinetsRender.timeline.tracks[3].clips;
+    expect(first.start).toBe(0);
+    expect(second).toMatchObject({ start: cabinets.shots[1].start, transition: { in: "wipeLeft" } });
+    expect(cabinetsRender.timeline.tracks[1].clips.map((c: any) => [c.asset.html, c.start])).toEqual([
+      ["<p>Shot 1</p>", 0],
+      ["<p>Shot 2</p>", cabinets.shots[1].start],
+    ]);
 
     // Approve one: live here, ACTIVE in Meta.
     vi.useFakeTimers();
@@ -366,6 +608,33 @@ describe("the weekly run", () => {
     stubServices(calls);
     await t.action(internal.ads.weeklyRun, {});
     expect((await owner.as.query(api.ads.batches, {})).length).toBe(1);
+  });
+
+  test("Claude passes on a hook whose footage doesn't fit: that hook is passed over with the reason and the next one is drafted", async () => {
+    const { owner, calls, draft } = await noMeta();
+    stubServices(calls, { passOnScope: "cabinets" });
+    const batch = await draft();
+    expect(batch.status).toBe("ready");
+    expect(batch.creatives.length).toBe(2);
+    expect(batch.creatives.every((c) => c.hook!.scope !== "cabinets")).toBe(true);
+    expect(batch.skipped[0]).toMatch(/^"Paint them, don't replace them\..*": Claude passed: no cabinets in this footage$/);
+    // The pair Claude didn't use stays fresh for next week.
+    expect(
+      (await owner.as.query(api.ads.listAssets, {}))
+        .filter((a) => a.uses === 0)
+        .map((a) => a.fileName)
+        .sort(),
+    ).toEqual(["after.jpg", "before.jpg"]);
+  });
+
+  test("a shot list that breaks a rule gets one retry with the problems named", async () => {
+    const { calls, draft } = await noMeta();
+    stubServices(calls, { badFirst: true });
+    const batch = await draft();
+    expect(batch).toMatchObject({ status: "ready", skipped: [] });
+    const asks = calls.filter((c) => c.url.includes("anthropic")).map((c) => JSON.parse(c.body!).messages[0].content as Array<any>);
+    expect(asks.length).toBe(2);
+    expect(asks[1][asks[1].length - 1].text).toContain("Your last shot list had these problems: 0 shots (use 2 to 4)");
   });
 
   test("a failed render fails that creative, and the batch still finishes", async () => {

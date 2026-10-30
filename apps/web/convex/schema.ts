@@ -457,6 +457,26 @@ const snakeTimestamps = {
   updated_at: v.string(),
 };
 
+/**
+ * An ad's script: the shot list Claude wrote to the footage (each shot's
+ * asset, its voice line, its on-screen line, and once voiced, when the line
+ * starts and ends), with the whole voice-over and the lines in shot order.
+ */
+export const adShot = v.object({
+  assetId: v.id("adAssets"),
+  voice: v.string(),
+  onScreen: v.string(),
+  start: v.optional(v.number()),
+  end: v.optional(v.number()),
+});
+export const adScript = v.object({
+  voice: v.string(),
+  onScreen: v.array(v.string()),
+  headline: v.string(),
+  primaryText: v.string(),
+  shots: v.optional(v.array(adShot)),
+});
+
 export default defineSchema({
   ...authTables,
 
@@ -1488,6 +1508,15 @@ export default defineSchema({
     pairKey: v.optional(v.string()),
     // Where it was shot and whose permission we have.
     note: v.optional(v.string()),
+    // A JPEG still made in the browser at upload: what Claude looks at, the
+    // render source for HEIC photos, and the poster for video ads.
+    posterStorageId: v.optional(v.id("_storage")),
+    // What Claude saw in it, and the tags it would give it.
+    description: v.optional(v.string()),
+    suggestedTags: v.optional(v.array(v.string())),
+    // How many ads it has been cut into, so the library rotates.
+    uses: v.optional(v.number()),
+    lastUsedAt: v.optional(v.string()),
     uploadedBy: v.id("users"),
     createdAt: v.string(),
   })
@@ -1519,6 +1548,8 @@ export default defineSchema({
     status: v.union(v.literal("drafting"), v.literal("rendering"), v.literal("ready"), v.literal("done"), v.literal("failed")),
     error: v.optional(v.string()),
     summary: v.optional(v.string()),
+    // Hooks passed over this week, and why ("the footage shows exteriors only").
+    skipped: v.optional(v.array(v.string())),
     startedBy: v.optional(v.id("users")),
     createdAt: v.string(),
   }).index("by_week", ["weekOf"]),
@@ -1529,9 +1560,12 @@ export default defineSchema({
     ratio: v.union(v.literal("9x16"), v.literal("4x5")),
     // Also the ad's name in Meta, so a lead's adName joins back here.
     name: v.string(),
-    script: v.object({ voice: v.string(), onScreen: v.array(v.string()), headline: v.string(), primaryText: v.string() }),
+    script: adScript,
+    // Shot order; the same assets as script.shots.
     assetIds: v.array(v.id("adAssets")),
     audioStorageId: v.optional(v.id("_storage")),
+    // How long ElevenLabs' read runs; the edit is cut to it.
+    audioDurationSec: v.optional(v.number()),
     videoStorageId: v.optional(v.id("_storage")),
     renderId: v.optional(v.string()),
     status: v.union(

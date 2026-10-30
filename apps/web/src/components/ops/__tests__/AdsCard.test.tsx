@@ -1,4 +1,3 @@
-import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import { AdsCard, type AdAsset, type AdBatch, type AdHook, type AdSettings, type LiveAd } from '../AdsCard';
@@ -73,6 +72,10 @@ const creative = (over: Partial<AdBatch['creatives'][number]>): AdBatch['creativ
   id: 'c1',
   batchId: 'b1',
   name: 'WL_abc123_916_20261102',
+  shots: [
+    { fileName: 'kitchen-before.jpg', voice: 'Dark oak cabinets, worn at the edges.', onScreen: 'Before', start: 0, end: 2.4 },
+    { fileName: 'kitchen-after.jpg', voice: 'Same kitchen, painted white.', onScreen: 'After', start: 2.6, end: 4.8 },
+  ],
   ratio: '9x16',
   status: 'paused',
   script: {
@@ -115,6 +118,7 @@ describe('Ops → Ads', () => {
         weekOf: '2026-11-02',
         status: 'ready',
         summary: '2 paused in Meta',
+        skipped: ['"Get the outside painted before the first freeze": Claude passed: no exterior in this footage'],
         createdAt: new Date().toISOString(),
         creatives: [
           creative({}),
@@ -133,6 +137,14 @@ describe('Ops → Ads', () => {
     expect(cards[1].textContent).toContain('4x5');
     expect(cards[1].textContent).toContain('Cabinets, kitchen transformed');
     expect(document.body.textContent).toContain('Week of 2026-11-02');
+    expect(document.body.querySelector('[aria-label="Passed over"]')!.textContent).toBe(
+      'Passed over "Get the outside painted before the first freeze": Claude passed: no exterior in this footage',
+    );
+    const shots = cards[0].querySelector('[aria-label="Shot list"]')!.querySelectorAll('li');
+    expect(Array.from(shots).map((li) => li.textContent)).toEqual([
+      '1. kitchen-before.jpg · 0.0–2.4s“Dark oak cabinets, worn at the edges.”On screen: Before',
+      '2. kitchen-after.jpg · 2.6–4.8s“Same kitchen, painted white.”On screen: After',
+    ]);
     await act(async () => (cards[0].querySelector('button') as HTMLButtonElement).click());
     await flush();
     expect(activate).toHaveBeenCalledWith('c1');
@@ -201,9 +213,13 @@ describe('Ops → Ads', () => {
       {
         id: 'a1',
         url: 'https://cdn.example/a1.jpg',
+        posterUrl: 'https://cdn.example/a1-still.jpg',
         kind: 'photo',
         fileName: 'kitchen.jpg',
         tags: ['cabinets'],
+        description: 'White shaker cabinets in a bright kitchen.',
+        suggestedTags: ['cabinets', 'after'],
+        uses: 2,
         createdAt: new Date().toISOString(),
       },
     ];
@@ -233,6 +249,17 @@ describe('Ops → Ads', () => {
 
     const card = document.body.querySelector('[data-testid="asset"]')!;
     expect(card.textContent).toContain('kitchen.jpg');
+    expect(card.textContent).toContain('in 2 ads');
+    expect(card.textContent).toContain('White shaker cabinets in a bright kitchen.');
+    expect(card.querySelector('img')!.getAttribute('src')).toBe('https://cdn.example/a1-still.jpg');
+    expect(card.querySelector('[data-testid="suggested-tags"]')!.textContent).toBe('Suggested: cabinets, after · Use these');
+    await act(async () =>
+      Array.from(card.querySelectorAll('button'))
+        .find((b) => b.textContent === 'Use these')!
+        .click(),
+    );
+    expect(tagAsset).toHaveBeenLastCalledWith('a1', ['cabinets', 'after'], undefined, undefined);
+    tagAsset.mockClear();
     await act(async () =>
       Array.from(card.querySelectorAll('button'))
         .find((b) => b.textContent === 'after')!

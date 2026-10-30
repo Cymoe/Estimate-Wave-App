@@ -34,6 +34,8 @@ export interface AdCreative {
   id: string;
   batchId: string;
   name: string;
+  /** The shot list: which file is on screen, the line spoken over it, its on-screen words, and when the line runs. */
+  shots?: Array<{ fileName: string; voice: string; onScreen: string; start?: number; end?: number }>;
   ratio: '9x16' | '4x5';
   status: 'draft' | 'voiced' | 'rendering' | 'rendered' | 'paused' | 'live' | 'retired' | 'rejected' | 'failed';
   error?: string;
@@ -54,6 +56,8 @@ export interface AdBatch {
   status: 'drafting' | 'rendering' | 'ready' | 'done' | 'failed';
   error?: string;
   summary?: string;
+  /** Hooks passed over this week and why. */
+  skipped?: string[];
   createdAt: string;
   creatives: AdCreative[];
 }
@@ -68,6 +72,12 @@ export interface AdAsset {
   tags: string[];
   pairKey?: string;
   note?: string;
+  /** The JPEG still made at upload. */
+  posterUrl?: string;
+  /** What Claude saw in it, and the tags it suggests. */
+  description?: string;
+  suggestedTags?: string[];
+  uses?: number;
   createdAt: string;
 }
 export interface AdHook {
@@ -199,6 +209,13 @@ const ThisWeek: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
               {b.error && <span className="text-xs text-red-300">{b.error}</span>}
               <span className="text-xs text-gray-500 ml-auto">started {ago(b.createdAt)}</span>
             </header>
+            {(b.skipped ?? []).length > 0 && (
+              <ul className="px-4 pt-3 text-xs text-amber-200/80 space-y-0.5" aria-label="Passed over">
+                {b.skipped!.map((s) => (
+                  <li key={s}>Passed over {s}</li>
+                ))}
+              </ul>
+            )}
             {b.creatives.length === 0 ? (
               <p className="px-4 py-3 text-xs text-gray-500">Nothing drafted for this week.</p>
             ) : (
@@ -241,9 +258,24 @@ const CreativeCard: React.FC<{ c: AdCreative; act: Act }> = ({ c, act }) => (
       <p className="text-sm text-white">{c.script.headline}</p>
       <p className="text-xs text-gray-400">{c.script.primaryText}</p>
       <details className="text-xs text-gray-500">
-        <summary className="cursor-pointer">Script</summary>
-        <p className="mt-1 whitespace-pre-wrap">{c.script.voice}</p>
-        <p className="mt-1">{c.script.onScreen.join(' · ')}</p>
+        <summary className="cursor-pointer">Shots</summary>
+        {c.shots && c.shots.length > 0 ? (
+          <ol className="mt-1 space-y-1.5" aria-label="Shot list">
+            {c.shots.map((shot, i) => (
+              <li key={i}>
+                <span className="text-gray-300">
+                  {i + 1}. {shot.fileName}
+                  {shot.start !== undefined && shot.end !== undefined ? ` · ${shot.start.toFixed(1)}–${shot.end.toFixed(1)}s` : ''}
+                </span>
+                <br />“{shot.voice}”
+                <br />
+                <span className="text-gray-400">On screen: {shot.onScreen}</span>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="mt-1 whitespace-pre-wrap">{c.script.voice}</p>
+        )}
       </details>
       {c.error && <p className="text-xs text-red-300">{c.error}</p>}
       <p className="text-[10px] text-gray-600 break-all">{c.name}</p>
@@ -326,12 +358,72 @@ const Live: React.FC<{ act: Act }> = ({ act }) => {
 };
 
 /** Uploads a file to Convex storage and files it in the library with its tags. */
-async function uploadAsset(file: File, tags: string[], pairKey?: string, note?: string) {
+const isVideo = (file: File) => file.type.startsWith('video/') || /\.(mov|mp4|m4v)$/i.test(file.name);
+
+/** Waits for a media element event, or gives up after a few seconds. */
+const once = (el: HTMLElement, event: string, ms = 8000) =>
+  new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timeout')), ms);
+    el.addEventListener(event, () => (clearTimeout(timer), resolve()), { once: true });
+    el.addEventListener('error', () => (clearTimeout(timer), reject(new Error('unreadable'))), { once: true });
+  });
+
+/**
+ * A JPEG still of a photo or clip, made here in the browser: what Claude
+ * looks at, what an iPhone HEIC photo renders from, and a video ad's poster.
+ * Videos also give their length. Nothing comes back where the browser
+ * can't draw it; the file still uploads.
+ */
+async function makeStill(file: File): Promise<{ still?: Blob; durationSec?: number }> {
+  if (typeof createImageBitmap !== 'function') return {};
+  const src = URL.createObjectURL(file);
+  try {
+    let source: CanvasImageSource;
+    let width: number;
+    let height: number;
+    let durationSec: number | undefined;
+    if (isVideo(file)) {
+      const video = document.createElement('video');
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = 'auto';
+      video.src = src;
+      await once(video, 'loadeddata');
+      durationSec = Number.isFinite(video.duration) ? Math.round(video.duration * 10) / 10 : undefined;
+      video.currentTime = Math.min(1, (video.duration || 2) / 2);
+      await once(video, 'seeked');
+      [source, width, height] = [video, video.videoWidth, video.videoHeight];
+    } else {
+      const bitmap = await createImageBitmap(file);
+      [source, width, height] = [bitmap, bitmap.width, bitmap.height];
+    }
+    const scale = Math.min(1, 1600 / Math.max(width, height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(width * scale);
+    canvas.height = Math.round(height * scale);
+    canvas.getContext('2d')?.drawImage(source, 0, 0, canvas.width, canvas.height);
+    const still = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+    return { still: still ?? undefined, durationSec };
+  } catch {
+    return {};
+  } finally {
+    URL.revokeObjectURL(src);
+  }
+}
+
+async function putFile(body: Blob, type: string): Promise<string> {
   const url = await adsAPI.uploadUrl();
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': type || 'application/octet-stream' }, body });
   if (!res.ok) throw new Error(`The upload failed (${res.status})`);
-  const { storageId } = (await res.json()) as { storageId: string };
-  await adsAPI.addAsset({ storageId, fileName: file.name, tags, pairKey, note });
+  return ((await res.json()) as { storageId: string }).storageId;
+}
+
+/** Uploads a file and its still to Convex storage and files it in the library with its tags. */
+async function uploadAsset(file: File, tags: string[], pairKey?: string, note?: string) {
+  const { still, durationSec } = await makeStill(file);
+  const storageId = await putFile(file, file.type);
+  const posterStorageId = still ? await putFile(still, 'image/jpeg') : undefined;
+  await adsAPI.addAsset({ storageId, fileName: file.name, tags, pairKey, note, durationSec, posterStorageId });
 }
 
 const Library: React.FC<{ act: Act }> = ({ act }) => {
@@ -421,7 +513,9 @@ const AssetCard: React.FC<{ a: AdAsset; act: Act }> = ({ a, act }) => {
   const changed = tags.join(',') !== a.tags.join(',') || pairKey !== (a.pairKey ?? '');
   return (
     <li className="border border-[#2A2A2A] rounded bg-[#121212] overflow-hidden" data-testid="asset">
-      {a.kind === 'video' ? (
+      {a.posterUrl ? (
+        <img src={a.posterUrl} alt={a.fileName} className="w-full aspect-square object-cover" />
+      ) : a.kind === 'video' ? (
         a.url ? (
           <video src={a.url} muted preload="metadata" className="w-full aspect-square object-cover bg-black" />
         ) : (
@@ -435,7 +529,25 @@ const AssetCard: React.FC<{ a: AdAsset; act: Act }> = ({ a, act }) => {
       <div className="p-2 space-y-1">
         <p className="text-[11px] text-gray-400 truncate flex items-center gap-1">
           {a.kind === 'video' ? <Film className="w-3 h-3" /> : <ImageIcon className="w-3 h-3" />} {a.fileName}
+          {a.uses ? (
+            <span className="ml-auto text-gray-600">
+              in {a.uses} ad{a.uses === 1 ? '' : 's'}
+            </span>
+          ) : null}
         </p>
+        {a.description && <p className="text-[11px] text-gray-500">{a.description}</p>}
+        {a.suggestedTags && a.suggestedTags.length > 0 && [...a.suggestedTags].sort().join(',') !== [...a.tags].sort().join(',') && (
+          <p className="text-[11px] text-sky-300" data-testid="suggested-tags">
+            Suggested: {a.suggestedTags.join(', ')} ·{' '}
+            <button
+              type="button"
+              className="underline"
+              onClick={() => act(() => adsAPI.tagAsset(a.id, a.suggestedTags!, a.pairKey, a.note), 'Tags updated.')}
+            >
+              Use these
+            </button>
+          </p>
+        )}
         <div className="flex flex-wrap gap-1">
           {[...SCOPES, 'before', 'after'].map((t) => (
             <button

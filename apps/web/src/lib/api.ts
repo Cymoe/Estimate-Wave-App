@@ -834,7 +834,15 @@ export const demandAPI = {
 /** Ads on autopilot: the library, hooks, settings and each week's batch (staff). */
 export const adsAPI = {
   uploadUrl: (): Promise<string> => run('mutation', api.ads.uploadUrl, {}),
-  addAsset: (args: { storageId: string; fileName: string; tags: string[]; pairKey?: string; note?: string; durationSec?: number }) =>
+  addAsset: (args: {
+    storageId: string;
+    fileName: string;
+    tags: string[];
+    pairKey?: string;
+    note?: string;
+    durationSec?: number;
+    posterStorageId?: string;
+  }) =>
     run('mutation', api.ads.addAsset, defined(args)),
   tagAsset: (id: string, tags: string[], pairKey?: string, note?: string) => run('mutation', api.ads.tagAsset, defined({ id, tags, pairKey, note })),
   removeAsset: (id: string) => run('mutation', api.ads.removeAsset, { id }),
