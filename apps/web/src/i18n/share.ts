@@ -57,13 +57,10 @@ const en = {
   readAgree: (names: string) => `I’ve read and agree to the attached documents: ${names}.`,
   readAgreeLabel: "I've read and agree to the attached documents",
   signing: 'Signing...',
-  decline: 'Decline',
-  declineConfirm: 'Decline this estimate?',
   declined: 'You declined this estimate. Contact the contractor if you have questions.',
   expiredMessage: 'This estimate has expired.',
   unavailable: 'This estimate is no longer available for acceptance.',
   acceptFailed: "The estimate couldn't be accepted. Please try again.",
-  declineFailed: "The estimate couldn't be declined. Please try again.",
   /** Refusals from the server, by their stable reason. */
   reasons: {
     link_invalid: "This link isn't valid.",
@@ -149,13 +146,10 @@ const es: typeof en = {
   readAgree: (names) => `Leí y acepto los documentos adjuntos: ${names}.`,
   readAgreeLabel: 'Leí y acepto los documentos adjuntos',
   signing: 'Firmando...',
-  decline: 'Rechazar',
-  declineConfirm: '¿Rechazar este presupuesto?',
   declined: 'Rechazaste este presupuesto. Si tienes preguntas, comunícate con el contratista.',
   expiredMessage: 'Este presupuesto venció.',
   unavailable: 'Este presupuesto ya no se puede aceptar.',
   acceptFailed: 'No se pudo aceptar el presupuesto. Inténtalo de nuevo.',
-  declineFailed: 'No se pudo rechazar el presupuesto. Inténtalo de nuevo.',
   reasons: {
     link_invalid: 'Este enlace no es válido.',
     estimate_closed: 'Este presupuesto ya no se puede aceptar ni rechazar.',

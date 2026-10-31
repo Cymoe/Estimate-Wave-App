@@ -9,18 +9,23 @@ const markOpened = jest.fn(async () => {});
 const accept = jest.fn<Promise<void>, [string, string, boolean?]>(async (_token, signature) => {
   view = { ...view, status: 'accepted', clientSignature: signature, signedAt: '2026-10-11T12:00:00Z' };
 });
-const decline = jest.fn(async () => {
-  view = { ...view, status: 'rejected' };
-});
 const setLanguage = jest.fn(async () => {});
 jest.mock('../../../lib/api', () => ({
   publicEstimatesAPI: {
     get: async () => view,
     markOpened: (token: string) => markOpened(token),
     accept: (token: string, signature: string, agreed?: boolean) => accept(token, signature, agreed),
-    decline: (token: string) => decline(token),
     setLanguage: (token: string, language: string) => setLanguage(token, language),
   },
+}));
+
+// The pad itself is tested on its own; here it's a button that hands over a drawn signature.
+jest.mock('../../contracts/SignaturePad', () => ({
+  SignaturePad: ({ onChange, label }: { onChange: (v: string) => void; label: string }) => (
+    <button type="button" aria-label={label} onClick={() => onChange('data:image/png;base64,sig')}>
+      draw
+    </button>
+  ),
 }));
 
 import { ShareableEstimate } from '../ShareableEstimate';
@@ -102,18 +107,13 @@ describe('client estimate page', () => {
     expect(agreement.textContent).toContain('Change Order Policy');
     expect(agreement.textContent).toContain('Shah Builders');
     expect(document.body.textContent).toContain('By signing, you accept this estimate and agree to the terms above.');
-    expect(document.body.querySelectorAll('canvas')).toHaveLength(1);
+    expect(document.body.querySelectorAll('button[aria-label="Your signature"]')).toHaveLength(1);
   });
 
   it('accepts with the drawn signature, then shows it accepted', async () => {
     view = { ...sent };
     await open();
-    const canvas = document.body.querySelector('canvas') as HTMLCanvasElement;
-    canvas.toDataURL = () => 'data:image/png;base64,sig';
-    await act(async () => {
-      canvas.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-      canvas.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-    });
+    await act(async () => button('draw')!.click());
     await act(async () => button('Accept & Sign')!.click());
     expect(accept).toHaveBeenCalledWith('tok123', 'data:image/png;base64,sig', undefined);
     expect(document.body.textContent).toContain('Accepted & Signed');
@@ -145,15 +145,6 @@ describe('client estimate page', () => {
     expect(card.textContent).toContain('$0.00 paid of $900.00.');
   });
 
-  it('can be declined', async () => {
-    view = { ...sent };
-    window.confirm = () => true;
-    await open();
-    await act(async () => button('Decline')!.click());
-    expect(decline).toHaveBeenCalledWith('tok123');
-    expect(document.body.textContent).toContain('You declined this estimate');
-  });
-
   it('says so when the link is not valid', async () => {
     view = null;
     await open();
@@ -179,12 +170,7 @@ describe('client estimate page', () => {
     expect(agreement.textContent).not.toContain('Change Order Policy');
     expect(agreement.textContent).toContain('This estimate and its price are part of the agreement.');
 
-    const canvas = document.body.querySelector('canvas') as HTMLCanvasElement;
-    canvas.toDataURL = () => 'data:image/png;base64,sig';
-    await act(async () => {
-      canvas.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-      canvas.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-    });
+    await act(async () => button('draw')!.click());
     expect(button('Accept & Sign')!.disabled).toBe(true);
     const tick = document.body.querySelector('input[aria-label="I\'ve read and agree to the attached documents"]') as HTMLInputElement;
     expect(tick.parentElement!.textContent).toContain('Shah Agreement, Warranty');
@@ -226,7 +212,8 @@ describe('client estimate page', () => {
     expect(agreement.textContent).not.toContain('Change Order Policy');
     expect(document.documentElement.lang).toBe('es');
     expect(button('Aceptar y firmar')).toBeTruthy();
-    expect(button('Rechazar')).toBeTruthy();
+    expect(document.body.textContent).toContain('Al firmar, aceptas este presupuesto'); // and there is no Decline
+    expect(button('Rechazar')).toBeUndefined();
 
     // Flipping to English is remembered on the client's record.
     await act(async () => button('English')!.click());
@@ -243,12 +230,7 @@ describe('client estimate page', () => {
     });
     await open();
     expect(document.body.textContent).toContain('Preparado para Ana Ruiz');
-    const canvas = document.body.querySelector('canvas') as HTMLCanvasElement;
-    canvas.toDataURL = () => 'data:image/png;base64,sig';
-    await act(async () => {
-      canvas.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-      canvas.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-    });
+    await act(async () => button('draw')!.click());
     await act(async () => button('Aceptar y firmar')!.click());
     expect(document.body.textContent).toContain('Este presupuesto ya no se puede aceptar ni rechazar.');
   });

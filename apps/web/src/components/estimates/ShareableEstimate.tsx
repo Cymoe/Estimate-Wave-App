@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { LegalLinks } from '../../pages/Legal';
-import { CheckCircle, XCircle, Mail, Phone, MapPin, FileText, ChevronDown } from 'lucide-react';
+import { CheckCircle, Mail, Phone, MapPin, FileText, ChevronDown } from 'lucide-react';
 import { publicEstimatesAPI } from '../../lib/api';
 import { formatCurrency } from '../../utils/format';
 import { OTHER_CATEGORY, categoryTotals, type ContractData } from '../../services/contract';
@@ -10,6 +10,7 @@ import { formatDay, useLang } from '../../i18n/lang';
 import { SHARE, refusalText } from '../../i18n/share';
 import { AgreementTerms } from '../contracts/AgreementTerms';
 import { SignedRecord, type RecordDocument } from '../contracts/SignedRecord';
+import { SignaturePad } from '../contracts/SignaturePad';
 
 /** What the client sees, from the estimate's link (no login). */
 interface ClientEstimate {
@@ -195,14 +196,11 @@ const ShareableEstimatePage: React.FC = () => {
   const [estimate, setEstimate] = useState<ClientEstimate | null>(null);
   const [loading, setLoading] = useState(true);
   const [signing, setSigning] = useState(false);
-  const [isDrawing, setIsDrawing] = useState(false);
   const [signature, setSignature] = useState<string>('');
   const [actionError, setActionError] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   // The client confirms reading the company's own documents before signing.
   const [agreed, setAgreed] = useState(false);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [lastPoint, setLastPoint] = useState<{ x: number; y: number } | null>(null);
 
   const loadEstimate = async () => {
     if (!token) return;
@@ -226,70 +224,6 @@ const ShareableEstimatePage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
-    setIsDrawing(true);
-    
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    
-    const rect = canvas.getBoundingClientRect();
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-    
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
-    setLastPoint({ x, y });
-  };
-
-  const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
-    if (!isDrawing || !lastPoint) return;
-    
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx) return;
-    
-    const rect = canvas.getBoundingClientRect();
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-    
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
-    
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 2;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    
-    ctx.beginPath();
-    ctx.moveTo(lastPoint.x, lastPoint.y);
-    ctx.lineTo(x, y);
-    ctx.stroke();
-    
-    setLastPoint({ x, y });
-  };
-
-  const stopDrawing = () => {
-    setIsDrawing(false);
-    setLastPoint(null);
-    
-    // Convert canvas to data URL for signature
-    const canvas = canvasRef.current;
-    if (canvas) {
-      setSignature(canvas.toDataURL());
-    }
-  };
-
-  const clearSignature = () => {
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (canvas && ctx) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      setSignature('');
-    }
-  };
-
   const uploads = (estimate?.documents ?? []).filter((d) => d.source === 'upload');
   const needsTick = uploads.length > 0;
   const uploadedAgreement = uploads.find((d) => d.kind === 'agreement');
@@ -307,19 +241,6 @@ const ShareableEstimatePage: React.FC = () => {
       setActionError(refusalText(error, lang, t.acceptFailed));
     } finally {
       setSigning(false);
-    }
-  };
-
-  const handleReject = async () => {
-    if (!token) return;
-    if (!confirm(t.declineConfirm)) return;
-    setActionError(null);
-    try {
-      await publicEstimatesAPI.decline(token);
-      await loadEstimate();
-    } catch (error) {
-      console.error('Error declining estimate:', error);
-      setActionError(refusalText(error, lang, t.declineFailed));
     }
   };
 
@@ -658,34 +579,8 @@ const ShareableEstimatePage: React.FC = () => {
             <h3 className="text-lg font-semibold text-gray-900 mb-4">{t.acceptSign}</h3>
             
             <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                {t.yourSignature}
-              </label>
-              <div className="border border-gray-300 rounded-lg">
-                <canvas
-                  ref={canvasRef}
-                  width={600}
-                  height={150}
-                  className="w-full h-32 rounded-lg cursor-crosshair touch-none"
-                  style={{ border: '1px solid #e5e7eb' }}
-                  onMouseDown={startDrawing}
-                  onMouseMove={draw}
-                  onMouseUp={stopDrawing}
-                  onMouseLeave={stopDrawing}
-                  onTouchStart={startDrawing}
-                  onTouchMove={draw}
-                  onTouchEnd={stopDrawing}
-                />
-              </div>
-              <div className="flex justify-between items-center mt-2">
-                <p className="text-xs text-gray-500">{t.bySigning}</p>
-                <button
-                  onClick={clearSignature}
-                  className="text-xs text-blue-600 hover:text-blue-800"
-                >
-                  {t.clear}
-                </button>
-              </div>
+              <SignaturePad onChange={setSignature} label={t.yourSignature} clearLabel={t.clear} />
+              <p className="text-xs text-gray-500 mt-2">{t.bySigning}</p>
             </div>
 
             {needsTick && (
@@ -703,24 +598,14 @@ const ShareableEstimatePage: React.FC = () => {
               </label>
             )}
             {actionError && <p className="text-sm text-red-600 mb-3">{actionError}</p>}
-            <div className="flex gap-4">
-              <button
-                onClick={handleAccept}
-                disabled={!signature || signing || (needsTick && !agreed)}
-                className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-              >
-                <CheckCircle className="w-5 h-5" />
-                {signing ? t.signing : t.acceptSign}
-              </button>
-              
-              <button
-                onClick={handleReject}
-                className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-              >
-                <XCircle className="w-5 h-5" />
-                {t.decline}
-              </button>
-            </div>
+            <button
+              onClick={handleAccept}
+              disabled={!signature || signing || (needsTick && !agreed)}
+              className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+            >
+              <CheckCircle className="w-5 h-5" />
+              {signing ? t.signing : t.acceptSign}
+            </button>
           </div>
         ) : (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 text-center">

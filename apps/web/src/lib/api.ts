@@ -505,10 +505,6 @@ export const publicEstimatesAPI = {
 
   /** The client flipped the page's language; remembered on their record. */
   setLanguage: (token: string, language: 'en' | 'es') => run('mutation', api.publicEstimates.setLanguage, { token, language }),
-
-  async decline(token: string) {
-    return run('mutation', api.publicEstimates.decline, { token });
-  },
 };
 
 // Projects API
