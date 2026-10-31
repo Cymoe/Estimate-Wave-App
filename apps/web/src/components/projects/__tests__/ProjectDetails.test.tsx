@@ -260,6 +260,22 @@ describe('Project drawer', () => {
     expect(document.body.textContent).toContain('Saved “Re-roof”. Pick it under Template when starting a project.');
   });
 
+  it('leaves Esc to a photo open on top, and closes on the next one', async () => {
+    expenses = [];
+    jest.useFakeTimers();
+    await render();
+    const photo = document.createElement('div');
+    photo.setAttribute('role', 'dialog');
+    document.body.appendChild(photo);
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    expect(onClose).not.toHaveBeenCalled();
+    photo.remove();
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    await act(async () => jest.advanceTimersByTime(200));
+    expect(onClose).toHaveBeenCalled();
+    jest.useRealTimers();
+  });
+
   it('closes with the X', async () => {
     expenses = [];
     jest.useFakeTimers();

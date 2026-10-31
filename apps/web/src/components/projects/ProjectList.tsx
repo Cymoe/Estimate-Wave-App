@@ -45,7 +45,8 @@ export const ProjectList: React.FC = () => {
     const q = query.toString();
     return `/projects/${id}${q ? `?${q}` : ''}`;
   };
-  const openProject = (id: string) => navigate(projectUrl(id));
+  // Opened from this list, so closing can step back to it instead of leaving a second copy of the list in history.
+  const openProject = (id: string) => navigate(projectUrl(id), { state: { fromList: true } });
   // /projects/:id opens that project in a drawer over the list; /projects/:id/estimates/:estimateId
   // opens one of its estimates in a second drawer on top, so the project stays as it was.
   const projectMatch = useMatch('/projects/:id');
@@ -59,6 +60,10 @@ export const ProjectList: React.FC = () => {
     setEstimatesRevision((n) => n + 1);
     if (location.key !== 'default') navigate(-1);
     else if (openId) navigate(projectUrl(openId, 'estimates'), { replace: true });
+  };
+  const closeProject = () => {
+    if ((location.state as { fromList?: boolean } | null)?.fromList) navigate(-1);
+    else navigate(back, { replace: true });
   };
 
   useEffect(() => {
@@ -325,7 +330,7 @@ export const ProjectList: React.FC = () => {
           projectId={openId}
           covered={Boolean(openEstimateId)}
           estimatesRevision={estimatesRevision}
-          onClose={() => navigate(back, { replace: true })}
+          onClose={closeProject}
           onSaved={(saved) => setProjects((current) => current.map((p) => (p.id === saved.id ? { ...p, ...saved } : p)))}
           onDeleted={(id) => setProjects((current) => current.filter((p) => p.id !== id))}
         />

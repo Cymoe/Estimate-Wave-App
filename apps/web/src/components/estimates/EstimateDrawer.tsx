@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useSlideIn } from '../common/StructuredNote';
+import { dialogOnTopOf, useSlideIn } from '../common/StructuredNote';
 import { EstimateDetail } from './EstimateDetail';
 
 /**
@@ -26,10 +26,7 @@ export const EstimateDrawer: React.FC<{
       const target = e.target as HTMLElement | null;
       const typing = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
       // Something open on top (the item pricing drawer, a share or delete box) goes first.
-      const otherDialogOpen = Array.from(document.querySelectorAll('[role="dialog"]')).some(
-        (el) => el !== panel.current && el.getAttribute('aria-hidden') !== 'true',
-      );
-      if (e.key === 'Escape' && !e.defaultPrevented && !typing && !otherDialogOpen) close();
+      if (e.key === 'Escape' && !e.defaultPrevented && !typing && !dialogOnTopOf(panel.current)) close();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

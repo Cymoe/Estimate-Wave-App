@@ -1,4 +1,4 @@
-import React, { useContext, useState } from 'react';
+import React, { useContext } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Building2, Hammer, Users, Bell, Shield, Bot, FileText, Wallet, LayoutTemplate } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
@@ -14,9 +14,11 @@ import { ClientRemindersSettings } from '../components/settings/ClientRemindersS
 export default function OrganizationSettings() {
   const navigate = useNavigate();
   const { selectedOrg, setSelectedOrg } = useContext(OrganizationContext);
-  const [params] = useSearchParams();
-  // ?tab=trades opens straight on Trades (the "Pick your trades first" links and old links use it).
-  const [activeTab, setActiveTab] = useState(params.get('tab') ?? 'general');
+  const [params, setParams] = useSearchParams();
+  // The tab lives in the address (?tab=trades), so links like "Pick your trades first" and
+  // "Team & Permissions" land on the right tab even when you're already here.
+  const activeTab = params.get('tab') ?? 'general';
+  const setActiveTab = (id: string) => setParams(id === 'general' ? {} : { tab: id }, { replace: true });
 
   const tabs = [
     { id: 'general', label: 'General', icon: Building2 },

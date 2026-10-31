@@ -115,6 +115,11 @@ export function useNoteFields<T extends Record<string, string>>(
 }
 
 /** Slides a drawer in after mounting and out before closing. */
+/** Another dialog is open on top of this panel (a photo, a pricing drawer, a box), so Esc belongs to it. */
+export function dialogOnTopOf(panel: HTMLElement | null) {
+  return Array.from(document.querySelectorAll('[role="dialog"]')).some((el) => el !== panel && el.getAttribute('aria-hidden') !== 'true');
+}
+
 export function useSlideIn() {
   const [shown, setShown] = useState(false);
   useEffect(() => {

@@ -66,7 +66,17 @@ jest.mock('../ProjectDetails', () => {
   const React = jest.requireActual('react');
   const { useNavigate } = jest.requireActual('react-router-dom');
   return {
-    ProjectDetailsDrawer: ({ projectId, covered, estimatesRevision }: { projectId: string; covered?: boolean; estimatesRevision?: number }) => {
+    ProjectDetailsDrawer: ({
+      projectId,
+      covered,
+      estimatesRevision,
+      onClose,
+    }: {
+      projectId: string;
+      covered?: boolean;
+      estimatesRevision?: number;
+      onClose: () => void;
+    }) => {
       const navigate = useNavigate();
       React.useEffect(() => {
         projectDrawerMounts++;
@@ -75,6 +85,7 @@ jest.mock('../ProjectDetails', () => {
         <div data-testid="project-drawer" data-covered={String(Boolean(covered))} data-revision={estimatesRevision}>
           project {projectId}
           <button onClick={() => navigate(`/projects/${projectId}/estimates/e1`)}>EST-1 row</button>
+          <button onClick={onClose}>Close project</button>
         </div>
       );
     },
@@ -89,8 +100,11 @@ jest.mock('../../estimates/EstimateDrawer', () => ({
   ),
 }));
 let path = '';
+let entryKey = '';
 const Where = () => {
-  path = jest.requireActual('react-router-dom').useLocation().pathname;
+  const location = jest.requireActual('react-router-dom').useLocation();
+  path = location.pathname;
+  entryKey = location.key;
   return null;
 };
 jest.mock('../../../services/ProjectExportService', () => ({ ProjectExportService: {} }));
@@ -175,6 +189,21 @@ describe('ProjectList', () => {
       el.dispatchEvent(new Event('input', { bubbles: true }));
     });
   };
+
+  it('a project opened from the list closes back to that same list entry, so Back is one step', async () => {
+    rows = [project(1, 'Roof replacement')];
+    await render('/projects');
+    const listKey = entryKey;
+    const row = Array.from(document.body.querySelectorAll('div')).find(
+      (d) => d.className.includes('cursor-pointer') && d.textContent?.includes('Roof replacement'),
+    )!;
+    await act(async () => row.click());
+    expect(path).toBe('/projects/p1');
+    const close = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent === 'Close project')!;
+    await act(async () => close.click());
+    expect(path).toBe('/projects');
+    expect(entryKey).toBe(listKey);
+  });
 
   it('an estimate opens in a drawer over the project drawer, and closing it leaves the project as it was', async () => {
     rows = [project(1, 'Roof replacement')];

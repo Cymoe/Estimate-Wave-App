@@ -13,7 +13,17 @@ import { ExpensesList } from '../expenses/ExpensesList';
 import { JobPhotos } from '../common/JobPhotos';
 import { ProjectTasks } from './ProjectTasks';
 import { taskDays } from './taskDates';
-import { NoteDate, NoteRow, SaveStatus, noteInput, noteSelect, noteTextarea, useNoteFields, useSlideIn } from '../common/StructuredNote';
+import {
+  NoteDate,
+  NoteRow,
+  SaveStatus,
+  dialogOnTopOf,
+  noteInput,
+  noteSelect,
+  noteTextarea,
+  useNoteFields,
+  useSlideIn,
+} from '../common/StructuredNote';
 import { Toast, useToast } from '../common/Notice';
 import { PROJECT_STATUSES, formatProjectDate, projectStatusInfo } from './projectStatus';
 
@@ -705,7 +715,8 @@ export const ProjectDetailsDrawer: React.FC<{
       const target = e.target as HTMLElement | null;
       const typing =
         target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
-      if (e.key === 'Escape' && !e.defaultPrevented && !typing) close();
+      // A photo open full screen (or anything else on top) takes the Esc; the drawer stays.
+      if (e.key === 'Escape' && !e.defaultPrevented && !typing && !dialogOnTopOf(panel.current)) close();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
