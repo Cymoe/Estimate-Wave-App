@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Download, FileSpreadsheet, FolderOpen, MoreVertical, Search } from 'lucide-react';
-import { useMatch, useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useMatch, useNavigate, useSearchParams } from 'react-router-dom';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { ProjectService, type Project, type ProjectStatus } from '../../services/ProjectService';
 import { ProjectExportService } from '../../services/ProjectExportService';
@@ -9,6 +9,7 @@ import { TableSkeleton } from '../skeletons/TableSkeleton';
 import { PROJECT_STATUSES, formatProjectDate, projectStatusInfo } from './projectStatus';
 import { NewProjectDrawer } from './NewProjectDrawer';
 import { ProjectDetailsDrawer } from './ProjectDetails';
+import { EstimateDrawer } from '../estimates/EstimateDrawer';
 import { ScheduleView } from './Schedule';
 
 /** Project, client, status, dates, budget: shared by the header and every row. */
@@ -36,9 +37,29 @@ export const ProjectList: React.FC = () => {
   // ?view=schedule shows the week across every project instead of the list.
   const scheduling = searchParams.get('view') === 'schedule';
   const back = scheduling ? '/projects?view=schedule' : '/projects';
-  const openProject = (id: string) => navigate(`/projects/${id}${scheduling ? '?view=schedule' : ''}`);
-  // /projects/:id opens that project in a drawer over the list.
-  const openId = useMatch('/projects/:id')?.params.id;
+  // A project's address, keeping the schedule view and, when asked, the tab to start on.
+  const projectUrl = (id: string, tab?: string) => {
+    const query = new URLSearchParams();
+    if (scheduling) query.set('view', 'schedule');
+    if (tab) query.set('tab', tab);
+    const q = query.toString();
+    return `/projects/${id}${q ? `?${q}` : ''}`;
+  };
+  const openProject = (id: string) => navigate(projectUrl(id));
+  // /projects/:id opens that project in a drawer over the list; /projects/:id/estimates/:estimateId
+  // opens one of its estimates in a second drawer on top, so the project stays as it was.
+  const projectMatch = useMatch('/projects/:id');
+  const estimateMatch = useMatch('/projects/:id/estimates/:estimateId');
+  const openId = projectMatch?.params.id ?? estimateMatch?.params.id;
+  const openEstimateId = estimateMatch?.params.estimateId;
+  const location = useLocation();
+  // Bumped when the estimate drawer closes, so the project's Estimates tab shows what changed in it.
+  const [estimatesRevision, setEstimatesRevision] = useState(0);
+  const closeEstimate = () => {
+    setEstimatesRevision((n) => n + 1);
+    if (location.key !== 'default') navigate(-1);
+    else if (openId) navigate(projectUrl(openId, 'estimates'), { replace: true });
+  };
 
   useEffect(() => {
     const handler = setTimeout(() => setSearch(searchInput.trim().toLowerCase()), 300);
@@ -302,11 +323,15 @@ export const ProjectList: React.FC = () => {
       {openId && (
         <ProjectDetailsDrawer
           projectId={openId}
+          covered={Boolean(openEstimateId)}
+          estimatesRevision={estimatesRevision}
           onClose={() => navigate(back, { replace: true })}
           onSaved={(saved) => setProjects((current) => current.map((p) => (p.id === saved.id ? { ...p, ...saved } : p)))}
           onDeleted={(id) => setProjects((current) => current.filter((p) => p.id !== id))}
         />
       )}
+
+      {openEstimateId && <EstimateDrawer estimateId={openEstimateId} onClose={closeEstimate} />}
 
       {creating && (
         <NewProjectDrawer

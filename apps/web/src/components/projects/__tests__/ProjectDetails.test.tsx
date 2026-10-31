@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -82,20 +82,33 @@ import { ProjectDetailsDrawer } from '../ProjectDetails';
 const onClose = jest.fn();
 const onSaved = jest.fn();
 
-async function render() {
+let path = '';
+const Where = () => {
+  path = useLocation().pathname;
+  return null;
+};
+
+async function render(at = '/projects/p1', props: { covered?: boolean; estimatesRevision?: number } = {}) {
   const container = document.createElement('div');
   document.body.appendChild(container);
-  await act(async () =>
-    createRoot(container).render(
-      <MemoryRouter initialEntries={['/projects/p1']}>
-        <Routes>
-          <Route path="/projects/:id" element={<ProjectDetailsDrawer projectId="p1" onClose={onClose} onSaved={onSaved} />} />
-        </Routes>
-      </MemoryRouter>,
-    ),
-  );
+  const root = createRoot(container);
+  const draw = (extra: typeof props) =>
+    act(async () =>
+      root.render(
+        <MemoryRouter initialEntries={[at]}>
+          <Where />
+          <Routes>
+            <Route element={<ProjectDetailsDrawer projectId="p1" onClose={onClose} onSaved={onSaved} {...extra} />}>
+              <Route path="/projects/:id" element={null} />
+              <Route path="/projects/:id/estimates/:estimateId" element={null} />
+            </Route>
+          </Routes>
+        </MemoryRouter>,
+      ),
+    );
+  await draw(props);
   await act(async () => {});
-  return document.body;
+  return Object.assign(document.body, { redraw: draw });
 }
 
 const click = async (text: string) => {
@@ -211,6 +224,29 @@ describe('Project drawer', () => {
     expect(list.textContent).toContain('EST-1');
     expect(list.textContent).toContain('accepted');
     expect(list.textContent).toContain('$3,000.00');
+  });
+
+  it('?tab=estimates starts on that tab, and a row opens the estimate over the project', async () => {
+    expenses = [];
+    await render('/projects/p1?tab=estimates');
+    expect(document.body.querySelector('[role="tab"][aria-selected="true"]')!.textContent).toContain('Estimates');
+    await click('EST-1');
+    expect(path).toBe('/projects/p1/estimates/e1');
+  });
+
+  it('while an estimate is open on top, Esc is left to it, and closing it reads the estimates again', async () => {
+    expenses = [];
+    const { getByProject } = jest.requireMock('../../../services/EstimateService').EstimateService;
+    getByProject.mockClear();
+    const body = await render('/projects/p1/estimates/e1', { covered: true });
+    expect(body.querySelector('[aria-label="Project"]')!.getAttribute('aria-hidden')).toBe('true');
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(getByProject).toHaveBeenCalledTimes(1);
+
+    await body.redraw({ covered: false, estimatesRevision: 1 });
+    expect(body.querySelector('[aria-label="Project"]')!.getAttribute('aria-hidden')).toBeNull();
+    expect(getByProject).toHaveBeenCalledTimes(2);
   });
 
   it('saves the project as a template from the ⋯ menu, and says where to find it', async () => {

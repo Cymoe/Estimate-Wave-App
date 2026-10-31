@@ -1,7 +1,7 @@
 import { FEATURES } from '../../config/features';
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useLocation, useMatch, useNavigate, useParams } from 'react-router-dom';
 import { 
   ArrowLeft, Edit, Send, Share2, Trash2,
   CheckCircle, XCircle, FileText, User,
@@ -62,6 +62,9 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   const params = useParams<{ id: string }>();
   const id = estimateId ?? params.id;
   const navigate = useNavigate();
+  const location = useLocation();
+  // Opened from a project's drawer: the project is right behind this one, so no link to it.
+  const overProject = useMatch('/projects/:id/estimates/:estimateId') !== null;
   const leave = () => (onClose ? onClose() : navigate('/estimates'));
   const { selectedOrg } = useContext(OrganizationContext);
   // The business named on the contract documents.
@@ -242,7 +245,8 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
     if (!orgId) return;
     try {
       const copy = await duplicateEstimate(estimate, orgId);
-      if (copy.id) navigate(`/estimates/${copy.id}`, { replace: inDrawer });
+      // In a drawer, the copy takes this estimate's place in the address (over a project, it stays over the project).
+      if (copy.id) navigate(inDrawer ? location.pathname.replace(/[^/]+$/, copy.id) : `/estimates/${copy.id}`, { replace: inDrawer });
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Could not duplicate the estimate');
     }
@@ -673,7 +677,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                 )}
               </div>
             </div>
-            {FEATURES.projects && estimate.project && (
+            {FEATURES.projects && estimate.project && !overProject && (
               <button
                 type="button"
                 onClick={() => navigate(`/projects/${estimate.project!.id}`)}

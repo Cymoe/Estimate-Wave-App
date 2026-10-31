@@ -60,6 +60,39 @@ jest.mock('../../../lib/api', () => ({
   },
 }));
 jest.mock('../../clients/NewClientModal', () => ({ NewClientModal: () => null }));
+// Stand-ins for the two drawers: they count mounts and show what they were given.
+let projectDrawerMounts = 0;
+jest.mock('../ProjectDetails', () => {
+  const React = jest.requireActual('react');
+  const { useNavigate } = jest.requireActual('react-router-dom');
+  return {
+    ProjectDetailsDrawer: ({ projectId, covered, estimatesRevision }: { projectId: string; covered?: boolean; estimatesRevision?: number }) => {
+      const navigate = useNavigate();
+      React.useEffect(() => {
+        projectDrawerMounts++;
+      }, []);
+      return (
+        <div data-testid="project-drawer" data-covered={String(Boolean(covered))} data-revision={estimatesRevision}>
+          project {projectId}
+          <button onClick={() => navigate(`/projects/${projectId}/estimates/e1`)}>EST-1 row</button>
+        </div>
+      );
+    },
+  };
+});
+jest.mock('../../estimates/EstimateDrawer', () => ({
+  EstimateDrawer: ({ estimateId, onClose }: { estimateId: string; onClose: () => void }) => (
+    <div data-testid="estimate-drawer">
+      estimate {estimateId}
+      <button onClick={onClose}>Close estimate</button>
+    </div>
+  ),
+}));
+let path = '';
+const Where = () => {
+  path = jest.requireActual('react-router-dom').useLocation().pathname;
+  return null;
+};
 jest.mock('../../../services/ProjectExportService', () => ({ ProjectExportService: {} }));
 jest.mock('../../layouts/DashboardLayout', () => {
   const { createContext } = jest.requireActual('react');
@@ -84,9 +117,13 @@ async function render(path = '/projects') {
   await act(async () =>
     createRoot(container).render(
       <MemoryRouter initialEntries={[path]}>
+        <Where />
         <Routes>
-          <Route path="/projects" element={<ProjectList />} />
-          <Route path="/projects/:id" element={<p>project page</p>} />
+          <Route element={<ProjectList />}>
+            <Route path="/projects" element={null} />
+            <Route path="/projects/:id" element={null} />
+            <Route path="/projects/:id/estimates/:estimateId" element={null} />
+          </Route>
         </Routes>
       </MemoryRouter>,
     ),
@@ -139,6 +176,30 @@ describe('ProjectList', () => {
     });
   };
 
+  it('an estimate opens in a drawer over the project drawer, and closing it leaves the project as it was', async () => {
+    rows = [project(1, 'Roof replacement')];
+    projectDrawerMounts = 0;
+    await render('/projects/p1');
+    const drawer = () => document.body.querySelector('[data-testid="project-drawer"]') as HTMLElement;
+    expect(drawer().textContent).toContain('project p1');
+    expect(drawer().dataset.covered).toBe('false');
+
+    const row = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent === 'EST-1 row')!;
+    await act(async () => row.click());
+    expect(path).toBe('/projects/p1/estimates/e1');
+    expect(document.body.textContent).toContain('estimate e1');
+    expect(drawer().textContent).toContain('project p1'); // still there, underneath
+    expect(drawer().dataset.covered).toBe('true');
+
+    const close = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent === 'Close estimate')!;
+    await act(async () => close.click());
+    expect(path).toBe('/projects/p1'); // back, not a second copy of the project in history
+    expect(document.body.querySelector('[data-testid="estimate-drawer"]')).toBeNull();
+    expect(drawer().dataset.covered).toBe('false');
+    expect(drawer().dataset.revision).toBe('1'); // the project reads its estimates again
+    expect(projectDrawerMounts).toBe(1);
+  });
+
   it('?new=1 opens the new project sheet; name, client, budget and dates create a planned project and open it', async () => {
     rows = [];
     await render('/projects?new=1');
@@ -164,7 +225,7 @@ describe('ProjectList', () => {
     });
     expect(createEstimate).not.toHaveBeenCalled();
     // Then it opens the new project's page.
-    expect(document.body.textContent).toContain('project page');
+    expect(document.body.textContent).toContain('project p-new');
   });
 
   it('a saved template names the project, fills budget, end date and description, and starts it with its lines and tasks', async () => {
@@ -192,7 +253,7 @@ describe('ProjectList', () => {
       description: 'Tear-off and architectural shingles',
     });
     expect(create).not.toHaveBeenCalled();
-    expect(document.body.textContent).toContain('project page');
+    expect(document.body.textContent).toContain('project p-new');
   });
 
   it('a kind of job offers its built-in packages; one fills the sheet and starts the project with its lines and tasks', async () => {
@@ -225,7 +286,7 @@ describe('ProjectList', () => {
       }),
     );
     expect(create).not.toHaveBeenCalled();
-    expect(document.body.textContent).toContain('project page');
+    expect(document.body.textContent).toContain('project p-new');
     // Changing the kind of job drops the package.
   });
 

@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowUpRight, CalendarCheck, CalendarDays, DollarSign, LayoutTemplate, Mail, MoreVertical, Phone, Trash2, User, X } from 'lucide-react';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { ProjectService, type Project, type ProjectStatus } from '../../services/ProjectService';
@@ -18,6 +18,8 @@ import { Toast, useToast } from '../common/Notice';
 import { PROJECT_STATUSES, formatProjectDate, projectStatusInfo } from './projectStatus';
 
 type TabType = 'overview' | 'tasks' | 'estimates' | 'expenses' | 'photos';
+const TAB_IDS: TabType[] = ['overview', 'tasks', 'estimates', 'expenses', 'photos'];
+const isTab = (value: string | null): value is TabType => TAB_IDS.includes(value as TabType);
 
 const ESTIMATE_PILL: Record<string, string> = {
   draft: 'bg-gray-500/20 text-gray-300',
@@ -261,11 +263,18 @@ export const ProjectPanel: React.FC<{
   /** A saved change, so the list behind can show it. */
   onSaved?: (project: Project) => void;
   onDeleted?: (id: string) => void;
-}> = ({ projectId, onClose, onSaved, onDeleted }) => {
+  /** Changes whenever an estimate opened from this project closes, so the estimates are read again. */
+  estimatesRevision?: number;
+}> = ({ projectId, onClose, onSaved, onDeleted, estimatesRevision = 0 }) => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { selectedOrg } = useContext(OrganizationContext);
   const orgId: string | undefined = selectedOrg?.id;
-  const [activeTab, setActiveTab] = useState<TabType>('overview');
+  // ?tab=estimates (a refresh, a link) starts on that tab; after that the tab is just state here.
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    const wanted = searchParams.get('tab');
+    return isTab(wanted) ? wanted : 'overview';
+  });
   const [addingExpense, setAddingExpense] = useState(false);
   const [project, setProject] = useState<Project | null>(null);
   const [client, setClient] = useState<Client | null>(null);
@@ -285,15 +294,10 @@ export const ProjectPanel: React.FC<{
     setLoading(true);
     (async () => {
       try {
-        const [found, expenseRows, estimateRows] = await Promise.all([
-          ProjectService.getById(projectId),
-          ExpenseService.list(orgId, projectId).catch(() => []),
-          EstimateService.getByProject(projectId, orgId).catch(() => []),
-        ]);
+        const [found, expenseRows] = await Promise.all([ProjectService.getById(projectId), ExpenseService.list(orgId, projectId).catch(() => [])]);
         if (cancelled) return;
         setProject(found);
         setExpenses(expenseRows);
-        setEstimates(estimateRows);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -302,6 +306,18 @@ export const ProjectPanel: React.FC<{
       cancelled = true;
     };
   }, [projectId, orgId]);
+
+  // Read again after an estimate opened from here closes: its status or total may have changed.
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    EstimateService.getByProject(projectId, orgId)
+      .catch(() => [])
+      .then((rows) => !cancelled && setEstimates(rows));
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, orgId, estimatesRevision]);
 
   useEffect(() => {
     let live = true;
@@ -612,7 +628,7 @@ export const ProjectPanel: React.FC<{
                 {estimates.map((estimate) => (
                   <li key={estimate.id}>
                     <button
-                      onClick={() => navigate(`/estimates/${estimate.id}`, { state: { closeTo: `/projects/${project.id}` } })}
+                      onClick={() => navigate(`/projects/${project.id}/estimates/${estimate.id}`)}
                       className="w-full grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-4 py-3 text-left text-sm hover:bg-[#222]"
                     >
                       <span className="truncate text-white">
@@ -675,13 +691,17 @@ export const ProjectDetailsDrawer: React.FC<{
   onClose: () => void;
   onSaved?: (project: Project) => void;
   onDeleted?: (id: string) => void;
-}> = ({ projectId, onClose, onSaved, onDeleted }) => {
+  /** An estimate drawer is open on top: Esc and the backdrop belong to it, not to this one. */
+  covered?: boolean;
+  estimatesRevision?: number;
+}> = ({ projectId, onClose, onSaved, onDeleted, covered = false, estimatesRevision }) => {
   const { shown, slideOut } = useSlideIn();
   const close = () => slideOut(onClose);
   const panel = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (covered) return;
       const target = e.target as HTMLElement | null;
       const typing =
         target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
@@ -701,11 +721,19 @@ export const ProjectDetailsDrawer: React.FC<{
         ref={panel}
         role="dialog"
         aria-label="Project"
+        aria-hidden={covered || undefined}
         className={`fixed right-0 top-0 h-[100dvh] w-full md:w-[720px] max-w-full bg-[#000000] shadow-xl transform transition-transform z-[10001] flex flex-col overflow-hidden ${
           shown ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        <ProjectPanel key={projectId} projectId={projectId} onClose={close} onSaved={onSaved} onDeleted={onDeleted} />
+        <ProjectPanel
+          key={projectId}
+          projectId={projectId}
+          onClose={close}
+          onSaved={onSaved}
+          onDeleted={onDeleted}
+          estimatesRevision={estimatesRevision}
+        />
       </div>
     </>,
     document.body,

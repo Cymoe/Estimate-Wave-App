@@ -341,9 +341,9 @@ function AppRoutes() {
         }
       />
       
-      {/* Projects - Standalone page */}
+      {/* Projects: the list, a project in a drawer over it, and an estimate in a drawer over that.
+          One route element, so moving between them never remounts the page. */}
       <Route
-        path="/projects"
         element={
           <ProtectedRoute>
             {FEATURES.projects ? (
@@ -355,7 +355,11 @@ function AppRoutes() {
             )}
           </ProtectedRoute>
         }
-      />
+      >
+        <Route path="/projects" element={null} />
+        <Route path="/projects/:id" element={null} />
+        <Route path="/projects/:id/estimates/:estimateId" element={null} />
+      </Route>
       
       {/* Activity Log */}
       <Route
@@ -420,20 +424,6 @@ function AppRoutes() {
 
       
       
-      <Route
-        path="/projects/:id"
-        element={
-          <ProtectedRoute>
-            {FEATURES.projects ? (
-              <DashboardLayout fullWidth={true}>
-                <PlanGate><ProjectsPage /></PlanGate>
-              </DashboardLayout>
-            ) : (
-              <HomeRedirect />
-            )}
-          </ProtectedRoute>
-        }
-      />
       <Route path="/projects/:id/edit" element={<ProjectEditRedirect />} />
 
       {/* Client routes */}
