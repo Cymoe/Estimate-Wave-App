@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useMatch, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowUpRight, CalendarCheck, CalendarDays, DollarSign, LayoutTemplate, Mail, MoreVertical, Phone, Trash2, User, X } from 'lucide-react';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { ProjectService, type Project, type ProjectStatus } from '../../services/ProjectService';
@@ -280,10 +280,12 @@ export const ProjectPanel: React.FC<{
   const [searchParams] = useSearchParams();
   const { selectedOrg } = useContext(OrganizationContext);
   const orgId: string | undefined = selectedOrg?.id;
-  // ?tab=estimates (a refresh, a link) starts on that tab; after that the tab is just state here.
+  // ?tab=estimates (a refresh, a link) starts on that tab, as does opening straight onto one of the
+  // project's estimates; after that the tab is just state here.
+  const onEstimate = useMatch('/projects/:id/estimates/:estimateId') !== null;
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     const wanted = searchParams.get('tab');
-    return isTab(wanted) ? wanted : 'overview';
+    return onEstimate ? 'estimates' : isTab(wanted) ? wanted : 'overview';
   });
   const [addingExpense, setAddingExpense] = useState(false);
   const [project, setProject] = useState<Project | null>(null);

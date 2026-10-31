@@ -240,6 +240,7 @@ describe('Project drawer', () => {
     getByProject.mockClear();
     const body = await render('/projects/p1/estimates/e1', { covered: true });
     expect(body.querySelector('[aria-label="Project"]')!.getAttribute('aria-hidden')).toBe('true');
+    expect(body.querySelector('[role="tab"][aria-selected="true"]')!.textContent).toContain('Estimates'); // the tab behind the estimate
     await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
     expect(onClose).not.toHaveBeenCalled();
     expect(getByProject).toHaveBeenCalledTimes(1);
