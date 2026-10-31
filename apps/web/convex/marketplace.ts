@@ -1,56 +1,21 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import {
-  internalMutation,
-  mutation,
-  query,
-  type MutationCtx,
-  type QueryCtx,
-} from "./_generated/server";
+import { usMobile } from "./lib/phone";
+import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import {
-  fail,
-  logActivity,
-  nowIso,
-  pick,
-  requireMember,
-  requireMemberOrStaff,
-  requireStaff,
-  requireSuperAdmin,
-  requireUser,
-} from "./lib/access";
+import { fail, logActivity, nowIso, pick, requireMember, requireMemberOrStaff, requireStaff, requireSuperAdmin, requireUser } from "./lib/access";
 import { mutationDef, queryDef } from "./lib/actor";
 import { createOrganization } from "./lib/organizations";
 import { deleteOrganization } from "./lib/cleanup";
-import {
-  auctionFor,
-  leadPriceCents,
-  pricingFor,
-  postTransaction,
-  dollars,
-  typicalLeadCents,
-} from "./lib/wallet";
-import {
-  MIN_START_CENTS,
-  fillTimeMs,
-  priceAt,
-  pricingFor as pricingFrom,
-} from "./lib/auction";
+import { auctionFor, leadPriceCents, pricingFor, postTransaction, dollars, typicalLeadCents } from "./lib/wallet";
+import { MIN_START_CENTS, fillTimeMs, priceAt, pricingFor as pricingFrom } from "./lib/auction";
 import { tellCompany } from "./notify";
 import { requireSameWorld, sameWorld, sellLead } from "./lib/sales";
 import { listLead } from "./lib/awards";
 import { deleteDemoIntake } from "./intake";
 import { dropBidsOutsideTrades, outbidUnseen } from "./lib/standing";
 import { knownTrades } from "./industries";
-import {
-  OLDER_AFTER_DAYS,
-  type Plan,
-  claimPrice,
-  claimsLeft,
-  nextMonth,
-  planIsActive,
-  trialPlan,
-} from "./lib/plan";
+import { OLDER_AFTER_DAYS, type Plan, claimPrice, claimsLeft, nextMonth, planIsActive, trialPlan } from "./lib/plan";
 import { countyForTown, normalizeCounty, TEXAS_COUNTIES } from "./lib/counties";
 
 // The Lead Market: leads the platform collects and sells, one company per
@@ -60,13 +25,7 @@ import { countyForTown, normalizeCounty, TEXAS_COUNTIES } from "./lib/counties";
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** How long after delivery a company can ask for a bad lead to be credited. */
 export const CREDIT_WINDOW_MS = 3 * DAY_MS;
-export const CREDIT_REASONS = [
-  "wrong_number",
-  "out_of_area",
-  "not_a_real_job",
-  "duplicate",
-  "other",
-] as const;
+export const CREDIT_REASONS = ["wrong_number", "out_of_area", "not_a_real_job", "duplicate", "other"] as const;
 
 const marketplaceLeadFields = {
   name: true,
@@ -81,9 +40,7 @@ const marketplaceLeadFields = {
 };
 
 function cleanLead(data: unknown) {
-  const fields = pick(data, marketplaceLeadFields) as Partial<
-    Doc<"marketplaceLeads">
-  >;
+  const fields = pick(data, marketplaceLeadFields) as Partial<Doc<"marketplaceLeads">>;
   for (const [key, value] of Object.entries(fields)) {
     if (typeof value !== "string") fail("INVALID", `${key} must be text`);
     const trimmed = value.trim();
@@ -93,8 +50,7 @@ function cleanLead(data: unknown) {
   if (!fields.name) fail("INVALID", "Lead name is required");
   if (fields.county) {
     const county = normalizeCounty(fields.county);
-    if (!county || !TEXAS_COUNTIES.includes(county))
-      fail("INVALID", `${fields.county} isn't a Texas county`);
+    if (!county || !TEXAS_COUNTIES.includes(county)) fail("INVALID", `${fields.county} isn't a Texas county`);
     fields.county = county;
   }
   return fields as Partial<Doc<"marketplaceLeads">> & { name: string };
@@ -102,8 +58,7 @@ function cleanLead(data: unknown) {
 
 function toCents(amount: unknown): number {
   const cents = Math.round(Number(amount) * 100);
-  if (!Number.isFinite(cents) || cents <= 0)
-    fail("INVALID", "Enter an amount above $0");
+  if (!Number.isFinite(cents) || cents <= 0) fail("INVALID", "Enter an amount above $0");
   return cents;
 }
 
@@ -136,48 +91,31 @@ export const listInbox = query({
     const names = new Map<string, string>();
     const withCompany = async (lead: Doc<"marketplaceLeads">) => {
       const orgId = lead.assignedOrganizationId;
-      if (orgId && !names.has(orgId))
-        names.set(orgId, (await ctx.db.get(orgId))?.name ?? "Unknown company");
+      if (orgId && !names.has(orgId)) names.set(orgId, (await ctx.db.get(orgId))?.name ?? "Unknown company");
       const auction = await auctionFor(ctx, lead);
       const now = priceAt(auction, Date.now());
       const leadBids = await ctx.db
         .query("leadBids")
         .withIndex("by_lead", (q) => q.eq("marketplaceLeadId", lead._id))
         .collect();
-      const openOrders =
-        lead.status === "available"
-          ? leadBids.filter((b) => b.status === "open").length
-          : 0;
+      const openOrders = lead.status === "available" ? leadBids.filter((b) => b.status === "open").length : 0;
       const wonBy = leadBids.find((b) => b.status === "filled");
       return {
         ...lead,
-        price:
-          lead.status === "available"
-            ? now.priceCents
-            : (lead.priceCents ?? now.priceCents),
+        price: lead.status === "available" ? now.priceCents : (lead.priceCents ?? now.priceCents),
         auction,
         floorCents: auction.floorCents,
         floorAt: new Date(now.floorAtMs).toISOString(),
         openBids: openOrders,
         // How a sold lead went: to a standing bid, a buy order, or by hand/Buy now.
-        wonBy: wonBy
-          ? wonBy.kind === "order"
-            ? ("order" as const)
-            : ("bid" as const)
-          : undefined,
+        wonBy: wonBy ? (wonBy.kind === "order" ? ("order" as const) : ("bid" as const)) : undefined,
         companyName: orgId ? names.get(orgId) : undefined,
       };
     };
     return {
       available: await Promise.all(available.map(withCompany)),
       older: await Promise.all(older.map(withCompany)),
-      sold: await Promise.all(
-        [...sold, ...credited]
-          .sort((a, b) =>
-            (b.assignedAt ?? "").localeCompare(a.assignedAt ?? ""),
-          )
-          .map(withCompany),
-      ),
+      sold: await Promise.all([...sold, ...credited].sort((a, b) => (b.assignedAt ?? "").localeCompare(a.assignedAt ?? "")).map(withCompany)),
     };
   },
 });
@@ -216,8 +154,7 @@ export const updateLead = mutation({
     await requireStaff(ctx);
     const lead = await ctx.db.get(id);
     if (lead === null) fail("NOT_FOUND", "Lead not found");
-    if (lead.status !== "available" && lead.status !== "older")
-      fail("INVALID", "This lead was already sent to a company");
+    if (lead.status !== "available" && lead.status !== "older") fail("INVALID", "This lead was already sent to a company");
     await ctx.db.patch(id, {
       ...cleanLead({ ...lead, ...data }),
       updatedAt: nowIso(),
@@ -232,13 +169,8 @@ export const removeLead = mutation({
     await requireStaff(ctx);
     const lead = await ctx.db.get(id);
     if (lead === null) fail("NOT_FOUND", "Lead not found");
-    if (lead.status === "bidding")
-      fail("INVALID", "This lead is in a bidding round; wait for it to close");
-    if (
-      lead.status !== "available" &&
-      lead.status !== "older" &&
-      lead.status !== "archived"
-    )
+    if (lead.status === "bidding") fail("INVALID", "This lead is in a bidding round; wait for it to close");
+    if (lead.status !== "available" && lead.status !== "older" && lead.status !== "archived")
       fail("INVALID", "A lead that was sent to a company can't be deleted");
     // Companies with a buy order on it see it closed, not left open on a lead that's gone.
     await loseOpenOrders(ctx, id, "Lead removed");
@@ -257,8 +189,7 @@ export const verifyLead = mutation({
     const user = await requireStaff(ctx);
     const lead = await ctx.db.get(id);
     if (lead === null) fail("NOT_FOUND", "Lead not found");
-    if (lead.status !== "available" && lead.status !== "older")
-      fail("INVALID", "Only a lead for sale or in the Vault can be confirmed");
+    if (lead.status !== "available" && lead.status !== "older") fail("INVALID", "Only a lead for sale or in the Vault can be confirmed");
     const now = nowIso();
     await ctx.db.patch(id, {
       verified: { at: now, note: note?.trim() || undefined, by: user._id },
@@ -278,13 +209,8 @@ export const clearVerified = mutation({
   },
 });
 
-
 /** Marks every open buy order on a lead lost, with the reason. */
-async function loseOpenOrders(
-  ctx: MutationCtx,
-  leadId: Id<"marketplaceLeads">,
-  outcome: string,
-) {
+async function loseOpenOrders(ctx: MutationCtx, leadId: Id<"marketplaceLeads">, outcome: string) {
   const bids = await ctx.db
     .query("leadBids")
     .withIndex("by_lead", (q) => q.eq("marketplaceLeadId", leadId))
@@ -309,8 +235,7 @@ export const ageLeads = internalMutation({
   handler: async (ctx) => {
     const nowMs = Date.now();
     const now = nowIso();
-    const listedMs = (lead: Doc<"marketplaceLeads">) =>
-      Date.parse(lead.auction?.listedAt ?? lead.createdAt);
+    const listedMs = (lead: Doc<"marketplaceLeads">) => Date.parse(lead.auction?.listedAt ?? lead.createdAt);
     let moved = 0;
     let restored = 0;
     const available = await ctx.db
@@ -421,10 +346,8 @@ export const reviewCredit = mutation({
   handler: async (ctx, { orgLeadId, approve }) => {
     const user = await requireSuperAdmin(ctx);
     const lead = await ctx.db.get(orgLeadId);
-    if (lead === null || !lead.marketplaceLeadId)
-      fail("NOT_FOUND", "Lead not found");
-    if (lead.creditRequest?.status !== "pending")
-      fail("INVALID", "There's no open credit request for this lead");
+    if (lead === null || !lead.marketplaceLeadId) fail("NOT_FOUND", "Lead not found");
+    if (lead.creditRequest?.status !== "pending") fail("INVALID", "There's no open credit request for this lead");
     const now = nowIso();
     if (approve) await applyCredit(ctx, { ...lead, marketplaceLeadId: lead.marketplaceLeadId }, user, now);
     await ctx.db.patch(orgLeadId, {
@@ -515,16 +438,12 @@ export const setLeadPrice = mutation({
       return;
     }
     const priceCents = toCents(price);
-    if (priceCents < MIN_START_CENTS)
-      fail("INVALID", `Leads start at ${dollars(MIN_START_CENTS)} or more`);
+    if (priceCents < MIN_START_CENTS) fail("INVALID", `Leads start at ${dollars(MIN_START_CENTS)} or more`);
     const floorCents = floor == null ? undefined : toCents(floor);
-    if (floorCents !== undefined && floorCents > priceCents)
-      fail("INVALID", "The floor can't be above the start price");
+    if (floorCents !== undefined && floorCents > priceCents) fail("INVALID", "The floor can't be above the start price");
     const dropCents = drop == null ? undefined : toCents(drop);
-    const every =
-      dropEveryMinutes == null ? undefined : Math.round(dropEveryMinutes);
-    if (every !== undefined && every < 1)
-      fail("INVALID", "Drops must be at least a minute apart");
+    const every = dropEveryMinutes == null ? undefined : Math.round(dropEveryMinutes);
+    if (every !== undefined && every < 1) fail("INVALID", "Drops must be at least a minute apart");
     const row = {
       priceCents,
       floorCents,
@@ -545,32 +464,19 @@ export const companiesOverview = query({
   handler: async (ctx) => {
     await requireStaff(ctx);
     const since = new Date(Date.now() - 30 * DAY_MS).toISOString();
-    const organizations = (
-      await ctx.db.query("organizations").order("desc").take(500)
-    ).filter((o) => o.isActive);
+    const organizations = (await ctx.db.query("organizations").order("desc").take(500)).filter((o) => o.isActive);
     return await Promise.all(
       organizations.map(async (org) => {
         const sold = await ctx.db
           .query("marketplaceLeads")
-          .withIndex("by_organization", (q) =>
-            q.eq("assignedOrganizationId", org._id),
-          )
+          .withIndex("by_organization", (q) => q.eq("assignedOrganizationId", org._id))
           .take(2000);
         const recent = sold.filter((lead) => (lead.assignedAt ?? "") >= since);
-        const orgLeads = await Promise.all(
-          sold.map((lead) =>
-            lead.orgLeadId ? ctx.db.get(lead.orgLeadId) : null,
-          ),
-        );
+        const orgLeads = await Promise.all(sold.map((lead) => (lead.orgLeadId ? ctx.db.get(lead.orgLeadId) : null)));
         const roi = await returnOn(ctx, orgLeads);
         const invite = await ctx.db
           .query("companyInvites")
-          .filter((q) =>
-            q.and(
-              q.eq(q.field("organizationId"), org._id),
-              q.eq(q.field("acceptedAt"), undefined),
-            ),
-          )
+          .filter((q) => q.and(q.eq(q.field("organizationId"), org._id), q.eq(q.field("acceptedAt"), undefined)))
           .first();
         const standing = await ctx.db
           .query("standingBids")
@@ -586,15 +492,11 @@ export const companiesOverview = query({
           plan: org.plan ? planSummary(org.plan, Date.now()) : null,
           balanceCents: org.walletBalanceCents ?? 0,
           leads30d: recent.length,
-          spent30dCents: recent
-            .filter((l) => l.status !== "credited")
-            .reduce((sum, l) => sum + (l.priceCents ?? 0), 0),
+          spent30dCents: recent.filter((l) => l.status !== "credited").reduce((sum, l) => sum + (l.priceCents ?? 0), 0),
           leadsTotal: sold.length,
           wonCents: roi.wonCents,
           wonCount: roi.wonCount,
-          pendingCredits: orgLeads.filter(
-            (l) => l?.creditRequest?.status === "pending",
-          ).length,
+          pendingCredits: orgLeads.filter((l) => l?.creditRequest?.status === "pending").length,
           invitePending: invite?.email,
           owners: await ownerEmails(ctx, org._id),
           isSample: org.isSample === true,
@@ -633,19 +535,12 @@ async function ownerEmails(ctx: QueryCtx, organizationId: Id<"organizations">) {
     .query("memberships")
     .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
     .collect();
-  const owners = await Promise.all(
-    memberships
-      .filter((m) => m.role === "owner")
-      .map((m) => ctx.db.get(m.userId)),
-  );
+  const owners = await Promise.all(memberships.filter((m) => m.role === "owner").map((m) => ctx.db.get(m.userId)));
   return owners.flatMap((u) => (u?.email ? [u.email] : []));
 }
 
 /** What a company's bought leads turned into: won leads and accepted estimates, in cents. */
-async function returnOn(
-  ctx: QueryCtx | MutationCtx,
-  leads: Array<Doc<"leads"> | null>,
-) {
+async function returnOn(ctx: QueryCtx | MutationCtx, leads: Array<Doc<"leads"> | null>) {
   let wonCents = 0;
   let wonCount = 0;
   for (const lead of leads) {
@@ -654,12 +549,7 @@ async function returnOn(
     const accepted = estimate?.status === "accepted";
     if (lead.status !== "won" && !accepted) continue;
     wonCount++;
-    wonCents += Math.round(
-      ((accepted ? estimate!.totalAmount : undefined) ??
-        lead.estimatedValue ??
-        estimate?.totalAmount ??
-        0) * 100,
-    );
+    wonCents += Math.round(((accepted ? estimate!.totalAmount : undefined) ?? lead.estimatedValue ?? estimate?.totalAmount ?? 0) * 100);
   }
   return { wonCents, wonCount };
 }
@@ -694,19 +584,12 @@ export async function createCompanyFor(
 ): Promise<Id<"organizations">> {
   const name = typeof data?.name === "string" ? data.name.trim() : "";
   if (!name) fail("INVALID", "Company name is required");
-  const ownerEmail =
-    typeof data?.ownerEmail === "string"
-      ? data.ownerEmail.trim().toLowerCase()
-      : "";
-  if (ownerEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(ownerEmail))
-    fail("INVALID", "Enter a valid owner email");
+  const ownerEmail = typeof data?.ownerEmail === "string" ? data.ownerEmail.trim().toLowerCase() : "";
+  if (ownerEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(ownerEmail)) fail("INVALID", "Enter a valid owner email");
   const key = companyNameKey(name);
-  const taken = (
-    await ctx.db.query("organizations").order("desc").take(500)
-  ).find((org) => org.isActive && companyNameKey(org.name) === key);
+  const taken = (await ctx.db.query("organizations").order("desc").take(500)).find((org) => org.isActive && companyNameKey(org.name) === key);
   if (taken) fail("INVALID", `A company named ${taken.name} already exists`);
-  const text = (value: unknown) =>
-    typeof value === "string" && value.trim() ? value.trim() : undefined;
+  const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
   const organizationId = await createOrganization(ctx, {
     name,
     email: text(data.email) ?? (ownerEmail || undefined),
@@ -714,7 +597,10 @@ export async function createCompanyFor(
     city: text(data.city),
     state: text(data.state),
     leadTrades: Array.isArray(data.leadTrades)
-      ? await knownTrades(ctx, data.leadTrades.filter((t: unknown): t is string => typeof t === "string"))
+      ? await knownTrades(
+          ctx,
+          data.leadTrades.filter((t: unknown): t is string => typeof t === "string"),
+        )
       : [],
     walletBalanceCents: 0,
   });
@@ -734,11 +620,7 @@ export async function createCompanyFor(
  * Makes the person with `email` an owner of the company: right away if they
  * have an account, otherwise when they sign up (replacing any earlier invite).
  */
-async function addOwner(
-  ctx: MutationCtx,
-  organizationId: Id<"organizations">,
-  email: string,
-) {
+async function addOwner(ctx: MutationCtx, organizationId: Id<"organizations">, email: string) {
   const existingUser = await ctx.db
     .query("users")
     .withIndex("email", (q) => q.eq("email", email))
@@ -747,14 +629,11 @@ async function addOwner(
     .query("companyInvites")
     .filter((q) => q.eq(q.field("organizationId"), organizationId))
     .collect();
-  for (const invite of invites)
-    if (!invite.acceptedAt) await ctx.db.delete(invite._id);
+  for (const invite of invites) if (!invite.acceptedAt) await ctx.db.delete(invite._id);
   if (existingUser) {
     const membership = await ctx.db
       .query("memberships")
-      .withIndex("by_organization_and_user", (q) =>
-        q.eq("organizationId", organizationId).eq("userId", existingUser._id),
-      )
+      .withIndex("by_organization_and_user", (q) => q.eq("organizationId", organizationId).eq("userId", existingUser._id))
       .unique();
     if (membership) await ctx.db.patch(membership._id, { role: "owner" });
     else
@@ -782,57 +661,40 @@ export const setCompanyOwner = mutation({
     const org = await ctx.db.get(organizationId);
     if (!org || !org.isActive) fail("NOT_FOUND", "Company not found");
     const ownerEmail = email.trim().toLowerCase();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(ownerEmail))
-      fail("INVALID", "Enter a valid owner email");
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(ownerEmail)) fail("INVALID", "Enter a valid owner email");
     return await addOwner(ctx, organizationId, ownerEmail);
   },
 });
 
 /** Company names compared ignoring case and spacing. */
-export const companyNameKey = (name: string) =>
-  name.toLowerCase().replace(/\s+/g, " ").trim();
+export const companyNameKey = (name: string) => name.toLowerCase().replace(/\s+/g, " ").trim();
 
 /** True when a company has nothing in it: no leads, clients, estimates or money. */
-export async function isEmptyCompany(
-  ctx: QueryCtx,
-  org: Doc<"organizations">,
-): Promise<boolean> {
+export async function isEmptyCompany(ctx: QueryCtx, org: Doc<"organizations">): Promise<boolean> {
   if ((org.walletBalanceCents ?? 0) !== 0) return false;
   const byOrg = (q: any) => q.eq("organizationId", org._id);
   const found = await Promise.all([
     ctx.db
       .query("marketplaceLeads")
-      .withIndex("by_organization", (q) =>
-        q.eq("assignedOrganizationId", org._id),
-      )
+      .withIndex("by_organization", (q) => q.eq("assignedOrganizationId", org._id))
       .first(),
-    ctx.db
-      .query("walletTransactions")
-      .withIndex("by_organization", byOrg)
-      .first(),
+    ctx.db.query("walletTransactions").withIndex("by_organization", byOrg).first(),
     ctx.db.query("fundingRequests").withIndex("by_organization", byOrg).first(),
     ctx.db.query("leads").withIndex("by_organization", byOrg).first(),
     ctx.db.query("clients").withIndex("by_organization", byOrg).first(),
-    ctx.db
-      .query("estimates")
-      .withIndex("by_organization_and_issue_date", byOrg)
-      .first(),
+    ctx.db.query("estimates").withIndex("by_organization_and_issue_date", byOrg).first(),
   ]);
   return found.every((doc) => doc === null);
 }
 
 /** Hides a company and drops its open owner invites, so no signup lands in it. */
-export async function switchOffCompany(
-  ctx: MutationCtx,
-  organizationId: Id<"organizations">,
-) {
+export async function switchOffCompany(ctx: MutationCtx, organizationId: Id<"organizations">) {
   await ctx.db.patch(organizationId, { isActive: false, updatedAt: nowIso() });
   const invites = await ctx.db
     .query("companyInvites")
     .filter((q) => q.eq(q.field("organizationId"), organizationId))
     .collect();
-  for (const invite of invites)
-    if (!invite.acceptedAt) await ctx.db.delete(invite._id);
+  for (const invite of invites) if (!invite.acceptedAt) await ctx.db.delete(invite._id);
 }
 
 /**
@@ -845,11 +707,7 @@ export const removeCompany = mutation({
     const user = await requireSuperAdmin(ctx);
     const org = await ctx.db.get(organizationId);
     if (!org || !org.isActive) fail("NOT_FOUND", "Company not found");
-    if (!(await isEmptyCompany(ctx, org)))
-      fail(
-        "INVALID",
-        "Only empty companies can be removed. This one has leads, clients, estimates or money.",
-      );
+    if (!(await isEmptyCompany(ctx, org))) fail("INVALID", "Only empty companies can be removed. This one has leads, clients, estimates or money.");
     await switchOffCompany(ctx, organizationId);
     await logActivity(ctx, {
       organizationId,
@@ -886,14 +744,7 @@ export const setCompanyTrades = mutation({
 export const setPlan = mutation({
   args: {
     organizationId: v.id("organizations"),
-    status: v.optional(
-      v.union(
-        v.literal("trial"),
-        v.literal("active"),
-        v.literal("past_due"),
-        v.literal("cancelled"),
-      ),
-    ),
+    status: v.optional(v.union(v.literal("trial"), v.literal("active"), v.literal("past_due"), v.literal("cancelled"))),
     monthlyCents: v.optional(v.number()),
     claimsIncluded: v.optional(v.number()),
     extraClaimCents: v.optional(v.number()),
@@ -906,16 +757,14 @@ export const setPlan = mutation({
     let plan: Plan = { ...(org.plan ?? trialPlan(now)) };
     for (const [key, value] of Object.entries(changes))
       if (value !== undefined) {
-        if (!Number.isInteger(value) || value < 0)
-          fail("INVALID", "Enter a whole number of cents, zero or more");
+        if (!Number.isInteger(value) || value < 0) fail("INVALID", "Enter a whole number of cents, zero or more");
         plan = { ...plan, [key]: value };
       }
     if (status && status !== plan.status) {
       plan.status = status;
       if (status === "active" || status === "trial") {
         plan.periodStart = now;
-        plan.nextChargeAt =
-          status === "active" ? nextMonth(now) : trialPlan(now).nextChargeAt;
+        plan.nextChargeAt = status === "active" ? nextMonth(now) : trialPlan(now).nextChargeAt;
         plan.claimsThisPeriod = 0;
       }
     }
@@ -942,10 +791,7 @@ export function planSummary(plan: Plan, nowMs: number) {
 }
 
 /** The company's owner, else any member: who a server-posted charge is recorded under. */
-async function billingUserFor(
-  ctx: QueryCtx | MutationCtx,
-  organizationId: Id<"organizations">,
-) {
+async function billingUserFor(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">) {
   const members = await ctx.db
     .query("memberships")
     .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
@@ -957,12 +803,7 @@ async function billingUserFor(
  * Charges one month of the plan from the balance and opens a fresh period.
  * Returns false (and marks the plan past due) when the balance can't cover it.
  */
-async function chargePlan(
-  ctx: MutationCtx,
-  org: Doc<"organizations">,
-  plan: Plan,
-  createdBy: Id<"users"> | undefined,
-) {
+async function chargePlan(ctx: MutationCtx, org: Doc<"organizations">, plan: Plan, createdBy: Id<"users"> | undefined) {
   const now = nowIso();
   if (plan.monthlyCents > 0) {
     if (!createdBy || (org.walletBalanceCents ?? 0) < plan.monthlyCents) {
@@ -1009,17 +850,14 @@ export const chargePlans = internalMutation({
   args: {},
   handler: async (ctx) => {
     const nowMs = Date.now();
-    const orgs = (
-      await ctx.db.query("organizations").order("desc").take(500)
-    ).filter((o) => o.isActive && o.plan);
+    const orgs = (await ctx.db.query("organizations").order("desc").take(500)).filter((o) => o.isActive && o.plan);
     let charged = 0;
     let pastDue = 0;
     for (const org of orgs) {
       const plan = org.plan!;
       if (plan.status !== "active" && plan.status !== "past_due") continue;
       if (Date.parse(plan.nextChargeAt) > nowMs) continue;
-      if (await chargePlan(ctx, org, plan, await billingUserFor(ctx, org._id)))
-        charged++;
+      if (await chargePlan(ctx, org, plan, await billingUserFor(ctx, org._id))) charged++;
       else pastDue++;
     }
     return { charged, pastDue };
@@ -1054,22 +892,15 @@ export const ensurePlan = mutation({
 export const startPlan = mutation({
   args: { organizationId: v.id("organizations") },
   handler: async (ctx, { organizationId }) => {
-    const { user, organization } = await requireMember(
-      ctx,
-      organizationId,
-      "admin",
-    );
+    const { user, organization } = await requireMember(ctx, organizationId, "admin");
     const nowMs = Date.now();
     const now = nowIso();
     const plan = organization.plan ?? trialPlan(now);
-    if (plan.status === "active")
-      return { ...planSummary(plan, nowMs), chargedCents: 0 };
+    if (plan.status === "active") return { ...planSummary(plan, nowMs), chargedCents: 0 };
     // A company with no plan yet pays now, as the button says; one on a
     // running trial or a paid month does not pay twice.
     const paidUp =
-      organization.plan !== undefined &&
-      (plan.status === "cancelled" || plan.status === "trial") &&
-      Date.parse(plan.nextChargeAt) > nowMs;
+      organization.plan !== undefined && (plan.status === "cancelled" || plan.status === "trial") && Date.parse(plan.nextChargeAt) > nowMs;
     let started: Plan;
     let chargedCents = 0;
     if (paidUp) {
@@ -1110,11 +941,7 @@ export const startPlan = mutation({
 export const cancelPlan = mutation({
   args: { organizationId: v.id("organizations") },
   handler: async (ctx, { organizationId }) => {
-    const { user, organization } = await requireMember(
-      ctx,
-      organizationId,
-      "admin",
-    );
+    const { user, organization } = await requireMember(ctx, organizationId, "admin");
     const plan = organization.plan;
     if (!plan) fail("INVALID", "There's no plan to cancel");
     const now = nowIso();
@@ -1133,10 +960,7 @@ export const cancelPlan = mutation({
 
 /** Looks up trade names by slug, once each. */
 /** What companies see of a confirmation: the date and the line, not who called. */
-const verifiedFor = (lead: Doc<"marketplaceLeads">) =>
-  lead.verified
-    ? { at: lead.verified.at, note: lead.verified.note }
-    : undefined;
+const verifiedFor = (lead: Doc<"marketplaceLeads">) => (lead.verified ? { at: lead.verified.at, note: lead.verified.note } : undefined);
 
 function tradeNamer(ctx: QueryCtx | MutationCtx) {
   const names = new Map<string, string | undefined>();
@@ -1172,11 +996,8 @@ export const olderLeadsDef = queryDef({
       .withIndex("by_status", (q) => q.eq("status", "older"))
       .order("desc")
       .take(200);
-    const matches = (lead: Doc<"marketplaceLeads">) =>
-      Boolean(lead.jobType && trades.includes(lead.jobType));
-    const plan = organization.plan
-      ? planSummary(organization.plan, nowMs)
-      : null;
+    const matches = (lead: Doc<"marketplaceLeads">) => Boolean(lead.jobType && trades.includes(lead.jobType));
+    const plan = organization.plan ? planSummary(organization.plan, nowMs) : null;
     const count = trades.length ? older.filter(matches).length : older.length;
     if (!plan?.active) return { locked: true as const, count, plan, leads: [] };
     const tradeName = tradeNamer(ctx);
@@ -1189,10 +1010,7 @@ export const olderLeadsDef = queryDef({
         county: lead.county,
         summary: lead.notes,
         receivedAt: lead.auction?.listedAt ?? lead.createdAt,
-        ageDays: Math.floor(
-          (nowMs - Date.parse(lead.auction?.listedAt ?? lead.createdAt)) /
-            DAY_MS,
-        ),
+        ageDays: Math.floor((nowMs - Date.parse(lead.auction?.listedAt ?? lead.createdAt)) / DAY_MS),
         matchesTrades: matches(lead),
         verified: verifiedFor(lead),
         demo: !sameWorld(organization, lead) || undefined,
@@ -1202,11 +1020,7 @@ export const olderLeadsDef = queryDef({
       locked: false as const,
       count,
       plan,
-      leads: leads.sort(
-        (a, b) =>
-          Number(b.matchesTrades) - Number(a.matchesTrades) ||
-          Number(Boolean(b.verified)) - Number(Boolean(a.verified)),
-      ),
+      leads: leads.sort((a, b) => Number(b.matchesTrades) - Number(a.matchesTrades) || Number(Boolean(b.verified)) - Number(Boolean(a.verified))),
     };
   },
 });
@@ -1222,17 +1036,11 @@ export const claimDef = mutationDef({
     organizationId: v.id("organizations"),
   },
   handler: async (ctx, { leadId, organizationId }) => {
-    const { user, organization } = await requireMember(
-      ctx,
-      organizationId,
-      "admin",
-    );
+    const { user, organization } = await requireMember(ctx, organizationId, "admin");
     const plan = organization.plan;
-    if (!plan || !planIsActive(plan, Date.now()))
-      fail("FORBIDDEN", "The Vault is part of the Pro plan");
+    if (!plan || !planIsActive(plan, Date.now())) fail("FORBIDDEN", "The Vault is part of the Pro plan");
     const lead = await ctx.db.get(leadId);
-    if (lead === null || lead.status !== "older")
-      fail("INVALID", "Someone just claimed this lead");
+    if (lead === null || lead.status !== "older") fail("INVALID", "Someone just claimed this lead");
     requireSameWorld(organization, lead);
     const sale = await sellLead(ctx, user._id, leadId, organizationId, {
       priceCents: claimPrice(plan),
@@ -1250,90 +1058,75 @@ export const walletDef = queryDef({
   args: { organizationId: v.id("organizations") },
   handler: async (ctx, { organizationId }) => {
     // Staff read it too: the company panel in Ops shows the same wallet.
-    const { organization } = await requireMemberOrStaff(ctx, organizationId);
+    const { user, organization } = await requireMemberOrStaff(ctx, organizationId);
     const transactions = await ctx.db
       .query("walletTransactions")
-      .withIndex("by_organization", (q) =>
-        q.eq("organizationId", organizationId),
-      )
+      .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
       .order("desc")
       .take(50);
     const bought = await ctx.db
       .query("marketplaceLeads")
-      .withIndex("by_organization", (q) =>
-        q.eq("assignedOrganizationId", organizationId),
-      )
+      .withIndex("by_organization", (q) => q.eq("assignedOrganizationId", organizationId))
       .take(2000);
-    const orgLeads = await Promise.all(
-      bought.map((lead) =>
-        lead.orgLeadId ? ctx.db.get(lead.orgLeadId) : null,
-      ),
-    );
+    const orgLeads = await Promise.all(bought.map((lead) => (lead.orgLeadId ? ctx.db.get(lead.orgLeadId) : null)));
     const roi = await returnOn(ctx, orgLeads);
     const trades = organization.leadTrades ?? [];
-    const pricings = await Promise.all(
-      (trades.length ? trades : [undefined]).map((t) => pricingFor(ctx, t)),
-    );
+    const pricings = await Promise.all((trades.length ? trades : [undefined]).map((t) => pricingFor(ctx, t)));
     const openBids = (
       await ctx.db
         .query("leadBids")
-        .withIndex("by_organization_and_status", (q) =>
-          q.eq("organizationId", organizationId).eq("status", "open"),
-        )
+        .withIndex("by_organization_and_status", (q) => q.eq("organizationId", organizationId).eq("status", "open"))
         .collect()
     ).filter((b) => (b.kind ?? "order") === "order").length;
     const standingBids = await ctx.db
       .query("standingBids")
-      .withIndex("by_organization", (q) =>
-        q.eq("organizationId", organizationId),
-      )
+      .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
       .collect();
     // The trades the company does, plus any it has a standing bid for.
     const wanted = new Set([...trades, ...standingBids.map((b) => b.jobType)]);
-    // Whether a lead alert can reach someone by text: an owner's or admin's
-    // mobile, else the company's own phone (see delivery.recipients).
-    const alertPeople = (
-      await ctx.db
-        .query("memberships")
-        .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
-        .take(50)
-    ).filter((m) => m.role !== "member");
-    const hasMobile =
-      (await Promise.all(alertPeople.map((m) => ctx.db.get(m.userId)))).some((u) => Boolean(u?.mobile));
+    // Where a lead alert text would go, worked out the way delivery.recipients
+    // does: owners' and admins' mobiles, else the company's own phone. Plus
+    // who is looking, so the Leads page can say what they can do about it:
+    // a super admin can open any company without belonging to it.
+    const members = await ctx.db
+      .query("memberships")
+      .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
+      .take(50);
+    const alertPeople = await Promise.all(members.filter((m) => m.role !== "member").map((m) => ctx.db.get(m.userId)));
+    const mobiles = new Set(alertPeople.map((u) => u?.mobile).filter(Boolean)).size;
+    const companyPhone = usMobile(organization.phone);
+    const alerts = {
+      mobiles,
+      companyPhone,
+      viewerRole: members.find((m) => m.userId === user._id)?.role ?? ("staff" as const),
+      viewerHasMobile: Boolean(user.mobile),
+    };
     return {
       balanceCents: organization.walletBalanceCents ?? 0,
       leadTrades: trades,
-      hasMobile,
+      hasMobile: mobiles > 0 || Boolean(companyPhone),
+      alerts,
       // What a typical lead costs this company, for "about N leads".
       typicalLeadCents: typicalLeadCents(pricings),
       openBids,
       standingBids: standingBids.length,
       // Bids another company took the lead from since this one last looked.
-      outbidBids: standingBids.filter(
-        (b) => outbidUnseen(b) && (organization.walletBalanceCents ?? 0) >= b.amountCents,
-      ).length,
+      outbidBids: standingBids.filter((b) => outbidUnseen(b) && (organization.walletBalanceCents ?? 0) >= b.amountCents).length,
       // Bids the balance can't pay for: kept, but they can't win until funds are added.
-      pausedBids: standingBids.filter(
-        (b) => b.amountCents > (organization.walletBalanceCents ?? 0),
-      ).length,
-      spentCents: bought
-        .filter((l) => l.status === "assigned")
-        .reduce((sum, l) => sum + (l.priceCents ?? 0), 0),
+      pausedBids: standingBids.filter((b) => b.amountCents > (organization.walletBalanceCents ?? 0)).length,
+      spentCents: bought.filter((l) => l.status === "assigned").reduce((sum, l) => sum + (l.priceCents ?? 0), 0),
       leadsBought: bought.length,
       // No Stripe key and a sample company: Add funds loads play money, and the button says so.
       playMoney: !process.env.STRIPE_SECRET_KEY && Boolean(organization.isSample),
       ...roi,
-      plan: organization.plan
-        ? planSummary(organization.plan, Date.now())
-        : null,
+      plan: organization.plan ? planSummary(organization.plan, Date.now()) : null,
       // Older leads it could claim on the plan (all of them when it has no trades yet).
       olderLeads: (
         await ctx.db
           .query("marketplaceLeads")
           .withIndex("by_status", (q) => q.eq("status", "older"))
           .take(500)
-      ).filter((l) => !wanted.size || (l.jobType && wanted.has(l.jobType)))
-        .length,
+      ).filter((l) => !wanted.size || (l.jobType && wanted.has(l.jobType))).length,
       // Marketplace leads in this company's trades: the ones it would buy.
       availableLeads: wanted.size
         ? (
@@ -1376,9 +1169,7 @@ export const feedDef = queryDef({
     const myBids = (
       await ctx.db
         .query("leadBids")
-        .withIndex("by_organization_and_status", (q) =>
-          q.eq("organizationId", organizationId).eq("status", "open"),
-        )
+        .withIndex("by_organization_and_status", (q) => q.eq("organizationId", organizationId).eq("status", "open"))
         .collect()
     ).filter((b) => (b.kind ?? "order") === "order");
     const tradeName = tradeNamer(ctx);
@@ -1402,11 +1193,7 @@ export const feedDef = queryDef({
       }),
     );
     // Your trades first, and within those the leads a person has confirmed.
-    return leads.sort(
-      (a, b) =>
-        Number(b.matchesTrades) - Number(a.matchesTrades) ||
-        Number(Boolean(b.verified)) - Number(Boolean(a.verified)),
-    );
+    return leads.sort((a, b) => Number(b.matchesTrades) - Number(a.matchesTrades) || Number(Boolean(b.verified)) - Number(Boolean(a.verified)));
   },
 });
 export const feed = query(feedDef);
@@ -1420,8 +1207,7 @@ export const buyDef = mutationDef({
   handler: async (ctx, { leadId, organizationId }) => {
     const { user } = await requireMember(ctx, organizationId, "admin");
     const lead = await ctx.db.get(leadId);
-    if (lead === null || lead.status !== "available")
-      fail("INVALID", "Someone just bought this lead");
+    if (lead === null || lead.status !== "available") fail("INVALID", "Someone just bought this lead");
     return await sellLead(ctx, user._id, leadId, organizationId, {
       priceCents: await leadPriceCents(ctx, lead),
       via: "buy",
@@ -1444,30 +1230,16 @@ export const placeBidDef = mutationDef({
     max: v.number(),
   },
   handler: async (ctx, { leadId, organizationId, max }) => {
-    const { user, organization } = await requireMember(
-      ctx,
-      organizationId,
-      "admin",
-    );
+    const { user, organization } = await requireMember(ctx, organizationId, "admin");
     const lead = await ctx.db.get(leadId);
-    if (lead === null || lead.status !== "available")
-      fail("INVALID", "Someone just bought this lead");
+    if (lead === null || lead.status !== "available") fail("INVALID", "Someone just bought this lead");
     requireSameWorld(organization, lead);
     const maxCents = toCents(max);
     const auction = await auctionFor(ctx, lead);
     const now = priceAt(auction, Date.now());
-    if (maxCents < auction.floorCents)
-      fail(
-        "INVALID",
-        `This lead won't go below ${dollars(auction.floorCents)}`,
-      );
-    if (maxCents >= now.priceCents)
-      fail(
-        "INVALID",
-        `It's already ${dollars(now.priceCents)}: buy it now instead`,
-      );
-    if ((organization.walletBalanceCents ?? 0) < maxCents)
-      fail("INVALID", "Add funds to cover this buy order");
+    if (maxCents < auction.floorCents) fail("INVALID", `This lead won't go below ${dollars(auction.floorCents)}`);
+    if (maxCents >= now.priceCents) fail("INVALID", `It's already ${dollars(now.priceCents)}: buy it now instead`);
+    if ((organization.walletBalanceCents ?? 0) < maxCents) fail("INVALID", "Add funds to cover this buy order");
     const time = nowIso();
     const existing = (
       await ctx.db
@@ -1475,8 +1247,7 @@ export const placeBidDef = mutationDef({
         .withIndex("by_lead", (q) => q.eq("marketplaceLeadId", leadId))
         .collect()
     ).filter((b) => b.organizationId === organizationId && b.status === "open");
-    for (const bid of existing)
-      await ctx.db.patch(bid._id, { status: "cancelled", resolvedAt: time });
+    for (const bid of existing) await ctx.db.patch(bid._id, { status: "cancelled", resolvedAt: time });
     const bidId = await ctx.db.insert("leadBids", {
       marketplaceLeadId: leadId,
       organizationId,
@@ -1498,8 +1269,7 @@ export const cancelBidDef = mutationDef({
     const bid = await ctx.db.get(bidId);
     if (bid === null) fail("NOT_FOUND", "Buy order not found");
     await requireMember(ctx, bid.organizationId, "admin");
-    if (bid.status !== "open")
-      fail("INVALID", "This buy order has already ended");
+    if (bid.status !== "open") fail("INVALID", "This buy order has already ended");
     await ctx.db.patch(bidId, { status: "cancelled", resolvedAt: nowIso() });
   },
 });
@@ -1512,26 +1282,18 @@ export const fillBid = internalMutation({
     const bid = await ctx.db.get(bidId);
     if (bid === null || bid.status !== "open") return;
     const lead = await ctx.db.get(bid.marketplaceLeadId);
-    const lose = async (outcome: string) =>
-      ctx.db.patch(bidId, { status: "lost", outcome, resolvedAt: nowIso() });
-    if (lead === null || lead.status !== "available")
-      return await lose("Another company bought it first");
+    const lose = async (outcome: string) => ctx.db.patch(bidId, { status: "lost", outcome, resolvedAt: nowIso() });
+    if (lead === null || lead.status !== "available") return await lose("Another company bought it first");
     const priceCents = await leadPriceCents(ctx, lead);
     if (priceCents > bid.maxCents) {
       // Listed again at a higher price: wait for it to come back down.
-      await ctx.scheduler.runAt(
-        fillTimeMs(await auctionFor(ctx, lead), bid.maxCents),
-        internal.marketplace.fillBid,
-        { bidId },
-      );
+      await ctx.scheduler.runAt(fillTimeMs(await auctionFor(ctx, lead), bid.maxCents), internal.marketplace.fillBid, { bidId });
       return;
     }
     const organization = await ctx.db.get(bid.organizationId);
     if (!organization?.isActive) return await lose("Company shut down");
     if ((organization.walletBalanceCents ?? 0) < priceCents)
-      return await lose(
-        `Balance too low: ${dollars(priceCents)} needed, ${dollars(organization.walletBalanceCents ?? 0)} available`,
-      );
+      return await lose(`Balance too low: ${dollars(priceCents)} needed, ${dollars(organization.walletBalanceCents ?? 0)} available`);
     await sellLead(ctx, bid.createdBy, lead._id, bid.organizationId, {
       priceCents,
       bidId,
@@ -1550,9 +1312,7 @@ export const bidsDef = queryDef({
       (["open", "filled", "lost", "cancelled"] as const).map((status) =>
         ctx.db
           .query("leadBids")
-          .withIndex("by_organization_and_status", (q) =>
-            q.eq("organizationId", organizationId).eq("status", status),
-          )
+          .withIndex("by_organization_and_status", (q) => q.eq("organizationId", organizationId).eq("status", status))
           .order("desc")
           .take(status === "open" ? 100 : 10),
       ),
@@ -1573,8 +1333,7 @@ export const bidsDef = queryDef({
             maxCents: bid.maxCents,
             status: bid.status,
             outcome: bid.outcome,
-            pricePaidCents:
-              bid.status === "filled" ? lead?.priceCents : undefined,
+            pricePaidCents: bid.status === "filled" ? lead?.priceCents : undefined,
             createdAt: bid.createdAt,
             resolvedAt: bid.resolvedAt,
           };
@@ -1596,18 +1355,11 @@ export const requestCreditDef = mutationDef({
     const lead = await ctx.db.get(leadId);
     if (lead === null) fail("NOT_FOUND", "Lead not found");
     await requireMember(ctx, lead.organizationId);
-    if (!lead.marketplaceLeadId)
-      fail("INVALID", "Only leads bought from Webb Leads can be credited");
-    if (lead.creditRequest)
-      fail("INVALID", "A credit was already requested for this lead");
-    if (!(CREDIT_REASONS as readonly string[]).includes(reason))
-      fail("INVALID", "Pick a reason");
+    if (!lead.marketplaceLeadId) fail("INVALID", "Only leads bought from Webb Leads can be credited");
+    if (lead.creditRequest) fail("INVALID", "A credit was already requested for this lead");
+    if (!(CREDIT_REASONS as readonly string[]).includes(reason)) fail("INVALID", "Pick a reason");
     const deliveredAt = Date.parse(lead.assignedAt ?? lead.createdAt);
-    if (Date.now() - deliveredAt > CREDIT_WINDOW_MS)
-      fail(
-        "INVALID",
-        "Credits can be requested within 3 days of getting the lead",
-      );
+    if (Date.now() - deliveredAt > CREDIT_WINDOW_MS) fail("INVALID", "Credits can be requested within 3 days of getting the lead");
     const now = nowIso();
     await ctx.db.patch(leadId, {
       creditRequest: {
@@ -1641,9 +1393,7 @@ export const pendingCredits = query({
       .take(2000);
     const rows = await Promise.all(
       credited.map(async (lead) => {
-        const orgLead = lead.orgLeadId
-          ? await ctx.db.get(lead.orgLeadId)
-          : null;
+        const orgLead = lead.orgLeadId ? await ctx.db.get(lead.orgLeadId) : null;
         if (orgLead?.creditRequest?.status !== "pending") return null;
         const org = await ctx.db.get(orgLead.organizationId);
         return {
@@ -1767,14 +1517,7 @@ const DEMO_LEADS: Array<[string, string, string, string, string, string]> = [
     "plumbing",
     "50-gallon gas water heater leaking from the bottom. Needs replacement this week.",
   ],
-  [
-    "Luis Ortega",
-    "(432) 555-2290",
-    "3610 N Dixie Blvd",
-    "Odessa",
-    "hvac",
-    "Upstairs AC blowing warm. Unit is 14 years old; open to replacing it.",
-  ],
+  ["Luis Ortega", "(432) 555-2290", "3610 N Dixie Blvd", "Odessa", "hvac", "Upstairs AC blowing warm. Unit is 14 years old; open to replacing it."],
   [
     "Brenda Haskins",
     "(432) 555-2207",
@@ -1807,22 +1550,8 @@ const DEMO_LEADS: Array<[string, string, string, string, string, string]> = [
     "painting",
     "Interior repaint, whole house, about 1,800 sq ft. Moving in next month.",
   ],
-  [
-    "Sharon Pike",
-    "(432) 555-2253",
-    "4408 Neely Ave",
-    "Midland",
-    "plumbing",
-    "Slow drains in two bathrooms and a running toilet.",
-  ],
-  [
-    "Gary Lindsey",
-    "(432) 555-2299",
-    "711 E Pecan St",
-    "Big Spring",
-    "hvac",
-    "Wants a quote for a new 3-ton heat pump before winter.",
-  ],
+  ["Sharon Pike", "(432) 555-2253", "4408 Neely Ave", "Midland", "plumbing", "Slow drains in two bathrooms and a running toilet."],
+  ["Gary Lindsey", "(432) 555-2299", "711 E Pecan St", "Big Spring", "hvac", "Wants a quote for a new 3-ton heat pump before winter."],
 ];
 
 // Already sold: [lead index, company index, the company's progress, job value if won]
@@ -1841,93 +1570,83 @@ export const addDemoData = mutation({
 
 /** The demo companies and leads, as `addDemoData` adds them; also run from the CLI (seed.ts) with no signed-in user. */
 export async function seedDemoData(ctx: MutationCtx, user: Doc<"users">) {
-    if (
-      (await ctx.db
-        .query("organizations")
-        .filter((q) => q.eq(q.field("isSample"), true))
-        .first()) !== null
-    ) {
-      fail("INVALID", "Demo companies are already here");
-    }
-    const now = nowIso();
-    // Typical prices by trade, only if none have been set yet.
-    if ((await ctx.db.query("leadPrices").first()) === null) {
-      for (const [jobType, dollars] of Object.entries(DEMO_PRICES)) {
-        await ctx.db.insert("leadPrices", {
-          jobType,
-          priceCents: dollars * 100,
-          updatedAt: now,
-        });
-      }
-    }
-    const companyIds: Id<"organizations">[] = [];
-    for (const [i, company] of DEMO_COMPANIES.entries()) {
-      const id = await createOrganization(ctx, {
-        name: company.name,
-        phone: company.phone,
-        email: company.email,
-        city: company.city,
-        state: "TX",
-        leadTrades: company.leadTrades,
-        walletBalanceCents: 0,
-        isSample: true,
-      });
-      // Every other demo company is on the plan for free; the rest let its
-      // plan lapse, so the locked and open states both show.
-      await ctx.db.patch(id, {
-        plan:
-          i % 2 === 0
-            ? { ...trialPlan(nowIso()), status: "active", monthlyCents: 0 }
-            : {
-                ...trialPlan(nowIso()),
-                status: "cancelled",
-                nextChargeAt: new Date(Date.now() - DAY_MS).toISOString(),
-              },
-      });
-      if (company.payment > 0) {
-        await postTransaction(ctx, id, {
-          type: "top_up",
-          amountCents: company.payment * 100,
-          createdBy: user._id,
-          method: company.method,
-        });
-      }
-      if (company.bonus) {
-        await postTransaction(ctx, id, {
-          type: "bonus",
-          amountCents: company.bonus * 100,
-          createdBy: user._id,
-          note: "Bonus",
-        });
-      }
-      companyIds.push(id);
-    }
-    const leadIds: Id<"marketplaceLeads">[] = [];
-    for (const [name, phone, address, city, jobType, notes] of DEMO_LEADS) {
-      leadIds.push(
-        await listLead(
-          ctx,
-          { name, phone, address, city, jobType, notes },
-          user._id,
-          { listedAt: now, source: "Demo", isSample: true },
-        ),
-      );
-    }
-    for (const [leadIndex, companyIndex, status, value] of DEMO_SALES) {
-      const demoLead = (await ctx.db.get(leadIds[leadIndex]))!;
-      const { orgLeadId } = await sellLead(
-        ctx,
-        user._id,
-        leadIds[leadIndex],
-        companyIds[companyIndex],
-        { priceCents: await leadPriceCents(ctx, demoLead), via: "buy" },
-      );
-      await ctx.db.patch(orgLeadId, {
-        status,
-        ...(value ? { estimatedValue: value } : {}),
+  if (
+    (await ctx.db
+      .query("organizations")
+      .filter((q) => q.eq(q.field("isSample"), true))
+      .first()) !== null
+  ) {
+    fail("INVALID", "Demo companies are already here");
+  }
+  const now = nowIso();
+  // Typical prices by trade, only if none have been set yet.
+  if ((await ctx.db.query("leadPrices").first()) === null) {
+    for (const [jobType, dollars] of Object.entries(DEMO_PRICES)) {
+      await ctx.db.insert("leadPrices", {
+        jobType,
+        priceCents: dollars * 100,
+        updatedAt: now,
       });
     }
-    return { companies: companyIds.length, leads: leadIds.length };
+  }
+  const companyIds: Id<"organizations">[] = [];
+  for (const [i, company] of DEMO_COMPANIES.entries()) {
+    const id = await createOrganization(ctx, {
+      name: company.name,
+      phone: company.phone,
+      email: company.email,
+      city: company.city,
+      state: "TX",
+      leadTrades: company.leadTrades,
+      walletBalanceCents: 0,
+      isSample: true,
+    });
+    // Every other demo company is on the plan for free; the rest let its
+    // plan lapse, so the locked and open states both show.
+    await ctx.db.patch(id, {
+      plan:
+        i % 2 === 0
+          ? { ...trialPlan(nowIso()), status: "active", monthlyCents: 0 }
+          : {
+              ...trialPlan(nowIso()),
+              status: "cancelled",
+              nextChargeAt: new Date(Date.now() - DAY_MS).toISOString(),
+            },
+    });
+    if (company.payment > 0) {
+      await postTransaction(ctx, id, {
+        type: "top_up",
+        amountCents: company.payment * 100,
+        createdBy: user._id,
+        method: company.method,
+      });
+    }
+    if (company.bonus) {
+      await postTransaction(ctx, id, {
+        type: "bonus",
+        amountCents: company.bonus * 100,
+        createdBy: user._id,
+        note: "Bonus",
+      });
+    }
+    companyIds.push(id);
+  }
+  const leadIds: Id<"marketplaceLeads">[] = [];
+  for (const [name, phone, address, city, jobType, notes] of DEMO_LEADS) {
+    leadIds.push(await listLead(ctx, { name, phone, address, city, jobType, notes }, user._id, { listedAt: now, source: "Demo", isSample: true }));
+  }
+  for (const [leadIndex, companyIndex, status, value] of DEMO_SALES) {
+    const demoLead = (await ctx.db.get(leadIds[leadIndex]))!;
+    const { orgLeadId } = await sellLead(ctx, user._id, leadIds[leadIndex], companyIds[companyIndex], {
+      priceCents: await leadPriceCents(ctx, demoLead),
+      via: "buy",
+    });
+    await ctx.db.patch(orgLeadId, {
+      status,
+      ...(value ? { estimatedValue: value } : {}),
+    });
+  }
+  return { companies: companyIds.length, leads: leadIds.length };
 }
 
 // [name, phone, address, city, trade, what they need]
@@ -1948,14 +1667,7 @@ const SAMPLE_LEADS: Array<[string, string, string, string, string, string]> = [
     "landscaping",
     "Front yard redo: rock beds, three trees, drip lines. Has a budget in mind.",
   ],
-  [
-    "Alma Castillo",
-    "(432) 555-0378",
-    "1409 Alamo St",
-    "Odessa",
-    "landscaping",
-    "Weekly mowing and edging for a corner lot, plus fall cleanup.",
-  ],
+  ["Alma Castillo", "(432) 555-0378", "1409 Alamo St", "Odessa", "landscaping", "Weekly mowing and edging for a corner lot, plus fall cleanup."],
   [
     "Tyler Brandt",
     "(432) 555-0395",
@@ -1972,22 +1684,8 @@ const SAMPLE_LEADS: Array<[string, string, string, string, string, string]> = [
     "landscaping",
     "Sprinkler system isn't covering the side yard; wants it fixed or redone.",
   ],
-  [
-    "Hector Mendoza",
-    "(432) 555-0426",
-    "1215 NW 8th St",
-    "Andrews",
-    "landscaping",
-    "Artificial turf for a dog run, roughly 20x30.",
-  ],
-  [
-    "Kristen Powell",
-    "(432) 555-0453",
-    "4001 Caldera Blvd",
-    "Midland",
-    "landscaping",
-    "New build, bare dirt. Full yard: sod, beds, irrigation.",
-  ],
+  ["Hector Mendoza", "(432) 555-0426", "1215 NW 8th St", "Andrews", "landscaping", "Artificial turf for a dog run, roughly 20x30."],
+  ["Kristen Powell", "(432) 555-0453", "4001 Caldera Blvd", "Midland", "landscaping", "New build, bare dirt. Full yard: sod, beds, irrigation."],
   [
     "Samuel Okafor",
     "(432) 555-0489",
@@ -1996,14 +1694,7 @@ const SAMPLE_LEADS: Array<[string, string, string, string, string, string]> = [
     "landscaping",
     "Retaining wall along the driveway is leaning; wants a quote to rebuild.",
   ],
-  [
-    "Gloria Tran",
-    "(432) 555-0502",
-    "307 S Main St",
-    "Stanton",
-    "landscaping",
-    "Xeriscape the front yard to cut the water bill.",
-  ],
+  ["Gloria Tran", "(432) 555-0502", "307 S Main St", "Stanton", "landscaping", "Xeriscape the front yard to cut the water bill."],
   [
     "Brent Kaminski",
     "(432) 555-0537",
@@ -2012,30 +1703,9 @@ const SAMPLE_LEADS: Array<[string, string, string, string, string, string]> = [
     "landscaping",
     "Two acres: tree trimming and brush clearing before a fence goes in.",
   ],
-  [
-    "Monica Ruiz",
-    "(432) 555-0561",
-    "2611 W Michigan Ave",
-    "Midland",
-    "landscaping",
-    "Flower beds along the front walk, mulch and a few shrubs.",
-  ],
-  [
-    "Jared Whitfield",
-    "(432) 555-0598",
-    "900 S Betty Ave",
-    "Monahans",
-    "landscaping",
-    "Lawn is mostly dead; wants it leveled and re-sodded.",
-  ],
-  [
-    "Lena Hoffmann",
-    "(432) 555-0614",
-    "3415 Haynes Ave",
-    "Midland",
-    "painting",
-    "Exterior repaint, two-storey, stucco. Peeling on the south side.",
-  ],
+  ["Monica Ruiz", "(432) 555-0561", "2611 W Michigan Ave", "Midland", "landscaping", "Flower beds along the front walk, mulch and a few shrubs."],
+  ["Jared Whitfield", "(432) 555-0598", "900 S Betty Ave", "Monahans", "landscaping", "Lawn is mostly dead; wants it leveled and re-sodded."],
+  ["Lena Hoffmann", "(432) 555-0614", "3415 Haynes Ave", "Midland", "painting", "Exterior repaint, two-storey, stucco. Peeling on the south side."],
   [
     "Carlos Benavides",
     "(432) 555-0647",
@@ -2044,22 +1714,8 @@ const SAMPLE_LEADS: Array<[string, string, string, string, string, string]> = [
     "painting",
     "Interior: living room, hallway and three bedrooms. Walls and trim.",
   ],
-  [
-    "Whitney Marsh",
-    "(432) 555-0672",
-    "1700 Goliad St",
-    "Big Spring",
-    "painting",
-    "Kitchen cabinets painted white. 28 doors and drawers.",
-  ],
-  [
-    "Ahmed Farouk",
-    "(432) 555-0699",
-    "5505 Thomason Dr",
-    "Midland",
-    "painting",
-    "Rental turnover: whole house, one color, before the 1st.",
-  ],
+  ["Whitney Marsh", "(432) 555-0672", "1700 Goliad St", "Big Spring", "painting", "Kitchen cabinets painted white. 28 doors and drawers."],
+  ["Ahmed Farouk", "(432) 555-0699", "5505 Thomason Dr", "Midland", "painting", "Rental turnover: whole house, one color, before the 1st."],
   [
     "Dana Kessler",
     "(432) 555-0721",
@@ -2068,30 +1724,9 @@ const SAMPLE_LEADS: Array<[string, string, string, string, string, string]> = [
     "general-construction",
     "Covered patio addition, about 14x20, with a ceiling fan.",
   ],
-  [
-    "Victor Salinas",
-    "(432) 555-0748",
-    "1313 E 21st St",
-    "Odessa",
-    "general-construction",
-    "Convert the garage into a bedroom with a closet.",
-  ],
-  [
-    "Rachel Dunn",
-    "(432) 555-0776",
-    "2900 N Sam Houston Ave",
-    "Odessa",
-    "roofing",
-    "Missing shingles after the wind; a leak over the back bedroom.",
-  ],
-  [
-    "Luis Herrera",
-    "(432) 555-0794",
-    "610 NE 2nd St",
-    "Andrews",
-    "concrete",
-    "Driveway extension and a 10x10 slab for a shed.",
-  ],
+  ["Victor Salinas", "(432) 555-0748", "1313 E 21st St", "Odessa", "general-construction", "Convert the garage into a bedroom with a closet."],
+  ["Rachel Dunn", "(432) 555-0776", "2900 N Sam Houston Ave", "Odessa", "roofing", "Missing shingles after the wind; a leak over the back bedroom."],
+  ["Luis Herrera", "(432) 555-0794", "610 NE 2nd St", "Andrews", "concrete", "Driveway extension and a 10x10 slab for a shed."],
 ];
 
 /** What the demo intake call "heard": every demo lead is listed already confirmed, like a real one. */
@@ -2109,28 +1744,20 @@ export const addSampleLeads = mutation({
 
 /** The 20 sample leads, as `addSampleLeads` adds them; also run from the CLI (seed.ts). */
 export async function seedSampleLeads(ctx: MutationCtx, user: Doc<"users">) {
-    const nowMs = Date.now();
-    let added = 0;
-    for (const [
-      i,
-      [name, phone, address, city, jobType, notes],
-    ] of SAMPLE_LEADS.entries()) {
-      // Oldest first: the first lead came in 6 hours ago, the last just now.
-      const listedAt = new Date(
-        nowMs -
-          ((SAMPLE_LEADS.length - 1 - i) * 6 * 60 * 60 * 1000) /
-            (SAMPLE_LEADS.length - 1),
-      ).toISOString();
-      // Demo leads arrive the way real ones do: confirmed on the intake call.
-      await listLead(
-        ctx,
-        { name, phone, address, city, jobType, notes, verified: { at: listedAt, note: DEMO_CONFIRM_NOTE, by: user._id } },
-        user._id,
-        { listedAt, source: "Demo", isSample: true },
-      );
-      added++;
-    }
-    return { added };
+  const nowMs = Date.now();
+  let added = 0;
+  for (const [i, [name, phone, address, city, jobType, notes]] of SAMPLE_LEADS.entries()) {
+    // Oldest first: the first lead came in 6 hours ago, the last just now.
+    const listedAt = new Date(nowMs - ((SAMPLE_LEADS.length - 1 - i) * 6 * 60 * 60 * 1000) / (SAMPLE_LEADS.length - 1)).toISOString();
+    // Demo leads arrive the way real ones do: confirmed on the intake call.
+    await listLead(ctx, { name, phone, address, city, jobType, notes, verified: { at: listedAt, note: DEMO_CONFIRM_NOTE, by: user._id } }, user._id, {
+      listedAt,
+      source: "Demo",
+      isSample: true,
+    });
+    added++;
+  }
+  return { added };
 }
 
 /** Removes every demo company and demo lead, with their balances and history. */
@@ -2155,8 +1782,7 @@ export async function deleteDemoData(ctx: MutationCtx) {
   const sampleLeadIds = new Set<string>(leads.map((l) => l._id));
   // The leads companies won from sample leads, and the bids on them.
   for (const lead of leads) {
-    if (lead.orgLeadId && (await ctx.db.get(lead.orgLeadId)))
-      await ctx.db.delete(lead.orgLeadId);
+    if (lead.orgLeadId && (await ctx.db.get(lead.orgLeadId))) await ctx.db.delete(lead.orgLeadId);
     for (const bid of await ctx.db
       .query("leadBids")
       .withIndex("by_lead", (q) => q.eq("marketplaceLeadId", lead._id))
@@ -2172,20 +1798,14 @@ export async function deleteDemoData(ctx: MutationCtx) {
   // Demo data no longer reaches real companies, but older demo runs put
   // demo funds and demo leads on them: those come back out, so the balance
   // returns to what it was.
-  const real = (await ctx.db.query("organizations").take(1000)).filter(
-    (org) => !org.isSample,
-  );
+  const real = (await ctx.db.query("organizations").take(1000)).filter((org) => !org.isSample);
   for (const org of real) {
     const rows = (
       await ctx.db
         .query("walletTransactions")
         .withIndex("by_organization", (q) => q.eq("organizationId", org._id))
         .collect()
-    ).filter(
-      (t) =>
-        t.isSample ||
-        (t.marketplaceLeadId && sampleLeadIds.has(t.marketplaceLeadId)),
-    );
+    ).filter((t) => t.isSample || (t.marketplaceLeadId && sampleLeadIds.has(t.marketplaceLeadId)));
     if (rows.length === 0) continue;
     const net = rows.reduce((sum, t) => sum + t.amountCents, 0);
     for (const row of rows) await ctx.db.delete(row._id);
@@ -2250,7 +1870,13 @@ const DEMO_BID_PATTERNS: Record<string, Array<Array<[string, number]>>> = {
 const DEMO_BIDDERS = [
   { name: "Caprock Landscapes", phone: "(432) 555-0181", email: "bids@caprock.example", city: "Midland", leadTrades: ["landscaping"] },
   { name: "Tall City Lawn & Stone", phone: "(432) 555-0182", email: "office@tallcitylawn.example", city: "Midland", leadTrades: ["landscaping"] },
-  { name: "Big Spring Builders", phone: "(432) 555-0183", email: "jobs@bigspringbuilders.example", city: "Big Spring", leadTrades: ["general-construction"] },
+  {
+    name: "Big Spring Builders",
+    phone: "(432) 555-0183",
+    email: "jobs@bigspringbuilders.example",
+    city: "Big Spring",
+    leadTrades: ["general-construction"],
+  },
 ];
 const DEMO_FUNDS_CENTS = 150000;
 /** The second landscaper's funds, so its Andrews bid shows as unfunded. */
@@ -2259,143 +1885,42 @@ const DEMO_SHORT_FUNDS_CENTS = 60000;
 // [name, phone, address, city, trade, what they need], oldest first.
 // [name, phone, address, city, trade, what they need]: listed 9 and 12 days
 // ago with no bidder, so they sit in Older leads.
-const DEMO_OLDER_LEADS: Array<
-  [string, string, string, string, string, string]
-> = [
-  [
-    "Marisol Peña",
-    "(432) 555-0188",
-    "2206 Whitmire Blvd",
-    "Midland",
-    "painting",
-    "Repaint the exterior trim and front door, two-story.",
-  ],
-  [
-    "Troy Whitaker",
-    "(432) 555-0192",
-    "4512 Tanglewood Ln",
-    "Odessa",
-    "hvac",
-    "Replace a 3-ton unit before summer; current one is 18 years old.",
-  ],
+const DEMO_OLDER_LEADS: Array<[string, string, string, string, string, string]> = [
+  ["Marisol Peña", "(432) 555-0188", "2206 Whitmire Blvd", "Midland", "painting", "Repaint the exterior trim and front door, two-story."],
+  ["Troy Whitaker", "(432) 555-0192", "4512 Tanglewood Ln", "Odessa", "hvac", "Replace a 3-ton unit before summer; current one is 18 years old."],
 ];
 
-const DEMO_BID_LEADS: Array<[string, string, string, string, string, string]> =
+const DEMO_BID_LEADS: Array<[string, string, string, string, string, string]> = [
+  ["Hector Salinas", "(432) 555-0141", "1808 W Illinois Ave", "Midland", "landscaping", "Front yard sod and a drip system, 1,800 sq ft."],
+  ["Marcy Odom", "(432) 555-0167", "3310 Maple Ave", "Odessa", "painting", "Interior repaint, 3 bedrooms and hallway, walls only."],
+  ["Dale Whitfield", "(432) 555-0192", "702 E 11th Pl", "Big Spring", "landscaping", "Remove two dead trees and regrade the side yard."],
   [
-    [
-      "Hector Salinas",
-      "(432) 555-0141",
-      "1808 W Illinois Ave",
-      "Midland",
-      "landscaping",
-      "Front yard sod and a drip system, 1,800 sq ft.",
-    ],
-    [
-      "Marcy Odom",
-      "(432) 555-0167",
-      "3310 Maple Ave",
-      "Odessa",
-      "painting",
-      "Interior repaint, 3 bedrooms and hallway, walls only.",
-    ],
-    [
-      "Dale Whitfield",
-      "(432) 555-0192",
-      "702 E 11th Pl",
-      "Big Spring",
-      "landscaping",
-      "Remove two dead trees and regrade the side yard.",
-    ],
-    [
-      "Priya Raman",
-      "(432) 555-0204",
-      "5109 Greentree Blvd",
-      "Midland",
-      "general-construction",
-      "Enclose a back patio into a sunroom, about 220 sq ft.",
-    ],
-    [
-      "Bill Tran",
-      "(432) 555-0218",
-      "2411 N Grandview Ave",
-      "Odessa",
-      "landscaping",
-      "Backyard: flagstone patio and a raised bed along the fence.",
-    ],
-    [
-      "Leticia Barrera",
-      "(432) 555-0233",
-      "901 N St Peter St",
-      "Stanton",
-      "landscaping",
-      "Weekly mowing and bed cleanup for a rental, start this month.",
-    ],
-    [
-      "Gordon Pike",
-      "(432) 555-0251",
-      "4400 Andrews Hwy",
-      "Midland",
-      "painting",
-      "Exterior stucco repaint, single story, light color.",
-    ],
-    [
-      "Shannon Kerr",
-      "(432) 555-0266",
-      "1210 NW 8th St",
-      "Andrews",
-      "landscaping",
-      "Full front and back xeriscape with rock and native plants.",
-    ],
-    [
-      "Rosa Delgado",
-      "(432) 555-0279",
-      "3800 E 52nd St",
-      "Odessa",
-      "painting",
-      "Cabinet refinish, kitchen, white.",
-    ],
-    [
-      "Trent Mabry",
-      "(432) 555-0288",
-      "2706 Shell Ave",
-      "Midland",
-      "general-construction",
-      "Garage conversion to a home office with a half bath.",
-    ],
-    [
-      "Jolene Hart",
-      "(432) 555-0297",
-      "6201 Driftwood Dr",
-      "Midland",
-      "landscaping",
-      "Sprinkler rebuild, 8 zones, plus new sod in back.",
-    ],
-    // Nobody bids on these; they go to the Marketplace.
-    [
-      "Omar Haddad",
-      "(432) 555-0305",
-      "1500 W Wadley Ave",
-      "Midland",
-      "roofing",
-      "Hail damage, shingle roof, insurance claim in hand.",
-    ],
-    [
-      "Kaylee Burns",
-      "(806) 555-0312",
-      "4812 19th St",
-      "Lubbock",
-      "landscaping",
-      "New build front yard, sod and three trees.",
-    ],
-    [
-      "Victor Nunez",
-      "(432) 555-0326",
-      "2200 E 8th St",
-      "Odessa",
-      "hvac",
-      "AC not cooling upstairs, two-story, unit from 2011.",
-    ],
-  ];
+    "Priya Raman",
+    "(432) 555-0204",
+    "5109 Greentree Blvd",
+    "Midland",
+    "general-construction",
+    "Enclose a back patio into a sunroom, about 220 sq ft.",
+  ],
+  ["Bill Tran", "(432) 555-0218", "2411 N Grandview Ave", "Odessa", "landscaping", "Backyard: flagstone patio and a raised bed along the fence."],
+  [
+    "Leticia Barrera",
+    "(432) 555-0233",
+    "901 N St Peter St",
+    "Stanton",
+    "landscaping",
+    "Weekly mowing and bed cleanup for a rental, start this month.",
+  ],
+  ["Gordon Pike", "(432) 555-0251", "4400 Andrews Hwy", "Midland", "painting", "Exterior stucco repaint, single story, light color."],
+  ["Shannon Kerr", "(432) 555-0266", "1210 NW 8th St", "Andrews", "landscaping", "Full front and back xeriscape with rock and native plants."],
+  ["Rosa Delgado", "(432) 555-0279", "3800 E 52nd St", "Odessa", "painting", "Cabinet refinish, kitchen, white."],
+  ["Trent Mabry", "(432) 555-0288", "2706 Shell Ave", "Midland", "general-construction", "Garage conversion to a home office with a half bath."],
+  ["Jolene Hart", "(432) 555-0297", "6201 Driftwood Dr", "Midland", "landscaping", "Sprinkler rebuild, 8 zones, plus new sod in back."],
+  // Nobody bids on these; they go to the Marketplace.
+  ["Omar Haddad", "(432) 555-0305", "1500 W Wadley Ave", "Midland", "roofing", "Hail damage, shingle roof, insurance claim in hand."],
+  ["Kaylee Burns", "(806) 555-0312", "4812 19th St", "Lubbock", "landscaping", "New build front yard, sod and three trees."],
+  ["Victor Nunez", "(432) 555-0326", "2200 E 8th St", "Odessa", "hvac", "AC not cooling upstairs, two-story, unit from 2011."],
+];
 
 /**
  * Gives every real company demo funds and a few standing bids, then lists
@@ -2420,25 +1945,19 @@ export const fundEveryCompany = mutation({
 });
 
 /** Play money on every active company, as `fundEveryCompany` posts it; also run from the CLI (seed.ts). */
-export async function seedPlayMoney(
-  ctx: MutationCtx,
-  user: Doc<"users">,
-  { demoOnly = false }: { demoOnly?: boolean } = {},
-) {
-    const companies = (await ctx.db.query("organizations").take(5000)).filter(
-      (o) => o.isActive && (!demoOnly || o.isSample),
-    );
-    for (const company of companies) {
-      await postTransaction(ctx, company._id, {
-        type: "top_up",
-        amountCents: PLAY_MONEY_CENTS,
-        createdBy: user._id,
-        method: "Demo",
-        note: "Play money",
-        isSample: company.isSample || undefined,
-      });
-    }
-    return { companies: companies.length, amountCents: PLAY_MONEY_CENTS };
+export async function seedPlayMoney(ctx: MutationCtx, user: Doc<"users">, { demoOnly = false }: { demoOnly?: boolean } = {}) {
+  const companies = (await ctx.db.query("organizations").take(5000)).filter((o) => o.isActive && (!demoOnly || o.isSample));
+  for (const company of companies) {
+    await postTransaction(ctx, company._id, {
+      type: "top_up",
+      amountCents: PLAY_MONEY_CENTS,
+      createdBy: user._id,
+      method: "Demo",
+      note: "Play money",
+      isSample: company.isSample || undefined,
+    });
+  }
+  return { companies: companies.length, amountCents: PLAY_MONEY_CENTS };
 }
 
 export const addDemoBids = mutation({
@@ -2448,115 +1967,101 @@ export const addDemoBids = mutation({
 
 /** Demo funds, standing bids and awarded leads, as `addDemoBids` adds them; also run from the CLI (seed.ts). */
 export async function seedDemoBids(ctx: MutationCtx, user: Doc<"users">) {
-    if (
-      (await ctx.db
-        .query("standingBids")
-        .filter((q) => q.eq(q.field("isSample"), true))
-        .first()) !== null
-    )
-      fail("INVALID", "Demo bids are already here");
-    // Demo bids belong to demo companies only: the bidders below are added
-    // when missing, and any other demo company bids in its own trades. Real
-    // companies get no funds, bids or leads from this.
-    const existing = (await ctx.db.query("organizations").take(1000)).filter((org) => org.isSample);
-    for (const bidder of DEMO_BIDDERS) {
-      if (existing.some((org) => org.name === bidder.name)) continue;
-      await createOrganization(ctx, { ...bidder, state: "TX", walletBalanceCents: 0, isSample: true });
-    }
-    const companies = (await ctx.db.query("organizations").take(1000))
-      .filter((org) => org.isActive && org.isSample)
-      .sort((a, b) => a.name.localeCompare(b.name));
-    const seen: Record<string, number> = {};
-    const base = Date.now() - 4 * 24 * 60 * 60 * 1000;
-    let standingBids = 0;
-    for (const org of companies) {
-      const trades = org.leadTrades?.length
-        ? org.leadTrades
-        : ["general-construction"];
-      // Which landscaper (etc.) this is decides its pattern and its funds.
-      const slots = trades.map((trade) => {
-        const n = seen[trade] ?? 0;
-        seen[trade] = n + 1;
-        return { trade, n };
-      });
-      const short = slots.some((s) => s.trade === "landscaping" && s.n === 1);
-      await postTransaction(ctx, org._id, {
-        type: "top_up",
-        amountCents: short ? DEMO_SHORT_FUNDS_CENTS : DEMO_FUNDS_CENTS,
-        createdBy: user._id,
-        method: "Demo",
-        note: "Demo funds",
-        isSample: true,
-      });
-      for (const { trade, n } of slots) {
-        const patterns = DEMO_BID_PATTERNS[trade] ?? DEMO_BID_PATTERNS.default;
-        for (const [county, amount] of patterns[n % patterns.length]) {
-          const createdAt = new Date(
-            base + standingBids * 60_000,
-          ).toISOString();
-          await ctx.db.insert("standingBids", {
-            organizationId: org._id,
-            county,
-            jobType: trade,
-            amountCents: amount * 100,
-            createdBy: user._id,
-            createdAt,
-            updatedAt: createdAt,
-            isSample: true,
-          });
-          standingBids++;
-        }
+  if (
+    (await ctx.db
+      .query("standingBids")
+      .filter((q) => q.eq(q.field("isSample"), true))
+      .first()) !== null
+  )
+    fail("INVALID", "Demo bids are already here");
+  // Demo bids belong to demo companies only: the bidders below are added
+  // when missing, and any other demo company bids in its own trades. Real
+  // companies get no funds, bids or leads from this.
+  const existing = (await ctx.db.query("organizations").take(1000)).filter((org) => org.isSample);
+  for (const bidder of DEMO_BIDDERS) {
+    if (existing.some((org) => org.name === bidder.name)) continue;
+    await createOrganization(ctx, { ...bidder, state: "TX", walletBalanceCents: 0, isSample: true });
+  }
+  const companies = (await ctx.db.query("organizations").take(1000))
+    .filter((org) => org.isActive && org.isSample)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const seen: Record<string, number> = {};
+  const base = Date.now() - 4 * 24 * 60 * 60 * 1000;
+  let standingBids = 0;
+  for (const org of companies) {
+    const trades = org.leadTrades?.length ? org.leadTrades : ["general-construction"];
+    // Which landscaper (etc.) this is decides its pattern and its funds.
+    const slots = trades.map((trade) => {
+      const n = seen[trade] ?? 0;
+      seen[trade] = n + 1;
+      return { trade, n };
+    });
+    const short = slots.some((s) => s.trade === "landscaping" && s.n === 1);
+    await postTransaction(ctx, org._id, {
+      type: "top_up",
+      amountCents: short ? DEMO_SHORT_FUNDS_CENTS : DEMO_FUNDS_CENTS,
+      createdBy: user._id,
+      method: "Demo",
+      note: "Demo funds",
+      isSample: true,
+    });
+    for (const { trade, n } of slots) {
+      const patterns = DEMO_BID_PATTERNS[trade] ?? DEMO_BID_PATTERNS.default;
+      for (const [county, amount] of patterns[n % patterns.length]) {
+        const createdAt = new Date(base + standingBids * 60_000).toISOString();
+        await ctx.db.insert("standingBids", {
+          organizationId: org._id,
+          county,
+          jobType: trade,
+          amountCents: amount * 100,
+          createdBy: user._id,
+          createdAt,
+          updatedAt: createdAt,
+          isSample: true,
+        });
+        standingBids++;
       }
     }
-    // Leads over the last three days, oldest first; each is awarded as it lands.
-    let sold = 0;
-    const span = 3 * 24 * 60 * 60 * 1000;
-    for (const [
-      i,
-      [name, phone, address, city, jobType, notes],
-    ] of DEMO_BID_LEADS.entries()) {
-      const listedAt = new Date(
-        Date.now() - span + (span * (i + 1)) / (DEMO_BID_LEADS.length + 1),
-      ).toISOString();
-      const id = await listLead(
-        ctx,
-        { name, phone, address, city, jobType, notes, verified: { at: listedAt, note: DEMO_CONFIRM_NOTE, by: user._id } },
-        user._id,
-        { listedAt, source: "Demo", isSample: true },
-      );
-      if ((await ctx.db.get(id))!.status === "assigned") sold++;
-    }
-    // A couple of leads from longer ago that nobody bought: Older leads.
-    for (const [
-      i,
-      [name, phone, address, city, jobType, notes],
-    ] of DEMO_OLDER_LEADS.entries()) {
-      const listedAt = new Date(
-        Date.now() - (9 + 3 * i) * DAY_MS,
-      ).toISOString();
-      const id = await ctx.db.insert("marketplaceLeads", {
-        name,
-        phone,
-        address,
-        city,
-        county: countyForTown(city),
-        jobType,
-        notes,
-        source: "Demo",
-        status: "older",
-        auction: { ...(await pricingFor(ctx, jobType)), listedAt },
-        verified: { at: listedAt, note: DEMO_CONFIRM_NOTE, by: user._id },
-        isSample: true,
-        createdBy: user._id,
-        createdAt: listedAt,
-        updatedAt: nowIso(),
-      });
-      void id;
-    }
-    return {
-      companies: companies.length,
-      standingBids,
-      leads: DEMO_BID_LEADS.length,
-      sold,
-    };
+  }
+  // Leads over the last three days, oldest first; each is awarded as it lands.
+  let sold = 0;
+  const span = 3 * 24 * 60 * 60 * 1000;
+  for (const [i, [name, phone, address, city, jobType, notes]] of DEMO_BID_LEADS.entries()) {
+    const listedAt = new Date(Date.now() - span + (span * (i + 1)) / (DEMO_BID_LEADS.length + 1)).toISOString();
+    const id = await listLead(
+      ctx,
+      { name, phone, address, city, jobType, notes, verified: { at: listedAt, note: DEMO_CONFIRM_NOTE, by: user._id } },
+      user._id,
+      { listedAt, source: "Demo", isSample: true },
+    );
+    if ((await ctx.db.get(id))!.status === "assigned") sold++;
+  }
+  // A couple of leads from longer ago that nobody bought: Older leads.
+  for (const [i, [name, phone, address, city, jobType, notes]] of DEMO_OLDER_LEADS.entries()) {
+    const listedAt = new Date(Date.now() - (9 + 3 * i) * DAY_MS).toISOString();
+    const id = await ctx.db.insert("marketplaceLeads", {
+      name,
+      phone,
+      address,
+      city,
+      county: countyForTown(city),
+      jobType,
+      notes,
+      source: "Demo",
+      status: "older",
+      auction: { ...(await pricingFor(ctx, jobType)), listedAt },
+      verified: { at: listedAt, note: DEMO_CONFIRM_NOTE, by: user._id },
+      isSample: true,
+      createdBy: user._id,
+      createdAt: listedAt,
+      updatedAt: nowIso(),
+    });
+    void id;
+  }
+  return {
+    companies: companies.length,
+    standingBids,
+    leads: DEMO_BID_LEADS.length,
+    sold,
+  };
 }

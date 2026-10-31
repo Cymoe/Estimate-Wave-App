@@ -1,10 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
-import {
-  STARTER_COST_CODES,
-  STARTER_INDUSTRIES,
-  STARTER_ITEMS,
-} from "./catalog/starterCatalog";
+import { STARTER_COST_CODES, STARTER_INDUSTRIES, STARTER_ITEMS } from "./catalog/starterCatalog";
 import { setup, signUp } from "./test.setup";
 import { cityFromSearch, cityFromText } from "./lib/leadCity";
 import { fillTimeMs, priceAt, pricingFor } from "./lib/auction";
@@ -15,9 +11,7 @@ describe("auth and tenancy", () => {
   test("signed-out callers are rejected", async () => {
     const t = setup();
     const { organizationId } = await signUp(t, "a@example.com");
-    await expect(t.query(api.clients.list, { organizationId })).rejects.toThrow(
-      /signed in/,
-    );
+    await expect(t.query(api.clients.list, { organizationId })).rejects.toThrow(/signed in/);
     expect(await t.query(api.users.me, {})).toBeNull();
   });
 
@@ -25,7 +19,9 @@ describe("auth and tenancy", () => {
     const t = setup();
     const owner = await signUp(t, "owner@fieldquote.example", { role: "super_admin" });
     await owner.as.mutation(api.staff.invite, { email: "va@fieldquote.example" });
-    const company = await owner.as.mutation(api.marketplace.createCompany, { data: { name: "Basin Paint", ownerEmail: "ana@basinpaint.example", leadTrades: ["painting"] } });
+    const company = await owner.as.mutation(api.marketplace.createCompany, {
+      data: { name: "Basin Paint", ownerEmail: "ana@basinpaint.example", leadTrades: ["painting"] },
+    });
     const companyId = company!._id;
     const { claimInvites } = await import("./lib/organizations");
     await t.run(async (ctx) => {
@@ -35,12 +31,20 @@ describe("auth and tenancy", () => {
       expect((await ctx.db.get(va))!.role).toBe("staff");
       // Running again hands over nothing more: the invite is used and staff get no company.
       expect(await claimInvites(ctx, va)).toBe("nothing");
-      expect(await ctx.db.query("memberships").withIndex("by_user", (q) => q.eq("userId", va)).collect()).toHaveLength(0);
+      expect(
+        await ctx.db
+          .query("memberships")
+          .withIndex("by_user", (q) => q.eq("userId", va))
+          .collect(),
+      ).toHaveLength(0);
 
       // The approved applicant joins the company made for them and gets no empty company of their own.
       const ana = await ctx.db.insert("users", { email: "ana@basinpaint.example", name: "Ana" });
       expect(await claimInvites(ctx, ana)).toBe("owner");
-      const anaMemberships = await ctx.db.query("memberships").withIndex("by_user", (q) => q.eq("userId", ana)).collect();
+      const anaMemberships = await ctx.db
+        .query("memberships")
+        .withIndex("by_user", (q) => q.eq("userId", ana))
+        .collect();
       expect(anaMemberships.map((m) => [m.organizationId, m.role])).toEqual([[companyId, "owner"]]);
       expect(await claimInvites(ctx, ana)).toBe("nothing");
 
@@ -48,7 +52,10 @@ describe("auth and tenancy", () => {
       const pat = await ctx.db.insert("users", { email: "pat@example.com", name: "Pat" });
       expect(await claimInvites(ctx, pat)).toBe("new-company");
       expect(await claimInvites(ctx, pat)).toBe("nothing");
-      const pats = await ctx.db.query("memberships").withIndex("by_user", (q) => q.eq("userId", pat)).collect();
+      const pats = await ctx.db
+        .query("memberships")
+        .withIndex("by_user", (q) => q.eq("userId", pat))
+        .collect();
       expect(pats).toHaveLength(1);
       expect((await ctx.db.get(pats[0].organizationId))!.name).toBe("Pat's Company");
     });
@@ -56,9 +63,9 @@ describe("auth and tenancy", () => {
 
   test("the smoke test's account is made verified with a company, and only for @fieldquote.test", async () => {
     const t = setup();
-    await expect(
-      t.action(internal.seed.prepareSmokeAccount, { email: "someone@example.com", password: "long enough pw" }),
-    ).rejects.toThrow(/@fieldquote.test/);
+    await expect(t.action(internal.seed.prepareSmokeAccount, { email: "someone@example.com", password: "long enough pw" })).rejects.toThrow(
+      /@fieldquote.test/,
+    );
     const userId = await t.action(internal.seed.prepareSmokeAccount, {
       email: "smoke-test+1@fieldquote.test",
       password: "long enough pw",
@@ -72,7 +79,12 @@ describe("auth and tenancy", () => {
       expect(account?.userId).toBe(userId);
       expect(account?.emailVerified).toBe("smoke-test+1@fieldquote.test");
       expect(account?.secret).not.toBe("long enough pw");
-      expect(await ctx.db.query("memberships").withIndex("by_user", (q) => q.eq("userId", userId as never)).collect()).toHaveLength(1);
+      expect(
+        await ctx.db
+          .query("memberships")
+          .withIndex("by_user", (q) => q.eq("userId", userId as never))
+          .collect(),
+      ).toHaveLength(1);
     });
   });
 
@@ -116,7 +128,12 @@ describe("auth and tenancy", () => {
     expect(await ana.as.query(api.leads.companyOf, { id: "not-an-id" })).toBeNull();
     // Ana joins Peak too: now the link can switch her to it.
     await t.run(async (ctx) => {
-      await ctx.db.insert("memberships", { organizationId: other.organizationId, userId: ana.userId, role: "admin", createdAt: new Date().toISOString() });
+      await ctx.db.insert("memberships", {
+        organizationId: other.organizationId,
+        userId: ana.userId,
+        role: "admin",
+        createdAt: new Date().toISOString(),
+      });
     });
     expect(await ana.as.query(api.leads.companyOf, { id: lead._id })).toEqual({ organizationId: other.organizationId, name: expect.any(String) });
   });
@@ -158,29 +175,19 @@ describe("auth and tenancy", () => {
     });
 
     expect(await alice.as.query(api.organizations.list, {})).toHaveLength(1);
-    expect((await bob.as.query(api.organizations.list, {}))[0]._id).toBe(
-      bob.organizationId,
-    );
+    expect((await bob.as.query(api.organizations.list, {}))[0]._id).toBe(bob.organizationId);
 
-    await expect(
-      bob.as.query(api.clients.list, { organizationId: alice.organizationId }),
-    ).rejects.toThrow(/access/);
+    await expect(bob.as.query(api.clients.list, { organizationId: alice.organizationId })).rejects.toThrow(/access/);
     // Other tenants' records read as "not found" rather than "forbidden".
-    await expect(
-      bob.as.query(api.clients.get, { id: client!._id }),
-    ).rejects.toThrow(/Not found/);
+    await expect(bob.as.query(api.clients.get, { id: client!._id })).rejects.toThrow(/Not found/);
     await expect(
       bob.as.mutation(api.clients.update, {
         id: client!._id,
         data: { name: "x" },
       }),
     ).rejects.toThrow(/Not found/);
-    await expect(
-      bob.as.mutation(api.clients.remove, { id: client!._id }),
-    ).rejects.toThrow(/Not found/);
-    expect(
-      (await alice.as.query(api.clients.get, { id: client!._id })).name,
-    ).toBe("Smith Residence");
+    await expect(bob.as.mutation(api.clients.remove, { id: client!._id })).rejects.toThrow(/Not found/);
+    expect((await alice.as.query(api.clients.get, { id: client!._id })).name).toBe("Smith Residence");
   });
 
   test("a shared definition run for a connection's user gets that user's checks, as on the web", async () => {
@@ -248,9 +255,7 @@ describe("auth and tenancy", () => {
         createdAt: new Date().toISOString(),
       });
     });
-    await expect(
-      bob.as.mutation(api.organizations.remove, { id: alice.organizationId }),
-    ).rejects.toThrow(/access/);
+    await expect(bob.as.mutation(api.organizations.remove, { id: alice.organizationId })).rejects.toThrow(/access/);
     await alice.as.mutation(api.organizations.remove, {
       id: alice.organizationId,
     });
@@ -316,7 +321,12 @@ describe("staff", () => {
       expect(await claimInvites(ctx, id)).toBe("staff");
       expect((await ctx.db.get(id))!.role).toBe("caller");
       // No company of their own.
-      expect(await ctx.db.query("memberships").withIndex("by_user", (q) => q.eq("userId", id)).collect()).toHaveLength(0);
+      expect(
+        await ctx.db
+          .query("memberships")
+          .withIndex("by_user", (q) => q.eq("userId", id))
+          .collect(),
+      ).toHaveLength(0);
     });
 
     await owner.as.mutation(api.staff.remove, { id: existing.userId });
@@ -364,7 +374,11 @@ describe("intake", () => {
     const va = await signUp(t, "va@fieldquote.example", { role: "staff" });
     await t.run(async (ctx) => {
       const now = new Date().toISOString();
-      for (const [slug, name] of [["roofing", "Roofing"], ["painting", "Painting"], ["general-construction", "General Construction"]]) {
+      for (const [slug, name] of [
+        ["roofing", "Roofing"],
+        ["painting", "Painting"],
+        ["general-construction", "General Construction"],
+      ]) {
         await ctx.db.insert("industries", { slug, name, display_order: 1, is_active: true, created_at: now, updated_at: now });
       }
     });
@@ -385,23 +399,49 @@ describe("intake", () => {
     // Zapier's flattened shape.
     expect(
       fieldsFromPayload({
-        full_name: "Dana Reyes", phone_number: "+14325550133", email: "dana@example.com", city: "Midland", zip_code: "79701",
-        "which county is the home in?": "Midland County", "when do you want this done?": "Within a month",
-        "do you own this home?": "Yes", campaign_name: "TX_MIDLAND_ROOFING_LG_202610", adset_name: "TX_MIDLAND_ROOFING_hail", ad_name: "video1",
-        form_id: "1234", id: "9876543210123456", created_time: "2026-10-22T03:00:00+0000",
+        full_name: "Dana Reyes",
+        phone_number: "+14325550133",
+        email: "dana@example.com",
+        city: "Midland",
+        zip_code: "79701",
+        "which county is the home in?": "Midland County",
+        "when do you want this done?": "Within a month",
+        "do you own this home?": "Yes",
+        campaign_name: "TX_MIDLAND_ROOFING_LG_202610",
+        adset_name: "TX_MIDLAND_ROOFING_hail",
+        ad_name: "video1",
+        form_id: "1234",
+        id: "9876543210123456",
+        created_time: "2026-10-22T03:00:00+0000",
         "I agree to be contacted by Webb Leads and one contractor": "true",
       }),
     ).toEqual({
-      name: "Dana Reyes", phone: "+14325550133", email: "dana@example.com", city: "Midland", zip: "79701", county: "Midland",
-      timeline: "Within a month", isOwner: true, campaignName: "TX_MIDLAND_ROOFING_LG_202610", adsetName: "TX_MIDLAND_ROOFING_hail", adName: "video1",
-      formId: "1234", externalId: "9876543210123456", createdTime: "2026-10-22T03:00:00+0000",
+      name: "Dana Reyes",
+      phone: "+14325550133",
+      email: "dana@example.com",
+      city: "Midland",
+      zip: "79701",
+      county: "Midland",
+      timeline: "Within a month",
+      isOwner: true,
+      campaignName: "TX_MIDLAND_ROOFING_LG_202610",
+      adsetName: "TX_MIDLAND_ROOFING_hail",
+      adName: "video1",
+      formId: "1234",
+      externalId: "9876543210123456",
+      createdTime: "2026-10-22T03:00:00+0000",
       consent: { text: "iagreetobecontactedbywebbleadsandonecontractor", value: "true", at: "2026-10-22T03:00:00+0000" },
     });
     // Meta's raw lead read, with field_data and custom disclaimer responses.
     expect(
       fieldsFromPayload({
-        id: "111", created_time: "2026-10-22T03:00:00+0000",
-        field_data: [{ name: "first_name", values: ["Sam"] }, { name: "last_name", values: ["Lee"] }, { name: "phone_number", values: ["4325550100"] }],
+        id: "111",
+        created_time: "2026-10-22T03:00:00+0000",
+        field_data: [
+          { name: "first_name", values: ["Sam"] },
+          { name: "last_name", values: ["Lee"] },
+          { name: "phone_number", values: ["4325550100"] },
+        ],
         custom_disclaimer_responses: [{ checkbox_key: "contact_consent", is_checked: "1" }],
       }),
     ).toMatchObject({ name: "Sam Lee", phone: "4325550100", externalId: "111", consent: { text: "contact_consent", value: "1" } });
@@ -411,7 +451,13 @@ describe("intake", () => {
     const { t, va } = await ops();
     vi.stubEnv("INTAKE_KEY", "s3cret");
     try {
-      const body = JSON.stringify({ full_name: "Dana Reyes", phone_number: "432-555-0133", campaign_name: "TX_MIDLAND_ROOFING_LG_202610", id: "L1", "do you own this home?": "Yes" });
+      const body = JSON.stringify({
+        full_name: "Dana Reyes",
+        phone_number: "432-555-0133",
+        campaign_name: "TX_MIDLAND_ROOFING_LG_202610",
+        id: "L1",
+        "do you own this home?": "Yes",
+      });
       expect((await t.fetch("/intake/lead", { method: "POST", body })).status).toBe(401);
       expect((await t.fetch("/intake/lead?key=wrong", { method: "POST", body })).status).toBe(401);
       const first = await t.fetch("/intake/lead?key=s3cret", { method: "POST", body });
@@ -434,14 +480,27 @@ describe("intake", () => {
         ["rejected", "Wrong key"],
       ]);
       expect(log[0].summary).toBe("not json");
-      expect(log[2]).toMatchObject({ intakeLeadId: id, externalId: "L1", summary: "Dana Reyes · 432-555-0133 · Midland County · roofing · TX_MIDLAND_ROOFING_LG_202610" });
+      expect(log[2]).toMatchObject({
+        intakeLeadId: id,
+        externalId: "L1",
+        summary: "Dana Reyes · 432-555-0133 · Midland County · roofing · TX_MIDLAND_ROOFING_LG_202610",
+      });
       expect(log[1].intakeLeadId).toBe(id);
       await expect(t.query(api.intake.recentLog, {})).rejects.toThrow(/signed in/);
 
       const [row] = await va.as.query(api.intake.queue, {});
       expect(row).toMatchObject({
-        source: "meta", status: "new", name: "Dana Reyes", phone: "432-555-0133", county: "Midland", countyFromCampaign: "Midland",
-        jobType: "roofing", tradeName: "Roofing", isOwner: true, attempts: [], lastAttempt: null,
+        source: "meta",
+        status: "new",
+        name: "Dana Reyes",
+        phone: "432-555-0133",
+        county: "Midland",
+        countyFromCampaign: "Midland",
+        jobType: "roofing",
+        tradeName: "Roofing",
+        isOwner: true,
+        attempts: [],
+        lastAttempt: null,
       });
       expect(row.duplicateOf).toBeUndefined();
     } finally {
@@ -473,10 +532,17 @@ describe("intake", () => {
         return res.status;
       };
       // A new lead: one email to the owner and staff, pointing at Intake.
-      expect(await post("/intake/lead?key=s3cret&source=meta", JSON.stringify({ full_name: "Dana Reyes", phone_number: "432-555-0133", campaign_name: "TX_MIDLAND_ROOFING_LG_202610", id: "L1" }))).toBe(201);
+      expect(
+        await post(
+          "/intake/lead?key=s3cret&source=meta",
+          JSON.stringify({ full_name: "Dana Reyes", phone_number: "432-555-0133", campaign_name: "TX_MIDLAND_ROOFING_LG_202610", id: "L1" }),
+        ),
+      ).toBe(201);
       expect(emails).toHaveLength(1);
       expect(emails[0].to.sort()).toEqual(["owner@fieldquote.example", "va@fieldquote.example"]);
-      expect(emails[0].subject).toBe("Webb Leads Ops: New lead to confirm: Dana Reyes · 432-555-0133 · Midland County · roofing · TX_MIDLAND_ROOFING_LG_202610");
+      expect(emails[0].subject).toBe(
+        "Webb Leads Ops: New lead to confirm: Dana Reyes · 432-555-0133 · Midland County · roofing · TX_MIDLAND_ROOFING_LG_202610",
+      );
       expect(emails[0].text).toContain("A lead just came in from meta");
       expect(emails[0].text).toContain("https://app.example/ops?tab=intake");
       // Zapier retrying the same lead is not news.
@@ -512,7 +578,13 @@ describe("intake", () => {
     await expect(va.as.mutation(api.intake.create, { source: "call", name: "X", jobType: "plumbing" })).rejects.toThrow(/trade/);
 
     const { id, duplicate } = await va.as.mutation(api.intake.create, {
-      source: "call", name: "Pat Cole", phone: "(432) 555-0101", city: "Odessa", county: "ector county", jobType: "painting", notes: "Two bedrooms",
+      source: "call",
+      name: "Pat Cole",
+      phone: "(432) 555-0101",
+      city: "Odessa",
+      county: "ector county",
+      jobType: "painting",
+      notes: "Two bedrooms",
     });
     expect(duplicate).toBe(false);
     // Same number through the webhook: flagged, not dropped.
@@ -525,7 +597,12 @@ describe("intake", () => {
     await va.as.mutation(api.intake.logAttempt, { id, outcome: "voicemail" });
     await va.as.mutation(api.intake.logAttempt, { id, outcome: "reached", note: "Call back after 5" });
     const row = await va.as.query(api.intake.get, { id });
-    expect(row).toMatchObject({ status: "working", county: "Ector", address: "12 Elm St", attempts: [{ outcome: "voicemail" }, { outcome: "reached", note: "Call back after 5" }] });
+    expect(row).toMatchObject({
+      status: "working",
+      county: "Ector",
+      address: "12 Elm St",
+      attempts: [{ outcome: "voicemail" }, { outcome: "reached", note: "Call back after 5" }],
+    });
     expect(row.notes).toBeUndefined();
     expect(row.lastAttempt).toMatchObject({ outcome: "reached" });
 
@@ -564,20 +641,46 @@ describe("intake", () => {
     });
     await co.as.mutation(api.bids.setStanding, { organizationId: co.organizationId, county: "Ector", jobType: "painting", amount: 250 });
 
-    const { id } = await va.as.mutation(api.intake.create, { source: "call", name: "Pat Cole", phone: "432-555-0101", city: "Odessa", jobType: "painting", scope: "repair", timeline: "month", notes: "Two bedrooms" });
+    const { id } = await va.as.mutation(api.intake.create, {
+      source: "call",
+      name: "Pat Cole",
+      phone: "432-555-0101",
+      city: "Odessa",
+      jobType: "painting",
+      scope: "repair",
+      timeline: "month",
+      notes: "Two bedrooms",
+    });
     // Before confirming, staff see where it goes: to the funded bid in Ector; to the Marketplace in Midland
     // (the painter buys painting but has no bid there); nowhere for roofing, which no company buys.
-    expect(await va.as.query(api.intake.destination, { county: "Ector", jobType: "painting" })).toMatchObject({ kind: "sold", companyName: "painter@example.com Co", priceCents: 25000 });
-    expect(await va.as.query(api.intake.destination, { county: "Midland", jobType: "painting" })).toMatchObject({ kind: "marketplace", buyers: 1, tradeName: "Painting" });
-    expect((await va.as.query(api.intake.destination, { county: "Midland", jobType: "painting" }))).toHaveProperty("priceCents");
-    expect(await va.as.query(api.intake.destination, { county: "Midland", jobType: "roofing" })).toMatchObject({ kind: "nobody", tradeName: "Roofing" });
+    expect(await va.as.query(api.intake.destination, { county: "Ector", jobType: "painting" })).toMatchObject({
+      kind: "sold",
+      companyName: "painter@example.com Co",
+      priceCents: 25000,
+    });
+    expect(await va.as.query(api.intake.destination, { county: "Midland", jobType: "painting" })).toMatchObject({
+      kind: "marketplace",
+      buyers: 1,
+      tradeName: "Painting",
+    });
+    expect(await va.as.query(api.intake.destination, { county: "Midland", jobType: "painting" })).toHaveProperty("priceCents");
+    expect(await va.as.query(api.intake.destination, { county: "Midland", jobType: "roofing" })).toMatchObject({
+      kind: "nobody",
+      tradeName: "Roofing",
+    });
     expect(await va.as.query(api.intake.destination, { county: "", jobType: "roofing" })).toBeNull();
     const all = { reached: true, phoneOwner: true, addressInCounty: true, trade: true, owner: true, consent: true };
     await expect(va.as.mutation(api.intake.confirm, { id, checks: { ...all, consent: false } })).rejects.toThrow(/consent read/);
     await expect(va.as.mutation(api.intake.confirm, { id, checks: all })).rejects.toThrow(/county/);
     expect(await va.as.query(api.marketplace.listInbox, {})).toMatchObject({ available: [] });
 
-    const result = await va.as.mutation(api.intake.confirm, { id, checks: all, county: "Ector", address: "12 Elm St", note: "Wants it done before Thanksgiving" });
+    const result = await va.as.mutation(api.intake.confirm, {
+      id,
+      checks: all,
+      county: "Ector",
+      address: "12 Elm St",
+      note: "Wants it done before Thanksgiving",
+    });
     expect(result).toMatchObject({ outcome: "sold", companyName: "painter@example.com Co", priceCents: 25000 });
     const row = await va.as.query(api.intake.get, { id });
     expect(row).toMatchObject({ status: "confirmed", confirmedLeadId: result.leadId, county: "Ector", address: "12 Elm St" });
@@ -600,7 +703,10 @@ describe("intake", () => {
     expect(sold.map((l: { source?: string }) => l.source)).toEqual(["Call"]);
 
     // A duplicate needs an explicit "list it anyway".
-    const dup = await t.mutation(internal.intake.receive, { payload: { name: "Pat again", phone: "4325550101", county: "Ector", trade: "painting" }, source: "api" });
+    const dup = await t.mutation(internal.intake.receive, {
+      payload: { name: "Pat again", phone: "4325550101", county: "Ector", trade: "painting" },
+      source: "api",
+    });
     await expect(va.as.mutation(api.intake.confirm, { id: dup.id, checks: all })).rejects.toThrow(/Same number/);
     const again = await va.as.mutation(api.intake.confirm, { id: dup.id, checks: all, allowDuplicate: true });
     expect(again.outcome).toBe("sold");
@@ -616,7 +722,18 @@ describe("delivery", () => {
     expect(withinHours("2026-10-23T01:00:00Z")).toBe(false);
     expect(withinHours("2026-10-22T12:59:00Z")).toBe(false);
     const r = {
-      lead: { id: "l1" as any, marketplaceLeadId: "m1" as any, name: "Dana Reyes", phone: "432-555-0133", address: "12 Elm St", city: "Midland", county: "Midland", notes: "Hail damage", verified: { at: "2026-10-22T15:00:00Z", note: "Wants it this month" }, pricePaidCents: 25000 },
+      lead: {
+        id: "l1" as any,
+        marketplaceLeadId: "m1" as any,
+        name: "Dana Reyes",
+        phone: "432-555-0133",
+        address: "12 Elm St",
+        city: "Midland",
+        county: "Midland",
+        notes: "Hail damage",
+        verified: { at: "2026-10-22T15:00:00Z", note: "Wants it this month" },
+        pricePaidCents: 25000,
+      },
       tradeName: "Roofing",
       company: { id: "o1" as any, name: "Peak Roofing", email: "office@peak.example", phone: "432-555-0100" },
       emails: ["office@peak.example"],
@@ -626,7 +743,9 @@ describe("delivery", () => {
     const link = leadLink("l1" as any, "https://app.example");
     expect(link).toBe("https://app.example/leads?lead=l1&ack=1");
     const sms = smsText(r, link);
-    expect(sms).toBe("Webb Leads: new roofing lead in Midland. Dana 432-555-0133. Details: https://app.example/leads?lead=l1&ack=1 Reply STOP to opt out");
+    expect(sms).toBe(
+      "Webb Leads: new roofing lead in Midland. Dana 432-555-0133. Details: https://app.example/leads?lead=l1&ack=1 Reply STOP to opt out",
+    );
     expect(sms.length).toBeLessThanOrEqual(160);
     // Someone who connected Claude also gets a link that opens the lead there.
     expect(smsText(r, link, ["claude"])).toBe(
@@ -683,7 +802,15 @@ describe("delivery", () => {
       await t.run(async (ctx) => {
         const org = (await ctx.db.get(co.organizationId))!;
         await ctx.db.patch(co.organizationId, {
-          plan: { monthlyCents: 9900, claimsIncluded: 10, extraClaimCents: 1500, status: "active", periodStart: "2026-09-01T00:00:00.000Z", nextChargeAt: new Date(Date.now() - 1000).toISOString(), claimsThisPeriod: 0 },
+          plan: {
+            monthlyCents: 9900,
+            claimsIncluded: 10,
+            extraClaimCents: 1500,
+            status: "active",
+            periodStart: "2026-09-01T00:00:00.000Z",
+            nextChargeAt: new Date(Date.now() - 1000).toISOString(),
+            claimsThisPeriod: 0,
+          },
           walletBalanceCents: 5000,
           updatedAt: org.updatedAt,
         });
@@ -701,7 +828,7 @@ describe("delivery", () => {
     }
   });
 
-  test("with no mobile added yet, the text goes to the company's own phone, and the wallet says a mobile is missing", async () => {
+  test("with no mobile added yet, the text goes to the company's own phone, and the wallet says where texts go and who is looking", async () => {
     const t = setup();
     const co = await signUp(t, "owner@basin.example");
     await t.run(async (ctx) => {
@@ -709,15 +836,50 @@ describe("delivery", () => {
     });
     const orgLeadId = await t.run(async (ctx) => {
       const now = new Date().toISOString();
-      const marketplaceLeadId = await ctx.db.insert("marketplaceLeads", { name: "Ana", status: "assigned", createdBy: co.userId, createdAt: now, updatedAt: now } as any);
-      return await ctx.db.insert("leads", { name: "Ana", organizationId: co.organizationId, userId: co.userId, marketplaceLeadId, status: "new", createdAt: now, updatedAt: now } as any);
+      const marketplaceLeadId = await ctx.db.insert("marketplaceLeads", {
+        name: "Ana",
+        status: "assigned",
+        createdBy: co.userId,
+        createdAt: now,
+        updatedAt: now,
+      } as any);
+      return await ctx.db.insert("leads", {
+        name: "Ana",
+        organizationId: co.organizationId,
+        userId: co.userId,
+        marketplaceLeadId,
+        status: "new",
+        createdAt: now,
+        updatedAt: now,
+      } as any);
     });
     expect((await t.query(internal.delivery.recipients, { orgLeadId }))!.mobiles).toEqual(["+14325550188"]);
-    expect((await co.as.query(api.marketplace.wallet, { organizationId: co.organizationId })).hasMobile).toBe(false);
+    const wallet = () => co.as.query(api.marketplace.wallet, { organizationId: co.organizationId });
+    expect(await wallet()).toMatchObject({
+      hasMobile: true,
+      alerts: { mobiles: 0, companyPhone: "+14325550188", viewerRole: "owner", viewerHasMobile: false },
+    });
     // Once the owner adds a mobile, that is where the text goes.
     await co.as.mutation(api.users.setMobile, { mobile: "432-555-0177" });
     expect((await t.query(internal.delivery.recipients, { orgLeadId }))!.mobiles).toEqual(["+14325550177"]);
-    expect((await co.as.query(api.marketplace.wallet, { organizationId: co.organizationId })).hasMobile).toBe(true);
+    expect((await wallet()).alerts).toMatchObject({ mobiles: 1, viewerRole: "owner", viewerHasMobile: true });
+    // A super admin can open any company without belonging to it: their own mobile isn't this company's.
+    const boss = await signUp(t, "boss@webbleads.example", { role: "super_admin" });
+    await boss.as.mutation(api.users.setMobile, { mobile: "432-555-0199" });
+    expect((await boss.as.query(api.marketplace.wallet, { organizationId: co.organizationId })).alerts).toMatchObject({
+      mobiles: 1,
+      viewerRole: "staff",
+      viewerHasMobile: true,
+    });
+    // No phone anywhere: nobody can get the text.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(co.organizationId, { phone: undefined });
+      await ctx.db.patch(co.userId, { mobile: undefined });
+    });
+    const bare = await wallet();
+    expect(bare.hasMobile).toBe(false);
+    expect(bare.alerts.mobiles).toBe(0);
+    expect(bare.alerts.companyPhone).toBeUndefined();
   });
 
   test("a sale alerts the company: skipped without keys, sent with them, and Got it stamps the lead", async () => {
@@ -727,7 +889,13 @@ describe("delivery", () => {
     await t.run(async (ctx) => {
       const now = new Date().toISOString();
       await ctx.db.insert("industries", { slug: "roofing", name: "Roofing", display_order: 1, is_active: true, created_at: now, updated_at: now });
-      await ctx.db.patch(co.organizationId, { name: "Peak Roofing", email: "office@peak.example", phone: "432-555-0100", leadTrades: ["roofing"], walletBalanceCents: 100000 });
+      await ctx.db.patch(co.organizationId, {
+        name: "Peak Roofing",
+        email: "office@peak.example",
+        phone: "432-555-0100",
+        leadTrades: ["roofing"],
+        walletBalanceCents: 100000,
+      });
     });
     expect(await co.as.mutation(api.users.setMobile, { mobile: "(432) 555-0177" })).toBe("+14325550177");
     await expect(co.as.mutation(api.users.setMobile, { mobile: "555" })).rejects.toThrow(/10-digit/);
@@ -736,7 +904,14 @@ describe("delivery", () => {
 
     const all = { reached: true, phoneOwner: true, addressInCounty: true, trade: true, owner: true, consent: true };
     const list = async () => {
-      const { id } = await va.as.mutation(api.intake.create, { source: "call", name: "Dana Reyes", phone: "432-555-0133", city: "Midland", county: "Midland", jobType: "roofing" });
+      const { id } = await va.as.mutation(api.intake.create, {
+        source: "call",
+        name: "Dana Reyes",
+        phone: "432-555-0133",
+        city: "Midland",
+        county: "Midland",
+        jobType: "roofing",
+      });
       vi.useFakeTimers();
       try {
         // The second listing reuses the number on purpose: list it anyway.
@@ -842,9 +1017,23 @@ describe("delivery", () => {
     const make = async (assignedAt: string) =>
       t.run(async (ctx) => {
         const now = assignedAt;
-        const orgLeadId = await ctx.db.insert("leads", { name: "X", status: "new", organizationId: co.organizationId, userId: co.userId, createdAt: now, updatedAt: now });
+        const orgLeadId = await ctx.db.insert("leads", {
+          name: "X",
+          status: "new",
+          organizationId: co.organizationId,
+          userId: co.userId,
+          createdAt: now,
+          updatedAt: now,
+        });
         const id = await ctx.db.insert("marketplaceLeads", {
-          name: "X", status: "assigned", assignedOrganizationId: co.organizationId, assignedAt, orgLeadId, createdBy: va.userId, createdAt: now, updatedAt: now,
+          name: "X",
+          status: "assigned",
+          assignedOrganizationId: co.organizationId,
+          assignedAt,
+          orgLeadId,
+          createdBy: va.userId,
+          createdAt: now,
+          updatedAt: now,
         });
         await ctx.db.patch(orgLeadId, { marketplaceLeadId: id });
         return id;
@@ -915,7 +1104,10 @@ describe("delivery", () => {
       await expect(co.as.mutation(api.delivery.markHandled, { leadId: night })).rejects.toThrow(/staff/);
       await va.as.mutation(api.delivery.markHandled, { leadId: night });
       vi.setSystemTime(new Date("2026-10-23T13:15:00Z"));
-      expect((await va.as.query(api.delivery.recent, {})).find((r) => r.id === night)).toMatchObject({ overdue: false, handledAt: "2026-10-23T13:12:00.000Z" });
+      expect((await va.as.query(api.delivery.recent, {})).find((r) => r.id === night)).toMatchObject({
+        overdue: false,
+        handledAt: "2026-10-23T13:12:00.000Z",
+      });
       expect(await t.mutation(internal.delivery.escalateOverdue, {})).toEqual({ escalated: 0 });
     } finally {
       vi.useRealTimers();
@@ -941,8 +1133,14 @@ describe("demand board", () => {
       await ctx.db.patch(mid.organizationId, { name: "Mid Roofing", leadTrades: ["roofing"], walletBalanceCents: 30000 });
       await ctx.db.patch(poor.organizationId, { name: "Poor Roofing", leadTrades: ["roofing"], walletBalanceCents: 100 });
     });
-    for (const [who, amount] of [[rich, 300], [mid, 250], [poor, 400]] as const) {
-      await t.run(async (ctx) => { await ctx.db.patch(who.organizationId, { walletBalanceCents: 100000 }); });
+    for (const [who, amount] of [
+      [rich, 300],
+      [mid, 250],
+      [poor, 400],
+    ] as const) {
+      await t.run(async (ctx) => {
+        await ctx.db.patch(who.organizationId, { walletBalanceCents: 100000 });
+      });
       await who.as.mutation(api.bids.setStanding, { organizationId: who.organizationId, county: "Midland", jobType: "roofing", amount });
     }
     await rich.as.mutation(api.bids.setStanding, { organizationId: rich.organizationId, county: "Ector", jobType: "painting", amount: 200 });
@@ -956,9 +1154,13 @@ describe("demand board", () => {
       await va.as.mutation(api.marketplace.createLead, { data: { name, phone: "4325550100", county: "Midland", jobType: "roofing" } });
     }
     await va.as.mutation(api.marketplace.createLead, { data: { name: "C", county: "Ector", jobType: "painting" } });
-    await t.run(async (ctx) => { await ctx.db.patch(rich.organizationId, { walletBalanceCents: 0 }); });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(rich.organizationId, { walletBalanceCents: 0 });
+    });
     await va.as.mutation(api.marketplace.createLead, { data: { name: "D", county: "Ector", jobType: "painting" } });
-    await t.run(async (ctx) => { await ctx.db.patch(rich.organizationId, { walletBalanceCents: 100000 - 60000 }); });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(rich.organizationId, { walletBalanceCents: 100000 - 60000 });
+    });
     // A flooring lead in Midland, a trade no company buys: red for a different reason.
     await va.as.mutation(api.marketplace.createLead, { data: { name: "E", county: "Midland", jobType: "flooring" } });
 
@@ -978,13 +1180,41 @@ describe("demand board", () => {
     const midland = board.slots.find((s) => s.county === "Midland" && s.jobType === "roofing")!;
     // Rich ($400 left after two $300 leads? no: balance is $400 now) and Mid can pay; Poor can't.
     expect(midland).toMatchObject({
-      tradeName: "Roofing", bidders: 3, fundedBidders: 2, topFundedCents: 30000, secondFundedCents: 25000,
-      depthLeads: Math.floor(40000 / 30000) + Math.floor(30000 / 25000), listed7: 2, listed30: 2, soldAtAward30: 2, inMarketplace: 0, inVault: 0,
-      sold30: 2, avgSoldCents: 30000, minSoldCents: 30000, maxSoldCents: 30000, lastSoldCents: 30000, sellThrough: 1,
-      planCplCents: 6000, marginCents: 30000 - 6000 - 500, marginBasis: "bid", state: "open",
+      tradeName: "Roofing",
+      bidders: 3,
+      fundedBidders: 2,
+      topFundedCents: 30000,
+      secondFundedCents: 25000,
+      depthLeads: Math.floor(40000 / 30000) + Math.floor(30000 / 25000),
+      listed7: 2,
+      listed30: 2,
+      soldAtAward30: 2,
+      inMarketplace: 0,
+      inVault: 0,
+      sold30: 2,
+      avgSoldCents: 30000,
+      minSoldCents: 30000,
+      maxSoldCents: 30000,
+      lastSoldCents: 30000,
+      sellThrough: 1,
+      planCplCents: 6000,
+      marginCents: 30000 - 6000 - 500,
+      marginBasis: "bid",
+      state: "open",
     });
     const ector = board.slots.find((s) => s.county === "Ector" && s.jobType === "painting")!;
-    expect(ector).toMatchObject({ bidders: 1, fundedBidders: 1, topFundedCents: 20000, listed30: 2, soldAtAward30: 1, sold30: 1, avgSoldCents: 20000, sellThrough: 0.5, inMarketplace: 1, state: "oversupplied" });
+    expect(ector).toMatchObject({
+      bidders: 1,
+      fundedBidders: 1,
+      topFundedCents: 20000,
+      listed30: 2,
+      soldAtAward30: 1,
+      sold30: 1,
+      avgSoldCents: 20000,
+      sellThrough: 0.5,
+      inMarketplace: 1,
+      state: "oversupplied",
+    });
     expect(ector.marginCents).toBeNull();
     expect(ector.buyers).toBe(1);
     expect(board.slots[0]).toBe(midland);
@@ -1011,11 +1241,20 @@ describe("demand board", () => {
       const bid = (await ctx.db.query("standingBids").collect()).find((b) => b.organizationId === rich.organizationId && b.jobType === "roofing")!;
       await ctx.db.patch(bid._id, { amountCents: 35000 });
     });
-    expect((await va.as.query(api.demand.board, {})).slots.find((s) => s.county === "Midland" && s.jobType === "roofing")?.topFundedCents).toBe(35000);
+    expect((await va.as.query(api.demand.board, {})).slots.find((s) => s.county === "Midland" && s.jobType === "roofing")?.topFundedCents).toBe(
+      35000,
+    );
     // A third sale, at the raised bid: from here the margin is on what leads actually fetched, not the top bid.
     await va.as.mutation(api.marketplace.createLead, { data: { name: "F", phone: "4325550101", county: "Midland", jobType: "roofing" } });
     const after = (await va.as.query(api.demand.board, {})).slots.find((s) => s.county === "Midland" && s.jobType === "roofing")!;
-    expect(after).toMatchObject({ sold30: 3, minSoldCents: 30000, maxSoldCents: 35000, lastSoldCents: 35000, avgSoldCents: Math.round((30000 + 30000 + 35000) / 3), marginBasis: "sold" });
+    expect(after).toMatchObject({
+      sold30: 3,
+      minSoldCents: 30000,
+      maxSoldCents: 35000,
+      lastSoldCents: 35000,
+      avgSoldCents: Math.round((30000 + 30000 + 35000) / 3),
+      marginBasis: "sold",
+    });
     expect(after.marginCents).toBe(Math.round((30000 + 30000 + 35000) / 3) - 6000 - 500);
     const other = await signUp(t, "other@example.com");
     await expect(other.as.query(api.demand.board, {})).rejects.toThrow(/staff/);
@@ -1027,7 +1266,16 @@ describe("demand board", () => {
     await t.run(async (ctx) => {
       const now = new Date().toISOString();
       await ctx.db.insert("industries", { slug: "painting", name: "Painting", display_order: 1, is_active: true, created_at: now, updated_at: now });
-      await ctx.db.insert("marketplaceLeads", { name: "Demo A", county: "Ector", jobType: "painting", status: "available", isSample: true, createdBy: va.userId, createdAt: now, updatedAt: now } as any);
+      await ctx.db.insert("marketplaceLeads", {
+        name: "Demo A",
+        county: "Ector",
+        jobType: "painting",
+        status: "available",
+        isSample: true,
+        createdBy: va.userId,
+        createdAt: now,
+        updatedAt: now,
+      } as any);
     });
     const demo = await va.as.query(api.demand.board, {});
     expect(demo.demoLeads).toBe(true);
@@ -1095,11 +1343,7 @@ describe("estimates", () => {
       organizationId,
       resourceType: "estimate",
     });
-    expect(log.map((entry) => entry.action)).toEqual([
-      "signed",
-      "status_changed",
-      "created",
-    ]);
+    expect(log.map((entry) => entry.action)).toEqual(["signed", "status_changed", "created"]);
   });
 
   test("an item's price never goes below its red line", async () => {
@@ -1239,14 +1483,10 @@ describe("estimates", () => {
       organizationId,
       data: {},
     });
-    const store = (type: string, body = "x") =>
-      t.run((ctx) => ctx.storage.store(new Blob([body], { type })));
-    const exists = (id: Id<"_storage">) =>
-      t.run(async (ctx) => (await ctx.db.system.get(id)) !== null);
+    const store = (type: string, body = "x") => t.run((ctx) => ctx.storage.store(new Blob([body], { type })));
+    const exists = (id: Id<"_storage">) => t.run(async (ctx) => (await ctx.db.system.get(id)) !== null);
 
-    expect(
-      await as.mutation(api.estimates.designUploadUrl, { id: estimate!._id }),
-    ).toEqual(expect.any(String));
+    expect(await as.mutation(api.estimates.designUploadUrl, { id: estimate!._id })).toEqual(expect.any(String));
     const first = await store("image/png");
     const withDesign = await as.mutation(api.estimates.setDesign, {
       id: estimate!._id,
@@ -1329,18 +1569,14 @@ describe("estimates", () => {
       organizationId,
       data: { status: "sent" },
     });
-    expect(await as.query(api.estimates.list, { organizationId })).toHaveLength(
-      2,
-    );
+    expect(await as.query(api.estimates.list, { organizationId })).toHaveLength(2);
     expect(
       await as.query(api.estimates.list, {
         organizationId,
         clientId: client!._id,
       }),
     ).toHaveLength(1);
-    expect(
-      await as.query(api.estimates.list, { organizationId, status: "sent" }),
-    ).toHaveLength(1);
+    expect(await as.query(api.estimates.list, { organizationId, status: "sent" })).toHaveLength(1);
   });
 });
 
@@ -1469,20 +1705,13 @@ describe("price book", () => {
         organizationId: bob.organizationId,
       }),
     ).toHaveLength(total);
-    await expect(
-      bob.as.query(api.lineItems.get, { id: own._id }),
-    ).rejects.toThrow(/access/);
+    await expect(bob.as.query(api.lineItems.get, { id: own._id })).rejects.toThrow(/access/);
 
     const searched = await alice.as.query(api.lineItems.list, {
       organizationId: alice.organizationId,
       search: "tear-off",
     });
-    expect(searched.map((item) => item.name)).toEqual(
-      expect.arrayContaining([
-        "Double Layer Tear-off",
-        "Single Layer Tear-off",
-      ]),
-    );
+    expect(searched.map((item) => item.name)).toEqual(expect.arrayContaining(["Double Layer Tear-off", "Single Layer Tear-off"]));
 
     await alice.as.mutation(api.lineItems.remove, { id: own._id });
     expect(
@@ -1587,16 +1816,7 @@ describe("price book", () => {
 
     const items = await as.query(api.lineItems.list, { organizationId });
     const trades = new Set(items.map((item) => item.cost_code?.industry_id));
-    for (const slug of [
-      "roofing",
-      "hvac",
-      "electrical",
-      "plumbing",
-      "concrete",
-      "drywall",
-      "handyman",
-      "window-door",
-    ]) {
+    for (const slug of ["roofing", "hvac", "electrical", "plumbing", "concrete", "drywall", "handyman", "window-door"]) {
       expect(trades).toContain(slug);
     }
   });
@@ -1722,9 +1942,7 @@ describe("price book", () => {
         organization_id: alice.organizationId,
       },
     });
-    expect(
-      (await alice.as.query(api.costCodes.list, {})).map((cc) => cc.code),
-    ).toEqual(["AL100"]);
+    expect((await alice.as.query(api.costCodes.list, {})).map((cc) => cc.code)).toEqual(["AL100"]);
     expect(await bob.as.query(api.costCodes.list, {})).toHaveLength(0);
     await expect(
       bob.as.mutation(api.lineItems.create, {
@@ -1759,9 +1977,7 @@ describe("price book", () => {
       is_preset: false,
       id: modes[3]._id,
     });
-    expect(
-      (await as.query(api.pricingModes.presets, {})).map((m) => m.name),
-    ).toEqual(["Busy Season", "Competitive", "Need This Job"]);
+    expect((await as.query(api.pricingModes.presets, {})).map((m) => m.name)).toEqual(["Busy Season", "Competitive", "Need This Job"]);
   });
 });
 
@@ -1804,9 +2020,7 @@ describe("leads", () => {
       data: { status: "lost", lostReason: "Too pricey" },
     });
 
-    const names = (
-      await alice.as.query(api.leads.list, { organizationId })
-    ).map((lead) => lead.name);
+    const names = (await alice.as.query(api.leads.list, { organizationId })).map((lead) => lead.name);
     expect(names).toEqual(["Soon", "Booked", "Jones", "Gone"]);
 
     await expect(
@@ -1815,18 +2029,14 @@ describe("leads", () => {
         data: { name: "  " },
       }),
     ).rejects.toThrow(/name/);
-    await expect(
-      bob.as.query(api.leads.list, { organizationId }),
-    ).rejects.toThrow(/access/);
+    await expect(bob.as.query(api.leads.list, { organizationId })).rejects.toThrow(/access/);
     await expect(
       bob.as.mutation(api.leads.update, {
         id: later!._id,
         data: { name: "x" },
       }),
     ).rejects.toThrow(/Not found/);
-    await expect(
-      bob.as.mutation(api.leads.remove, { id: later!._id }),
-    ).rejects.toThrow(/Not found/);
+    await expect(bob.as.mutation(api.leads.remove, { id: later!._id })).rejects.toThrow(/Not found/);
   });
 
   test("importLeads adds leads to the user's organization once", async () => {
@@ -1912,18 +2122,8 @@ describe("leads", () => {
     expect(cityFromText("3809 Crestline Ave")).toBeUndefined();
     expect(cityFromText(undefined)).toBeUndefined();
     // A map search only counts when every match agrees.
-    expect(
-      cityFromSearch([
-        { address: { city: "Midland" } },
-        { address: { city: "Midland" } },
-      ]),
-    ).toBe("Midland");
-    expect(
-      cityFromSearch([
-        { address: { city: "Midland" } },
-        { address: { city: "Odessa" } },
-      ]),
-    ).toBeUndefined();
+    expect(cityFromSearch([{ address: { city: "Midland" } }, { address: { city: "Midland" } }])).toBe("Midland");
+    expect(cityFromSearch([{ address: { city: "Midland" } }, { address: { city: "Odessa" } }])).toBeUndefined();
     expect(cityFromSearch([])).toBeUndefined();
   });
 
@@ -1931,10 +2131,7 @@ describe("leads", () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn(async (url: string) => ({
       ok: true,
-      json: async () =>
-        decodeURIComponent(url).includes("Crestline")
-          ? [{ address: { city: "Midland" } }]
-          : [],
+      json: async () => (decodeURIComponent(url).includes("Crestline") ? [{ address: { city: "Midland" } }] : []),
     }));
     vi.stubGlobal("fetch", fetchMock);
     try {
@@ -1973,12 +2170,8 @@ describe("leads", () => {
           cityCheckedAt: undefined,
         });
       });
-      expect(
-        await as.mutation(api.leadCity.fillMissing, { organizationId }),
-      ).toEqual({ set: 1, queued: 0, none: 0 });
-      expect(
-        await as.mutation(api.leadCity.fillMissing, { organizationId }),
-      ).toEqual({ set: 0, queued: 0, none: 0 });
+      expect(await as.mutation(api.leadCity.fillMissing, { organizationId })).toEqual({ set: 1, queued: 0, none: 0 });
+      expect(await as.mutation(api.leadCity.fillMissing, { organizationId })).toEqual({ set: 0, queued: 0, none: 0 });
     } finally {
       vi.unstubAllGlobals();
       vi.useRealTimers();
@@ -2020,9 +2213,7 @@ describe("leads", () => {
     const clientId = await alice.as.mutation(api.leads.ensureClient, {
       id: lead!._id,
     });
-    expect(
-      await alice.as.mutation(api.leads.ensureClient, { id: lead!._id }),
-    ).toBe(clientId);
+    expect(await alice.as.mutation(api.leads.ensureClient, { id: lead!._id })).toBe(clientId);
     const clients = await alice.as.query(api.clients.list, {
       organizationId: alice.organizationId,
     });
@@ -2081,12 +2272,8 @@ describe("sample leads", () => {
     const { as, organizationId } = await signUp(t, "a@example.com");
     expect(await as.mutation(api.leads.addSamples, { organizationId })).toBe(8);
     const leads = await as.query(api.leads.list, { organizationId });
-    expect(new Set(leads.map((lead) => lead.status))).toEqual(
-      new Set(["new", "contacted", "quoted", "won", "lost"]),
-    );
-    await expect(
-      as.mutation(api.leads.addSamples, { organizationId }),
-    ).rejects.toThrow(/empty/);
+    expect(new Set(leads.map((lead) => lead.status))).toEqual(new Set(["new", "contacted", "quoted", "won", "lost"]));
+    await expect(as.mutation(api.leads.addSamples, { organizationId })).rejects.toThrow(/empty/);
     // Samples past New carry the contact history their stage implies; new ones carry none.
     const dental = leads.find((lead) => lead.name === "Oak Street Dental")!;
     expect(dental).toMatchObject({ status: "contacted", contacts: 1 });
@@ -2110,28 +2297,17 @@ describe("sample leads", () => {
       expect(nowMs - Date.parse(fresh.createdAt)).toBeLessThan(6 * 3_600_000);
     }
     const tom = leads.find((lead) => lead.name === "Tom Becker")!;
-    expect(Math.round((nowMs - Date.parse(tom.createdAt)) / 86_400_000)).toBe(
-      3,
-    );
+    expect(Math.round((nowMs - Date.parse(tom.createdAt)) / 86_400_000)).toBe(3);
     expect(tom.followUpDate! < today).toBe(true);
-    expect(
-      tom.lastContactAt! > tom.createdAt &&
-        tom.lastContactAt! <= new Date().toISOString(),
-    ).toBe(true);
+    expect(tom.lastContactAt! > tom.createdAt && tom.lastContactAt! <= new Date().toISOString()).toBe(true);
     expect(dental.followUpDate! > today).toBe(true);
 
     await as.mutation(api.leads.create, {
       organizationId,
       data: { name: "Real customer" },
     });
-    expect(await as.mutation(api.leads.removeSamples, { organizationId })).toBe(
-      8,
-    );
-    expect(
-      (await as.query(api.leads.list, { organizationId })).map(
-        (lead) => lead.name,
-      ),
-    ).toEqual(["Real customer"]);
+    expect(await as.mutation(api.leads.removeSamples, { organizationId })).toBe(8);
+    expect((await as.query(api.leads.list, { organizationId })).map((lead) => lead.name)).toEqual(["Real customer"]);
   });
 });
 
@@ -2181,10 +2357,7 @@ describe("expenses", () => {
       organizationId: alice.organizationId,
       projectId: project!._id,
     });
-    expect(forProject.map((e) => e.description)).toEqual([
-      "Dumpster",
-      "Lumber",
-    ]);
+    expect(forProject.map((e) => e.description)).toEqual(["Dumpster", "Lumber"]);
     expect(
       await alice.as.query(api.expenses.list, {
         organizationId: alice.organizationId,
@@ -2218,9 +2391,7 @@ describe("expenses", () => {
     ).rejects.toThrow(/cleared/);
 
     // Another company can't see, change or attach to it.
-    await expect(
-      bob.as.query(api.expenses.list, { organizationId: alice.organizationId }),
-    ).rejects.toThrow(/access/);
+    await expect(bob.as.query(api.expenses.list, { organizationId: alice.organizationId })).rejects.toThrow(/access/);
     await expect(
       bob.as.mutation(api.expenses.update, {
         id: lumber!._id,
@@ -2288,8 +2459,7 @@ describe("estimate item categories", () => {
   }
 
   test("an item from the price book is categorised by its trade, so labor and materials group together", async () => {
-    const { as, organizationId, productId, materialsId } =
-      await priceBookItem();
+    const { as, organizationId, productId, materialsId } = await priceBookItem();
     const estimate = await as.mutation(api.estimates.create, {
       organizationId,
       data: {
@@ -2316,12 +2486,7 @@ describe("estimate item categories", () => {
         ],
       },
     });
-    expect(estimate!.items.map((i) => i.category)).toEqual([
-      "Painting",
-      "Painting",
-      undefined,
-      undefined,
-    ]);
+    expect(estimate!.items.map((i) => i.category)).toEqual(["Painting", "Painting", undefined, undefined]);
   });
 
   test("older items get their category when read, and the signed contract keeps it", async () => {
@@ -2329,9 +2494,7 @@ describe("estimate item categories", () => {
     const estimate = await as.mutation(api.estimates.create, {
       organizationId,
       data: {
-        items: [
-          { description: "Paint walls", quantity: 1, unitPrice: 3, productId },
-        ],
+        items: [{ description: "Paint walls", quantity: 1, unitPrice: 3, productId }],
       },
     });
     const id = estimate!._id;
@@ -2345,13 +2508,9 @@ describe("estimate item categories", () => {
         })),
       });
     });
-    expect((await as.query(api.estimates.get, { id }))!.items[0].category).toBe(
-      "Painting",
-    );
+    expect((await as.query(api.estimates.get, { id }))!.items[0].category).toBe("Painting");
     const token = await as.mutation(api.estimates.shareLink, { id });
-    expect(
-      (await t.query(api.publicEstimates.get, { token }))!.items[0].category,
-    ).toBe("Painting");
+    expect((await t.query(api.publicEstimates.get, { token }))!.items[0].category).toBe("Painting");
     await as.mutation(api.estimates.update, {
       id,
       data: { status: "accepted" },
@@ -2403,21 +2562,15 @@ describe("client link", () => {
 
   test("anyone with the link sees a client-safe view without logging in", async () => {
     const { t, token } = await sharedEstimate();
-    expect(
-      await t.query(api.publicEstimates.get, { token: "nope" }),
-    ).toBeNull();
+    expect(await t.query(api.publicEstimates.get, { token: "nope" })).toBeNull();
     const view = await t.query(api.publicEstimates.get, { token });
     expect(view).toMatchObject({
       totalAmount: 900,
       client: { name: "Dan Shah" },
       business: { name: "a@example.com Co" },
     });
-    expect(view!.items).toEqual([
-      { description: "Vanity", quantity: 1, unitPrice: 900, totalPrice: 900 },
-    ]);
-    expect(JSON.stringify(view)).not.toMatch(
-      /redLine|capPrice|organizationId|shareToken|contract/,
-    );
+    expect(view!.items).toEqual([{ description: "Vanity", quantity: 1, unitPrice: 900, totalPrice: 900 }]);
+    expect(JSON.stringify(view)).not.toMatch(/redLine|capPrice|organizationId|shareToken|contract/);
   });
 
   test("opening a sent estimate marks it opened, once", async () => {
@@ -2431,9 +2584,7 @@ describe("client link", () => {
 
   test("the client accepts with a signature, which locks the contract; it can't be answered twice", async () => {
     const { t, as, id, token } = await sharedEstimate();
-    await expect(
-      t.mutation(api.publicEstimates.accept, { token, signature: " " }),
-    ).rejects.toThrow(/sign/);
+    await expect(t.mutation(api.publicEstimates.accept, { token, signature: " " })).rejects.toThrow(/sign/);
     await t.mutation(api.publicEstimates.accept, {
       token,
       signature: "data:image/png;base64,abc",
@@ -2444,12 +2595,8 @@ describe("client link", () => {
       clientSignature: "data:image/png;base64,abc",
     });
     expect(accepted!.contractSnapshot!.totalAmount).toBe(900);
-    await expect(
-      t.mutation(api.publicEstimates.decline, { token }),
-    ).rejects.toThrow(/no longer/);
-    await expect(
-      t.mutation(api.publicEstimates.accept, { token, signature: "x" }),
-    ).rejects.toThrow(/no longer/);
+    await expect(t.mutation(api.publicEstimates.decline, { token })).rejects.toThrow(/no longer/);
+    await expect(t.mutation(api.publicEstimates.accept, { token, signature: "x" })).rejects.toThrow(/no longer/);
   });
 
   test("the client sees the agreement terms they're signing", async () => {
@@ -2499,9 +2646,7 @@ describe("client link", () => {
       },
     });
     const view = await t.query(api.publicEstimates.get, { token });
-    expect(view!.items).toEqual([
-      { description: "Vanity", quantity: 1, unitPrice: 900, totalPrice: 900 },
-    ]);
+    expect(view!.items).toEqual([{ description: "Vanity", quantity: 1, unitPrice: 900, totalPrice: 900 }]);
     expect(view!.totalAmount).toBe(900);
     expect(view!.lockedAt).toEqual(expect.any(String));
   });
@@ -2512,9 +2657,7 @@ describe("client link", () => {
     expect(await as.query(api.estimates.get, { id })).toMatchObject({
       status: "rejected",
     });
-    await expect(
-      t.mutation(api.publicEstimates.decline, { token: "nope" }),
-    ).rejects.toThrow(/isn't valid/);
+    await expect(t.mutation(api.publicEstimates.decline, { token: "nope" })).rejects.toThrow(/isn't valid/);
   });
 });
 
@@ -2547,9 +2690,7 @@ describe("lead market", () => {
 
   test("only Webb Leads staff run the market, and only the owner touches money", async () => {
     const { roofer, leadId } = await market();
-    await expect(
-      roofer.as.query(api.marketplace.listInbox, {}),
-    ).rejects.toThrow(/staff/);
+    await expect(roofer.as.query(api.marketplace.listInbox, {})).rejects.toThrow(/staff/);
     await expect(
       roofer.as.mutation(api.marketplace.assign, {
         leadId,
@@ -2580,13 +2721,7 @@ describe("lead market", () => {
       organizationId: roofer.organizationId,
     });
     expect(wallet.balanceCents).toBe(52500);
-    expect(
-      wallet.transactions.map((t) => [
-        t.type,
-        t.amountCents,
-        t.balanceAfterCents,
-      ]),
-    ).toEqual([
+    expect(wallet.transactions.map((t) => [t.type, t.amountCents, t.balanceAfterCents])).toEqual([
       ["bonus", 2500, 52500],
       ["top_up", 50000, 50000],
     ]);
@@ -2649,10 +2784,7 @@ describe("lead market", () => {
       }),
     ).rejects.toThrow(/access/);
 
-    const overview = await admin.as.query(
-      api.marketplace.companiesOverview,
-      {},
-    );
+    const overview = await admin.as.query(api.marketplace.companiesOverview, {});
     expect(overview.find((c) => c.id === roofer.organizationId)).toMatchObject({
       balanceCents: 1500,
       leads30d: 1,
@@ -2698,9 +2830,7 @@ describe("lead market", () => {
       data: { pricePaidCents: 1 },
     });
 
-    expect(
-      await admin.as.query(api.marketplace.pendingCredits, {}),
-    ).toHaveLength(1);
+    expect(await admin.as.query(api.marketplace.pendingCredits, {})).toHaveLength(1);
     await admin.as.mutation(api.marketplace.reviewCredit, {
       orgLeadId,
       approve: true,
@@ -2724,10 +2854,7 @@ describe("lead market", () => {
     const old = await admin.as.mutation(api.marketplace.createLead, {
       data: { name: "Old lead" },
     });
-    const { orgLeadId: oldLead } = await admin.as.mutation(
-      api.marketplace.assign,
-      { leadId: old!._id, organizationId: roofer.organizationId },
-    );
+    const { orgLeadId: oldLead } = await admin.as.mutation(api.marketplace.assign, { leadId: old!._id, organizationId: roofer.organizationId });
     await t.run(async (ctx) =>
       ctx.db.patch(oldLead, {
         assignedAt: new Date(Date.now() - 4 * 24 * 3600 * 1000).toISOString(),
@@ -2744,7 +2871,9 @@ describe("lead market", () => {
     await expect(roofer.as.mutation(api.marketplace.creditLead, { orgLeadId: oldLead, reason: "duplicate" })).rejects.toThrow(/admins/);
     const before = (await roofer.as.query(api.marketplace.wallet, { organizationId: roofer.organizationId })).balanceCents;
     // "Old lead" has no trade, so it sold at the default $240: that is what comes back.
-    expect(await admin.as.mutation(api.marketplace.creditLead, { orgLeadId: oldLead, reason: "wrong_number", note: "Called, number dead" })).toEqual({ amountCents: 24000 });
+    expect(await admin.as.mutation(api.marketplace.creditLead, { orgLeadId: oldLead, reason: "wrong_number", note: "Called, number dead" })).toEqual({
+      amountCents: 24000,
+    });
     const after = await roofer.as.query(api.marketplace.wallet, { organizationId: roofer.organizationId });
     expect(after.balanceCents).toBe(before + 24000);
     expect(after.transactions[0]).toMatchObject({ type: "credit", amountCents: 24000 });
@@ -2772,9 +2901,7 @@ describe("lead market", () => {
     const owner = t.withIdentity({ subject: `${userId}|session-x` });
     const orgs = await owner.query(api.organizations.list, {});
     expect(orgs.map((o) => o._id)).toEqual([company!._id]);
-    expect(
-      await owner.query(api.organizations.myRole, { id: company!._id }),
-    ).toBe("owner");
+    expect(await owner.query(api.organizations.myRole, { id: company!._id })).toBe("owner");
   });
 
   test("a company name can't be used twice, and only empty companies can be removed", async () => {
@@ -2804,30 +2931,21 @@ describe("lead market", () => {
       }),
     ).rejects.toThrow(/admins/);
 
-    const overview = await admin.as.query(
-      api.marketplace.companiesOverview,
-      {},
-    );
+    const overview = await admin.as.query(api.marketplace.companiesOverview, {});
     expect(overview.find((c) => c.id === first!._id)?.isEmpty).toBe(true);
-    expect(overview.find((c) => c.id === roofer.organizationId)?.isEmpty).toBe(
-      false,
-    );
+    expect(overview.find((c) => c.id === roofer.organizationId)?.isEmpty).toBe(false);
 
     await admin.as.mutation(api.marketplace.removeCompany, {
       organizationId: first!._id,
     });
-    const ids = (await admin.as.query(api.organizations.list, {})).map(
-      (o) => o._id,
-    );
+    const ids = (await admin.as.query(api.organizations.list, {})).map((o) => o._id);
     expect(ids).not.toContain(first!._id);
     expect(ids).toContain(roofer.organizationId);
     // The name is free again once the empty copy is gone.
     await admin.as.mutation(api.marketplace.createCompany, {
       data: { name: "Picante Painting" },
     });
-    expect(
-      await t.run(async (ctx) => (await ctx.db.get(first!._id))?.isActive),
-    ).toBe(false);
+    expect(await t.run(async (ctx) => (await ctx.db.get(first!._id))?.isActive)).toBe(false);
   });
 });
 
@@ -2841,9 +2959,7 @@ describe("smoke tests and demo data", () => {
     await gone.as.mutation(api.organizations.remove, {
       id: gone.organizationId,
     });
-    const ids = (await admin.as.query(api.organizations.list, {})).map(
-      (o) => o._id,
-    );
+    const ids = (await admin.as.query(api.organizations.list, {})).map((o) => o._id);
     expect(ids).toContain(admin.organizationId);
     expect(ids).not.toContain(gone.organizationId);
   });
@@ -2883,39 +2999,21 @@ describe("smoke tests and demo data", () => {
       role: "super_admin",
     });
     const contractor = await signUp(t, "roofer@example.com");
-    await expect(
-      contractor.as.mutation(api.marketplace.addDemoData, {}),
-    ).rejects.toThrow(/admins/);
+    await expect(contractor.as.mutation(api.marketplace.addDemoData, {})).rejects.toThrow(/admins/);
     expect(await admin.as.mutation(api.marketplace.addDemoData, {})).toEqual({
       companies: 6,
       leads: 10,
     });
     // Half the demo companies are on the plan, half let it lapse, so both looks show.
-    const planStatuses = (
-      await admin.as.query(api.marketplace.companiesOverview, {})
-    )
+    const planStatuses = (await admin.as.query(api.marketplace.companiesOverview, {}))
       .filter((c) => c.isSample)
       .map((c) => `${c.plan?.status}:${c.plan?.active}`)
       .sort();
-    expect(planStatuses).toEqual([
-      "active:true",
-      "active:true",
-      "active:true",
-      "cancelled:false",
-      "cancelled:false",
-      "cancelled:false",
-    ]);
-    await expect(
-      admin.as.mutation(api.marketplace.addDemoData, {}),
-    ).rejects.toThrow(/already/);
+    expect(planStatuses).toEqual(["active:true", "active:true", "active:true", "cancelled:false", "cancelled:false", "cancelled:false"]);
+    await expect(admin.as.mutation(api.marketplace.addDemoData, {})).rejects.toThrow(/already/);
 
-    const companies = await admin.as.query(
-      api.marketplace.companiesOverview,
-      {},
-    );
-    const roofing = companies.find(
-      (c) => c.name === "Permian Roofing & Exteriors",
-    )!;
+    const companies = await admin.as.query(api.marketplace.companiesOverview, {});
+    const roofing = companies.find((c) => c.name === "Permian Roofing & Exteriors")!;
     expect(roofing).toMatchObject({
       isSample: true,
       balanceCents: 110000 - 28500,
@@ -2926,21 +3024,12 @@ describe("smoke tests and demo data", () => {
     expect(inbox.available).toHaveLength(6);
     expect(inbox.sold).toHaveLength(4);
 
-    expect(await admin.as.mutation(api.marketplace.removeDemoData, {})).toEqual(
-      { companies: 6, leads: 10, standingBids: 0 },
-    );
+    expect(await admin.as.mutation(api.marketplace.removeDemoData, {})).toEqual({ companies: 6, leads: 10, standingBids: 0 });
     const left = await admin.as.query(api.marketplace.companiesOverview, {});
-    expect(left.map((c) => c.name).sort()).toEqual([
-      `admin@fieldquote.example Co`,
-      `roofer@example.com Co`,
-    ]);
-    expect(
-      (await admin.as.query(api.marketplace.listInbox, {})).available,
-    ).toHaveLength(0);
+    expect(left.map((c) => c.name).sort()).toEqual([`admin@fieldquote.example Co`, `roofer@example.com Co`]);
+    expect((await admin.as.query(api.marketplace.listInbox, {})).available).toHaveLength(0);
     await t.run(async (ctx) => {
-      expect(await ctx.db.query("walletTransactions").collect()).toHaveLength(
-        0,
-      );
+      expect(await ctx.db.query("walletTransactions").collect()).toHaveLength(0);
     });
   });
 
@@ -2954,12 +3043,8 @@ describe("smoke tests and demo data", () => {
       organizationId: company.organizationId,
       leadTrades: ["landscaping"],
     });
-    await expect(
-      company.as.mutation(api.marketplace.addSampleLeads, {}),
-    ).rejects.toThrow(/admins/);
-    expect(await admin.as.mutation(api.marketplace.addSampleLeads, {})).toEqual(
-      { added: 20 },
-    );
+    await expect(company.as.mutation(api.marketplace.addSampleLeads, {})).rejects.toThrow(/admins/);
+    expect(await admin.as.mutation(api.marketplace.addSampleLeads, {})).toEqual({ added: 20 });
     const feed = await company.as.query(api.marketplace.feed, {
       organizationId: company.organizationId,
     });
@@ -2967,14 +3052,10 @@ describe("smoke tests and demo data", () => {
     // Confirmed on arrival, like a lead that came through Intake.
     expect(feed.every((l) => l.verified?.at && l.verified.note)).toBe(true);
     expect(feed.filter((l) => l.matchesTrades)).toHaveLength(12);
-    const prices = new Set(
-      feed.map((l) => priceAt(l.auction, Date.now()).priceCents),
-    );
+    const prices = new Set(feed.map((l) => priceAt(l.auction, Date.now()).priceCents));
     expect(prices.size).toBeGreaterThan(1);
     expect(JSON.stringify(feed)).not.toMatch(/555-03|Humble Ave/);
-    expect(await admin.as.mutation(api.marketplace.removeDemoData, {})).toEqual(
-      { companies: 0, leads: 20, standingBids: 0 },
-    );
+    expect(await admin.as.mutation(api.marketplace.removeDemoData, {})).toEqual({ companies: 0, leads: 20, standingBids: 0 });
   });
 
   test("seed:demo fills the market from the command line, as the owner, and seed:resetDemo takes it back", async () => {
@@ -3005,7 +3086,9 @@ describe("smoke tests and demo data", () => {
     const mio = await signUp(t, "mio@example.com");
     const soco = await signUp(t, "soco@example.com");
     await admin.as.mutation(api.marketplace.recordTopUp, { organizationId: mio.organizationId, amount: 300 });
-    await t.run(async (ctx) => { await ctx.db.patch(soco.organizationId, { isActive: false }); });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(soco.organizationId, { isActive: false });
+    });
     await expect(mio.as.mutation(api.marketplace.fundEveryCompany, {})).rejects.toThrow(/admins/);
     // Admin's own company and Mio are active; Soco is not.
     expect(await admin.as.mutation(api.marketplace.fundEveryCompany, {})).toEqual({ companies: 2, amountCents: 500000 });
@@ -3037,10 +3120,30 @@ describe("smoke tests and demo data", () => {
             name: o.name,
             balance: o.walletBalanceCents ?? 0,
             trades: o.leadTrades ?? [],
-            leads: (await ctx.db.query("leads").withIndex("by_organization", (q) => q.eq("organizationId", o._id)).collect()).map((l) => l.name),
-            bids: (await ctx.db.query("standingBids").withIndex("by_organization", (q) => q.eq("organizationId", o._id)).collect()).map((x) => [x.county, x.amountCents]),
-            transactions: (await ctx.db.query("walletTransactions").withIndex("by_organization", (q) => q.eq("organizationId", o._id)).collect()).length,
-            results: (await ctx.db.query("leadBids").filter((q) => q.eq(q.field("organizationId"), o._id)).collect()).length,
+            leads: (
+              await ctx.db
+                .query("leads")
+                .withIndex("by_organization", (q) => q.eq("organizationId", o._id))
+                .collect()
+            ).map((l) => l.name),
+            bids: (
+              await ctx.db
+                .query("standingBids")
+                .withIndex("by_organization", (q) => q.eq("organizationId", o._id))
+                .collect()
+            ).map((x) => [x.county, x.amountCents]),
+            transactions: (
+              await ctx.db
+                .query("walletTransactions")
+                .withIndex("by_organization", (q) => q.eq("organizationId", o._id))
+                .collect()
+            ).length,
+            results: (
+              await ctx.db
+                .query("leadBids")
+                .filter((q) => q.eq(q.field("organizationId"), o._id))
+                .collect()
+            ).length,
           })),
         );
       });
@@ -3055,22 +3158,33 @@ describe("smoke tests and demo data", () => {
     expect(await snapshot()).toEqual(before);
 
     const overview = await admin.as.query(api.marketplace.companiesOverview, {});
-    expect(overview.filter((c) => c.isSample).map((c) => c.name).sort()).toEqual(["Big Spring Builders", "Caprock Landscapes", "Tall City Lawn & Stone"]);
+    expect(
+      overview
+        .filter((c) => c.isSample)
+        .map((c) => c.name)
+        .sort(),
+    ).toEqual(["Big Spring Builders", "Caprock Landscapes", "Tall City Lawn & Stone"]);
     expect(overview.filter((c) => !c.isSample).every((c) => c.sampleBids === 0)).toBe(true);
     const inbox = await admin.as.query(api.marketplace.listInbox, {});
     expect(inbox.sold).toHaveLength(7);
-    expect(inbox.sold.every((l) => l.wonBy === "bid" && ["Caprock Landscapes", "Tall City Lawn & Stone", "Big Spring Builders"].includes(l.companyName!))).toBe(true);
+    expect(
+      inbox.sold.every((l) => l.wonBy === "bid" && ["Caprock Landscapes", "Tall City Lawn & Stone", "Big Spring Builders"].includes(l.companyName!)),
+    ).toBe(true);
 
     // Mio sees the demo leads, marked, and can't buy one or order one.
     const feed = await mio.as.query(api.marketplace.feed, { organizationId: mio.organizationId });
     expect(feed.length).toBeGreaterThan(0);
     expect(feed.every((l) => l.demo === true)).toBe(true);
     await expect(mio.as.mutation(api.marketplace.buy, { leadId: feed[0].id, organizationId: mio.organizationId })).rejects.toThrow(/demo lead/);
-    await expect(mio.as.mutation(api.marketplace.placeBid, { leadId: feed[0].id, organizationId: mio.organizationId, max: 200 })).rejects.toThrow(/demo lead/);
+    await expect(mio.as.mutation(api.marketplace.placeBid, { leadId: feed[0].id, organizationId: mio.organizationId, max: 200 })).rejects.toThrow(
+      /demo lead/,
+    );
     expect(await snapshot()).toEqual(before);
 
     // A real Midland landscaping lead goes to Mio's real $210 bid, not Caprock's higher demo $275.
-    const real = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Real Homeowner", phone: "4325550199", city: "Midland", jobType: "landscaping" } });
+    const real = await admin.as.mutation(api.marketplace.createLead, {
+      data: { name: "Real Homeowner", phone: "4325550199", city: "Midland", jobType: "landscaping" },
+    });
     expect((await t.run(async (ctx) => ctx.db.get(real!._id)))?.assignedOrganizationId).toBe(mio.organizationId);
     const afterSale = await snapshot();
     expect(afterSale.find((c) => c.name.startsWith("mio"))).toMatchObject({ balance: 30000 - 21000, leads: ["Real Customer", "Real Homeowner"] });
@@ -3112,10 +3226,7 @@ describe("smoke tests and demo data", () => {
       updated: [],
     });
 
-    const companies = await admin.as.query(
-      api.marketplace.companiesOverview,
-      {},
-    );
+    const companies = await admin.as.query(api.marketplace.companiesOverview, {});
     const names = companies.map((c) => c.name);
     expect(names.filter((n) => n === "Picante Painting")).toHaveLength(1);
     expect(names.some((n) => n.includes("Permian"))).toBe(false);
@@ -3124,18 +3235,14 @@ describe("smoke tests and demo data", () => {
       leadTrades: ["painting"],
       owners: ["owner@picante.example"],
     });
-    expect(companies.find((c) => c.name === "Mio Homes")?.leadTrades).toEqual([
-      "landscaping",
-    ]);
+    expect(companies.find((c) => c.name === "Mio Homes")?.leadTrades).toEqual(["landscaping"]);
 
     // A removed company isn't brought back.
     const mio = companies.find((c) => c.name === "Mio Homes")!;
     await admin.as.mutation(api.marketplace.removeCompany, {
       organizationId: mio.id,
     });
-    expect((await t.mutation(internal.seed.realCompanies, {})).created).toEqual(
-      [],
-    );
+    expect((await t.mutation(internal.seed.realCompanies, {})).created).toEqual([]);
   });
 
   test("empty duplicate companies are switched off, keeping the one with data", async () => {
@@ -3170,9 +3277,7 @@ describe("smoke tests and demo data", () => {
     expect(await t.mutation(internal.seed.removeEmptyDuplicates, {})).toEqual({
       removed: [],
     });
-    const ids = (await admin.as.query(api.organizations.list, {})).map(
-      (o) => o._id,
-    );
+    const ids = (await admin.as.query(api.organizations.list, {})).map((o) => o._id);
     expect(ids).toContain(real.organizationId);
     expect(ids).toContain(solo!._id);
     expect(ids).not.toContain(copy);
@@ -3213,11 +3318,7 @@ describe("smoke tests and demo data", () => {
 
     const result = await t.mutation(internal.seed.moveLeadsToMioHomes, {});
     expect(result).toMatchObject({ moved: 1 });
-    const mio = await t.run(async (ctx) =>
-      (await ctx.db.query("organizations").collect()).find(
-        (o) => o.name === "Mio Homes",
-      )!,
-    );
+    const mio = await t.run(async (ctx) => (await ctx.db.query("organizations").collect()).find((o) => o.name === "Mio Homes")!);
     expect(mio.leadTrades).toEqual(["landscaping"]);
     const moved = await t.run(async (ctx) => ctx.db.get(lead!._id));
     expect(moved).toMatchObject({
@@ -3225,9 +3326,7 @@ describe("smoke tests and demo data", () => {
       name: "Backyard redo",
     });
     expect(moved?.clientId).toBeUndefined();
-    expect(
-      (await t.run(async (ctx) => ctx.db.get(sample)))?.organizationId,
-    ).toBe(picante.organizationId);
+    expect((await t.run(async (ctx) => ctx.db.get(sample)))?.organizationId).toBe(picante.organizationId);
     // Picante keeps its client and company.
     expect(result.picante).toEqual([
       {
@@ -3258,15 +3357,8 @@ describe("smoke tests and demo data", () => {
       data: { clientId: client!._id, items: [] },
     });
 
-    expect(await t.mutation(internal.seed.renameTestPicante, {})).toMatchObject(
-      { renamed: true },
-    );
-    const [kept, renamed] = await t.run(async (ctx) =>
-      Promise.all([
-        ctx.db.get(real.organizationId),
-        ctx.db.get(test.organizationId),
-      ]),
-    );
+    expect(await t.mutation(internal.seed.renameTestPicante, {})).toMatchObject({ renamed: true });
+    const [kept, renamed] = await t.run(async (ctx) => Promise.all([ctx.db.get(real.organizationId), ctx.db.get(test.organizationId)]));
     expect(kept?.name).toBe("Picante Painting");
     expect(renamed).toMatchObject({
       name: "Myles Webb",
@@ -3306,9 +3398,7 @@ describe("smoke tests and demo data", () => {
         email: "owner@soco.example",
       }),
     ).toBe("invited");
-    let row = (
-      await admin.as.query(api.marketplace.companiesOverview, {})
-    ).find((c) => c.id === company!._id)!;
+    let row = (await admin.as.query(api.marketplace.companiesOverview, {})).find((c) => c.id === company!._id)!;
     expect(row.invitePending).toBe("owner@soco.example");
 
     const existing = await signUp(t, "boss@soco.example");
@@ -3324,14 +3414,10 @@ describe("smoke tests and demo data", () => {
         email: "boss@soco.example",
       }),
     ).toBe("added");
-    row = (await admin.as.query(api.marketplace.companiesOverview, {})).find(
-      (c) => c.id === company!._id,
-    )!;
+    row = (await admin.as.query(api.marketplace.companiesOverview, {})).find((c) => c.id === company!._id)!;
     expect(row.owners).toEqual(["boss@soco.example"]);
     expect(row.invitePending).toBeUndefined();
-    expect(
-      await existing.as.query(api.organizations.myRole, { id: company!._id }),
-    ).toBe("owner");
+    expect(await existing.as.query(api.organizations.myRole, { id: company!._id })).toBe("owner");
   });
 });
 
@@ -3384,9 +3470,17 @@ describe("funding links and the lead feed", () => {
     expect(await t.query(api.funding.get, { token: rivalToken })).toMatchObject({ playMoney: true, paymentsOff: false });
     expect(await t.action(api.funding.checkout, { token: rivalToken, amountCents: 1_000_000 })).toEqual({ url: `/fund/${rivalToken}?paid=1` });
     expect(await balance(rival)).toBe(rivalBefore + 1_100_000);
-    expect(await t.query(api.funding.get, { token: rivalToken })).toMatchObject({ status: "confirmed", paid: true, amountCents: 1_000_000, bonusCents: 100_000 });
+    expect(await t.query(api.funding.get, { token: rivalToken })).toMatchObject({
+      status: "confirmed",
+      paid: true,
+      amountCents: 1_000_000,
+      bonusCents: 100_000,
+    });
     const rivalWallet = await rival.as.query(api.marketplace.wallet, { organizationId: rival.organizationId });
-    expect(rivalWallet.transactions.find((tx: { type: string }) => tx.type === "top_up")).toMatchObject({ method: "Play money", amountCents: 1_000_000 });
+    expect(rivalWallet.transactions.find((tx: { type: string }) => tx.type === "top_up")).toMatchObject({
+      method: "Play money",
+      amountCents: 1_000_000,
+    });
     // A used link can't pay twice.
     await expect(t.action(api.funding.checkout, { token: rivalToken, amountCents: 1_000_000 })).rejects.toThrow(/already been used/);
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_x");
@@ -3432,7 +3526,15 @@ describe("funding links and the lead feed", () => {
     const { signStripePayload, verifyStripeSignature } = await import("./lib/stripe");
     const event = JSON.stringify({
       type: "checkout.session.completed",
-      data: { object: { id: "cs_test_1", payment_status: "paid", amount_total: 1_000_000, payment_intent: "pi_1", customer_details: { name: "Pat Roofer", email: "pat@peak.example" } } },
+      data: {
+        object: {
+          id: "cs_test_1",
+          payment_status: "paid",
+          amount_total: 1_000_000,
+          payment_intent: "pi_1",
+          customer_details: { name: "Pat Roofer", email: "pat@peak.example" },
+        },
+      },
     });
     const nowSec = Math.floor(Date.now() / 1000);
     const post = async (body: string, signature: string) =>
@@ -3450,7 +3552,10 @@ describe("funding links and the lead feed", () => {
     expect(await t.query(api.funding.get, { token })).toMatchObject({ status: "confirmed", paid: true });
     const wallet = await roofer.as.query(api.marketplace.wallet, { organizationId: roofer.organizationId });
     expect(wallet.transactions.map((x) => [x.type, x.amountCents, x.method])).toEqual(
-      expect.arrayContaining([["top_up", 1_000_000, "Stripe"], ["bonus", 100000, undefined]]),
+      expect.arrayContaining([
+        ["top_up", 1_000_000, "Stripe"],
+        ["bonus", 100000, undefined],
+      ]),
     );
     expect(wallet).not.toHaveProperty("pendingFunding");
 
@@ -3490,7 +3595,11 @@ describe("funding links and the lead feed", () => {
     const nowSec = Math.floor(Date.now() / 1000);
     const paid = async (object: Record<string, unknown>) => {
       const body = JSON.stringify({ type: "checkout.session.completed", data: { object: { payment_status: "paid", ...object } } });
-      const res = await t.fetch("/stripe/webhook", { method: "POST", headers: { "stripe-signature": await signStripePayload("whsec_test", nowSec, body) }, body });
+      const res = await t.fetch("/stripe/webhook", {
+        method: "POST",
+        headers: { "stripe-signature": await signStripePayload("whsec_test", nowSec, body) },
+        body,
+      });
       return await res.json();
     };
     try {
@@ -3502,16 +3611,31 @@ describe("funding links and the lead feed", () => {
       await t.action(api.funding.checkout, { token, amountCents: 1_000_000 });
       expect(await t.query(api.funding.get, { token })).toMatchObject({ status: "submitted", amountCents: 1_000_000 });
       // They pay the first session. The balance gets the $5,000 Stripe charged, not the $10,000 the page shows, and no bonus.
-      expect(await paid({ id: "cs_two_1", amount_total: 500_000, metadata: { fundingRequestId: requestId } })).toMatchObject({ credited: true, amountCents: 500_000, bonusCents: 0 });
+      expect(await paid({ id: "cs_two_1", amount_total: 500_000, metadata: { fundingRequestId: requestId } })).toMatchObject({
+        credited: true,
+        amountCents: 500_000,
+        bonusCents: 0,
+      });
       expect(await balance(rival)).toBe(before + 500_000);
       // Stripe retries: nothing more.
-      expect(await paid({ id: "cs_two_1", amount_total: 500_000, metadata: { fundingRequestId: requestId } })).toMatchObject({ credited: false, reason: "already credited" });
+      expect(await paid({ id: "cs_two_1", amount_total: 500_000, metadata: { fundingRequestId: requestId } })).toMatchObject({
+        credited: false,
+        reason: "already credited",
+      });
       expect(await balance(rival)).toBe(before + 500_000);
       // They pay the second session too (it was open in another tab): that money is theirs as well, with its bonus.
-      expect(await paid({ id: "cs_two_2", amount_total: 1_000_000, metadata: { fundingRequestId: requestId } })).toMatchObject({ credited: true, amountCents: 1_000_000, bonusCents: 100_000 });
+      expect(await paid({ id: "cs_two_2", amount_total: 1_000_000, metadata: { fundingRequestId: requestId } })).toMatchObject({
+        credited: true,
+        amountCents: 1_000_000,
+        bonusCents: 100_000,
+      });
       expect(await balance(rival)).toBe(before + 500_000 + 1_000_000 + 100_000);
       // A session the link never knew about, found by the token Stripe carries as client_reference_id.
-      expect(await paid({ id: "cs_two_9", amount_total: 750_000, client_reference_id: token })).toMatchObject({ credited: true, amountCents: 750_000, bonusCents: 37_500 });
+      expect(await paid({ id: "cs_two_9", amount_total: 750_000, client_reference_id: token })).toMatchObject({
+        credited: true,
+        amountCents: 750_000,
+        bonusCents: 37_500,
+      });
       // A paid session that matches nothing is not swallowed: staff hear about it and credit it by hand.
       vi.useFakeTimers();
       try {
@@ -3526,7 +3650,11 @@ describe("funding links and the lead feed", () => {
       expect(emails[0].text).toContain("Record a payment");
       // Every payment is on record, once.
       const payments = await t.run(async (ctx) => (await ctx.db.query("fundingPayments").collect()).filter((p) => p.requestId === requestId));
-      expect(payments.map((p) => [p.sessionId, p.amountCents, p.bonusCents]).sort()).toEqual([["cs_two_1", 500_000, 0], ["cs_two_2", 1_000_000, 100_000], ["cs_two_9", 750_000, 37_500]]);
+      expect(payments.map((p) => [p.sessionId, p.amountCents, p.bonusCents]).sort()).toEqual([
+        ["cs_two_1", 500_000, 0],
+        ["cs_two_2", 1_000_000, 100_000],
+        ["cs_two_9", 750_000, 37_500],
+      ]);
     } finally {
       vi.unstubAllGlobals();
       vi.unstubAllEnvs();
@@ -3707,8 +3835,7 @@ describe("dropping prices and buy orders", () => {
         organizationId: who.organizationId,
       })
     ).balanceCents;
-  const sold = async (t: any, leadId: any) =>
-    t.run(async (ctx: any) => ctx.db.get(leadId));
+  const sold = async (t: any, leadId: any) => t.run(async (ctx: any) => ctx.db.get(leadId));
 
   test("the price drops on the schedule, and buy now pays what it is at the time", async () => {
     try {
@@ -3731,10 +3858,7 @@ describe("dropping prices and buy orders", () => {
       });
 
       vi.setSystemTime(new Date("2026-10-17T14:30:00.000Z"));
-      expect(
-        (await admin.as.query(api.marketplace.listInbox, {})).available[0]
-          .price,
-      ).toBe(27500);
+      expect((await admin.as.query(api.marketplace.listInbox, {})).available[0].price).toBe(27500);
       await roofer.as.mutation(api.marketplace.buy, {
         leadId,
         organizationId: roofer.organizationId,
@@ -3789,9 +3913,7 @@ describe("dropping prices and buy orders", () => {
           max,
         });
       await expect(place(roofer, 10)).rejects.toThrow(/won't go below \$220/);
-      await expect(place(roofer, 285)).rejects.toThrow(
-        /already \$285.00: buy it now/,
-      );
+      await expect(place(roofer, 285)).rejects.toThrow(/already \$285.00: buy it now/);
       const broke = await signUp(t, "broke@example.com");
       await expect(place(broke, 260)).rejects.toThrow(/Add funds/);
       await expect(
@@ -3810,10 +3932,7 @@ describe("dropping prices and buy orders", () => {
       expect(await place(rival, 270)).toMatchObject({
         fillsAt: "2026-10-17T15:00:00.000Z",
       });
-      expect(
-        (await admin.as.query(api.marketplace.listInbox, {})).available[0]
-          .openBids,
-      ).toBe(2);
+      expect((await admin.as.query(api.marketplace.listInbox, {})).available[0].openBids).toBe(2);
       const mine = await roofer.as.query(api.marketplace.feed, {
         organizationId: roofer.organizationId,
       });
@@ -3873,13 +3992,9 @@ describe("dropping prices and buy orders", () => {
         organizationId: roofer.organizationId,
         max: 260,
       });
-      await expect(
-        rival.as.mutation(api.marketplace.cancelBid, { bidId }),
-      ).rejects.toThrow(/access/);
+      await expect(rival.as.mutation(api.marketplace.cancelBid, { bidId })).rejects.toThrow(/access/);
       await roofer.as.mutation(api.marketplace.cancelBid, { bidId });
-      await expect(
-        roofer.as.mutation(api.marketplace.cancelBid, { bidId }),
-      ).rejects.toThrow(/already ended/);
+      await expect(roofer.as.mutation(api.marketplace.cancelBid, { bidId })).rejects.toThrow(/already ended/);
 
       await roofer.as.mutation(api.marketplace.placeBid, {
         leadId,
@@ -3893,9 +4008,7 @@ describe("dropping prices and buy orders", () => {
       const lost = await roofer.as.query(api.marketplace.bids, {
         organizationId: roofer.organizationId,
       });
-      expect(lost.find((b) => b.status === "lost")?.outcome).toMatch(
-        /bought it first/,
-      );
+      expect(lost.find((b) => b.status === "lost")?.outcome).toMatch(/bought it first/);
 
       // Spending the balance before the order fills loses it.
       const second = await admin.as.mutation(api.marketplace.createLead, {
@@ -3919,9 +4032,7 @@ describe("dropping prices and buy orders", () => {
       const after = await roofer.as.query(api.marketplace.bids, {
         organizationId: roofer.organizationId,
       });
-      expect(after.find((b) => b.leadId === second!._id)?.outcome).toMatch(
-        /Balance too low/,
-      );
+      expect(after.find((b) => b.leadId === second!._id)?.outcome).toMatch(/Balance too low/);
 
       // The admin sending a lead by hand also closes its orders.
       await admin.as.mutation(api.marketplace.recordTopUp, {
@@ -3994,36 +4105,22 @@ describe("standing bids and instant awards", () => {
         organizationId: who.organizationId,
       })
     ).balanceCents;
-  const standing = (
-    who: { as: any; organizationId: any },
-    county: string,
-    jobType: string,
-    amount: number,
-  ) =>
+  const standing = (who: { as: any; organizationId: any }, county: string, jobType: string, amount: number) =>
     who.as.mutation(api.bids.setStanding, {
       organizationId: who.organizationId,
       county,
       jobType,
       amount,
     });
-  const results = (who: { as: any; organizationId: any }) =>
-    who.as.query(api.bids.results, { organizationId: who.organizationId });
+  const results = (who: { as: any; organizationId: any }) => who.as.query(api.bids.results, { organizationId: who.organizationId });
 
   test("a standing bid needs a real county, a trade, $200 or more and a balance that covers it", async () => {
     const { admin, mio, soco, broke } = await market();
-    await expect(standing(mio, "Narnia", "landscaping", 250)).rejects.toThrow(
-      /isn't a Texas county/,
-    );
-    await expect(standing(mio, "Midland", "", 250)).rejects.toThrow(
-      /service type/,
-    );
-    await expect(standing(mio, "Midland", "landscaping", 150)).rejects.toThrow(
-      /start at \$200/,
-    );
+    await expect(standing(mio, "Narnia", "landscaping", 250)).rejects.toThrow(/isn't a Texas county/);
+    await expect(standing(mio, "Midland", "", 250)).rejects.toThrow(/service type/);
+    await expect(standing(mio, "Midland", "landscaping", 150)).rejects.toThrow(/start at \$200/);
     // No balance: the bid isn't placed at all.
-    await expect(standing(broke, "Midland", "landscaping", 250)).rejects.toThrow(
-      "Your balance is $0.00. Add funds to bid $250.00.",
-    );
+    await expect(standing(broke, "Midland", "landscaping", 250)).rejects.toThrow("Your balance is $0.00. Add funds to bid $250.00.");
     expect(
       await broke.as.query(api.bids.listStanding, {
         organizationId: broke.organizationId,
@@ -4044,35 +4141,19 @@ describe("standing bids and instant awards", () => {
     const mine = await mio.as.query(api.bids.listStanding, {
       organizationId: mio.organizationId,
     });
-    expect(
-      mine.map((b) => [
-        b.county,
-        b.jobType,
-        b.amountCents,
-        b.funded,
-        b.leading,
-        b.contested,
-      ]),
-    ).toEqual([
+    expect(mine.map((b) => [b.county, b.jobType, b.amountCents, b.funded, b.leading, b.contested])).toEqual([
       ["Ector", "landscaping", 22500, true, true, false],
       ["Midland", "landscaping", 27500, true, true, false],
     ]);
-    await expect(
-      soco.as.mutation(api.bids.removeStanding, { id: mine[0].id }),
-    ).rejects.toThrow(/access/);
+    await expect(soco.as.mutation(api.bids.removeStanding, { id: mine[0].id })).rejects.toThrow(/access/);
     await mio.as.mutation(api.bids.removeStanding, { id: mine[0].id });
     expect(
       await mio.as.query(api.bids.listStanding, {
         organizationId: mio.organizationId,
       }),
     ).toHaveLength(1);
-    const overview = await admin.as.query(
-      api.marketplace.companiesOverview,
-      {},
-    );
-    expect(
-      overview.find((c) => c.id === mio.organizationId)?.standingBids,
-    ).toEqual([
+    const overview = await admin.as.query(api.marketplace.companiesOverview, {});
+    expect(overview.find((c) => c.id === mio.organizationId)?.standingBids).toEqual([
       { county: "Midland", jobType: "landscaping", amountCents: 27500 },
     ]);
   });
@@ -4138,9 +4219,7 @@ describe("standing bids and instant awards", () => {
     const feed = await mio.as.query(api.marketplace.feed, {
       organizationId: mio.organizationId,
     });
-    expect(feed.map((l) => l.id).sort()).toEqual(
-      [roofing!._id, elsewhere!._id].sort(),
-    );
+    expect(feed.map((l) => l.id).sort()).toEqual([roofing!._id, elsewhere!._id].sort());
 
     // The Leads page's "new leads" count only counts leads in a company's trades:
     // mio's landscaping bid covers Gloria, not the roofing lead; soco lists
@@ -4243,9 +4322,7 @@ describe("standing bids and instant awards", () => {
       won: false,
       outcome: "Outbid: a higher bid won it",
     });
-    expect((await results(broke))[0].outcome).toMatch(
-      /Balance too low: \$400\.00 needed, \$201\.00 available/,
-    );
+    expect((await results(broke))[0].outcome).toMatch(/Balance too low: \$400\.00 needed, \$201\.00 available/);
 
     // Soco raises its standing bid and now leads; the next lead is Soco's.
     await standing(soco, "Ector", "painting", 300);
@@ -4276,16 +4353,13 @@ describe("standing bids and instant awards", () => {
   test("a raise past the balance is refused; a bid the balance fell below is paused and can still be lowered", async () => {
     const { admin, mio } = await market();
     const id = await standing(mio, "Midland", "landscaping", 900);
-    const mine = () =>
-      mio.as.query(api.bids.listStanding, { organizationId: mio.organizationId });
+    const mine = () => mio.as.query(api.bids.listStanding, { organizationId: mio.organizationId });
     expect((await mine()).find((b) => b.id === id)).toMatchObject({
       funded: true,
       leading: true,
     });
     // Raise past the $1,000 balance: refused, the bid is unchanged.
-    await expect(standing(mio, "Midland", "landscaping", 1200)).rejects.toThrow(
-      "Your balance is $1,000.00. Add funds to bid $1,200.00.",
-    );
+    await expect(standing(mio, "Midland", "landscaping", 1200)).rejects.toThrow("Your balance is $1,000.00. Add funds to bid $1,200.00.");
     expect((await mine()).find((b) => b.id === id)?.amountCents).toBe(90000);
     // Spending drops the balance to $800, under the $900 bid: it's kept but paused.
     const other = await admin.as.mutation(api.marketplace.createLead, {
@@ -4301,8 +4375,7 @@ describe("standing bids and instant awards", () => {
       leading: false,
     });
     // The wallet counts it as paused, for the Leads page's bid status line.
-    const summary = () =>
-      mio.as.query(api.marketplace.wallet, { organizationId: mio.organizationId });
+    const summary = () => mio.as.query(api.marketplace.wallet, { organizationId: mio.organizationId });
     expect(await summary()).toMatchObject({ standingBids: 1, pausedBids: 1 });
     // Lowering is always allowed, even while still above the balance...
     expect(await standing(mio, "Midland", "landscaping", 850)).toBe(id);
@@ -4322,9 +4395,7 @@ describe("standing bids and instant awards", () => {
 
   test("a bid is only for a listed trade; dropping the trade drops its bids and moves the next bid up", async () => {
     const { admin, mio, soco } = await market();
-    await expect(standing(soco, "Midland", "landscaping", 250)).rejects.toThrow(
-      "Add landscaping to your trades in Company settings first.",
-    );
+    await expect(standing(soco, "Midland", "landscaping", 250)).rejects.toThrow("Add landscaping to your trades in Company settings first.");
     await admin.as.mutation(api.marketplace.setCompanyTrades, {
       organizationId: soco.organizationId,
       leadTrades: ["painting", "landscaping"],
@@ -4332,8 +4403,7 @@ describe("standing bids and instant awards", () => {
     await standing(soco, "Midland", "landscaping", 300);
     await standing(mio, "Midland", "landscaping", 250);
     await standing(mio, "Ector", "painting", 250);
-    const mine = (who: { as: any; organizationId: any }) =>
-      who.as.query(api.bids.listStanding, { organizationId: who.organizationId });
+    const mine = (who: { as: any; organizationId: any }) => who.as.query(api.bids.listStanding, { organizationId: who.organizationId });
     expect((await mine(mio)).find((b) => b.jobType === "landscaping")).toMatchObject({ leading: false });
     // Soco drops landscaping from its own settings: its Midland bid goes, and Mio leads there.
     expect(
@@ -4376,13 +4446,8 @@ describe("standing bids and instant awards", () => {
     const lead = await admin.as.mutation(api.marketplace.createLead, {
       data: { name: "Dana Reyes", city: "Midland", jobType: "roofing", notes: "Hail damage" },
     });
-    await expect(
-      mio.as.mutation(api.marketplace.verifyLead, { id: lead!._id, note: "x" }),
-    ).rejects.toThrow(/staff/);
-    const inFeed = async () =>
-      (
-        await mio.as.query(api.marketplace.feed, { organizationId: mio.organizationId })
-      ).find((l) => l.id === lead!._id);
+    await expect(mio.as.mutation(api.marketplace.verifyLead, { id: lead!._id, note: "x" })).rejects.toThrow(/staff/);
+    const inFeed = async () => (await mio.as.query(api.marketplace.feed, { organizationId: mio.organizationId })).find((l) => l.id === lead!._id);
     expect((await inFeed())?.verified).toBeUndefined();
     const confirmed = await admin.as.mutation(api.marketplace.verifyLead, {
       id: lead!._id,
@@ -4393,17 +4458,13 @@ describe("standing bids and instant awards", () => {
     const at = confirmed!.verified!.at;
     // Companies see the date and the line, not who called.
     expect((await inFeed())?.verified).toEqual({ at, note });
-    expect(
-      (await admin.as.query(api.marketplace.listInbox, {})).available.find((l) => l._id === lead!._id)?.verified?.note,
-    ).toBe(note);
+    expect((await admin.as.query(api.marketplace.listInbox, {})).available.find((l) => l._id === lead!._id)?.verified?.note).toBe(note);
     // Bought: the confirmation travels with the lead into the company's Leads.
     await mio.as.mutation(api.marketplace.buy, { leadId: lead!._id, organizationId: mio.organizationId });
     const mine = await mio.as.query(api.leads.list, { organizationId: mio.organizationId });
     expect(mine.find((l) => l.name === "Dana Reyes")?.verified).toEqual({ at, note });
     // Once sold it can't be confirmed again.
-    await expect(
-      admin.as.mutation(api.marketplace.verifyLead, { id: lead!._id }),
-    ).rejects.toThrow(/for sale or in the Vault/);
+    await expect(admin.as.mutation(api.marketplace.verifyLead, { id: lead!._id })).rejects.toThrow(/for sale or in the Vault/);
   });
 
   test("Midland's permits land in the Vault for companies on the plan, mapped to their trades", async () => {
@@ -4419,7 +4480,18 @@ describe("standing bids and instant awards", () => {
     const now = Date.now();
     const applied = (daysAgo: number) => now - daysAgo * day;
     const feature = (PermitNumber: string, Name: string, PermitWorkClass: string, daysAgo: number, extra: Record<string, unknown> = {}) => ({
-      attributes: { PermitNumber, PermitStatus: "Issued", Name, PermitWorkClass, Description: `${Name} permit`, Address: "2705 HOWDY DR", ApplyDate: applied(daysAgo), DateIssued: applied(daysAgo), URL: null, ...extra },
+      attributes: {
+        PermitNumber,
+        PermitStatus: "Issued",
+        Name,
+        PermitWorkClass,
+        Description: `${Name} permit`,
+        Address: "2705 HOWDY DR",
+        ApplyDate: applied(daysAgo),
+        DateIssued: applied(daysAgo),
+        URL: null,
+        ...extra,
+      },
       geometry: { x: -102.07, y: 32.0 },
     });
     const rows = rowsToPermits([
@@ -4433,7 +4505,10 @@ describe("standing bids and instant awards", () => {
     // Upserting is idempotent; a changed status is an update.
     expect(await t.mutation(internal.permits.upsert, { source: "midland", rows })).toEqual({ added: 1, updated: 0 });
     expect(await t.mutation(internal.permits.upsert, { source: "midland", rows })).toEqual({ added: 0, updated: 0 });
-    expect(await t.mutation(internal.permits.upsert, { source: "midland", rows: [{ ...rows[0], status: "Finaled" }] })).toEqual({ added: 0, updated: 1 });
+    expect(await t.mutation(internal.permits.upsert, { source: "midland", rows: [{ ...rows[0], status: "Finaled" }] })).toEqual({
+      added: 0,
+      updated: 1,
+    });
     await t.mutation(internal.permits.upsert, {
       source: "midland",
       rows: rowsToPermits([
@@ -4462,10 +4537,8 @@ describe("standing bids and instant awards", () => {
 
   test("a company hears it was outbid once, until it looks; leading again or its own moves clear it", async () => {
     const { admin, mio, soco } = await market();
-    const wallet = (who: { as: any; organizationId: any }) =>
-      who.as.query(api.marketplace.wallet, { organizationId: who.organizationId });
-    const mine = (who: { as: any; organizationId: any }) =>
-      who.as.query(api.bids.listStanding, { organizationId: who.organizationId });
+    const wallet = (who: { as: any; organizationId: any }) => who.as.query(api.marketplace.wallet, { organizationId: who.organizationId });
+    const mine = (who: { as: any; organizationId: any }) => who.as.query(api.bids.listStanding, { organizationId: who.organizationId });
     await standing(mio, "Midland", "landscaping", 250);
     expect((await wallet(mio)).outbidBids).toBe(0);
     // Soco bids higher: Mio is told, Soco (who made the move) isn't.
@@ -4627,8 +4700,7 @@ describe("older leads and the monthly plan", () => {
     who.as.query(api.marketplace.olderLeads, {
       organizationId: who.organizationId,
     });
-  const status = async (t: any, leadId: any) =>
-    (await t.run(async (ctx: any) => ctx.db.get(leadId))).status;
+  const status = async (t: any, leadId: any) => (await t.run(async (ctx: any) => ctx.db.get(leadId))).status;
 
   test("a lead nobody buys moves to the Vault after a week and stays there; nothing is archived", async () => {
     try {
@@ -4685,9 +4757,7 @@ describe("older leads and the monthly plan", () => {
         restored: 1,
       });
       expect(await status(t, leadId)).toBe("older");
-      expect(
-        (await admin.as.query(api.marketplace.listInbox, {})).older.map((l) => l.name),
-      ).toEqual(["Jane Cole"]);
+      expect((await admin.as.query(api.marketplace.listInbox, {})).older.map((l) => l.name)).toEqual(["Jane Cole"]);
     } finally {
       vi.useRealTimers();
     }
@@ -4730,7 +4800,9 @@ describe("older leads and the monthly plan", () => {
         ["Early Roofing", true],
         ["Late Roofing", false],
       ]);
-      const listed = await admin.as.mutation(api.marketplace.createLead, { data: { name: "Hail Roof", phone: "4325550142", city: "Midland", jobType: "roofing" } });
+      const listed = await admin.as.mutation(api.marketplace.createLead, {
+        data: { name: "Hail Roof", phone: "4325550142", city: "Midland", jobType: "roofing" },
+      });
       expect((await t.run(async (ctx) => ctx.db.get(listed!._id)))?.assignedOrganizationId).toBe(early.organizationId);
     } finally {
       vi.useRealTimers();
@@ -4999,13 +5071,8 @@ describe("older leads and the monthly plan", () => {
           monthlyCents: 0,
         }),
       ).toMatchObject({ status: "active", active: true });
-      const companies = await admin.as.query(
-        api.marketplace.companiesOverview,
-        {},
-      );
-      expect(
-        companies.find((c) => c.id === rival.organizationId)?.plan,
-      ).toMatchObject({ status: "active", monthlyCents: 0 });
+      const companies = await admin.as.query(api.marketplace.companiesOverview, {});
+      expect(companies.find((c) => c.id === rival.organizationId)?.plan).toMatchObject({ status: "active", monthlyCents: 0 });
       vi.setSystemTime(new Date("2027-02-03T12:00:00.000Z"));
       expect(await t.mutation(internal.marketplace.chargePlans, {})).toEqual({
         charged: 1,
@@ -5051,9 +5118,7 @@ describe("working a lead from the card", () => {
       note: "left VM",
     });
     expect(noted).toMatchObject({ contacts: 1, texts: 1 });
-    expect(noted!.notes).toMatch(
-      /^What do you need\? Irrigation\n[A-Z][a-z]{2} \d{1,2}: left VM$/,
-    );
+    expect(noted!.notes).toMatch(/^What do you need\? Irrigation\n[A-Z][a-z]{2} \d{1,2}: left VM$/);
     await expect(
       owner.as.mutation(api.leads.logContact, {
         id: lead!._id,
@@ -5123,7 +5188,12 @@ describe("landing page applications", () => {
       await ctx.db.patch(ana.organizationId, { name: "Desert Air HVAC" });
     });
     const sent = await ana.as.mutation(api.applications.submit, {
-      companyName: "Basin Paint Co.", contactName: "Ana Ruiz", email: "ana@desertair.example", phone: "432-555-0199", trades: ["painting"], county: "Midland",
+      companyName: "Basin Paint Co.",
+      contactName: "Ana Ruiz",
+      email: "ana@desertair.example",
+      phone: "432-555-0199",
+      trades: ["painting"],
+      county: "Midland",
     });
     expect(sent.duplicate).toBe(false);
     // Ops sees who sent it and what they already run.
@@ -5132,10 +5202,13 @@ describe("landing page applications", () => {
     expect(await t.run(async (ctx) => (await ctx.db.get(row.id as Id<"companyApplications">))?.appliedBy)).toBeDefined();
     // Approved, it is in her company list at once, beside the first; no new sign-up needed.
     const emails: Array<{ subject: string; text: string }> = [];
-    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
-      emails.push(JSON.parse(init.body as string));
-      return { ok: true, status: 200, json: async () => ({ id: "em_1" }) };
-    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        emails.push(JSON.parse(init.body as string));
+        return { ok: true, status: 200, json: async () => ({ id: "em_1" }) };
+      }),
+    );
     vi.stubEnv("RESEND_API_KEY", "re_test");
     vi.stubEnv("SITE_URL", "https://app.example");
     vi.useFakeTimers();
@@ -5150,7 +5223,9 @@ describe("landing page applications", () => {
     const mine = await ana.as.query(api.organizations.list, {});
     expect(mine.map((o) => o.name).sort()).toEqual(["Basin Paint Co.", "Desert Air HVAC"]);
     const approved = emails.find((e) => e.subject === "Basin Paint Co. is approved on Webb Leads")!;
-    expect(approved.text).toContain("It's already in your Webb Leads account: sign in at https://app.example as usual and pick Basin Paint Co. in the company list.");
+    expect(approved.text).toContain(
+      "It's already in your Webb Leads account: sign in at https://app.example as usual and pick Basin Paint Co. in the company list.",
+    );
     expect(approved.text).not.toContain("Create an account");
   });
 
@@ -5168,7 +5243,14 @@ describe("landing page applications", () => {
     expect(options.counties.slice(0, 2)).toEqual(["Midland", "Ector"]);
     expect(options.westTexas).toContain("Howard");
 
-    const form = { companyName: "Basin Paint Co.", contactName: "Ana Ruiz", email: "Ana@BasinPaint.example", phone: "(432) 555-0199", trades: ["painting", "bogus"], county: "Midland County" };
+    const form = {
+      companyName: "Basin Paint Co.",
+      contactName: "Ana Ruiz",
+      email: "Ana@BasinPaint.example",
+      phone: "(432) 555-0199",
+      trades: ["painting", "bogus"],
+      county: "Midland County",
+    };
     await expect(t.mutation(api.applications.submit, { ...form, phone: "555" })).rejects.toThrow(/10-digit/);
     await expect(t.mutation(api.applications.submit, { ...form, county: "Nowhere" })).rejects.toThrow(/Texas county/);
     await expect(t.mutation(api.applications.submit, { ...form, trades: ["bogus"] })).rejects.toThrow(/one trade/);
@@ -5180,7 +5262,14 @@ describe("landing page applications", () => {
 
     const waiting = await staff.as.query(api.applications.list, {});
     expect(waiting).toHaveLength(1);
-    expect(waiting[0]).toMatchObject({ companyName: "Basin Paint Co.", email: "ana@basinpaint.example", phone: "4325550199", trades: ["painting"], county: "Midland", status: "new" });
+    expect(waiting[0]).toMatchObject({
+      companyName: "Basin Paint Co.",
+      email: "ana@basinpaint.example",
+      phone: "4325550199",
+      trades: ["painting"],
+      county: "Midland",
+      status: "new",
+    });
     await expect(t.query(api.applications.list, {})).rejects.toThrow(/signed in/);
 
     // Only the owner decides. Approving emails the applicant: sign in with that email and the company is waiting.
@@ -5213,7 +5302,9 @@ describe("landing page applications", () => {
     const toAna = emails.find((e) => e.subject.startsWith("Basin Paint Co. is approved"))!;
     expect(toAna.to).toEqual(["ana@basinpaint.example"]);
     expect(toAna.text).toContain("Ana, Basin Paint Co. is approved to buy painting leads in Midland County.");
-    expect(toAna.text).toContain("Go to https://app.example and sign in with this address (ana@basinpaint.example): Continue with Google, or Create an account with it and type the code we email you.");
+    expect(toAna.text).toContain(
+      "Go to https://app.example and sign in with this address (ana@basinpaint.example): Continue with Google, or Create an account with it and type the code we email you.",
+    );
     const company = await t.run((ctx) => ctx.db.get(organizationId));
     expect(company).toMatchObject({ name: "Basin Paint Co.", phone: "4325550199", email: "ana@basinpaint.example", leadTrades: ["painting"] });
     const invite = await t.run(async (ctx) => (await ctx.db.query("companyInvites").collect()).find((i) => i.organizationId === organizationId));

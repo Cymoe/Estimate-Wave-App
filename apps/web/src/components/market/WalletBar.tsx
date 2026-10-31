@@ -6,6 +6,7 @@ import { Gavel, X } from 'lucide-react';
 import { fundingAPI } from '../../lib/api';
 import { useWallet } from '../../lib/live';
 import { WalletHistory, money, planLabel, type PlanSummary } from './wallet';
+import { prettyPhone } from '../../../convex/lib/phone';
 import { FUNDING_TIERS, MIN_FUNDING_CENTS } from '../../../convex/lib/funding';
 
 /** "$5,000": whole dollars, for the offer line. */
@@ -26,13 +27,28 @@ export interface WalletSummary {
   /** Bids another company took the lead from since the company last looked at its bids. */
   outbidBids?: number;
   leadTrades?: string[];
-  /** Whether an owner or admin has a mobile for lead alerts. */
+  /** Whether a lead alert text can reach anyone: an owner's or admin's mobile, else the company phone. */
   hasMobile?: boolean;
+  /** Where the alert text would go, and who is looking. */
+  alerts?: {
+    mobiles: number;
+    companyPhone?: string;
+    viewerRole: 'owner' | 'admin' | 'member' | 'staff';
+    viewerHasMobile: boolean;
+  };
   plan?: PlanSummary | null;
   olderLeads?: number;
   /** No Stripe key on the deployment: Add funds loads play money. */
   playMoney?: boolean;
-  transactions: Array<{ id: string; type: string; amountCents: number; balanceAfterCents: number; method?: string; note?: string; createdAt: string }>;
+  transactions: Array<{
+    id: string;
+    type: string;
+    amountCents: number;
+    balanceAfterCents: number;
+    method?: string;
+    note?: string;
+    createdAt: string;
+  }>;
 }
 
 /**
@@ -62,8 +78,7 @@ export const WALLET_CHANGED = 'fieldquote:wallet-changed';
 export const notifyWalletChanged = () => window.dispatchEvent(new Event(WALLET_CHANGED));
 
 /** How many leads the balance covers, at the company's typical lead price. */
-export const leadsCovered = (wallet: WalletSummary) =>
-  wallet.typicalLeadCents > 0 ? Math.floor(wallet.balanceCents / wallet.typicalLeadCents) : 0;
+export const leadsCovered = (wallet: WalletSummary) => (wallet.typicalLeadCents > 0 ? Math.floor(wallet.balanceCents / wallet.typicalLeadCents) : 0);
 
 /**
  * What the company's bids are doing, in one line with one next step. Leads
@@ -73,7 +88,7 @@ export const leadsCovered = (wallet: WalletSummary) =>
 export function bidStatus(wallet: WalletSummary): {
   tone: 'good' | 'warn';
   text: string;
-  action: 'fund' | 'bids' | 'trades' | 'mobile';
+  action: 'fund' | 'bids' | 'trades' | 'mobile' | 'company' | 'none';
   /** The Bids link's words when it isn't "Set bids". */
   label?: string;
   /** A second, quieter link to the Bids page. */
@@ -82,7 +97,12 @@ export function bidStatus(wallet: WalletSummary): {
   const bids = wallet.standingBids ?? 0;
   // Trades come first: they decide which leads a company can win at all.
   if (bids === 0 && Array.isArray(wallet.leadTrades) && wallet.leadTrades.length === 0) {
-    return { tone: 'warn', text: 'Pick your trades first: they decide which leads you can win and what your Price Book shows.', action: 'trades', label: 'Pick trades' };
+    return {
+      tone: 'warn',
+      text: 'Pick your trades first: they decide which leads you can win and what your Price Book shows.',
+      action: 'trades',
+      label: 'Pick trades',
+    };
   }
   const paused = Math.min(wallet.pausedBids ?? 0, bids);
   const balance = wallet.balanceCents;
@@ -105,9 +125,17 @@ export function bidStatus(wallet: WalletSummary): {
           label: 'See bids',
         }
       : null;
-  const why = balance <= 0 ? `Your balance is ${money(0)}, so ${bids === 1 ? 'it' : 'they'} can't win leads.` : `${bids === 1 ? "It's" : "They're"} higher than your ${money(balance)} balance, so ${bids === 1 ? 'it' : 'they'} can't win leads.`;
+  const why =
+    balance <= 0
+      ? `Your balance is ${money(0)}, so ${bids === 1 ? 'it' : 'they'} can't win leads.`
+      : `${bids === 1 ? "It's" : "They're"} higher than your ${money(balance)} balance, so ${bids === 1 ? 'it' : 'they'} can't win leads.`;
   if (paused === bids) {
-    return { tone: 'warn', text: `${bids === 1 ? 'Your bid is' : 'Your bids are'} paused. ${why} Add funds to put ${bids === 1 ? 'it' : 'them'} back in.`, action: 'fund', alsoBids: true };
+    return {
+      tone: 'warn',
+      text: `${bids === 1 ? 'Your bid is' : 'Your bids are'} paused. ${why} Add funds to put ${bids === 1 ? 'it' : 'them'} back in.`,
+      action: 'fund',
+      alsoBids: true,
+    };
   }
   if (paused > 0) {
     return {
@@ -123,10 +151,53 @@ export function bidStatus(wallet: WalletSummary): {
     return { tone: 'warn', text: `Your bids are live. Your balance ${left}. Add funds so you don't miss any.`, action: 'fund' };
   }
   // Bids are live and funded: the last thing is making sure the alert reaches a phone.
-  if (wallet.hasMobile === false) {
-    return { tone: 'warn', text: 'Your bids are live. Add your mobile so lead alerts reach you by text the moment you win one.', action: 'mobile', label: 'Add your mobile' };
+  const a = wallet.alerts;
+  if (!a) {
+    if (wallet.hasMobile === false)
+      return {
+        tone: 'warn',
+        text: 'Your bids are live. Add your mobile so lead alerts reach you by text the moment you win one.',
+        action: 'mobile',
+        label: 'Add your mobile',
+      };
+    return null;
   }
-  return null;
+  if (a.mobiles > 0) return null;
+  const line = a.companyPhone ? prettyPhone(a.companyPhone) : null;
+  if (a.viewerRole === 'owner' || a.viewerRole === 'admin') {
+    // Their own mobile is what the alert needs; the company line is only a stand-in.
+    return line
+      ? {
+          tone: 'warn',
+          text: `Your bids are live. Lead texts go to the company line ${line}. Add your mobile to get them on your phone too.`,
+          action: 'mobile',
+          label: 'Add your mobile',
+        }
+      : {
+          tone: 'warn',
+          text: 'Your bids are live. Add your mobile so lead alerts reach you by text the moment you win one.',
+          action: 'mobile',
+          label: 'Add your mobile',
+        };
+  }
+  if (a.viewerRole === 'staff') {
+    // Looking in from Webb Leads: their own mobile isn't this company's, so say where the texts go instead.
+    return line
+      ? { tone: 'good', text: `Lead texts for this company go to its line ${line}; no owner has added a mobile yet.`, action: 'none' }
+      : {
+          tone: 'warn',
+          text: "Nobody at this company can get lead texts yet: no owner or admin has a mobile and there's no company phone.",
+          action: 'company',
+          label: 'Company settings',
+        };
+  }
+  return {
+    tone: 'warn',
+    text: line
+      ? `Lead texts go to the company line ${line}; none of the owners or admins has a mobile yet.`
+      : "Lead texts go to the company's owners and admins, and none has a mobile yet.",
+    action: 'none',
+  };
 }
 
 /**
@@ -204,7 +275,11 @@ export function BidStatusLine({
       <Gavel className="w-4 h-4 flex-shrink-0" />
       <span>{status.text}</span>
       {status.action === 'fund' ? (
-        <button type="button" onClick={onAddFunds} className={`underline underline-offset-2 ${status.tone === 'warn' ? 'text-amber-100' : 'text-white'}`}>
+        <button
+          type="button"
+          onClick={onAddFunds}
+          className={`underline underline-offset-2 ${status.tone === 'warn' ? 'text-amber-100' : 'text-white'}`}
+        >
           Add funds
         </button>
       ) : status.action === 'trades' ? (
@@ -215,7 +290,11 @@ export function BidStatusLine({
         <Link to="/settings/organization?tab=notifications" className="underline underline-offset-2 text-amber-100">
           {status.label}
         </Link>
-      ) : (
+      ) : status.action === 'company' ? (
+        <Link to="/settings/organization?tab=general" className="underline underline-offset-2 text-amber-100">
+          {status.label}
+        </Link>
+      ) : status.action === 'none' ? null : (
         <Link to="/bids" className={`underline underline-offset-2 ${status.tone === 'warn' ? 'text-amber-100' : 'text-white'}`}>
           {status.label ?? 'Set bids'}
         </Link>
@@ -230,7 +309,17 @@ export function BidStatusLine({
 }
 
 /** The Lead balance panel that slides in from the right: balance, what leads turned into, Add funds and history. */
-export function WalletDrawer({ wallet, onClose: closeNow, onAddFunds, error }: { wallet: WalletSummary; onClose: () => void; onAddFunds: () => void; error?: string | null }) {
+export function WalletDrawer({
+  wallet,
+  onClose: closeNow,
+  onAddFunds,
+  error,
+}: {
+  wallet: WalletSummary;
+  onClose: () => void;
+  onAddFunds: () => void;
+  error?: string | null;
+}) {
   // Slides in and out like the estimate and lead drawers.
   const [shown, setShown] = useState(false);
   useEffect(() => {
@@ -255,7 +344,10 @@ export function WalletDrawer({ wallet, onClose: closeNow, onAddFunds, error }: {
   const covered = leadsCovered(wallet);
   return createPortal(
     <>
-      <div className={`fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity z-[10000] ${shown ? 'opacity-100' : 'opacity-0'}`} onClick={close} />
+      <div
+        className={`fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity z-[10000] ${shown ? 'opacity-100' : 'opacity-0'}`}
+        onClick={close}
+      />
       <aside
         role="dialog"
         aria-label="Lead balance"
@@ -286,7 +378,9 @@ export function WalletDrawer({ wallet, onClose: closeNow, onAddFunds, error }: {
               <p className="text-xs text-gray-500">Pro plan</p>
               <p className="text-lg text-white">{planLabel(wallet.plan)}</p>
               <p className="text-xs text-gray-500">
-                {wallet.plan?.status === 'active' ? `${money(wallet.plan.monthlyCents)} on ${new Date(wallet.plan.nextChargeAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : 'Tap for details'}
+                {wallet.plan?.status === 'active'
+                  ? `${money(wallet.plan.monthlyCents)} on ${new Date(wallet.plan.nextChargeAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+                  : 'Tap for details'}
               </p>
             </Link>
           </section>

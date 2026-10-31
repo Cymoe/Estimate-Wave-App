@@ -8,6 +8,7 @@ import { dollars } from "./lib/wallet";
 import { tellStaff } from "./notify";
 import { badLeadLine } from "./lib/support";
 import { sendEmail, type SendResult } from "./lib/email";
+import { usMobile } from "./lib/phone";
 
 // Other modules import sendEmail from here; it lives in lib/email.ts.
 export { sendEmail };
@@ -33,7 +34,8 @@ export const HOURS = { open: 8, close: 20 };
 
 export const channel = v.union(v.literal("email"), v.literal("sms"), v.literal("homeowner_sms"));
 
-export const siteUrl = () => (process.env.SITE_URL ?? "https://estimate-wave-app-git-fieldquote-convex-cymoes-projects.vercel.app").replace(/\/$/, "");
+export const siteUrl = () =>
+  (process.env.SITE_URL ?? "https://estimate-wave-app-git-fieldquote-convex-cymoes-projects.vercel.app").replace(/\/$/, "");
 
 export const leadLink = (orgLeadId: Id<"leads">, base = siteUrl()) => `${base}/leads?lead=${orgLeadId}&ack=1`;
 
@@ -91,20 +93,12 @@ export function businessMinutesBetween(startMs: number, endMs: number): number {
 
 /** Whether a Central-time moment is inside the hours the clock runs. */
 export function withinHours(iso: string): boolean {
-  const hour = Number(
-    new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: "America/Chicago" }).format(new Date(iso)),
-  );
+  const hour = Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: "America/Chicago" }).format(new Date(iso)));
   return hour >= HOURS.open && hour < HOURS.close;
 }
 
 /** Everyone and everything an alert needs, in one read. */
 /** A US number as +1 and ten digits, or undefined when it isn't one. */
-function usMobile(raw: string | undefined): string | undefined {
-  let digits = (raw ?? "").replace(/\D/g, "");
-  if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1);
-  return digits.length === 10 ? `+1${digits}` : undefined;
-}
-
 /** The text to the homeowner once a company has their request, in their language. */
 export function homeownerText(r: { lead: { language?: string }; tradeName: string; company: { name: string; phone?: string } }) {
   return MESSAGES[langOf(r.lead)].matched(r.tradeName.toLowerCase(), r.company.name, r.company.phone);
@@ -215,7 +209,10 @@ export const record = internalMutation({
         `The alert to ${who} failed: ${failed[0].error ?? "unknown error"}`,
         [
           `${lead?.name ?? "A lead"} was sold to ${who}, but ${failed.length === 1 ? "an alert" : `${failed.length} alerts`} did not go out:`,
-          ...failed.map((r) => `${r.channel === "email" ? "Email" : r.channel === "sms" ? "Text" : "Homeowner text"} to ${r.to || "nobody"}: ${r.error ?? "failed"}`),
+          ...failed.map(
+            (r) =>
+              `${r.channel === "email" ? "Email" : r.channel === "sms" ? "Text" : "Homeowner text"} to ${r.to || "nobody"}: ${r.error ?? "failed"}`,
+          ),
           `Call them${company?.phone ? ` on ${company.phone}` : ""} so they know they have it, then Resend alerts from the Sold tab.`,
         ],
         "/ops?tab=sold",
@@ -307,7 +304,8 @@ export const sendLeadAlerts = internalAction({
     if (r.emails.length === 0) rows.push({ ...base, channel: "email", to: "", status: "skipped", error: "The company has no email on file" });
     else rows.push({ ...base, channel: "email", to: r.emails.join(", "), ...(await sendEmail(r.emails, emailBody(r, link))) });
 
-    if (r.mobiles.length === 0) rows.push({ ...base, channel: "sms", to: "", status: "skipped", error: "Nobody at the company has a mobile for alerts" });
+    if (r.mobiles.length === 0)
+      rows.push({ ...base, channel: "sms", to: "", status: "skipped", error: "Nobody at the company has a mobile for alerts" });
     else
       for (const mobile of r.mobiles)
         rows.push({ ...base, channel: "sms", to: mobile, ...(await sendSms(mobile, smsText(r, link, r.mobileAssistants[mobile] ?? []))) });

@@ -2,11 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { CheckCircle, Mail, Smartphone } from 'lucide-react';
 import { organizationsAPI, usersAPI } from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { prettyPhone as pretty } from '../../../convex/lib/phone';
 
 const input =
   'w-full bg-[#1A1A1A] border border-[#333] rounded px-3 py-2 text-white text-base md:text-sm placeholder-gray-500 focus:outline-none focus:border-[#336699]';
-const button =
-  'inline-flex items-center gap-2 px-4 py-2 rounded bg-[#336699] text-white text-sm font-medium disabled:opacity-50';
+const button = 'inline-flex items-center gap-2 px-4 py-2 rounded bg-[#336699] text-white text-sm font-medium disabled:opacity-50';
 
 /**
  * Where a new lead is sent the moment Webb Leads awards it: the company's
@@ -27,11 +27,6 @@ export const NotificationsSettings: React.FC<{ organizationId: string }> = ({ or
       .catch(() => {});
   }, [organizationId]);
   const userMobile = (user as { mobile?: string } | null)?.mobile;
-  // Stored as +14325550177; shown the way people write it.
-  const pretty = (stored?: string | null) => {
-    const d = (stored ?? '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
-    return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : stored ?? '';
-  };
   useEffect(() => {
     setMobile(pretty(userMobile));
   }, [userMobile]);
@@ -73,8 +68,8 @@ export const NotificationsSettings: React.FC<{ organizationId: string }> = ({ or
   return (
     <div className="space-y-6" data-testid="notifications-settings">
       <p className="text-sm text-gray-400">
-        When Webb Leads awards you a lead, the full lead goes to your company email right away and a text with the link goes to each
-        owner or admin who has a mobile here. Open the link and tap “Got it” so our team knows you have it.
+        When Webb Leads awards you a lead, the full lead goes to your company email right away and a text with the link goes to each owner or admin
+        who has a mobile here. Open the link and tap “Got it” so our team knows you have it.
       </p>
       <form onSubmit={saveEmail}>
         <label className="block text-xs text-gray-400 mb-1">
@@ -83,7 +78,14 @@ export const NotificationsSettings: React.FC<{ organizationId: string }> = ({ or
           </span>
         </label>
         <div className="flex gap-2">
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="office@yourcompany.com" className={input} aria-label="Company email" />
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="office@yourcompany.com"
+            className={input}
+            aria-label="Company email"
+          />
           <button type="submit" disabled={busy} className={button}>
             Save
           </button>
@@ -101,7 +103,14 @@ export const NotificationsSettings: React.FC<{ organizationId: string }> = ({ or
           </span>
         </label>
         <div className="flex gap-2">
-          <input type="tel" value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="(432) 555-0100" className={input} aria-label="Your mobile" />
+          <input
+            type="tel"
+            value={mobile}
+            onChange={(e) => setMobile(e.target.value)}
+            placeholder="(432) 555-0100"
+            className={input}
+            aria-label="Your mobile"
+          />
           <button type="submit" disabled={busy} className={button}>
             Save
           </button>
