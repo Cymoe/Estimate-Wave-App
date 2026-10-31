@@ -39,6 +39,7 @@ interface ClientEstimate {
     completionDate?: string;
     paymentTerms: string;
     warrantyPeriod: string;
+    extraTerms?: string;
   };
   locked_at?: string;
   /** What's signed besides the estimate: the agreement and any attachments. */
@@ -162,6 +163,7 @@ function agreementFor(estimate: ClientEstimate): ContractData {
     completionDate: terms?.completionDate ?? '',
     paymentTerms: terms?.paymentTerms ?? '',
     warrantyPeriod: terms?.warrantyPeriod ?? '',
+    extraTerms: terms?.extraTerms,
     lockedAt: estimate.locked_at,
     agreedDesign: estimate.design && { url: estimate.design.url, name: estimate.design.name, type: estimate.design.contentType },
   };

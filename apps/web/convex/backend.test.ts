@@ -2546,7 +2546,7 @@ describe("client link", () => {
     const token = await as.mutation(api.estimates.shareLink, {
       id: estimate!._id,
     });
-    return { t, as, id: estimate!._id, token };
+    return { t, as, id: estimate!._id, token, organizationId };
   }
 
   test("each estimate gets one secret link, and the token can't be set directly", async () => {
@@ -2623,6 +2623,41 @@ describe("client link", () => {
       propertyAddress: "12 Elm St",
     });
     expect(view!.lockedAt).toBeUndefined();
+  });
+
+  test("the company's own wording fills the agreement, an estimate can override it, and signing freezes it", async () => {
+    const { t, as, id, token, organizationId } = await sharedEstimate();
+    await as.mutation(api.organizations.setAgreement, {
+      id: organizationId,
+      paymentTerms: "30% deposit, 70% on completion",
+      warranty: "2 years",
+      extraTerms: "  Driveway access is needed on work days.  ",
+    });
+    let view = await t.query(api.publicEstimates.get, { token });
+    expect(view!.agreement).toMatchObject({
+      paymentTerms: "30% deposit, 70% on completion",
+      warrantyPeriod: "2 years",
+      extraTerms: "Driveway access is needed on work days.",
+    });
+    // The estimate's own terms win over the company's.
+    await as.mutation(api.estimates.update, { id, data: { contractTerms: { paymentTerms: "Net 15" } } });
+    view = await t.query(api.publicEstimates.get, { token });
+    expect(view!.agreement).toMatchObject({ paymentTerms: "Net 15", warrantyPeriod: "2 years" });
+    // Signing keeps the wording as it read; the company changing its defaults later doesn't touch it.
+    await t.mutation(api.publicEstimates.accept, { token, signature: "data:image/png;base64,sig" });
+    await as.mutation(api.organizations.setAgreement, { id: organizationId, warranty: "6 months", extraTerms: "" });
+    view = await t.query(api.publicEstimates.get, { token });
+    expect(view!.agreement).toMatchObject({
+      paymentTerms: "Net 15",
+      warrantyPeriod: "2 years",
+      extraTerms: "Driveway access is needed on work days.",
+    });
+    // Blank company wording falls back to the defaults for the next estimate.
+    const fresh = await sharedEstimate();
+    expect((await fresh.t.query(api.publicEstimates.get, { token: fresh.token }))!.agreement).toMatchObject({
+      paymentTerms: "50% deposit upon signing, 50% upon completion",
+      warrantyPeriod: "1 year",
+    });
   });
 
   test("after signing, the link shows what was signed, not later edits", async () => {

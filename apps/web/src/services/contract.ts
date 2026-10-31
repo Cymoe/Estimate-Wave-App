@@ -23,6 +23,8 @@ export interface ContractData {
   completionDate: string;
   paymentTerms: string;
   warrantyPeriod: string;
+  /** The company's own clauses, shown under Additional terms. */
+  extraTerms?: string;
   /** When the estimate was accepted and this contract stopped following it. */
   lockedAt?: string;
   /** The agreed design (image or PDF) attached to the estimate. */
@@ -37,6 +39,7 @@ export interface ContractTerms {
   warrantyPeriod?: string;
   workDescription?: string;
   propertyAddress?: string;
+  extraTerms?: string;
 }
 
 /** The contractor's details, from the organization. */
@@ -48,13 +51,15 @@ export interface Business {
   city?: string;
   state?: string;
   zip?: string;
+  /** The company's wording for the built-in agreement (Settings → Contracts). */
+  agreement?: AgreementWording;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Snapshot = Record<string, any>;
 
 export { DEFAULT_PAYMENT_TERMS, DEFAULT_WARRANTY } from '../../convex/lib/contractDefaults';
-import { DEFAULT_PAYMENT_TERMS, DEFAULT_WARRANTY } from '../../convex/lib/contractDefaults';
+import { resolveTerms, type AgreementWording } from '../../convex/lib/contractDefaults';
 
 const joinAddress = (parts: Array<string | undefined>) => parts.filter(Boolean).join(', ');
 
@@ -64,10 +69,9 @@ const joinAddress = (parts: Array<string | undefined>) => parts.filter(Boolean).
  */
 export function contractFor(estimate: Estimate, business?: Business | null): ContractData {
   const snapshot: Snapshot | undefined = estimate.contract_snapshot;
-  const terms: ContractTerms = (snapshot ? snapshot.terms : estimate.contract_terms) ?? {};
-  const client = snapshot
-    ? snapshot.client
-    : estimate.client && { name: estimate.client.name, address: estimate.client.address };
+  // A signed contract carries its wording; a live one reads the company's defaults.
+  const terms: ContractTerms = resolveTerms(snapshot ? undefined : business?.agreement, snapshot ? snapshot.terms : estimate.contract_terms);
+  const client = snapshot ? snapshot.client : estimate.client && { name: estimate.client.name, address: estimate.client.address };
   const lineItems = snapshot
     ? (snapshot.items ?? []).map((item: Snapshot) => ({
         description: item.description,
@@ -99,8 +103,9 @@ export function contractFor(estimate: Estimate, business?: Business | null): Con
     lineItems,
     startDate: terms.startDate ?? '',
     completionDate: terms.completionDate ?? '',
-    paymentTerms: terms.paymentTerms || DEFAULT_PAYMENT_TERMS,
-    warrantyPeriod: terms.warrantyPeriod || DEFAULT_WARRANTY,
+    paymentTerms: terms.paymentTerms ?? '',
+    warrantyPeriod: terms.warrantyPeriod ?? '',
+    extraTerms: terms.extraTerms,
     lockedAt: estimate.contract_locked_at,
     agreedDesign: snapshot
       ? snapshot.design && { url: snapshot.design.url, name: snapshot.design.name, type: snapshot.design.contentType }

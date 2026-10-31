@@ -170,6 +170,16 @@ export const contractTerms = v.object({
   warrantyPeriod: v.optional(v.string()),
   workDescription: v.optional(v.string()),
   propertyAddress: v.optional(v.string()),
+  // The company's own clauses, frozen into the snapshot at signing.
+  extraTerms: v.optional(v.string()),
+});
+
+// The company's wording for the built-in agreement (organizations.setAgreement):
+// defaults an estimate can override, plus clauses of its own.
+export const agreementWording = v.object({
+  paymentTerms: v.optional(v.string()),
+  warranty: v.optional(v.string()),
+  extraTerms: v.optional(v.string()),
 });
 
 // A design file (image or PDF) attached to the estimate, shown on the
@@ -514,6 +524,8 @@ export default defineSchema({
     // Reminder emails to clients who haven't signed (organizations.setFollowUps).
     // Absent means on, after 3 days.
     followUps: v.optional(v.object({ enabled: v.boolean(), afterDays: v.number() })),
+    // Payment terms, warranty and extra clauses for the built-in agreement.
+    agreement: v.optional(agreementWording),
     ...timestamps,
   }).index("by_slug", ["slug"]),
 

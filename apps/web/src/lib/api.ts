@@ -116,6 +116,9 @@ export const organizationsAPI = {
   },
 
   /** How clients pay the company: deposit at signing, pay link, instructions. */
+  setAgreement(id: string, wording: AgreementWording): Promise<AgreementWording> {
+    return run('mutation', api.organizations.setAgreement, defined({ id, ...wording }));
+  },
   setPayments(id: string, settings: PaymentSettings): Promise<PaymentSettings> {
     return run('mutation', api.organizations.setPayments, defined({ id, ...settings }));
   },
@@ -237,6 +240,9 @@ export interface EstimatePayments {
   depositPercent: number;
   methods: string[];
 }
+export type { AgreementWording } from '../../convex/lib/contractDefaults';
+import type { AgreementWording } from '../../convex/lib/contractDefaults';
+
 export interface PaymentSettings {
   depositPercent: number;
   payLink?: string;

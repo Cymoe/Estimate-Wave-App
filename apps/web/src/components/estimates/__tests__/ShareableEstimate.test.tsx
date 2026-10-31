@@ -104,7 +104,7 @@ describe('client estimate page', () => {
     await open();
     const agreement = document.body.querySelector('[data-testid="agreement"]')!;
     expect(agreement.textContent).toContain('12 Elm St');
-    expect(agreement.textContent).toContain('Change Order Policy');
+    expect(agreement.textContent).toContain('CHANGE ORDERS');
     expect(agreement.textContent).toContain('Shah Builders');
     expect(document.body.textContent).toContain('By signing, you accept this estimate and agree to the terms above.');
     expect(document.body.querySelectorAll('button[aria-label="Your signature"]')).toHaveLength(1);
@@ -167,7 +167,7 @@ describe('client estimate page', () => {
       [true, 'https://files/warranty'],
     ]);
     // Webb Leads' agreement wording isn't shown in place of theirs.
-    expect(agreement.textContent).not.toContain('Change Order Policy');
+    expect(agreement.textContent).not.toContain('CHANGE ORDERS');
     expect(agreement.textContent).toContain('This estimate and its price are part of the agreement.');
 
     await act(async () => button('draw')!.click());
@@ -207,9 +207,9 @@ describe('client estimate page', () => {
     expect(text).toContain('Al firmar, aceptas este presupuesto y los términos de arriba.');
     const agreement = document.body.querySelector('[data-testid="agreement"]')!;
     expect(agreement.textContent).toContain('Esta traducción al español se ofrece por conveniencia');
-    expect(agreement.textContent).toContain('Política de órdenes de cambio');
+    expect(agreement.textContent).toContain('ÓRDENES DE CAMBIO');
     expect(agreement.textContent).toContain('12 Elm St');
-    expect(agreement.textContent).not.toContain('Change Order Policy');
+    expect(agreement.textContent).not.toContain('CHANGE ORDERS');
     expect(document.documentElement.lang).toBe('es');
     expect(button('Aceptar y firmar')).toBeTruthy();
     expect(document.body.textContent).toContain('Al firmar, aceptas este presupuesto'); // and there is no Decline

@@ -7,16 +7,8 @@ import { isLang, langOf } from "./lib/i18n";
 import { withCategories } from "./lib/categories";
 import { lockContract } from "./lib/contract";
 import { askForDeposit, cents, contractTotal, invoicesFor, paymentSummary } from "./lib/invoicing";
-import {
-  needsAcknowledgment,
-  resolveDocuments,
-  signedDocuments,
-  stampSignedCopies,
-} from "./lib/contractDocs";
-import {
-  DEFAULT_PAYMENT_TERMS,
-  DEFAULT_WARRANTY,
-} from "./lib/contractDefaults";
+import { needsAcknowledgment, resolveDocuments, signedDocuments, stampSignedCopies } from "./lib/contractDocs";
+import { resolveTerms } from "./lib/contractDefaults";
 
 // The client's side of an estimate, reached through its share link. No login:
 // the link's token is the only key, and only what a client should see leaves
@@ -25,10 +17,7 @@ import {
 /** Statuses a client can still accept or decline from. */
 const OPEN = new Set(["draft", "sent", "opened"]);
 
-async function byToken(
-  ctx: QueryCtx | MutationCtx,
-  token: string,
-): Promise<Doc<"estimates"> | null> {
+async function byToken(ctx: QueryCtx | MutationCtx, token: string): Promise<Doc<"estimates"> | null> {
   if (!token) return null;
   return await ctx.db
     .query("estimates")
@@ -36,10 +25,7 @@ async function byToken(
     .unique();
 }
 
-async function requireByToken(
-  ctx: MutationCtx,
-  token: string,
-): Promise<Doc<"estimates">> {
+async function requireByToken(ctx: MutationCtx, token: string): Promise<Doc<"estimates">> {
   const estimate = await byToken(ctx, token);
   if (estimate === null) fail("NOT_FOUND", "This estimate link isn't valid", "link_invalid");
   return estimate;
@@ -72,30 +58,16 @@ export const get = query({
   handler: async (ctx, { token }) => {
     const estimate = await byToken(ctx, token);
     if (estimate === null) return null;
-    const [client, organization] = await Promise.all([
-      estimate.clientId ? ctx.db.get(estimate.clientId) : null,
-      ctx.db.get(estimate.organizationId),
-    ]);
-    const address = organization
-      ? [
-          organization.address,
-          organization.city,
-          organization.state,
-          organization.zip,
-        ]
-          .filter(Boolean)
-          .join(", ")
-      : "";
+    const [client, organization] = await Promise.all([estimate.clientId ? ctx.db.get(estimate.clientId) : null, ctx.db.get(estimate.organizationId)]);
+    const address = organization ? [organization.address, organization.city, organization.state, organization.zip].filter(Boolean).join(", ") : "";
     // Once signed, the client sees what they signed, not later edits.
     const signed = estimate.contractSnapshot;
-    const terms = (signed ? signed.terms : estimate.contractTerms) ?? {};
+    const terms = resolveTerms(organization?.agreement, signed ? signed.terms : estimate.contractTerms);
     const design = signed ? signed.design : estimate.design;
     // What the client signs besides the estimate: the agreement and any
     // attachments (the uploaded PDFs as signed, once signed). Fingerprints
     // only go out after signing, on the signed record.
-    const docs =
-      signed?.documents ??
-      signedDocuments(await resolveDocuments(ctx, estimate));
+    const docs = signed?.documents ?? signedDocuments(await resolveDocuments(ctx, estimate));
     const documents = await Promise.all(
       docs.map(async (d) => ({
         kind: d.kind,
@@ -104,21 +76,14 @@ export const get = query({
         fileName: d.fileName,
         size: d.size,
         sha256: signed ? d.sha256 : undefined,
-        url: d.storageId
-          ? ((await ctx.storage.getUrl(d.storageId)) ?? undefined)
-          : undefined,
-        signedUrl:
-          signed && d.signedCopyId
-            ? ((await ctx.storage.getUrl(d.signedCopyId)) ?? undefined)
-            : undefined,
+        url: d.storageId ? ((await ctx.storage.getUrl(d.storageId)) ?? undefined) : undefined,
+        signedUrl: signed && d.signedCopyId ? ((await ctx.storage.getUrl(d.signedCopyId)) ?? undefined) : undefined,
       })),
     );
     const clientAddress = signed
       ? signed.client?.address
       : client
-        ? [client.address, client.city, client.state, client.zip]
-            .filter(Boolean)
-            .join(", ") || undefined
+        ? [client.address, client.city, client.state, client.zip].filter(Boolean).join(", ") || undefined
         : undefined;
     return {
       estimateNumber: estimate.estimateNumber,
@@ -127,9 +92,7 @@ export const get = query({
       status: estimate.status,
       issueDate: estimate.issueDate,
       expiryDate: estimate.expiryDate,
-      items: (
-        await withCategories(ctx, signed ? signed.items : estimate.items)
-      ).map((item) => ({
+      items: (await withCategories(ctx, signed ? signed.items : estimate.items)).map((item) => ({
         description: item.description,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
@@ -154,8 +117,9 @@ export const get = query({
         workDescription: terms.workDescription || estimate.description,
         startDate: terms.startDate,
         completionDate: terms.completionDate,
-        paymentTerms: terms.paymentTerms || DEFAULT_PAYMENT_TERMS,
-        warrantyPeriod: terms.warrantyPeriod || DEFAULT_WARRANTY,
+        paymentTerms: terms.paymentTerms,
+        warrantyPeriod: terms.warrantyPeriod,
+        extraTerms: terms.extraTerms,
       },
       documents,
       payments: await clientPayments(ctx, estimate, organization),
@@ -185,9 +149,7 @@ export const markOpened = mutation({
     const now = nowIso();
     await ctx.db.patch(estimate._id, {
       firstOpenedAt: now,
-      ...(estimate.status === "sent"
-        ? { status: "opened" as const, updatedAt: now }
-        : {}),
+      ...(estimate.status === "sent" ? { status: "opened" as const, updatedAt: now } : {}),
     });
   },
 });
@@ -200,26 +162,14 @@ export const accept = mutation({
   },
   handler: async (ctx, { token, signature, agreedToDocuments }) => {
     const estimate = await requireByToken(ctx, token);
-    if (!OPEN.has(estimate.status))
-      fail("INVALID", "This estimate can no longer be accepted", "estimate_closed");
-    if (!signature.trim())
-      fail("INVALID", "Please sign to accept the estimate", "signature_required");
+    if (!OPEN.has(estimate.status)) fail("INVALID", "This estimate can no longer be accepted", "estimate_closed");
+    if (!signature.trim()) fail("INVALID", "Please sign to accept the estimate", "signature_required");
     const now = nowIso();
-    const lock: Partial<Awaited<ReturnType<typeof lockContract>>> =
-      estimate.contractLockedAt
-        ? {}
-        : await lockContract(
-            ctx,
-            estimate,
-            now,
-            agreedToDocuments ? now : undefined,
-          );
+    const lock: Partial<Awaited<ReturnType<typeof lockContract>>> = estimate.contractLockedAt
+      ? {}
+      : await lockContract(ctx, estimate, now, agreedToDocuments ? now : undefined);
     // Uploaded documents are signed only once the client says they've read them.
-    if (
-      lock.contractSnapshot &&
-      needsAcknowledgment(lock.contractSnapshot.documents) &&
-      !agreedToDocuments
-    )
+    if (lock.contractSnapshot && needsAcknowledgment(lock.contractSnapshot.documents) && !agreedToDocuments)
       fail("INVALID", "Please confirm you've read the attached documents", "documents_unread");
     await ctx.db.patch(estimate._id, {
       clientSignature: signature,
@@ -245,8 +195,7 @@ export const decline = mutation({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
     const estimate = await requireByToken(ctx, token);
-    if (!OPEN.has(estimate.status))
-      fail("INVALID", "This estimate can no longer be declined", "estimate_closed");
+    if (!OPEN.has(estimate.status)) fail("INVALID", "This estimate can no longer be declined", "estimate_closed");
     await ctx.db.patch(estimate._id, {
       status: "rejected",
       updatedAt: nowIso(),
@@ -273,8 +222,7 @@ export const setLanguage = mutation({
     const estimate = await requireByToken(ctx, token);
     if (!estimate.clientId) return null;
     const client = await ctx.db.get(estimate.clientId);
-    if (client && client.language !== language)
-      await ctx.db.patch(client._id, { language, updatedAt: nowIso() });
+    if (client && client.language !== language) await ctx.db.patch(client._id, { language, updatedAt: nowIso() });
     return null;
   },
 });

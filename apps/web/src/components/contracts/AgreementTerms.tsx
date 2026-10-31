@@ -1,5 +1,5 @@
 import React from 'react';
-import { categoryTotals, type ContractData, type ContractTerms } from '../../services/contract';
+import { OTHER_CATEGORY, categoryTotals, type ContractData, type ContractTerms } from '../../services/contract';
 import { formatCurrency } from '../../utils/format';
 import { AGREEMENT } from '../../i18n/agreement';
 import type { Lang } from '../../i18n/lang';
@@ -18,6 +18,18 @@ const formatDate = (date: string, lang: Lang, toBeAgreed: string) =>
   date ? new Date(`${date.slice(0, 10)}T00:00:00`).toLocaleDateString(lang === 'es' ? 'es-US' : 'en-US') : toBeAgreed;
 
 /**
+ * What the scope lists: each named category once, and lines with no category
+ * by their own description, so a one-off job never reads as just "Other".
+ */
+function scopeLines(items: ContractData['lineItems']): string[] {
+  return categoryTotals(items).flatMap(({ category }) =>
+    category === OTHER_CATEGORY ? items.filter((item) => !item.category?.trim()).map((item) => item.description) : [category],
+  );
+}
+
+const input = 'p-1 border border-gray-300 rounded text-sm';
+
+/**
  * The agreement's wording. Shown in the app's contract page and on the
  * client's Estimate & Agreement page, so both say the same thing. In
  * Spanish it is a courtesy translation and says so: the English governs.
@@ -27,21 +39,15 @@ export const AgreementTerms: React.FC<AgreementTermsProps> = ({ contract: contra
   const isEditing = Boolean(onFieldChange);
   const handleFieldChange = (field: keyof ContractTerms, value: string) => onFieldChange?.(field, value);
   const categories = categoryTotals(contractData.lineItems);
-  const contractor = contractData.contractorName;
+  const scope = scopeLines(contractData.lineItems);
+  const contractor = contractData.contractorName || A.yourBusiness;
   const dateInput = (field: 'startDate' | 'completionDate', className: string) => (
     <input type="date" value={contractData[field]} onChange={(e) => handleFieldChange(field, e.target.value)} className={className} />
   );
-  const stage = (title: string, lines: string[][], purchased: string) => (
-    <div>
-      <h3 className="font-semibold">{title}</h3>
-      {lines.map(([label, text]) => (
-        <p key={label}>
-          <strong>{label}</strong> {text}
-        </p>
-      ))}
-      <p>
-        <em>{purchased}</em>
-      </p>
+  const section = (title: string, children: React.ReactNode) => (
+    <div className="mb-6">
+      <h2 className="text-lg font-semibold mb-3">{title}</h2>
+      {children}
     </div>
   );
   return (
@@ -51,20 +57,21 @@ export const AgreementTerms: React.FC<AgreementTermsProps> = ({ contract: contra
           {A.governs}
         </p>
       )}
-      {/* Parties Section */}
-      <div className="mb-6">
-        <h2 className="text-lg font-semibold mb-3">{A.parties}</h2>
-        <p className="text-sm mb-4">
-          {A.partiesLead} {isEditing ? dateInput('startDate', 'mx-1 p-1 border border-gray-300 rounded text-xs') : formatDate(contractData.startDate, lang, A.toBeAgreed)}{' '}
-          {A.partiesMiddle} <strong>{contractor || A.yourBusiness}</strong> {A.constructor} <strong>{contractData.clientName || A.theClient}</strong> {A.client}
-        </p>
-      </div>
+      {section(
+        A.parties,
+        <p className="text-sm">
+          {A.partiesLead}{' '}
+          {isEditing
+            ? dateInput('startDate', 'mx-1 p-1 border border-gray-300 rounded text-xs')
+            : formatDate(contractData.startDate, lang, A.toBeAgreed)}{' '}
+          {A.partiesMiddle} <strong>{contractor}</strong> {A.constructor} <strong>{contractData.clientName || A.theClient}</strong> {A.client}
+        </p>,
+      )}
 
-      {/* Agreed Design */}
-      {contractData.agreedDesign && (
-        <div className="mb-6">
-          <h2 className="text-lg font-semibold mb-3">{A.agreedDesign}</h2>
-          {contractData.agreedDesign.type === 'application/pdf' || contractData.agreedDesign.name.toLowerCase().endsWith('.pdf') ? (
+      {contractData.agreedDesign &&
+        section(
+          A.agreedDesign,
+          contractData.agreedDesign.type === 'application/pdf' || contractData.agreedDesign.name.toLowerCase().endsWith('.pdf') ? (
             <p className="text-sm">
               {A.designAttached}{' '}
               <a href={contractData.agreedDesign.url} target="_blank" rel="noreferrer" className="text-blue-700 underline">
@@ -72,176 +79,145 @@ export const AgreementTerms: React.FC<AgreementTermsProps> = ({ contract: contra
               </a>
             </p>
           ) : (
-            <img src={contractData.agreedDesign.url} alt={contractData.agreedDesign.name} className="w-full max-h-[480px] object-contain border border-gray-300" />
+            <img
+              src={contractData.agreedDesign.url}
+              alt={contractData.agreedDesign.name}
+              className="w-full max-h-[480px] object-contain border border-gray-300"
+            />
+          ),
+        )}
+
+      {section(
+        A.property,
+        <>
+          <p className="text-sm mb-2">{A.propertyText}</p>
+          {isEditing ? (
+            <textarea
+              value={contractData.propertyAddress}
+              onChange={(e) => handleFieldChange('propertyAddress', e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded text-sm"
+              rows={2}
+              placeholder={A.propertyPlaceholder}
+            />
+          ) : (
+            <p className="font-medium">{contractData.propertyAddress}</p>
           )}
-        </div>
+        </>,
       )}
 
-      {/* Construction Property */}
-      <div className="mb-6">
-        <h2 className="text-lg font-semibold mb-3">{A.property}</h2>
-        <p className="text-sm mb-2">{A.propertyText}</p>
-        {isEditing ? (
-          <textarea
-            value={contractData.propertyAddress}
-            onChange={(e) => handleFieldChange('propertyAddress', e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded text-sm"
-            rows={2}
-            placeholder={A.propertyPlaceholder}
-          />
-        ) : (
-          <p className="font-medium">{contractData.propertyAddress}</p>
-        )}
-      </div>
+      {section(
+        A.scope,
+        <div className="text-sm space-y-3">
+          <p>{A.scopeText}</p>
+          {contractData.workDescription && <p className="font-medium">{contractData.workDescription}</p>}
+          {scope.length > 0 ? (
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 list-disc list-inside" data-testid="scope-categories">
+              {scope.map((line, i) => (
+                <li key={i}>{line}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="italic">{A.scopeEmpty}</p>
+          )}
+          <p>{A.materials(contractor)}</p>
+        </div>,
+      )}
 
-      {/* Scope of Work */}
-      <div className="mb-6">
-        <h2 className="text-lg font-semibold mb-3">{A.scope}</h2>
-        <p className="text-sm mb-2">{A.scopeText}</p>
-        {categories.length > 0 ? (
-          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-sm mb-6 list-disc list-inside" data-testid="scope-categories">
-            {categories.map(({ category }) => (
-              <li key={category}>{category}</li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm italic mb-6">{A.scopeEmpty}</p>
-        )}
-
-        {/* Stages */}
-        <div className="space-y-4 text-sm">
-          <p>
-            <em>{A.stagesNote}</em>
-          </p>
-          {stage(A.stage1, A.stage1Lines, A.stagePurchased(1, contractor))}
-          {stage(A.stage2, A.stage2Lines, A.stagePurchased(2, contractor))}
-          {stage(A.stage3, A.stage3Lines, A.stagePurchased(3, contractor))}
-        </div>
-      </div>
-
-      {/* Timeline */}
       <div className="mb-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
           <div>
             <strong>{A.startDate}</strong>{' '}
-            {isEditing ? dateInput('startDate', 'ml-1 p-1 border border-gray-300 rounded text-xs') : formatDate(contractData.startDate, lang, A.toBeAgreed)}
+            {isEditing
+              ? dateInput('startDate', 'ml-1 p-1 border border-gray-300 rounded text-xs')
+              : formatDate(contractData.startDate, lang, A.toBeAgreed)}
           </div>
           <div>
             <strong>{A.completionDate}</strong>{' '}
-            {isEditing ? dateInput('completionDate', 'ml-1 p-1 border border-gray-300 rounded text-xs') : formatDate(contractData.completionDate, lang, A.toBeAgreed)}
+            {isEditing
+              ? dateInput('completionDate', 'ml-1 p-1 border border-gray-300 rounded text-xs')
+              : formatDate(contractData.completionDate, lang, A.toBeAgreed)}
           </div>
         </div>
       </div>
 
-      {/* Pricing Table */}
-      <div className="mb-6">
-        <h2 className="text-lg font-semibold mb-3">{A.paymentTerms}</h2>
-        <h3 className="font-medium mb-3">{A.scopeTotal}</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse border border-gray-300 text-sm">
-            <tbody>
-              {/* The estimate summed by category */}
-              {categories.map(({ category, total }) => (
-                <tr key={category}>
-                  <td className="border border-gray-300 px-3 py-2 w-1/2">{category}</td>
-                  <td className="border border-gray-300 px-3 py-2 text-right">{formatCurrency(total)}</td>
+      {section(
+        A.price,
+        <>
+          <p className="text-sm mb-3">{A.priceText}</p>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse border border-gray-300 text-sm">
+              <tbody>
+                {categories.map(({ category, total }) => (
+                  <tr key={category}>
+                    <td className="border border-gray-300 px-3 py-2 w-1/2">{category}</td>
+                    <td className="border border-gray-300 px-3 py-2 text-right">{formatCurrency(total)}</td>
+                  </tr>
+                ))}
+                <tr className="font-bold bg-gray-100">
+                  <td className="border border-gray-300 px-3 py-2">{A.total}</td>
+                  <td className="border border-gray-300 px-3 py-2 text-right">{formatCurrency(contractData.totalAmount)}</td>
                 </tr>
-              ))}
-              <tr className="font-bold bg-gray-100">
-                <td className="border border-gray-300 px-3 py-2">{A.total}</td>
-                <td className="border border-gray-300 px-3 py-2 text-right">{formatCurrency(contractData.totalAmount)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Financing and Payment Structure */}
-      <div className="mb-6 text-sm">
-        <p className="mb-4">{A.financing}</p>
-
-        <div className="space-y-2">
-          <div className="grid grid-cols-2 gap-4">
-            <div>{A.deposit}</div>
-            <div>{A.stage1Draw}</div>
+              </tbody>
+            </table>
           </div>
-          <div className="font-medium">
-            {A.totalLabel} {formatCurrency(contractData.totalAmount * 0.5)}
-          </div>
+        </>,
+      )}
 
-          <div className="grid grid-cols-2 gap-4 mt-4">
-            <div>{A.stage2Draw}</div>
-            <div>
-              {A.totalLabel} {formatCurrency(contractData.totalAmount * 0.4)}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4 mt-4">
-            <div>{A.stage3Draw}</div>
-            <div>
-              {A.totalLabel} {formatCurrency(contractData.totalAmount * 0.1)}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Payment Terms and Policies */}
-      <div className="mb-6 text-sm space-y-3">
-        <p>{A.quickbooks}</p>
-        <p>{A.lateFee}</p>
-
-        <div>
-          <h3 className="font-semibold">{A.paymentDefault}</h3>
+      {section(
+        A.paymentTerms,
+        <div className="text-sm space-y-3">
+          {isEditing ? (
+            <textarea
+              value={contractData.paymentTerms}
+              onChange={(e) => handleFieldChange('paymentTerms', e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded text-sm"
+              rows={2}
+              placeholder={A.paymentTermsPlaceholder}
+              aria-label={A.paymentTerms}
+            />
+          ) : (
+            <p className="font-medium whitespace-pre-line">{contractData.paymentTerms}</p>
+          )}
           <p>
-            <strong>{A.lien}</strong> {A.lienText}
-          </p>
-        </div>
-
-        <div>
-          <h3 className="font-semibold">{A.duration}</h3>
-          <p>{A.durationText(contractor)}</p>
-        </div>
-
-        <div>
-          <p>
-            <strong>{A.warranty(contractor)}</strong>
+            <strong>{A.latePayments}</strong> {A.latePaymentsText}
           </p>
           <p>
-            <strong>{A.turfWarranty}</strong>
+            <strong>{A.duration}</strong> {A.durationText(contractor)}
           </p>
-        </div>
+        </div>,
+      )}
 
-        <div>
-          <h3 className="font-semibold">{A.changeOrders}</h3>
-          <p>{A.changeOrdersText}</p>
-          <ol className="list-decimal list-inside ml-4 space-y-1">
-            <li>
-              <strong>{A.changeOrderFee}</strong> {A.changeOrderFeeText}
-            </li>
-            <li>
-              <strong>{A.additionalCosts}</strong> {A.additionalCostsText}
-            </li>
-            <li>
-              <strong>{A.timelineImpact}</strong> {A.timelineImpactText(contractor)}
-            </li>
-            <li>
-              <strong>{A.intent}</strong> {A.intentText}
-            </li>
-          </ol>
-        </div>
-      </div>
+      {section(
+        A.warranty,
+        <div className="text-sm">
+          {isEditing && (
+            <input
+              value={contractData.warrantyPeriod}
+              onChange={(e) => handleFieldChange('warrantyPeriod', e.target.value)}
+              className={`${input} mb-2`}
+              placeholder={A.warrantyPlaceholder}
+              aria-label={A.warranty}
+            />
+          )}
+          <p>{A.warrantyText(contractor, contractData.warrantyPeriod || A.toBeAgreed.toLowerCase())}</p>
+        </div>,
+      )}
+
+      {section(A.changeOrders, <p className="text-sm">{A.changeOrdersText}</p>)}
+
+      {contractData.extraTerms && section(A.extraTerms, <p className="text-sm whitespace-pre-line">{contractData.extraTerms}</p>)}
 
       {signature}
 
-      {/* Notice of Cancellation */}
       <div className="mt-8 p-4 border-2 border-gray-400 text-xs">
         <h3 className="font-bold text-center mb-3">{A.cancellation}</h3>
         <p className="mb-2">{A.cancellation1}</p>
         <p className="mb-2">{A.cancellation2}</p>
-        <p className="mb-2">{A.cancellation3(contractData.contractorEmail || contractData.contractorPhone || contractor || A.theContractor)}</p>
+        <p className="mb-2">
+          {A.cancellation3(contractData.contractorEmail || contractData.contractorPhone || contractData.contractorName || A.theContractor)}
+        </p>
       </div>
 
-      {/* Texas Property Code Notice */}
       <div className="mt-6 p-4 border border-gray-300 text-xs">
         <h3 className="font-bold text-center mb-3">{A.texasCode}</h3>
         <p className="font-bold mb-2">{A.texasKnow}</p>

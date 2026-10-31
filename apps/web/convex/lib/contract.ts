@@ -1,6 +1,7 @@
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { withCategories } from "./categories";
+import { resolveTerms } from "./contractDefaults";
 import { markSigned, resolveDocuments, signedDocuments } from "./contractDocs";
 
 /**
@@ -14,17 +15,17 @@ export async function lockContract(ctx: MutationCtx, estimate: Doc<"estimates">,
   await markSigned(ctx, documents, now);
   const client = estimate.clientId ? await ctx.db.get(estimate.clientId) : null;
   const address = client ? [client.address, client.city, client.state, client.zip].filter(Boolean).join(", ") : "";
+  // The wording as it reads today, so later changes to the company's defaults don't touch a signed contract.
+  const organization = await ctx.db.get(estimate.organizationId);
   return {
     contractLockedAt: now,
     contractSnapshot: {
-      client: client
-        ? { name: client.name, email: client.email, phone: client.phone, address: address || undefined }
-        : undefined,
+      client: client ? { name: client.name, email: client.email, phone: client.phone, address: address || undefined } : undefined,
       items: await withCategories(ctx, estimate.items),
       subtotal: estimate.subtotal,
       taxAmount: estimate.taxAmount,
       totalAmount: estimate.totalAmount,
-      terms: estimate.contractTerms,
+      terms: resolveTerms(organization?.agreement, estimate.contractTerms),
       design: estimate.design,
       documents,
       ...(acknowledgedAt ? { acknowledgedAt } : {}),

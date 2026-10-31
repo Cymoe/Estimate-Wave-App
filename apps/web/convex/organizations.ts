@@ -75,6 +75,27 @@ export const update = mutation({
 });
 
 /**
+ * The company's wording for the built-in agreement: default payment terms
+ * and warranty (an estimate can still override them) and extra clauses of
+ * the company's own. Blank means the Webb Leads default. Owners and admins only.
+ */
+export const setAgreement = mutation({
+  args: {
+    id: v.id("organizations"),
+    paymentTerms: v.optional(v.string()),
+    warranty: v.optional(v.string()),
+    extraTerms: v.optional(v.string()),
+  },
+  handler: async (ctx, { id, paymentTerms, warranty, extraTerms }) => {
+    await requireMember(ctx, id, "admin");
+    const clean = (text: string | undefined, max: number) => text?.trim().slice(0, max) || undefined;
+    const agreement = { paymentTerms: clean(paymentTerms, 1000), warranty: clean(warranty, 200), extraTerms: clean(extraTerms, 10000) };
+    await ctx.db.patch(id, { agreement, updatedAt: nowIso() });
+    return agreement;
+  },
+});
+
+/**
  * How clients pay the company: the deposit asked when an estimate is
  * signed (0 for none), the company's own pay link and instructions shown
  * to the client. Owners and admins only.
