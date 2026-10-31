@@ -185,6 +185,27 @@ describe('estimate agreement tab', () => {
     expect(path).toBe('/estimates/e1/contract');
   });
 
+  it('before signing, offers to approve it without a signature', async () => {
+    await openTab();
+    const prompt = document.body.querySelector('[data-testid="approve-without-signature"]')!;
+    expect(prompt.textContent).toContain('Client agreed in person or on the phone?');
+    expect(prompt.querySelector('button')!.textContent).toBe('Approve without signature');
+  });
+
+  it('approved without a signature: says who approved it instead of "Signed", and no approve prompt', async () => {
+    extra = {
+      status: 'accepted',
+      contract_locked_at: '2026-10-31T12:00:00Z',
+      approved_at: '2026-10-31T12:00:00Z',
+      approved_by_name: 'Myles Webb',
+      contract_snapshot: { items: [{ _id: 'i1', description: 'Vanity', totalPrice: 100 }], totalAmount: 100 },
+    };
+    docs.locked = true;
+    await openTab();
+    expect(document.body.textContent).toContain(`Approved ${new Date('2026-10-31T12:00:00Z').toLocaleDateString()} by Myles Webb · no client signature`);
+    expect(document.body.querySelector('[data-testid="approve-without-signature"]')).toBeNull();
+  });
+
   it('with nothing changed since signing, says so and holds the send button', async () => {
     extra = { status: 'accepted', contract_locked_at: '2026-10-11T12:00:00Z', contract_snapshot: { items: [{ _id: 'i1', description: 'Vanity', totalPrice: 100 }], totalAmount: 100 } };
     docs.locked = true;

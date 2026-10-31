@@ -243,10 +243,12 @@ interface ContractSignaturesProps {
   /** The client's signature image, captured when they accepted through the estimate link. */
   signature?: string;
   signedAt?: string;
+  /** Approved for the client without their signature: "Approved Oct 31 by Myles Webb · no client signature". */
+  approval?: string | null;
 }
 
 /** Signature block: the client signs once, on the estimate link, and it shows here. */
-export const ContractSignatures: React.FC<ContractSignaturesProps> = ({ contractorName, signature, signedAt }) => (
+export const ContractSignatures: React.FC<ContractSignaturesProps> = ({ contractorName, signature, signedAt, approval }) => (
   <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-8 border-t border-gray-300">
     <div>
       <h3 className="font-medium mb-4">Client signature:</h3>
@@ -255,6 +257,8 @@ export const ContractSignatures: React.FC<ContractSignaturesProps> = ({ contract
           <img src={signature} alt="Client signature" className="h-16 object-contain mb-2 border-b border-gray-400" />
           <p className="text-sm">Date: {signedAt ? new Date(signedAt).toLocaleDateString() : ''}</p>
         </>
+      ) : approval ? (
+        <p className="text-sm text-gray-700">{approval}</p>
       ) : (
         <p className="text-sm text-gray-600 italic">Awaiting client signature — the client signs when they accept the estimate link.</p>
       )}

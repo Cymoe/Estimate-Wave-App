@@ -2660,6 +2660,58 @@ describe("client link", () => {
     });
   });
 
+  test("approving without a signature accepts it, locks the contract, and records who approved it", async () => {
+    const { t, as, id, token } = await sharedEstimate();
+    // A draft can be approved straight away; no need to send it first.
+    const approved = await as.mutation(api.estimates.approve, { id });
+    expect(approved).toMatchObject({ status: "accepted", approvedBy: { name: expect.any(String) } });
+    expect(approved!.approvedAt).toBeDefined();
+    expect(approved!.contractLockedAt).toBeDefined();
+    expect(approved!.contractSnapshot!.totalAmount).toBe(900);
+    expect(approved!.clientSignature).toBeUndefined();
+    expect(approved!.signedAt).toBeUndefined();
+    // The client's link shows it accepted, with the date and no signature.
+    const view = await t.query(api.publicEstimates.get, { token });
+    expect(view).toMatchObject({ status: "accepted", approvedAt: approved!.approvedAt });
+    expect(view!.clientSignature).toBeUndefined();
+    // Not twice, and the client can no longer sign it.
+    await expect(as.mutation(api.estimates.approve, { id })).rejects.toThrow(/already accepted/);
+    await expect(t.mutation(api.publicEstimates.accept, { token, signature: "x" })).rejects.toThrow(/no longer/);
+    // The approval can't be written directly.
+    const again = await as.mutation(api.estimates.update, { id, data: { approvedBy: { name: "Someone else" }, approvedAt: "2020-01-01" } });
+    expect(again!.approvedBy!.name).toBe(approved!.approvedBy!.name);
+    expect(again!.approvedAt).toBe(approved!.approvedAt);
+  });
+
+  test("an estimate with no line items, or one already declined, can't be approved", async () => {
+    const { as, id } = await sharedEstimate();
+    await as.mutation(api.estimates.update, { id, data: { items: [] } });
+    await expect(as.mutation(api.estimates.approve, { id })).rejects.toThrow(/line items/);
+    const other = await sharedEstimate();
+    await other.as.mutation(api.estimates.update, { id: other.id, data: { status: "rejected" } });
+    await expect(other.as.mutation(api.estimates.approve, { id: other.id })).rejects.toThrow(/open estimate/);
+  });
+
+  test("marking it accepted without a signature is recorded as an approval too", async () => {
+    const { as, id } = await sharedEstimate();
+    const accepted = await as.mutation(api.estimates.update, { id, data: { status: "accepted" } });
+    expect(accepted!.approvedAt).toBeDefined();
+    expect(accepted!.approvedBy).toBeDefined();
+  });
+
+  test("an estimate made first can be added to a project later, moved, and taken off again", async () => {
+    const { t, as, id, organizationId } = await sharedEstimate();
+    const kitchen = await as.mutation(api.projects.create, { organizationId, data: { name: "Kitchen" } });
+    const bath = await as.mutation(api.projects.create, { organizationId, data: { name: "Bath" } });
+    expect((await as.mutation(api.estimates.update, { id, data: { projectId: kitchen!._id } }))!.projectId).toBe(kitchen!._id);
+    expect((await as.mutation(api.estimates.update, { id, data: { projectId: bath!._id } }))!.projectId).toBe(bath!._id);
+    expect((await as.mutation(api.estimates.update, { id, data: { projectId: null } }))!.projectId).toBeUndefined();
+    // Another company's project is refused.
+    const outsider = await signUp(t, "outsider@example.com");
+    const theirs = await outsider.as.mutation(api.projects.create, { organizationId: outsider.organizationId, data: { name: "Theirs" } });
+    await expect(as.mutation(api.estimates.update, { id, data: { projectId: theirs!._id } })).rejects.toThrow(/Project not found/);
+  });
+
   test("after signing, the link shows what was signed, not later edits", async () => {
     const { t, as, id, token } = await sharedEstimate();
     await t.mutation(api.publicEstimates.accept, {

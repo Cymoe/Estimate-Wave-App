@@ -145,6 +145,16 @@ describe('client estimate page', () => {
     expect(card.textContent).toContain('$0.00 paid of $900.00.');
   });
 
+  it('accepted by the company without a signature: says so, with no signature or signing', async () => {
+    view = { ...sent, status: 'accepted', approvedAt: '2026-10-31T12:00:00Z' };
+    await open();
+    const card = document.body.querySelector('[data-testid="accepted-without-signature"]')!;
+    expect(card.textContent).toContain('Accepted');
+    expect(card.textContent).toContain('Shah Builders marked this estimate accepted on');
+    expect(document.body.querySelector('img[alt="Client signature"]')).toBeNull();
+    expect(button('Accept & Sign')).toBeUndefined();
+  });
+
   it('says so when the link is not valid', async () => {
     view = null;
     await open();

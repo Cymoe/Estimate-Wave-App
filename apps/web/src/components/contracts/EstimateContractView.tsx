@@ -6,6 +6,7 @@ import { Business, ContractData, ContractTerms, contractFor, missingBusinessDeta
 import { estimatesAPI, organizationsAPI, type EstimateDocuments } from '../../lib/api';
 import { AgreementTerms, ContractSignatures } from './AgreementTerms';
 import { SignedRecord } from './SignedRecord';
+import { approvalLine } from '../estimates/estimateActions';
 export const EstimateContractView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -164,7 +165,9 @@ export const EstimateContractView: React.FC = () => {
               estimateNumber={estimate.estimate_number ?? ''}
               signerName={snapshot?.client?.name}
               signature={estimate.client_signature}
-              signedAt={estimate.signed_at ?? estimate.contract_locked_at}
+              signedAt={estimate.client_signature ? (estimate.signed_at ?? estimate.contract_locked_at) : estimate.signed_at}
+              approvedAt={estimate.client_signature ? undefined : estimate.approved_at}
+              approvedBy={estimate.approved_by_name}
               acknowledgedAt={documents.acknowledgedAt}
               documents={[documents.agreement, ...documents.attachments]}
             />
@@ -190,7 +193,7 @@ export const EstimateContractView: React.FC = () => {
               <h1 className="text-xl font-semibold text-white">Contract - {estimate.estimate_number}</h1>
               <p className="text-sm text-gray-400">
                 {locked
-                  ? `Signed ${new Date(contractData.lockedAt!).toLocaleDateString()} · changes go on a change order`
+                  ? `${approvalLine(estimate) ?? `Signed ${new Date(contractData.lockedAt!).toLocaleDateString()}`} · changes go on a change order`
                   : `Contract for ${contractData.clientName || 'no client yet'} · follows the estimate`}
               </p>
             </div>
@@ -257,6 +260,7 @@ export const EstimateContractView: React.FC = () => {
                 contractorName={contractData.contractorName}
                 signature={estimate.client_signature}
                 signedAt={estimate.signed_at}
+                approval={approvalLine(estimate)}
               />
             }
           />

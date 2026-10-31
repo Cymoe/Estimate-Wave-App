@@ -40,6 +40,8 @@ import { estimateFields, estimateStatus } from "./schema";
 const serverOnly = new Set([
   "clientSignature",
   "signedAt",
+  "approvedAt",
+  "approvedBy",
   "contractLockedAt",
   "contractSnapshot",
   "design",
@@ -165,12 +167,17 @@ export const updateDef = mutationDef({
       patch.status === "accepted" && !doc.contractLockedAt
         ? await lockContract(ctx, updated, now)
         : {};
+    const approval =
+      patch.status === "accepted" && doc.status !== "accepted" && !doc.clientSignature
+        ? { approvedAt: now, approvedBy: approver(user) }
+        : {};
     await ctx.db.patch(id, {
       ...patch,
       subtotal,
       taxAmount,
       totalAmount,
       ...lock,
+      ...approval,
       // Reminders count from when it was first sent.
       ...(patch.status === "sent" && !doc.sentAt ? { sentAt: now } : {}),
       updatedAt: now,
@@ -190,6 +197,42 @@ export const updateDef = mutationDef({
   },
 });
 export const update = mutation(updateDef);
+
+/** Who approved an estimate, as the record shows it. */
+function approver(user: Doc<"users">) {
+  return { userId: user._id, name: user.name?.trim() || user.email || "Your team" };
+}
+
+const OPEN = new Set(["draft", "sent", "opened"]);
+
+/**
+ * Accepts the estimate for the client without their signature: they agreed
+ * in person or on the phone. The agreement locks as it stands, the deposit
+ * is asked for, and the estimate records who approved it, so nothing reads
+ * as signed by the client.
+ */
+export const approve = mutation({
+  args: { id: v.id("estimates") },
+  handler: async (ctx, { id }) => {
+    const { doc, user } = await getOwned(ctx, "estimates", id);
+    if (doc.status === "accepted") fail("INVALID", "This estimate is already accepted.");
+    if (!OPEN.has(doc.status)) fail("INVALID", "Only an open estimate can be approved. This one was declined or has expired.");
+    if ((doc.items ?? []).length === 0) fail("INVALID", "Add line items before approving the estimate.");
+    const now = nowIso();
+    const lock = doc.contractLockedAt ? {} : await lockContract(ctx, doc, now);
+    await ctx.db.patch(id, { status: "accepted", approvedAt: now, approvedBy: approver(user), ...lock, updatedAt: now });
+    if ("contractLockedAt" in lock) await askForDeposit(ctx, (await ctx.db.get(id))!, user._id);
+    await logActivity(ctx, {
+      organizationId: doc.organizationId,
+      userId: user._id,
+      action: "approved",
+      resourceType: "estimate",
+      resourceId: id,
+      details: { estimateNumber: doc.estimateNumber, from: doc.status },
+    });
+    return await ctx.db.get(id);
+  },
+});
 
 export const remove = mutation({
   args: { id: v.id("estimates") },

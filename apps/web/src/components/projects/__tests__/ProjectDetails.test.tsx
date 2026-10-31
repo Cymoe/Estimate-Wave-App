@@ -44,6 +44,13 @@ jest.mock('../../../services/ClientService', () => ({
 jest.mock('../../../services/EstimateService', () => ({
   EstimateService: {
     getByProject: jest.fn(async () => [{ id: 'e1', estimate_number: 'EST-1', status: 'accepted', total_amount: 3000 }]),
+    // Every estimate in the company: one on this project, two not on any (the client's own first once sorted).
+    list: jest.fn(async () => [
+      { id: 'e1', estimate_number: 'EST-1', project_id: 'p1', status: 'accepted', total_amount: 3000 },
+      { id: 'e8', estimate_number: 'EST-8', title: 'Fence', client_id: 'c9', status: 'draft', total_amount: 1200, created_at: '2026-10-20' },
+      { id: 'e7', estimate_number: 'EST-7', title: 'Trim', client_id: 'c1', status: 'sent', total_amount: 800, created_at: '2026-10-01' },
+    ]),
+    update: jest.fn(async () => ({})),
   },
 }));
 jest.mock('../../../services/ExpenseService', () => {
@@ -248,6 +255,23 @@ describe('Project drawer', () => {
     await body.redraw({ covered: false, estimatesRevision: 1 });
     expect(body.querySelector('[aria-label="Project"]')!.getAttribute('aria-hidden')).toBeNull();
     expect(getByProject).toHaveBeenCalledTimes(2);
+  });
+
+  it('adds an estimate made before the project, listing the same client’s first', async () => {
+    expenses = [];
+    const { EstimateService } = jest.requireMock('../../../services/EstimateService');
+    EstimateService.getByProject.mockClear();
+    await render('/projects/p1?tab=estimates');
+    await act(async () => {});
+    const select = document.body.querySelector('select[aria-label="Add an existing estimate"]') as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['Pick an estimate', 'EST-7 · Trim · $800.00', 'EST-8 · Fence · $1,200.00']);
+    const before = EstimateService.getByProject.mock.calls.length;
+    await act(async () => {
+      select.value = 'e8';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(EstimateService.update).toHaveBeenCalledWith('e8', { project_id: 'p1' });
+    expect(EstimateService.getByProject.mock.calls.length).toBeGreaterThan(before); // the tab reads its estimates again
   });
 
   it('saves the project as a template from the ⋯ menu, and says where to find it', async () => {

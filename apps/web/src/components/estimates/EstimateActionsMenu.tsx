@@ -40,6 +40,7 @@ export const EstimateActionsMenu: React.FC<EstimateActionsMenuProps> = ({ estima
   }, [onClose]);
 
   const answerable = estimate.status === 'sent' || estimate.status === 'opened';
+  const approvable = answerable || estimate.status === 'draft';
   const item = (action: EstimateAction, label: string, Icon: React.ElementType, danger = false) => (
     <button
       key={action}
@@ -59,7 +60,14 @@ export const EstimateActionsMenu: React.FC<EstimateActionsMenuProps> = ({ estima
   );
 
   return createPortal(
-    <div className="fixed inset-0 z-[10020]" onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose(); }}>
+    <div
+      className="fixed inset-0 z-[10020]"
+      onClick={onClose}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+    >
       <div
         ref={menu}
         role="menu"
@@ -75,7 +83,7 @@ export const EstimateActionsMenu: React.FC<EstimateActionsMenuProps> = ({ estima
         {item('send', 'Send to client', Send)}
         {item('copy-link', 'Copy client link', Link)}
         {item('duplicate', 'Duplicate', Copy)}
-        {answerable && item('accept', 'Mark as accepted', CheckCircle)}
+        {approvable && item('accept', 'Approve without signature', CheckCircle)}
         {answerable && item('decline', 'Mark as declined', XCircle)}
         <div className="border-t border-[#333333]">{item('delete', 'Delete', Trash2, true)}</div>
       </div>

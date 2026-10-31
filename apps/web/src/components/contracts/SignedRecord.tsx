@@ -26,6 +26,8 @@ export function SignedRecord({
   signerName,
   signature,
   signedAt,
+  approvedAt,
+  approvedBy,
   acknowledgedAt,
   documents,
   lang = 'en',
@@ -34,6 +36,9 @@ export function SignedRecord({
   signerName?: string;
   signature?: string;
   signedAt?: string;
+  /** Approved by the company for the client, without their signature. */
+  approvedAt?: string;
+  approvedBy?: string;
   acknowledgedAt?: string;
   documents: RecordDocument[];
   lang?: Lang;
@@ -57,8 +62,20 @@ export function SignedRecord({
             <dd>{signerName}</dd>
           </>
         )}
-        <dt className="text-gray-500">{t.signed}</dt>
-        <dd>{formatMoment(signedAt, lang) || t.notYet}</dd>
+        {approvedAt && !signedAt ? (
+          <>
+            <dt className="text-gray-500">{t.approvedBy}</dt>
+            <dd>
+              {[approvedBy, formatMoment(approvedAt, lang)].filter(Boolean).join(' · ')}
+              <span className="block text-xs text-gray-500">{t.noSignature}</span>
+            </dd>
+          </>
+        ) : (
+          <>
+            <dt className="text-gray-500">{t.signed}</dt>
+            <dd>{formatMoment(signedAt, lang) || t.notYet}</dd>
+          </>
+        )}
         {acknowledgedAt && (
           <>
             <dt className="text-gray-500">{t.readAgreed}</dt>

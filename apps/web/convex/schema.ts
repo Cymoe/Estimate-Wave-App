@@ -253,6 +253,9 @@ export const estimateFields = {
   expiryDate: v.optional(v.string()),
   clientSignature: v.optional(v.string()),
   signedAt: v.optional(v.string()),
+  // Accepted by the company for the client, without their signature (estimates.approve).
+  approvedAt: v.optional(v.string()),
+  approvedBy: v.optional(v.object({ userId: v.id("users"), name: v.string() })),
   contractTerms: v.optional(contractTerms),
   contractLockedAt: v.optional(v.string()),
   contractSnapshot: v.optional(contractSnapshot),

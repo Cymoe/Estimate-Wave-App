@@ -6,13 +6,19 @@ import { MemoryRouter } from 'react-router-dom';
 
 let rows: Array<Record<string, unknown>> = [];
 let listCall: () => Promise<unknown> = async () => rows;
-const actions = { shareUrl: jest.fn(async () => 'https://app.example/share/estimate/tok'), delete: jest.fn(async () => {}), updateStatus: jest.fn(async () => ({})) };
+const actions = {
+  shareUrl: jest.fn(async () => 'https://app.example/share/estimate/tok'),
+  delete: jest.fn(async () => {}),
+  updateStatus: jest.fn(async () => ({})),
+  approve: jest.fn(async () => ({})),
+};
 jest.mock('../../../services/EstimateService', () => ({
   EstimateService: {
     list: jest.fn(() => listCall()),
     shareUrl: (id: string) => actions.shareUrl(id),
     delete: (id: string) => actions.delete(id),
     updateStatus: (id: string, status: string) => actions.updateStatus(id, status),
+    approve: (id: string) => actions.approve(id),
   },
 }));
 jest.mock('../../../services/EstimateExportService', () => ({ EstimateExportService: {} }));
@@ -148,7 +154,8 @@ describe('EstimatesList', () => {
         row.dispatchEvent(Object.assign(new Event('touchstart', { bubbles: true }), { touches: [touch] }));
         jest.advanceTimersByTime(600);
       });
-      expect(menuItems()).toEqual(['Send to client', 'Copy client link', 'Duplicate', 'Delete']);
+      // A draft can be approved without a signature; only a sent one can be declined.
+      expect(menuItems()).toEqual(['Send to client', 'Copy client link', 'Duplicate', 'Approve without signature', 'Delete']);
     });
 
     it('a quick tap or a scroll does not open it', async () => {
@@ -163,14 +170,23 @@ describe('EstimatesList', () => {
       expect(menuItems()).toEqual([]);
     });
 
-    it('right-click opens it too; sent estimates can be marked accepted or declined', async () => {
+    it('right-click opens it too; a sent estimate can be approved without a signature, after confirming, or declined', async () => {
       const container = await renderRows();
-      await act(async () => {
-        rowOf(container, 'Garage door').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 50, clientY: 60 }));
-      });
-      expect(menuItems()).toContain('Mark as accepted');
-      await tapMenu('Mark as accepted');
-      expect(actions.updateStatus).toHaveBeenCalledWith('e2', 'accepted');
+      const openMenu = () =>
+        act(async () => {
+          rowOf(container, 'Garage door').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 50, clientY: 60 }));
+        });
+      await openMenu();
+      expect(menuItems()).toEqual(expect.arrayContaining(['Approve without signature', 'Mark as declined']));
+      window.confirm = jest.fn(() => false);
+      await tapMenu('Approve without signature');
+      expect(actions.approve).not.toHaveBeenCalled();
+      await openMenu();
+      window.confirm = jest.fn(() => true);
+      await tapMenu('Approve without signature');
+      expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('without a signature'));
+      expect(actions.approve).toHaveBeenCalledWith('e2');
+      expect(actions.updateStatus).not.toHaveBeenCalled();
     });
 
     it('copies the client link, and deletes only after confirming', async () => {

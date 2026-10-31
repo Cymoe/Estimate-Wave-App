@@ -319,7 +319,9 @@ export const ProjectPanel: React.FC<{
     };
   }, [projectId, orgId]);
 
-  // Read again after an estimate opened from here closes: its status or total may have changed.
+  // Read again after an estimate opened from here closes (its status or total may have changed),
+  // and after one is added here.
+  const [estimatesAdded, setEstimatesAdded] = useState(0);
   useEffect(() => {
     if (!orgId) return;
     let cancelled = false;
@@ -329,7 +331,36 @@ export const ProjectPanel: React.FC<{
     return () => {
       cancelled = true;
     };
-  }, [projectId, orgId, estimatesRevision]);
+  }, [projectId, orgId, estimatesRevision, estimatesAdded]);
+
+  // Estimates made before this project, not yet on any project: this client's first.
+  const [unfiled, setUnfiled] = useState<Estimate[] | null>(null);
+  const [adding, setAdding] = useState(false);
+  useEffect(() => {
+    if (activeTab !== 'estimates' || !orgId) return;
+    let cancelled = false;
+    EstimateService.list(orgId)
+      .then((rows) => {
+        if (cancelled) return;
+        const mine = (e: Estimate) => (project?.client_id && e.client_id === project.client_id ? 0 : 1);
+        setUnfiled(rows.filter((e) => !e.project_id).sort((a, b) => mine(a) - mine(b) || (b.created_at ?? '').localeCompare(a.created_at ?? '')));
+      })
+      .catch(() => !cancelled && setUnfiled([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, orgId, estimatesAdded, project?.client_id]);
+  const addEstimate = async (estimateId: string) => {
+    setAdding(true);
+    try {
+      await EstimateService.update(estimateId, { project_id: projectId });
+      setEstimatesAdded((n) => n + 1);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'The estimate couldn’t be added');
+    } finally {
+      setAdding(false);
+    }
+  };
 
   useEffect(() => {
     let live = true;
@@ -634,7 +665,7 @@ export const ProjectPanel: React.FC<{
             {estimates === null ? (
               <p className="text-sm text-gray-500">Loading…</p>
             ) : estimates.length === 0 ? (
-              <p className="py-10 text-center text-sm text-gray-500">No estimates on this project yet.</p>
+              <p className="py-8 text-center text-sm text-gray-500">No estimates on this project yet.</p>
             ) : (
               <ul className="bg-[#1a1a1a] border border-[#333] divide-y divide-[#262626]" aria-label="Estimates">
                 {estimates.map((estimate) => (
@@ -655,6 +686,25 @@ export const ProjectPanel: React.FC<{
                   </li>
                 ))}
               </ul>
+            )}
+            {unfiled && unfiled.length > 0 && (
+              <label className="mt-4 block">
+                <span className="block text-xs text-gray-400 mb-1">Add an estimate you already made</span>
+                <select
+                  aria-label="Add an existing estimate"
+                  value=""
+                  disabled={adding}
+                  onChange={(e) => e.target.value && addEstimate(e.target.value)}
+                  className="w-full bg-[#0A0A0A] border border-[#333] rounded px-3 py-2 text-sm text-white"
+                >
+                  <option value="">{adding ? 'Adding…' : 'Pick an estimate'}</option>
+                  {unfiled.map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {[e.estimate_number, e.title || e.client?.name, formatCurrency(e.total_amount)].filter(Boolean).join(' · ')}
+                    </option>
+                  ))}
+                </select>
+              </label>
             )}
           </div>
         )}

@@ -29,6 +29,7 @@ interface ClientEstimate {
   terms?: string;
   client_signature?: string;
   signed_at?: string;
+  approved_at?: string;
   client?: { name: string; language?: 'en' | 'es' };
   business?: { name?: string; email?: string; phone?: string; address?: string };
   design?: { url: string; name: string; contentType?: string };
@@ -77,6 +78,7 @@ function fromView(view: any): ClientEstimate {
     terms: view.terms,
     client_signature: view.clientSignature,
     signed_at: view.signedAt,
+    approved_at: view.approvedAt,
     client: view.client,
     business: view.business,
     design: view.design,
@@ -576,6 +578,14 @@ const ShareableEstimatePage: React.FC = () => {
                 />
               </div>
             )}
+          </div>
+        ) : estimate.status === 'accepted' ? (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6" data-testid="accepted-without-signature">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              <CheckCircle className="w-5 h-5 text-green-500 inline mr-2" />
+              {t.accepted}
+            </h3>
+            <p className="text-sm text-gray-600">{t.approvedOn(estimate.business?.name || t.yourContractor, formatDay(estimate.approved_at ?? estimate.locked_at, lang))}</p>
           </div>
         ) : canSign ? (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">

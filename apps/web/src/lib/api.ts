@@ -461,6 +461,11 @@ export const estimatesAPI = {
   },
 
   /** This job's choice for one document: a PDF's id, 'tolliver', or null for the company's. */
+  /** Accepts the estimate for the client without their signature. */
+  async approve(id: string) {
+    return run('mutation', api.estimates.approve, { id });
+  },
+
   /** Sends, or stops sending, one of the company's attachments with this job. */
   async setAttachment(id: string, docId: string, included: boolean) {
     return run('mutation', api.estimates.setAttachment, { id, docId, included });

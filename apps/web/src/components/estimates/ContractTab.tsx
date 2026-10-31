@@ -6,6 +6,7 @@ import { contractDocsAPI, estimatesAPI, type ContractDocument, type EstimateDocu
 import type { Estimate } from '../../services/EstimateService';
 import { changesSinceSigned } from '../../services/contract';
 import { uploadContractDoc } from '../../services/ContractDocsService';
+import { approvalLine } from './estimateActions';
 
 type ChangeOrder = ReturnType<typeof changesSinceSigned>;
 const errorText = (err: unknown) => (err instanceof Error && err.message ? err.message : 'That didn’t work');
@@ -64,7 +65,18 @@ function Row({
  * along with it. Once signed, the two things a client can sign later: the
  * changes to the work, and the job-complete sign-off.
  */
-export function ContractTab({ estimate, changeOrder, organizationId }: { estimate: Estimate; changeOrder: ChangeOrder; organizationId?: string }) {
+export function ContractTab({
+  estimate,
+  changeOrder,
+  organizationId,
+  onApprove,
+}: {
+  estimate: Estimate;
+  changeOrder: ChangeOrder;
+  organizationId?: string;
+  /** Approve it without the client's signature (set while it can still be approved). */
+  onApprove?: () => void;
+}) {
   const navigate = useNavigate();
   const [docs, setDocs] = useState<EstimateDocuments | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -105,6 +117,8 @@ export function ContractTab({ estimate, changeOrder, organizationId }: { estimat
   };
 
   const signedOn = locked ? new Date(estimate.contract_locked_at!).toLocaleDateString() : '';
+  // Approved for the client without their signature: say so instead of "Signed".
+  const approved = approvalLine(estimate);
   const agreement = docs?.agreement;
   const affidavit = docs?.affidavit;
   const changeOrderDoc = docs?.changeOrder;
@@ -123,7 +137,7 @@ export function ContractTab({ estimate, changeOrder, organizationId }: { estimat
             title="Agreement"
             subtitle={
               locked
-                ? `Signed ${signedOn} · ${agreement.fileName ?? agreement.name}`
+                ? `${approved ?? `Signed ${signedOn}`} · ${agreement.fileName ?? agreement.name}`
                 : `${agreement.fileName} · the client signs it with the estimate`
             }
             doc={agreement}
@@ -132,7 +146,7 @@ export function ContractTab({ estimate, changeOrder, organizationId }: { estimat
         ) : (
           <Row
             title="Agreement"
-            subtitle={locked ? `Signed ${signedOn}` : 'Filled in from this estimate · the client signs it with the estimate'}
+            subtitle={locked ? (approved ?? `Signed ${signedOn}`) : 'Filled in from this estimate · the client signs it with the estimate'}
             doc={docs ? agreement : undefined}
             onClick={() => navigate(`/estimates/${id}/contract`)}
           />
@@ -273,6 +287,18 @@ export function ContractTab({ estimate, changeOrder, organizationId }: { estimat
             <SignoffControls estimateId={id} kind="affidavit" clientName={estimate.client?.name} clientLanguage={estimate.client?.language} />
           </div>
         </section>
+      )}
+
+      {onApprove && !locked && (
+        <div
+          className="bg-[#1a1a1a] border border-[#333] px-4 py-3 flex flex-wrap items-center justify-between gap-3"
+          data-testid="approve-without-signature"
+        >
+          <span className="text-xs text-gray-400">Client agreed in person or on the phone? Approve it here instead of waiting for a signature.</span>
+          <button type="button" onClick={onApprove} className={secondary}>
+            Approve without signature
+          </button>
+        </div>
       )}
 
       {docs && agreement?.source !== 'upload' && !locked && (

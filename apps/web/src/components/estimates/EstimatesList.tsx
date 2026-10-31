@@ -13,7 +13,7 @@ import { advancedSearch, SearchableField } from '../../utils/searchUtils';
 import { TableSkeleton } from '../skeletons/TableSkeleton';
 import { EstimateExportService } from '../../services/EstimateExportService';
 import { EstimateActionsMenu, EstimateAction } from './EstimateActionsMenu';
-import { copyText, duplicateEstimate, sendEstimateLink } from './estimateActions';
+import { confirmApproval, copyText, duplicateEstimate, sendEstimateLink } from './estimateActions';
 import { createPortal } from 'react-dom';
 import { Toast, useToast } from '../common/Notice';
 
@@ -110,8 +110,13 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
           break;
         }
         case 'accept':
+          if (!confirmApproval(estimate)) return;
+          await EstimateService.approve(estimate.id);
+          await loadEstimates();
+          showNotice(`${estimate.estimate_number} approved`);
+          break;
         case 'decline':
-          await EstimateService.updateStatus(estimate.id, action === 'accept' ? 'accepted' : 'rejected');
+          await EstimateService.updateStatus(estimate.id, 'rejected');
           await loadEstimates();
           break;
         case 'delete':

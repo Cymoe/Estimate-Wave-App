@@ -1,6 +1,26 @@
 import { withLang } from '../../../convex/lib/i18n';
 import { EstimateService, Estimate } from '../../services/EstimateService';
 
+/** An estimate the company can still approve for the client: not yet answered. */
+export const canApprove = (estimate: Estimate) => ['draft', 'sent', 'opened'].includes(estimate.status);
+
+/** Asks before approving without a signature, and says what it does. */
+export function confirmApproval(estimate: Estimate): boolean {
+  const who = estimate.client?.name ? ` for ${estimate.client.name}` : '';
+  return window.confirm(
+    `Approve ${estimate.estimate_number ?? 'this estimate'}${who} without a signature?\n\n` +
+      'Use this when they agreed in person or on the phone. The agreement locks as it stands and the deposit is requested. ' +
+      'It will show as approved by you, not signed by the client.',
+  );
+}
+
+/** "Approved Oct 31 by Myles Webb", or null when the client signed it themselves. */
+export function approvalLine(estimate: Pick<Estimate, 'approved_at' | 'approved_by_name' | 'client_signature'>): string | null {
+  if (!estimate.approved_at || estimate.client_signature) return null;
+  const day = new Date(estimate.approved_at).toLocaleDateString();
+  return `Approved ${day}${estimate.approved_by_name ? ` by ${estimate.approved_by_name}` : ''} · no client signature`;
+}
+
 /** Copies text, falling back to a hidden textarea where the clipboard API isn't allowed. */
 export async function copyText(text: string) {
   try {
@@ -48,8 +68,7 @@ export async function sendEstimateLink(estimate: Estimate): Promise<string | nul
   return url;
 }
 
-const isoDate = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const isoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 /** A new draft with the same client, project and items, dated today. */
 export async function duplicateEstimate(estimate: Estimate, organizationId: string): Promise<Estimate> {

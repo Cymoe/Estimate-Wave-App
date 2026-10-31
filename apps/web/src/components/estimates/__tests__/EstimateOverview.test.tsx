@@ -9,6 +9,17 @@ let cachedCopy: Record<string, unknown> | undefined;
 let loadGate: Promise<void> | null = null;
 const update = jest.fn();
 const uploadDesign = jest.fn();
+const approve = jest.fn();
+const createProject = jest.fn(async (p: Record<string, unknown>) => ({ ...p, id: 'p9' }));
+jest.mock('../../../services/ProjectService', () => ({
+  ProjectService: {
+    list: async () => [
+      { id: 'p1', name: 'Garage', client_id: 'c9' },
+      { id: 'p2', name: 'Bath remodel', client_id: 'c1', client: { name: 'Dan Shah' } },
+    ],
+    create: (p: Record<string, unknown>) => createProject(p),
+  },
+}));
 jest.mock('../../../services/EstimateService', () => ({
   EstimateService: {
     cached: () => cachedCopy,
@@ -31,6 +42,11 @@ jest.mock('../../../services/EstimateService', () => ({
     updateStatus: async (id: string, status: string) => {
       update(id, { status });
       stored = { ...stored, status };
+      return stored;
+    },
+    approve: async (id: string) => {
+      approve(id);
+      stored = { ...stored, status: 'accepted', approved_at: '2026-10-31T12:00:00Z', approved_by_name: 'Myles Webb', contract_locked_at: '2026-10-31T12:00:00Z' };
       return stored;
     },
   },
@@ -82,6 +98,66 @@ describe('estimate overview', () => {
     document.body.innerHTML = '';
     update.mockClear();
     uploadDesign.mockClear();
+    approve.mockClear();
+    createProject.mockClear();
+  });
+
+  const button = (text: string) => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === text) as HTMLButtonElement | undefined;
+
+  it('a draft can be approved without a signature from the ⋯ menu, after confirming, and then says who approved it', async () => {
+    stored = { ...base };
+    await openOverview();
+    await act(async () => (document.body.querySelector('button[aria-label="More actions"]') as HTMLButtonElement).click());
+    window.confirm = jest.fn(() => true);
+    await act(async () => button('Approve without signature')!.click());
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Approve EST-2026-523077 without a signature?'));
+    expect(approve).toHaveBeenCalledWith('e1');
+    await act(async () => {});
+    expect(document.body.textContent).toContain(`Approved ${new Date('2026-10-31T12:00:00Z').toLocaleDateString()} by Myles Webb · no client signature`);
+    // Once accepted it can't be approved again.
+    await act(async () => (document.body.querySelector('button[aria-label="More actions"]') as HTMLButtonElement).click());
+    expect(button('Approve without signature')).toBeUndefined();
+  });
+
+  it('an estimate made first can be added to a project, this client’s listed first', async () => {
+    stored = { ...base, client_id: 'c1', client: { name: 'Dan Shah' } };
+    await openOverview();
+    const card = () => document.body.querySelector('[data-testid="estimate-project"]')!;
+    expect(card().textContent).toContain('Not part of a project yet.');
+    await act(async () => button('Add to a project')!.click());
+    await act(async () => {});
+    const select = card().querySelector('select[aria-label="Add to project"]') as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['Pick a project', 'Bath remodel · Dan Shah', 'Garage']);
+    await act(async () => {
+      select.value = 'p2';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(update).toHaveBeenCalledWith('e1', { project_id: 'p2' });
+  });
+
+  it('or starts a new project from the estimate', async () => {
+    stored = { ...base, title: 'Kitchen remodel', client_id: 'c1', organization_id: 'org1' };
+    await openOverview();
+    await act(async () => button('Start a new project from it')!.click());
+    await act(async () => {});
+    expect(createProject).toHaveBeenCalledWith(expect.objectContaining({ name: 'Kitchen remodel', client_id: 'c1', status: 'planned', budget: 3210993.5, organization_id: 'org1' }));
+    expect(update).toHaveBeenCalledWith('e1', { project_id: 'p9' });
+  });
+
+  it('on a project, shows it and can move it off again', async () => {
+    stored = { ...base, project_id: 'p2', project: { id: 'p2', name: 'Bath remodel' } };
+    await openOverview();
+    const card = document.body.querySelector('[data-testid="estimate-project"]')!;
+    expect(card.textContent).toContain('Bath remodel');
+    await act(async () => button('Change')!.click());
+    await act(async () => {});
+    const select = card.querySelector('select') as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.textContent)).toContain('Not part of a project');
+    await act(async () => {
+      select.value = '__none';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(update).toHaveBeenCalledWith('e1', { project_id: '' });
   });
 
   it('summarises the estimate without repeating the status', async () => {

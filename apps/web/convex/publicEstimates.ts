@@ -127,6 +127,7 @@ export const get = query({
       lockedAt: estimate.contractLockedAt,
       clientSignature: estimate.clientSignature,
       signedAt: estimate.signedAt,
+      approvedAt: estimate.approvedAt,
       client: client ? { name: client.name, language: langOf(client) } : undefined,
       business: organization
         ? {

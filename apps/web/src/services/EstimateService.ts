@@ -41,6 +41,9 @@ export interface Estimate {
   terms?: string;
   client_signature?: string;
   signed_at?: string;
+  /** Accepted by the company for the client, without their signature. */
+  approved_at?: string;
+  approved_by_name?: string;
   /** Contract terms the user wrote (see services/contract.ts). */
   contract_terms?: import('./contract').ContractTerms;
   /** Set when the estimate was accepted: the contract as agreed. */
@@ -126,6 +129,8 @@ function toLegacy(doc: Doc, clients?: Map<string, Doc>, projects?: Map<string, D
     terms: doc.terms,
     client_signature: doc.clientSignature,
     signed_at: doc.signedAt,
+    approved_at: doc.approvedAt,
+    approved_by_name: doc.approvedBy?.name,
     contract_terms: doc.contractTerms,
     contract_locked_at: doc.contractLockedAt,
     contract_snapshot: doc.contractSnapshot,
@@ -292,6 +297,11 @@ export class EstimateService {
 
   static async updateStatus(id: string, status: Estimate['status']): Promise<Estimate> {
     return this.update(id, { status });
+  }
+
+  /** Accepts it for the client without their signature (they agreed in person or by phone). */
+  static async approve(id: string): Promise<Estimate> {
+    return remember(toLegacy(await estimatesAPI.approve(id)));
   }
 
   static async getByClient(clientId: string, organizationId?: string): Promise<Estimate[]> {

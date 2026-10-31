@@ -24,7 +24,8 @@ import { PaymentsTab } from './PaymentsTab';
 import { RemindersCard } from './RemindersCard';
 import { JobPhotos } from '../common/JobPhotos';
 import { ContractTab } from './ContractTab';
-import { copyText, duplicateEstimate, sendEstimateLink } from './estimateActions';
+import { approvalLine, canApprove, confirmApproval, copyText, duplicateEstimate, sendEstimateLink } from './estimateActions';
+import { EstimateProject } from './EstimateProject';
 
 // Header actions share one size so they line up; only the main action is filled.
 const actionBase = 'h-9 flex items-center gap-2 px-4 border rounded-sm transition-colors text-sm font-medium';
@@ -194,6 +195,18 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
     loadEstimate(Boolean(id && EstimateService.cached(id)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  /** Accepts it for the client without their signature, after saying what that does. */
+  const handleApprove = async () => {
+    if (!estimate?.id || !confirmApproval(estimate)) return;
+    try {
+      await EstimateService.approve(estimate.id);
+      await loadEstimate(true);
+    } catch (error) {
+      console.error('Error approving estimate:', error);
+      alert(error instanceof Error ? error.message : 'The estimate couldn’t be approved. Please try again.');
+    }
+  };
 
   const handleStatusUpdate = async (status: Estimate['status']) => {
     if (!estimate?.id) return;
@@ -548,18 +561,20 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowMoreMenu(false)} />
                   <div className="absolute right-0 top-full mt-1 w-52 bg-[#1E1E1E] border border-[#333333] shadow-lg z-50 py-1">
+                    {canApprove(estimate) && (
+                      <button
+                        onClick={() => {
+                          setShowMoreMenu(false);
+                          handleApprove();
+                        }}
+                        className="w-full flex items-center px-3 py-2.5 text-sm text-white hover:bg-[#333333]"
+                      >
+                        <CheckCircle className="w-4 h-4 mr-3 text-green-400" />
+                        Approve without signature
+                      </button>
+                    )}
                     {(estimate.status === 'sent' || estimate.status === 'opened') && (
                       <>
-                        <button
-                          onClick={() => {
-                            setShowMoreMenu(false);
-                            handleStatusUpdate('accepted');
-                          }}
-                          className="w-full flex items-center px-3 py-2.5 text-sm text-white hover:bg-[#333333]"
-                        >
-                          <CheckCircle className="w-4 h-4 mr-3 text-green-400" />
-                          Mark as accepted
-                        </button>
                         <button
                           onClick={() => {
                             setShowMoreMenu(false);
@@ -660,16 +675,16 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                 {estimate.last_sent_at && (
                   <div className="text-gray-400">Sent {new Date(estimate.last_sent_at).toLocaleDateString()}</div>
                 )}
+                {approvalLine(estimate) && <div className="text-green-400">{approvalLine(estimate)}</div>}
               </div>
             </div>
-            {FEATURES.projects && estimate.project && !overProject && (
-              <button
-                type="button"
-                onClick={() => navigate(`/projects/${estimate.project!.id}`)}
-                className="-mt-3 text-sm text-gray-400 hover:text-white"
-              >
-                Project: <span className="text-[#336699] hover:underline">{estimate.project.name}</span>
-              </button>
+            {FEATURES.projects && (
+              <EstimateProject
+                estimate={estimate}
+                organizationId={estimate.organization_id || selectedOrg?.id}
+                onChanged={() => loadEstimate(true)}
+                behind={overProject}
+              />
             )}
 
             {/* Client: pick one here when there's none, or change it */}
@@ -863,6 +878,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                  estimate={estimate}
                  changeOrder={changeOrder}
                  organizationId={estimate.organization_id || selectedOrg?.id}
+                 onApprove={canApprove(estimate) ? handleApprove : undefined}
                />
              ) : (
                <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6 text-center">
