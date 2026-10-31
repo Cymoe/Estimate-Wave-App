@@ -1,0 +1,119 @@
+name: Deploy Convex backend
+
+# Pushes apps/web/convex to the deployment named by the CONVEX_DEPLOY_KEY
+# secret, sets up Convex Auth keys if missing, loads the shared catalog,
+# then runs an end-to-end smoke test against the live deployment.
+
+on:
+  push:
+    branches: [main, fieldquote-convex]
+    paths:
+      - 'apps/web/convex/**'
+      - 'apps/web/scripts/convex-*.mjs'
+      - 'apps/web/package.json'
+      - 'package-lock.json'
+      - '.github/workflows/convex-deploy.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: convex-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # The site users sign in from, and where alert links and assistant
+      # sign-in point. Set the SITE_URL repository variable for production;
+      # until then it's this branch's Vercel preview (never localhost, which
+      # would break every link sent from the live deployment).
+      SITE_URL: ${{ vars.SITE_URL || 'https://estimate-wave-app-git-fieldquote-convex-cymoes-projects.vercel.app' }}
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - name: Check deploy key
+        # Runs before checkout, so apps/web doesn't exist yet.
+        working-directory: .
+        env:
+          RAW_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          # Accept a key pasted with its "|" URL-encoded as %7C.
+          key="${RAW_KEY//%7C/|}"
+          key="${key//%7c/|}"
+          if [ -z "$key" ]; then
+            echo "::error::Add a CONVEX_DEPLOY_KEY repository secret (Convex dashboard > Settings > Deploy keys)."
+            exit 1
+          fi
+          # Mask every form of the key before anything else can print it.
+          echo "::add-mask::$key"
+          echo "::add-mask::${key#*|}"
+          if ! [[ "$key" =~ ^(dev|prod|preview):([a-z0-9-]+)\|.+$ ]]; then
+            echo "::error::CONVEX_DEPLOY_KEY isn't a Convex deploy key (expected dev:<deployment>|<key>). Copy it again from the Convex dashboard."
+            exit 1
+          fi
+          name="${BASH_REMATCH[2]}"
+          {
+            echo "CONVEX_DEPLOY_KEY=$key"
+            echo "CONVEX_URL=https://${name}.convex.cloud"
+          } >> "$GITHUB_ENV"
+          echo "Deploying to ${name}"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        working-directory: .
+        run: npm ci --no-audit --no-fund
+
+      - name: Run backend tests
+        run: npm run test:convex
+
+      - name: Push functions and schema
+        run: npx convex deploy --yes
+
+      - name: Set up Convex Auth
+        run: node scripts/convex-setup-auth.mjs
+
+      - name: Load shared catalog
+        run: npx convex run seed:catalog
+
+      - name: Fold old Price Book trade picks into each company's trades
+        # One list of trades per company (organizations.leadTrades). Safe to
+        # re-run: once the old rows are gone it does nothing.
+        run: npx convex run industries:mergeChosenTrades
+      - name: Remove bids placed outside a company's trades
+        # Bids are only for listed trades. Safe to re-run: with none outside
+        # the lists it does nothing.
+        run: npx convex run bids:removeBidsOutsideTrades
+      - name: Keep password accounts made before email codes
+        # They got their invites when they signed up; mark them proven so they
+        # aren't asked for a code. Safe to re-run: marked accounts are skipped.
+        run: npx convex run users:keepEarlierPasswordAccounts
+      - name: Pull Midland's permits
+        # The Webb Report's permits. Incremental after the first run.
+        run: npx convex run permits:syncMidland
+      - name: Pull Midland's home owners
+        # The appraisal roll callers work from. Skipped when a clean pass ran
+        # in the last week; the weekly job keeps it current.
+        run: npx convex run parcels:syncMidland '{"ifStale":true}'
+      - name: Pull Midland's distress signals
+        # Code violations, dilapidated buildings, demolition orders and stalled
+        # permits for the Sellers lists. All of them the first time; skipped
+        # when a clean run happened in the last day.
+        run: npx convex run signals:syncMidland '{"ifStale":true}'
+
+      - name: Smoke test the live deployment
+        run: node scripts/convex-smoke-test.mjs
+
+      - name: Remove smoke-test data
+        # The smoke test makes throwaway @fieldquote.test accounts (one with a
+        # company); delete them so test companies don't pile up.
+        if: always()
+        run: npx convex run seed:removeSmokeTests

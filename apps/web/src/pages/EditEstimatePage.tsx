@@ -36,7 +36,7 @@ export const EditEstimatePage: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#F9D71C]"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#336699]"></div>
       </div>
     );
   }
@@ -77,6 +77,8 @@ export const EditEstimatePage: React.FC = () => {
               description: item.description || item.product_name || '',
               quantity: item.quantity,
               unit_price: item.price,
+              red_line_price: item.red_line_price,
+              cap_price: item.cap_price,
               total_price: item.price * item.quantity,
               display_order: index
             }))

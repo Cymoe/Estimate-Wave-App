@@ -1,5 +1,6 @@
-import { supabase } from '../lib/supabase';
-import { ActivityLogService } from './ActivityLogService';
+import { clientsAPI, projectsAPI } from '../lib/api';
+
+export type ProjectStatus = 'planned' | 'active' | 'on-hold' | 'completed' | 'cancelled';
 
 export interface Project {
   id?: string;
@@ -8,23 +9,13 @@ export interface Project {
   name: string;
   description?: string;
   client_id?: string;
-  status: 'planned' | 'active' | 'on-hold' | 'completed' | 'cancelled';
+  status: ProjectStatus;
   start_date?: string;
   end_date?: string;
   budget?: number;
-  actual_cost?: number;
-  location?: string;
-  notes?: string;
+  category?: string;
   created_at?: string;
   updated_at?: string;
-  pricing_mode_id?: string;
-  lock_pricing?: boolean;
-  pricing_mode?: {
-    id: string;
-    name: string;
-    icon: string;
-    description?: string;
-  };
   client?: {
     id: string;
     name: string;
@@ -32,168 +23,110 @@ export interface Project {
   };
 }
 
-export class ProjectService {
-  static async list(organizationId: string): Promise<Project[]> {
-    const { data, error } = await supabase
-      .from('projects')
-      .select(`
-        *,
-        client:clients(id, name, company_name),
-        pricing_mode:pricing_modes(id, name, icon, description)
-      `)
-      .eq('organization_id', organizationId)
-      .order('created_at', { ascending: false });
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Doc = Record<string, any>;
 
-    if (error) throw error;
-    return data || [];
+// The screens use the older status names; Convex stores its own.
+const TO_CONVEX: Record<string, string> = {
+  planned: 'planning',
+  active: 'in_progress',
+  'on-hold': 'on_hold',
+  on_hold: 'on_hold',
+  planning: 'planning',
+  in_progress: 'in_progress',
+  completed: 'completed',
+  cancelled: 'cancelled',
+};
+const FROM_CONVEX: Record<string, ProjectStatus> = {
+  planning: 'planned',
+  in_progress: 'active',
+  on_hold: 'on-hold',
+  completed: 'completed',
+  cancelled: 'cancelled',
+};
+
+/** A Convex project in the snake_case shape the project screens read. */
+export function toProject(doc: Doc, clients?: Map<string, Doc>): Project {
+  const client = doc.clientId ? clients?.get(doc.clientId) : undefined;
+  return {
+    id: doc._id,
+    user_id: doc.userId,
+    organization_id: doc.organizationId,
+    name: doc.name,
+    description: doc.description,
+    client_id: doc.clientId,
+    status: FROM_CONVEX[doc.status] ?? 'planned',
+    start_date: doc.startDate,
+    end_date: doc.endDate,
+    budget: doc.budget,
+    category: doc.category,
+    created_at: doc.createdAt,
+    updated_at: doc.updatedAt,
+    client: client ? { id: client._id, name: client.name, company_name: client.companyName } : undefined,
+  };
+}
+
+/** The screens' snake_case fields as Convex project fields (empty values clear a field). */
+export function toConvexProject(project: Partial<Project> & Record<string, unknown>) {
+  const out: Record<string, unknown> = {};
+  const set = (key: string, value: unknown) => {
+    if (value === undefined) return;
+    out[key] = value === '' ? null : value;
+  };
+  set('name', project.name);
+  set('description', project.description);
+  set('clientId', project.client_id);
+  if (project.status !== undefined) out.status = TO_CONVEX[project.status] ?? 'planning';
+  set('startDate', project.start_date);
+  set('endDate', project.end_date);
+  if (project.budget !== undefined) {
+    const budget = Number(project.budget);
+    out.budget = project.budget === null || (project.budget as unknown) === '' || !Number.isFinite(budget) ? null : budget;
+  }
+  set('category', project.category);
+  return out;
+}
+
+async function clientsById(organizationId: string) {
+  const clients: Doc[] = await clientsAPI.list(organizationId);
+  return new Map(clients.map((client) => [client._id as string, client]));
+}
+
+/** Projects, stored in Convex. */
+export class ProjectService {
+  static async list(organizationId: string, filters?: { clientId?: string }): Promise<Project[]> {
+    const [docs, clients] = await Promise.all([
+      projectsAPI.list(organizationId, filters?.clientId ? { clientId: filters.clientId } : undefined),
+      clientsById(organizationId),
+    ]);
+    return docs.map((doc: Doc) => toProject(doc, clients));
   }
 
   static async getById(id: string): Promise<Project | null> {
-    const { data, error } = await supabase
-      .from('projects')
-      .select(`
-        *,
-        client:clients(id, name, company_name),
-        pricing_mode:pricing_modes(id, name, icon, description)
-      `)
-      .eq('id', id)
-      .single();
-
-    if (error) throw error;
-    return data;
+    let doc: Doc;
+    try {
+      doc = await projectsAPI.getById(id);
+    } catch {
+      return null;
+    }
+    return toProject(doc, await clientsById(doc.organizationId));
   }
 
   static async create(project: Omit<Project, 'id' | 'created_at' | 'updated_at'>): Promise<Project> {
-    const { data, error } = await supabase
-      .from('projects')
-      .insert(project)
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    // Get full project with client info
-    const fullProject = await this.getById(data.id);
-
-    // Log activity
-    try {
-      await ActivityLogService.log({
-        organizationId: project.organization_id!,
-        entityType: 'project',
-        entityId: data.id,
-        action: 'created',
-        description: `created project ${data.name}`,
-        metadata: {
-          project_name: data.name,
-          client_id: data.client_id,
-          client_name: fullProject?.client?.name,
-          status: data.status,
-          budget: data.budget
-        }
-      });
-    } catch (logError) {
-      console.error('Failed to log project creation:', logError);
-    }
-
-    return fullProject!;
+    const doc = await projectsAPI.create({ organizationId: project.organization_id, ...toConvexProject(project) });
+    return toProject(doc, await clientsById(doc.organizationId));
   }
 
   static async update(id: string, updates: Partial<Project>): Promise<Project> {
-    const { data, error } = await supabase
-      .from('projects')
-      .update(updates)
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    const fullProject = await this.getById(id);
-
-    // Log activity
-    try {
-      await ActivityLogService.log({
-        organizationId: data.organization_id,
-        entityType: 'project',
-        entityId: id,
-        action: 'updated',
-        description: `updated project ${data.name}`,
-        metadata: {
-          project_name: data.name,
-          updated_fields: Object.keys(updates),
-          status: data.status
-        }
-      });
-    } catch (logError) {
-      console.error('Failed to log project update:', logError);
-    }
-
-    return fullProject!;
+    const doc = await projectsAPI.update(id, toConvexProject(updates));
+    return toProject(doc, await clientsById(doc.organizationId));
   }
 
-  static async updateStatus(id: string, status: Project['status']): Promise<Project> {
-    const project = await this.getById(id);
-    if (!project) throw new Error('Project not found');
-
-    const { data, error } = await supabase
-      .from('projects')
-      .update({ status })
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    // Log activity
-    try {
-      await ActivityLogService.log({
-        organizationId: data.organization_id,
-        entityType: 'project',
-        entityId: id,
-        action: 'status_changed',
-        description: `changed status of project ${data.name} to ${status}`,
-        metadata: {
-          project_name: data.name,
-          old_status: project.status,
-          new_status: status
-        }
-      });
-    } catch (logError) {
-      console.error('Failed to log project status change:', logError);
-    }
-
-    return await this.getById(id) || data;
+  static async updateStatus(id: string, status: ProjectStatus): Promise<Project> {
+    return this.update(id, { status });
   }
 
   static async delete(id: string): Promise<void> {
-    // Get project info before deletion for logging
-    const project = await this.getById(id);
-    
-    const { error } = await supabase
-      .from('projects')
-      .delete()
-      .eq('id', id);
-
-    if (error) throw error;
-
-    // Log activity
-    if (project) {
-      try {
-        await ActivityLogService.log({
-          organizationId: project.organization_id!,
-          entityType: 'project',
-          entityId: id,
-          action: 'deleted',
-          description: `deleted project ${project.name}`,
-          metadata: {
-            project_name: project.name,
-            client_name: project.client?.name,
-            status: project.status
-          }
-        });
-      } catch (logError) {
-        console.error('Failed to log project deletion:', logError);
-      }
-    }
+    await projectsAPI.delete(id);
   }
 }

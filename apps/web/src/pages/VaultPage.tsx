@@ -1,0 +1,213 @@
+import React, { useContext, useMemo, useState } from 'react';
+import { MapPin, Sparkles } from 'lucide-react';
+import { Confirmed } from '../components/market/Confirmed';
+import { OrganizationContext } from '../components/layouts/DashboardLayout';
+import { walletAPI } from '../lib/api';
+import { useOlderLeads } from '../lib/live';
+import { money } from '../components/market/wallet';
+import { notifyWalletChanged } from '../components/market/WalletBar';
+import { PlanPanel, usePlan, type PlanSummary } from '../components/market/plan';
+import { InlineNotice, Toast, useToast } from '../components/common/Notice';
+import { useConfirm } from '../components/common/ConfirmDialog';
+
+/** A lead in the Vault: a week or more old, no price countdown. */
+export interface VaultLead {
+  id: string;
+  jobType?: string;
+  tradeName?: string;
+  city?: string;
+  county?: string;
+  summary?: string;
+  receivedAt: string;
+  ageDays: number;
+  matchesTrades: boolean;
+  /** When Webb Leads confirmed it with the homeowner, and what they said. */
+  verified?: { at: string; note?: string };
+  /** A demo lead shown to a real company: there to see, not to claim. */
+  demo?: boolean;
+}
+
+export interface VaultPool {
+  locked: boolean;
+  count: number;
+  plan: PlanSummary | null;
+  leads: VaultLead[];
+}
+
+const titleFromSlug = (slug?: string) =>
+  slug ? slug.replace(/-/g, ' ').replace(/^\w/, (c) => c.toUpperCase()) : 'General';
+
+const primary =
+  'inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded bg-emerald-600 text-white text-sm font-medium disabled:opacity-50 whitespace-nowrap';
+
+/**
+ * The Vault: Marketplace leads nobody bought in their first week, open to
+ * companies on the monthly plan. Claiming is exclusive and first come, with
+ * a monthly allowance included and a flat price per claim after that.
+ * Without the plan the page shows what's waiting and how to get in.
+ */
+const VaultPage: React.FC = () => {
+  const { selectedOrg } = useContext(OrganizationContext);
+  const organizationId = selectedOrg?.id || undefined;
+  // Live: a lead another company claims leaves the list as it happens.
+  const pool = useOlderLeads<VaultPool>(organizationId) ?? null;
+  // A company that has never opened anything on the plan gets its 30-day trial here too.
+  usePlan(organizationId, { ensure: true });
+  const [mineOnly, setMineOnly] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { toast, link, show } = useToast();
+  const [confirm, confirmDialog] = useConfirm();
+
+  const claim = async (lead: VaultLead) => {
+    // Inside the allowance a claim is free; past it, say the price before it comes off the balance.
+    if (price > 0) {
+      const yes = await confirm({
+        title: `Claim this lead for ${money(price)}?`,
+        message: `This month's included claims are used, so ${money(price)} comes off your lead balance. The lead is yours alone.`,
+        confirmLabel: `Claim · ${money(price)}`,
+        tone: 'default',
+      });
+      if (!yes) return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = (await walletAPI.claim(lead.id, organizationId!)) as { orgLeadId?: string } | null;
+      show('Lead claimed: it’s in your Leads with the homeowner’s details.', result?.orgLeadId ? { to: `/leads?lead=${result.orgLeadId}`, label: 'Open it' } : undefined);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'That didn’t work');
+    } finally {
+      setBusy(false);
+      notifyWalletChanged();
+    }
+  };
+
+  const shown = useMemo(() => {
+    const all = pool?.leads ?? [];
+    return mineOnly && all.some((l) => l.matchesTrades) ? all.filter((l) => l.matchesTrades) : all;
+  }, [pool, mineOnly]);
+  // "My trades" only reads as on when it is actually narrowing the list.
+  const filtering = mineOnly && (pool?.leads ?? []).some((l) => l.matchesTrades);
+  const tradeOf = (lead: VaultLead) => lead.tradeName ?? titleFromSlug(lead.jobType);
+  const plan = pool?.plan ?? null;
+  const price = plan?.nextClaimCents ?? 0;
+  const claimButton = (lead: VaultLead) =>
+    lead.demo ? (
+      <span className="text-xs text-gray-500 whitespace-nowrap" title="A demo lead shows how the Vault works. Only demo companies can claim it.">Demo lead · not for sale</span>
+    ) : (
+    <button type="button" onClick={() => claim(lead)} disabled={busy} className={primary}>
+      {price > 0 ? `Claim · ${money(price)}` : 'Claim · included'}
+    </button>
+  );
+
+  return (
+    <div className="p-4 md:p-6 text-white">
+      <div className="mb-2">
+        <h1 className="text-xl font-semibold">🔐 The Vault</h1>
+        <p className="text-sm text-gray-400">
+          {pool === null ? 'Loading…' : `${pool.count} lead${pool.count === 1 ? '' : 's'} in your trades`}
+          {/* Claims only mean something once the Vault is open. */}
+          {plan && !pool?.locked ? ` · ${plan.claimsLeft} of ${plan.claimsIncluded} claims left this month` : ''}
+          {plan && !pool?.locked && plan.claimsLeft === 0 ? ` · ${money(plan.extraClaimCents)} each after that` : ''}
+        </p>
+      </div>
+      <p className="text-xs text-gray-500 mb-4">
+        Leads nobody bought in their first week. Still exclusive: the first company to claim one gets it, and the homeowner has heard from nobody else.
+      </p>
+
+      {error && (
+        <InlineNotice tone="bad" onDismiss={() => setError(null)} className="mb-4">
+          {error}
+        </InlineNotice>
+      )}
+      <Toast text={toast} link={link} />
+      {confirmDialog}
+
+      {pool === null ? (
+        <p className="text-sm text-gray-500">Loading…</p>
+      ) : pool.locked ? (
+        <div className="max-w-2xl">
+          <h2 className="text-lg font-semibold text-white mb-1">Unlock the Vault</h2>
+          <p className="text-sm text-gray-400 mb-4">
+            {pool.count > 0
+              ? `${pool.count} lead${pool.count === 1 ? '' : 's'} in your trades ${pool.count === 1 ? 'is' : 'are'} waiting in the Vault. It comes with the Pro plan.`
+              : 'Leads land here a week after going up for sale. The Vault comes with the Pro plan.'}
+          </p>
+          <PlanPanel organizationId={organizationId} plan={plan} onChanged={() => {}} />
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center gap-2 mb-3">
+            <button
+              type="button"
+              onClick={() => setMineOnly((m) => !m)}
+              aria-pressed={filtering}
+              className={`px-3 py-1.5 rounded-full text-xs border ${filtering ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333] text-gray-400'}`}
+            >
+              My trades
+            </button>
+          </div>
+          {shown.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-12 border border-[#2A2A2A] rounded">Nothing in the Vault right now. Leads land here a week after going up for sale.</p>
+          ) : (
+            <>
+              <table className="hidden md:table w-full text-sm border border-[#2A2A2A] rounded" data-testid="vault-table">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-[#2A2A2A]">
+                    <th className="px-4 py-2 font-medium">Trade</th>
+                    <th className="px-4 py-2 font-medium">Where</th>
+                    <th className="px-4 py-2 font-medium">Job</th>
+                    <th className="px-4 py-2 font-medium">Age</th>
+                    <th className="px-4 py-2 font-medium" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#2A2A2A]">
+                  {shown.map((lead) => (
+                    <tr key={lead.id}>
+                      <td className="px-4 py-3 text-white whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1.5">
+                          {lead.matchesTrades && <Sparkles className="w-3.5 h-3.5 text-amber-300" aria-label="Your trade" />}
+                          {tradeOf(lead)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-300 whitespace-nowrap">
+                        {lead.city || 'Area not given'}
+                        {lead.county ? ` · ${lead.county} County` : ''}
+                      </td>
+                      <td className="px-4 py-3 text-gray-300">
+                        {lead.summary || '—'}
+                        <Confirmed verified={lead.verified} className="mt-0.5" />
+                      </td>
+                      <td className="px-4 py-3 text-gray-400 whitespace-nowrap">{lead.ageDays} day{lead.ageDays === 1 ? '' : 's'}</td>
+                      <td className="px-4 py-3 text-right">{claimButton(lead)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <ul className="md:hidden space-y-3">
+                {shown.map((lead) => (
+                  <li key={lead.id} className="rounded border border-[#2A2A2A] bg-[#161616] p-4">
+                    <p className="text-sm font-medium text-white flex items-center gap-1.5">
+                      {lead.matchesTrades && <Sparkles className="w-3.5 h-3.5 text-amber-300" aria-label="Your trade" />}
+                      {tradeOf(lead)}
+                    </p>
+                    <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+                      <MapPin className="w-3 h-3" />
+                      {lead.city || 'Area not given'} · {lead.ageDays} day{lead.ageDays === 1 ? '' : 's'} old
+                    </p>
+                    {lead.summary && <p className="text-sm text-gray-300 mt-2">{lead.summary}</p>}
+                    <Confirmed verified={lead.verified} className="mt-1" />
+                    <div className="mt-3">{claimButton(lead)}</div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
+export default VaultPage;

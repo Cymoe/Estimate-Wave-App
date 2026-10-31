@@ -1,21 +1,22 @@
 import React from 'react';
-import { X, ChevronRight, User, FileText, DollarSign, Package, Wrench, FileStack } from 'lucide-react';
+import { X, ChevronRight } from 'lucide-react';
+import { useQuickCreateOptions } from '../common/quickCreateOptions';
 
 interface MobileCreateMenuProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreateClient: () => void;
-  onCreateInvoice: () => void;
-  onCreateLineItem: () => void;
 }
 
-export const MobileCreateMenu: React.FC<MobileCreateMenuProps> = ({
-  isOpen,
-  onClose,
-  onCreateClient,
-  onCreateInvoice,
-  onCreateLineItem
-}) => {
+const HINTS: Record<string, string> = {
+  lead: 'Someone asking about work',
+  estimate: 'Price a job',
+  bid: 'What a lead is worth to you',
+  project: 'Start a job',
+  item: 'Add to your price book',
+};
+
+export const MobileCreateMenu: React.FC<MobileCreateMenuProps> = ({ isOpen, onClose }) => {
+  const options = useQuickCreateOptions();
   if (!isOpen) return null;
 
   const handleAction = (action: () => void) => {
@@ -46,100 +47,27 @@ export const MobileCreateMenu: React.FC<MobileCreateMenuProps> = ({
           </button>
         </div>
 
-        {/* Create Options */}
+        {/* The same choices as the blue + button on a wider screen. */}
         <div className="px-4 pb-8 space-y-2">
-          <button 
-            onClick={() => handleAction(onCreateClient)}
-            className="flex items-center w-full px-4 py-4 text-white hover:bg-[#232D3F] transition-colors rounded-[4px]"
-          >
-            <span className="text-[#336699] mr-4 w-8 h-8 flex items-center justify-center">
-              <User size={20} />
-            </span>
-            <div className="text-left flex-1">
-              <div className="font-medium">New client</div>
-              <div className="text-sm text-gray-400">Add a new customer</div>
-            </div>
-            <ChevronRight className="ml-auto text-gray-400" size={20} />
-          </button>
-
-          <button 
-            onClick={() => handleAction(onCreateInvoice)}
-            className="flex items-center w-full px-4 py-4 text-white hover:bg-[#232D3F] transition-colors rounded-[4px]"
-          >
-            <span className="text-[#336699] mr-4 w-8 h-8 flex items-center justify-center">
-              <DollarSign size={20} />
-            </span>
-            <div className="text-left flex-1">
-              <div className="font-medium">New invoice</div>
-              <div className="text-sm text-gray-400">Create a new invoice</div>
-            </div>
-            <ChevronRight className="ml-auto text-gray-400" size={20} />
-          </button>
-
-          <button 
-            onClick={() => handleAction(onCreateLineItem)}
-            className="flex items-center w-full px-4 py-4 text-white hover:bg-[#232D3F] transition-colors rounded-[4px]"
-          >
-            <span className="text-[#336699] mr-4 w-8 h-8 flex items-center justify-center">
-              <Package size={20} />
-            </span>
-            <div className="text-left flex-1">
-              <div className="font-medium">New line item</div>
-              <div className="text-sm text-gray-400">Add product or service</div>
-            </div>
-            <ChevronRight className="ml-auto text-gray-400" size={20} />
-          </button>
-
-          <button 
-            onClick={() => {
-              // Handle project creation
-              onClose();
-            }}
-            className="flex items-center w-full px-4 py-4 text-white hover:bg-[#232D3F] transition-colors rounded-[4px]"
-          >
-            <span className="text-[#336699] mr-4 w-8 h-8 flex items-center justify-center">
-              <Wrench size={20} />
-            </span>
-            <div className="text-left flex-1">
-              <div className="font-medium">New project</div>
-              <div className="text-sm text-gray-400">Start a new project</div>
-            </div>
-            <ChevronRight className="ml-auto text-gray-400" size={20} />
-          </button>
-
-          <button 
-            onClick={() => {
-              // Handle template creation
-              onClose();
-            }}
-            className="flex items-center w-full px-4 py-4 text-white hover:bg-[#232D3F] transition-colors rounded-[4px]"
-          >
-            <span className="text-[#336699] mr-4 w-8 h-8 flex items-center justify-center">
-              <FileStack size={20} />
-            </span>
-            <div className="text-left flex-1">
-              <div className="font-medium">Project template</div>
-              <div className="text-sm text-gray-400">Standard project layout</div>
-            </div>
-            <ChevronRight className="ml-auto text-gray-400" size={20} />
-          </button>
-
-          <button 
-            onClick={() => {
-              // Handle contract template creation
-              onClose();
-            }}
-            className="flex items-center w-full px-4 py-4 text-white hover:bg-[#232D3F] transition-colors rounded-[4px]"
-          >
-            <span className="text-[#336699] mr-4 w-8 h-8 flex items-center justify-center">
-              <FileText size={20} />
-            </span>
-            <div className="text-left flex-1">
-              <div className="font-medium">Contract template</div>
-              <div className="text-sm text-gray-400">Legal document template</div>
-            </div>
-            <ChevronRight className="ml-auto text-gray-400" size={20} />
-          </button>
+          {options.map((option) => {
+            const Icon = option.icon;
+            return (
+              <button
+                key={option.id}
+                onClick={() => handleAction(option.action)}
+                className="flex items-center w-full px-4 py-4 text-white hover:bg-[#232D3F] transition-colors rounded-[4px]"
+              >
+                <span className="text-[#336699] mr-4 w-8 h-8 flex items-center justify-center">
+                  <Icon size={20} />
+                </span>
+                <div className="text-left flex-1">
+                  <div className="font-medium">New {option.name.toLowerCase()}</div>
+                  <div className="text-sm text-gray-400">{HINTS[option.id]}</div>
+                </div>
+                <ChevronRight className="ml-auto text-gray-400" size={20} />
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>

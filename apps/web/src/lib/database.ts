@@ -1,4 +1,6 @@
 import { supabase } from './supabase';
+import { ClientService } from '../services/ClientService';
+import { ProjectService, type Project } from '../services/ProjectService';
 
 export type Tables = {
   projects: {
@@ -92,79 +94,28 @@ export type Tables = {
 };
 
 export const db = {
+  // Projects and clients live in Convex; these delegate to their services.
   projects: {
     async list(organizationId: string, clientId?: string) {
-      const query = supabase
-        .from('projects')
-        .select('*')
-        .eq('organization_id', organizationId)
-        .order('created_at', { ascending: false });
-
-      if (clientId) {
-        query.eq('client_id', clientId);
-      }
-
-      const { data, error } = await query;
-
-      if (error) {
-        throw error;
-      }
-
-      return data;
+      return ProjectService.list(organizationId, clientId ? { clientId } : undefined);
     },
 
     async getById(id: string) {
-      const { data, error } = await supabase
-        .from('projects')
-        .select('*')
-        .eq('id', id)
-        .single();
-
-      if (error) {
-        throw error;
-      }
-
-      return data;
+      const project = await ProjectService.getById(id);
+      if (!project) throw new Error('Project not found');
+      return project;
     },
 
     async create(data: Omit<Tables['projects'], 'id' | 'created_at' | 'updated_at'> & { organization_id: string }) {
-      const { data: project, error } = await supabase
-        .from('projects')
-        .insert(data)
-        .select()
-        .single();
-
-      if (error) {
-        throw error;
-      }
-
-      return project;
+      return ProjectService.create(data as Parameters<typeof ProjectService.create>[0]);
     },
 
     async update(id: string, data: Partial<Tables['projects']>) {
-      const { data: project, error } = await supabase
-        .from('projects')
-        .update(data)
-        .eq('id', id)
-        .select()
-        .single();
-
-      if (error) {
-        throw error;
-      }
-
-      return project;
+      return ProjectService.update(id, data as Partial<Project>);
     },
 
     async delete(id: string) {
-      const { error } = await supabase
-        .from('projects')
-        .delete()
-        .eq('id', id);
-
-      if (error) {
-        throw error;
-      }
+      await ProjectService.delete(id);
     },
 
     async getProjectBills(projectId: string): Promise<Tables['bills'][]> {
@@ -241,35 +192,16 @@ export const db = {
   },
   clients: {
     async list(organizationId: string) {
-      const { data, error } = await supabase
-        .from('clients')
-        .select()
-        .eq('organization_id', organizationId);
-      if (error) throw error;
-      return data;
+      return ClientService.list(organizationId);
     },
-    async create(data: Omit<Tables['clients'], 'id' | 'created_at'> & { user_id: string; organization_id: string }): Promise<Tables['clients']> {
-      const { data: result, error } = await supabase
-        .from('clients')
-        .insert(data)
-        .select()
-        .single();
-      if (error) throw error;
-      return result;
+    async create(data: Omit<Tables['clients'], 'id' | 'created_at'> & { user_id: string; organization_id: string }) {
+      return ClientService.create(data);
     },
     async update(id: string, data: Partial<Tables['clients']>) {
-      const { error } = await supabase
-        .from('clients')
-        .update(data)
-        .eq('id', id);
-      if (error) throw error;
+      await ClientService.update(id, data);
     },
     async delete(id: string) {
-      const { error } = await supabase
-        .from('clients')
-        .delete()
-        .eq('id', id);
-      if (error) throw error;
+      await ClientService.delete(id);
     }
   },
   invoices: {

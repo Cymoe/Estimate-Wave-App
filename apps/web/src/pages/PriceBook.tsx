@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { 
   ShoppingCart,
   List,
@@ -53,6 +53,14 @@ export const PriceBook: React.FC = () => {
   const [triggerAddItem, setTriggerAddItem] = useState(0);
   const [triggerAddCostCode, setTriggerAddCostCode] = useState(0);
   const [isAddingItem, setIsAddingItem] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // The blue + button's "Price book item" opens /price-book/items?new=1.
+  useEffect(() => {
+    if (searchParams.get('new') !== '1') return;
+    setTriggerAddItem((n) => n + 1);
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   // Debounce search input
   useEffect(() => {
@@ -205,11 +213,11 @@ export const PriceBook: React.FC = () => {
               <button
                 onClick={handleAddClick}
                 disabled={isAddingItem}
-                className="bg-white hover:bg-gray-100 text-black px-5 py-2 text-sm font-medium transition-colors flex items-center gap-2 mr-4 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="bg-[#336699] hover:bg-[#2a5580] text-white px-5 py-2 text-sm font-medium transition-colors flex items-center gap-2 mr-4 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isAddingItem ? (
                   <>
-                    <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     <span>Loading...</span>
                   </>
                 ) : (

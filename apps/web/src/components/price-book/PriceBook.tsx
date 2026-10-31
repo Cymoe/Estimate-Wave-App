@@ -16,10 +16,14 @@ import { useNavigate } from 'react-router-dom';
 import { LayoutContext, OrganizationContext } from '../layouts/DashboardLayout';
 import React from 'react';
 import { CostCodeExportService } from '../../services/CostCodeExportService';
-import { PricingModeSelector } from './PricingModeSelector';
-import { PricingModePreviewModal } from './PricingModePreviewModal';
-import { PricingModesService, PricingMode } from '../../services/PricingModesService';
 import { PriceRangeCompact } from './PriceRangeDisplay';
+import { priceRange } from '../../utils/priceRange';
+import { IndustryService } from '../../services/IndustryService';
+import { TRADES_CHANGED } from '../settings/TradesEditor';
+import { allOutsideMyTrades, inMyTrades } from './tradeScope';
+
+/** Price-book items are priced at their red line. */
+const withRedLinePrice = (item: LineItem): LineItem => ({ ...item, price: priceRange(item).redLine });
 
 // Using LineItem interface from types instead of local Product interface
 
@@ -52,7 +56,11 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
   const [priceSort, setPriceSort] = useState<'asc' | 'desc'>('desc');
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const optionsMenuRef = useRef<HTMLDivElement>(null);
-  const [trades, setTrades] = useState<{ id: string; name: string; code: string; industry?: { id: string; name: string; icon?: string; color?: string } }[]>([]);
+  const [trades, setTrades] = useState<{ id: string; name: string; code: string; industry_id?: string; industry?: { id: string; name: string; icon?: string; color?: string } | null }[]>([]);
+  // The company's trades: the Price Book opens on their items, with "All trades" one tap away.
+  const [myTrades, setMyTrades] = useState<Set<string>>(new Set());
+  const [myTradeNames, setMyTradeNames] = useState('');
+  const [tradeScope, setTradeScope] = useState<'mine' | 'all'>('mine');
   const [selectedTradeId, setSelectedTradeId] = useState<string>('all');
   const [groupedTrades, setGroupedTrades] = useState<Map<string, typeof trades>>(new Map());
   const [selectedStatus, setSelectedStatus] = useState('all');
@@ -71,41 +79,10 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
   const [isLoadingCostCodes, setIsLoadingCostCodes] = useState(true);
   const [quickFilter, setQuickFilter] = useState<'all' | 'labor' | 'materials' | 'services' | 'installation'>('all');
   const [recentlyUpdatedId, setRecentlyUpdatedId] = useState<string | null>(null);
-  const [selectedMode, setSelectedMode] = useState<PricingMode | null>(null);
-  const [showModePreview, setShowModePreview] = useState(false);
-  const [pendingModeId, setPendingModeId] = useState<string | null>(null);
-  const [selectedLineItemIds, setSelectedLineItemIds] = useState<string[]>([]);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [presetCostCodeId, setPresetCostCodeId] = useState<string | null>(null);
   const [presetServiceCategory, setPresetServiceCategory] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [lastPricingOperation, setLastPricingOperation] = useState<{
-    modeId: string;
-    modeName: string;
-    lineItemIds: string[];
-    previousPrices: Array<{ lineItemId: string; price: number }>;
-    timestamp: number;
-  } | null>(null);
-  const [showUndo, setShowUndo] = useState(false);
-  const [undoTimeLeft, setUndoTimeLeft] = useState(30);
-  const [applyingProgress, setApplyingProgress] = useState<{
-    current: number;
-    total: number;
-    action: 'applying' | 'undoing';
-  } | null>(null);
-  const [showSuccess, setShowSuccess] = useState<{
-    message: string;
-    itemCount: number;
-  } | null>(null);
-  const [showError, setShowError] = useState<{
-    title: string;
-    message: string;
-  } | null>(null);
-  const [activeJobId, setActiveJobId] = useState<string | null>(null);
-  const [jobPollingInterval, setJobPollingInterval] = useState<NodeJS.Timeout | null>(null);
-  const successTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const errorTimerRef = useRef<NodeJS.Timeout | null>(null);
-  
   // Calculate counts for each quick filter
   const quickFilterCounts = useMemo(() => {
     const counts = {
@@ -147,69 +124,35 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
   };
 
   const handleSaveEdit = async (data: any) => {
+    if (!editingLineItem?.id || !selectedOrg?.id) return;
+    const editedId = editingLineItem.id;
+
+    // Show the change right away, then save it.
+    setLineItems(prevItems =>
+      prevItems.map(item =>
+        item.id === editedId
+          ? withRedLinePrice({
+              ...item,
+              name: data.name || item.name,
+              description: data.description !== undefined ? data.description : item.description,
+              unit: data.unit || item.unit,
+              ...(data.red_line_price !== undefined ? { red_line_price: data.red_line_price, base_price: data.red_line_price } : {}),
+              ...(data.cap_price !== undefined ? { cap_price: data.cap_price } : {})
+            })
+          : item
+      )
+    );
+    setRecentlyUpdatedId(editedId);
+    setTimeout(() => setRecentlyUpdatedId(null), 1500);
+    setShowEditLineItemModal(false);
+    setEditingLineItem(null);
+
     try {
-      if (!editingLineItem?.id || !selectedOrg?.id) return;
-      
-      // Optimistically update the UI immediately
-      setLineItems(prevItems => 
-        prevItems.map(item => 
-          item.id === editingLineItem.id 
-            ? {
-                ...item,
-                price: data.price,
-                name: data.name || item.name,
-                description: data.description !== undefined ? data.description : item.description,
-                unit: data.unit || item.unit,
-                has_override: !editingLineItem.organization_id && data.price !== editingLineItem.base_price,
-                markup_percentage: data.markup_percentage,
-                base_price: item.base_price // Keep base_price for strategy calculation
-              }
-            : item
-        )
-      );
-      
-      // Trigger animation for the updated item
-      setRecentlyUpdatedId(editingLineItem.id);
-      setTimeout(() => setRecentlyUpdatedId(null), 1500); // Clear after animation
-      
-      // Close modal immediately for better UX
-      setShowEditLineItemModal(false);
-      setEditingLineItem(null);
-      
-      // Then update the backend
-      try {
-        // Check if this is a shared item (no organization_id)
-        if (!editingLineItem.organization_id) {
-          // For shared items, handle markup or custom price
-          if (data.markup_percentage !== undefined) {
-            // Set markup percentage
-            await LineItemService.setMarkupPercentage(editingLineItem.id, selectedOrg.id, data.markup_percentage);
-          } else if (data.price && data.price !== editingLineItem.base_price) {
-            // Set custom price
-            await LineItemService.setOverridePrice(editingLineItem.id, selectedOrg.id, data.price);
-          } else if (data.price === editingLineItem.base_price) {
-            // Reset to base price
-            await LineItemService.removeOverridePrice(editingLineItem.id, selectedOrg.id);
-          }
-        } else {
-          // For organization-owned items, update normally
-          await LineItemService.update(editingLineItem.id, {
-            name: data.name,
-            description: data.description,
-            price: data.price,
-            unit: data.unit,
-            cost_code_id: data.cost_code_id
-          }, selectedOrg.id);
-        }
-      } catch (error) {
-        // If backend update fails, revert the optimistic update
-        console.error('Error updating line item:', error);
-        alert(error instanceof Error ? error.message : 'Failed to update line item');
-        await fetchLineItems(); // Reload to get correct state
-      }
+      await LineItemService.update(editedId, data, selectedOrg.id);
     } catch (error) {
-      console.error('Error in handleSaveEdit:', error);
-      alert('Failed to update line item');
+      console.error('Error updating line item:', error);
+      alert(error instanceof Error ? error.message : 'Failed to update line item');
+      await fetchLineItems(); // Back to what's saved
     }
   };
 
@@ -245,7 +188,8 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
       await LineItemService.create({
         name: `${lineItem.name} (Copy)`,
         description: lineItem.description,
-        price: lineItem.price,
+        red_line_price: priceRange(lineItem).redLine,
+        cap_price: priceRange(lineItem).cap,
         unit: lineItem.unit,
         user_id: user?.id || '',
         organization_id: selectedOrg?.id || '',
@@ -456,8 +400,9 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
       console.log('Fetching line items for organization:', selectedOrg.id);
       
       // Fetch only line items for smart merge
+      // The price book shows each item at its red line, the fixed price.
       const lineItemsResult = await LineItemService.list(selectedOrg.id)
-        .then(data => ({ status: 'fulfilled' as const, value: data }))
+        .then(data => ({ status: 'fulfilled' as const, value: data.map(item => withRedLinePrice(item)) }))
         .catch(error => ({ status: 'rejected' as const, reason: error }));
       
       // Handle line items result
@@ -537,8 +482,29 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
   }, []);
 
 
+  useEffect(() => {
+    const orgId = selectedOrg?.id;
+    if (!orgId) return;
+    const load = () =>
+      IndustryService.getOrganizationIndustries(orgId)
+        .then((rows: Array<{ id: string; name?: string }>) => {
+          setMyTrades(new Set(rows.map((r) => r.id)));
+          setMyTradeNames(rows.map((r) => r.name ?? r.id).join(', '));
+        })
+        .catch(() => {
+          setMyTrades(new Set());
+          setMyTradeNames('');
+        });
+    load();
+    window.addEventListener(TRADES_CHANGED, load);
+    return () => window.removeEventListener(TRADES_CHANGED, load);
+  }, [selectedOrg?.id]);
+
   const filteredLineItems = useMemo(() => {
     let filtered = [...lineItems];
+
+    // My trades: items under a cost code for one of the company's trades (and any without a cost code).
+    if (tradeScope === 'mine') filtered = inMyTrades(filtered, trades, myTrades);
 
     // Status filter
     if (selectedStatus !== 'all') {
@@ -627,7 +593,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
         return b.price - a.price;
       }
     });
-  }, [lineItems, selectedStatus, showFavoritesOnly, selectedDateRange, selectedVendorId, selectedTradeId, searchTerm, minPrice, maxPrice, selectedUnit, priceSort, quickFilter, trades]);
+  }, [lineItems, selectedStatus, showFavoritesOnly, selectedDateRange, selectedVendorId, selectedTradeId, searchTerm, minPrice, maxPrice, selectedUnit, priceSort, quickFilter, trades, tradeScope, myTrades]);
   
   // Create grouped items by category for sidebar
   const groupedLineItemsByCategory = useMemo(() => {
@@ -646,6 +612,19 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
     return grouped;
   }, [filteredLineItems]);
   
+  // The left column: each category under the trade its items' cost codes belong to.
+  const sidebarGroups = useMemo(() => {
+    const byTrade = new Map<string, Array<[string, number]>>();
+    Object.entries(groupedLineItemsByCategory).forEach(([category, items]) => {
+      const costCode = trades.find((t) => t.id === items[0]?.cost_code_id);
+      const tradeName = costCode?.industry?.name || 'Other';
+      byTrade.set(tradeName, [...(byTrade.get(tradeName) ?? []), [category, items.length]]);
+    });
+    return [...byTrade.entries()]
+      .map(([trade, categories]) => [trade, categories.sort(([a], [b]) => a.localeCompare(b))] as [string, Array<[string, number]>])
+      .sort(([a], [b]) => (a === 'Other' ? 1 : b === 'Other' ? -1 : a.localeCompare(b)));
+  }, [groupedLineItemsByCategory, trades]);
+
   // Filter items based on selected category
   const displayedItems = useMemo(() => {
     if (selectedCategory === 'all') {
@@ -700,852 +679,79 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
     localStorage.setItem('pricebook-condensed', String(condensed));
   }, [condensed]);
 
-  // Auto-hide undo button after 30 seconds with countdown
-  useEffect(() => {
-    if (showUndo) {
-      setUndoTimeLeft(30);
-      
-      // Update countdown every second
-      const countdownInterval = setInterval(() => {
-        setUndoTimeLeft(prev => {
-          if (prev <= 1) {
-            setShowUndo(false);
-            return 30;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-      
-      return () => clearInterval(countdownInterval);
-    }
-  }, [showUndo]);
-
-  // Auto-hide success message after 5 seconds
-  useEffect(() => {
-    // Clear any existing timer
-    if (successTimerRef.current) {
-      clearTimeout(successTimerRef.current);
-      successTimerRef.current = null;
-    }
-    
-    if (showSuccess) {
-      successTimerRef.current = setTimeout(() => {
-        setShowSuccess(null);
-        successTimerRef.current = null;
-      }, 5000);
-    }
-    
-    // Cleanup on unmount
-    return () => {
-      if (successTimerRef.current) {
-        clearTimeout(successTimerRef.current);
-        successTimerRef.current = null;
-      }
-    };
-  }, [showSuccess?.message]); // Only re-run if message actually changes
-  
-  // Auto-dismiss error messages after 5 seconds
-  useEffect(() => {
-    if (showError) {
-      // Clear any existing timer
-      if (errorTimerRef.current) {
-        clearTimeout(errorTimerRef.current);
-        errorTimerRef.current = null;
-      }
-      
-      // Set new timer
-      errorTimerRef.current = setTimeout(() => {
-        setShowError(null);
-        errorTimerRef.current = null;
-      }, 5000);
-    }
-    
-    // Cleanup on unmount
-    return () => {
-      if (errorTimerRef.current) {
-        clearTimeout(errorTimerRef.current);
-        errorTimerRef.current = null;
-      }
-    };
-  }, [showError?.message]);
-
-  // Prevent page refresh during pricing operations
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (applyingProgress) {
-        e.preventDefault();
-        e.returnValue = 'Pricing changes are still being applied. Are you sure you want to leave?';
-        return e.returnValue;
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [applyingProgress]);
-
-  // Persist undo state to localStorage
-  useEffect(() => {
-    if (lastPricingOperation && selectedOrg?.id) {
-      localStorage.setItem(`pricing-undo-${selectedOrg.id}`, JSON.stringify(lastPricingOperation));
-    } else if (selectedOrg?.id) {
-      localStorage.removeItem(`pricing-undo-${selectedOrg.id}`);
-    }
-  }, [lastPricingOperation, selectedOrg?.id]);
-
-  // Cleanup polling on unmount
-  useEffect(() => {
-    return () => {
-      if (jobPollingInterval) {
-        clearInterval(jobPollingInterval);
-      }
-    };
-  }, [jobPollingInterval]);
-
-  // Restore undo state from localStorage when component mounts with selectedOrg
-  useEffect(() => {
-    if (selectedOrg?.id) {
-      const stored = localStorage.getItem(`pricing-undo-${selectedOrg.id}`);
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored);
-          const elapsed = Date.now() - parsed.timestamp;
-          // Only restore if less than 30 seconds old
-          if (elapsed < 30000) {
-            setLastPricingOperation(parsed);
-            setShowUndo(true);
-            setUndoTimeLeft(Math.max(1, Math.floor((30000 - elapsed) / 1000)));
-          } else {
-            localStorage.removeItem(`pricing-undo-${selectedOrg.id}`);
-          }
-        } catch (error) {
-          console.error('Error restoring undo state:', error);
-          localStorage.removeItem(`pricing-undo-${selectedOrg.id}`);
-        }
-      }
-    }
-  }, [selectedOrg?.id]);
-
-  // Check for active jobs on mount/org change
-  useEffect(() => {
-    if (selectedOrg?.id) {
-      checkForActiveJobs();
-    }
-  }, [selectedOrg?.id]);
-
-  const checkForActiveJobs = async () => {
-    if (!selectedOrg?.id) return;
-    
-    try {
-      const activeJobs = await PricingModesService.getActiveJobs(selectedOrg.id);
-      
-      if (activeJobs.length > 0) {
-        // Resume tracking the most recent job
-        const mostRecentJob = activeJobs[0];
-        const jobAge = Date.now() - new Date(mostRecentJob.created_at).getTime();
-        
-        console.log('Found active job:', {
-          id: mostRecentJob.id,
-          status: mostRecentJob.status,
-          age: Math.floor(jobAge / 1000) + 's',
-          processed: mostRecentJob.processed_items,
-          total: mostRecentJob.total_items
-        });
-        
-        // If job is too old or stuck, clean it up
-        // Jobs get stuck at multiples of 100 (batch size issue)
-        if (jobAge > 2 * 60 * 1000 || 
-            (mostRecentJob.processed_items > 0 && mostRecentJob.processed_items % 100 === 0 && jobAge > 30 * 1000)) {
-          console.log('Job is stuck or too old, cleaning up...', {
-            age: Math.floor(jobAge / 1000) + 's',
-            processed: mostRecentJob.processed_items
-          });
-          
-          // Mark as failed to clean up
-          try {
-            await supabase
-              .from('pricing_jobs')
-              .update({
-                status: 'failed',
-                error_message: 'Job timed out or stuck',
-                completed_at: new Date().toISOString()
-              })
-              .eq('id', mostRecentJob.id);
-          } catch (error) {
-            console.error('Error cleaning up stuck job:', error);
-          }
-          
-          // Don't show any UI, just clean up silently
-          return;
-        }
-        
-        setActiveJobId(mostRecentJob.id);
-        
-        // Set initial progress state immediately
-        if (mostRecentJob.status === 'processing' || mostRecentJob.status === 'pending') {
-          console.log('Resuming job on page refresh:', mostRecentJob);
-          setActiveJobId(mostRecentJob.id);
-          
-          // Check if it's an undo job
-          const isUndoJob = mostRecentJob.operation_type === 'undo_pricing';
-          
-          setApplyingProgress({
-            current: mostRecentJob.processed_items || 0,
-            total: mostRecentJob.total_items || 0,
-            action: isUndoJob ? 'undoing' : 'applying'
-          });
-          
-          // Resume processing from where it left off
-          const { mode_id, line_item_ids, previous_prices, mode_name } = mostRecentJob.job_data;
-          
-          try {
-            if (isUndoJob) {
-              // For undo jobs, just resume monitoring since processing happens in background
-              await PricingModesService.resumeJob(mostRecentJob.id, selectedOrg.id);
-              // Start polling for updates
-              startJobPolling(mostRecentJob.id);
-            } else {
-              // Continue processing regular pricing job
-              const result = await PricingModesService.applyModeWithErrorHandling(
-                selectedOrg.id,
-                mode_id,
-                line_item_ids,
-                async (current, total) => {
-                  setApplyingProgress({
-                    current,
-                    total,
-                    action: 'applying'
-                  });
-                  // Update job progress
-                  await PricingModesService.updateJobProgress(mostRecentJob.id, current, total);
-                }
-              );
-              
-              // Mark job as completed
-              await PricingModesService.completeJob(mostRecentJob.id, result);
-              
-              // Small delay before hiding
-              await new Promise(resolve => setTimeout(resolve, 500));
-              setApplyingProgress(null);
-              setActiveJobId(null);
-              
-              if (result.successCount > 0) {
-                // Restore undo state if available
-                if (previous_prices) {
-                  setLastPricingOperation({
-                    modeId: mode_id,
-                    modeName: mode_name || 'Pricing Mode',
-                    lineItemIds: line_item_ids || [],
-                    previousPrices: previous_prices,
-                    timestamp: Date.now()
-                  });
-                  setShowUndo(true);
-                }
-                
-                // Refresh data
-                fetchLineItems(true);
-              }
-            }
-          } catch (error) {
-            console.error('Error resuming job:', error);
-            setApplyingProgress(null);
-            await PricingModesService.failJob(
-              mostRecentJob.id, 
-              error instanceof Error ? error.message : 'Failed to resume processing'
-            );
-          }
-        } else {
-          // Check status once in case it just finished
-          checkJobStatus(mostRecentJob.id);
-        }
-      }
-    } catch (error) {
-      console.error('Error checking for active jobs:', error);
-    }
-  };
-
-  // Handle pricing mode application
-  const handleApplyPricingMode = async (modeId: string) => {
-    if (!selectedOrg?.id) return;
-    
-    // Show preview modal
-    setPendingModeId(modeId);
-    setShowModePreview(true);
-  };
-  
-  // Handle undo last pricing change
-  const handleUndoPricing = async () => {
-    if (!lastPricingOperation || !selectedOrg?.id) return;
-    
-    setShowUndo(false);
-    
-    // Longer delay to ensure smooth transition
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
-    // Track when we started showing progress
-    const progressStartTime = Date.now();
-    
-    setApplyingProgress({ 
-      current: 0, 
-      total: lastPricingOperation.previousPrices.length,
-      action: 'undoing'
-    });
-    
-    try {
-      // Create undo job
-      const jobId = await PricingModesService.createUndoJob(
-        selectedOrg.id,
-        lastPricingOperation.previousPrices
-      );
-      
-      // Store job info for recovery
-      localStorage.setItem(`active_job_${selectedOrg.id}`, JSON.stringify({
-        jobId,
-        action: 'undoing',
-        timestamp: Date.now()
-      }));
-      
-      setActiveJobId(jobId);
-      
-      // Poll for job completion
-      let attempts = 0;
-      const maxAttempts = 600; // 10 minutes
-      let lastProgress = 0;
-      
-      const pollInterval = setInterval(async () => {
-        attempts++;
-        
-        try {
-          const job = await PricingModesService.getJobStatus(jobId);
-          
-          if (!job) {
-            clearInterval(pollInterval);
-            throw new Error('Job not found');
-          }
-          
-          // Update progress only if changed
-          if (job.processed_items !== lastProgress) {
-            lastProgress = job.processed_items;
-            setApplyingProgress({
-              current: job.processed_items,
-              total: job.total_items,
-              action: 'undoing'
-            });
-          }
-          
-          if (job.status === 'completed') {
-            clearInterval(pollInterval);
-            
-            // Clear states
-            setLastPricingOperation(null);
-            localStorage.removeItem(`pricing-undo-${selectedOrg.id}`);
-            localStorage.removeItem(`active_job_${selectedOrg.id}`);
-            
-            // Ensure minimum display time
-            const elapsedTime = Date.now() - progressStartTime;
-            const minimumDisplayTime = 1500;
-            if (elapsedTime < minimumDisplayTime) {
-              await new Promise(resolve => setTimeout(resolve, minimumDisplayTime - elapsedTime));
-            }
-            
-            // Additional delay for smooth transition
-            await new Promise(resolve => setTimeout(resolve, 300));
-            setApplyingProgress(null);
-            setActiveJobId(null);
-            
-            const summary = job.result_summary;
-            if (summary?.failed_count > 0) {
-              setShowSuccess({
-                message: `Restored ${summary.success_count} items. ${summary.failed_count} items failed.`,
-                itemCount: summary.success_count
-              });
-            }
-            
-            // Refresh data
-            fetchLineItems(true);
-          } else if (job.status === 'failed') {
-            clearInterval(pollInterval);
-            throw new Error(job.error_message || 'Undo operation failed');
-          } else if (attempts >= maxAttempts) {
-            clearInterval(pollInterval);
-            throw new Error('Operation timed out');
-          }
-        } catch (error) {
-          clearInterval(pollInterval);
-          console.error('Error checking undo job status:', error);
-          
-          // Clean up
-          localStorage.removeItem(`active_job_${selectedOrg.id}`);
-          setApplyingProgress(null);
-          setActiveJobId(null);
-          setShowError({
-            title: 'Undo Failed',
-            message: error instanceof Error ? error.message : 'Failed to undo pricing changes. Please try again.'
-          });
-        }
-      }, 1000);
-      
-    } catch (error) {
-      console.error('Error starting undo operation:', error);
-      setApplyingProgress(null);
-      localStorage.removeItem(`active_job_${selectedOrg.id}`);
-      setShowError({
-        title: 'Undo Failed',
-        message: 'Could not start the undo operation. Please try again.'
-      });
-    }
-  };
-
-  const handleConfirmPricingMode = async () => {
-    if (!selectedOrg?.id || !pendingModeId || !selectedMode) return;
-    
-    // Close modal immediately for snappy feel
-    setShowModePreview(false);
-    
-    // Store previous prices for undo
-    const previousPrices = lineItems
-      .filter(item => 
-        selectedLineItemIds.length > 0 ? selectedLineItemIds.includes(item.id) : true
-      )
-      .map(item => ({
-        lineItemId: item.id,
-        price: item.price
-      }));
-    
-    try {
-      // Create a job for recovery on page refresh
-      const jobId = await PricingModesService.createPricingJob(
-        selectedOrg.id,
-        pendingModeId,
-        selectedMode.name,
-        selectedLineItemIds.length > 0 ? selectedLineItemIds : undefined,
-        previousPrices
-      );
-      
-      setActiveJobId(jobId);
-      setSelectedLineItemIds([]);
-      
-      // Store for undo capability
-      setShowUndo(false);
-      setLastPricingOperation({
-        modeId: pendingModeId,
-        modeName: selectedMode.name,
-        lineItemIds: selectedLineItemIds,
-        previousPrices,
-        timestamp: Date.now()
-      });
-      
-      // Now process directly with progress updates
-      setApplyingProgress({
-        current: 0,
-        total: previousPrices.length,
-        action: 'applying'
-      });
-      
-      const result = await PricingModesService.applyModeWithErrorHandling(
-        selectedOrg.id,
-        pendingModeId,
-        selectedLineItemIds.length > 0 ? selectedLineItemIds : undefined,
-        async (current, total) => {
-          setApplyingProgress({
-            current,
-            total,
-            action: 'applying'
-          });
-          // Update job progress in database for recovery
-          await PricingModesService.updateJobProgress(jobId, current, total);
-        }
-      );
-      
-      // Mark job as completed
-      await PricingModesService.completeJob(jobId, result);
-      
-      // Small delay before hiding
-      await new Promise(resolve => setTimeout(resolve, 500));
-      setApplyingProgress(null);
-      setActiveJobId(null);
-      
-      if (result.successCount > 0) {
-        // Show undo option
-        setTimeout(() => {
-          setShowUndo(true);
-        }, 50);
-        
-        // Only show success overlay if there were failures
-        if (result.failedCount > 0) {
-          setShowSuccess({
-            message: `Updated ${result.successCount} items. ${result.failedCount} items failed.`,
-            itemCount: result.successCount
-          });
-        }
-        
-        // Refresh data
-        fetchLineItems(true);
-      } else {
-        setShowError({
-          title: 'Update Failed',
-          message: 'Failed to apply pricing mode. Please try again.'
-        });
-      }
-      
-    } catch (error) {
-      console.error('Error applying pricing mode:', error);
-      setApplyingProgress(null);
-      if (activeJobId) {
-        await PricingModesService.failJob(activeJobId, error instanceof Error ? error.message : 'Unknown error');
-      }
-      setShowError({
-        title: 'Update Failed',
-        message: 'Failed to apply pricing mode. Please try again.'
-      });
-    } finally {
-      setPendingModeId(null);
-    }
-  };
-
-  // Function to poll job status
-  const startJobPolling = (jobId: string) => {
-    // Clear any existing polling
-    if (jobPollingInterval) {
-      clearInterval(jobPollingInterval);
-    }
-    
-    // Initial check
-    checkJobStatus(jobId);
-    
-    // Poll every 2 seconds
-    const interval = setInterval(() => {
-      checkJobStatus(jobId);
-    }, 2000);
-    
-    setJobPollingInterval(interval);
-  };
-  
-  const checkJobStatus = async (jobId: string) => {
-    const job = await PricingModesService.getJobStatus(jobId);
-    
-    if (!job) {
-      // Job not found, stop polling
-      if (jobPollingInterval) {
-        clearInterval(jobPollingInterval);
-        setJobPollingInterval(null);
-      }
-      setActiveJobId(null);
-      setApplyingProgress(null);
-      return;
-    }
-    
-    // Check if job is stale (more than 10 minutes old and still processing with no progress)
-    const jobAge = Date.now() - new Date(job.created_at).getTime();
-    if (job.status === 'processing' && jobAge > 10 * 60 * 1000 && job.processed_items === 0) {
-      // Mark as failed only if truly stuck
-      console.log('Job appears to be stuck:', {
-        age: Math.floor(jobAge / 1000) + 's',
-        processed: job.processed_items,
-        total: job.total_items
-      });
-      
-      if (jobPollingInterval) {
-        clearInterval(jobPollingInterval);
-        setJobPollingInterval(null);
-      }
-      setActiveJobId(null);
-      setApplyingProgress(null);
-      setShowError({
-        title: 'Update Timed Out',
-        message: 'Pricing update timed out. Please try again.'
-      });
-      fetchLineItems(false);
-      return;
-    }
-    
-    // Update progress
-    if (job.status === 'processing' || job.status === 'pending') {
-      console.log('Job progress update:', {
-        id: job.id,
-        status: job.status,
-        processed: job.processed_items,
-        total: job.total_items
-      });
-      
-      const isUndoJob = job.operation_type === 'undo_pricing';
-      setApplyingProgress({
-        current: job.processed_items || 0,
-        total: job.total_items || 0,
-        action: isUndoJob ? 'undoing' : 'applying'
-      });
-    }
-    
-    // Handle completion
-    if (job.status === 'completed' || job.status === 'failed') {
-      // Stop polling
-      if (jobPollingInterval) {
-        clearInterval(jobPollingInterval);
-        setJobPollingInterval(null);
-      }
-      
-      setActiveJobId(null);
-      setApplyingProgress(null);
-      
-      if (job.status === 'completed') {
-        const summary = job.result_summary;
-        const isUndoJob = job.operation_type === 'undo_pricing';
-        
-        // Only show success overlay if there were failures
-        if (summary?.failed_count > 0) {
-          setShowSuccess({
-            message: isUndoJob 
-              ? `Restored ${summary.success_count} items. ${summary.failed_count} items failed.`
-              : `Updated ${summary.success_count} items. ${summary.failed_count} items failed.`,
-            itemCount: summary.success_count
-          });
-        }
-        
-        // Show undo option only for regular pricing jobs (not for undo jobs)
-        if (!isUndoJob) {
-          setTimeout(() => {
-            setShowUndo(true);
-          }, 50);
-        } else {
-          // For undo jobs, clear localStorage since we've successfully reverted
-          localStorage.removeItem(`active_job_${selectedOrg?.id}`);
-        }
-        
-        // Refresh data
-        fetchLineItems(true);
-      } else {
-        // Failed
-        const isUndoJob = job.operation_type === 'undo_pricing';
-        setShowError({
-          title: isUndoJob ? 'Undo Failed' : 'Update Failed',
-          message: job.error_message || (isUndoJob ? 'Failed to undo pricing changes. Please try again.' : 'Pricing update failed. Please try again.')
-        });
-        fetchLineItems(false);
-      }
-    }
-  };
-
+  // One row of the left column; the pl-6 clears the projects handle on the screen's left edge.
+  const categoryButton = (key: string, label: string, count: number) => (
+    <button
+      key={key}
+      type="button"
+      onClick={() => setSelectedCategory(key)}
+      aria-pressed={selectedCategory === key}
+      className={`w-full pl-6 pr-3 py-1.5 text-left text-[13px] flex items-center justify-between gap-2 transition-colors ${
+        selectedCategory === key ? 'bg-[#336699] text-white' : 'text-gray-300 hover:bg-[#22272d] hover:text-white'
+      }`}
+    >
+      <span className="truncate">{label}</span>
+      <span className={`text-[11px] ${selectedCategory === key ? 'text-white/80' : 'text-gray-500'}`}>{count}</span>
+    </button>
+  );
 
   return (
-    <div className="flex h-screen bg-[#0A0A0A] overflow-hidden">
-      {/* Left Sidebar for Categories - Fixed with own scroll */}
-      <div className="w-64 border-r border-[#333333] bg-[#1D1F25] flex flex-col h-full">
-        <div className="p-4 border-b border-[#333333] flex-shrink-0">
-          <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">Categories</h3>
-          <div className="text-xs text-gray-500 mt-1">{Object.keys(groupedLineItemsByCategory).length} categories</div>
-        </div>
-        <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-[#333333] scrollbar-track-transparent">
-          <div className="py-2">
-            <button
-              onClick={() => setSelectedCategory('all')}
-              className={`w-full px-4 py-2 text-left text-sm flex items-center justify-between group transition-colors ${
-                selectedCategory === 'all' 
-                  ? 'bg-[#22272d] text-white border-l-2 border-[#336699]' 
-                  : 'text-gray-400 hover:bg-[#22272d] hover:text-gray-300'
-              }`}
-            >
-              <span className="flex items-center gap-2">
-                <Layers className="w-4 h-4" />
-                All Items
-              </span>
-              <span className="text-xs text-gray-500">{filteredLineItems.length}</span>
-            </button>
-            {Object.entries(groupedLineItemsByCategory)
-              .sort(([a], [b]) => a.localeCompare(b)) // Sort alphabetically
-              .map(([categoryKey, items]) => {
-              return (
-                <button
-                  key={categoryKey}
-                  onClick={() => setSelectedCategory(categoryKey)}
-                  className={`w-full px-4 py-2 text-left text-sm flex items-center justify-between group transition-colors ${
-                    selectedCategory === categoryKey 
-                      ? 'bg-[#22272d] text-white border-l-2 border-[#336699]' 
-                      : 'text-gray-400 hover:bg-[#22272d] hover:text-gray-300'
-                  }`}
-                >
-                  <span className="truncate">{categoryKey}</span>
-                  <span className="text-xs text-gray-500 ml-2">{items.length}</span>
-                </button>
-              );
-            })}
-          </div>
+    <div className="flex h-screen bg-[#121212] overflow-hidden">
+      {/* Left column: trades, each with its categories. Styled like the estimate's pricing-options column. */}
+      <div className="w-56 border-r border-[#333333] bg-[#0A0A0A] flex flex-col h-full flex-shrink-0" role="group" aria-label="Categories">
+        <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-[#333333] scrollbar-track-transparent py-1">
+          {categoryButton('all', 'All items', filteredLineItems.length)}
+          {sidebarGroups.map(([tradeName, categories]) => (
+            <div key={tradeName} className="mt-2">
+              <div className="pl-6 pr-3 pt-2 pb-1 text-[11px] uppercase tracking-wide text-gray-500">{tradeName}</div>
+              {categories.map(([categoryKey, count]) => categoryButton(categoryKey, categoryKey, count))}
+            </div>
+          ))}
         </div>
       </div>
 
       {/* Main Content Area - Scrollable independently */}
       <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Warning Banner - appears when operations are in progress */}
-      {applyingProgress && (
-        <div className="fixed top-0 left-0 right-0 bg-yellow-500 z-[13000] py-3 px-4 shadow-lg">
-          <div className="max-w-6xl mx-auto flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <svg className="w-6 h-6 text-yellow-900 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              <span className="text-base font-semibold text-yellow-900">
-                ⚠️ Pricing update in progress - DO NOT close or refresh this page!
-              </span>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <div className="w-24 bg-yellow-700 rounded-full h-2 overflow-hidden">
-                  <div 
-                    className="bg-yellow-900 h-full transition-all duration-300"
-                    style={{ width: `${(applyingProgress.current / applyingProgress.total) * 100}%` }}
-                  />
-                </div>
-                <span className="text-sm font-medium text-yellow-900">
-                  {Math.round((applyingProgress.current / applyingProgress.total) * 100)}%
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {/* Progress Overlay */}
-      {applyingProgress && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[12000] flex items-center justify-center">
-          <div className="bg-[#1D1F25] border border-[#333333] p-6 shadow-xl">
-            <h3 className="text-white font-medium mb-4">
-              {applyingProgress.action === 'undoing' ? 'Reverting Prices' : 'Applying Pricing Changes'}
-            </h3>
-            <div className="w-64 mb-2">
-              <div className="bg-[#333333] rounded-full h-2 overflow-hidden">
-                <div 
-                  className="bg-[#336699] h-full transition-all duration-300"
-                  style={{ width: `${(applyingProgress.current / applyingProgress.total) * 100}%` }}
-                />
-              </div>
-            </div>
-            <p className="text-sm text-gray-400 text-center">
-              {applyingProgress.action === 'undoing' 
-                ? `Reverting ${applyingProgress.current} of ${applyingProgress.total} items` 
-                : `Updating ${applyingProgress.current} of ${applyingProgress.total} items`}
-            </p>
-            {applyingProgress.total > 100 && (
-              <p className="text-xs text-gray-500 text-center mt-2">
-                Processing {applyingProgress.total} items - this may take a moment
-              </p>
-            )}
-            <div className="mt-4 pt-4 border-t border-[#333333]">
-              <p className="text-xs text-yellow-500 text-center flex items-center justify-center gap-2">
-                <svg className="w-4 h-4 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-                Please keep this window open until complete
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {/* Success Confirmation */}
-      {showSuccess && !applyingProgress && (
-        <div className="fixed inset-0 bg-black/50 z-[12000] flex items-center justify-center pointer-events-none">
-          <div className="bg-[#1D1F25] border border-green-600 p-6 shadow-xl pointer-events-auto">
-            <div className="flex items-center justify-center mb-4">
-              <div className="w-12 h-12 bg-green-600 rounded-full flex items-center justify-center">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-            </div>
-            <h3 className="text-white font-medium mb-2 text-center">{showSuccess.message}</h3>
-            <p className="text-sm text-gray-400 text-center">{showSuccess.itemCount} items updated</p>
-          </div>
-        </div>
-      )}
-      
-      {/* Error Notification */}
-      {showError && (
-        <div className="fixed bottom-4 right-4 max-w-md z-[12000]">
-          <div className="bg-red-900 border border-red-700 p-4 shadow-xl flex items-start gap-3">
-            <div className="flex-shrink-0">
-              <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div className="flex-1">
-              <h4 className="text-red-100 font-medium">{showError.title}</h4>
-              <p className="text-red-200 text-sm mt-1">{showError.message}</p>
-            </div>
-            <button
-              onClick={() => setShowError(null)}
-              className="flex-shrink-0 text-red-400 hover:text-red-300 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      )}
-
-
-
-
-      {/* Pricing Mode Selector */}
-      {selectedLineItemIds.length > 0 && (
-        <div className="border-t border-[#333333] px-6 py-3 bg-[#1D1F25]">
-          <PricingModeSelector
-            onModeChange={setSelectedMode}
-            selectedLineItemCount={selectedLineItemIds.length}
-            onApplyMode={handleApplyPricingMode}
-          />
-        </div>
-      )}
-      
-      {/* Undo Button */}
-      {showUndo && lastPricingOperation && selectedLineItemIds.length === 0 && !applyingProgress && (
-        <div className="border-t border-[#333333] px-6 py-3 bg-[#1D1F25] flex items-center justify-between">
-          <div className="text-sm text-gray-400">
-            Applied "{lastPricingOperation.modeName}" to {lastPricingOperation.lineItemIds.length} items
-          </div>
-          <div className="flex items-center gap-3">
-            <div className={`text-sm font-medium ${undoTimeLeft <= 10 ? 'text-orange-400' : 'text-gray-400'}`}>
-              {undoTimeLeft}s
-            </div>
-            <button
-              onClick={handleUndoPricing}
-              className={`px-4 py-2 text-white text-sm transition-all flex items-center gap-2 font-medium ${
-                undoTimeLeft <= 10 
-                  ? 'bg-orange-600 hover:bg-orange-700 border-orange-600 animate-pulse' 
-                  : 'bg-[#336699] hover:bg-[#336699]/80 border-[#336699]'
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-              </svg>
-              Undo Changes
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Sticky Header Section - Contains controls and column headers */}
-      <div className="flex-shrink-0 bg-[#1D1F25] border-b border-[#333333] sticky top-0 z-10">
+      <div className="flex-shrink-0 bg-[#121212] border-b border-[#333333] sticky top-0 z-10">
         {/* Table Controls */}
         <div className="px-4 py-3 border-b border-[#333333]">
         <div className="flex items-center justify-between gap-4">
           {/* Left side - Filters */}
           <div className="flex items-center gap-3">
+            {myTrades.size > 0 && (
+              <div role="group" aria-label="Which trades" className="inline-flex border border-[#333333]">
+                {(['mine', 'all'] as const).map((scope) => (
+                  <button
+                    key={scope}
+                    type="button"
+                    aria-pressed={tradeScope === scope}
+                    title={scope === 'mine' ? myTradeNames : undefined}
+                    onClick={() => setTradeScope(scope)}
+                    className={`px-3 py-2 text-sm whitespace-nowrap ${tradeScope === scope ? 'bg-[#336699] text-white' : 'text-gray-400 hover:text-white'}`}
+                  >
+                    {scope === 'mine' ? 'My trades' : 'All trades'}
+                  </button>
+                ))}
+              </div>
+            )}
             <select
-              className="bg-[#1D1F25] border border-[#333333] px-3 py-2 text-sm text-white focus:outline-none focus:border-[#336699]"
+              className="bg-[#0A0A0A] border border-[#333333] px-3 py-2 text-sm text-white focus:outline-none focus:border-[#336699]"
               value={selectedTradeId}
               onChange={(e) => setSelectedTradeId(e.target.value)}
             >
-              <option value="all" className="bg-[#1D1F25] text-white">All Cost Codes ({lineItems.length})</option>
+              <option value="all" className="bg-[#121212] text-white">All Cost Codes ({lineItems.length})</option>
               {Array.from(groupedTrades.entries()).map(([industryName, codes]) => (
                 <optgroup 
                   key={industryName} 
                   label={`━━━  ${industryName.toUpperCase()}  ━━━`}
-                  className="bg-[#1D1F25] text-gray-400 font-bold"
+                  className="bg-[#121212] text-gray-400 font-bold"
                 >
                   {codes.map(trade => (
                     <option 
                       key={trade.id} 
                       value={trade.id} 
-                      className="bg-[#1D1F25] text-white pl-4"
+                      className="bg-[#121212] text-white pl-4"
                     >
                       {trade.code} — {trade.name} ({lineItems.filter(item => item.cost_code_id === trade.id).length})
                     </option>
@@ -1559,7 +765,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowNewLineItemModal(true)}
-              className="bg-white hover:bg-gray-100 text-black px-4 py-2 text-sm font-medium transition-colors flex items-center gap-2"
+              className="bg-[#336699] hover:bg-[#2a5580] text-white px-4 py-2 text-sm font-medium transition-colors flex items-center gap-2"
             >
               <Plus className="w-4 h-4" />
               <span>Add Item</span>
@@ -1571,7 +777,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
                 setCondensed(newCondensed);
                 localStorage.setItem('pricebook-condensed', newCondensed.toString());
               }}
-              className="bg-[#1D1F25] border border-[#333333] p-2 text-white hover:bg-[#22272d] transition-colors"
+              className="border border-[#333333] p-2 text-gray-300 hover:bg-[#1E1E1E] hover:text-white transition-colors"
               title="Toggle compact view"
             >
               <LayoutGrid className="w-4 h-4" />
@@ -1580,16 +786,16 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
             <div className="relative" ref={optionsMenuRef}>
               <button
                 onClick={() => setShowOptionsMenu(!showOptionsMenu)}
-                className="bg-[#1D1F25] border border-[#333333] p-2 text-white hover:bg-[#22272d] transition-colors"
+                className="border border-[#333333] p-2 text-gray-300 hover:bg-[#1E1E1E] hover:text-white transition-colors"
               >
                 <MoreVertical className="w-4 h-4" />
               </button>
               
               {showOptionsMenu && (
-                <div className="absolute top-full right-0 mt-2 w-48 bg-[#1D1F25] border border-[#333333] shadow-lg z-[9999] py-2">
+                <div className="absolute top-full right-0 mt-2 w-48 bg-[#1a1a1a] border border-[#333333] shadow-lg z-[9999] py-1">
                   <button
                     onClick={handleImportItems}
-                    className="w-full px-4 py-2 text-left text-sm text-white hover:bg-[#22272d] flex items-center gap-2"
+                    className="w-full px-4 py-2 text-left text-sm text-white hover:bg-[#252525] flex items-center gap-2"
                   >
                     <Upload className="w-4 h-4" />
                     Import Items
@@ -1597,14 +803,14 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
                   <div className="border-t border-[#333333] my-1" />
                   <button
                     onClick={handleExportToCSV}
-                    className="w-full px-4 py-2 text-left text-sm text-white hover:bg-[#22272d] flex items-center gap-2"
+                    className="w-full px-4 py-2 text-left text-sm text-white hover:bg-[#252525] flex items-center gap-2"
                   >
                     <FileText className="w-4 h-4" />
                     Export to CSV
                   </button>
                   <button
                     onClick={handleExportToExcel}
-                    className="w-full px-4 py-2 text-left text-sm text-white hover:bg-[#22272d] flex items-center gap-2"
+                    className="w-full px-4 py-2 text-left text-sm text-white hover:bg-[#252525] flex items-center gap-2"
                   >
                     <FileSpreadsheet className="w-4 h-4" />
                     Export to Excel
@@ -1612,7 +818,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
                   <div className="border-t border-[#333333] my-1" />
                   <button
                     onClick={handlePrintPriceBook}
-                    className="w-full px-4 py-2 text-left text-sm text-white hover:bg-[#22272d] flex items-center gap-2"
+                    className="w-full px-4 py-2 text-left text-sm text-white hover:bg-[#252525] flex items-center gap-2"
                   >
                     <FileText className="w-4 h-4" />
                     Print Cost Codes
@@ -1625,23 +831,9 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
         </div>
 
         {/* Table Column Headers */}
-        <div className="px-4 py-2 bg-[#1D1F25]/80">
-        <div className="grid grid-cols-9 gap-4 text-xs font-medium text-gray-400 uppercase tracking-wider items-center">
-          <div className="col-span-1 flex items-center">
-            <input
-              type="checkbox"
-              checked={selectedLineItemIds.length === filteredLineItems.length && filteredLineItems.length > 0}
-              onChange={(e) => {
-                if (e.target.checked) {
-                  setSelectedLineItemIds(filteredLineItems.map(item => item.id));
-                } else {
-                  setSelectedLineItemIds([]);
-                }
-              }}
-              className="w-4 h-4 rounded bg-[#333333] border-[#555555] text-[#336699] focus:ring-[#336699] focus:ring-offset-0"
-            />
-          </div>
-          <div className="col-span-5">
+        <div className="px-6 py-2 bg-[#121212]">
+        <div className="grid grid-cols-9 gap-4 text-[11px] font-medium text-gray-500 uppercase tracking-wide items-center">
+          <div className="col-span-6">
             <span>ITEM</span>
           </div>
           <div className="col-span-3 flex justify-end">
@@ -1656,7 +848,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
         {(isLoading || isLoadingCostCodes) ? (
           <div className="animate-pulse">
             {/* Industry Header Skeleton */}
-            <div className="px-6 py-3 bg-[#1D1F25] border-y border-[#333333]">
+            <div className="px-6 py-3 bg-[#121212] border-y border-[#333333]">
               <div className="h-4 bg-[#333333] rounded w-48 relative overflow-hidden">
                 <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-[#444444] to-transparent"></div>
               </div>
@@ -1705,7 +897,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
             
             {/* Second Industry Skeleton */}
             <div className="mt-4">
-              <div className="px-6 py-3 bg-[#1D1F25] border-y border-[#333333]">
+              <div className="px-6 py-3 bg-[#121212] border-y border-[#333333]">
                 <div className="h-4 bg-[#333333] rounded w-56 relative overflow-hidden">
                   <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-[#444444] to-transparent"></div>
                 </div>
@@ -1760,11 +952,26 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
             <p className="text-gray-400 mb-6 max-w-md">{error}</p>
             <button
               onClick={() => fetchLineItems()}
-              className="bg-white hover:bg-gray-100 text-black px-6 py-3 rounded-[8px] font-medium transition-colors"
+              className="bg-[#336699] hover:bg-[#2a5580] text-white px-6 py-3 font-medium transition-colors"
             >
               Try Again
             </button>
           </div>
+        ) : displayedItems.length === 0 && tradeScope === 'mine' && allOutsideMyTrades(lineItems, trades, myTrades) ? (
+        // The book has items, just none in this company's trades: say so, and offer the rest.
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <h3 className="text-lg font-medium text-white mb-2">None of your items are in your trades yet</h3>
+          <p className="text-gray-400 mb-6 max-w-md">
+            Your trades are {myTradeNames}. You can change them in Company settings → Trades.
+          </p>
+          <button
+            type="button"
+            onClick={() => setTradeScope('all')}
+            className="bg-[#336699] hover:bg-[#2a5580] text-white px-6 py-3 font-medium transition-colors"
+          >
+            Show all trades ({lineItems.length})
+          </button>
+        </div>
         ) : displayedItems.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <div className="w-16 h-16 bg-[#333333] rounded-full flex items-center justify-center mb-4">
@@ -1780,7 +987,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
           </p>
           <button
             onClick={() => setShowNewLineItemModal(true)}
-              className="bg-white hover:bg-gray-100 text-[#121212] px-6 py-3 rounded-[4px] font-medium transition-colors"
+              className="bg-[#336699] hover:bg-[#2a5580] text-white px-6 py-3 font-medium transition-colors"
           >
             Add Your First Item
           </button>
@@ -1791,30 +998,11 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
             <div
               key={lineItem.id}
               onClick={() => handleEditLineItem(lineItem)}
-              className={`grid grid-cols-9 gap-4 px-6 ${condensed ? 'py-2' : 'py-3'} items-center bg-[#1D1F25] hover:bg-[#22272d] transition-colors group relative cursor-pointer ${index < displayedItems.length - 1 ? 'border-b border-[#333333]/20' : ''}`}
+              className={`grid grid-cols-9 gap-4 px-6 ${condensed ? 'py-1.5' : 'py-2.5'} items-center bg-[#121212] hover:bg-[#1A1A1A] transition-colors group relative cursor-pointer ${index < displayedItems.length - 1 ? 'border-b border-[#262626]' : ''}`}
               >
-                {/* Checkbox Column */}
-                <div className="col-span-1 flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={selectedLineItemIds.includes(lineItem.id)}
-                    onChange={(e) => {
-                      e.stopPropagation();
-                      if (e.target.checked) {
-                        setSelectedLineItemIds([...selectedLineItemIds, lineItem.id]);
-                      } else {
-                        setSelectedLineItemIds(selectedLineItemIds.filter(id => id !== lineItem.id));
-                      }
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="w-4 h-4 rounded bg-[#333333] border-[#555555] text-[#336699] focus:ring-[#336699] focus:ring-offset-0"
-                  />
-                </div>
-                
-                {/* Item Column - reduced to make room */}
-                <div className="col-span-5 pr-4">
+                <div className="col-span-6 pr-4">
                   <div className="w-full overflow-hidden">
-                    <div className={`flex items-center gap-2 font-medium text-gray-100 ${condensed ? 'text-sm' : ''}`}>
+                    <div className="flex items-center gap-2 text-sm text-white">
                       <span className="truncate">{lineItem.name}</span>
                       {(lineItem.is_bundle || lineItem.is_package) && (
                         <span className="px-1.5 py-0.5 text-[10px] font-medium bg-blue-500/20 text-blue-400 rounded flex items-center gap-1">
@@ -1824,7 +1012,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
                       )}
                     </div>
                     {!condensed && lineItem.description && (
-                      <div className="text-xs text-gray-400 truncate mt-0.5" style={{ maxWidth: '100%' }}>
+                      <div className="text-xs text-gray-500 truncate mt-0.5" style={{ maxWidth: '100%' }}>
                         {lineItem.description}
                       </div>
                     )}
@@ -1834,98 +1022,9 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
                 {/* Price Column with strategy indicator - expanded to use available space */}
                 <div className="col-span-3 text-right">
                   <div className="flex flex-col items-end">
-                    <div className={`flex items-center justify-end gap-2 w-full ${condensed ? 'text-sm' : 'text-base'} ${
+                    <div className={`flex items-center justify-end gap-2 w-full text-sm ${
                       recentlyUpdatedId === lineItem.id ? 'price-updated' : ''
                     }`}>
-                      {/* Price strategy tag */}
-                      {(() => {
-                        const basePrice = lineItem.base_price || lineItem.price;
-                        const redLine = lineItem.red_line_price;
-                        const cap = lineItem.cap_price;
-                        const currentPrice = lineItem.price;
-                        
-                        // Check if price matches specific boundaries
-                        if (redLine && Math.abs(currentPrice - redLine) < 0.01) {
-                          return (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-red-500/20 text-red-400">
-                              RED
-                            </span>
-                          );
-                        }
-                        if (cap && Math.abs(currentPrice - cap) < 0.01) {
-                          return (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400">
-                              CAP
-                            </span>
-                          );
-                        }
-                        if (Math.abs(currentPrice - basePrice) < 0.01) {
-                          return (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-green-500/20 text-green-400">
-                              BASE
-                            </span>
-                          );
-                        }
-                        
-                        // Check ratio for strategy tags (only if basePrice is valid)
-                        const ratio = basePrice > 0 ? currentPrice / basePrice : 1;
-                        if (basePrice > 0 && ratio < 0.88) {
-                          return (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-green-500/20 text-green-400">
-                              NEED
-                            </span>
-                          );
-                        }
-                        if (ratio >= 0.88 && ratio < 0.92) {
-                          return (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400">
-                              SLOW
-                            </span>
-                          );
-                        }
-                        if (ratio >= 0.93 && ratio < 0.97) {
-                          return (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">
-                              COMP
-                            </span>
-                          );
-                        }
-                        if (ratio >= 1.18 && ratio < 1.25) {
-                          return (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400">
-                              BUSY
-                            </span>
-                          );
-                        }
-                        if (ratio >= 1.45 && ratio < 1.55) {
-                          return (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400">
-                              PREM
-                            </span>
-                          );
-                        }
-                        if (ratio >= 1.75) {
-                          return (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400">
-                              RUSH
-                            </span>
-                          );
-                        }
-                        
-                        // Custom price (only show if basePrice is valid and ratio is not 1)
-                        if (basePrice > 0 && ratio !== 1 && !isNaN(ratio)) {
-                          const percent = Math.round((ratio - 1) * 100);
-                          const text = percent > 0 ? `+${percent}%` : `${percent}%`;
-                          return (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-gray-500/20 text-gray-400">
-                              {text}
-                            </span>
-                          );
-                        }
-                        
-                        return null;
-                      })()}
-                      
                       <PriceRangeCompact
                         price={lineItem.price}
                         redLinePrice={lineItem.red_line_price}
@@ -1935,7 +1034,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
                       />
                     </div>
                     {!condensed && (
-                      <span className="text-xs text-gray-400 capitalize mt-0.5">{lineItem.unit}</span>
+                      <span className="text-[11px] text-gray-500 mt-0.5">per {lineItem.unit || 'each'}</span>
                     )}
                   </div>
                 </div>
@@ -1961,7 +1060,8 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
             await LineItemService.create({
               name: data.name,
               description: data.description,
-              price: data.price,
+              red_line_price: data.red_line_price,
+              cap_price: data.cap_price,
               unit: data.unit,
               cost_code_id: data.cost_code_id || undefined,
               user_id: user?.id || '',
@@ -2003,9 +1103,10 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
               await handleSaveEdit({
                 name: data.name,
                 description: data.description,
-                price: data.price,
                 unit: data.unit,
-                cost_code_id: data.cost_code_id || editingLineItem.cost_code_id
+                cost_code_id: data.cost_code_id || editingLineItem.cost_code_id,
+                red_line_price: data.red_line_price,
+                cap_price: data.cap_price
               });
             }}
             onCancel={() => {
@@ -2018,20 +1119,6 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
         )}
       </SlideOutDrawer>
 
-      {/* Pricing Mode Preview Modal */}
-      {pendingModeId && selectedMode && (
-        <PricingModePreviewModal
-          isOpen={showModePreview}
-          onClose={() => {
-            setShowModePreview(false);
-            setPendingModeId(null);
-          }}
-          mode={selectedMode}
-          organizationId={selectedOrg?.id || ''}
-          lineItemIds={selectedLineItemIds.length > 0 ? selectedLineItemIds : undefined}
-          onConfirm={handleConfirmPricingMode}
-        />
-      )}
       </div>
     </div>
   );

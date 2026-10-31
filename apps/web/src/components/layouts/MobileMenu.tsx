@@ -1,7 +1,14 @@
-import React from 'react';
-import { X, ChevronRight, User, Building, CreditCard, HelpCircle, LogOut } from 'lucide-react';
+import React, { Suspense, lazy, useState } from 'react';
+import { X, ChevronRight, User, Building, CreditCard, HelpCircle, LogOut, Plus } from 'lucide-react';
+import { NavShapeMark } from './NavShapes';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { isStaff, isSuperAdmin } from '../../lib/roles';
+// Loaded when opened: it pulls in the application form and its backend calls.
+const AddCompanyDialog = lazy(() => import('../settings/AddCompanyDialog').then((m) => ({ default: m.AddCompanyDialog })));
+import { WalletTile } from '../market/WalletTile';
+import { planLabel, usePlan } from '../market/plan';
+import { NO_TRADES_LABEL } from '../settings/tradesLabels';
 
 interface MobileMenuProps {
   isOpen: boolean;
@@ -22,7 +29,10 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
 }) => {
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
-  const [orgDropdownOpen, setOrgDropdownOpen] = React.useState(false);
+  const [orgDropdownOpen, setOrgDropdownOpen] = useState(false);
+  const [addingCompany, setAddingCompany] = useState(false);
+  const { plan, active: planActive } = usePlan(selectedOrg.id || undefined);
+  const dim = planActive ? '' : ' opacity-40 grayscale';
 
   if (!isOpen) return null;
 
@@ -37,8 +47,10 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
         <div className="flex items-center justify-between p-4 border-b border-[#333333]">
           <h2 className="text-white font-medium text-lg">Menu</h2>
           <button
+            type="button"
             onClick={onClose}
-            className="p-2 hover:bg-[#333333] rounded-[4px] transition-colors"
+            aria-label="Close menu"
+            className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] -mr-2 hover:bg-[#333333] rounded-[4px] transition-colors"
           >
             <X className="h-5 w-5 text-white" />
           </button>
@@ -52,7 +64,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
           >
             <div className="text-left">
               <div className="text-white font-medium">{selectedOrg.name}</div>
-              <div className="text-gray-400 text-sm">{selectedOrg.industry}</div>
+              <div className={`text-sm ${selectedOrg.industry === NO_TRADES_LABEL ? 'text-amber-300' : 'text-gray-400'}`}>{selectedOrg.industry}</div>
             </div>
             <ChevronRight className={`h-4 w-4 text-gray-400 transition-transform ${orgDropdownOpen ? 'rotate-90' : ''}`} />
           </button>
@@ -73,17 +85,33 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
                   }`}
                 >
                   <div className="font-medium">{org.name}</div>
-                  <div className="text-sm opacity-70">{org.industry}</div>
+                  <div className={`text-sm ${org.industry === NO_TRADES_LABEL ? 'text-amber-300' : 'opacity-70'}`}>{org.industry}</div>
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setOrgDropdownOpen(false);
+                  if (isSuperAdmin(user)) {
+                    navigate('/ops?new=company');
+                    onClose();
+                  } else setAddingCompany(true);
+                }}
+                className="w-full text-left p-3 min-h-[44px] flex items-center gap-2 rounded-[4px] text-[#7fb0e0] hover:bg-[#333333]"
+              >
+                <Plus className="w-4 h-4" />
+                Add another company
+              </button>
             </div>
           )}
         </div>
 
         {/* Navigation Links */}
         <nav className="p-4 space-y-2">
+
+
           <NavLink
-            to="/profit-tracker"
+            to="/leads"
             onClick={onClose}
             className={({ isActive }) =>
               `flex items-center gap-3 p-3 rounded-[4px] transition-colors ${
@@ -93,10 +121,69 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
               }`
             }
           >
-            <span className="text-lg">💰</span>
-            <span>Profit Tracker</span>
+            <NavShapeMark shape="leads" className="w-5 h-5 shrink-0" />
+            <span>Leads</span>
           </NavLink>
 
+          <NavLink
+            to="/bids"
+            onClick={onClose}
+            className={({ isActive }) =>
+              `flex items-center gap-3 p-3 rounded-[4px] transition-colors ${
+                isActive
+                  ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border border-[#336699]/50 text-white'
+                  : 'hover:bg-[#333333] text-gray-300'
+              }`
+            }
+          >
+            <NavShapeMark shape="bids" className="w-5 h-5 shrink-0" />
+            <span>Bids</span>
+          </NavLink>
+
+          <NavLink
+            to="/marketplace"
+            onClick={onClose}
+            className={({ isActive }) =>
+              `flex items-center gap-3 p-3 rounded-[4px] transition-colors ${
+                isActive
+                  ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border border-[#336699]/50 text-white'
+                  : 'hover:bg-[#333333] text-gray-300'
+              }`
+            }
+          >
+            <NavShapeMark shape="marketplace" className="w-5 h-5 shrink-0" />
+            <span>Marketplace</span>
+          </NavLink>
+
+          <NavLink
+            to="/vault"
+            onClick={onClose}
+            className={({ isActive }) =>
+              `flex items-center gap-3 p-3 rounded-[4px] transition-colors ${
+                isActive
+                  ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border border-[#336699]/50 text-white'
+                  : 'hover:bg-[#333333] text-gray-300'
+              }${dim}`
+            }
+          >
+            <NavShapeMark shape="vault" className="w-5 h-5 shrink-0" />
+            <span>The Vault</span>
+          </NavLink>
+
+          <NavLink
+            to="/report"
+            onClick={onClose}
+            className={({ isActive }) =>
+              `flex items-center gap-3 p-3 rounded-[4px] transition-colors ${
+                isActive
+                  ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border border-[#336699]/50 text-white'
+                  : 'hover:bg-[#333333] text-gray-300'
+              }`
+            }
+          >
+            <NavShapeMark shape="report" className="w-5 h-5 shrink-0" />
+            <span>Webb Report</span>
+          </NavLink>
 
           <NavLink
             to="/work"
@@ -106,26 +193,11 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
                 isActive
                   ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border border-[#336699]/50 text-white'
                   : 'hover:bg-[#333333] text-gray-300'
-              }`
+              }${dim}`
             }
           >
-            <span className="text-lg">💼</span>
+            <NavShapeMark shape="estimates" className="w-5 h-5 shrink-0" />
             <span>Work</span>
-          </NavLink>
-
-          <NavLink
-            to="/services"
-            onClick={onClose}
-            className={({ isActive }) =>
-              `flex items-center gap-3 p-3 rounded-[4px] transition-colors ${
-                isActive
-                  ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border border-[#336699]/50 text-white'
-                  : 'hover:bg-[#333333] text-gray-300'
-              }`
-            }
-          >
-            <span className="text-lg">◉</span>
-            <span>Services</span>
           </NavLink>
 
           <NavLink
@@ -136,11 +208,26 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
                 isActive
                   ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border border-[#336699]/50 text-white'
                   : 'hover:bg-[#333333] text-gray-300'
-              }`
+              }${dim}`
             }
           >
-            <span className="text-lg">📚</span>
+            <NavShapeMark shape="pricebook" className="w-5 h-5 shrink-0" />
             <span>Price Book</span>
+          </NavLink>
+
+          <NavLink
+            to="/services"
+            onClick={onClose}
+            className={({ isActive }) =>
+              `flex items-center gap-3 p-3 rounded-[4px] transition-colors ${
+                isActive
+                  ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border border-[#336699]/50 text-white'
+                  : 'hover:bg-[#333333] text-gray-300'
+              }${dim}`
+            }
+          >
+            <NavShapeMark shape="projects" className="w-5 h-5 shrink-0" />
+            <span>Services</span>
           </NavLink>
         </nav>
 
@@ -149,47 +236,50 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
           <div className="mb-4">
             <div className="flex items-center gap-3 mb-3">
               <div className="w-10 h-10 bg-[#336699] rounded-full flex items-center justify-center text-white font-medium">
-                {(user?.user_metadata?.full_name || 'User').charAt(0).toUpperCase()}
+                {(user?.name || user?.email || 'You').charAt(0).toUpperCase()}
               </div>
               <div>
                 <div className="text-white font-medium">
-                  {user?.user_metadata?.full_name || 'User'}
+                  {user?.name || user?.email || 'You'}
                 </div>
-                <div className="text-gray-400 text-sm">Admin • Pro Plan</div>
+                <div className="text-gray-400 text-sm">{planLabel(plan)}</div>
               </div>
             </div>
           </div>
 
           {/* User Actions */}
           <div className="space-y-1">
+            <WalletTile organizationId={selectedOrg.id || undefined} variant="menu" onOpen={onClose} />
+            {isStaff(user) && (
+              <button
+                onClick={() => {
+                  navigate('/ops');
+                  onClose();
+                }}
+                className="w-full text-left p-3 hover:bg-[#333333] rounded-[4px] transition-colors text-gray-300"
+              >
+                <span>Ops</span>
+                <span className="block text-xs text-gray-500">Leads, companies, permits</span>
+              </button>
+            )}
             <button
               onClick={() => {
-                navigate('/profile');
+                navigate('/settings/organization');
                 onClose();
               }}
               className="w-full text-left p-3 hover:bg-[#333333] rounded-[4px] transition-colors text-gray-300"
             >
-              <span>Profile Settings</span>
+              <span>Company settings</span>
             </button>
 
             <button
               onClick={() => {
-                navigate('/company-settings');
+                navigate('/plan');
                 onClose();
               }}
               className="w-full text-left p-3 hover:bg-[#333333] rounded-[4px] transition-colors text-gray-300"
             >
-              <span>Company Settings</span>
-            </button>
-
-            <button
-              onClick={() => {
-                navigate('/billing');
-                onClose();
-              }}
-              className="w-full text-left p-3 hover:bg-[#333333] rounded-[4px] transition-colors text-gray-300"
-            >
-              <span>Billing & Plan</span>
+              <span>Pro plan</span>
             </button>
 
             <button
@@ -222,6 +312,11 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
           </div>
         </div>
       </div>
+      {addingCompany && (
+        <Suspense fallback={null}>
+          <AddCompanyDialog onClose={() => setAddingCompany(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }; 

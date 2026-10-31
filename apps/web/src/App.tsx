@@ -1,49 +1,47 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { landingFor, isCaller, isStaff } from './lib/roles';
 import { ScrollRestoration } from './components/ScrollRestoration';
-import Dashboard from './pages/dashboard/Dashboard';
-import { TestAuth } from './components/auth/TestAuth';
 import { PriceBook as PriceBookPage } from './pages/PriceBook';
 // Invoices removed - contractors use QuickBooks for invoicing
-import { EstimateDetail } from './components/estimates/EstimateDetail';
 import { EditEstimatePage } from './pages/EditEstimatePage';
 import { ShareableEstimate } from './components/estimates/ShareableEstimate';
+import { SignoffPage } from './pages/SignoffPage';
 import { EstimateContractView } from './components/contracts/EstimateContractView';
 import { SharedServiceOption } from './pages/SharedServiceOption';
 // Packages page removed as part of simplification
-import { LandingPage } from './components/LandingPage';
-import Projects from './pages/marketing/Projects';
-import { BillsList } from './components/bills/BillsList';
+import LeadsLanding from './pages/LeadsLanding';
+import ConnectAssistant from './pages/ConnectAssistant';
+import OpenInAssistant from './pages/OpenInAssistant';
 import { Callback } from './components/auth/Callback';
-import { UserProfile } from './components/settings/UserProfile';
-import { PublicProfileView } from './components/settings/PublicProfileView';
 import { Toaster } from 'react-hot-toast';
-import { ProjectForm, ProjectDetails } from './components/projects';
-import LineItemTestPage from './pages/LineItemTestPage';
 import { DashboardLayout } from './components/layouts/DashboardLayout';
-import MarkdownViewer from './components/docs/MarkdownViewer';
-import Templates from './pages/Templates';
-import IndustrySettings from './pages/IndustrySettings';
+import { OpsLayout } from './components/layouts/OpsLayout';
+import { FEATURES } from './config/features';
+import LeadsPage from './pages/LeadsPage';
+import LeadMarketPage from './pages/LeadMarketPage';
+import CallsPage from './pages/CallsPage';
+import RealEstateOpsPage from './pages/RealEstateOpsPage';
+import BidsPage from './pages/BidsPage';
+import MarketplacePage from './pages/MarketplacePage';
+import PlanPage from './pages/PlanPage';
+import VaultPage from './pages/VaultPage';
+import ReportPage from './pages/ReportPage';
+import { PlanGate } from './components/market/plan';
+import FundAccountPage from './pages/FundAccountPage';
 import OrganizationSettings from './pages/OrganizationSettings';
 import { Expenses } from './pages/Expenses';
-import { VendorDetailPage } from './pages/VendorDetailPage';
 import { ClientDetailPage } from './pages/ClientDetailPage';
-import { SubcontractorDetailPage } from './pages/SubcontractorDetailPage';
-import { TeamMemberDetailPage } from './pages/TeamMemberDetailPage';
-import { DebugData } from './pages/DebugData';
 import { Work } from './pages/Work';
 import { Projects as ProjectsPage } from './pages/Projects';
 import { ActivityPage } from './pages/ActivityPage';
-import { WhoWeServe } from './pages/WhoWeServe';
-import { SalesMode } from './pages/SalesMode';
 // import { ServicesPackages } from './pages/ServicesPackages'; // Removed - using line items only
-import Marketing from './pages/Marketing';
+import { PrivacyPage, TermsPage } from './pages/Legal';
+import { NotFound } from './pages/NotFound';
 
 // Lazy load the Experience page
-const Experience = React.lazy(() => import('./pages/Experience').then(module => ({ default: module.Experience })));
-const SimpleExperience = React.lazy(() => import('./pages/SimpleExperience').then(module => ({ default: module.SimpleExperience })));
 
 // Import debugging tools in development
 // COMMENTED OUT: These test utilities were running automatically and causing issues
@@ -56,29 +54,19 @@ const SimpleExperience = React.lazy(() => import('./pages/SimpleExperience').the
 //     import('./utils/testWebSocket'),
 //     import('./utils/quickWebSocketTest'),
 //     import('./utils/checkActivityDatabase'),
-//     import('./utils/testInvoiceActivity'),
-//     import('./utils/debugInvoiceActivity'),
-//     import('./utils/verifyInvoiceActivityFix'),
 //     import('./utils/diagnoseOrganizationIssue'),
 //     import('./utils/testActivityWithSelectedOrg'),
-//     import('./utils/fixOldInvoiceActivities'),
-//     import('./utils/fixAllBadInvoiceActivities'),
 //     import('./utils/manuallyFixBadActivities'),
 //     import('./utils/debugWhyNotFixing'),
 //     import('./utils/directActivityFix'),
 //     import('./utils/deleteAndRecreateActivities'),
 //     import('./utils/investigateActivityIssue'),
-//     import('./utils/auditAllActivityLogging'),
 //     import('./utils/createHistoricalActivities'),
 //     import('./utils/checkSupabaseData'),
-//     import('./utils/fixEverythingNow'),
 //     import('./utils/checkActivityStatus'),
 //     import('./utils/checkActivityProgress'),
 //     import('./utils/fixActivityDescriptions'),
 //     import('./utils/fixBadActivityDescriptions'),
-//     import('./utils/createTestInvoice'),
-//     import('./utils/directInvoiceInsert'),
-//     import('./utils/verifyInvoiceActivityLogging'),
 //     import('./utils/testRawActivityCreation'),
 //     import('./utils/checkWorkPackTemplateActivities'),
 //     import('./utils/testWorkPackAndTemplateLogging')
@@ -91,18 +79,12 @@ const SimpleExperience = React.lazy(() => import('./pages/SimpleExperience').the
 //     console.log('  - testWebSocket() - Test WebSocket connectivity');
 //     console.log('  - quickWebSocketTest() - Quick WebSocket diagnostic');
 //     console.log('  - checkActivityDatabase() - Check activity logging state');
-//     console.log('  - testInvoiceActivity() - Test invoice activity logging');
-//     console.log('  - debugInvoiceActivity() - Debug invoice activity issue');
-//     console.log('  - verifyInvoiceActivityFix() - Verify invoice activity fix is working');
 //     console.log('  - diagnoseOrganizationIssue() - Diagnose user organization issues');
 //     console.log('  - testActivityWithSelectedOrg() - Test with your selected organization');
-//     console.log('  - fixOldInvoiceActivities() - Fix old invoice activities with improper descriptions');
-//     console.log('  - fixAllBadInvoiceActivities() - Aggressively fix ALL bad invoice activities');
 //     console.log('  - manuallyFixBadActivities() - Manually fix specific problematic activities');
 //     console.log('  - debugWhyNotFixing() - Debug why activities are not getting fixed');
 //     console.log('  - investigateActivityIssue() - Deep investigation of why updates fail');
 //     console.log('  - deleteAndRecreateActivities() - Delete bad activities and recreate them properly');
-//     console.log('  - auditAllActivityLogging() - Audit ALL activity logging across the app');
 //     console.log('  - createHistoricalActivities() - Create activities for existing entities');
 //     console.log('  - checkWorkPackTemplateActivities() - Check work pack & template activities');
 //     console.log('  - testWorkPackAndTemplateLogging() - Test work pack & template logging');
@@ -112,6 +94,7 @@ const SimpleExperience = React.lazy(() => import('./pages/SimpleExperience').the
 // Protected route component
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, session, isLoading } = useAuth();
+  const location = useLocation();
 
   if (isLoading) {
     return (
@@ -122,10 +105,60 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!session || !user) {
-    return <Navigate to="/" replace />;
+    // Remember where they were going, so sign-in brings them back to it.
+    const here = `${location.pathname}${location.search}`;
+    return <Navigate to={here === '/' ? '/' : `/?next=${encodeURIComponent(here)}`} replace />;
+  }
+
+  // Staff have no company of their own: Ops is their whole app (and Calls, to make calls).
+  if (user.role === 'staff' && !user.organizationId && !location.pathname.startsWith('/ops') && location.pathname !== '/calls') {
+    return <Navigate to="/ops" replace />;
+  }
+  // Callers: the Calls page is all there is.
+  if (user.role === 'caller' && !user.organizationId && location.pathname !== '/calls') {
+    return <Navigate to="/calls" replace />;
   }
 
   return <>{children}</>;
+}
+
+/** Pages for Webb Leads staff only. Everyone else lands back on their dashboard. */
+function StaffRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  return (
+    <ProtectedRoute>
+      {isStaff(user) ? <>{children}</> : <Navigate to="/profit-tracker" replace />}
+    </ProtectedRoute>
+  );
+}
+
+/** The Calls page: Webb Leads callers, and staff and the owner. */
+function CallerRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  return (
+    <ProtectedRoute>
+      {isCaller(user) ? <>{children}</> : <Navigate to="/profit-tracker" replace />}
+    </ProtectedRoute>
+  );
+}
+
+/** The signed-in home: the place they were headed (?next=), else Ops for staff and the owner, the company for everyone else. */
+function HomeRedirect() {
+  const { user } = useAuth();
+  const [params] = useSearchParams();
+  return <Navigate to={landingFor(user, params.get('next'))} replace />;
+}
+
+/** The old Ops address, with its query string (the blue + button's ?new=lead). */
+function LeadMarketRedirect() {
+  const location = useLocation();
+  return <Navigate to={`/ops${location.search}`} replace />;
+}
+
+/** Old edit links open the project page instead. */
+function ProjectEditRedirect() {
+  const { id } = useParams();
+  return <Navigate to={`/projects/${id}`} replace />;
 }
 
 function AppRoutes() {
@@ -134,9 +167,9 @@ function AppRoutes() {
   // If we have a user and session, redirect to dashboard from root
   const renderLanding = () => {
     if (user && session && !isLoading) {
-      return <Navigate to="/profit-tracker" replace />;
+      return <HomeRedirect />;
     }
-    return <LandingPage />;
+    return <LeadsLanding />;
   };
 
   return (
@@ -145,117 +178,152 @@ function AppRoutes() {
       <Routes>
       {/* Public routes */}
       <Route path="/" element={renderLanding()} />
+      <Route path="/apply" element={user && session && !isLoading ? <HomeRedirect /> : <LeadsLanding scrollTo="apply" />} />
       <Route path="/auth/callback" element={<Callback />} />
-      <Route path="/auth/test" element={<TestAuth />} />
-      <Route path="/marketing/projects" element={<Projects />} />
-      <Route path="/who-we-serve" element={<WhoWeServe />} />
+      <Route path="/terms" element={<TermsPage />} />
+      <Route path="/privacy" element={<PrivacyPage />} />
       
-      {/* Marketing page with Pixi.js - lazy loaded */}
-      <Route path="/marketing" element={
-        <React.Suspense fallback={<div className="min-h-screen bg-[#0A0A0A]" />}>
-          <Marketing />
-        </React.Suspense>
-      } />
       
-      {/* Experience page with elaborate scroll-driven Pixi.js - lazy loaded */}
-      <Route path="/experience" element={
-        <React.Suspense fallback={<div className="min-h-screen bg-[#0a0f1f]" />}>
-          <Experience />
-        </React.Suspense>
-      } />
       
 
       
-      {/* Simple scroll test */}
-      <Route path="/simple-experience" element={
-        <React.Suspense fallback={<div className="min-h-screen bg-blue-900" />}>
-          <SimpleExperience />
-        </React.Suspense>
-      } />
 
       {/* Protected routes */}
+      {/* Claude or ChatGPT asking to connect: the person approves it here. */}
+      <Route
+        path="/connect"
+        element={
+          <ProtectedRoute>
+            <ConnectAssistant />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/home"
+        element={
+          <ProtectedRoute>
+            <HomeRedirect />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/dashboard"
         element={
           <ProtectedRoute>
-            <Navigate to="/profit-tracker" replace />
+            <HomeRedirect />
           </ProtectedRoute>
         }
       />
       <Route
-        path="/profit-tracker"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <Dashboard />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/vendors/:id"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <VendorDetailPage />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/subcontractors/:subcontractorId"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <SubcontractorDetailPage />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/team-members/:teamMemberId"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <TeamMemberDetailPage />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/templates"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <Templates />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
-      
-      {/* Work - Estimates only */}
-      <Route
-        path="/work"
+        path="/leads"
         element={
           <ProtectedRoute>
             <DashboardLayout fullWidth={true}>
-              <Work />
+              <LeadsPage />
             </DashboardLayout>
           </ProtectedRoute>
         }
       />
-      
-      {/* Sales Mode - Field Sales Tool */}
       <Route
-        path="/sales-mode"
+        path="/bids"
         element={
           <ProtectedRoute>
-            <DashboardLayout>
-              <SalesMode />
+            <DashboardLayout fullWidth={true}>
+              <BidsPage />
             </DashboardLayout>
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/vault"
+        element={
+          <ProtectedRoute>
+            <DashboardLayout fullWidth={true}>
+              <VaultPage />
+            </DashboardLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/report"
+        element={
+          <ProtectedRoute>
+            <DashboardLayout fullWidth={true}>
+              <ReportPage />
+            </DashboardLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/plan"
+        element={
+          <ProtectedRoute>
+            <DashboardLayout fullWidth={true}>
+              <PlanPage />
+            </DashboardLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/marketplace"
+        element={
+          <ProtectedRoute>
+            <DashboardLayout fullWidth={true}>
+              <MarketplacePage />
+            </DashboardLayout>
+          </ProtectedRoute>
+        }
+      />
+      {/* The platform side: its own frame, nothing of a company's in it. */}
+      <Route
+        path="/ops"
+        element={
+          <StaffRoute>
+            <OpsLayout>
+              <LeadMarketPage />
+            </OpsLayout>
+          </StaffRoute>
+        }
+      />
+      <Route
+        path="/ops/real-estate"
+        element={
+          <StaffRoute>
+            <OpsLayout>
+              <RealEstateOpsPage />
+            </OpsLayout>
+          </StaffRoute>
+        }
+      />
+      <Route
+        path="/calls"
+        element={
+          <CallerRoute>
+            <OpsLayout>
+              <CallsPage />
+            </OpsLayout>
+          </CallerRoute>
+        }
+      />
+      <Route path="/lead-market" element={<LeadMarketRedirect />} />
+      
+      {/* The estimates list; /estimates/:id opens one estimate in a drawer over it.
+          One layout route, so opening and closing an estimate keeps the list in place. */}
+      <Route
+        element={
+          <ProtectedRoute>
+            <DashboardLayout fullWidth={true}>
+              <PlanGate><Work /></PlanGate>
+            </DashboardLayout>
+          </ProtectedRoute>
+        }
+      >
+        <Route path="/work" element={null} />
+        <Route path="/estimates/:id" element={null} />
+      </Route>
+      
+      {/* Sales Mode was removed; old links go to estimates. */}
+      <Route path="/sales-mode" element={<Navigate to="/work" replace />} />
       <Route
         path="/work/estimates"
         element={
@@ -273,17 +341,25 @@ function AppRoutes() {
         }
       />
       
-      {/* Projects - Standalone page */}
+      {/* Projects: the list, a project in a drawer over it, and an estimate in a drawer over that.
+          One route element, so moving between them never remounts the page. */}
       <Route
-        path="/projects"
         element={
           <ProtectedRoute>
-            <DashboardLayout fullWidth={true}>
-              <ProjectsPage />
-            </DashboardLayout>
+            {FEATURES.projects ? (
+              <DashboardLayout fullWidth={true}>
+                <PlanGate><ProjectsPage /></PlanGate>
+              </DashboardLayout>
+            ) : (
+              <HomeRedirect />
+            )}
           </ProtectedRoute>
         }
-      />
+      >
+        <Route path="/projects" element={null} />
+        <Route path="/projects/:id" element={null} />
+        <Route path="/projects/:id/estimates/:estimateId" element={null} />
+      </Route>
       
       {/* Activity Log */}
       <Route
@@ -313,21 +389,11 @@ function AppRoutes() {
         }
       />
       <Route
-        path="/estimates/:id"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout fullWidth={true}>
-              <EstimateDetail />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
         path="/estimates/:id/edit"
         element={
           <ProtectedRoute>
             <DashboardLayout>
-              <EditEstimatePage />
+              <PlanGate><EditEstimatePage /></PlanGate>
             </DashboardLayout>
           </ProtectedRoute>
         }
@@ -342,83 +408,23 @@ function AppRoutes() {
       />
       {/* Public shareable estimate route - no auth required */}
       <Route
-        path="/share/estimate/:id"
+        path="/share/estimate/:token"
         element={<ShareableEstimate />}
       />
+      {/* Public page where a client signs a change order or the affidavit - no auth required */}
+      <Route path="/share/signoff/:token" element={<SignoffPage />} />
+      {/* Public page a company pays through to load its lead balance - no auth required */}
+      <Route path="/fund/:token" element={<FundAccountPage />} />
+      {/* "Open it in Claude / ChatGPT" from a lead alert. */}
+      <Route path="/open/:app/:leadId" element={<OpenInAssistant />} />
       {/* Packages route removed as part of simplification */}
-      <Route
-        path="/bills"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <BillsList />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/profile"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <UserProfile />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
+      {/* The profile page was removed; old links land in Company settings. */}
+      <Route path="/profile" element={<Navigate to="/settings/organization" replace />} />
       
-      {/* Chat Management System - redirect to profit-tracker since chat is in sidebar */}
-      <Route
-        path="/chat"
-        element={
-          <ProtectedRoute>
-            <Navigate to="/profit-tracker" replace />
-          </ProtectedRoute>
-        }
-      />
-      
-      {/* Documentation routes - publicly accessible */}
-      <Route
-        path="/docs/:filename"
-        element={<MarkdownViewer />}
-      />
 
-      {/* Public Profile Route */}
-      <Route
-        path="/pro/:username"
-        element={<PublicProfileView />}
-      />
       
       
-      {/* Project routes */}
-      <Route
-        path="/projects"
-        element={
-          <ProtectedRoute>
-            <Navigate to="/work/projects" replace />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/projects/:id"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <ProjectDetails />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/projects/:id/edit"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <ProjectForm />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/projects/:id/edit" element={<ProjectEditRedirect />} />
 
       {/* Client routes */}
       <Route
@@ -438,7 +444,7 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <DashboardLayout fullWidth={true}>
-              <PriceBookPage />
+              <PlanGate><PriceBookPage /></PlanGate>
             </DashboardLayout>
           </ProtectedRoute>
         }
@@ -448,7 +454,7 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <DashboardLayout fullWidth={true}>
-              <PriceBookPage />
+              <PlanGate><PriceBookPage /></PlanGate>
             </DashboardLayout>
           </ProtectedRoute>
         }
@@ -458,7 +464,7 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <DashboardLayout fullWidth={true}>
-              <PriceBookPage />
+              <PlanGate><PriceBookPage /></PlanGate>
             </DashboardLayout>
           </ProtectedRoute>
         }
@@ -485,36 +491,8 @@ function AppRoutes() {
         path="/cost-codes"
         element={<Navigate to="/price-book/cost-codes" replace />}
       />
-      <Route
-        path="/line-item-test"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <LineItemTestPage />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/debug"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <DebugData />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/settings/industries"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <IndustrySettings />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
+      {/* The old full-page trade settings: trades now live in Company settings. */}
+      <Route path="/settings/industries" element={<Navigate to="/settings/organization?tab=trades" replace />} />
       <Route
         path="/settings/organization"
         element={
@@ -535,7 +513,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      <Route path="*" element={<Navigate to="/" />} />
+      <Route path="*" element={<NotFound />} />
     </Routes>
     </>
   );

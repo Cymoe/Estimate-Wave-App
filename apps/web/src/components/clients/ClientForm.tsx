@@ -168,7 +168,7 @@ export const ClientForm: React.FC<ClientFormProps> = ({
           <button
             type="submit"
             form="client-form"
-            className="w-full px-4 py-3 bg-[#F9D71C] text-[#121212] rounded-[4px] hover:bg-[#F9D71C]/90 disabled:opacity-50 font-['Roboto'] uppercase font-medium tracking-wider"
+            className="w-full px-4 py-3 bg-[#336699] text-white rounded-[4px] hover:bg-[#336699]/90 disabled:opacity-50 font-['Roboto'] uppercase font-medium tracking-wider"
             disabled={loading}
           >
             {loading ? 'CREATING...' : submitLabel.toUpperCase()}

@@ -1,186 +1,152 @@
 import React, { useState, useRef } from 'react';
-import { Upload, X, FileImage, Check } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { FileImage, FileText, RefreshCw, Trash2 } from 'lucide-react';
+import { EstimateService } from '../../services/EstimateService';
+
+const MAX_BYTES = 10 * 1024 * 1024;
 
 interface DesignUploadProps {
   estimateId: string;
-  projectId?: string;
-  currentImageUrl?: string;
-  currentImageName?: string;
-  onUploadComplete: (imageUrl: string, imageName: string) => void;
-  onRemove: () => void;
+  /** The design already attached, if any. */
+  design?: { url: string; name: string; type?: string };
+  /** Called after a design is attached or removed, so the estimate can reload. */
+  onChange: () => void;
 }
 
-export const DesignUpload: React.FC<DesignUploadProps> = ({
-  estimateId,
-  projectId,
-  currentImageUrl,
-  currentImageName,
-  onUploadComplete,
-  onRemove
-}) => {
-  const [uploading, setUploading] = useState(false);
+const isPdf = (file: { type?: string; name: string }) =>
+  file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+
+/** The estimate's agreed design (an image or PDF), shown on the contract. */
+export const DesignUpload: React.FC<DesignUploadProps> = ({ estimateId, design, onChange }) => {
+  const [busy, setBusy] = useState<'uploading' | 'removing' | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileUpload = async (file: File) => {
-    if (!file.type.startsWith('image/')) {
-      alert('Please upload an image file (PNG, JPG, etc.)');
+  const upload = async (file: File) => {
+    setError(null);
+    if (!(file.type.startsWith('image/') || isPdf(file))) {
+      setError('Choose an image (PNG, JPG) or a PDF.');
       return;
     }
-
-    setUploading(true);
-
+    if (file.size > MAX_BYTES) {
+      setError('That file is over 10MB.');
+      return;
+    }
+    setBusy('uploading');
     try {
-      // Generate unique file name
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${estimateId}_design_${Date.now()}.${fileExt}`;
-      const filePath = `project-designs/${fileName}`;
-
-      // Upload to Supabase Storage
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('project-files')
-        .upload(filePath, file);
-
-      if (uploadError) {
-        throw uploadError;
-      }
-
-      // Get public URL
-      const { data: urlData } = supabase.storage
-        .from('project-files')
-        .getPublicUrl(filePath);
-
-      const imageUrl = urlData.publicUrl;
-
-      // Store as project document if projectId exists
-      if (projectId) {
-        await supabase
-          .from('project_documents')
-          .insert({
-            project_id: projectId,
-            name: `Agreed Design - ${file.name}`,
-            type: 'agreed_design',
-            content: imageUrl,
-            status: 'active',
-            display_order: 0
-          });
-      }
-
-      onUploadComplete(imageUrl, file.name);
-    } catch (error) {
-      console.error('Error uploading design:', error);
-      alert('Failed to upload design. Please try again.');
+      await EstimateService.uploadDesign(estimateId, file);
+      onChange();
+    } catch (err) {
+      console.error('Error uploading design:', err);
+      setError("The design couldn't be uploaded. Please try again.");
     } finally {
-      setUploading(false);
+      setBusy(null);
     }
   };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length > 0) {
-      handleFileUpload(files[0]);
+  const remove = async () => {
+    setError(null);
+    setBusy('removing');
+    try {
+      await EstimateService.removeDesign(estimateId);
+      onChange();
+    } catch (err) {
+      console.error('Error removing design:', err);
+      setError("The design couldn't be removed. Please try again.");
+    } finally {
+      setBusy(null);
     }
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length > 0) {
-      handleFileUpload(files[0]);
-    }
-  };
+  const fileInput = (
+    <input
+      ref={fileInputRef}
+      type="file"
+      accept="image/*,application/pdf"
+      onChange={(e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (file) upload(file);
+      }}
+      className="hidden"
+      data-testid="design-file"
+    />
+  );
+  const errorText = error && <p className="text-xs text-red-400 mt-2">{error}</p>;
 
-  const handleRemoveDesign = async () => {
-    if (currentImageUrl) {
-      try {
-        // Extract file path from URL
-        const url = new URL(currentImageUrl);
-        const filePath = url.pathname.split('/').slice(-2).join('/'); // Get 'project-designs/filename'
-        
-        // Delete from storage
-        await supabase.storage
-          .from('project-files')
-          .remove([filePath]);
-
-        // Remove from project documents if exists
-        if (projectId) {
-          await supabase
-            .from('project_documents')
-            .delete()
-            .eq('project_id', projectId)
-            .eq('type', 'agreed_design');
-        }
-
-        onRemove();
-      } catch (error) {
-        console.error('Error removing design:', error);
-        // Still call onRemove to update UI even if deletion fails
-        onRemove();
-      }
-    }
-  };
-
-  if (currentImageUrl) {
+  if (design) {
     return (
-      <div className="bg-[#2a2a2a] border border-[#333333] rounded-lg p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-medium text-white">Agreed Design</h3>
-          <button
-            onClick={handleRemoveDesign}
-            className="text-red-400 hover:text-red-300 transition-colors"
-            title="Remove design"
+      <div className="bg-[#1a1a1a] border border-[#333] rounded-lg p-4">
+        {fileInput}
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wide">Agreed Design</h3>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={busy !== null}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-[#2a2a2a] rounded disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${busy === 'uploading' ? 'animate-spin' : ''}`} />
+              Replace
+            </button>
+            <button
+              type="button"
+              onClick={remove}
+              disabled={busy !== null}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded disabled:opacity-50"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Remove
+            </button>
+          </div>
+        </div>
+        {isPdf(design) ? (
+          <a
+            href={design.url}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-3 p-3 border border-[#333] rounded hover:bg-[#222] text-sm text-white"
           >
-            <X size={16} />
-          </button>
-        </div>
-        
-        <div className="space-y-3">
-          <div className="relative">
+            <FileText className="w-6 h-6 text-gray-400 flex-shrink-0" />
+            <span className="truncate">{design.name}</span>
+          </a>
+        ) : (
+          <a href={design.url} target="_blank" rel="noreferrer">
             <img
-              src={currentImageUrl}
-              alt="Agreed Design"
-              className="w-full max-h-64 object-contain rounded border border-[#444444]"
+              src={design.url}
+              alt={design.name}
+              className="w-full max-h-72 object-contain rounded border border-[#333] bg-black"
             />
-          </div>
-          
-          <div className="flex items-center text-sm text-gray-300">
-            <Check size={16} className="text-green-400 mr-2" />
-            <span>{currentImageName || 'Design uploaded'}</span>
-          </div>
-        </div>
+          </a>
+        )}
+        <p className="text-xs text-gray-500 mt-2">Included in the contract under "Agreed Design".</p>
+        {errorText}
       </div>
     );
   }
 
   return (
-    <div className="bg-[#2a2a2a] border border-[#333333] rounded-lg p-4">
-      <h3 className="text-sm font-medium text-white mb-3">Upload Agreed Design</h3>
-      
+    <div className="bg-[#1a1a1a] border border-[#333] rounded-lg p-4">
+      <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wide mb-3">Agreed Design</h3>
       <div
         className={`border-2 border-dashed rounded-lg p-6 text-center transition-all ${
-          dragOver
-            ? 'border-blue-400 bg-blue-400/10'
-            : 'border-[#444444] hover:border-[#555555]'
+          dragOver ? 'border-blue-400 bg-blue-400/10' : 'border-[#444444] hover:border-[#555555]'
         }`}
-        onDrop={handleDrop}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          const file = e.dataTransfer.files[0];
+          if (file) upload(file);
+        }}
         onDragOver={(e) => {
           e.preventDefault();
           setDragOver(true);
         }}
         onDragLeave={() => setDragOver(false)}
       >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          onChange={handleFileSelect}
-          className="hidden"
-        />
-
-        {uploading ? (
+        {fileInput}
+        {busy === 'uploading' ? (
           <div className="space-y-2">
             <div className="animate-spin mx-auto w-8 h-8 border-2 border-blue-400 border-t-transparent rounded-full"></div>
             <p className="text-sm text-gray-300">Uploading design...</p>
@@ -189,22 +155,20 @@ export const DesignUpload: React.FC<DesignUploadProps> = ({
           <div className="space-y-3">
             <FileImage size={32} className="mx-auto text-gray-400" />
             <div className="space-y-1">
-              <p className="text-sm text-white">Drop your ArcSite design here or</p>
+              <p className="text-sm text-white">Drop your design or asset here, or</p>
               <button
+                type="button"
                 onClick={() => fileInputRef.current?.click()}
                 className="text-blue-400 hover:text-blue-300 text-sm font-medium"
               >
                 browse files
               </button>
             </div>
-            <p className="text-xs text-gray-500">PNG, JPG, PDF up to 10MB</p>
+            <p className="text-xs text-gray-500">PNG, JPG, PDF up to 10MB · included in the contract</p>
           </div>
         )}
       </div>
-
-      <div className="mt-3 text-xs text-gray-400">
-        This design will be automatically included in the contract under "Agreed Design" section.
-      </div>
+      {errorText}
     </div>
   );
 };
