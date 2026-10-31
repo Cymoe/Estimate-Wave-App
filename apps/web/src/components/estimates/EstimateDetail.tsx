@@ -560,16 +560,16 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
               {showMoreMenu && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowMoreMenu(false)} />
-                  <div className="absolute right-0 top-full mt-1 w-52 bg-[#1E1E1E] border border-[#333333] shadow-lg z-50 py-1">
+                  <div className="absolute right-0 top-full mt-1 w-60 bg-[#1E1E1E] border border-[#333333] shadow-lg z-50 py-1">
                     {canApprove(estimate) && (
                       <button
                         onClick={() => {
                           setShowMoreMenu(false);
                           handleApprove();
                         }}
-                        className="w-full flex items-center px-3 py-2.5 text-sm text-white hover:bg-[#333333]"
+                        className="w-full flex items-center text-left px-3 py-2.5 text-sm text-white hover:bg-[#333333]"
                       >
-                        <CheckCircle className="w-4 h-4 mr-3 text-green-400" />
+                        <CheckCircle className="w-4 h-4 mr-3 flex-shrink-0 text-green-400" />
                         Approve without signature
                       </button>
                     )}
@@ -580,9 +580,9 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                             setShowMoreMenu(false);
                             handleStatusUpdate('rejected');
                           }}
-                          className="w-full flex items-center px-3 py-2.5 text-sm text-white hover:bg-[#333333]"
+                          className="w-full flex items-center text-left px-3 py-2.5 text-sm text-white hover:bg-[#333333]"
                         >
-                          <XCircle className="w-4 h-4 mr-3 text-gray-400" />
+                          <XCircle className="w-4 h-4 mr-3 flex-shrink-0 text-gray-400" />
                           Mark as declined
                         </button>
                         <div className="border-t border-[#333333] my-1" />
@@ -593,9 +593,9 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                         setShowMoreMenu(false);
                         handleDuplicate();
                       }}
-                      className="w-full flex items-center px-3 py-2.5 text-sm text-white hover:bg-[#333333]"
+                      className="w-full flex items-center text-left px-3 py-2.5 text-sm text-white hover:bg-[#333333]"
                     >
-                      <Copy className="w-4 h-4 mr-3 text-gray-400" />
+                      <Copy className="w-4 h-4 mr-3 flex-shrink-0 text-gray-400" />
                       Duplicate
                     </button>
                     <div className="border-t border-[#333333] my-1" />
@@ -604,9 +604,9 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                         setShowMoreMenu(false);
                         handleDeleteClick();
                       }}
-                      className="w-full flex items-center px-3 py-2.5 text-sm text-red-400 hover:bg-[#333333]"
+                      className="w-full flex items-center text-left px-3 py-2.5 text-sm text-red-400 hover:bg-[#333333]"
                     >
-                      <Trash2 className="w-4 h-4 mr-3" />
+                      <Trash2 className="w-4 h-4 mr-3 flex-shrink-0" />
                       Delete estimate
                     </button>
                   </div>
