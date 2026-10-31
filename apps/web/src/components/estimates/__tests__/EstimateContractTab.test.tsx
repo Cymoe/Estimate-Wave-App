@@ -39,7 +39,6 @@ const baseDocs = () => ({
   companyDefaults: {} as Record<string, string>,
 });
 let docs: ReturnType<typeof baseDocs> = baseDocs();
-const setContractDoc = jest.fn(async () => null);
 const setAttachment = jest.fn(async () => null);
 const removeDoc = jest.fn<Promise<{ archived: boolean }>, [string]>(async () => ({ archived: false }));
 const uploadContractDoc = jest.fn(async () => 'd1');
@@ -48,10 +47,10 @@ jest.mock('../../../lib/api', () => ({
   clientsAPI: { list: async () => [] },
   estimatesAPI: {
     documents: async () => docs,
-    setContractDoc: (...args: unknown[]) => setContractDoc(...(args as [])),
     setAttachment: (...args: unknown[]) => setAttachment(...(args as [])),
   },
   contractDocsAPI: { remove: (id: string) => removeDoc(id) },
+  signoffsAPI: { forEstimate: async () => [], request: async () => ({ token: 't', kind: 'change_order', name: 'Change order', number: 'CO-1' }) },
 }));
 jest.mock('../../../services/ContractDocsService', () => ({
   uploadContractDoc: (...args: unknown[]) => uploadContractDoc(...(args as [])),
@@ -76,7 +75,7 @@ const Where = () => {
 const buttons = () => Array.from(document.body.querySelectorAll('button'));
 const byText = (text: string) => buttons().find((b) => b.textContent?.includes(text));
 
-describe('estimate contract tab', () => {
+describe('estimate agreement tab', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     extra = {};
@@ -84,7 +83,7 @@ describe('estimate contract tab', () => {
     jest.clearAllMocks();
   });
 
-  async function openContractTab() {
+  async function openTab() {
     const container = document.createElement('div');
     document.body.appendChild(container);
     await act(async () =>
@@ -100,100 +99,47 @@ describe('estimate contract tab', () => {
       ),
     );
     await act(async () => {});
-    await act(async () => buttons().find((b) => b.textContent === 'Contract')!.click());
-    await act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
+    await act(async () => buttons().find((b) => b.textContent === 'Agreement')!.click());
+    await act(async () => {
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    });
   }
 
-  it('lists the three documents, with no separate Contract button in the header', async () => {
-    await openContractTab();
-    expect(buttons().filter((b) => b.textContent === 'Contract')).toHaveLength(1); // only the tab
-    expect(byText('Service Contract Agreement')).toBeTruthy();
-    expect(byText('Affidavit of Completion')).toBeTruthy();
-    expect(byText('Change Order')).toBeTruthy();
-    expect(document.body.textContent).not.toContain('Full Contract View');
-    expect(document.body.textContent).not.toContain('LIEN RELEASE CERTIFICATE');
-  });
-
-  it('the service contract opens the full contract page', async () => {
-    await openContractTab();
-    await act(async () => byText('Service Contract Agreement')!.click());
-    expect(path).toBe('/estimates/e1/contract');
-  });
-
-  it('the affidavit and change order expand inline, one at a time', async () => {
-    await openContractTab();
-    await act(async () => byText('Affidavit of Completion')!.click());
-    expect(document.body.textContent).toContain('LIEN RELEASE CERTIFICATE');
-    await act(async () => byText('Change Order')!.click());
-    expect(document.body.textContent).toContain('SCOPE MODIFICATION CONTRACT');
-    expect(document.body.textContent).not.toContain('LIEN RELEASE CERTIFICATE');
-    await act(async () => byText('Change Order')!.click());
-    expect(document.body.textContent).not.toContain('SCOPE MODIFICATION CONTRACT');
-  });
-
-  it('names the business on the affidavit, and has no change order before signing', async () => {
-    await openContractTab();
-    expect(document.body.textContent).toContain('Signed together with the estimate');
-    await act(async () => byText('Affidavit of Completion')!.click());
-    expect(document.body.textContent).toContain('Shah Builders');
-    expect(document.body.textContent).not.toContain('Campos');
-    await act(async () => byText('Change Order')!.click());
-    expect(document.body.textContent).toContain('Change orders start once the estimate is accepted');
-  });
-
-  it('once signed, shows the date and what changed since as the change order', async () => {
-    extra = {
-      status: 'accepted',
-      total_amount: 150,
-      items: [{ id: 'i1', description: 'Vanity', quantity: 1, unit_price: 150, total_price: 150 }],
-      contract_locked_at: '2026-10-11T12:00:00Z',
-      contract_snapshot: { items: [{ _id: 'i1', description: 'Vanity', totalPrice: 100 }], totalAmount: 100 },
-    };
-    await openContractTab();
-    expect(document.body.textContent).toContain(`Signed ${new Date('2026-10-11T12:00:00Z').toLocaleDateString()}`);
-    expect(document.body.textContent).toContain('1 change since signing');
-    await act(async () => byText('Change Order')!.click());
-    expect(document.body.textContent).toContain('$100.00 → $150.00');
-    expect(document.body.textContent).toMatch(/Change Order Amount\$50\.00/);
-  });
-
-  it("tags each document Webb Leads until the company has its own, and points to Settings", async () => {
-    await openContractTab();
-    expect(Array.from(document.body.querySelectorAll('[data-testid="source-tag"]')).map((t) => t.textContent)).toEqual(['Webb Leads', 'Webb Leads', 'Webb Leads']);
-    expect(document.body.textContent).toContain("Using the Webb Leads built-in documents. Have your own?");
-    await act(async () => byText('Add them in Settings')!.click());
+  it('before signing, shows just the agreement and what is sent with it, in plain words', async () => {
+    await openTab();
+    expect(byText('Agreement')).toBeTruthy();
+    expect(document.body.textContent).toContain('Filled in from this estimate · the client signs it with the estimate');
+    expect(document.body.querySelector('[aria-label="Also sent with this estimate"]')).not.toBeNull();
+    for (const gone of ['Affidavit', 'Change Order', 'LIEN', 'Changes to sign', 'Job complete sign-off', 'Signed record']) {
+      expect(document.body.textContent).not.toContain(gone);
+    }
+    expect(document.body.querySelector('button[aria-label^="Change"]')).toBeNull();
+    expect(Array.from(document.body.querySelectorAll('[data-testid="source-tag"]')).map((t) => t.textContent)).toEqual(['Built-in']);
+    expect(document.body.textContent).toContain('Using the built-in agreement. Have your own contract?');
+    await act(async () => byText('Upload it in Settings')!.click());
     expect(path).toBe('/settings/organization');
   });
 
-  it("an uploaded agreement opens its PDF; Change swaps it for this job", async () => {
-    docs.agreement = { kind: 'agreement', source: 'upload', origin: 'company', name: 'Shah Agreement', fileName: 'Shah Agreement.pdf', url: 'https://files/agreement' } as never;
-    docs.companyDefaults = { agreement: 'Shah Agreement' };
-    await openContractTab();
-    const link = Array.from(document.body.querySelectorAll('a')).find((a) => a.textContent?.includes('Service Contract Agreement'))!;
-    expect(link.getAttribute('href')).toBe('https://files/agreement');
-    expect(link.textContent).toContain("Shah Agreement.pdf · the company's · signed with the estimate");
-    expect(link.textContent).toContain('Your PDF');
-
-    await act(async () => (document.body.querySelector('button[aria-label="Change agreement"]') as HTMLButtonElement).click());
-    const menu = () => Array.from(document.body.querySelectorAll('[role="menu"] button')).map((b) => b.textContent);
-    expect(menu()).toEqual(['Use the Webb Leads built-in for this job', 'Upload a PDF for this job', 'Manage company contracts']);
-    await act(async () => byText('Use the Webb Leads built-in for this job')!.click());
-    expect(setContractDoc).toHaveBeenCalledWith('e1', 'agreement', 'tolliver');
-
-    // A job's own choice offers the company's back.
-    docs.agreement = { kind: 'agreement', source: 'tolliver', origin: 'job', name: 'Service Contract Agreement' } as never;
-    document.body.innerHTML = '';
-    await openContractTab();
-    await act(async () => (document.body.querySelector('button[aria-label="Change agreement"]') as HTMLButtonElement).click());
-    expect(menu()[0]).toBe('Use the company’s (Shah Agreement)');
-    await act(async () => byText('Use the company’s')!.click());
-    expect(setContractDoc).toHaveBeenLastCalledWith('e1', 'agreement', null);
+  it('the built-in agreement opens the full agreement page', async () => {
+    await openTab();
+    await act(async () => byText('Filled in from this estimate')!.click()); // the row, not the tab
+    expect(path).toBe('/estimates/e1/contract');
   });
 
-  it('uploads a PDF for this job only, and turns company attachments on and off', async () => {
+  it("the company's own agreement PDF opens as a link, with nothing to swap", async () => {
+    docs.agreement = { kind: 'agreement', source: 'upload', origin: 'company', name: 'Shah Agreement', fileName: 'Shah Agreement.pdf', url: 'https://files/agreement' } as never;
+    await openTab();
+    const link = Array.from(document.body.querySelectorAll('a')).find((a) => a.textContent?.includes('Agreement'))!;
+    expect(link.getAttribute('href')).toBe('https://files/agreement');
+    expect(link.textContent).toContain('Shah Agreement.pdf · the client signs it with the estimate');
+    expect(link.textContent).toContain('Your PDF');
+    expect(document.body.textContent).not.toContain('Using the built-in agreement');
+  });
+
+  it('adds a PDF to this job and turns the company ones on and off', async () => {
     docs.companyAttachments = [{ docId: 'w1', name: 'Warranty', included: true }];
     docs.attachments = [{ kind: 'attachment', source: 'upload', origin: 'job', name: 'HOA form', docId: 'h1', url: 'https://files/hoa' }];
-    await openContractTab();
+    await openTab();
     const section = document.body.querySelector('[aria-label="Also sent with this estimate"]')!;
     expect(section.textContent).toContain('Warranty');
     expect(section.textContent).toContain('HOA form');
@@ -204,28 +150,48 @@ describe('estimate contract tab', () => {
     await act(async () => (section.querySelector('button[aria-label="Remove HOA form"]') as HTMLButtonElement).click());
     expect(removeDoc).toHaveBeenCalledWith('h1');
 
-    await act(async () => (document.body.querySelector('button[aria-label="Change affidavit"]') as HTMLButtonElement).click());
-    await act(async () => byText('Upload a PDF for this job')!.click());
+    await act(async () => byText('Add a PDF to this job')!.click());
     const input = document.body.querySelector('[data-testid="job-contract-file"]') as HTMLInputElement;
-    const file = new File(['%PDF'], 'Smith affidavit.pdf', { type: 'application/pdf' });
+    const file = new File(['%PDF'], 'Permit.pdf', { type: 'application/pdf' });
     Object.defineProperty(input, 'files', { value: [file], configurable: true });
     await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
-    await act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
-    expect(uploadContractDoc).toHaveBeenCalledWith('org1', 'affidavit', file, 'e1');
-    expect(document.body.textContent).toContain('Smith affidavit.pdf is added to this job.');
+    await act(async () => {
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    });
+    expect(uploadContractDoc).toHaveBeenCalledWith('org1', 'attachment', file, 'e1');
+    expect(document.body.textContent).toContain('Permit.pdf is added to this job.');
   });
 
-  it('once signed, the documents show as signed and can no longer change', async () => {
-    extra = { status: 'accepted', contract_locked_at: '2026-10-11T12:00:00Z', contract_snapshot: { items: [], totalAmount: 100 } };
+  it('once signed, shows the date, the signed record, and the two things a client signs later', async () => {
+    extra = {
+      status: 'accepted',
+      total_amount: 150,
+      items: [{ id: 'i1', description: 'Vanity', quantity: 1, unit_price: 150, total_price: 150 }],
+      contract_locked_at: '2026-10-11T12:00:00Z',
+      contract_snapshot: { items: [{ _id: 'i1', description: 'Vanity', totalPrice: 100 }], totalAmount: 100 },
+    };
     docs.locked = true;
-    docs.agreement = { kind: 'agreement', source: 'upload', origin: 'signed', name: 'Shah Agreement', fileName: 'Shah Agreement.pdf', url: 'https://files/agreement' } as never;
     docs.attachments = [{ kind: 'attachment', source: 'upload', origin: 'signed', name: 'Warranty', docId: 'w1', url: 'https://files/w' }];
-    await openContractTab();
-    expect(document.body.textContent).toContain(`Signed ${new Date('2026-10-11T12:00:00Z').toLocaleDateString()} · Shah Agreement.pdf`);
-    expect(document.body.querySelector('button[aria-label^="Change"]')).toBeNull();
+    await openTab();
+    expect(document.body.textContent).toContain(`Signed ${new Date('2026-10-11T12:00:00Z').toLocaleDateString()}`);
+    const later = document.body.querySelector('[aria-label="After signing"]')!;
+    expect(later.textContent).toContain('Changes to sign');
+    expect(later.textContent).toContain('1 change to the line items since signing');
+    expect(later.textContent).toContain('Job complete sign-off');
+    expect(later.querySelector('[data-testid="signoff-change_order"]')!.textContent).toContain('Send for signature');
     expect(byText('Add a PDF to this job')).toBeUndefined();
     expect(document.body.querySelector('[aria-label="Also sent with this estimate"]')!.textContent).toContain('Warranty');
     await act(async () => byText('Signed record')!.click());
     expect(path).toBe('/estimates/e1/contract');
+  });
+
+  it('with nothing changed since signing, says so and holds the send button', async () => {
+    extra = { status: 'accepted', contract_locked_at: '2026-10-11T12:00:00Z', contract_snapshot: { items: [{ _id: 'i1', description: 'Vanity', totalPrice: 100 }], totalAmount: 100 } };
+    docs.locked = true;
+    await openTab();
+    const strip = document.body.querySelector('[data-testid="signoff-change_order"]')!;
+    expect(strip.textContent).toContain('Nothing to send yet');
+    expect((Array.from(strip.querySelectorAll('button')).find((b) => b.textContent?.includes('Send for signature')) as HTMLButtonElement).disabled).toBe(true);
+    expect(document.body.textContent).toContain('Nothing has changed since signing.');
   });
 });

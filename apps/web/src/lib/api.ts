@@ -198,7 +198,6 @@ export const contractDocsAPI = {
   uploadUrl: (organizationId: string): Promise<string> => run('mutation', api.contractDocs.uploadUrl, { organizationId }),
   add: (args: { organizationId: string; kind: ContractDocKind; storageId: string; fileName: string; estimateId?: string }) =>
     run('mutation', api.contractDocs.add, defined(args)),
-  setActive: (id: string) => run('mutation', api.contractDocs.setActive, { id }),
   useBuiltIn: (organizationId: string, kind: SlotKind) => run('mutation', api.contractDocs.useBuiltIn, { organizationId, kind }),
   remove: (id: string): Promise<{ archived: boolean }> => run('mutation', api.contractDocs.remove, { id }),
 };
@@ -462,10 +461,6 @@ export const estimatesAPI = {
   },
 
   /** This job's choice for one document: a PDF's id, 'tolliver', or null for the company's. */
-  async setContractDoc(id: string, kind: SlotKind, choice: string | null) {
-    return run('mutation', api.estimates.setContractDoc, { id, kind, choice });
-  },
-
   /** Sends, or stops sending, one of the company's attachments with this job. */
   async setAttachment(id: string, docId: string, included: boolean) {
     return run('mutation', api.estimates.setAttachment, { id, docId, included });

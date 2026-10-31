@@ -10,8 +10,8 @@ import {
 import { EstimateService, Estimate, EstimateItem } from '../../services/EstimateService';
 import { priceAt } from '../../utils/priceRange';
 import { formatCurrency } from '../../utils/format';
-import { clientsAPI, estimatesAPI, organizationsAPI } from '../../lib/api';
-import { Business, changesSinceSigned, contractFor } from '../../services/contract';
+import { clientsAPI, estimatesAPI } from '../../lib/api';
+import { changesSinceSigned } from '../../services/contract';
 import { CreateEstimateDrawer } from './CreateEstimateDrawer';
 import { MapModal } from '../common/MapModal';
 import { OrganizationContext } from '../layouts/DashboardLayout';
@@ -67,20 +67,6 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   const overProject = useMatch('/projects/:id/estimates/:estimateId') !== null;
   const leave = () => (onClose ? onClose() : navigate('/estimates'));
   const { selectedOrg } = useContext(OrganizationContext);
-  // The business named on the contract documents.
-  const [business, setBusiness] = useState<Business | null>(null);
-  useEffect(() => {
-    if (!selectedOrg?.id) return;
-    let cancelled = false;
-    organizationsAPI
-      .getById(selectedOrg.id)
-      .then((org: Business | null) => !cancelled && setBusiness(org))
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedOrg?.id]);
-
   // An estimate already loaded (from the list) shows at once; the latest copy loads behind it.
   const [estimate, setEstimate] = useState<Estimate | null>(() => {
     const known = id ? EstimateService.cached(id) : undefined;
@@ -481,7 +467,6 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   ) : null;
 
   // The contract documents follow the estimate until it's accepted.
-  const contract = contractFor(estimate, business);
   const changeOrder = changesSinceSigned(estimate);
 
   return (
@@ -627,7 +612,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
             {[
               { id: 'items', label: 'Line Items' },
               { id: 'overview', label: 'Overview' },
-              { id: 'contract', label: 'Contract' },
+              { id: 'contract', label: 'Agreement' },
               { id: 'payments', label: 'Payments' }
             ].map((tab) => (
               <button
@@ -876,15 +861,14 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
              {estimate.items && estimate.items.length > 0 ? (
                <ContractTab
                  estimate={estimate}
-                 contract={contract}
                  changeOrder={changeOrder}
                  organizationId={estimate.organization_id || selectedOrg?.id}
                />
              ) : (
                <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6 text-center">
                  <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                 <h3 className="text-lg font-medium text-gray-400 mb-2">No Contract Available</h3>
-                 <p className="text-sm text-gray-500">Add line items to your estimate to generate contracts.</p>
+                 <h3 className="text-lg font-medium text-gray-400 mb-2">No agreement yet</h3>
+                 <p className="text-sm text-gray-500">Add line items to the estimate first; the agreement is filled in from them.</p>
                </div>
              )}
            </div>
