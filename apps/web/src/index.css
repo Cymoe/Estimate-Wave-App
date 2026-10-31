@@ -43,8 +43,8 @@ body.modal-open {
   display: none !important;
 }
 
-/* Override for marketing pages to use light theme */
-body.marketing-page {
+/* Pages the public sees in light colours (see components/common/LightPage) */
+body.light-page {
   background-color: #f9fafb; /* Light background color */
   color: #111827; /* Dark text color */
 }

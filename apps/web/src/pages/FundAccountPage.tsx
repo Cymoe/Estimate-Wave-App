@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { LightPage } from '../components/common/LightPage';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { LegalLinks } from './Legal';
 import { Check, CheckCircle2, Lock, ShieldCheck } from 'lucide-react';
@@ -73,16 +74,16 @@ const FundAccountPage: React.FC = () => {
   };
 
   if (page === undefined) {
-    return <div className="min-h-screen bg-gray-50 flex items-center justify-center text-gray-500">Loading…</div>;
+    return <LightPage className="bg-gray-50 flex items-center justify-center text-gray-500">Loading…</LightPage>;
   }
   if (page === null || page.status === 'cancelled') {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+      <LightPage className="bg-gray-50 flex items-center justify-center px-4">
         <div className="text-center">
           <h1 className="text-xl font-semibold text-gray-900 mb-2">This payment link isn't valid</h1>
           <p className="text-gray-600">Ask your Webb Leads contact for a new one.</p>
         </div>
-      </div>
+      </LightPage>
     );
   }
 
@@ -93,7 +94,7 @@ const FundAccountPage: React.FC = () => {
   const shownBonus = page.amountCents !== undefined ? page.bonusCents ?? 0 : bonusCents;
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
+    <LightPage className="bg-gray-50 text-gray-900">
       <div className="max-w-lg mx-auto px-4 py-8 sm:py-12">
         <div className="flex items-center justify-between mb-8">
           <span className="text-lg font-semibold tracking-tight">Webb Leads</span>
@@ -301,7 +302,7 @@ const FundAccountPage: React.FC = () => {
         )}
         <LegalLinks className="text-xs text-gray-400 mt-6" />
       </div>
-    </div>
+    </LightPage>
   );
 };
 

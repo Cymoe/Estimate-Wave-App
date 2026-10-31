@@ -5,6 +5,7 @@ import { CheckCircle, FileText } from 'lucide-react';
 import { signoffsAPI } from '../lib/api';
 import { formatCurrency } from '../utils/format';
 import { SignaturePad } from '../components/contracts/SignaturePad';
+import { LightPage } from '../components/common/LightPage';
 import { LangProvider, LangToggle } from '../i18n';
 import { formatLongDate, formatMoment, useLang } from '../i18n/lang';
 import { SIGNOFF } from '../i18n/signoff';
@@ -65,13 +66,13 @@ function SignoffContent() {
     load();
   }, [load]);
 
-  if (view === undefined) return <div className="min-h-screen bg-gray-50 flex items-center justify-center text-gray-500">{t.loading}</div>;
+  if (view === undefined) return <LightPage className="bg-gray-50 flex items-center justify-center text-gray-500">{t.loading}</LightPage>;
   if (view === null)
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center gap-6 text-gray-700">
+      <LightPage className="bg-gray-50 flex flex-col items-center justify-center gap-6 text-gray-700">
         <p>{t.invalid}</p>
         <LangToggle className="text-xs text-gray-400" />
-      </div>
+      </LightPage>
     );
 
   const upload = view.document.source === 'upload';
@@ -92,7 +93,7 @@ function SignoffContent() {
   const name = t.names[view.kind] ?? view.name;
   const documentName = upload ? view.document.name : name;
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
+    <LightPage className="bg-gray-50 text-gray-900">
       <div className="max-w-2xl mx-auto px-4 py-8 space-y-4">
         <header>
           <p className="text-sm text-gray-500">{view.company?.name}</p>
@@ -219,7 +220,7 @@ function SignoffContent() {
         <LangToggle className="text-xs text-gray-400" />
         <LegalLinks className="text-xs text-gray-400" />
       </div>
-    </div>
+    </LightPage>
   );
 }
 

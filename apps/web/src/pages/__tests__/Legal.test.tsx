@@ -27,6 +27,15 @@ afterEach(() => {
 });
 
 describe('legal pages', () => {
+  it('keeps the body light while open, so nothing dark shows past the end of a long page', async () => {
+    await open('/terms');
+    expect(document.body.classList.contains('light-page')).toBe(true);
+    expect(host.firstElementChild!.className).toContain('shrink-0');
+    act(() => root.unmount());
+    expect(document.body.classList.contains('light-page')).toBe(false);
+    root = createRoot(host); // so afterEach has something to unmount
+  });
+
   it('shows the Terms with the lead credit rule and a contact', async () => {
     await open('/terms');
     expect(host.querySelector('h1')!.textContent).toBe('Terms of Service');

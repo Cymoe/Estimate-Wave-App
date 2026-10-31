@@ -11,6 +11,7 @@ import { SHARE, refusalText } from '../../i18n/share';
 import { AgreementTerms } from '../contracts/AgreementTerms';
 import { SignedRecord, type RecordDocument } from '../contracts/SignedRecord';
 import { SignaturePad } from '../contracts/SignaturePad';
+import { LightPage } from '../common/LightPage';
 
 /** What the client sees, from the estimate's link (no login). */
 interface ClientEstimate {
@@ -246,22 +247,22 @@ const ShareableEstimatePage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
+      <LightPage className="bg-white flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600"></div>
-      </div>
+      </LightPage>
     );
   }
 
   if (!estimate) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
+      <LightPage className="bg-white flex items-center justify-center">
         <div className="text-center">
           <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">{t.notFoundTitle}</h3>
           <p className="text-gray-600">{t.notFoundBody}</p>
           <LangToggle className="text-xs text-gray-400 mt-6" />
         </div>
-      </div>
+      </LightPage>
     );
   }
 
@@ -279,7 +280,7 @@ const ShareableEstimatePage: React.FC = () => {
             : estimate.status.charAt(0).toUpperCase() + estimate.status.slice(1);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <LightPage className="bg-gray-50">
       <div className="max-w-4xl mx-auto py-8 px-4">
         {/* Header */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 mb-6">
@@ -622,7 +623,7 @@ const ShareableEstimatePage: React.FC = () => {
         <LangToggle className="text-xs text-gray-400 mt-8" />
         <LegalLinks className="text-xs text-gray-400 mt-2" />
       </div>
-    </div>
+    </LightPage>
   );
 };
 

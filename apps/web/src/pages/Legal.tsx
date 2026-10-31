@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { APP_NAME, SUPPORT_EMAIL } from '../config/brand';
 import { LangProvider, LangToggle } from '../i18n';
 import { useLang } from '../i18n/lang';
+import { LightPage } from '../components/common/LightPage';
 import { withLang } from '../../convex/lib/i18n';
 import { GOVERNS_ES, PrivacyEs, TermsEs } from './legalEs';
 
@@ -38,7 +39,7 @@ const Page: React.FC<{ title: string; titleEs: string; children: React.ReactNode
 }) => {
   const { lang } = useLang();
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
+    <LightPage className="bg-gray-50 text-gray-900">
       <div className="max-w-3xl mx-auto px-4 py-10">
         <Link to="/" className="text-sm text-gray-500 hover:text-gray-800">
           ← {APP_NAME}
@@ -56,7 +57,7 @@ const Page: React.FC<{ title: string; titleEs: string; children: React.ReactNode
           <LegalLinks />
         </div>
       </div>
-    </div>
+    </LightPage>
   );
 };
 
