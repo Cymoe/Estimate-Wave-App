@@ -1248,12 +1248,13 @@ describe('the bid status line', () => {
     // Webb Leads staff looking in: their own mobile isn't this company's, so no "add your mobile".
     expect(line(alerts({ viewerRole: 'staff', viewerHasMobile: true, companyPhone: '+14325550188' }))).toEqual({
       tone: 'good',
-      text: 'Lead texts for this company go to its line (432) 555-0188; no owner has added a mobile yet.',
-      action: 'none',
+      text: "You're viewing this company as Webb Leads staff, so your own mobile isn't used. Its lead texts go to (432) 555-0188; no owner has added a mobile. To get them yourself, add yourself as an owner.",
+      action: 'team',
+      label: 'Team & Permissions',
     });
     expect(line(alerts({ viewerRole: 'staff', viewerHasMobile: true }))).toEqual({
       tone: 'warn',
-      text: "Nobody at this company can get lead texts yet: no owner or admin has a mobile and there's no company phone.",
+      text: "You're viewing this company as Webb Leads staff. Nobody here can get lead texts yet: no owner or admin has a mobile and there's no company phone.",
       action: 'company',
       label: 'Company settings',
     });

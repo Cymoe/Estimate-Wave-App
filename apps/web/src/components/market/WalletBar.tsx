@@ -88,7 +88,7 @@ export const leadsCovered = (wallet: WalletSummary) => (wallet.typicalLeadCents 
 export function bidStatus(wallet: WalletSummary): {
   tone: 'good' | 'warn';
   text: string;
-  action: 'fund' | 'bids' | 'trades' | 'mobile' | 'company' | 'none';
+  action: 'fund' | 'bids' | 'trades' | 'mobile' | 'company' | 'team' | 'none';
   /** The Bids link's words when it isn't "Set bids". */
   label?: string;
   /** A second, quieter link to the Bids page. */
@@ -181,12 +181,17 @@ export function bidStatus(wallet: WalletSummary): {
         };
   }
   if (a.viewerRole === 'staff') {
-    // Looking in from Webb Leads: their own mobile isn't this company's, so say where the texts go instead.
+    // Looking in from Webb Leads: their own mobile isn't this company's, so say where the texts go and how to get them.
     return line
-      ? { tone: 'good', text: `Lead texts for this company go to its line ${line}; no owner has added a mobile yet.`, action: 'none' }
+      ? {
+          tone: 'good',
+          text: `You're viewing this company as Webb Leads staff, so your own mobile isn't used. Its lead texts go to ${line}; no owner has added a mobile. To get them yourself, add yourself as an owner.`,
+          action: 'team',
+          label: 'Team & Permissions',
+        }
       : {
           tone: 'warn',
-          text: "Nobody at this company can get lead texts yet: no owner or admin has a mobile and there's no company phone.",
+          text: "You're viewing this company as Webb Leads staff. Nobody here can get lead texts yet: no owner or admin has a mobile and there's no company phone.",
           action: 'company',
           label: 'Company settings',
         };
@@ -292,6 +297,10 @@ export function BidStatusLine({
         </Link>
       ) : status.action === 'company' ? (
         <Link to="/settings/organization?tab=general" className="underline underline-offset-2 text-amber-100">
+          {status.label}
+        </Link>
+      ) : status.action === 'team' ? (
+        <Link to="/settings/organization?tab=team" className="underline underline-offset-2 text-white">
           {status.label}
         </Link>
       ) : status.action === 'none' ? null : (
