@@ -40,7 +40,13 @@ describe("change orders and the affidavit, signed later", () => {
       },
     });
     const sent = await as.mutation(api.signoffs.request, { estimateId, kind: "change_order" });
-    expect(sent).toMatchObject({ name: "Change Order", status: "sent", previousTotal: 10000, newTotal: 9700, number: expect.stringMatching(/^CO-/) });
+    expect(sent).toMatchObject({
+      name: "Changes to the work",
+      status: "sent",
+      previousTotal: 10000,
+      newTotal: 9700,
+      number: expect.stringMatching(/^CO-/),
+    });
     expect(sent.changes).toEqual([
       { description: "Shingles", before: 8000, after: 8500 },
       { description: "Skylight", after: 1200 },
@@ -48,10 +54,18 @@ describe("change orders and the affidavit, signed later", () => {
     ]);
 
     const page = (await t.query(api.signoffs.get, { token: sent.token }))!;
-    expect(page).toMatchObject({ kind: "change_order", name: "Change Order", difference: -300, newTotal: 9700, document: { source: "tolliver", name: "Change Order" } });
+    expect(page).toMatchObject({
+      kind: "change_order",
+      name: "Changes to the work",
+      difference: -300,
+      newTotal: 9700,
+      document: { source: "tolliver", name: "Changes to the work" },
+    });
     await expect(t.mutation(api.signoffs.sign, { token: sent.token, signerName: " ", signature: SIG })).rejects.toThrow(/type your name/);
     await t.mutation(api.signoffs.sign, { token: sent.token, signerName: "Ann Miller", signature: SIG });
-    await expect(t.mutation(api.signoffs.sign, { token: sent.token, signerName: "Ann Miller", signature: SIG })).rejects.toThrow(/already been signed/);
+    await expect(t.mutation(api.signoffs.sign, { token: sent.token, signerName: "Ann Miller", signature: SIG })).rejects.toThrow(
+      /already been signed/,
+    );
 
     const estimate = (await t.run((ctx) => ctx.db.get(estimateId)))!;
     expect(estimate.contractSnapshot!.totalAmount).toBe(9700);
@@ -72,7 +86,7 @@ describe("change orders and the affidavit, signed later", () => {
     expect((await t.query(api.signoffs.get, { token: first.token }))!.status).toBe("cancelled");
     await expect(t.mutation(api.signoffs.sign, { token: first.token, signerName: "Ann", signature: SIG })).rejects.toThrow(/withdrawn/);
     const page = (await t.query(api.signoffs.get, { token: second.token }))!;
-    expect(page).toMatchObject({ name: "Affidavit of Completion", completionDate: "2026-11-21", contractTotal: 10000, paid: 0 });
+    expect(page).toMatchObject({ name: "Job complete sign-off", completionDate: "2026-11-21", contractTotal: 10000, paid: 0 });
     await t.mutation(api.signoffs.sign, { token: second.token, signerName: "Ann Miller", signature: SIG });
     expect((await t.query(api.signoffs.get, { token: second.token }))!).toMatchObject({ status: "signed", signerName: "Ann Miller", signature: SIG });
     expect(await t.query(api.signoffs.get, { token: "nope" })).toBeNull();
@@ -84,7 +98,11 @@ describe("change orders and the affidavit, signed later", () => {
     const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["%PDF-1.4 x"], { type: "application/pdf" })));
     await as.mutation(api.contractDocs.add, { organizationId, kind: "affidavit", storageId, fileName: "Peak Lien Release.pdf" });
     const sent = await as.mutation(api.signoffs.request, { estimateId, kind: "affidavit" });
-    expect((await t.query(api.signoffs.get, { token: sent.token }))!.document).toMatchObject({ source: "upload", name: "Peak Lien Release", url: expect.any(String) });
+    expect((await t.query(api.signoffs.get, { token: sent.token }))!.document).toMatchObject({
+      source: "upload",
+      name: "Peak Lien Release",
+      url: expect.any(String),
+    });
     await expect(t.mutation(api.signoffs.sign, { token: sent.token, signerName: "Ann", signature: SIG })).rejects.toThrow(/confirm you've read/);
     await t.mutation(api.signoffs.sign, { token: sent.token, signerName: "Ann", signature: SIG, agreedToDocument: true });
     const doc = await t.run((ctx) => ctx.db.query("contractDocs").first());

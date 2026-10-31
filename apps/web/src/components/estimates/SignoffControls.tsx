@@ -18,7 +18,7 @@ async function share(signoff: Signoff, clientName?: string, lang: 'en' | 'es' = 
   if (typeof navigator.share === 'function') {
     try {
       const first = clientName?.split(' ')[0];
-      const what = lang === 'es' ? (signoff.kind === 'affidavit' ? 'declaración de finalización' : 'orden de cambio') : signoff.name.toLowerCase();
+      const what = lang === 'es' ? (signoff.kind === 'affidavit' ? 'confirmación de obra terminada' : 'cambios al trabajo') : signoff.name.toLowerCase();
       const text = lang === 'es' ? `${first ? `Hola ${first}, aquí` : 'Aquí'} está la ${what} para firmar:` : `${first ? `Hi ${first}, here` : 'Here'}'s the ${what} to sign:`;
       await navigator.share({ title: `${signoff.name} ${signoff.number}`, text, url });
       return 'shared';

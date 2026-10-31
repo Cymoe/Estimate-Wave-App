@@ -18,8 +18,8 @@ export const MAX_CONTRACT_BYTES = 10 * 1024 * 1024;
 /** Webb Leads' built-in documents, used when a company has none of its own. */
 export const BUILT_IN_NAMES: Record<SlotKind, string> = {
   agreement: "Service Contract Agreement",
-  affidavit: "Affidavit of Completion",
-  change_order: "Change Order",
+  affidavit: "Job complete sign-off",
+  change_order: "Changes to the work",
 };
 
 /** The estimate field holding the job's choice for each document. */
@@ -140,7 +140,17 @@ export async function stampSignedCopies(ctx: MutationCtx, estimateId: Id<"estima
 /** A document for a page: its name, whose it is, and a link to the file when it's a PDF. */
 export async function forPage(
   ctx: QueryCtx,
-  d: { kind: ContractDocKind; source: "tolliver" | "upload"; name: string; fileName?: string; storageId?: Id<"_storage">; sha256?: string; size?: number; docId?: Id<"contractDocs">; signedCopyId?: Id<"_storage"> },
+  d: {
+    kind: ContractDocKind;
+    source: "tolliver" | "upload";
+    name: string;
+    fileName?: string;
+    storageId?: Id<"_storage">;
+    sha256?: string;
+    size?: number;
+    docId?: Id<"contractDocs">;
+    signedCopyId?: Id<"_storage">;
+  },
   origin: Origin | "signed",
 ) {
   return {
@@ -163,7 +173,16 @@ export async function resolvedForPage(ctx: QueryCtx, r: Resolved) {
   return await forPage(
     ctx,
     r.doc
-      ? { kind: r.kind, source: "upload", name: r.name, docId: r.doc._id, fileName: r.doc.fileName, storageId: r.doc.storageId, sha256: r.doc.sha256, size: r.doc.size }
+      ? {
+          kind: r.kind,
+          source: "upload",
+          name: r.name,
+          docId: r.doc._id,
+          fileName: r.doc.fileName,
+          storageId: r.doc.storageId,
+          sha256: r.doc.sha256,
+          size: r.doc.size,
+        }
       : { kind: r.kind, source: "tolliver", name: r.name },
     r.origin,
   );

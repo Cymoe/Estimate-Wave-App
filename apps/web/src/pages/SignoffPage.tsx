@@ -182,7 +182,12 @@ function SignoffContent() {
                 {t.downloadSigned}
               </a>
             )}
-            {view.document.sha256 && <p className="mt-3 text-[11px] text-gray-500 font-mono break-all">{view.document.fileName} · SHA-256 {view.document.sha256}</p>}
+            {view.document.sha256 && (
+              <details className="mt-3 text-xs text-gray-500">
+                <summary className="cursor-pointer">{t.fileDetails}</summary>
+                <p className="mt-1 text-[11px] font-mono break-all">{view.document.fileName} · SHA-256 {view.document.sha256}</p>
+              </details>
+            )}
           </section>
         ) : view.status === 'cancelled' ? (
           <p className="text-sm text-gray-600">{t.withdrawn(view.company?.name ?? t.theCompany)}</p>
@@ -206,7 +211,7 @@ function SignoffContent() {
               disabled={busy || !signature || !signerName.trim() || (upload && !agreed)}
               className="w-full sm:w-auto px-6 py-3 rounded-lg bg-[#336699] hover:bg-[#2a5580] text-white font-medium disabled:opacity-50"
             >
-              {busy ? t.signing : t.sign(name)}
+              {busy ? t.signing : t.sign(view.kind)}
             </button>
           </section>
         )}

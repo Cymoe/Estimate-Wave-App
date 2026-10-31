@@ -14,7 +14,7 @@ import { cents, contractTotal, invoicesFor, paymentSummary } from "./lib/invoici
 // invoice follows it.
 
 type Kind = Doc<"signoffs">["kind"];
-const NAMES: Record<Kind, string> = { change_order: "Change Order", affidavit: "Affidavit of Completion" };
+const NAMES: Record<Kind, string> = { change_order: "Changes to the work", affidavit: "Job complete sign-off" };
 const PREFIX: Record<Kind, string> = { change_order: "CO", affidavit: "AFF" };
 
 /** What changed between the signed scope and the estimate now, line by line. */
@@ -34,7 +34,16 @@ export function changesSince(signed: Doc<"estimates">["items"], current: Doc<"es
 
 const toSigned = (r: Awaited<ReturnType<typeof resolveDocuments>>["affidavit"]): SignedDocument =>
   r.doc
-    ? { kind: r.kind, source: "upload", name: r.name, docId: r.doc._id, fileName: r.doc.fileName, storageId: r.doc.storageId, sha256: r.doc.sha256, size: r.doc.size }
+    ? {
+        kind: r.kind,
+        source: "upload",
+        name: r.name,
+        docId: r.doc._id,
+        fileName: r.doc.fileName,
+        storageId: r.doc.storageId,
+        sha256: r.doc.sha256,
+        size: r.doc.size,
+      }
     : { kind: r.kind, source: "tolliver", name: r.name };
 
 function view(s: Doc<"signoffs">) {
@@ -85,7 +94,10 @@ export const request = mutation({
       if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) fail("INVALID", "The completion date must be YYYY-MM-DD");
       fields = { completionDate: day };
     }
-    for (const open of await ctx.db.query("signoffs").withIndex("by_estimate", (q) => q.eq("estimateId", estimateId)).take(100))
+    for (const open of await ctx.db
+      .query("signoffs")
+      .withIndex("by_estimate", (q) => q.eq("estimateId", estimateId))
+      .take(100))
       if (open.kind === kind && open.status === "sent") await ctx.db.patch(open._id, { status: "cancelled", updatedAt: now });
     const resolved = await resolveDocuments(ctx, estimate);
     const document = toSigned(kind === "affidavit" ? resolved.affidavit : resolved.changeOrder);
@@ -102,7 +114,14 @@ export const request = mutation({
       createdAt: now,
       updatedAt: now,
     });
-    await logActivity(ctx, { organizationId: estimate.organizationId, userId: user._id, action: "sent_for_signature", resourceType: "estimate", resourceId: estimateId, details: { kind, estimateNumber: estimate.estimateNumber } });
+    await logActivity(ctx, {
+      organizationId: estimate.organizationId,
+      userId: user._id,
+      action: "sent_for_signature",
+      resourceType: "estimate",
+      resourceId: estimateId,
+      details: { kind, estimateNumber: estimate.estimateNumber },
+    });
     return view((await ctx.db.get(id))!);
   },
 });
@@ -112,7 +131,10 @@ export const forEstimate = query({
   args: { estimateId: v.id("estimates") },
   handler: async (ctx, { estimateId }) => {
     await getOwned(ctx, "estimates", estimateId);
-    const rows = await ctx.db.query("signoffs").withIndex("by_estimate", (q) => q.eq("estimateId", estimateId)).take(100);
+    const rows = await ctx.db
+      .query("signoffs")
+      .withIndex("by_estimate", (q) => q.eq("estimateId", estimateId))
+      .take(100);
     return rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(view);
   },
 });
@@ -189,10 +211,15 @@ export const sign = mutation({
     const signoff = await byToken(ctx, token);
     if (signoff === null) fail("NOT_FOUND", "This link isn't valid", "link_invalid");
     if (signoff.status !== "sent")
-      fail("INVALID", signoff.status === "signed" ? "This has already been signed" : "This was withdrawn", signoff.status === "signed" ? "already_signed" : "withdrawn");
+      fail(
+        "INVALID",
+        signoff.status === "signed" ? "This has already been signed" : "This was withdrawn",
+        signoff.status === "signed" ? "already_signed" : "withdrawn",
+      );
     if (!signature.trim()) fail("INVALID", "Please sign", "signature_required");
     if (!signerName.trim()) fail("INVALID", "Please type your name", "name_required");
-    if (signoff.document.source === "upload" && !agreedToDocument) fail("INVALID", "Please confirm you've read the attached document", "documents_unread");
+    if (signoff.document.source === "upload" && !agreedToDocument)
+      fail("INVALID", "Please confirm you've read the attached document", "documents_unread");
     const estimate = await ctx.db.get(signoff.estimateId);
     if (estimate === null || !estimate.contractSnapshot) fail("NOT_FOUND", "This link isn't valid", "link_invalid");
     const now = nowIso();

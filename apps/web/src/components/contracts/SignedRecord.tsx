@@ -42,7 +42,11 @@ export function SignedRecord({
   // Webb Leads' built-in documents are named in the reader's language; an uploaded PDF keeps its own name.
   const nameOf = (d: RecordDocument) => (d.source === 'tolliver' && t.kinds[d.kind] ? t.kinds[d.kind] : d.name);
   return (
-    <section className="bg-white text-gray-900 rounded-lg border border-gray-200 p-6 print:border-0" aria-label="Signed record" data-testid="signed-record">
+    <section
+      className="bg-white text-gray-900 rounded-lg border border-gray-200 p-6 print:border-0"
+      aria-label="Signed record"
+      data-testid="signed-record"
+    >
       <h3 className="text-lg font-semibold">{t.title}</h3>
       <p className="text-sm text-gray-600 mt-1">{t.intro(estimateNumber)}</p>
 
@@ -86,8 +90,15 @@ export function SignedRecord({
                 )}
               </span>
             </span>
-            <span className="block text-xs text-gray-500 mt-0.5">{d.source === 'upload' ? [d.fileName, kb(d.size)].filter(Boolean).join(' · ') : t.builtIn}</span>
-            {d.sha256 && <span className="block text-[11px] text-gray-500 font-mono break-all mt-0.5">SHA-256 {d.sha256}</span>}
+            {d.source === 'upload' ? (
+              <details className="text-xs text-gray-500 mt-0.5">
+                <summary className="cursor-pointer">{t.fileDetails}</summary>
+                <span className="block mt-1">{[d.fileName, kb(d.size)].filter(Boolean).join(' · ')}</span>
+                {d.sha256 && <span className="block text-[11px] font-mono break-all mt-0.5">SHA-256 {d.sha256}</span>}
+              </details>
+            ) : (
+              <span className="block text-xs text-gray-500 mt-0.5">{t.builtIn}</span>
+            )}
           </li>
         ))}
       </ul>

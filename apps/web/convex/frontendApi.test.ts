@@ -151,9 +151,9 @@ describe("src/lib/api.ts on Convex", () => {
     expect(listed).toMatchObject({ id, kind: "agreement", name: "Ours", active: true, url: expect.any(String) });
     const docs = await estimatesAPI.documents(estimate.id);
     expect(docs.agreement).toMatchObject({ source: "upload", origin: "company", name: "Ours" });
-    await estimatesAPI.setContractDoc(estimate.id, "agreement", "tolliver");
-    expect((await estimatesAPI.documents(estimate.id)).agreement.source).toBe("tolliver");
+    // Back to the built-in: the company's choice, not a per-job swap.
     await contractDocsAPI.useBuiltIn(organizationId, "agreement");
+    expect((await estimatesAPI.documents(estimate.id)).agreement.source).toBe("tolliver");
     expect((await contractDocsAPI.remove(id)).archived).toBe(false);
   });
 });

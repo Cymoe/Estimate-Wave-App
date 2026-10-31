@@ -47,7 +47,8 @@ const changeOrder = {
   document: { name: 'Change Order', source: 'tolliver' },
 };
 
-const button = (text: string) => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.startsWith(text)) as HTMLButtonElement;
+const button = (text: string) =>
+  Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.startsWith(text)) as HTMLButtonElement;
 async function open(path = '/share/signoff/abc') {
   const container = document.createElement('div');
   document.body.appendChild(container);
@@ -79,9 +80,9 @@ describe('client signoff page', () => {
     expect(body).toContain('Gutters · removed-$2,000.00');
     expect(body).toContain('New contract total$9,700.00');
     expect((document.body.querySelector('input[aria-label="Your name"]') as HTMLInputElement).value).toBe('Ann Miller');
-    expect(button('Sign change order').disabled).toBe(true);
+    expect(button('Sign the changes').disabled).toBe(true);
     await act(async () => button('draw').click());
-    await act(async () => button('Sign change order').click());
+    await act(async () => button('Sign the changes').click());
     await act(async () => {});
     expect(sign).toHaveBeenCalledWith('abc', 'Ann Miller', 'data:image/png;base64,SIG', undefined);
     expect(document.body.querySelector('[data-testid="signoff-record"]')!.textContent).toContain('Signed by Ann Miller');
@@ -93,7 +94,13 @@ describe('client signoff page', () => {
       status: 'signed',
       signerName: 'Ann Miller',
       signedAt: '2026-11-02T15:00:00Z',
-      document: { name: 'Peak Change Order', source: 'upload', fileName: 'co.pdf', url: 'https://files/co.pdf', signedUrl: 'https://files/co-signed.pdf' },
+      document: {
+        name: 'Peak Change Order',
+        source: 'upload',
+        fileName: 'co.pdf',
+        url: 'https://files/co.pdf',
+        signedUrl: 'https://files/co-signed.pdf',
+      },
     };
     await open();
     const link = Array.from(document.body.querySelectorAll('a')).find((a) => a.textContent === 'Download with signature');
@@ -113,12 +120,14 @@ describe('client signoff page', () => {
       document: { name: 'Peak Lien Release', source: 'upload', url: 'https://files/lien.pdf' },
     };
     await open();
-    expect(document.body.textContent).toContain('at 1201 Elm St, Midland was completed by Peak Roofing on November 20, 2026, for a contract total of $9,700.00, of which $9,700.00 has been paid');
+    expect(document.body.textContent).toContain(
+      'at 1201 Elm St, Midland was completed by Peak Roofing on November 20, 2026, for a contract total of $9,700.00, of which $9,700.00 has been paid',
+    );
     expect(document.body.querySelector('a[href="https://files/lien.pdf"]')).not.toBeNull();
     await act(async () => button('draw').click());
-    expect(button('Sign affidavit').disabled).toBe(true);
+    expect(button('Sign: the job is complete').disabled).toBe(true);
     await act(async () => (document.body.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
-    expect(button('Sign affidavit').disabled).toBe(false);
+    expect(button('Sign: the job is complete').disabled).toBe(false);
   });
 
   it('says so when the link is withdrawn or not valid', async () => {
@@ -128,20 +137,20 @@ describe('client signoff page', () => {
     document.body.innerHTML = '';
     view = null;
     await open();
-    expect(document.body.textContent).toContain("This link isn’t valid.");
+    expect(document.body.textContent).toContain('This link isn’t valid.');
   });
 
   it('reads in Spanish from a ?lang=es link, names the document in Spanish, and remembers a flip to English', async () => {
     view = { ...changeOrder };
     await open('/share/signoff/abc?lang=es');
     const text = document.body.textContent ?? '';
-    expect(text).toContain('Orden de cambio');
+    expect(text).toContain('Cambios al trabajo');
     expect(text).toContain('CO-2026-000101 · del presupuesto EST-2026-000001');
     expect(text).toContain('Skylight · agregado$1,200.00');
     expect(text).toContain('Nuevo total del contrato$9,700.00');
-    expect(button('Firmar orden de cambio')).toBeTruthy();
+    expect(button('Firmar los cambios')).toBeTruthy();
     await act(async () => button('draw').click());
-    await act(async () => button('Firmar orden de cambio').click());
+    await act(async () => button('Firmar los cambios').click());
     await act(async () => {});
     expect(document.body.querySelector('[data-testid="signoff-record"]')!.textContent).toContain('Firmado por Ann Miller el');
     await act(async () => button('English').click());
@@ -161,11 +170,11 @@ describe('client signoff page', () => {
       clientLanguage: 'es',
     };
     await open();
-    expect(document.body.textContent).toContain('Declaración de finalización');
+    expect(document.body.textContent).toContain('Confirmación de obra terminada');
     expect(document.body.textContent).toContain(
       'Confirmo que el trabajo del presupuesto EST-2026-000001 en 1201 Elm St, Midland fue terminado por Peak Roofing el 20 de noviembre de 2026, por un total de contrato de $9,700.00, del cual se han pagado $9,700.00.',
     );
-    expect(button('Firmar declaración de finalización')).toBeTruthy();
+    expect(button('Firmar: la obra está terminada')).toBeTruthy();
     view = null;
     document.body.innerHTML = '';
     await open('/share/signoff/abc?lang=es');

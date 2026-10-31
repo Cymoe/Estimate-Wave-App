@@ -5,8 +5,7 @@ import { setup, signUp } from "./test.setup";
 
 type T = ReturnType<typeof setup>;
 
-const store = (t: T, type = "application/pdf", body = "%PDF-1.4 x") =>
-  t.run((ctx) => ctx.storage.store(new Blob([body], { type })));
+const store = (t: T, type = "application/pdf", body = "%PDF-1.4 x") => t.run((ctx) => ctx.storage.store(new Blob([body], { type })));
 const exists = (t: T, id: Id<"_storage">) => t.run(async (ctx) => (await ctx.db.system.get(id)) !== null);
 
 /** A company, an estimate with one item and a share link. */
@@ -31,13 +30,13 @@ describe("company contract documents", () => {
     const { as, organizationId, estimateId } = await company(t);
     expect(await as.mutation(api.contractDocs.uploadUrl, { organizationId })).toEqual(expect.any(String));
     const png = await store(t, "image/png");
-    await expect(
-      as.mutation(api.contractDocs.add, { organizationId, kind: "agreement", storageId: png, fileName: "a.png" }),
-    ).rejects.toThrow(/PDF of 10MB/);
+    await expect(as.mutation(api.contractDocs.add, { organizationId, kind: "agreement", storageId: png, fileName: "a.png" })).rejects.toThrow(
+      /PDF of 10MB/,
+    );
     const big = await store(t, "application/pdf", "x".repeat(10 * 1024 * 1024 + 1));
-    await expect(
-      as.mutation(api.contractDocs.add, { organizationId, kind: "agreement", storageId: big, fileName: "big.pdf" }),
-    ).rejects.toThrow(/PDF of 10MB/);
+    await expect(as.mutation(api.contractDocs.add, { organizationId, kind: "agreement", storageId: big, fileName: "big.pdf" })).rejects.toThrow(
+      /PDF of 10MB/,
+    );
 
     // A plain member can't change the library, but can add a PDF to a job.
     const member = await signUp(t, "rep@roof.example");
@@ -59,14 +58,20 @@ describe("company contract documents", () => {
 
     let d = await docs();
     expect([d.agreement.source, d.agreement.origin, d.agreement.name]).toEqual(["tolliver", "tolliver", "Service Contract Agreement"]);
-    expect(d.affidavit.name).toBe("Affidavit of Completion");
+    expect(d.affidavit.name).toBe("Job complete sign-off");
     expect(d.attachments).toEqual([]);
 
     // The company's agreement and a warranty sheet sent with every estimate.
     const agreement = await upload(t, as, { organizationId, kind: "agreement" });
     const warranty = await upload(t, as, { organizationId, kind: "attachment", fileName: "Warranty.pdf" });
     d = await docs();
-    expect(d.agreement).toMatchObject({ source: "upload", origin: "company", name: "Basin Agreement", fileName: "Basin Agreement.pdf", url: expect.any(String) });
+    expect(d.agreement).toMatchObject({
+      source: "upload",
+      origin: "company",
+      name: "Basin Agreement",
+      fileName: "Basin Agreement.pdf",
+      url: expect.any(String),
+    });
     expect(d.attachments.map((a) => a.name)).toEqual(["Warranty"]);
     expect(d.companyDefaults.agreement).toBe("Basin Agreement");
 
@@ -111,12 +116,18 @@ describe("company contract documents", () => {
     const agreementId = (await upload(t, as, { organizationId, kind: "agreement" })) as Id<"contractDocs">;
     const before = await t.query(api.publicEstimates.get, { token });
     expect(before!.documents).toEqual([
-      { kind: "agreement", source: "upload", name: "Basin Agreement", fileName: "Basin Agreement.pdf", size: expect.any(Number), sha256: undefined, url: expect.any(String) },
+      {
+        kind: "agreement",
+        source: "upload",
+        name: "Basin Agreement",
+        fileName: "Basin Agreement.pdf",
+        size: expect.any(Number),
+        sha256: undefined,
+        url: expect.any(String),
+      },
     ]);
 
-    await expect(t.mutation(api.publicEstimates.accept, { token, signature: "data:image/png;base64,x" })).rejects.toThrow(
-      /read the attached/,
-    );
+    await expect(t.mutation(api.publicEstimates.accept, { token, signature: "data:image/png;base64,x" })).rejects.toThrow(/read the attached/);
     // Nothing was signed by the refused try.
     expect((await t.run((ctx) => ctx.db.get(agreementId)))!.signedAt).toBeUndefined();
     await t.mutation(api.publicEstimates.accept, { token, signature: "data:image/png;base64,x", agreedToDocuments: true });
@@ -135,9 +146,7 @@ describe("company contract documents", () => {
     await upload(t, as, { organizationId, kind: "agreement", fileName: "New agreement.pdf" });
     expect((await as.query(api.estimates.documents, { id: estimateId })).agreement).toMatchObject({ origin: "signed", name: "Basin Agreement" });
     // The job's documents can't change once signed.
-    await expect(as.mutation(api.estimates.setContractDoc, { id: estimateId, kind: "agreement", choice: "tolliver" })).rejects.toThrow(
-      /accepted/,
-    );
+    await expect(as.mutation(api.estimates.setContractDoc, { id: estimateId, kind: "agreement", choice: "tolliver" })).rejects.toThrow(/accepted/);
 
     // Removing the signed file archives it and keeps the file; an unsigned one is deleted.
     expect(await as.mutation(api.contractDocs.remove, { id: agreementId })).toEqual({ archived: true });
