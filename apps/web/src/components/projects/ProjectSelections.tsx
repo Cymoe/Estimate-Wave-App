@@ -378,8 +378,8 @@ function ChangeOrderLine({ group, clientFirst, onChanged }: { group: EstimateSel
 
 /**
  * Selections: the allowance lines of the project's signed estimates (tile, a
- * faucet). Ask the client (it waits for the next send from the portal
- * preview) or enter what they told you; approve their picks; then queue the
+ * faucet). Ask the client (it waits for the next send from the client's
+ * portal) or enter what they told you; approve their picks; then queue the
  * change order and send it all at once.
  */
 export const ProjectSelections: React.FC<{
@@ -392,7 +392,7 @@ export const ProjectSelections: React.FC<{
   portalClientName?: string;
   /** Something was queued or taken off: the send counts change. */
   onQueueChanged?: () => void;
-  /** Opens the portal preview, where queued things are sent. */
+  /** Opens the client's portal, where queued things are sent. */
   onPreview?: () => void;
 }> = ({ projectId, onEstimatesChanged, onCount, portalClientName, onQueueChanged, onPreview }) => {
   const [groups, setGroups] = useState<EstimateSelections[] | null>(null);
@@ -461,7 +461,7 @@ export const ProjectSelections: React.FC<{
           </span>
           <button type="button" onClick={onPreview} disabled={!onPreview} className={`${primary} inline-flex items-center gap-1.5`}>
             <Send className="w-4 h-4" />
-            Preview &amp; send
+            Open portal &amp; send
           </button>
         </div>
       )}

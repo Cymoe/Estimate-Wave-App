@@ -21,9 +21,6 @@ const en = {
   signComplete: 'Sign that the job is complete',
   changeBy: (amount: string, up: boolean) => (up ? `Adds ${amount}` : `Takes off ${amount}`),
   open: 'Open',
-  removed: 'Removed',
-  /** In the company's preview: what goes out with the next send. */
-  newBadge: 'New',
   yourJobs: 'Your jobs',
   agreed: (total: string) => `Agreed total ${total}`,
   documents: {
@@ -139,8 +136,6 @@ const es: typeof en = {
   signComplete: 'Firma que la obra está terminada',
   changeBy: (amount, up) => (up ? `Suma ${amount}` : `Resta ${amount}`),
   open: 'Abrir',
-  removed: 'Quitado',
-  newBadge: 'Nuevo',
   yourJobs: 'Tus trabajos',
   agreed: (total) => `Total acordado ${total}`,
   documents: {

@@ -29,10 +29,11 @@ const base = {
   company: { name: 'Peak Builders' },
   jobs: [],
 };
+// Ann's real portal: a pick that was already sent, while two more things wait for the next send.
 const queued = {
   ...base,
   token: 'tok',
-  newCount: 2,
+  queued: 2,
   asks: [
     {
       kind: 'selection',
@@ -44,16 +45,6 @@ const queued = {
       allowanceUnitPrice: 1200,
       allowanceTotal: 1200,
       pickBy: '2026-12-01',
-      isNew: true,
-    },
-    {
-      kind: 'change_order',
-      at: '2026-11-01',
-      number: '',
-      title: 'Kitchen',
-      difference: 70,
-      changes: [{ description: 'Faucet allowance', before: 350, after: 420 }],
-      isNew: true,
     },
   ],
 };
@@ -75,28 +66,26 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-describe('the portal preview', () => {
-  it("shows the portal as the client will see it, with what's new marked and nothing usable", async () => {
+describe('the client portal over the project', () => {
+  it('shows the real portal, says how much waits for the next send, and keeps the client\'s forms out of reach', async () => {
     preview = queued;
     await render();
     const text = document.body.textContent ?? '';
-    expect(text).toContain('Preview: what Ann sees');
-    expect(text).toContain('2 new, marked below. Nothing goes to Ann until you send.');
+    expect(text).toContain("Ann Miller's portal");
+    expect(text).toContain('2 waiting to send: they show here once you send.');
     expect(text).toContain('Hi Ann');
-    expect(document.body.querySelectorAll('[data-testid="ask-selection"], [data-testid="ask-change_order"]')).toHaveLength(2);
-    expect(document.body.querySelectorAll('[data-testid="new-ribbon"]')).toHaveLength(2);
+    expect(document.body.querySelectorAll('[data-testid="ask-selection"]')).toHaveLength(1);
+    expect(document.body.querySelector('[data-testid="new-ribbon"]')).toBeNull();
     // The client's pick form shows as a note, not a form.
     expect(button('Pick yours')).toBeUndefined();
     expect(text).toContain('Your client picks here');
-    // The change order not sent yet lists its changes.
-    expect(document.body.querySelector('[data-testid="draft-changes"]')!.textContent).toContain('Faucet allowance$350.00$420.00');
   });
 
   it('on a finished job without a review link, shows the company where the review card goes', async () => {
     preview = {
       ...base,
       token: 'tok',
-      newCount: 0,
+      queued: 0,
       asks: [],
       perks: { referral: { referred: 0, earned: 0 } },
     };
@@ -110,8 +99,8 @@ describe('the portal preview', () => {
   it('sends what was waiting and hands over the link with a note saying what to do', async () => {
     preview = queued;
     const { onChanged } = await render();
-    preview = { ...queued, newCount: 0, asks: [] };
-    await act(async () => button('Send to Ann (2 new)').click());
+    preview = { ...queued, queued: 0 };
+    await act(async () => button('Send to Ann (2)').click());
     await flush();
     expect(send).toHaveBeenCalled();
     expect(shared[0]).toEqual([
@@ -124,10 +113,10 @@ describe('the portal preview', () => {
     expect(button('Share link')).toBeDefined();
   });
 
-  it('with nothing new, shares the link (made the first time); the link can be turned off', async () => {
-    preview = { ...base, token: null, newCount: 0, asks: [] };
+  it('with nothing waiting, shares the link (made the first time); the link can be turned off', async () => {
+    preview = { ...base, token: null, queued: 0, asks: [] };
     await render();
-    expect(document.body.textContent).toContain('Not shared yet.');
+    expect(document.body.textContent).toContain('Not shared yet');
     await act(async () => button('Share link').click());
     await flush();
     expect(link).toHaveBeenCalled();
@@ -135,7 +124,7 @@ describe('the portal preview', () => {
     expect(shared[0][2]).toBe("Hi Ann, here's your page with everything for your job:");
 
     document.body.innerHTML = '';
-    preview = { ...base, token: 'tok', newCount: 0, asks: [] };
+    preview = { ...base, token: 'tok', queued: 0, asks: [] };
     jest.spyOn(window, 'confirm').mockReturnValue(true);
     await render();
     await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());

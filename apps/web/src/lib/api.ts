@@ -453,17 +453,14 @@ export const selectionsAPI = {
 
 /** One open ask on the client's portal: sign something, or pick something. */
 export type PortalAsk =
-  | { kind: 'estimate'; at: string; number: string; title?: string; total: number; path: string; isNew?: boolean }
+  | { kind: 'estimate'; at: string; number: string; title?: string; total: number; path: string }
   | {
       kind: 'change_order' | 'affidavit';
       at: string;
       number: string;
       title?: string;
       difference?: number;
-      /** Absent on a change order not sent yet (the preview), which lists its changes instead. */
-      path?: string;
-      changes?: Array<{ description: string; before?: number; after?: number }>;
-      isNew?: boolean;
+      path: string;
     }
   | {
       kind: 'selection';
@@ -476,7 +473,6 @@ export type PortalAsk =
       allowanceTotal: number;
       pickBy?: string;
       pick?: { url?: string; name?: string; unitPrice?: number; note?: string; status: 'picked' };
-      isNew?: boolean;
     };
 export interface PortalView {
   client: { name: string; language: 'en' | 'es' };
@@ -535,8 +531,8 @@ export const portalAPI = {
   /** Whose portal a project's is, and how much is waiting for the next send. */
   forProject: (projectId: string): Promise<{ clientId: string; name: string; language: 'en' | 'es'; token: string | null; queued: number } | null> =>
     run('query', api.portal.forProject, { projectId }),
-  /** The portal as it will be after the next send, with what's new marked. */
-  preview: (clientId: string): Promise<PortalView & { token: string | null; newCount: number }> => run('query', api.portal.preview, { clientId }),
+  /** The client's portal exactly as they see it now, its link, and how much waits for the next send. */
+  preview: (clientId: string): Promise<PortalView & { token: string | null; queued: number }> => run('query', api.portal.preview, { clientId }),
   /** Sends what's waiting: the picks go onto the portal, the change orders are made. */
   send: (clientId: string): Promise<{ token: string; picks: Array<{ description: string; pickBy?: string }>; changeOrders: number }> =>
     run('mutation', api.portal.send, { clientId }),

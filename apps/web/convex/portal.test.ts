@@ -87,20 +87,14 @@ describe("the client portal", () => {
     // Queued: nothing reaches the client until the company sends.
     page = (await t.query(api.portal.get, { token }))!;
     expect(page.asks.map((a) => a.kind)).toEqual(["estimate"]);
-    // The preview shows the portal as it will be, with what's new marked, and the change order's real changes.
-    const preview = (await as.query(api.portal.preview, { clientId }))!;
-    expect(preview.token).toBe(token);
-    expect(preview.newCount).toBe(2);
-    expect(preview.asks.map((a) => [a.kind, a.isNew ?? false])).toEqual([
-      ["selection", true],
-      ["estimate", false],
-      ["change_order", true],
-    ]);
-    expect(preview.asks[2]).toMatchObject({ difference: 70, changes: [{ description: "Faucet allowance", before: 350, after: 420 }] });
-    expect(preview.asks[2]).not.toHaveProperty("path", expect.anything());
+    // The company sees the real portal (nothing queued on it yet) and how much waits.
+    const live = (await as.query(api.portal.preview, { clientId }))!;
+    expect(live.token).toBe(token);
+    expect(live.queued).toBe(2);
+    expect(live.asks.map((a) => a.kind)).toEqual(["estimate"]);
     const sent = await as.mutation(api.portal.send, { clientId });
     expect(sent).toEqual({ token, picks: [{ description: "Tile allowance", pickBy: "2026-12-01" }], changeOrders: 1 });
-    expect((await as.query(api.portal.preview, { clientId }))!.newCount).toBe(0);
+    expect((await as.query(api.portal.preview, { clientId }))!.queued).toBe(0);
     const [order] = (await as.query(api.signoffs.forEstimate, { estimateId: bathroom })).filter((s) => s.kind === "change_order");
     page = (await t.query(api.portal.get, { token }))!;
     expect(page.asks.map((a) => a.kind)).toEqual(["selection", "estimate", "change_order"]);

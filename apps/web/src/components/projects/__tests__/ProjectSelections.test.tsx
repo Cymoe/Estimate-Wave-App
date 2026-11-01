@@ -182,7 +182,7 @@ describe('Selections on the project', () => {
     expect(document.body.querySelector('[data-testid="enter-pick"]')).toBeNull();
   });
 
-  it('sums the approved picks, queues the change order, and offers Preview & send when anything is queued', async () => {
+  it('sums the approved picks, queues the change order, and offers Open portal & send when anything is queued', async () => {
     groups = [
       group([line('faucet', 'Faucet allowance', { id: 's3', status: 'approved', approvedUnitPrice: 420, difference: 70 })], {
         picksDifference: 70,
@@ -204,7 +204,7 @@ describe('Selections on the project', () => {
     expect(document.body.querySelector('[data-testid="change-order-line"]')!.textContent).toContain('Change order queued');
     const bar = document.body.querySelector('[data-testid="send-bar"]')!;
     expect(bar.textContent).toContain('2 things ready for Ann');
-    await act(async () => button('Preview & send', bar).click());
+    await act(async () => button('Open portal & send', bar).click());
     expect(onPreview).toHaveBeenCalled();
   });
 });

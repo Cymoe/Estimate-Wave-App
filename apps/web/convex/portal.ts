@@ -62,11 +62,8 @@ type Estimate = Doc<"estimates">;
 const OPEN = new Set(["sent", "opened"]);
 const isOpen = (e: Estimate, today: string) => OPEN.has(e.status) && !(e.expiryDate && e.expiryDate.slice(0, 10) < today);
 
-/**
- * The portal page: what the client sees, or (preview) that plus what's
- * queued for the next send, marked new. Paths are relative to the site.
- */
-async function portalView(ctx: QueryCtx, client: Doc<"clients">, preview: boolean) {
+/** The portal page: what the client sees. Paths are relative to the site. */
+async function portalView(ctx: QueryCtx, client: Doc<"clients">) {
   const organization = await ctx.db.get(client.organizationId);
   const today = new Date().toISOString().slice(0, 10);
   const estimates = (
@@ -77,17 +74,14 @@ async function portalView(ctx: QueryCtx, client: Doc<"clients">, preview: boolea
   ).filter((e) => e.organizationId === client.organizationId);
 
   type Ask =
-    | { kind: "estimate"; at: string; number: string; title?: string; total: number; path: string; isNew?: boolean }
+    | { kind: "estimate"; at: string; number: string; title?: string; total: number; path: string }
     | {
         kind: "change_order" | "affidavit";
         at: string;
         number: string;
         title?: string;
         difference?: number;
-        // Absent on a change order still waiting for the next send (preview only).
-        path?: string;
-        changes?: Array<{ description: string; before?: number; after?: number }>;
-        isNew?: boolean;
+        path: string;
       }
     | {
         kind: "selection";
@@ -100,7 +94,6 @@ async function portalView(ctx: QueryCtx, client: Doc<"clients">, preview: boolea
         allowanceTotal: number;
         pickBy?: string;
         pick?: { url?: string; name?: string; unitPrice?: number; note?: string; status: "asked" | "picked" };
-        isNew?: boolean;
       };
   const asks: Ask[] = [];
   type Job = {
@@ -202,29 +195,13 @@ async function portalView(ctx: QueryCtx, client: Doc<"clients">, preview: boolea
         job.latest = [job.latest, s.signedAt ?? ""].sort().at(-1)!;
       }
     }
-    // A change order waiting for the next send: shown in the preview as it will go out.
-    if (preview && estimate.changeOrderQueuedAt) {
-      const changes = changesSince(estimate.contractSnapshot.items, estimate.items);
-      if (changes.length > 0)
-        asks.push({
-          kind: "change_order",
-          at: estimate.changeOrderQueuedAt,
-          number: "",
-          title: estimate.title,
-          difference: cents(estimate.totalAmount - estimate.contractSnapshot.totalAmount),
-          changes,
-          isNew: true,
-        });
-    }
-
     for (const row of await selectionsFor(ctx, estimate)) {
       const item = estimate.items.find((i) => i._id === row.itemId && i.allowance);
       if (!item) continue;
       if (row.status === "approved") job.selections.push({ description: item.description, name: row.name, url: row.url });
       else {
-        // The client sees what was sent (or what they picked); the preview also shows what's queued.
-        const queued = row.queuedAt !== undefined;
-        if (!(row.askedAt !== undefined || row.status === "picked" || (preview && queued))) continue;
+        // The client sees what was sent (or what they picked); what's queued waits for the next send.
+        if (!(row.askedAt !== undefined || row.status === "picked")) continue;
         const unit = allowanceUnitPrice(item);
         asks.push({
           kind: "selection",
@@ -237,7 +214,6 @@ async function portalView(ctx: QueryCtx, client: Doc<"clients">, preview: boolea
           allowanceTotal: cents(unit * item.quantity),
           pickBy: item.allowance?.pickBy,
           pick: row.status === "picked" ? { url: row.url, name: row.name, unitPrice: row.unitPrice, note: row.note, status: "picked" } : undefined,
-          isNew: preview && queued ? true : undefined,
         });
       }
     }
@@ -306,17 +282,33 @@ export const get = query({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
     const client = await clientByToken(ctx, token);
-    return client === null ? null : await portalView(ctx, client, false);
+    return client === null ? null : await portalView(ctx, client);
   },
 });
 
-/** The company's preview: the client's portal as it will be after the next send, with what's new marked. */
+/** How many things wait for the client's next send: picks to ask for and change orders. */
+async function queuedFor(ctx: QueryCtx, client: Doc<"clients">) {
+  let queued = 0;
+  for (const estimate of await ctx.db
+    .query("estimates")
+    .withIndex("by_client", (q) => q.eq("clientId", client._id))
+    .take(200)) {
+    if (estimate.organizationId !== client.organizationId) continue;
+    if (estimate.changeOrderQueuedAt) queued += 1;
+    queued += (await selectionsFor(ctx, estimate)).filter((r) => r.queuedAt !== undefined).length;
+  }
+  return queued;
+}
+
+/**
+ * The company's look at the client's portal: exactly what the client sees
+ * now, its link, and how much waits for the next send (it shows once sent).
+ */
 export const preview = query({
   args: { clientId: v.id("clients") },
   handler: async (ctx, { clientId }) => {
     const { doc: client } = await getOwned(ctx, "clients", clientId);
-    const view = await portalView(ctx, client, true);
-    return { ...view, token: client.portalToken ?? null, newCount: view.asks.filter((a) => a.isNew).length };
+    return { ...(await portalView(ctx, client)), token: client.portalToken ?? null, queued: await queuedFor(ctx, client) };
   },
 });
 
@@ -341,15 +333,7 @@ export const forProject = query({
     }
     const client = clientId ? await ctx.db.get(clientId) : null;
     if (!client || client.organizationId !== project.organizationId) return null;
-    let queued = 0;
-    for (const estimate of await ctx.db
-      .query("estimates")
-      .withIndex("by_client", (q) => q.eq("clientId", client._id))
-      .take(200)) {
-      if (estimate.changeOrderQueuedAt) queued += 1;
-      queued += (await selectionsFor(ctx, estimate)).filter((r) => r.queuedAt !== undefined).length;
-    }
-    return { clientId: client._id, name: client.name, language: langOf(client), token: client.portalToken ?? null, queued };
+    return { clientId: client._id, name: client.name, language: langOf(client), token: client.portalToken ?? null, queued: await queuedFor(ctx, client) };
   },
 });
 

@@ -448,7 +448,7 @@ export const ProjectPanel: React.FC<{
     }
   };
 
-  // The client portal for this project's client: preview, send what's waiting, turn off.
+  // The client portal for this project's client: see it, send what's waiting, turn off.
   const [portal, setPortal] = useState<Awaited<ReturnType<typeof portalAPI.forProject>>>(null);
   const [portalOpen, setPortalOpen] = useState(false);
   const [portalRevision, setPortalRevision] = useState(0);
@@ -554,12 +554,12 @@ export const ProjectPanel: React.FC<{
                 <Mail className="w-4 h-4" />
               </a>
             )}
-            {/* The client's portal: see it as they will, then send */}
+            {/* The client's portal: exactly what they see, and send what's waiting */}
             <button
               type="button"
               onClick={() => setPortalOpen(true)}
               disabled={!portal}
-              title={portal ? `Preview and send ${portal.name}'s portal` : 'Add a client first'}
+              title={portal ? `Open ${portal.name}'s portal` : 'Add a client first'}
               className={`${secondaryAction} disabled:opacity-50`}
               data-testid="client-portal-button"
             >

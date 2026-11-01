@@ -54,8 +54,6 @@ function AskShell({
   tone,
   title,
   detail,
-  isNew,
-  newLabel,
   testId,
   children,
 }: {
@@ -63,18 +61,11 @@ function AskShell({
   tone: keyof typeof TONES;
   title: string;
   detail?: string;
-  isNew?: boolean;
-  newLabel: string;
   testId: string;
   children?: React.ReactNode;
 }) {
   return (
-    <li className={`${card} relative overflow-hidden p-5`} data-testid={testId}>
-      {isNew && (
-        <span className="absolute right-0 top-0 rounded-bl-xl bg-blue-600 px-3 py-1 text-xs font-semibold text-white" data-testid="new-ribbon">
-          {newLabel}
-        </span>
-      )}
+    <li className={`${card} p-5`} data-testid={testId}>
       <div className="flex items-start gap-3.5">
         <span className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full ${TONES[tone]}`}>{icon}</span>
         <div className="min-w-0 flex-1 pt-0.5">
@@ -148,8 +139,6 @@ function PickCard({
       tone="amber"
       title={t.pickYour(ask.description)}
       detail={detail}
-      isNew={ask.isNew}
-      newLabel={PORTAL[lang].newBadge}
       testId="ask-selection"
     >
       {pick && !open && (
@@ -248,7 +237,7 @@ function PickCard({
   );
 }
 
-/** Something to sign: a link to the page where it's signed (in the preview, a change order not sent yet lists its changes). */
+/** Something to sign: a link to the page where it's signed (from the company's look, in a new tab). */
 function SignCard({ ask, t, preview }: { ask: Exclude<PortalAsk, SelectionAsk>; t: Strings; preview?: boolean }) {
   const title = ask.kind === 'estimate' ? t.signEstimate : ask.kind === 'change_order' ? t.signChanges : t.signComplete;
   const detail =
@@ -263,32 +252,15 @@ function SignCard({ ask, t, preview }: { ask: Exclude<PortalAsk, SelectionAsk>; 
       tone={ask.kind === 'affidavit' ? 'green' : 'blue'}
       title={title}
       detail={detail}
-      isNew={ask.isNew}
-      newLabel={t.newBadge}
       testId={`ask-${ask.kind}`}
     >
-      {!ask.path && ask.kind !== 'estimate' && ask.changes && ask.changes.length > 0 && (
-        <ul className="mt-4 divide-y divide-gray-100 rounded-xl bg-[#F5F6F8] px-4 text-sm text-gray-600" data-testid="draft-changes">
-          {ask.changes.map((c, i) => (
-            <li key={i} className="flex justify-between gap-3 py-2.5">
-              <span>{c.description}</span>
-              <span className="whitespace-nowrap">
-                {c.before !== undefined && <span className="mr-2 text-gray-400 line-through">{formatCurrency(c.before)}</span>}
-                {c.after !== undefined ? formatCurrency(c.after) : t.removed}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-      {ask.path && (
-        <a
-          href={ask.path}
-          {...(preview ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-          className={`${primaryButton} inline-flex items-center justify-center gap-1.5`}
-        >
-          {t.reviewSign} <ChevronRight className="w-4 h-4" />
-        </a>
-      )}
+      <a
+        href={ask.path}
+        {...(preview ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+        className={`${primaryButton} inline-flex items-center justify-center gap-1.5`}
+      >
+        {t.reviewSign} <ChevronRight className="w-4 h-4" />
+      </a>
     </AskShell>
   );
 }
@@ -727,7 +699,7 @@ function Perks({ view, lang, token, preview }: { view: View; lang: Lang; token?:
           </li>
         )}
         {perks.reviewUrl && (
-          <AskShell icon={<Star className="h-5 w-5" />} tone="amber" title={t.reviewTitle} detail={t.reviewBody(company)} newLabel="" testId="perk-review">
+          <AskShell icon={<Star className="h-5 w-5" />} tone="amber" title={t.reviewTitle} detail={t.reviewBody(company)} testId="perk-review">
             <a
               href={perks.reviewUrl}
               target="_blank"
@@ -745,7 +717,6 @@ function Perks({ view, lang, token, preview }: { view: View; lang: Lang; token?:
             tone="pink"
             title={t.referTitle}
             detail={referral.reward ? t.referBody(referral.reward) : t.referBodyNoReward}
-            newLabel=""
             testId="perk-referral"
           >
             {stats && <p className="mt-3 text-sm font-medium text-rose-600">{stats}</p>}
@@ -793,9 +764,9 @@ function ContactCard({ view, t }: { view: View; t: Strings }) {
 /**
  * The portal's page, as a light card app: a greeting, quick tiles, what needs
  * the client, then each job with its progress, timeline and documents. The
- * client's own page and the company's preview draw this same thing; in the
- * preview the forms can't be used and what goes out with the next send is
- * marked new.
+ * client's own page and the company's look at it (`preview`) draw this same
+ * thing; for the company the client's forms can't be used, and it shows where
+ * the review card goes until there's a review link.
  */
 export function PortalView({
   view,
@@ -844,7 +815,7 @@ export function PortalView({
               ask.kind === 'selection' ? (
                 <PickCard key={`${ask.estimateId}:${ask.itemId}`} token={token} ask={ask} lang={lang} onPicked={onPicked} preview={preview} />
               ) : (
-                <SignCard key={ask.path ?? `new:${ask.at}:${ask.title ?? ''}`} ask={ask} t={t} preview={preview} />
+                <SignCard key={ask.path} ask={ask} t={t} preview={preview} />
               ),
             )
           )}
