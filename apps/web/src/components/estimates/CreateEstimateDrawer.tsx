@@ -32,8 +32,6 @@ interface EstimateItem {
   id?: string;
   category?: string;
   category_chosen?: boolean;
-  optional?: boolean;
-  included?: boolean;
 }
 
 interface Template {
@@ -316,12 +314,10 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
         description: item.description,
         red_line_price: item.red_line_price,
         cap_price: item.cap_price,
-        // The line's id, type of work and add-on settings ride through the edit unchanged.
+        // The line's id and type of work ride through the edit unchanged.
         id: item.id,
         category: item.category,
         category_chosen: item.category_chosen,
-        optional: item.optional,
-        included: item.included,
       }));
       
       setSelectedItems(estimateItems);

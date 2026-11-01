@@ -1,6 +1,5 @@
 import { v } from "convex/values";
 import { logoUrlOf } from "./lib/organizations";
-import { countsInTotal } from "./lib/totals";
 import type { Doc } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { fail, getOwned, logActivity, nowIso } from "./lib/access";
@@ -84,13 +83,11 @@ export const request = mutation({
     const now = nowIso();
     let fields: Partial<Doc<"signoffs">> = {};
     if (kind === "change_order") {
-      // Add-ons the client didn't choose aren't part of the work, so they're never a change.
-      const current = estimate.items.filter(countsInTotal);
-      const changes = changesSince(snapshot.items, current);
+      const changes = changesSince(snapshot.items, estimate.items);
       if (changes.length === 0) fail("INVALID", "Nothing has changed since the estimate was signed");
       fields = {
         changes,
-        items: current,
+        items: estimate.items,
         previousTotal: snapshot.totalAmount,
         subtotal: estimate.subtotal,
         taxAmount: estimate.taxAmount,

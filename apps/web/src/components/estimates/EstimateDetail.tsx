@@ -346,7 +346,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
     });
     // The same arithmetic the server saves: the discount comes off before tax.
     const totals = estimateTotals({
-      items: nextItems.map((item) => ({ totalPrice: item.total_price, optional: item.optional, included: item.included })),
+      items: nextItems.map((item) => ({ totalPrice: item.total_price })),
       taxRate: estimate.tax_rate,
       discount: estimate.discount,
     });
@@ -470,15 +470,6 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
       </div>
       <div className="flex-1 py-2 px-3 text-right text-gray-500 border-r border-[#333333]">
         Sum
-        {estimate.items.some((item) => item.optional && !item.included) && (
-          <span className="block text-[10px] text-amber-300" data-testid="with-add-ons">
-            up to {formatCurrency(estimateTotals({
-              items: estimate.items.map((item) => ({ totalPrice: item.total_price, optional: item.optional, included: true })),
-              taxRate: estimate.tax_rate,
-              discount: estimate.discount,
-            }).totalAmount)} with add-ons
-          </span>
-        )}
         {(estimate.discount_amount ?? 0) > 0 && (
           <span className="block text-[10px] text-green-400">{estimate.discount?.label || 'Discount'} −{formatCurrency(estimate.discount_amount ?? 0)}</span>
         )}
@@ -923,9 +914,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
             original_price: item.original_unit_price,
             unit: item.unit || 'ea',
             total: item.total_price,
-            category: item.category,
-            optional: item.optional,
-            included: item.included,
+            category: item.category
           })) || []}
           onUpdateItem={(itemId, field, value) => {
             commitItems(estimate.items.map(item => {

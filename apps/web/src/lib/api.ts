@@ -459,9 +459,8 @@ export const publicEstimatesAPI = {
     return run('mutation', api.publicEstimates.markOpened, { token });
   },
 
-  /** Signs it; addOns are the optional add-ons the client ticked (left out, the company's ticks stand). */
-  async accept(token: string, signature: string, agreedToDocuments?: boolean, addOns?: string[]) {
-    return run('mutation', api.publicEstimates.accept, defined({ token, signature, agreedToDocuments, addOns }));
+  async accept(token: string, signature: string, agreedToDocuments?: boolean) {
+    return run('mutation', api.publicEstimates.accept, defined({ token, signature, agreedToDocuments }));
   },
 
   /** The client flipped the page's language; remembered on their record. */

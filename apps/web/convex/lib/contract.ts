@@ -1,6 +1,5 @@
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
-import { countsInTotal } from "./totals";
 import { withCategories } from "./categories";
 import { resolveTerms } from "./contractDefaults";
 import { markSigned, resolveDocuments, signedDocuments } from "./contractDocs";
@@ -22,8 +21,7 @@ export async function lockContract(ctx: MutationCtx, estimate: Doc<"estimates">,
     contractLockedAt: now,
     contractSnapshot: {
       client: client ? { name: client.name, email: client.email, phone: client.phone, address: address || undefined } : undefined,
-      // What was agreed: every line in the price, with only the add-ons the client chose.
-      items: (await withCategories(ctx, estimate.items)).filter(countsInTotal),
+      items: await withCategories(ctx, estimate.items),
       subtotal: estimate.subtotal,
       ...(estimate.discountAmount ? { discountAmount: estimate.discountAmount, discountLabel: estimate.discount?.label } : {}),
       taxAmount: estimate.taxAmount,

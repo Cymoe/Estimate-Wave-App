@@ -98,8 +98,7 @@ export const documentItem = v.object({
   category: v.optional(v.string()),
   // The contractor picked the category, so it isn't replaced by the price book trade.
   categoryChosen: v.optional(v.boolean()),
-  // An optional add-on the client can tick on their link ("Upgrade to quartz"). Only
-  // ticked ones (included) count in the price; the contractor can tick one to start.
+  // From optional add-ons, which were removed; kept so any lines saved with them still load. Nothing reads them.
   optional: v.optional(v.boolean()),
   included: v.optional(v.boolean()),
   displayOrder: v.number(),

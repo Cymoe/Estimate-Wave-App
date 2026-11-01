@@ -1,5 +1,4 @@
 import type { Estimate } from './EstimateService';
-import { countsInTotal } from '../../convex/lib/totals';
 
 /** What a contract shows. Built from the estimate; nothing to generate or save. */
 export interface ContractData {
@@ -88,7 +87,7 @@ export function contractFor(estimate: Estimate, business?: Business | null): Con
         total: item.totalPrice,
         category: item.category,
       }))
-    : (estimate.items ?? []).filter(countsInTotal).map((item) => ({
+    : (estimate.items ?? []).map((item) => ({
         description: item.description,
         quantity: item.quantity,
         unit: 'ea',
@@ -148,8 +147,7 @@ export function changesSinceSigned(estimate: Estimate): { changes: ContractChang
   const snapshot: Snapshot | undefined = estimate.contract_snapshot;
   if (!snapshot) return null;
   const signed: Snapshot[] = snapshot.items ?? [];
-  // Add-ons the client didn't choose aren't part of the work, so they're never a change.
-  const current = (estimate.items ?? []).filter(countsInTotal);
+  const current = estimate.items ?? [];
   const changes: ContractChange[] = [];
   const matched = new Set<Snapshot>();
   for (const item of current) {

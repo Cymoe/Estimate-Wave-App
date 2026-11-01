@@ -7,7 +7,6 @@ import { fail, logActivity, nowIso } from "./lib/access";
 import { isLang, langOf } from "./lib/i18n";
 import { withCategories } from "./lib/categories";
 import { lockContract } from "./lib/contract";
-import { withTotals } from "./lib/documents";
 import { needsAcknowledgment, resolveDocuments, signedDocuments, stampSignedCopies } from "./lib/contractDocs";
 import { resolveTerms } from "./lib/contractDefaults";
 
@@ -121,21 +120,7 @@ export const get = query({
       : client
         ? [client.address, client.city, client.state, client.zip].filter(Boolean).join(", ") || undefined
         : undefined;
-    // Once signed, the lines are what was agreed. Before, optional add-ons are offered on their own, with their price at every level of detail.
-    const all = await withCategories(ctx, signed ? signed.items : estimate.items);
-    const lines = signed ? all : all.filter((line) => !line.optional);
-    const addOns = signed
-      ? []
-      : all
-          .filter((line) => line.optional)
-          .map((line) => ({
-            id: line._id,
-            description: line.description,
-            quantity: line.quantity,
-            price: line.totalPrice,
-            category: line.category,
-            included: line.included === true,
-          }));
+    const lines = await withCategories(ctx, signed ? signed.items : estimate.items);
     return {
       estimateNumber: estimate.estimateNumber,
       title: estimate.title,
@@ -148,9 +133,6 @@ export const get = query({
       clientDetail: clientDetailOf(estimate),
       items: clientItems(lines, clientDetailOf(estimate)),
       categoryTotals: categoryTotals(lines),
-      addOns,
-      // So the page can recompute the total as add-ons are ticked.
-      discount: !signed && addOns.length > 0 && estimate.discount ? { kind: estimate.discount.kind, value: estimate.discount.value } : undefined,
       subtotal: signed ? signed.subtotal : estimate.subtotal,
       discountAmount: (signed ? signed.discountAmount : estimate.discountAmount) || undefined,
       discountLabel: signed ? signed.discountLabel : estimate.discountAmount ? estimate.discount?.label : undefined,
@@ -214,28 +196,12 @@ export const accept = mutation({
     token: v.string(),
     signature: v.string(),
     agreedToDocuments: v.optional(v.boolean()),
-    // The optional add-ons the client ticked (their line ids). Left out, the company's ticks stand.
-    addOns: v.optional(v.array(v.string())),
   },
-  handler: async (ctx, { token, signature, agreedToDocuments, addOns }) => {
-    let estimate = await requireByToken(ctx, token);
+  handler: async (ctx, { token, signature, agreedToDocuments }) => {
+    const estimate = await requireByToken(ctx, token);
     if (!OPEN.has(estimate.status)) fail("INVALID", "This estimate can no longer be accepted", "estimate_closed");
     if (!signature.trim()) fail("INVALID", "Please sign to accept the estimate", "signature_required");
     const now = nowIso();
-    // The client's picks set which add-ons are in the price (ids that aren't add-ons are ignored), then the agreement locks with them.
-    if (addOns && !estimate.contractLockedAt && estimate.items.some((item) => item.optional)) {
-      const chosen = new Set(addOns);
-      const items = estimate.items.map((item) => (item.optional ? { ...item, included: chosen.has(item._id) || undefined } : item));
-      const priced = withTotals({ ...estimate, items });
-      await ctx.db.patch(estimate._id, {
-        items,
-        subtotal: priced.subtotal,
-        discountAmount: priced.discountAmount,
-        taxAmount: priced.taxAmount,
-        totalAmount: priced.totalAmount,
-      });
-      estimate = (await ctx.db.get(estimate._id))!;
-    }
     const lock: Partial<Awaited<ReturnType<typeof lockContract>>> = estimate.contractLockedAt
       ? {}
       : await lockContract(ctx, estimate, now, agreedToDocuments ? now : undefined);

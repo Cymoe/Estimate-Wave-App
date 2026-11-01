@@ -12,7 +12,6 @@ import { AgreementTerms } from '../contracts/AgreementTerms';
 import { SignedRecord, type RecordDocument } from '../contracts/SignedRecord';
 import { SignaturePad } from '../contracts/SignaturePad';
 import { LightPage } from '../common/LightPage';
-import { cents, discountAmountOf } from '../../../convex/lib/totals';
 
 const copyButton =
   'inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors';
@@ -59,9 +58,6 @@ interface ClientEstimate {
   /** A discount off the work, before tax, and what the company calls it. */
   discount_amount?: number;
   discount_label?: string;
-  /** Before signing: optional add-ons the client can tick, and the discount so the total can be redone as they do. */
-  add_ons: Array<{ id: string; description: string; quantity: number; price: number; category?: string; included: boolean }>;
-  discount_rule?: { kind: 'amount' | 'percent'; value: number };
   /** Without prices when the company shows the lines but not what each costs. */
   items: Array<{ id: string; description: string; quantity: number; unit_price?: number; total_price?: number; category?: string }>;
 }
@@ -96,8 +92,6 @@ function fromView(view: any): ClientEstimate {
     category_totals: view.categoryTotals,
     discount_amount: view.discountAmount,
     discount_label: view.discountLabel,
-    add_ons: view.addOns ?? [],
-    discount_rule: view.discount,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     items: (view.items ?? []).map((item: any, i: number) => ({
       id: String(i),
@@ -107,40 +101,6 @@ function fromView(view: any): ClientEstimate {
       total_price: item.totalPrice,
       category: item.category,
     })),
-  };
-}
-
-/**
- * The estimate with the client's add-on picks in it: ticked add-ons join the
- * lines and their categories, and the subtotal, discount, tax and total are
- * redone the way the server will when they sign.
- */
-function withChoices(estimate: ClientEstimate, chosen: Set<string>): ClientEstimate {
-  if (estimate.add_ons.length === 0) return estimate;
-  const picked = estimate.add_ons.filter((addOn) => chosen.has(addOn.id));
-  const priced = estimate.client_detail === 'full';
-  const base = estimate.category_totals ?? estimate.items.map((item) => ({ category: item.category, total: item.total_price ?? 0 }));
-  const category_totals = [...base, ...picked.map((addOn) => ({ category: addOn.category, total: addOn.price }))];
-  const subtotal = cents(category_totals.reduce((sum, row) => sum + row.total, 0));
-  const discountAmount = estimate.discount_rule ? discountAmountOf(subtotal, estimate.discount_rule) : 0;
-  const taxAmount = cents(((subtotal - discountAmount) * (estimate.tax_rate ?? 0)) / 100);
-  return {
-    ...estimate,
-    items: [
-      ...estimate.items,
-      ...picked.map((addOn) => ({
-        id: `add-on-${addOn.id}`,
-        description: addOn.description,
-        quantity: addOn.quantity,
-        category: addOn.category,
-        ...(priced ? { unit_price: addOn.quantity ? addOn.price / addOn.quantity : addOn.price, total_price: addOn.price } : {}),
-      })),
-    ],
-    category_totals,
-    subtotal,
-    discount_amount: discountAmount || undefined,
-    tax_amount: taxAmount,
-    total_amount: cents(subtotal - discountAmount + taxAmount),
   };
 }
 
@@ -208,9 +168,7 @@ const ShareableEstimatePage: React.FC = () => {
   const { token } = useParams<{ token: string }>();
   const { lang, adopt } = useLang();
   const t = SHARE[lang];
-  const [loaded, setLoaded] = useState<ClientEstimate | null>(null);
-  // The optional add-ons the client has ticked (the company's ticks to start).
-  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const [estimate, setEstimate] = useState<ClientEstimate | null>(null);
   const [loading, setLoading] = useState(true);
   const [signing, setSigning] = useState(false);
   const [signature, setSignature] = useState<string>('');
@@ -223,13 +181,11 @@ const ShareableEstimatePage: React.FC = () => {
     if (!token) return;
     try {
       const view = await publicEstimatesAPI.get(token);
-      const next = view ? fromView(view) : null;
-      setLoaded(next);
-      setChosen(new Set((next?.add_ons ?? []).filter((addOn) => addOn.included).map((addOn) => addOn.id)));
+      setEstimate(view ? fromView(view) : null);
       if (view?.client?.language) adopt(view.client.language);
     } catch (error) {
       console.error('Error loading estimate:', error);
-      setLoaded(null);
+      setEstimate(null);
     } finally {
       setLoading(false);
     }
@@ -243,7 +199,7 @@ const ShareableEstimatePage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  const uploads = (loaded?.documents ?? []).filter((d) => d.source === 'upload');
+  const uploads = (estimate?.documents ?? []).filter((d) => d.source === 'upload');
   const needsTick = uploads.length > 0;
   const uploadedAgreement = uploads.find((d) => d.kind === 'agreement');
   const attachments = uploads.filter((d) => d.kind === 'attachment');
@@ -253,7 +209,7 @@ const ShareableEstimatePage: React.FC = () => {
     setSigning(true);
     setActionError(null);
     try {
-      await publicEstimatesAPI.accept(token, signature, needsTick || undefined, loaded?.add_ons.length ? [...chosen] : undefined);
+      await publicEstimatesAPI.accept(token, signature, needsTick || undefined);
       await loadEstimate();
     } catch (error) {
       console.error('Error accepting estimate:', error);
@@ -271,7 +227,7 @@ const ShareableEstimatePage: React.FC = () => {
     );
   }
 
-  if (!loaded) {
+  if (!estimate) {
     return (
       <LightPage className="bg-white flex items-center justify-center">
         <div className="text-center">
@@ -284,8 +240,6 @@ const ShareableEstimatePage: React.FC = () => {
     );
   }
 
-  // Everything below shows the estimate with the client's add-on picks in it.
-  const estimate = withChoices(loaded, chosen);
   const isExpired = estimate.expiry_date && new Date(estimate.expiry_date) < new Date();
   const canSign = OPEN_STATUSES.includes(estimate.status) && !isExpired;
   const statusLabel =
@@ -482,39 +436,6 @@ const ShareableEstimatePage: React.FC = () => {
             </tfoot>
           </table>
         </div>
-
-        {/* Optional add-ons: always with their price, ticked on the way to signing */}
-        {estimate.add_ons.length > 0 && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6 print:shadow-none" data-testid="add-ons">
-            <h3 className="text-lg font-semibold text-gray-900">{t.addOns}</h3>
-            {canSign && <p className="text-sm text-gray-500 mb-3">{t.addOnsHelp}</p>}
-            <ul className="divide-y divide-gray-200">
-              {estimate.add_ons.map((addOn) => (
-                <li key={addOn.id}>
-                  <label className="flex items-center gap-3 py-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={chosen.has(addOn.id)}
-                      disabled={!canSign}
-                      onChange={(e) =>
-                        setChosen((current) => {
-                          const next = new Set(current);
-                          if (e.target.checked) next.add(addOn.id);
-                          else next.delete(addOn.id);
-                          return next;
-                        })
-                      }
-                      aria-label={addOn.description}
-                      className="w-5 h-5 accent-green-600 flex-shrink-0"
-                    />
-                    <span className="flex-1 min-w-0 text-gray-900">{addOn.description}</span>
-                    <span className="text-gray-900 whitespace-nowrap">+{formatCurrency(addOn.price)}</span>
-                  </label>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
 
         {/* Line items: the detail behind the summary, opened on request (unless the company shows only the summary) */}
         {estimate.client_detail !== 'categories' && (

@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 let view: Record<string, unknown> | null = null;
 const markOpened = jest.fn(async () => {});
-const accept = jest.fn<Promise<void>, [string, string, boolean?, string[]?]>(async (_token, signature) => {
+const accept = jest.fn<Promise<void>, [string, string, boolean?]>(async (_token, signature) => {
   view = { ...view, status: 'accepted', clientSignature: signature, signedAt: '2026-10-11T12:00:00Z' };
 });
 const setLanguage = jest.fn(async () => {});
@@ -14,8 +14,7 @@ jest.mock('../../../lib/api', () => ({
   publicEstimatesAPI: {
     get: async () => view,
     markOpened: (token: string) => markOpened(token),
-    accept: (token: string, signature: string, agreed?: boolean, addOns?: string[]) =>
-      addOns ? accept(token, signature, agreed, addOns) : accept(token, signature, agreed),
+    accept: (token: string, signature: string, agreed?: boolean) => accept(token, signature, agreed),
     setLanguage: (token: string, language: string) => setLanguage(token, language),
   },
 }));
@@ -230,52 +229,6 @@ describe('client estimate page', () => {
     expect(agreement.textContent).toContain('Shah Builders');
     expect(document.body.textContent).toContain('By signing, you accept this estimate and agree to the terms above.');
     expect(document.body.querySelectorAll('button[aria-label="Your signature"]')).toHaveLength(1);
-  });
-
-  it('optional add-ons: ticking one adds it to the lines, summary, discount, tax and total; signing sends the picks', async () => {
-    view = {
-      ...sent,
-      items: [{ description: 'Vanity', quantity: 1, unitPrice: 900, totalPrice: 900, category: 'Cabinets & Vanities' }],
-      categoryTotals: [{ category: 'Cabinets & Vanities', total: 900 }],
-      addOns: [
-        { id: 'quartz', description: 'Upgrade to quartz top', quantity: 1, price: 1200, category: 'Countertops', included: false },
-        { id: 'mirror', description: 'Lighted mirror', quantity: 1, price: 300, category: 'Cabinets & Vanities', included: true },
-      ],
-      discount: { kind: 'percent', value: 10 },
-      discountLabel: 'Fall special',
-      discountAmount: 120,
-      taxRate: 10,
-      subtotal: 1200,
-      taxAmount: 108,
-      totalAmount: 1188,
-    };
-    await open();
-    const box = (label: string) => document.body.querySelector(`[data-testid="add-ons"] input[aria-label="${label}"]`) as HTMLInputElement;
-    const summary = () => Array.from(document.body.querySelectorAll('[data-testid="category-summary"] tr')).map((r) => r.textContent);
-    // The company ticked the mirror to start.
-    expect(box('Lighted mirror').checked).toBe(true);
-    expect(box('Upgrade to quartz top').checked).toBe(false);
-    expect(document.body.querySelector('[data-testid="add-ons"]')!.textContent).toContain('+$1,200.00');
-    expect(summary()).toEqual(['Cabinets & Vanities$1,200.00', 'Subtotal$1,200.00', 'Fall special−$120.00', 'Tax (10%)$108.00', 'Total$1,188.00']);
-
-    await act(async () => box('Upgrade to quartz top').click());
-    await act(async () => box('Lighted mirror').click());
-    // 900 + 1,200 = 2,100; 10% off = 210; tax 10% of 1,890 = 189; total 2,079.
-    expect(summary()).toEqual([
-      'Cabinets & Vanities$900.00',
-      'Countertops$1,200.00',
-      'Subtotal$2,100.00',
-      'Fall special−$210.00',
-      'Tax (10%)$189.00',
-      'Total$2,079.00',
-    ]);
-    await act(async () => button('Line item details (2)')!.click());
-    expect(document.body.querySelector('[data-testid="line-item-details"]')!.textContent).toContain('Upgrade to quartz top');
-    expect(document.body.querySelector('[data-testid="agreement"]')!.textContent).toContain('Countertops');
-
-    await act(async () => button('draw')!.click());
-    await act(async () => button('Accept & Sign')!.click());
-    expect(accept).toHaveBeenCalledWith('tok123', 'data:image/png;base64,sig', undefined, ['quartz']);
   });
 
   it('accepts with the drawn signature, then shows it accepted', async () => {
