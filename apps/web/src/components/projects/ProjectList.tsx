@@ -62,8 +62,13 @@ export const ProjectList: React.FC = () => {
     else if (openId) navigate(projectUrl(openId, 'estimates'), { replace: true });
   };
   const closeProject = () => {
-    if ((location.state as { fromList?: boolean } | null)?.fromList) navigate(-1);
-    else navigate(back, { replace: true });
+    const state = location.state as { fromList?: boolean; returnTo?: string } | null;
+    if (state?.fromList) navigate(-1);
+    // Opened from an estimate's drawer: back to that estimate, as it was.
+    else if (state?.returnTo) {
+      if (location.key !== 'default') navigate(-1);
+      else navigate(state.returnTo, { replace: true });
+    } else navigate(back, { replace: true });
   };
 
   useEffect(() => {

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { FolderOpen } from 'lucide-react';
 import { EstimateService, type Estimate } from '../../services/EstimateService';
 import { ProjectService, type Project } from '../../services/ProjectService';
@@ -24,6 +24,7 @@ export function EstimateProject({
   behind?: boolean;
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [choosing, setChoosing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -136,7 +137,8 @@ export function EstimateProject({
         ) : (
           <button
             type="button"
-            onClick={() => navigate(`/projects/${project.id}?tab=estimates`)}
+            // Closing the project comes back to this estimate (ProjectList.closeProject).
+            onClick={() => navigate(`/projects/${project.id}?tab=estimates`, { state: { returnTo: `${location.pathname}${location.search}` } })}
             className="flex items-center gap-2 text-base font-medium text-[#5b8fc7] hover:underline"
           >
             <FolderOpen className="w-4 h-4" />

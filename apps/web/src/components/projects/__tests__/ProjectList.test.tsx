@@ -125,14 +125,17 @@ const project = (n: number, name: string, status = 'active') => ({
   client_id: 'c1',
 });
 
-async function render(path = '/projects') {
+type Entry = string | { pathname: string; search?: string; state?: unknown };
+async function render(path: Entry | Entry[] = '/projects') {
+  const entries = Array.isArray(path) ? path : [path];
   const container = document.createElement('div');
   document.body.appendChild(container);
   await act(async () =>
     createRoot(container).render(
-      <MemoryRouter initialEntries={[path]}>
+      <MemoryRouter initialEntries={entries} initialIndex={entries.length - 1}>
         <Where />
         <Routes>
+          <Route path="/estimates/:id" element={null} />
           <Route element={<ProjectList />}>
             <Route path="/projects" element={null} />
             <Route path="/projects/:id" element={null} />
@@ -203,6 +206,22 @@ describe('ProjectList', () => {
     await act(async () => close.click());
     expect(path).toBe('/projects');
     expect(entryKey).toBe(listKey);
+  });
+
+  it('a project opened from an estimate closes back to that estimate', async () => {
+    rows = [project(1, 'Roof replacement')];
+    const fromEstimate = { pathname: '/projects/p1', search: '?tab=estimates', state: { returnTo: '/estimates/e1' } };
+    await render(['/estimates/e1', fromEstimate]);
+    expect(path).toBe('/projects/p1');
+    const close = () => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent === 'Close project')!;
+    await act(async () => close().click());
+    expect(path).toBe('/estimates/e1'); // one step back, to the estimate as it was
+
+    // Opened straight from a link (no history behind it), it still goes to the estimate.
+    document.body.innerHTML = '';
+    await render([fromEstimate]);
+    await act(async () => close().click());
+    expect(path).toBe('/estimates/e1');
   });
 
   it('an estimate opens in a drawer over the project drawer, and closing it leaves the project as it was', async () => {
