@@ -1,6 +1,6 @@
 import React, { useContext } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Building2, Hammer, Users, Bell, Shield, Bot, FileText, Wallet, LayoutTemplate } from 'lucide-react';
+import { ArrowLeft, Building2, Hammer, Users, Bell, Shield, Bot, FileText, LayoutTemplate } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { BusinessDetailsForm } from '../components/settings/BusinessDetailsForm';
 import { TradesEditor } from '../components/settings/TradesEditor';
@@ -8,7 +8,6 @@ import { NotificationsSettings } from '../components/settings/NotificationsSetti
 import { ConnectedAssistants } from '../components/settings/ConnectedAssistants';
 import { ContractsSettings } from '../components/settings/ContractsSettings';
 import { TemplatesSettings } from '../components/settings/TemplatesSettings';
-import { PaymentsSettings } from '../components/settings/PaymentsSettings';
 import { ClientRemindersSettings } from '../components/settings/ClientRemindersSettings';
 
 export default function OrganizationSettings() {
@@ -25,7 +24,6 @@ export default function OrganizationSettings() {
     { id: 'trades', label: 'Trades', icon: Hammer },
     { id: 'templates', label: 'Templates', icon: LayoutTemplate },
     { id: 'contracts', label: 'Contracts', icon: FileText },
-    { id: 'payments', label: 'Payments', icon: Wallet },
     { id: 'team', label: 'Team & Permissions', icon: Users },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'assistants', label: 'Assistants', icon: Bot },
@@ -131,13 +129,6 @@ export default function OrganizationSettings() {
               <div className="bg-[#1A1A1A] rounded-lg p-6">
                 <h2 className="text-lg font-semibold text-white mb-1">Your contracts</h2>
                 <ContractsSettings organizationId={selectedOrg.id} />
-              </div>
-            )}
-
-            {activeTab === 'payments' && (
-              <div className="bg-[#1A1A1A] rounded-lg p-6">
-                <h2 className="text-lg font-semibold text-white mb-1">Getting paid</h2>
-                <PaymentsSettings organizationId={selectedOrg.id} />
               </div>
             )}
 

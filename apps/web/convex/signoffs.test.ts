@@ -25,7 +25,7 @@ async function signedJob(t: T) {
 }
 
 describe("change orders and the affidavit, signed later", () => {
-  test("a change order lists what changed; once signed, it's the agreed scope and what's left to invoice", async () => {
+  test("a change order lists what changed; once signed, it's the agreed scope", async () => {
     const t = setup();
     const { as, estimateId } = await signedJob(t);
     await expect(as.mutation(api.signoffs.request, { estimateId, kind: "change_order" })).rejects.toThrow(/Nothing has changed/);
@@ -70,11 +70,10 @@ describe("change orders and the affidavit, signed later", () => {
     const estimate = (await t.run((ctx) => ctx.db.get(estimateId)))!;
     expect(estimate.contractSnapshot!.totalAmount).toBe(9700);
     expect(estimate.contractSnapshot!.items.map((i) => i.description)).toEqual(["Shingles", "Skylight"]);
-    expect((await as.query(api.invoices.forEstimate, { estimateId })).summary.contract).toBe(9700);
     expect((await as.query(api.signoffs.forEstimate, { estimateId }))[0]).toMatchObject({ status: "signed", signerName: "Ann Miller" });
   });
 
-  test("the affidavit shows what's been paid; sending again replaces the unsigned one; it waits for the estimate's signature", async () => {
+  test("the affidavit shows the contract total; sending again replaces the unsigned one; it waits for the estimate's signature", async () => {
     const t = setup();
     const owner = await signUp(t, "solo@example.com");
     const draft = (await owner.as.mutation(api.estimates.create, { organizationId: owner.organizationId, data: { title: "Paint", items: [] } }))!;
@@ -86,7 +85,8 @@ describe("change orders and the affidavit, signed later", () => {
     expect((await t.query(api.signoffs.get, { token: first.token }))!.status).toBe("cancelled");
     await expect(t.mutation(api.signoffs.sign, { token: first.token, signerName: "Ann", signature: SIG })).rejects.toThrow(/withdrawn/);
     const page = (await t.query(api.signoffs.get, { token: second.token }))!;
-    expect(page).toMatchObject({ name: "Job complete sign-off", completionDate: "2026-11-21", contractTotal: 10000, paid: 0 });
+    expect(page).toMatchObject({ name: "Job complete sign-off", completionDate: "2026-11-21", contractTotal: 10000 });
+    expect(page).not.toHaveProperty("paid");
     await t.mutation(api.signoffs.sign, { token: second.token, signerName: "Ann Miller", signature: SIG });
     expect((await t.query(api.signoffs.get, { token: second.token }))!).toMatchObject({ status: "signed", signerName: "Ann Miller", signature: SIG });
     expect(await t.query(api.signoffs.get, { token: "nope" })).toBeNull();

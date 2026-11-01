@@ -5,13 +5,16 @@ import { fail, getOwned, logActivity, nowIso } from "./lib/access";
 import { isLang, langOf } from "./lib/i18n";
 import { internal } from "./_generated/api";
 import { markSigned, resolveDocuments, type SignedDocument } from "./lib/contractDocs";
-import { cents, contractTotal, invoicesFor, paymentSummary } from "./lib/invoicing";
 
 // Signing later in the job: a change order (the scope changed since the
 // contract was signed) or the affidavit of completion (the lien release at
 // the end), each sent to the client as its own link and signed there.
-// A signed change order becomes the agreed scope, so what's left to
-// invoice follows it.
+// A signed change order becomes the agreed scope.
+
+/** Money rounded to the cent. */
+const cents = (n: number) => Math.round(n * 100) / 100;
+/** What a signed estimate is worth: the total as signed. */
+const contractTotal = (estimate: Doc<"estimates">) => estimate.contractSnapshot?.totalAmount ?? estimate.totalAmount;
 
 type Kind = Doc<"signoffs">["kind"];
 const NAMES: Record<Kind, string> = { change_order: "Changes to the work", affidavit: "Job complete sign-off" };
@@ -169,7 +172,6 @@ export const get = query({
     const estimate = await ctx.db.get(signoff.estimateId);
     if (estimate === null) return null;
     const [organization, client] = await Promise.all([ctx.db.get(signoff.organizationId), estimate.clientId ? ctx.db.get(estimate.clientId) : null]);
-    const paid = signoff.kind === "affidavit" ? paymentSummary(contractTotal(estimate), await invoicesFor(ctx, estimate._id)).paid : undefined;
     return {
       kind: signoff.kind,
       name: NAMES[signoff.kind],
@@ -186,7 +188,6 @@ export const get = query({
       newTotal: signoff.newTotal,
       difference: signoff.newTotal !== undefined && signoff.previousTotal !== undefined ? cents(signoff.newTotal - signoff.previousTotal) : undefined,
       contractTotal: contractTotal(estimate),
-      paid,
       completionDate: signoff.completionDate,
       document: {
         name: signoff.document.name,

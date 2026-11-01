@@ -12,7 +12,6 @@ jest.mock('../../components/settings/NotificationsSettings', () => ({ Notificati
 jest.mock('../../components/settings/ConnectedAssistants', () => ({ ConnectedAssistants: stub('assistants') }));
 jest.mock('../../components/settings/ContractsSettings', () => ({ ContractsSettings: stub('contracts') }));
 jest.mock('../../components/settings/TemplatesSettings', () => ({ TemplatesSettings: stub('templates') }));
-jest.mock('../../components/settings/PaymentsSettings', () => ({ PaymentsSettings: stub('payments') }));
 jest.mock('../../components/settings/ClientRemindersSettings', () => ({ ClientRemindersSettings: stub('reminders') }));
 jest.mock('../../components/layouts/DashboardLayout', () => {
   const { createContext } = jest.requireActual('react');

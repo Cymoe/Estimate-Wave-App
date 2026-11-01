@@ -9,7 +9,7 @@ export function confirmApproval(estimate: Estimate): boolean {
   const who = estimate.client?.name ? ` for ${estimate.client.name}` : '';
   return window.confirm(
     `Approve ${estimate.estimate_number ?? 'this estimate'}${who} without a signature?\n\n` +
-      'Use this when they agreed in person or on the phone. The agreement locks as it stands and the deposit is requested. ' +
+      'Use this when they agreed in person or on the phone. The agreement locks as it stands. ' +
       'It will show as approved by you, not signed by the client.',
   );
 }

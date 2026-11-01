@@ -13,7 +13,6 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { withCategories } from "./lib/categories";
 import { lockContract } from "./lib/contract";
-import { askForDeposit } from "./lib/invoicing";
 import { deletePhotos } from "./photos";
 import {
   CHOICE_KEY,
@@ -182,7 +181,6 @@ export const updateDef = mutationDef({
       ...(patch.status === "sent" && !doc.sentAt ? { sentAt: now } : {}),
       updatedAt: now,
     });
-    if ("contractLockedAt" in lock) await askForDeposit(ctx, (await ctx.db.get(id))!, user._id);
     if (patch.status !== undefined && patch.status !== doc.status) {
       await logActivity(ctx, {
         organizationId: doc.organizationId,
@@ -221,7 +219,6 @@ export const approve = mutation({
     const now = nowIso();
     const lock = doc.contractLockedAt ? {} : await lockContract(ctx, doc, now);
     await ctx.db.patch(id, { status: "accepted", approvedAt: now, approvedBy: approver(user), ...lock, updatedAt: now });
-    if ("contractLockedAt" in lock) await askForDeposit(ctx, (await ctx.db.get(id))!, user._id);
     await logActivity(ctx, {
       organizationId: doc.organizationId,
       userId: user._id,
@@ -243,7 +240,7 @@ export const remove = mutation({
       if (file && (await ctx.db.system.get(file.storageId)) !== null)
         await ctx.storage.delete(file.storageId);
     }
-    // Its invoices, photos and change orders go with it.
+    // Its photos and change orders go with it, and any invoices from when invoicing existed.
     await deletePhotos(ctx, { estimateId: id });
     for (const signoff of await ctx.db.query("signoffs").withIndex("by_estimate", (q) => q.eq("estimateId", id)).take(100))
       await ctx.db.delete(signoff._id);
@@ -302,7 +299,6 @@ export const sign = mutation({
       ...lock,
       updatedAt: now,
     });
-    await askForDeposit(ctx, (await ctx.db.get(id))!, user._id);
     await stampSignedCopies(ctx, id);
     await logActivity(ctx, {
       organizationId: doc.organizationId,

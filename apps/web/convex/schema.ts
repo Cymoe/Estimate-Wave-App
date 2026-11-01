@@ -277,8 +277,7 @@ export const estimateFields = {
   remindersOff: v.optional(v.boolean()),
 };
 
-// A payment the company recorded on an invoice: check, cash, Zelle, a card
-// taken elsewhere. Card payments through Webb Leads come later (Stripe Connect).
+// A payment recorded on an invoice, from when invoicing existed (no longer used).
 export const invoicePayment = v.object({
   _id: v.string(),
   amount: v.number(),
@@ -303,8 +302,7 @@ export const invoiceFields = {
   payments: v.optional(v.array(invoicePayment)),
 };
 
-// How a company gets paid: the deposit asked when an estimate is signed,
-// and where the client pays (the company's own pay link and instructions).
+// How a company got paid, from when invoicing existed (no longer used or shown).
 export const paymentSettings = v.object({
   depositPercent: v.number(),
   payLink: v.optional(v.string()),
@@ -525,7 +523,7 @@ export default defineSchema({
     plan: v.optional(planFields),
     // Demo company added from the Lead Market; removable in one click.
     isSample: v.optional(v.boolean()),
-    // How clients pay the company (organizations.setPayments).
+    // From when invoicing existed; no longer used or shown.
     payments: v.optional(paymentSettings),
     // Reminder emails to clients who haven't signed (organizations.setFollowUps).
     // Absent means on, after 3 days.

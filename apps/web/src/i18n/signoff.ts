@@ -12,8 +12,8 @@ const en = {
   contractBefore: 'Contract before',
   change: 'Change',
   newTotal: 'New contract total',
-  affidavit: (p: { estimate: string; address: string; company: string; day: string; total: string; paid?: string }) =>
-    `I confirm that the work under estimate ${p.estimate}${p.address ? ` at ${p.address}` : ''} was completed by ${p.company} on ${p.day}, for a contract total of ${p.total}${p.paid !== undefined ? `, of which ${p.paid} has been paid` : ''}. This sign-off releases any liens, claims or encumbrances against the property for this work, as the contract provides.`,
+  affidavit: (p: { estimate: string; address: string; company: string; day: string; total: string }) =>
+    `I confirm that the work under estimate ${p.estimate}${p.address ? ` at ${p.address}` : ''} was completed by ${p.company} on ${p.day}, for a contract total of ${p.total}. This sign-off releases any liens, claims or encumbrances against the property for this work, as the contract provides.`,
   theContractor: 'the contractor',
   theCompany: 'The company',
   companyDocument: (company: string) => `${company}’s document · PDF`,
@@ -46,7 +46,7 @@ const es: typeof en = {
   change: 'Cambio',
   newTotal: 'Nuevo total del contrato',
   affidavit: (p) =>
-    `Confirmo que el trabajo del presupuesto ${p.estimate}${p.address ? ` en ${p.address}` : ''} fue terminado por ${p.company} el ${p.day}, por un total de contrato de ${p.total}${p.paid !== undefined ? `, del cual se han pagado ${p.paid}` : ''}. Esta confirmación libera cualquier gravamen, reclamo o carga sobre la propiedad por este trabajo, según lo establece el contrato.`,
+    `Confirmo que el trabajo del presupuesto ${p.estimate}${p.address ? ` en ${p.address}` : ''} fue terminado por ${p.company} el ${p.day}, por un total de contrato de ${p.total}. Esta confirmación libera cualquier gravamen, reclamo o carga sobre la propiedad por este trabajo, según lo establece el contrato.`,
   theContractor: 'el contratista',
   theCompany: 'La empresa',
   companyDocument: (company) => `Documento de ${company} · PDF`,

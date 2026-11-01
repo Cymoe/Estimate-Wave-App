@@ -27,7 +27,6 @@ interface SignoffView {
   newTotal?: number;
   difference?: number;
   contractTotal: number;
-  paid?: number;
   completionDate?: string;
   document: { name: string; source: 'tolliver' | 'upload'; fileName?: string; url?: string; sha256?: string; signedUrl?: string };
   signerName?: string;
@@ -147,7 +146,6 @@ function SignoffContent() {
                 company: view.company?.name ?? t.theContractor,
                 day: formatLongDate(view.completionDate, lang),
                 total: formatCurrency(view.contractTotal),
-                paid: view.paid !== undefined ? formatCurrency(view.paid) : undefined,
               })}
             </p>
           )}

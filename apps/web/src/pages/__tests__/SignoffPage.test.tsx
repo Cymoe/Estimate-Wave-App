@@ -107,21 +107,20 @@ describe('client signoff page', () => {
     expect(link?.getAttribute('href')).toBe('https://files/co-signed.pdf');
   });
 
-  it("the affidavit states the completion and what's paid, and the company's PDF must be ticked as read", async () => {
+  it("the affidavit states the completion and the contract total, and the company's PDF must be ticked as read", async () => {
     view = {
       ...changeOrder,
       kind: 'affidavit',
       name: 'Affidavit of Completion',
       number: 'AFF-2026-1',
       completionDate: '2026-11-20',
-      paid: 9700,
       contractTotal: 9700,
       propertyAddress: '1201 Elm St, Midland',
       document: { name: 'Peak Lien Release', source: 'upload', url: 'https://files/lien.pdf' },
     };
     await open();
     expect(document.body.textContent).toContain(
-      'at 1201 Elm St, Midland was completed by Peak Roofing on November 20, 2026, for a contract total of $9,700.00, of which $9,700.00 has been paid',
+      'at 1201 Elm St, Midland was completed by Peak Roofing on November 20, 2026, for a contract total of $9,700.00.',
     );
     expect(document.body.querySelector('a[href="https://files/lien.pdf"]')).not.toBeNull();
     await act(async () => button('draw').click());
@@ -164,7 +163,6 @@ describe('client signoff page', () => {
       name: 'Affidavit of Completion',
       number: 'AFF-2026-1',
       completionDate: '2026-11-20',
-      paid: 9700,
       contractTotal: 9700,
       propertyAddress: '1201 Elm St, Midland',
       clientLanguage: 'es',
@@ -172,7 +170,7 @@ describe('client signoff page', () => {
     await open();
     expect(document.body.textContent).toContain('Confirmación de obra terminada');
     expect(document.body.textContent).toContain(
-      'Confirmo que el trabajo del presupuesto EST-2026-000001 en 1201 Elm St, Midland fue terminado por Peak Roofing el 20 de noviembre de 2026, por un total de contrato de $9,700.00, del cual se han pagado $9,700.00.',
+      'Confirmo que el trabajo del presupuesto EST-2026-000001 en 1201 Elm St, Midland fue terminado por Peak Roofing el 20 de noviembre de 2026, por un total de contrato de $9,700.00.',
     );
     expect(button('Firmar: la obra está terminada')).toBeTruthy();
     view = null;

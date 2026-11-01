@@ -8,7 +8,7 @@ import { ClientService, type Client } from '../../services/ClientService';
 import { ExpenseService, paymentState, summarize, type Expense } from '../../services/ExpenseService';
 import { EstimateService, type Estimate } from '../../services/EstimateService';
 import { formatCurrency } from '../../utils/format';
-import { invoicesAPI, tasksAPI, templatesAPI, type ProjectTask } from '../../lib/api';
+import { tasksAPI, templatesAPI, type ProjectTask } from '../../lib/api';
 import { ExpensesList } from '../expenses/ExpensesList';
 import { JobPhotos } from '../common/JobPhotos';
 import { ProjectTasks } from './ProjectTasks';
@@ -292,8 +292,6 @@ export const ProjectPanel: React.FC<{
   const [client, setClient] = useState<Client | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [estimates, setEstimates] = useState<Estimate[] | null>(null);
-  // What the client has paid so far on the project's signed estimates.
-  const [collected, setCollected] = useState<{ paid: number; due: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const { toast, show: showToast } = useToast();
@@ -361,17 +359,6 @@ export const ProjectPanel: React.FC<{
       setAdding(false);
     }
   };
-
-  useEffect(() => {
-    let live = true;
-    invoicesAPI
-      .forProject(projectId)
-      .then((money) => live && setCollected(money))
-      .catch(() => live && setCollected(null));
-    return () => {
-      live = false;
-    };
-  }, [projectId, estimates]);
 
   // The next few open tasks, for the Overview; reloaded when the Tasks tab changes the count.
   useEffect(() => {
@@ -587,13 +574,7 @@ export const ProjectPanel: React.FC<{
                 <div className={`text-lg font-semibold truncate ${contract > 0 ? 'text-white' : 'text-gray-500'}`}>
                   {contract > 0 ? formatCurrency(contract) : '—'}
                 </div>
-                <div className="text-xs text-gray-500 mt-0.5">
-                  {contract <= 0
-                    ? 'no accepted estimate'
-                    : collected && (collected.paid > 0 || collected.due > 0)
-                      ? `${formatCurrency(collected.paid)} collected${collected.due > 0 ? `, ${formatCurrency(collected.due)} due` : ''}`
-                      : 'accepted estimates'}
-                </div>
+                <div className="text-xs text-gray-500 mt-0.5">{contract <= 0 ? 'no accepted estimate' : 'accepted estimates'}</div>
               </div>
               <button type="button" onClick={() => openExpenses(false)} className="p-4 min-w-0 text-left hover:bg-[#222]">
                 <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Costs</div>
