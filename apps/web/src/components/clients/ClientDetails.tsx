@@ -9,6 +9,7 @@ import { formatCurrency } from '../../utils/format';
 import { NoteRow, SaveStatus, noteInput, noteSelect, noteTextarea, noteTitle, useNoteFields } from '../common/StructuredNote';
 import { LANGUAGE_OPTIONS } from '../../i18n/lang';
 import { projectStatusInfo } from '../projects/projectStatus';
+import { ClientReferrals } from './ClientReferrals';
 
 type Draft = {
   name: string;
@@ -247,6 +248,7 @@ const ClientNote: React.FC<{ client: Client | null }> = ({ client }) => {
               </button>
             ))}
           </Section>
+          {client.id && <ClientReferrals clientId={client.id} />}
         </>
       )}
 

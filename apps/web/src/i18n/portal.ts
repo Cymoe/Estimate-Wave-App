@@ -79,6 +79,46 @@ const en = {
     failed: "Your pick couldn't be sent. Please try again.",
     previewForm: 'Your client picks here: a link to the product, its name and price.',
   },
+  /** Once a job is done: the thank-you cards (a review, a referral). */
+  perks: {
+    heading: 'A thank-you from us',
+    reviewTitle: 'How did we do?',
+    reviewBody: (company: string) => `A quick review helps ${company} more than anything. It takes a minute.`,
+    reviewButton: 'Leave a review',
+    referTitle: 'Know someone who needs work done?',
+    referBody: (reward: string) => `Send them your link. When they sign a job with us, you get ${reward}.`,
+    referButton: 'Share your link',
+    copied: 'Link copied. Paste it in a text or email.',
+    shareText: (company: string) => `I had ${company} work on my home and they did a great job. Here's their page:`,
+    stats: (referred: number, earned: number) =>
+      [
+        referred ? `${referred} ${referred === 1 ? 'friend' : 'friends'} sent their way` : '',
+        earned ? `${earned} ${earned === 1 ? 'reward' : 'rewards'} earned` : '',
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    failed: "That didn't work. Please try again.",
+  },
+  /** A finished job's home file: when it was done, its warranty, and asking for warranty service. */
+  homeFile: {
+    finished: (day: string) => `Finished ${day}`,
+    warranty: 'Warranty',
+    period: (period: string) => `${period} warranty`,
+    coveredUntil: (day: string) => `Covered until ${day}`,
+    ended: (day: string) => `Ended ${day}`,
+    request: 'Request warranty service',
+    label: 'What needs looking at?',
+    placeholder: 'e.g. Grout cracking by the tub',
+    send: 'Send request',
+    sending: 'Sending...',
+    cancel: 'Cancel',
+    sent: "Sent. We'll be in touch to set a time.",
+    requested: (day: string) => `Sent ${day}`,
+    onIt: "We're on it",
+    fixed: 'Fixed',
+    failed: "Your request couldn't be sent. Please try again.",
+    previewForm: 'Your client asks for warranty service here; it lands on the project as a task.',
+  },
 };
 
 const es: typeof en = {
@@ -147,9 +187,88 @@ const es: typeof en = {
     failed: 'No se pudo enviar tu selección. Inténtalo de nuevo.',
     previewForm: 'Tu cliente elige aquí: un enlace al producto, su nombre y precio.',
   },
+  perks: {
+    heading: 'Un agradecimiento de nuestra parte',
+    reviewTitle: '¿Qué tal lo hicimos?',
+    reviewBody: (company) => `Una reseña rápida ayuda a ${company} más que nada. Toma un minuto.`,
+    reviewButton: 'Dejar una reseña',
+    referTitle: '¿Conoces a alguien que necesite un trabajo?',
+    referBody: (reward) => `Mándale tu enlace. Cuando firme un trabajo con nosotros, recibes ${reward}.`,
+    referButton: 'Compartir tu enlace',
+    copied: 'Enlace copiado. Pégalo en un mensaje o correo.',
+    shareText: (company) => `${company} hizo un trabajo en mi casa y quedó muy bien. Esta es su página:`,
+    stats: (referred, earned) =>
+      [
+        referred ? `${referred} ${referred === 1 ? 'amigo enviado' : 'amigos enviados'}` : '',
+        earned ? `${earned} ${earned === 1 ? 'recompensa ganada' : 'recompensas ganadas'}` : '',
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    failed: 'No funcionó. Inténtalo de nuevo.',
+  },
+  homeFile: {
+    finished: (day) => `Terminado el ${day}`,
+    warranty: 'Garantía',
+    period: (period) => `Garantía de ${period}`,
+    coveredUntil: (day) => `Cubierto hasta el ${day}`,
+    ended: (day) => `Terminó el ${day}`,
+    request: 'Pedir servicio de garantía',
+    label: '¿Qué hay que revisar?',
+    placeholder: 'p. ej. grietas en la lechada junto a la tina',
+    send: 'Enviar solicitud',
+    sending: 'Enviando...',
+    cancel: 'Cancelar',
+    sent: 'Enviado. Te contactaremos para fijar una hora.',
+    requested: (day) => `Enviado el ${day}`,
+    onIt: 'Estamos en ello',
+    fixed: 'Arreglado',
+    failed: 'No se pudo enviar tu solicitud. Inténtalo de nuevo.',
+    previewForm: 'Tu cliente pide servicio de garantía aquí; llega al proyecto como una tarea.',
+  },
 };
 
 export const PORTAL: Record<Lang, typeof en> = { en, es };
+
+/** The page a friend opens from a client's referral link (/r/:code). */
+const referralEn = {
+  loading: 'Loading…',
+  invalid: "This link isn't valid any more.",
+  heading: (referrer: string, company: string) => `${referrer} sent you to ${company}`,
+  body: "Leave your details and they'll reach out about your project. No obligation.",
+  name: 'Your name',
+  phone: 'Phone',
+  email: 'Email',
+  orEmail: 'A phone number or email, so they can reach you.',
+  address: 'Address (optional)',
+  note: 'What do you need done? (optional)',
+  notePlaceholder: 'e.g. Kitchen remodel next spring',
+  send: 'Send',
+  sending: 'Sending...',
+  doneTitle: 'Thanks! You’re all set.',
+  doneBody: (company: string) => `${company} will be in touch soon.`,
+  call: (company: string) => `Or call ${company}`,
+  failed: "That couldn't be sent. Please try again.",
+};
+const referralEs: typeof referralEn = {
+  loading: 'Cargando…',
+  invalid: 'Este enlace ya no es válido.',
+  heading: (referrer, company) => `${referrer} te recomienda ${company}`,
+  body: 'Deja tus datos y te contactarán sobre tu proyecto. Sin compromiso.',
+  name: 'Tu nombre',
+  phone: 'Teléfono',
+  email: 'Correo',
+  orEmail: 'Un teléfono o correo, para que te contacten.',
+  address: 'Dirección (opcional)',
+  note: '¿Qué necesitas? (opcional)',
+  notePlaceholder: 'p. ej. remodelar la cocina en primavera',
+  send: 'Enviar',
+  sending: 'Enviando...',
+  doneTitle: '¡Gracias! Listo.',
+  doneBody: (company) => `${company} se pondrá en contacto pronto.`,
+  call: (company) => `O llama a ${company}`,
+  failed: 'No se pudo enviar. Inténtalo de nuevo.',
+};
+export const REFERRAL: Record<Lang, typeof referralEn> = { en: referralEn, es: referralEs };
 
 const firstName = (name?: string) => name?.trim().split(/\s+/)[0] || undefined;
 

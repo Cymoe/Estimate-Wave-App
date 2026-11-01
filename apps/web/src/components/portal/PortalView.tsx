@@ -1,6 +1,22 @@
 import React, { useState } from 'react';
-import { CheckCircle2, ChevronRight, Clock, ExternalLink, FileText, FolderOpen, Mail, Palette, PenLine, Phone } from 'lucide-react';
-import { portalAPI, type PortalAsk, type PortalView as View } from '../../lib/api';
+import {
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+  ExternalLink,
+  FileText,
+  FolderOpen,
+  Gift,
+  Mail,
+  Palette,
+  PenLine,
+  Phone,
+  ShieldCheck,
+  Star,
+  Wrench,
+} from 'lucide-react';
+import { portalAPI, referralUrl, type PortalAsk, type PortalView as View } from '../../lib/api';
+import { shareOrCopy } from '../estimates/estimateActions';
 import { formatCurrency } from '../../utils/format';
 import { formatDay } from '../../i18n/lang';
 import { PORTAL } from '../../i18n/portal';
@@ -29,6 +45,7 @@ const TONES = {
   blue: 'bg-blue-50 text-blue-600',
   amber: 'bg-amber-50 text-amber-600',
   green: 'bg-emerald-50 text-emerald-600',
+  pink: 'bg-rose-50 text-rose-500',
 } as const;
 
 /** One thing for the client to do: an icon, what it is, one line of detail, and (in children) its button or form. */
@@ -403,7 +420,21 @@ const STATUS_PILL: Record<string, string> = {
 };
 
 /** One job: its status and dates, progress, the timeline, its documents and the client's picks. */
-function JobCard({ job, t, lang }: { job: Job; t: Strings; lang: Lang }) {
+function JobCard({
+  job,
+  t,
+  lang,
+  token,
+  preview,
+  onChanged,
+}: {
+  job: Job;
+  t: Strings;
+  lang: Lang;
+  token?: string;
+  preview?: boolean;
+  onChanged?: () => Promise<void>;
+}) {
   const steps = stepsOf(job, t, lang);
   const tasks = job.steps ?? [];
   const done = tasks.filter((s) => s.done).length;
@@ -429,7 +460,9 @@ function JobCard({ job, t, lang }: { job: Job; t: Strings; lang: Lang }) {
         )}
       </div>
 
-      {tasks.length > 0 && (
+      {job.completed && <HomeFile job={job} completed={job.completed} lang={lang} token={token} preview={preview} onChanged={onChanged} />}
+
+      {tasks.length > 0 && !job.completed && (
         <div className="mt-4" data-testid="progress">
           <div className="h-2 overflow-hidden rounded-full bg-gray-100">
             <div className="h-full rounded-full bg-blue-600 transition-all" style={{ width: `${Math.round((done / tasks.length) * 100)}%` }} />
@@ -504,6 +537,214 @@ function JobCard({ job, t, lang }: { job: Job; t: Strings; lang: Lang }) {
 
       <p className="mt-4 border-t border-gray-100 pt-3 text-sm text-gray-500">{t.agreed(formatCurrency(job.total))}</p>
     </li>
+  );
+}
+
+/**
+ * A finished job's home file: when it was done, the warranty from the
+ * agreement and how long it has left, and asking for warranty service (it
+ * lands on the company's project as a task).
+ */
+function HomeFile({
+  job,
+  completed,
+  lang,
+  token,
+  preview,
+  onChanged,
+}: {
+  job: Job;
+  completed: NonNullable<Job['completed']>;
+  lang: Lang;
+  token?: string;
+  preview?: boolean;
+  onChanged?: () => Promise<void>;
+}) {
+  const t = PORTAL[lang].homeFile;
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const today = new Date().toISOString().slice(0, 10);
+  const ends = completed.warrantyEnds;
+  const covered = !ends || ends >= today;
+  const longDay = (iso: string) => formatDay(iso, lang, { month: 'short', day: 'numeric', year: 'numeric' });
+  // How much of the warranty is left, for the bar.
+  const left = (() => {
+    if (!ends) return null;
+    const start = new Date(completed.at).getTime();
+    const end = new Date(`${ends}T23:59:59Z`).getTime();
+    return end > start ? Math.min(Math.max((end - Date.now()) / (end - start), 0), 1) : 0;
+  })();
+
+  const send = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      await portalAPI.requestWarranty(token, job.key, note);
+      setNote('');
+      setOpen(false);
+      setMessage(t.sent);
+      await onChanged?.();
+    } catch (err) {
+      setMessage(refusalText(err, lang, t.failed));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 rounded-2xl bg-emerald-50/60 p-4" data-testid="home-file">
+      <p className="flex items-center gap-2 text-[15px] font-semibold text-emerald-800">
+        <CheckCircle2 className="h-[18px] w-[18px]" /> {t.finished(day(completed.at, lang))}
+      </p>
+      {completed.warranty && (
+        <div className="mt-3 rounded-xl bg-white p-4" data-testid="warranty">
+          <div className="flex items-start gap-3">
+            <span className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full ${TONES.green}`}>
+              <ShieldCheck className="h-5 w-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[15px] font-semibold text-gray-900">{t.period(completed.warranty)}</p>
+              {ends && <p className="text-sm text-gray-500">{covered ? t.coveredUntil(longDay(ends)) : t.ended(longDay(ends))}</p>}
+              {left !== null && (
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-100">
+                  <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.round(left * 100)}%` }} />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {completed.requests.length > 0 && (
+            <ul className="mt-3 space-y-2 border-t border-gray-100 pt-3" data-testid="warranty-requests">
+              {completed.requests.map((r, i) => (
+                <li key={`${r.requestedAt}:${i}`} className="flex items-start justify-between gap-3 text-sm">
+                  <span className="min-w-0">
+                    <span className="block text-gray-900">{r.note}</span>
+                    <span className="block text-xs text-gray-400">{t.requested(day(r.requestedAt, lang))}</span>
+                  </span>
+                  <span
+                    className={`flex-shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      r.done ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-600'
+                    }`}
+                  >
+                    {r.done ? t.fixed : t.onIt}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {covered && preview && <p className="mt-3 rounded-xl bg-[#F5F6F8] px-3 py-2.5 text-sm text-gray-500">{t.previewForm}</p>}
+          {covered && !preview && !open && (
+            <button type="button" onClick={() => setOpen(true)} className={`${secondaryButton} !mt-3 inline-flex items-center justify-center gap-2`}>
+              <Wrench className="h-4 w-4" /> {t.request}
+            </button>
+          )}
+          {open && (
+            <form onSubmit={send} className="mt-3 space-y-3" data-testid="warranty-form">
+              <label className="block">
+                <span className="mb-1 block text-sm text-gray-700">{t.label}</span>
+                <textarea
+                  value={note}
+                  maxLength={1000}
+                  rows={3}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder={t.placeholder}
+                  className={field}
+                />
+              </label>
+              <div className="flex items-center gap-3">
+                <button type="submit" disabled={busy || !note.trim()} className={`${primaryButton} !mt-0 flex-1`}>
+                  {busy ? t.sending : t.send}
+                </button>
+                <button type="button" onClick={() => setOpen(false)} disabled={busy} className="px-4 py-3 text-[15px] text-gray-600 hover:text-gray-900">
+                  {t.cancel}
+                </button>
+              </div>
+            </form>
+          )}
+          {message && (
+            <p className="mt-3 text-sm text-gray-600" role="status">
+              {message}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Once a job is done, what the client gets back: a review ask and a referral
+ * link with the company's reward, each when the company set it up.
+ */
+function Perks({ view, lang, token, preview }: { view: View; lang: Lang; token?: string; preview?: boolean }) {
+  const t = PORTAL[lang].perks;
+  const perks = view.perks;
+  const company = view.company?.name ?? PORTAL[lang].theCompany;
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  if (!perks || (!perks.reviewUrl && !perks.referral)) return null;
+  const referral = perks.referral;
+
+  const share = async () => {
+    if (!token || preview) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const code = referral?.code ?? (await portalAPI.shareReferral(token));
+      const how = await shareOrCopy(referralUrl(code), company, t.shareText(company));
+      if (how === 'copied') setMessage(t.copied);
+    } catch {
+      setMessage(t.failed);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const stats = referral ? t.stats(referral.referred, referral.earned) : '';
+  return (
+    <section aria-label={t.heading} data-testid="perks">
+      <h2 className="mb-3 text-[22px] font-bold tracking-tight text-gray-900">{t.heading}</h2>
+      <ul className="space-y-3">
+        {perks.reviewUrl && (
+          <AskShell icon={<Star className="h-5 w-5" />} tone="amber" title={t.reviewTitle} detail={t.reviewBody(company)} newLabel="" testId="perk-review">
+            <a
+              href={perks.reviewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`${primaryButton} inline-flex items-center justify-center gap-1.5`}
+              onClick={preview ? (e) => e.preventDefault() : undefined}
+            >
+              {t.reviewButton} <ExternalLink className="h-4 w-4" />
+            </a>
+          </AskShell>
+        )}
+        {referral && (
+          <AskShell
+            icon={<Gift className="h-5 w-5" />}
+            tone="pink"
+            title={t.referTitle}
+            detail={t.referBody(referral.reward)}
+            newLabel=""
+            testId="perk-referral"
+          >
+            {stats && <p className="mt-3 text-sm font-medium text-rose-600">{stats}</p>}
+            <button type="button" onClick={share} disabled={busy} className={primaryButton}>
+              {t.referButton}
+            </button>
+            {message && (
+              <p className="mt-3 text-sm text-gray-600" role="status">
+                {message}
+              </p>
+            )}
+          </AskShell>
+        )}
+      </ul>
+    </section>
   );
 }
 
@@ -594,6 +835,8 @@ export function PortalView({
         </ul>
       </section>
 
+      <Perks view={view} lang={lang} token={token} preview={preview} />
+
       {view.jobs.length > 0 && (
         <section id="portal-jobs" aria-label={t.yourJobs} data-testid="jobs" className="scroll-mt-6">
           <h2 className="mb-3 flex items-center gap-2 text-[22px] font-bold tracking-tight text-gray-900">
@@ -601,7 +844,7 @@ export function PortalView({
           </h2>
           <ul className="space-y-4">
             {view.jobs.map((job) => (
-              <JobCard key={job.key} job={job} t={t} lang={lang} />
+              <JobCard key={job.key} job={job} t={t} lang={lang} token={token} preview={preview} onChanged={onPicked} />
             ))}
           </ul>
         </section>

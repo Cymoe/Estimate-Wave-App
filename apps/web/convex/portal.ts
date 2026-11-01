@@ -2,10 +2,13 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { fail, getOwned, logActivity, nowIso } from "./lib/access";
+import { resolveTerms } from "./lib/contractDefaults";
 import { isLang, langOf } from "./lib/i18n";
 import { logoUrlOf } from "./lib/organizations";
+import { newReferralCode, warrantyEnds } from "./lib/perks";
 import { allowanceUnitPrice, cleanLink, selectionsFor } from "./lib/selections";
 import { cents } from "./lib/totals";
+import { referralsOf } from "./referrals";
 import { changesSince, createSignoff } from "./signoffs";
 
 // The client portal: one private link per client, no login, with everything
@@ -112,6 +115,11 @@ async function portalView(ctx: QueryCtx, client: Doc<"clients">, preview: boolea
     startDate?: string;
     endDate?: string;
     steps?: Array<{ title: string; start?: string; end?: string; done: boolean }>;
+    // Once the job-complete sign-off is signed: when, the warranty from the
+    // agreement and when it ends, and what the client has asked to be fixed.
+    completedAt?: string;
+    warrantyPeriod?: string;
+    warrantyRequests?: Array<{ note: string; requestedAt: string; done: boolean }>;
   };
   const jobs = new Map<string, Job>();
 
@@ -129,6 +137,15 @@ async function portalView(ctx: QueryCtx, client: Doc<"clients">, preview: boolea
 
     const project = estimate.projectId ? await ctx.db.get(estimate.projectId) : null;
     const key = project ? `p:${project._id}` : `e:${estimate._id}`;
+    const tasks =
+      project && !jobs.has(key)
+        ? (
+            await ctx.db
+              .query("projectTasks")
+              .withIndex("by_project", (q) => q.eq("projectId", project._id))
+              .take(200)
+          ).sort((a, b) => a.order - b.order)
+        : [];
     const job = jobs.get(key) ?? {
       key,
       name: project?.name ?? estimate.title ?? estimate.estimateNumber,
@@ -141,17 +158,18 @@ async function portalView(ctx: QueryCtx, client: Doc<"clients">, preview: boolea
             status: project.status,
             startDate: project.startDate,
             endDate: project.endDate,
-            steps: (
-              await ctx.db
-                .query("projectTasks")
-                .withIndex("by_project", (q) => q.eq("projectId", project._id))
-                .take(200)
-            )
-              .sort((a, b) => a.order - b.order)
+            steps: tasks
+              .filter((task) => !task.warrantyRequest)
               .map((task) => ({ title: task.title, start: task.startDate, end: task.endDate, done: task.doneAt !== undefined })),
+            warrantyRequests: tasks
+              .filter((task) => task.warrantyRequest)
+              .map((task) => ({ note: task.warrantyRequest!.note, requestedAt: task.warrantyRequest!.requestedAt, done: task.doneAt !== undefined }))
+              .reverse(),
           }
         : {}),
     };
+    // The warranty is the job's first agreement's (later change orders don't change it).
+    job.warrantyPeriod ??= resolveTerms(organization?.agreement, estimate.contractSnapshot.terms).warrantyPeriod;
     const signedAt = estimate.signedAt ?? estimate.approvedAt ?? estimate.contractLockedAt;
     job.total = cents(job.total + estimate.contractSnapshot.totalAmount);
     job.documents.push({
@@ -180,6 +198,7 @@ async function portalView(ctx: QueryCtx, client: Doc<"clients">, preview: boolea
         });
       if (s.status === "signed") {
         job.documents.push({ kind: s.kind, number: s.number, signedAt: s.signedAt, path: `/share/signoff/${s.token}` });
+        if (s.kind === "affidavit" && s.signedAt) job.completedAt = [job.completedAt ?? "", s.signedAt].sort().at(-1);
         job.latest = [job.latest, s.signedAt ?? ""].sort().at(-1)!;
       }
     }
@@ -233,8 +252,27 @@ async function portalView(ctx: QueryCtx, client: Doc<"clients">, preview: boolea
       (a.kind === "selection" && b.kind === "selection" ? (a.pickBy ?? "9").localeCompare(b.pickBy ?? "9") : 0) ||
       a.at.localeCompare(b.at),
   );
+  const done = [...jobs.values()].some((job) => job.completedAt);
+  const perks = organization?.perks;
   return {
     client: { name: client.name, language: langOf(client) },
+    // What the client gets back once a job is done: a review ask and a referral link, each when the company set one up.
+    perks: done
+      ? {
+          reviewUrl: perks?.reviewUrl,
+          referral: perks?.referralReward
+            ? await (async () => {
+                const referrals = await referralsOf(ctx, client);
+                return {
+                  reward: perks.referralReward!,
+                  code: client.referralCode,
+                  referred: referrals.length,
+                  earned: referrals.filter((r) => r.earned).length,
+                };
+              })()
+            : undefined,
+        }
+      : undefined,
     company: organization
       ? { name: organization.name, phone: organization.phone, email: organization.email, logoUrl: await logoUrlOf(ctx, organization) }
       : undefined,
@@ -251,6 +289,15 @@ async function portalView(ctx: QueryCtx, client: Doc<"clients">, preview: boolea
         startDate: job.startDate,
         endDate: job.endDate,
         steps: job.steps,
+        completed: job.completedAt
+          ? {
+              at: job.completedAt,
+              warranty: job.warrantyPeriod,
+              warrantyEnds: warrantyEnds(job.completedAt, job.warrantyPeriod),
+              // On a job with a project; a job without one sends requests to Leads.
+              requests: job.warrantyRequests ?? [],
+            }
+          : undefined,
       })),
   };
 }
@@ -412,6 +459,128 @@ export const setLanguage = mutation({
     const client = await clientByToken(ctx, token);
     if (client === null) fail("NOT_FOUND", "This link isn't valid", "link_invalid");
     if (client.language !== language) await ctx.db.patch(client._id, { language, updatedAt: nowIso() });
+    return null;
+  },
+});
+
+/** The client's referral link, made the first time they share it. */
+export const shareReferral = mutation({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    const client = await clientByToken(ctx, token);
+    if (client === null) fail("NOT_FOUND", "This link isn't valid", "link_invalid");
+    if (client.referralCode) return client.referralCode;
+    let code = newReferralCode();
+    while (
+      await ctx.db
+        .query("clients")
+        .withIndex("by_referral_code", (q) => q.eq("referralCode", code))
+        .first()
+    )
+      code = newReferralCode();
+    await ctx.db.patch(client._id, { referralCode: code, updatedAt: nowIso() });
+    return code;
+  },
+});
+
+const MAX_WARRANTY_REQUESTS_PER_DAY = 5;
+
+/**
+ * The client asks for warranty service on a finished job: a task on the
+ * job's project (shown on their portal under the warranty until it's done),
+ * or, for a job with no project, a lead.
+ */
+export const requestWarranty = mutation({
+  args: { token: v.string(), jobKey: v.string(), note: v.string() },
+  handler: async (ctx, { token, jobKey, note }) => {
+    const client = await clientByToken(ctx, token);
+    if (client === null) fail("NOT_FOUND", "This link isn't valid", "link_invalid");
+    const text = note.trim().slice(0, 1000);
+    if (!text) fail("INVALID", "Say what needs looking at", "warranty_note");
+
+    // The job must be this client's and finished (its job-complete sign-off signed).
+    const [kind, rawId] = [jobKey.slice(0, 2), jobKey.slice(2)];
+    const projectId = kind === "p:" ? ctx.db.normalizeId("projects", rawId) : null;
+    const estimateId = kind === "e:" ? ctx.db.normalizeId("estimates", rawId) : null;
+    const estimates = projectId
+      ? await ctx.db
+          .query("estimates")
+          .withIndex("by_project", (q) => q.eq("projectId", projectId))
+          .take(100)
+      : estimateId
+        ? [await ctx.db.get(estimateId)].filter((e): e is Doc<"estimates"> => e !== null)
+        : [];
+    const mine = estimates.filter((e) => e.clientId === client._id && e.status === "accepted" && e.contractSnapshot);
+    let finished = false;
+    for (const estimate of mine)
+      if (
+        (
+          await ctx.db
+            .query("signoffs")
+            .withIndex("by_estimate", (q) => q.eq("estimateId", estimate._id))
+            .take(100)
+        ).some((s) => s.kind === "affidavit" && s.status === "signed")
+      )
+        finished = true;
+    const estimate = mine[0];
+    if (!estimate || !finished) fail("NOT_FOUND", "That job isn't finished yet", "warranty_job");
+
+    const now = nowIso();
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const project = projectId ? await ctx.db.get(projectId) : null;
+    if (project) {
+      const tasks = await ctx.db
+        .query("projectTasks")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .take(500);
+      if (tasks.filter((t) => t.warrantyRequest && t.warrantyRequest.requestedAt >= since).length >= MAX_WARRANTY_REQUESTS_PER_DAY)
+        fail("INVALID", "You've sent a few today. Please call the company instead.", "warranty_limit");
+      const id = await ctx.db.insert("projectTasks", {
+        organizationId: project.organizationId,
+        projectId: project._id,
+        title: `Warranty request: ${text.length > 60 ? `${text.slice(0, 57)}…` : text}`,
+        notes: text,
+        crewIds: [],
+        order: tasks.reduce((max, t) => Math.max(max, t.order), -1) + 1,
+        warrantyRequest: { note: text, requestedAt: now },
+        createdBy: project.userId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await logActivity(ctx, {
+        organizationId: project.organizationId,
+        userId: project.userId,
+        action: "warranty_requested",
+        resourceType: "project",
+        resourceId: project._id,
+        details: { client: client.name, note: text, taskId: id },
+      });
+    } else {
+      const id = await ctx.db.insert("leads", {
+        status: "new",
+        name: client.name,
+        phone: client.phone,
+        email: client.email,
+        address: client.address,
+        notes: text,
+        source: "Warranty request",
+        clientId: client._id,
+        estimateId: estimate._id,
+        language: client.language,
+        organizationId: client.organizationId,
+        userId: estimate.userId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await logActivity(ctx, {
+        organizationId: client.organizationId,
+        userId: estimate.userId,
+        action: "warranty_requested",
+        resourceType: "lead",
+        resourceId: id,
+        details: { client: client.name, note: text, estimateNumber: estimate.estimateNumber },
+      });
+    }
     return null;
   },
 });

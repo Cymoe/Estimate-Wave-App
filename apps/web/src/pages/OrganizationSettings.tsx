@@ -10,6 +10,7 @@ import { ContractsSettings } from '../components/settings/ContractsSettings';
 import { TemplatesSettings } from '../components/settings/TemplatesSettings';
 import { ClientRemindersSettings } from '../components/settings/ClientRemindersSettings';
 import { SalesModeSetting } from '../components/settings/SalesModeSetting';
+import { ClientPerksSetting } from '../components/settings/ClientPerksSetting';
 
 export default function OrganizationSettings() {
   const navigate = useNavigate();
@@ -101,7 +102,7 @@ export default function OrganizationSettings() {
 
         {/* Content */}
         <div className="flex-1 min-w-0 p-4 md:p-6">
-          <div className="max-w-4xl">
+          <div className="max-w-4xl space-y-6">
             {activeTab === 'general' && (
               <div className="bg-[#1A1A1A] rounded-lg p-6">
                 <h2 className="text-lg font-semibold text-white mb-4">Business Details</h2>
@@ -119,6 +120,8 @@ export default function OrganizationSettings() {
                 onChange={(on) => setSelectedOrg({ ...selectedOrg, sales_mode: on })}
               />
             )}
+
+            {activeTab === 'general' && <ClientPerksSetting organizationId={selectedOrg.id} />}
 
             {activeTab === 'trades' && (
               <div className="bg-[#1A1A1A] rounded-lg p-6">

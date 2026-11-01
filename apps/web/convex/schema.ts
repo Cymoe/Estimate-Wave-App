@@ -559,6 +559,10 @@ export default defineSchema({
     // Sales mode (organizations.setSalesMode): the red line, cap, pricing options and commission
     // for companies with sales reps. Off, an owner prices freely and none of it shows.
     salesMode: v.optional(v.boolean()),
+    // What clients get back once a job is done (organizations.setPerks): the
+    // link to the company's review page, and the reward for a referral that
+    // becomes a signed job. Each card shows in the portal only when set.
+    perks: v.optional(v.object({ reviewUrl: v.optional(v.string()), referralReward: v.optional(v.string()) })),
     ...timestamps,
   }).index("by_slug", ["slug"]),
 
@@ -1157,10 +1161,13 @@ export default defineSchema({
     // The client's portal link (convex/portal.ts): the key to everything for
     // their jobs, no login. Removed to turn the link off.
     portalToken: v.optional(v.string()),
+    // The client's referral link (/r/:code), made the first time they share it.
+    referralCode: v.optional(v.string()),
     ...timestamps,
   })
     .index("by_organization", ["organizationId"])
-    .index("by_portal_token", ["portalToken"]),
+    .index("by_portal_token", ["portalToken"])
+    .index("by_referral_code", ["referralCode"]),
 
   projects: defineTable({
     ...projectFields,
@@ -1302,6 +1309,9 @@ export default defineSchema({
     crewIds: v.array(v.id("crew")),
     doneAt: v.optional(v.string()),
     order: v.number(),
+    // Sent by the client from their portal ("Request warranty service"): kept
+    // off the job's timeline there and listed under its warranty instead.
+    warrantyRequest: v.optional(v.object({ note: v.string(), requestedAt: v.string() })),
     createdBy: v.id("users"),
     createdAt: v.string(),
     updatedAt: v.string(),
@@ -1383,6 +1393,9 @@ export default defineSchema({
     ...leadFields,
     clientId: v.optional(v.id("clients")),
     estimateId: v.optional(v.id("estimates")),
+    // Sent by a past client's referral link; when they were given their reward.
+    referredByClientId: v.optional(v.id("clients")),
+    referralRewardPaidAt: v.optional(v.string()),
     // Example data added from the empty Leads page; removable in one click.
     isSample: v.optional(v.boolean()),
     // When the city was last worked out automatically, so it isn't looked up again.
@@ -1433,7 +1446,9 @@ export default defineSchema({
     organizationId: v.id("organizations"),
     userId: v.id("users"),
     ...timestamps,
-  }).index("by_organization", ["organizationId"]),
+  })
+    .index("by_organization", ["organizationId"])
+    .index("by_referrer", ["referredByClientId"]),
 
   expenses: defineTable({
     ...expenseFields,

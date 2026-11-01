@@ -5,6 +5,7 @@ import { fail, isSuperAdmin, nowIso, organizationIdsFor, pick, requireMember, re
 import { fileType } from "./lib/contractDocs";
 import { createOrganizationWithOwner, logoUrlOf, uniqueSlug } from "./lib/organizations";
 import { organizationFields } from "./schema";
+import { cleanLink } from "./lib/selections";
 
 /** Organizations the signed-in user belongs to (all of them for super admins). */
 export const list = query({
@@ -145,6 +146,28 @@ export const setSalesMode = mutation({
     await requireMember(ctx, id, "admin");
     await ctx.db.patch(id, { salesMode: on || undefined, updatedAt: nowIso() });
     return on;
+  },
+});
+
+/**
+ * What clients get back once a job is done: the company's review page (Google,
+ * Yelp, …) and the reward for a referral that becomes a signed job. Empty
+ * clears it; each shows in the client portal only when set.
+ */
+export const setPerks = mutation({
+  args: { id: v.id("organizations"), reviewUrl: v.optional(v.string()), referralReward: v.optional(v.string()) },
+  handler: async (ctx, { id, reviewUrl, referralReward }) => {
+    await requireMember(ctx, id, "admin");
+    let review: string | undefined;
+    if (reviewUrl?.trim()) {
+      const link = cleanLink(reviewUrl);
+      if (!link) fail("INVALID", "That review link doesn't look like a web address", "bad_link");
+      review = link!;
+    }
+    const reward = referralReward?.trim().slice(0, 120) || undefined;
+    const perks = review || reward ? { reviewUrl: review, referralReward: reward } : undefined;
+    await ctx.db.patch(id, { perks, updatedAt: nowIso() });
+    return perks ?? null;
   },
 });
 

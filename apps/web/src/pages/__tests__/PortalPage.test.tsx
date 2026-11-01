@@ -7,12 +7,21 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 let view: Record<string, unknown> | null = null;
 const pick = jest.fn<Promise<null>, [string, string, string, Record<string, unknown>]>(async () => null);
 const setLanguage = jest.fn(async () => {});
+const shareReferral = jest.fn<Promise<string>, [string]>(async () => 'abcd2345');
+const requestWarranty = jest.fn<Promise<null>, [string, string, string]>(async () => null);
 jest.mock('../../lib/api', () => ({
   portalAPI: {
     get: async () => view,
     pick: (token: string, estimateId: string, itemId: string, chosen: Record<string, unknown>) => pick(token, estimateId, itemId, chosen),
     setLanguage: (token: string, language: string) => setLanguage(token, language),
+    shareReferral: (token: string) => shareReferral(token),
+    requestWarranty: (token: string, jobKey: string, note: string) => requestWarranty(token, jobKey, note),
   },
+  referralUrl: (code: string) => `https://app.example/r/${code}`,
+}));
+const shareOrCopy = jest.fn<Promise<string>, [string, string, string]>(async () => 'copied');
+jest.mock('../../components/estimates/estimateActions', () => ({
+  shareOrCopy: (url: string, title: string, text: string) => shareOrCopy(url, title, text),
 }));
 
 import { PortalPage } from '../PortalPage';
@@ -224,3 +233,111 @@ describe('client portal', () => {
     expect(document.body.textContent).toContain("This link isn't valid any more");
   });
 });
+
+describe('after the job', () => {
+  const finished = (extra: Record<string, unknown> = {}) => ({
+    ...base,
+    asks: [],
+    jobs: [
+      {
+        ...base.jobs[0],
+        status: 'completed',
+        steps: [{ title: 'Demo', start: '2026-10-30', done: true }],
+        completed: { at: '2026-11-20T15:00:00Z', warranty: '1 year', warrantyEnds: '2099-11-20', requests: [] },
+      },
+    ],
+    perks: { reviewUrl: 'https://g.page/r/peak/review', referral: { reward: 'a $250 gift card', referred: 2, earned: 1 } },
+    ...extra,
+  });
+
+  it('turns a finished job into a home file: when it was done and the warranty, with how long it has left', async () => {
+    view = finished();
+    await open();
+    const file = document.body.querySelector('[data-testid="home-file"]')!;
+    expect(file.textContent).toContain('Finished Nov 20');
+    expect(file.textContent).toContain('1 year warranty');
+    expect(file.textContent).toContain('Covered until Nov 20, 2099');
+    // The progress bar gives way to the home file once it's done.
+    expect(document.body.querySelector('[data-testid="progress"]')).toBeNull();
+  });
+
+  it('asks for warranty service from the home file, then shows the request', async () => {
+    view = finished();
+    await open();
+    await act(async () => button('Request warranty service').click());
+    const textarea = document.body.querySelector('[data-testid="warranty-form"] textarea') as HTMLTextAreaElement;
+    expect(button('Send request').disabled).toBe(true);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'Grout cracking by the tub');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    view = finished({
+      jobs: [
+        {
+          ...finished().jobs[0],
+          completed: {
+            at: '2026-11-20T15:00:00Z',
+            warranty: '1 year',
+            warrantyEnds: '2099-11-20',
+            requests: [{ note: 'Grout cracking by the tub', requestedAt: '2026-12-02T10:00:00Z', done: false }],
+          },
+        },
+      ],
+    });
+    await act(async () => button('Send request').click());
+    await act(async () => {});
+    expect(requestWarranty).toHaveBeenCalledWith('tok', 'p:1', 'Grout cracking by the tub');
+    const requests = document.body.querySelector('[data-testid="warranty-requests"]')!;
+    expect(requests.textContent).toContain('Grout cracking by the tub');
+    expect(requests.textContent).toContain("We're on it");
+    expect(document.body.textContent).toContain("Sent. We'll be in touch to set a time.");
+  });
+
+  it('says when the warranty has ended, with no request button', async () => {
+    view = finished({
+      jobs: [{ ...finished().jobs[0], completed: { at: '2020-01-10T15:00:00Z', warranty: '1 year', warrantyEnds: '2021-01-10', requests: [] } }],
+    });
+    await open();
+    expect(document.body.querySelector('[data-testid="home-file"]')!.textContent).toContain('Ended Jan 10, 2021');
+    expect(button('Request warranty service')).toBeUndefined();
+  });
+
+  it("thanks them: a review ask with the company's link, and a referral link with the reward", async () => {
+    view = finished();
+    await open();
+    const review = document.body.querySelector('[data-testid="perk-review"]')!;
+    expect(review.textContent).toContain('How did we do?');
+    expect(review.querySelector('a')!.getAttribute('href')).toBe('https://g.page/r/peak/review');
+    expect(review.querySelector('a')!.getAttribute('target')).toBe('_blank');
+    const referral = document.body.querySelector('[data-testid="perk-referral"]')!;
+    expect(referral.textContent).toContain('When they sign a job with us, you get a $250 gift card.');
+    expect(referral.textContent).toContain('2 friends sent their way · 1 reward earned');
+
+    await act(async () => button('Share your link').click());
+    await act(async () => {});
+    expect(shareReferral).toHaveBeenCalledWith('tok');
+    expect(shareOrCopy).toHaveBeenCalledWith('https://app.example/r/abcd2345', 'Peak Builders', expect.stringContaining('Peak Builders'));
+    expect(referral.textContent).toContain('Link copied');
+  });
+
+  it('shows only the perks the company set up, and none before a job is done', async () => {
+    view = finished({ perks: { reviewUrl: undefined, referral: undefined } });
+    await open();
+    expect(document.body.querySelector('[data-testid="perks"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="home-file"]')).not.toBeNull();
+    document.body.innerHTML = '';
+    view = { ...base };
+    await open();
+    expect(document.body.querySelector('[data-testid="perks"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="home-file"]')).toBeNull();
+  });
+
+  it('in Spanish', async () => {
+    view = finished({ client: { name: 'Ann Miller', language: 'es' } });
+    await open();
+    expect(document.body.textContent).toContain('¿Qué tal lo hicimos?');
+    expect(document.body.textContent).toContain('Garantía de 1 year');
+    expect(document.body.textContent).toContain('Pedir servicio de garantía');
+  });
+});
+

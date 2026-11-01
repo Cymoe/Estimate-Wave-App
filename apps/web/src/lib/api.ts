@@ -93,6 +93,10 @@ export const organizationsAPI = {
     return run('query', api.organizations.get, { id });
   },
 
+  /** What clients get back once a job is done: the review link and the referral reward (empty clears). */
+  async setPerks(id: string, perks: { reviewUrl?: string; referralReward?: string }): Promise<{ reviewUrl?: string; referralReward?: string } | null> {
+    return run('mutation', api.organizations.setPerks, defined({ id, ...perks }));
+  },
   /** Sales mode: the red line, cap, pricing options and commission for companies with sales reps. */
   async setSalesMode(id: string, on: boolean): Promise<boolean> {
     return run('mutation', api.organizations.setSalesMode, { id, on });
@@ -489,8 +493,39 @@ export interface PortalView {
     startDate?: string;
     endDate?: string;
     steps?: Array<{ title: string; start?: string; end?: string; done: boolean }>;
+    /** Once the job-complete sign-off is signed: the home file's warranty and what they've asked to be fixed. */
+    completed?: {
+      at: string;
+      warranty?: string;
+      warrantyEnds?: string;
+      requests: Array<{ note: string; requestedAt: string; done: boolean }>;
+    };
   }>;
+  /** What the client gets back once a job is done, each when the company set it up. */
+  perks?: {
+    reviewUrl?: string;
+    referral?: { reward: string; code?: string; referred: number; earned: number };
+  };
 }
+
+/** A client's referrals as the company sees them (on the client's page). */
+export interface ClientReferrals {
+  reward: string | null;
+  referrals: Array<{ leadId: string; name: string; status: string; createdAt: string; earned: boolean; paidAt?: string }>;
+}
+
+/** Referrals: the friend's page (no sign-in) and the company's side. */
+export const referralsAPI = {
+  get: (code: string): Promise<{ referrer: string; company: { name: string; phone?: string; logoUrl?: string } } | null> =>
+    run('query', api.referrals.get, { code }),
+  submit: (code: string, details: { name: string; phone?: string; email?: string; address?: string; note?: string; language?: string }): Promise<null> =>
+    run('mutation', api.referrals.submit, defined({ code, ...details })),
+  forClient: (clientId: string): Promise<ClientReferrals> => run('query', api.referrals.forClient, { clientId }),
+  markPaid: (leadId: string, paid: boolean): Promise<null> => run('mutation', api.referrals.markPaid, { leadId, paid }),
+};
+
+/** A referral link's address. */
+export const referralUrl = (code: string) => `${window.location.origin}/r/${code}`;
 
 /** The client portal: one private link per client with everything for their jobs. */
 export const portalAPI = {
@@ -510,6 +545,9 @@ export const portalAPI = {
   pick: (token: string, estimateId: string, itemId: string, pick: { url: string; name?: string; unitPrice?: number; note?: string }): Promise<null> =>
     run('mutation', api.portal.pick, defined({ token, estimateId, itemId, ...pick })),
   setLanguage: (token: string, language: 'en' | 'es') => run('mutation', api.portal.setLanguage, { token, language }),
+  /** The client's referral code, made the first time they share it. */
+  shareReferral: (token: string): Promise<string> => run('mutation', api.portal.shareReferral, { token }),
+  requestWarranty: (token: string, jobKey: string, note: string): Promise<null> => run('mutation', api.portal.requestWarranty, { token, jobKey, note }),
 };
 
 /** The portal's address for a token. */
