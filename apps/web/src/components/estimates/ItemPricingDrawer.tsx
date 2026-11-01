@@ -29,6 +29,11 @@ interface ItemPricingDrawerProps {
   categories?: string[];
   /** Removes the item from the estimate. */
   onRemove?: () => void;
+  /**
+   * Sales mode: the red line is a floor and the cap, pricing options and
+   * commission show. Off (an owner-operator), it's just the price and quantity.
+   */
+  salesMode?: boolean;
 }
 
 /** The item's range. Items saved before ranges were stored have no red line (floor 0) and their price as cap. */
@@ -42,7 +47,7 @@ function rangeOf(item: PricedItem): PriceRange {
  * the salesperson's commission and the pricing options. The price can't go
  * below red line.
  */
-export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onClose, onSave, onRemove, categories = [] }) => {
+export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onClose, onSave, onRemove, categories = [], salesMode = false }) => {
   const [priceText, setPriceText] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [category, setCategory] = useState('');
@@ -90,7 +95,8 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
   if (!shownItem) return null;
 
   const open = visible && item !== null;
-  const range = rangeOf(shownItem);
+  // Without Sales mode there's no floor: any price goes.
+  const range = salesMode ? rangeOf(shownItem) : { redLine: 0, cap: shownItem.unit_price };
   const typed = parseFloat(priceText);
   const enteredPrice = Number.isFinite(typed) ? typed : 0;
   const belowRedLine = enteredPrice < range.redLine;
@@ -129,9 +135,11 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
           </button>
           <div className="min-w-0 flex-1">
             <h2 className="text-base font-semibold text-white">{shownItem.description}</h2>
-            <p className="text-xs text-gray-400 mt-1">
-              Red line {formatCurrency(range.redLine)} · Cap {formatCurrency(range.cap)}
-            </p>
+            {salesMode && (
+              <p className="text-xs text-gray-400 mt-1">
+                Red line {formatCurrency(range.redLine)} · Cap {formatCurrency(range.cap)}
+              </p>
+            )}
           </div>
           <button onClick={save} className="px-4 py-2 text-sm text-white bg-[#336699] hover:bg-[#2a5580] flex-shrink-0">
             Save
@@ -139,7 +147,8 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
         </div>
 
         <div className="flex-1 min-h-0 flex flex-col sm:flex-row">
-          {/* Pricing options: the same column, in the same place, as the estimate's */}
+          {/* Pricing options: the same column, in the same place, as the estimate's (Sales mode) */}
+          {salesMode && (
           <div
             className="sm:w-[168px] flex-shrink-0 bg-[#0A0A0A] border-b sm:border-b-0 sm:border-r border-[#333333] py-1 sm:overflow-y-auto"
             role="group"
@@ -164,6 +173,7 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
               );
             })}
           </div>
+          )}
 
           {/* Price, quantity and commission beside the options */}
           <div className="flex-1 min-w-0 flex flex-col">
@@ -244,7 +254,8 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
                 <span className="block text-xs text-gray-500 mt-1">Groups this line on the agreement and the client&rsquo;s summary.</span>
               </label>
 
-              {/* Commission */}
+              {/* Commission (Sales mode) */}
+              {salesMode && (
               <div className="border border-[#333333] p-4">
                 <div className="flex items-baseline justify-between">
                   <span className="text-sm text-gray-300">Your commission</span>
@@ -260,6 +271,7 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
                   <span>Max at cap {formatCurrency(maxCommission)}</span>
                 </div>
               </div>
+              )}
 
               {onRemove && (
                 <button

@@ -550,6 +550,9 @@ export default defineSchema({
     agreement: v.optional(agreementWording),
     // The company's logo on what clients see (organizations.setLogo).
     logoStorageId: v.optional(v.id("_storage")),
+    // Sales mode (organizations.setSalesMode): the red line, cap, pricing options and commission
+    // for companies with sales reps. Off, an owner prices freely and none of it shows.
+    salesMode: v.optional(v.boolean()),
     ...timestamps,
   }).index("by_slug", ["slug"]),
 

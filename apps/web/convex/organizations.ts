@@ -133,6 +133,21 @@ export const setAgreement = mutation({
   },
 });
 
+/**
+ * Sales mode, for companies with sales reps: the red line becomes a floor
+ * no price or discount can go under, and the estimate shows the cap,
+ * pricing options and commission. Off (the default), an owner prices freely.
+ * Owners and admins only.
+ */
+export const setSalesMode = mutation({
+  args: { id: v.id("organizations"), on: v.boolean() },
+  handler: async (ctx, { id, on }) => {
+    await requireMember(ctx, id, "admin");
+    await ctx.db.patch(id, { salesMode: on || undefined, updatedAt: nowIso() });
+    return on;
+  },
+});
+
 /** Reminder emails to clients who haven't signed: on or off, and how many days after sending. */
 export const setFollowUps = mutation({
   args: { id: v.id("organizations"), enabled: v.boolean(), afterDays: v.number() },

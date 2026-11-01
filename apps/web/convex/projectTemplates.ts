@@ -109,13 +109,13 @@ async function insertTemplate(
 export const create = mutation({
   args: { organizationId: v.id("organizations"), data: v.any() },
   handler: async (ctx, { organizationId, data }) => {
-    const { user } = await requireMember(ctx, organizationId);
+    const { user, organization } = await requireMember(ctx, organizationId);
     return await insertTemplate(ctx, organizationId, user._id, {
       name: cleanName(data?.name),
       description: optionalText(data?.description),
       category: optionalText(data?.category),
       days: cleanDays(data?.days),
-      items: await withCategories(ctx, normalizeItems(data?.items)),
+      items: await withCategories(ctx, normalizeItems(data?.items, { floor: organization.salesMode === true })),
       tasks: cleanTasks(data?.tasks),
     });
   },
@@ -173,13 +173,14 @@ export const saveFromProject = mutation({
 export const update = mutation({
   args: { id: v.id("projectTemplates"), data: v.any() },
   handler: async (ctx, { id, data }) => {
-    await getOwned(ctx, "projectTemplates", id);
+    const { doc: template } = await getOwned(ctx, "projectTemplates", id);
+    const floor = (await ctx.db.get(template.organizationId))?.salesMode === true;
     const patch: Partial<Doc<"projectTemplates">> = {};
     if ("name" in data) patch.name = cleanName(data.name);
     if ("description" in data) patch.description = optionalText(data.description);
     if ("category" in data) patch.category = optionalText(data.category);
     if ("days" in data) patch.days = cleanDays(data.days);
-    if ("items" in data) patch.items = await withCategories(ctx, normalizeItems(data.items));
+    if ("items" in data) patch.items = await withCategories(ctx, normalizeItems(data.items, { floor }));
     if ("tasks" in data) patch.tasks = cleanTasks(data.tasks);
     await ctx.db.patch(id, { ...patch, updatedAt: nowIso() });
     return summary((await ctx.db.get(id))!);

@@ -835,7 +835,7 @@ describe("estimating from an assistant", () => {
       };
     });
     const { accessToken } = await connect(t, owner);
-    return { t, owner, other, ids, accessToken };
+    return { t, owner, other, ids, accessToken, organizationId: owner.organizationId };
   }
 
   test("finds items in the company's price book with their cap and red line, never another company's", async () => {
@@ -880,8 +880,19 @@ describe("estimating from an assistant", () => {
     expect(log.find((l) => l.resourceType === "estimate" && l.action === "created")?.metadata).toMatchObject({ via: "assistant" });
   });
 
-  test("never below the red line or above the cap, and another company's item reads as not found", async () => {
+  test("without Sales mode, any price goes and the read-back has no floor or cap", async () => {
     const { t, ids, accessToken } = await roofer();
+    const low = await tool(t, accessToken, "create_estimate", { title: "Roof", lines: [{ line_item_id: ids.shingles, quantity: 10, price: 250 }] });
+    expect(low.isError).toBeFalsy();
+    expect(low.data.total).toBe(2500);
+    expect(low.text).not.toMatch(/floor|lowest it can go|cap/);
+    const changed = await tool(t, accessToken, "update_estimate", { estimate_id: low.data.id, change_lines: [{ line_id: low.data.items[0].lineId, price: 600 }] });
+    expect(changed.data.total).toBe(6000);
+  });
+
+  test("in Sales mode never below the red line or above the cap, and another company's item reads as not found", async () => {
+    const { t, ids, accessToken, organizationId } = await roofer();
+    await t.run((ctx) => ctx.db.patch(organizationId, { salesMode: true }));
     const low = await tool(t, accessToken, "create_estimate", { title: "Roof", lines: [{ line_item_id: ids.shingles, quantity: 10, price: 250 }] });
     expect(low).toMatchObject({ isError: true, text: "Architectural Shingle Roof: the lowest it can go is $300.00 per square (its red line). Nothing was saved." });
     const high = await tool(t, accessToken, "create_estimate", { title: "Roof", lines: [{ line_item_id: ids.shingles, price: 500 }] });
@@ -891,8 +902,9 @@ describe("estimating from an assistant", () => {
     expect(await t.run((ctx) => ctx.db.query("estimates").collect())).toHaveLength(0);
   });
 
-  test("changes a draft, keeps the floor on old lines, and leaves a sent estimate to the person", async () => {
-    const { t, ids, accessToken } = await roofer();
+  test("changes a draft, keeps the floor on old lines in Sales mode, and leaves a sent estimate to the person", async () => {
+    const { t, ids, accessToken, organizationId } = await roofer();
+    await t.run((ctx) => ctx.db.patch(organizationId, { salesMode: true }));
     const drafted = await tool(t, accessToken, "create_estimate", {
       title: "Roof",
       lines: [{ line_item_id: ids.shingles, quantity: 20 }, { line_item_id: ids.vent, quantity: 30 }],

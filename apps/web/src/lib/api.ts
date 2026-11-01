@@ -93,6 +93,11 @@ export const organizationsAPI = {
     return run('query', api.organizations.get, { id });
   },
 
+  /** Sales mode: the red line, cap, pricing options and commission for companies with sales reps. */
+  async setSalesMode(id: string, on: boolean): Promise<boolean> {
+    return run('mutation', api.organizations.setSalesMode, { id, on });
+  },
+
   /** The company logo on what clients see: upload, then attach (or null to remove). Returns its URL. */
   async logoUploadUrl(id: string): Promise<string> {
     return run('mutation', api.organizations.logoUploadUrl, { id });

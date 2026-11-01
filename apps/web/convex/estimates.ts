@@ -147,13 +147,14 @@ export const createDef = mutationDef({
       totalAmount: 0,
       estimateNumber: documentNumber("EST"),
       ...fields,
-      items: await withCategories(ctx, normalizeItems(fields.items)),
+      // The red line is a floor only in Sales mode; an owner-operator prices freely.
+      items: await withCategories(ctx, normalizeItems(fields.items, { floor: organization.salesMode === true })),
       organizationId,
       userId: user._id,
       createdAt: now,
       updatedAt: now,
     });
-    assertAboveRedLine(doc);
+    if (organization.salesMode === true) assertAboveRedLine(doc);
     const id = await ctx.db.insert("estimates", doc);
     await logActivity(ctx, {
       organizationId,
@@ -187,14 +188,15 @@ export const updateDef = mutationDef({
       patch.discount = cleanDiscount(patch.discount);
     }
     await assertLinksInOrg(ctx, doc.organizationId, patch);
+    const salesMode = (await ctx.db.get(doc.organizationId))?.salesMode === true;
     if ("items" in patch)
-      patch.items = await withCategories(ctx, normalizeItems(patch.items));
+      patch.items = await withCategories(ctx, normalizeItems(patch.items, { floor: salesMode }));
     const { subtotal, discountAmount, taxAmount, totalAmount } = withTotals({
       ...doc,
       ...patch,
     });
     // Only a new discount, or new lines under one, can break the floor; a signed price stays as signed.
-    if (("discount" in patch || "items" in patch) && !doc.contractLockedAt) assertAboveRedLine({ items: patch.items ?? doc.items, subtotal, discountAmount });
+    if (salesMode && ("discount" in patch || "items" in patch) && !doc.contractLockedAt) assertAboveRedLine({ items: patch.items ?? doc.items, subtotal, discountAmount });
     const now = nowIso();
     const updated = { ...doc, ...patch, subtotal, discountAmount, taxAmount, totalAmount };
     const lock =

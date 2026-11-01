@@ -9,6 +9,7 @@ import { ConnectedAssistants } from '../components/settings/ConnectedAssistants'
 import { ContractsSettings } from '../components/settings/ContractsSettings';
 import { TemplatesSettings } from '../components/settings/TemplatesSettings';
 import { ClientRemindersSettings } from '../components/settings/ClientRemindersSettings';
+import { SalesModeSetting } from '../components/settings/SalesModeSetting';
 
 export default function OrganizationSettings() {
   const navigate = useNavigate();
@@ -109,6 +110,14 @@ export default function OrganizationSettings() {
                   onSaved={(org) => org.name && setSelectedOrg({ ...selectedOrg, name: org.name })}
                 />
               </div>
+            )}
+
+            {activeTab === 'general' && (
+              <SalesModeSetting
+                organizationId={selectedOrg.id}
+                on={selectedOrg.sales_mode === true}
+                onChange={(on) => setSelectedOrg({ ...selectedOrg, sales_mode: on })}
+              />
             )}
 
             {activeTab === 'trades' && (

@@ -104,7 +104,8 @@ describe("src/lib/api.ts on Convex", () => {
     });
     expect(edited.subtotal).toBe(500);
 
-    // The estimate page saves items with their price-book range; prices stay at or above red line.
+    // The estimate page saves items with their price-book range; in Sales mode prices stay at or above red line.
+    await as.mutation(api.organizations.setSalesMode, { id: organizationId, on: true });
     const priced = await EstimateService.update(created.id!, {
       items: [{ description: "Cabinets", quantity: 2, unit_price: 300, total_price: 600, red_line_price: 350, cap_price: 750 }],
     });

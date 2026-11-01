@@ -14,8 +14,8 @@ import type { Connection, Tool, ToolResult } from "./mcpTools";
 // The connector's estimating tools: pricing a job from the company's price
 // book, drafts the person reviews (and has emailed to the client when they ask), projects and
 // their costs. Prices always come from the price book here, never from the
-// assistant: a line is the item's cap unless a price is given, and never
-// below its red line.
+// assistant: a line is the item's cap unless a price is given, and in
+// Sales mode never below its red line or above its cap.
 
 type Args = Record<string, unknown>;
 type Item = Doc<"estimates">["items"][number];
@@ -101,6 +101,8 @@ function checkPrice(name: string, unit: string, price: number, floor: number | u
 
 /** Estimate lines from price book items and custom lines; prices from the price book. */
 async function priceLines(ctx: MutationCtx, connection: Connection, args: Args, linesKey: string, customKey: string) {
+  // Without Sales mode an owner prices freely: no red line floor or cap ceiling.
+  const salesMode = (await ctx.db.get(connection.organizationId))?.salesMode === true;
   const items: Array<Omit<Item, "_id" | "totalPrice" | "displayOrder">> = [];
   for (const line of list(args, linesKey)) {
     const itemId = id(ctx, "lineItems", text(line, "line_item_id", { required: true }), "price book item");
@@ -112,7 +114,7 @@ async function priceLines(ctx: MutationCtx, connection: Connection, args: Args, 
     const floor = floorOf(item);
     const cap = capOf(item);
     const price = number(line, "price");
-    if (price !== undefined) checkPrice(item.name, item.unit, price, floor, cap);
+    if (price !== undefined && salesMode) checkPrice(item.name, item.unit, price, floor, cap);
     const costCode = await ctx.db.get(item.cost_code_id);
     items.push({
       description: item.name,
@@ -133,23 +135,31 @@ async function priceLines(ctx: MutationCtx, connection: Connection, args: Args, 
   return items;
 }
 
-/** One line of an estimate, as the assistant reads it back. */
-function itemLine(item: Item) {
+/** One line of an estimate, as the assistant reads it back; the floor and cap only in Sales mode. */
+function itemLine(item: Item, salesMode: boolean) {
   const custom = item.redLinePrice === undefined;
-  return `- ${item.description}: ${item.quantity} × ${money(item.unitPrice)} = ${money(item.totalPrice)}${
-    custom ? " (custom line, not from the price book)" : ` (floor ${money(item.redLinePrice!)}${item.capPrice !== undefined ? `, cap ${money(item.capPrice)}` : ""})`
-  } · line id ${item._id}`;
+  const note = custom
+    ? " (custom line, not from the price book)"
+    : salesMode
+      ? ` (floor ${money(item.redLinePrice!)}${item.capPrice !== undefined ? `, cap ${money(item.capPrice)}` : ""})`
+      : "";
+  return `- ${item.description}: ${item.quantity} × ${money(item.unitPrice)} = ${money(item.totalPrice)}${note} · line id ${item._id}`;
 }
+
+/** Whether the connected company uses Sales mode (red line, cap, pricing options, commission). */
+const salesModeOf = async (ctx: MutationCtx, connection: Connection) => (await ctx.db.get(connection.organizationId))?.salesMode === true;
 
 const floorTotal = (items: Item[]) => items.reduce((sum, i) => sum + i.quantity * (i.redLinePrice ?? i.unitPrice), 0);
 
-function estimateText(estimate: Doc<"estimates">, headline: string, clientName?: string): ToolResult {
+function estimateText(estimate: Doc<"estimates">, headline: string, clientName: string | undefined, salesMode: boolean): ToolResult {
   const custom = estimate.items.filter((i) => i.redLinePrice === undefined).length;
   const lines = [
     headline,
     `${estimate.estimateNumber}${estimate.title ? ` · ${estimate.title}` : ""}${clientName ? ` · ${clientName}` : ""} · ${ESTIMATE_STATUS[estimate.status] ?? estimate.status}`,
-    ...estimate.items.map(itemLine),
-    `Total ${money(estimate.totalAmount)}. The lowest it can go is ${money(floorTotal(estimate.items))} (every line at its red line${custom ? ", custom lines as they are" : ""}).`,
+    ...estimate.items.map((item) => itemLine(item, salesMode)),
+    salesMode
+      ? `Total ${money(estimate.totalAmount)}. The lowest it can go is ${money(floorTotal(estimate.items))} (every line at its red line${custom ? ", custom lines as they are" : ""}).`
+      : `Total ${money(estimate.totalAmount)}.`,
     estimate.notes ? `Notes: ${estimate.notes}` : "",
     estimate.status === "draft" ? `It's a draft for the person to review: ${app(`/estimates/${estimate._id}`)}. When they say to send it, send_estimate emails it to the client.` : `Open it: ${app(`/estimates/${estimate._id}`)}`,
   ];
@@ -288,7 +298,7 @@ async function projectText(ctx: MutationCtx, project: Doc<"projects">, headline?
 
 const priceBookLines = {
   type: "array",
-  description: "Items from search_price_book. Each is priced at its cap unless you give a price, which must be between its red line and its cap.",
+  description: "Items from search_price_book. Each is priced at its cap unless you give a price; in Sales mode the price must be between its red line and its cap.",
   items: {
     type: "object",
     properties: {
@@ -442,7 +452,7 @@ export const ESTIMATING_TOOLS: Tool[] = [
   {
     name: "get_estimate",
     title: "Read an estimate",
-    description: "One estimate's lines (with each line's red line and cap), its total, the lowest it can go, its status, notes and link.",
+    description: "One estimate's lines, its total, its status, notes and link; in Sales mode also each line's red line and cap and the lowest the total can go.",
     inputSchema: {
       type: "object",
       properties: { estimate_id: { type: "string", description: "From list_estimates or create_estimate." } },
@@ -454,7 +464,7 @@ export const ESTIMATING_TOOLS: Tool[] = [
     run: async (ctx, connection, args) => {
       const estimate = await own(ctx, connection, "estimates", text(args, "estimate_id", { required: true }), "estimate");
       const client = estimate.clientId ? await ctx.db.get(estimate.clientId) : null;
-      return estimateText(estimate, "", clientName(client));
+      return estimateText(estimate, "", clientName(client), await salesModeOf(ctx, connection));
     },
   },
   {
@@ -493,7 +503,12 @@ export const ESTIMATING_TOOLS: Tool[] = [
         data: { title, items, notes: text(args, "notes", { max: 5000 }), clientId: client?._id, projectId: project?._id },
       }))!;
       if (lead) await updateLeadDef.handler(ctx, { id: lead._id, data: { estimateId: estimate._id } });
-      return estimateText(estimate, `Drafted ${estimate.estimateNumber}${lead ? ` for the lead ${lead.name}` : ""}.`, clientName(client));
+      return estimateText(
+        estimate,
+        `Drafted ${estimate.estimateNumber}${lead ? ` for the lead ${lead.name}` : ""}.`,
+        clientName(client),
+        await salesModeOf(ctx, connection),
+      );
     },
   },
   {
@@ -535,6 +550,7 @@ export const ESTIMATING_TOOLS: Tool[] = [
       const remove = new Set(removeArg as string[]);
       for (const lineId of remove) if (!estimate.items.some((i) => i._id === lineId)) fail("NOT_FOUND", `No line ${lineId} on ${estimate.estimateNumber}`);
       const items: Array<Partial<Item>> = estimate.items.filter((i) => !remove.has(i._id)).map((i) => ({ ...i }));
+      const salesMode = await salesModeOf(ctx, connection);
       for (const change of list(args, "change_lines")) {
         const lineId = text(change, "line_id", { required: true })!;
         const item = items.find((i) => i._id === lineId);
@@ -546,7 +562,7 @@ export const ESTIMATING_TOOLS: Tool[] = [
         }
         const price = number(change, "price");
         if (price !== undefined) {
-          checkPrice(item.description!, "unit", price, item.redLinePrice, item.capPrice);
+          if (salesMode) checkPrice(item.description!, "unit", price, item.redLinePrice, item.capPrice);
           item.unitPrice = price;
         }
       }
@@ -557,7 +573,7 @@ export const ESTIMATING_TOOLS: Tool[] = [
         data: { items, ...(args.title !== undefined ? { title: text(args, "title", { max: 200 }) } : {}), ...(args.notes !== undefined ? { notes: text(args, "notes", { max: 5000 }) } : {}) },
       }))!;
       const client = updated.clientId ? await ctx.db.get(updated.clientId) : null;
-      return estimateText(updated, `Updated ${updated.estimateNumber}.`, clientName(client));
+      return estimateText(updated, `Updated ${updated.estimateNumber}.`, clientName(client), await salesModeOf(ctx, connection));
     },
   },
   {

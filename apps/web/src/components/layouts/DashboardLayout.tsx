@@ -70,8 +70,8 @@ interface Organization {
 
 // Context for selected organization
 export const OrganizationContext = createContext<{ 
-  selectedOrg: { id: string; name: string; industry: string; industry_id?: string }; 
-  setSelectedOrg: (org: { id: string; name: string; industry: string; industry_id?: string }) => void;
+  selectedOrg: { id: string; name: string; industry: string; industry_id?: string; sales_mode?: boolean }; 
+  setSelectedOrg: (org: { id: string; name: string; industry: string; industry_id?: string; sales_mode?: boolean }) => void;
 }>({ 
   selectedOrg: { id: '', name: 'Loading...', industry: 'General Construction' }, 
   setSelectedOrg: () => {} 
@@ -163,7 +163,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
   
   // Real organizations state
   const [organizations, setOrganizations] = useState<Array<{ id: string; name: string; industry: string; industry_id: string }>>([]);
-  const [selectedOrg, setSelectedOrg] = useState<{ id: string; name: string; industry: string; industry_id?: string }>({ 
+  const [selectedOrg, setSelectedOrg] = useState<{ id: string; name: string; industry: string; industry_id?: string; sales_mode?: boolean }>({ 
     id: '', 
     name: 'Loading...', 
     industry: 'General Construction' 
@@ -192,7 +192,9 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
           id: org._id,
           name: org.name,
           industry: orgTradeLabel(org, names),
-          industry_id: org.industryId || 'general-construction'
+          industry_id: org.industryId || 'general-construction',
+          // Sales mode: red line, cap, pricing options and commission on estimates (Settings → General).
+          sales_mode: org.salesMode === true,
         }));
         
         console.log('Loaded organizations from API:', formattedOrgs);

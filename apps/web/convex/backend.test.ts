@@ -1346,9 +1346,42 @@ describe("estimates", () => {
     expect(log.map((entry) => entry.action)).toEqual(["signed", "status_changed", "created"]);
   });
 
-  test("an item's price never goes below its red line", async () => {
+  test("Sales mode is off to start: an owner prices and discounts freely; only owners and admins switch it on", async () => {
+    const t = setup();
+    const { as, organizationId } = await signUp(t, "owner@example.com");
+    expect((await as.query(api.organizations.get, { id: organizationId }))!.salesMode).toBeUndefined();
+    const estimate = (await as.mutation(api.estimates.create, {
+      organizationId,
+      data: { items: [{ description: "Wire", quantity: 2, unitPrice: 50, redLinePrice: 87.5, capPrice: 187.5 }] },
+    }))!;
+    // Under the red line is fine with Sales mode off, and so is a discount that goes under it.
+    expect(estimate.items[0].unitPrice).toBe(50);
+    expect(estimate.subtotal).toBe(100);
+    const discounted = (await as.mutation(api.estimates.update, { id: estimate._id, data: { discount: { kind: "amount", value: 60 } } }))!;
+    expect(discounted.totalAmount).toBe(40);
+
+    const member = await signUp(t, "rep@example.com");
+    await t.run((ctx) =>
+      ctx.db.insert("memberships", { organizationId, userId: member.userId, role: "member", createdAt: new Date().toISOString() }),
+    );
+    await expect(member.as.mutation(api.organizations.setSalesMode, { id: organizationId, on: true })).rejects.toThrow();
+
+    // On: the same lines hold at red line, and the discount is refused.
+    await as.mutation(api.organizations.setSalesMode, { id: organizationId, on: true });
+    expect((await as.query(api.organizations.get, { id: organizationId }))!.salesMode).toBe(true);
+    await expect(as.mutation(api.estimates.update, { id: estimate._id, data: { discount: { kind: "amount", value: 60 } } })).rejects.toThrow(
+      /below red line/,
+    );
+    const held = (await as.mutation(api.estimates.update, { id: estimate._id, data: { discount: null, items: estimate.items } }))!;
+    expect(held.items[0].unitPrice).toBe(87.5);
+    await as.mutation(api.organizations.setSalesMode, { id: organizationId, on: false });
+    expect((await as.query(api.organizations.get, { id: organizationId }))!.salesMode).toBeUndefined();
+  });
+
+  test("in Sales mode, an item's price never goes below its red line", async () => {
     const t = setup();
     const { as, organizationId } = await signUp(t, "a@example.com");
+    await as.mutation(api.organizations.setSalesMode, { id: organizationId, on: true });
     const estimate = await as.mutation(api.estimates.create, {
       organizationId,
       data: {
@@ -2655,8 +2688,9 @@ describe("client link", () => {
     expect((await t.query(api.publicEstimates.get, { token: noClientToken }))!.clientMessage).toBe("Hi, here it is.");
   });
 
-  test("a discount ($ or %) comes off before tax, shows on the link and the signed copy, and can't go below red line", async () => {
-    const { t, as, id, token } = await sharedEstimate();
+  test("a discount ($ or %) comes off before tax, shows on the link and the signed copy, and in Sales mode can't go below red line", async () => {
+    const { t, as, id, token, organizationId } = await sharedEstimate();
+    await as.mutation(api.organizations.setSalesMode, { id: organizationId, on: true });
     // Vanity: $900, red line $600. Tax 10% on what's left after the discount.
     await as.mutation(api.estimates.update, { id, data: { taxRate: 10, discount: { kind: "percent", value: 10, label: "  Fall special  " } } });
     let estimate = (await as.query(api.estimates.get, { id }))!;

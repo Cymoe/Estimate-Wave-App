@@ -13,6 +13,7 @@ jest.mock('../../components/settings/ConnectedAssistants', () => ({ ConnectedAss
 jest.mock('../../components/settings/ContractsSettings', () => ({ ContractsSettings: stub('contracts') }));
 jest.mock('../../components/settings/TemplatesSettings', () => ({ TemplatesSettings: stub('templates') }));
 jest.mock('../../components/settings/ClientRemindersSettings', () => ({ ClientRemindersSettings: stub('reminders') }));
+jest.mock('../../components/settings/SalesModeSetting', () => ({ SalesModeSetting: stub('sales-mode') }));
 jest.mock('../../components/layouts/DashboardLayout', () => {
   const { createContext } = jest.requireActual('react');
   return { OrganizationContext: createContext({ selectedOrg: { id: 'org1', name: 'Miller Roofing' }, setSelectedOrg: () => {} }) };

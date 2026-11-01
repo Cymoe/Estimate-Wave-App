@@ -78,6 +78,8 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   const overProject = useMatch('/projects/:id/estimates/:estimateId') !== null;
   const leave = () => (onClose ? onClose() : navigate('/estimates'));
   const { selectedOrg } = useContext(OrganizationContext);
+  // Sales mode (Settings → General): red line, cap, pricing options and commission. Off for owner-operators.
+  const salesMode = selectedOrg?.sales_mode === true;
   // An estimate already loaded (from the list) shows at once; the latest copy loads behind it.
   const [estimate, setEstimate] = useState<Estimate | null>(() => {
     const known = id ? EstimateService.cached(id) : undefined;
@@ -341,7 +343,8 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   const commitItems = (items: EstimateItem[]) => {
     if (!estimate) return;
     const nextItems = items.map(item => {
-      const unitPrice = Math.max(Number(item.unit_price) || 0, item.red_line_price ?? 0);
+      // In Sales mode the red line is a floor; otherwise an owner prices freely.
+      const unitPrice = Math.max(Number(item.unit_price) || 0, salesMode ? (item.red_line_price ?? 0) : 0);
       return { ...item, unit_price: unitPrice, total_price: unitPrice * (Number(item.quantity) || 0) };
     });
     // The same arithmetic the server saves: the discount comes off before tax.
@@ -482,7 +485,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
       </div>
       <div className="w-28 py-2 px-3 text-right border-r border-[#333333] flex flex-col items-end">
         <span className="text-gray-300">{formatCurrency(estimate.total_amount)}</span>
-        {(() => {
+        {salesMode && (() => {
           const redlineTotal = estimate.items.reduce((sum, item) => {
             const redlinePrice = item.red_line_price || (item.original_unit_price || item.unit_price) * 0.7;
             return sum + (redlinePrice * (item.quantity || 1));
@@ -887,6 +890,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
         {activeTab === 'items' && (
           <div className={`w-full flex ${inDrawer ? 'h-full' : ''}`}>
             {/* Airtable Sidebar */}
+            {salesMode && (
             <AirtableSidebar
               fill={inDrawer}
               onViewChange={(_viewId, position) => handleBulkPriceAdjust(position)}
@@ -900,6 +904,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                 return sum + (redlinePrice * (item.quantity || 1));
               }, 0) || 0}
             />
+            )}
             
             {/* Airtable-style Spreadsheet */}
             <div className={`flex-1 min-w-0 ${inDrawer ? 'flex flex-col min-h-0' : ''}`} ref={inDrawer ? undefined : setTableColumn}>
@@ -1141,6 +1146,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
       <ItemPricingDrawer
         item={estimate.items?.find(item => item.id === pricingItemId) ?? null}
         categories={[...new Set([...(estimate.items ?? []).map((i) => i.category).filter((c): c is string => Boolean(c)), ...WORK_TYPE_NAMES])]}
+        salesMode={salesMode}
         onClose={() => setPricingItemId(null)}
         onSave={(changes) => {
           commitItems(estimate.items.map(item => item.id === pricingItemId ? { ...item, ...changes } : item));

@@ -18,7 +18,7 @@ function setup() {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
-  act(() => root.render(<ItemPricingDrawer item={item} onClose={() => {}} onSave={onSave} />));
+  act(() => root.render(<ItemPricingDrawer item={item} onClose={() => {}} onSave={onSave} salesMode />));
   const dialog = document.querySelector('[role="dialog"]')!;
   const button = (text: string) =>
     [...dialog.querySelectorAll('button')].find(b => b.textContent?.includes(text))!;
@@ -62,6 +62,22 @@ describe('ItemPricingDrawer', () => {
     act(() => type(input, 'Lighting '));
     act(() => save().dispatchEvent(new MouseEvent('click', { bubbles: true })));
     expect(onSave).toHaveBeenLastCalledWith({ unit_price: 187.5, quantity: 2, category: 'Lighting', category_chosen: true });
+    act(() => root.unmount());
+  });
+
+  it('without Sales mode: just price and quantity, no red line, cap, options or commission, and any price saves', () => {
+    const onSave = jest.fn();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() => root.render(<ItemPricingDrawer item={item} onClose={() => {}} onSave={onSave} />));
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).not.toMatch(/Red line|Cap|commission/i);
+    expect(dialog.querySelector('[aria-label="Pricing options"]')).toBeNull();
+    const price = dialog.querySelector('input[inputmode="decimal"]') as HTMLInputElement;
+    act(() => type(price, '40'));
+    act(() => [...dialog.querySelectorAll('button')].find(b => b.textContent?.includes('Save'))!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 40, quantity: 2 });
     act(() => root.unmount());
   });
 
