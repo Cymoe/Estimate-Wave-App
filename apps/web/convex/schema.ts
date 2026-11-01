@@ -1319,6 +1319,44 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_organization_and_start", ["organizationId", "startDate"]),
 
+  // Purchase orders on a project (convex/purchaseOrders.ts): what's bought
+  // from a supplier or a sub, at the company's cost. Pre-built from the
+  // project's package or estimate (lib/purchaseOrders.ts); sent to the
+  // vendor as a link (shareToken); received, it becomes an expense.
+  purchaseOrders: defineTable({
+    organizationId: v.id("organizations"),
+    projectId: v.id("projects"),
+    number: v.string(),
+    // Who it's for, e.g. "Cabinet supplier" or "Electrician".
+    title: v.string(),
+    vendor: v.optional(v.object({ name: v.string(), phone: v.optional(v.string()), email: v.optional(v.string()) })),
+    lines: v.array(
+      v.object({
+        _id: v.string(),
+        description: v.string(),
+        quantity: v.number(),
+        unit: v.optional(v.string()),
+        unitCost: v.number(),
+        kind: v.union(v.literal("material"), v.literal("labor")),
+      }),
+    ),
+    status: v.union(v.literal("draft"), v.literal("ordered"), v.literal("received"), v.literal("cancelled")),
+    neededBy: v.optional(v.string()),
+    deliverTo: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    shareToken: v.optional(v.string()),
+    orderedAt: v.optional(v.string()),
+    receivedAt: v.optional(v.string()),
+    receivedAmount: v.optional(v.number()),
+    expenseId: v.optional(v.id("expenses")),
+    order: v.number(),
+    createdBy: v.id("users"),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_share_token", ["shareToken"]),
+
   // Contract PDFs a company uploaded: its library (no estimateId) or one
   // job's own. Signed files are kept for good; see convex/contractDocs.ts.
   contractDocs: defineTable({

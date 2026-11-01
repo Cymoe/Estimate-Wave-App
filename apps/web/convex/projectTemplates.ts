@@ -7,6 +7,8 @@ import { withCategories } from "./lib/categories";
 import { assertLinksInOrg, documentNumber, normalizeItems, withTotals } from "./lib/documents";
 import { findPackage, type BuiltInPackage } from "./catalog/packages";
 import { tradeLabel, workTypeOf } from "./lib/workTypes";
+import { buildOrders, type SourceLine } from "./lib/purchaseOrders";
+import { estimateLines, insertOrders } from "./purchaseOrders";
 
 /**
  * Project templates: a kind of job the company does, saved from a project
@@ -227,6 +229,9 @@ type Blueprint = {
   days?: number;
   items: Doc<"projectTemplates">["items"];
   tasks: Task[];
+  /** What its purchase orders are built from (a package's lines keep their units), and whose trade. */
+  orderLines?: SourceLine[];
+  trade?: string;
 };
 
 /**
@@ -309,6 +314,15 @@ async function startFrom(
     });
   }
 
+  // Its purchase orders: one per supplier and sub, at an estimated cost.
+  const organization = await ctx.db.get(organizationId);
+  await insertOrders(
+    ctx,
+    (await ctx.db.get(projectId))!,
+    user._id,
+    buildOrders(from.orderLines ?? estimateLines(from.items), from.trade ?? organization?.leadTrades?.[0]),
+  );
+
   let order = 0;
   for (const task of from.tasks) {
     const taskStart = startDate && task.startOffset !== undefined ? addDays(startDate, task.startOffset) : undefined;
@@ -369,7 +383,16 @@ export const startPackage = mutation({
       ctx,
       organizationId,
       user,
-      { name: p.name, description: p.description, category: p.type, days: p.days, items: packageItems(p), tasks: p.tasks },
+      {
+        name: p.name,
+        description: p.description,
+        category: p.type,
+        days: p.days,
+        items: packageItems(p),
+        tasks: p.tasks,
+        orderLines: p.lines.map((line) => ({ description: line.description, quantity: line.quantity, unit: line.unit, unitPrice: line.unitPrice })),
+        trade: p.trade,
+      },
       data,
       p.name,
     );

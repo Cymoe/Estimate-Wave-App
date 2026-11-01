@@ -78,7 +78,12 @@ jest.mock('../../../lib/api', () => ({
   industriesAPI: { forOrganization: jest.fn(async () => []) },
   templatesAPI: { saveFromProject: (...args: unknown[]) => saveTemplate(...(args as [string, string])) },
   portalAPI: { forProject: jest.fn(async () => portalInfo) },
+  purchaseOrdersAPI: { forProject: jest.fn(async () => ordersInfo) },
+  purchaseOrderUrl: (token: string) => `https://app.example/po/${token}`,
 }));
+// The project's purchase orders.
+const noOrders = { orders: [] as unknown[], committed: 0, received: 0 };
+let ordersInfo: { orders: unknown[]; committed: number; received: number } = noOrders;
 // Whose portal the project's is (null: no client yet).
 let portalInfo: { clientId: string; name: string; language: 'en' | 'es'; token: string | null; queued: number } | null = null;
 jest.mock('../../layouts/DashboardLayout', () => {
@@ -157,6 +162,7 @@ describe('Project drawer', () => {
       'Overview',
       'Tasks1',
       'Estimates1',
+      'Purchase orders0',
       'Expenses2',
       'Photos',
     ]);
@@ -321,6 +327,20 @@ describe('Project drawer', () => {
     expect(button().disabled).toBe(false);
     expect(button().textContent).toContain('Client portal2');
     portalInfo = null;
+  });
+
+  it('has a Purchase orders tab counting the open ones, and the committed money under the costs', async () => {
+    expenses = [];
+    const po = (id: string, status: string, total: number) => ({ id, number: `PO-${id}`, title: `Vendor ${id}`, lines: [], total, status });
+    ordersInfo = { orders: [po('1', 'draft', 500), po('2', 'ordered', 1200), po('3', 'received', 300)], committed: 1200, received: 300 };
+    await render();
+    const tab = Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Purchase orders'))!;
+    expect(tab.textContent).toBe('Purchase orders2');
+    expect(document.body.querySelector('[data-testid="committed"]')!.textContent).toBe('+ $1,200.00 committed');
+    await act(async () => (tab as HTMLButtonElement).click());
+    await act(async () => {});
+    expect(document.body.querySelectorAll('[data-testid="po"]')).toHaveLength(3);
+    ordersInfo = noOrders;
   });
 
   it('closes with the X', async () => {

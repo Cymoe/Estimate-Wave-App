@@ -897,6 +897,16 @@ async function library(t: T, staff: Awaited<ReturnType<typeof signUp>>) {
   await staff.as.mutation(api.ads.addAsset, { storageId: await store(t, "video/mp4", "mp4"), fileName: "roller.mp4", tags: ["process"] });
 }
 
+/** Runs the scheduled functions strictly one after another: finish what's running, then fire the next timer. */
+async function oneAtATime(t: T, limit = 500) {
+  for (let i = 0; i < limit; i++) {
+    await t.finishInProgressScheduledFunctions();
+    if (vi.getTimerCount() === 0) return;
+    vi.advanceTimersToNextTimer();
+  }
+  throw new Error("Scheduled functions kept going");
+}
+
 describe("the weekly run", () => {
   test("drafts two hooks in two sizes, voices, renders and creates each PAUSED in Meta; the batch is ready and staff hear", async () => {
     const t = setup();
@@ -923,8 +933,9 @@ describe("the weekly run", () => {
     await owner.as.mutation(api.ads.draftNow, {});
     // One scheduled function at a time: the voice and render steps each save a file, and convex-test's
     // storage can't take two actions saving at once ("Write outside of transaction"), which the real
-    // backend can. Running every timer together made this fail now and then on the slower CI machine.
-    await t.finishAllScheduledFunctions(() => vi.advanceTimersToNextTimer(), 500);
+    // backend can. finishAllScheduledFunctions keeps advancing the clock while a function is still
+    // running, so the next one could start mid-save; here each runs to the end before the clock moves.
+    await oneAtATime(t);
     vi.useRealTimers();
 
     const [batch] = await owner.as.query(api.ads.batches, {});

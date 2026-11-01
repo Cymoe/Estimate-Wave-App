@@ -504,6 +504,73 @@ export interface PortalView {
   };
 }
 
+/** A purchase order on a project: what's bought from one supplier or sub, at the company's cost. */
+export interface PoLine {
+  _id?: string;
+  description: string;
+  quantity: number;
+  unit?: string;
+  unitCost: number;
+  kind: 'material' | 'labor';
+}
+export interface PurchaseOrder {
+  id: string;
+  number: string;
+  title: string;
+  vendor?: { name: string; phone?: string; email?: string };
+  lines: PoLine[];
+  total: number;
+  status: 'draft' | 'ordered' | 'received' | 'cancelled';
+  neededBy?: string;
+  deliverTo?: string;
+  notes?: string;
+  shareToken?: string;
+  orderedAt?: string;
+  receivedAt?: string;
+  receivedAmount?: number;
+}
+export interface ProjectOrders {
+  orders: PurchaseOrder[];
+  /** Ordered, not yet received. */
+  committed: number;
+  received: number;
+}
+/** The vendor's page for a PO (no sign-in). */
+export interface VendorPurchaseOrder {
+  company?: { name: string; phone?: string; email?: string; logoUrl?: string };
+  number: string;
+  title: string;
+  vendor?: { name: string; phone?: string; email?: string };
+  job?: string;
+  orderedAt?: string;
+  neededBy?: string;
+  deliverTo?: string;
+  notes?: string;
+  status: 'ordered' | 'received';
+  lines: Array<{ description: string; quantity: number; unit?: string; unitCost: number }>;
+  total: number;
+}
+
+export const purchaseOrdersAPI = {
+  forProject: (projectId: string): Promise<ProjectOrders> => run('query', api.purchaseOrders.forProject, { projectId }),
+  create: (projectId: string, title: string): Promise<string> => run('mutation', api.purchaseOrders.create, { projectId, title }),
+  update: (
+    id: string,
+    patch: { title?: string; vendor?: { name: string; phone?: string; email?: string }; lines?: PoLine[]; neededBy?: string; deliverTo?: string; notes?: string },
+  ): Promise<PurchaseOrder> => run('mutation', api.purchaseOrders.update, defined({ id, ...patch })),
+  remove: (id: string): Promise<null> => run('mutation', api.purchaseOrders.remove, { id }),
+  buildFromEstimate: (projectId: string): Promise<number> => run('mutation', api.purchaseOrders.buildFromEstimate, { projectId }),
+  /** Ordered, and its vendor link's token to share. */
+  markOrdered: (id: string): Promise<string> => run('mutation', api.purchaseOrders.markOrdered, { id }),
+  markReceived: (id: string, amount: number): Promise<string> => run('mutation', api.purchaseOrders.markReceived, { id, amount }),
+  reopen: (id: string): Promise<null> => run('mutation', api.purchaseOrders.reopen, { id }),
+  cancel: (id: string): Promise<null> => run('mutation', api.purchaseOrders.cancel, { id }),
+  get: (token: string): Promise<VendorPurchaseOrder | null> => run('query', api.purchaseOrders.get, { token }),
+};
+
+/** A PO's address for its vendor. */
+export const purchaseOrderUrl = (token: string) => `${window.location.origin}/po/${token}`;
+
 /** A client's referrals as the company sees them (on the client's page). */
 export interface ClientReferrals {
   reward: string | null;

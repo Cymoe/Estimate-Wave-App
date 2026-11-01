@@ -21,12 +21,13 @@ import { ClientService, type Client } from '../../services/ClientService';
 import { ExpenseService, paymentState, summarize, type Expense } from '../../services/ExpenseService';
 import { EstimateService, type Estimate } from '../../services/EstimateService';
 import { formatCurrency } from '../../utils/format';
-import { portalAPI, tasksAPI, templatesAPI, type ProjectTask } from '../../lib/api';
+import { portalAPI, purchaseOrdersAPI, tasksAPI, templatesAPI, type ProjectTask } from '../../lib/api';
 import { PortalPreviewSheet } from './PortalPreviewSheet';
 import { ExpensesList } from '../expenses/ExpensesList';
 import { JobPhotos } from '../common/JobPhotos';
 import { ProjectTasks } from './ProjectTasks';
 import { ProjectSelections } from './ProjectSelections';
+import { ProjectPurchaseOrders, type OrdersSummary } from './ProjectPurchaseOrders';
 import { taskDays } from './taskDates';
 import {
   NoteDate,
@@ -42,8 +43,8 @@ import {
 import { Toast, useToast } from '../common/Notice';
 import { PROJECT_STATUSES, formatProjectDate, projectStatusInfo } from './projectStatus';
 
-type TabType = 'overview' | 'tasks' | 'selections' | 'estimates' | 'expenses' | 'photos';
-const TAB_IDS: TabType[] = ['overview', 'tasks', 'selections', 'estimates', 'expenses', 'photos'];
+type TabType = 'overview' | 'tasks' | 'selections' | 'estimates' | 'orders' | 'expenses' | 'photos';
+const TAB_IDS: TabType[] = ['overview', 'tasks', 'selections', 'estimates', 'orders', 'expenses', 'photos'];
 const isTab = (value: string | null): value is TabType => TAB_IDS.includes(value as TabType);
 
 const ESTIMATE_PILL: Record<string, string> = {
@@ -464,6 +465,26 @@ export const ProjectPanel: React.FC<{
     };
   }, [projectId, portalRevision, estimatesRevision, estimatesAdded]);
 
+  // Purchase orders: how many are open and what's committed (ordered, not yet received), for the tab and the totals.
+  const [orders, setOrders] = useState<OrdersSummary | null>(null);
+  useEffect(() => {
+    let live = true;
+    purchaseOrdersAPI
+      .forProject(projectId)
+      .then((data) => {
+        if (!live) return;
+        const open = data.orders.filter((o) => o.status === 'draft' || o.status === 'ordered').length;
+        setOrders({ open, committed: data.committed, received: data.received });
+      })
+      .catch(() => live && setOrders(null));
+    return () => {
+      live = false;
+    };
+  }, [projectId]);
+  const reloadExpenses = useCallback(() => {
+    if (orgId) ExpenseService.list(orgId, projectId).then(setExpenses).catch(() => {});
+  }, [orgId, projectId]);
+
   const openExpenses = (add: boolean) => {
     setAddingExpense(add);
     setActiveTab('expenses');
@@ -512,6 +533,7 @@ export const ProjectPanel: React.FC<{
     // Selections: once a signed estimate has allowance lines for the client to pick.
     ...(hasSelections ? [{ id: 'selections' as const, label: 'Selections', count: selectionsToDo || undefined }] : []),
     { id: 'estimates', label: 'Estimates', count: estimates?.length ?? 0 },
+    { id: 'orders', label: 'Purchase orders', count: orders?.open },
     { id: 'expenses', label: 'Expenses', count: summary.count },
     { id: 'photos', label: 'Photos' },
   ];
@@ -599,14 +621,14 @@ export const ProjectPanel: React.FC<{
         <div className="text-sm text-gray-400 px-3 pb-2">
           {clientLabel || 'No client'} • {dates(project)}
         </div>
-        <div className="border-t border-[#333333] flex items-center" role="tablist">
+        <div className="border-t border-[#333333] flex items-center overflow-x-auto" role="tablist">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               role="tab"
               aria-selected={activeTab === tab.id}
               onClick={() => (tab.id === 'expenses' ? openExpenses(false) : setActiveTab(tab.id))}
-              className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 ${
+              className={`flex-shrink-0 whitespace-nowrap px-4 py-3 text-sm font-medium transition-colors border-b-2 ${
                 activeTab === tab.id
                   ? 'text-white border-[#336699] bg-[#336699]/10'
                   : 'text-gray-400 border-transparent hover:text-white hover:bg-[#2a2a2a]'
@@ -758,6 +780,12 @@ export const ProjectPanel: React.FC<{
           </div>
         )}
 
+        {activeTab === 'orders' && (
+          <div className="p-4">
+            <ProjectPurchaseOrders projectId={project.id!} companyName={selectedOrg?.name} onSummary={setOrders} onExpensesChanged={reloadExpenses} />
+          </div>
+        )}
+
         {activeTab === 'expenses' && (
           <div className="p-4">
             <ExpensesList projectId={project.id!} onChange={setExpenses} startAdding={addingExpense} />
@@ -783,6 +811,11 @@ export const ProjectPanel: React.FC<{
         <div className="px-4 py-3 text-right">
           <div className="text-[11px] text-gray-500 uppercase tracking-wide">{budget > 0 ? `Costs · ${spentShare}% of budget` : 'Costs'}</div>
           <div className="font-mono tabular-nums text-white">{formatCurrency(summary.total)}</div>
+          {(orders?.committed ?? 0) > 0 && (
+            <div className="text-[11px] text-gray-500 tabular-nums" data-testid="committed">
+              + {formatCurrency(orders!.committed)} committed
+            </div>
+          )}
         </div>
         <div className="px-4 py-3 text-right">
           <div className="text-[11px] text-gray-500 uppercase tracking-wide">Profit{margin !== null ? ` · ${margin}%` : ''}</div>

@@ -107,6 +107,7 @@ html.light .hover\:bg-\[\#1A1A1A\]\/50:hover { background-color: rgba(255, 255, 
 html.light .hover\:bg-\[\#1A1A1A\]\/60:hover { background-color: rgba(255, 255, 255, 0.6); }
 html.light .hover\:bg-\[\#1B1B1B\]:hover { background-color: #FFFFFF; }
 html.light .hover\:bg-\[\#1E1E1E\]:hover { background-color: #F7F8FA; }
+html.light .hover\:bg-\[\#202020\]:hover { background-color: #F7F8FA; }
 html.light .hover\:bg-\[\#222222\]:hover { background-color: #F7F8FA; }
 html.light .hover\:bg-\[\#22272d\]:hover { background-color: #F1F2F4; }
 html.light .hover\:bg-\[\#22272d\]\/50:hover { background-color: rgba(241, 242, 244, 0.5); }

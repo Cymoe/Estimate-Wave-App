@@ -84,7 +84,7 @@ export async function assertLinksInOrg(
   }
 }
 
-export function documentNumber(prefix: "EST" | "INV"): string {
+export function documentNumber(prefix: "EST" | "INV" | "PO"): string {
   const year = new Date().getFullYear();
   const suffix = Date.now().toString().slice(-6);
   return `${prefix}-${year}-${suffix}`;
