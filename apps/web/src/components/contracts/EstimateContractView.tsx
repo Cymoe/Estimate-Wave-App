@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, FileText, Edit, Save, Download } from 'lucide-react';
 import { EstimateService, Estimate } from '../../services/EstimateService';
@@ -7,14 +8,27 @@ import { estimatesAPI, organizationsAPI, type EstimateDocuments } from '../../li
 import { AgreementTerms, ContractSignatures } from './AgreementTerms';
 import { SignedRecord } from './SignedRecord';
 import { approvalLine } from '../estimates/estimateActions';
-export const EstimateContractView: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
+interface EstimateContractViewProps {
+  /** Shown as a sheet over the estimate: which estimate, and how to close it. Without these it's the /estimates/:id/contract page. */
+  estimateId?: string;
+  onClose?: () => void;
+  /** The signed record instead of the agreement (the page's ?record=1). */
+  record?: boolean;
+  /** The estimate after its terms are saved here, so the estimate underneath stays current. */
+  onSaved?: (estimate: Estimate) => void;
+}
+
+export const EstimateContractView: React.FC<EstimateContractViewProps> = ({ estimateId, onClose, record, onSaved }) => {
+  const params = useParams<{ id: string }>();
+  const id = estimateId ?? params.id;
   const navigate = useNavigate();
   const location = useLocation();
   // Back to the estimate by stepping back, so closing the estimate afterwards
   // doesn't return here. Opened directly, replace this page with the estimate.
+  // As a sheet it just closes, leaving the estimate (and its tab) as it was.
   const backToEstimate = () => {
-    if (location.key !== 'default') navigate(-1);
+    if (onClose) onClose();
+    else if (location.key !== 'default') navigate(-1);
     else navigate(`/estimates/${id}`, { replace: true, state: { closeTo: '/work' } });
   };
   const [estimate, setEstimate] = useState<Estimate | null>(null);
@@ -25,7 +39,7 @@ export const EstimateContractView: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   // ?record=1 shows the signed record instead: who signed and the exact files.
-  const showRecord = new URLSearchParams(location.search).get('record') === '1';
+  const showRecord = record ?? new URLSearchParams(location.search).get('record') === '1';
   const [documents, setDocuments] = useState<EstimateDocuments | null>(null);
   const isEditing = draftTerms !== null;
 
@@ -72,6 +86,36 @@ export const EstimateContractView: React.FC = () => {
     estimatesAPI.documents(id).then(setDocuments).catch(() => setDocuments(null));
   }, [showRecord, id]);
 
+  // As a sheet, Esc closes it (the estimate drawer underneath leaves Esc to it), unless terms are being edited.
+  useEffect(() => {
+    if (!onClose || isEditing) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose, isEditing]);
+
+  /** The page as is; as a sheet, over everything and the only thing printed. */
+  const frame = (page: React.ReactElement) =>
+    onClose
+      ? createPortal(
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={showRecord ? 'Signed record' : 'Agreement'}
+            className="agreement-sheet fixed inset-0 z-[10010] overflow-y-auto overscroll-contain bg-black print:static print:overflow-visible"
+          >
+            <style>{'@media print { body > :not(.agreement-sheet) { display: none !important; } }'}</style>
+            {page}
+          </div>,
+          document.body,
+        )
+      : page;
+
   const contract: ContractData | null = estimate ? contractFor(estimate, business) : null;
   // While editing, show the terms being typed.
   const contractData: ContractData | null = contract && draftTerms ? { ...contract, ...draftTerms } : contract;
@@ -94,8 +138,10 @@ export const EstimateContractView: React.FC = () => {
     if (!estimate?.id || !draftTerms) return;
     try {
       setSaving(true);
-      setEstimate(await EstimateService.update(estimate.id, { contract_terms: draftTerms }));
+      const saved = await EstimateService.update(estimate.id, { contract_terms: draftTerms });
+      setEstimate(saved);
       setDraftTerms(null);
+      if (saved) onSaved?.(saved);
     } catch (error) {
       console.error('Error saving contract:', error);
       alert(error instanceof Error ? error.message : 'Failed to save contract');
@@ -109,7 +155,7 @@ export const EstimateContractView: React.FC = () => {
   };
 
   if (loading) {
-    return (
+    return frame(
       <div className="min-h-screen bg-[#000000] text-white">
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
@@ -122,7 +168,7 @@ export const EstimateContractView: React.FC = () => {
   }
 
   if (!estimate || !contractData) {
-    return (
+    return frame(
       <div className="min-h-screen bg-[#000000] text-white">
         <div className="text-center py-12">
           <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
@@ -140,7 +186,7 @@ export const EstimateContractView: React.FC = () => {
 
   if (showRecord) {
     const snapshot = estimate.contract_snapshot as { client?: { name?: string } } | undefined;
-    return (
+    return frame(
       <div className="min-h-screen bg-[#000000] text-white">
         <div className="bg-[#1a1a1a] border-b border-[#333333] px-6 py-4 flex items-center justify-between gap-4 print:hidden">
           <div className="flex items-center gap-4">
@@ -177,7 +223,7 @@ export const EstimateContractView: React.FC = () => {
     );
   }
 
-  return (
+  return frame(
     <div className="min-h-screen bg-[#000000] text-white">
       {/* Header */}
       <div className="bg-[#1a1a1a] border-b border-[#333333] px-6 py-4">
@@ -186,6 +232,7 @@ export const EstimateContractView: React.FC = () => {
             <button
               onClick={backToEstimate}
               className="p-2 hover:bg-[#333333] rounded transition-colors"
+              aria-label="Back"
             >
               <ArrowLeft className="w-5 h-5 text-gray-400" />
             </button>

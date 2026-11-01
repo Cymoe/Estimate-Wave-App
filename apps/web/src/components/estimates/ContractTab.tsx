@@ -7,6 +7,7 @@ import type { Estimate } from '../../services/EstimateService';
 import { changesSinceSigned } from '../../services/contract';
 import { uploadContractDoc } from '../../services/ContractDocsService';
 import { approvalLine } from './estimateActions';
+import { EstimateContractView } from '../contracts/EstimateContractView';
 
 type ChangeOrder = ReturnType<typeof changesSinceSigned>;
 const errorText = (err: unknown) => (err instanceof Error && err.message ? err.message : 'That didn’t work');
@@ -70,17 +71,22 @@ export function ContractTab({
   changeOrder,
   organizationId,
   onApprove,
+  onEstimateChange,
 }: {
   estimate: Estimate;
   changeOrder: ChangeOrder;
   organizationId?: string;
   /** Approve it without the client's signature (set while it can still be approved). */
   onApprove?: () => void;
+  /** The estimate after its terms are saved on the agreement. */
+  onEstimateChange?: (estimate: Estimate) => void;
 }) {
   const navigate = useNavigate();
   const [docs, setDocs] = useState<EstimateDocuments | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  // The agreement or signed record, open on top of the estimate so closing it leaves the estimate as it was.
+  const [sheet, setSheet] = useState<'agreement' | 'record' | null>(null);
   const picker = useRef<HTMLInputElement>(null);
   const id = estimate.id!;
   const locked = Boolean(estimate.contract_locked_at);
@@ -130,6 +136,7 @@ export function ContractTab({
 
   return (
     <div className="space-y-3">
+      {sheet && <EstimateContractView estimateId={id} record={sheet === 'record'} onClose={() => setSheet(null)} onSaved={onEstimateChange} />}
       <input ref={picker} type="file" accept="application/pdf,.pdf" className="hidden" onChange={onFile} data-testid="job-contract-file" />
       <div className="bg-[#1a1a1a] border border-[#333] divide-y divide-[#333]">
         {agreement?.source === 'upload' && agreement.url ? (
@@ -148,16 +155,10 @@ export function ContractTab({
             title="Agreement"
             subtitle={locked ? (approved ?? `Signed ${signedOn}`) : 'Filled in from this estimate · the client signs it with the estimate'}
             doc={docs ? agreement : undefined}
-            onClick={() => navigate(`/estimates/${id}/contract`)}
+            onClick={() => setSheet('agreement')}
           />
         )}
-        {locked && (
-          <Row
-            title="Signed record"
-            subtitle="Who signed, when, and the exact files signed"
-            onClick={() => navigate(`/estimates/${id}/contract?record=1`)}
-          />
-        )}
+        {locked && <Row title="Signed record" subtitle="Who signed, when, and the exact files signed" onClick={() => setSheet('record')} />}
       </div>
 
       {showAttachments && docs && (

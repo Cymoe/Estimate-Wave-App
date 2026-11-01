@@ -95,10 +95,13 @@ const Where = () => {
   return null;
 };
 
+// Unmounted after each test, so an earlier drawer can't answer a later test's Esc.
+const roots: Array<ReturnType<typeof createRoot>> = [];
 async function render(at = '/projects/p1', props: { covered?: boolean; estimatesRevision?: number } = {}) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
+  roots.push(root);
   const draw = (extra: typeof props) =>
     act(async () =>
       root.render(
@@ -131,6 +134,7 @@ const summary = () => document.body.querySelector('[data-testid="project-summary
 
 describe('Project drawer', () => {
   afterEach(() => {
+    act(() => roots.splice(0).forEach((r) => r.unmount()));
     document.body.innerHTML = '';
     createExpense.mockClear();
     onClose.mockClear();

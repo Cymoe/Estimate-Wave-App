@@ -120,10 +120,28 @@ describe('estimate agreement tab', () => {
     expect(path).toBe('/settings/organization');
   });
 
-  it('the built-in agreement opens the full agreement page', async () => {
+  it('the built-in agreement opens on top of the estimate, and closing it leaves the estimate on its Agreement tab', async () => {
     await openTab();
-    await act(async () => byText('Filled in from this estimate')!.click()); // the row, not the tab
-    expect(path).toBe('/estimates/e1/contract');
+    const sheet = () => document.body.querySelector('[role="dialog"][aria-label="Agreement"]');
+    const open = async () => {
+      await act(async () => byText('Filled in from this estimate')!.click()); // the row, not the tab
+      await act(async () => {
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+      });
+    };
+    await open();
+    // Same address: the estimate (and any project behind it) stays mounted underneath.
+    expect(path).toBe('/estimates/e1');
+    expect(sheet()!.textContent).toContain('SERVICES CONTRACT AGREEMENT');
+    await act(async () => (sheet()!.querySelector('button[aria-label="Back"]') as HTMLButtonElement).click());
+    expect(sheet()).toBeNull();
+    expect(path).toBe('/estimates/e1');
+    expect(document.body.textContent).toContain('Filled in from this estimate'); // still on the Agreement tab
+    // Esc closes it too.
+    await open();
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    expect(sheet()).toBeNull();
+    expect(document.body.textContent).toContain('Filled in from this estimate');
   });
 
   it("the company's own agreement PDF opens as a link, with nothing to swap", async () => {
@@ -182,7 +200,8 @@ describe('estimate agreement tab', () => {
     expect(byText('Add a PDF to this job')).toBeUndefined();
     expect(document.body.querySelector('[aria-label="Also sent with this estimate"]')!.textContent).toContain('Warranty');
     await act(async () => byText('Signed record')!.click());
-    expect(path).toBe('/estimates/e1/contract');
+    expect(path).toBe('/estimates/e1');
+    expect(document.body.querySelector('[role="dialog"][aria-label="Signed record"]')).not.toBeNull();
   });
 
   it('before signing, offers to approve it without a signature', async () => {

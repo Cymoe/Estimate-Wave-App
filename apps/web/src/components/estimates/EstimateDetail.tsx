@@ -881,6 +881,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                  changeOrder={changeOrder}
                  organizationId={estimate.organization_id || selectedOrg?.id}
                  onApprove={canApprove(estimate) ? handleApprove : undefined}
+                 onEstimateChange={(saved) => setEstimate(prepare(saved))}
                />
              ) : (
                <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6 text-center">
