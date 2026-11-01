@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { LegalLinks } from '../../pages/Legal';
-import { CheckCircle, Mail, Phone, MapPin, FileText, ChevronDown } from 'lucide-react';
+import { CheckCircle, Mail, Phone, MapPin, FileText, ChevronDown, Download, Printer } from 'lucide-react';
 import { publicEstimatesAPI } from '../../lib/api';
 import { formatCurrency } from '../../utils/format';
 import { OTHER_CATEGORY, categoryTotals, type ContractData } from '../../services/contract';
@@ -12,6 +12,9 @@ import { AgreementTerms } from '../contracts/AgreementTerms';
 import { SignedRecord, type RecordDocument } from '../contracts/SignedRecord';
 import { SignaturePad } from '../contracts/SignaturePad';
 import { LightPage } from '../common/LightPage';
+
+const copyButton =
+  'inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors';
 
 /** What the client sees, from the estimate's link (no login). */
 interface ClientEstimate {
@@ -229,11 +232,35 @@ const ShareableEstimatePage: React.FC = () => {
             ? t.statusExpired
             : estimate.status.charAt(0).toUpperCase() + estimate.status.slice(1);
 
+  /** Opens the print screen; the page title names the saved file ("Shah Builders – Estimate & Agreement · EST-2026-000001"). */
+  const saveOrPrint = () => {
+    const before = document.title;
+    document.title = [estimate.business?.name, t.subtitle(estimate.estimate_number)].filter(Boolean).join(' – ');
+    const restore = () => {
+      document.title = before;
+      window.removeEventListener('afterprint', restore);
+    };
+    window.addEventListener('afterprint', restore);
+    window.print();
+  };
+
   return (
-    <LightPage className="bg-gray-50">
-      <div className="max-w-4xl mx-auto py-8 px-4">
+    <LightPage className="bg-gray-50 print:bg-white">
+      <div className="max-w-4xl mx-auto py-8 px-4 print:py-0 print:px-0">
+        {/* Keep a copy: both open the device's print screen, where "Save as PDF" (or Save to Files) is a choice */}
+        <div className="flex justify-end gap-2 mb-3 print:hidden" data-testid="keep-a-copy">
+          <button type="button" onClick={saveOrPrint} className={copyButton}>
+            <Download className="w-4 h-4" />
+            {t.savePdf}
+          </button>
+          <button type="button" onClick={saveOrPrint} className={copyButton}>
+            <Printer className="w-4 h-4" />
+            {t.print}
+          </button>
+        </div>
+
         {/* Header */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 mb-6">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 mb-6 print:shadow-none">
           <div className="flex justify-between items-start mb-6">
             <div>
               <h1 className="text-3xl font-bold text-gray-900 mb-2">
@@ -366,10 +393,11 @@ const ShareableEstimatePage: React.FC = () => {
             className="w-full px-6 py-4 flex items-center justify-between text-left"
           >
             <h3 className="text-lg font-semibold text-gray-900">{t.lineItems(estimate.items.length)}</h3>
-            <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform ${showDetails ? 'rotate-180' : ''}`} />
+            <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform print:hidden ${showDetails ? 'rotate-180' : ''}`} />
           </button>
 
-          {showDetails && <div className="overflow-x-auto border-t border-gray-200">
+          {/* Always on the page, so a saved or printed copy has every line; on screen only once opened */}
+          <div className={`overflow-x-auto border-t border-gray-200 ${showDetails ? '' : 'hidden print:block'}`} data-testid="line-item-details">
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
@@ -445,7 +473,7 @@ const ShareableEstimatePage: React.FC = () => {
                 </tr>
               </tfoot>
             </table>
-          </div>}
+          </div>
         </div>
 
         {/* The agreement, signed together with the estimate: the company's own PDF, or Webb Leads' (with the agreed design) */}
@@ -544,7 +572,7 @@ const ShareableEstimatePage: React.FC = () => {
             <p className="text-sm text-gray-600">{t.approvedOn(estimate.business?.name || t.yourContractor, formatDay(estimate.approved_at ?? estimate.locked_at, lang))}</p>
           </div>
         ) : canSign ? (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 print:hidden" data-testid="sign-box">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">{t.acceptSign}</h3>
             
             <div className="mb-6">
@@ -577,7 +605,7 @@ const ShareableEstimatePage: React.FC = () => {
             </button>
           </div>
         ) : (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 text-center">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 text-center print:hidden">
             <p className="text-gray-600">
               {estimate.status === 'rejected' 
                 ? t.declined
@@ -588,8 +616,8 @@ const ShareableEstimatePage: React.FC = () => {
             </p>
           </div>
         )}
-        <LangToggle className="text-xs text-gray-400 mt-8" />
-        <LegalLinks className="text-xs text-gray-400 mt-2" />
+        <LangToggle className="text-xs text-gray-400 mt-8 print:hidden" />
+        <LegalLinks className="text-xs text-gray-400 mt-2 print:hidden" />
       </div>
     </LightPage>
   );

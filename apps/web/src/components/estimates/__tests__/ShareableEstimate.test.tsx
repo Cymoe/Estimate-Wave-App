@@ -91,9 +91,12 @@ describe('client estimate page', () => {
     await open();
     const rows = Array.from(document.body.querySelectorAll('[data-testid="category-summary"] tbody tr')).map((r) => r.textContent);
     expect(rows).toEqual(['Electrical$300.00', 'Interior Painting$500.00', 'Other$100.00']);
-    expect(document.body.textContent).not.toContain('Paint ceilings');
+    // The lines are on the page for a saved or printed copy, but hidden on screen until opened.
+    const details = () => document.body.querySelector('[data-testid="line-item-details"]')!;
+    expect(details().textContent).toContain('Paint ceilings');
+    expect(details().className).toContain('hidden print:block');
     await act(async () => button('Line item details (4)')!.click());
-    expect(document.body.textContent).toContain('Paint ceilings');
+    expect(details().className).not.toContain('hidden');
     // The details break down under the same categories, in the same order, each with its total.
     const groups = Array.from(document.body.querySelectorAll('[data-testid="category-group"]')).map((g) =>
       Array.from(g.querySelectorAll('tr')).map((r) => r.textContent),
@@ -103,6 +106,27 @@ describe('client estimate page', () => {
       ['Interior Painting$500.00', 'Paint walls100$3.00$300.00', 'Paint ceilings50$4.00$200.00'],
       ['Other$100.00', 'Haul away1$100.00$100.00'],
     ]);
+  });
+
+  it('Save as PDF and Print open the print screen, with the company and estimate as the file name; the signing box stays off the copy', async () => {
+    const print = jest.spyOn(window, 'print').mockImplementation(() => {});
+    view = { ...sent, business: { name: 'Shah Builders' } };
+    await open();
+    document.title = 'Webb Leads';
+    let titleWhilePrinting = '';
+    print.mockImplementation(() => {
+      titleWhilePrinting = document.title;
+    });
+    await act(async () => button('Save as PDF')!.click());
+    expect(print).toHaveBeenCalledTimes(1);
+    expect(titleWhilePrinting).toBe('Shah Builders – Estimate & Agreement · EST-2026-000001');
+    await act(async () => window.dispatchEvent(new Event('afterprint')));
+    expect(document.title).toBe('Webb Leads');
+    await act(async () => button('Print')!.click());
+    expect(print).toHaveBeenCalledTimes(2);
+    expect(document.body.querySelector('[data-testid="keep-a-copy"]')!.className).toContain('print:hidden');
+    expect(document.body.querySelector('[data-testid="sign-box"]')!.className).toContain('print:hidden');
+    print.mockRestore();
   });
 
   it('shows the agreement terms above the one signature', async () => {
