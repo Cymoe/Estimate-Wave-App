@@ -84,7 +84,7 @@ describe('the portal preview', () => {
     expect(text).toContain('2 new, marked below. Nothing goes to Ann until you send.');
     expect(text).toContain('Hi Ann');
     expect(document.body.querySelectorAll('[data-testid="ask-selection"], [data-testid="ask-change_order"]')).toHaveLength(2);
-    expect((text.match(/New/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(document.body.querySelectorAll('[data-testid="new-ribbon"]')).toHaveLength(2);
     // The client's pick form shows as a note, not a form.
     expect(button('Pick yours')).toBeUndefined();
     expect(text).toContain('Your client picks here');

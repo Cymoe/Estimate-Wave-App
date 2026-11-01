@@ -107,6 +107,11 @@ async function portalView(ctx: QueryCtx, client: Doc<"clients">, preview: boolea
     latest: string;
     documents: Array<{ kind: "estimate" | "change_order" | "affidavit"; number: string; signedAt?: string; path?: string }>;
     selections: Array<{ description: string; name?: string; url?: string }>;
+    // From the job's project: where it stands and its steps (task titles, dates, done; never notes or crew).
+    status?: Doc<"projects">["status"];
+    startDate?: string;
+    endDate?: string;
+    steps?: Array<{ title: string; start?: string; end?: string; done: boolean }>;
   };
   const jobs = new Map<string, Job>();
 
@@ -131,6 +136,21 @@ async function portalView(ctx: QueryCtx, client: Doc<"clients">, preview: boolea
       latest: "",
       documents: [],
       selections: [],
+      ...(project && !jobs.has(key)
+        ? {
+            status: project.status,
+            startDate: project.startDate,
+            endDate: project.endDate,
+            steps: (
+              await ctx.db
+                .query("projectTasks")
+                .withIndex("by_project", (q) => q.eq("projectId", project._id))
+                .take(200)
+            )
+              .sort((a, b) => a.order - b.order)
+              .map((task) => ({ title: task.title, start: task.startDate, end: task.endDate, done: task.doneAt !== undefined })),
+          }
+        : {}),
     };
     const signedAt = estimate.signedAt ?? estimate.approvedAt ?? estimate.contractLockedAt;
     job.total = cents(job.total + estimate.contractSnapshot.totalAmount);
@@ -221,7 +241,17 @@ async function portalView(ctx: QueryCtx, client: Doc<"clients">, preview: boolea
     asks,
     jobs: [...jobs.values()]
       .sort((a, b) => b.latest.localeCompare(a.latest))
-      .map((job) => ({ key: job.key, name: job.name, total: job.total, documents: job.documents, selections: job.selections })),
+      .map((job) => ({
+        key: job.key,
+        name: job.name,
+        total: job.total,
+        documents: job.documents,
+        selections: job.selections,
+        status: job.status,
+        startDate: job.startDate,
+        endDate: job.endDate,
+        steps: job.steps,
+      })),
   };
 }
 

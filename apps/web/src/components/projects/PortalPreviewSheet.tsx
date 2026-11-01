@@ -83,7 +83,7 @@ export const PortalPreviewSheet: React.FC<{
 
   const newCount = view?.newCount ?? 0;
   return createPortal(
-    <div role="dialog" aria-modal="true" aria-label="Client portal preview" className="fixed inset-0 z-[10010] flex flex-col bg-gray-50">
+    <div role="dialog" aria-modal="true" aria-label="Client portal preview" className="fixed inset-0 z-[10010] flex flex-col bg-[#F5F6F8]">
       <div className="flex-shrink-0 bg-[#1a1a1a] border-b border-[#333] px-3 py-2.5 flex items-center gap-2">
         <button type="button" onClick={onClose} aria-label="Close" className="p-1.5 text-gray-400 hover:text-white">
           <X className="w-5 h-5" />
@@ -130,7 +130,7 @@ export const PortalPreviewSheet: React.FC<{
         </p>
       )}
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain text-gray-900">
-        <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
+        <div className="mx-auto max-w-xl px-4 py-8">
           {view === undefined ? (
             <p className="text-gray-500">Loading…</p>
           ) : view === null ? (

@@ -92,12 +92,12 @@ describe('client portal', () => {
 
     const asks = document.body.querySelector('[data-testid="asks"]')!;
     expect(asks.querySelector('[data-testid="ask-selection"]')!.textContent).toContain('Pick: Tile allowance');
-    expect(asks.textContent).toContain('$1,200.00 included · 300 × $4.00');
-    expect(asks.textContent).toContain('Pick by Dec 1, 2026');
-    const estimate = asks.querySelector('[data-testid="ask-estimate"] a')!;
+    expect(asks.textContent).toContain('Pick by Dec 1 · $1,200.00 included · 300 × $4.00');
+    const estimate = asks.querySelector('[data-testid="ask-estimate"]')!;
     expect(estimate.textContent).toContain('Review and sign your estimate');
     expect(estimate.textContent).toContain('Deck · $5,000.00');
-    expect(estimate.getAttribute('href')).toBe('/share/estimate/deck');
+    expect(estimate.querySelector('a')!.textContent).toContain('Review & sign');
+    expect(estimate.querySelector('a')!.getAttribute('href')).toBe('/share/estimate/deck');
     expect(asks.querySelector('[data-testid="ask-change_order"]')!.textContent).toContain('Sign the changes to the work');
     expect(asks.querySelector('[data-testid="ask-change_order"]')!.textContent).toContain('Adds $70.00');
 
@@ -106,14 +106,74 @@ describe('client portal', () => {
     expect(job.textContent).toContain('Agreed total $3,620.00');
     expect(job.textContent).toContain('Estimate & agreement EST-1');
     expect(job.textContent).toContain('Change order 1');
-    expect(job.textContent).toContain('Signed Oct 20, 2026');
-    expect(job.textContent).toContain('Faucet allowance:Delta Trinsic');
+    expect(job.textContent).toContain('Signed Oct 20');
+    expect(job.querySelector('[data-testid="chosen"]')!.textContent).toContain('Faucet allowance:Delta Trinsic');
+    // No project: no status, progress or steps beyond the agreement.
+    expect(job.querySelector('[data-testid="job-status"]')).toBeNull();
+    expect(job.querySelector('[data-testid="progress"]')).toBeNull();
+  });
+
+  it('has quick tiles: how much to do, the documents, and a call button; the tiles jump to their section', async () => {
+    view = { ...base };
+    const scrolled: string[] = [];
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this.id);
+    } as typeof Element.prototype.scrollIntoView;
+    await open();
+    const tiles = document.body.querySelector('[data-testid="quick-tiles"]')!;
+    expect(tiles.textContent).toBe('3To do2DocumentsCall');
+    expect(tiles.querySelector('a')!.getAttribute('href')).toBe('tel:555-0100');
+    await act(async () => button('To do').click());
+    await act(async () => button('Documents').click());
+    expect(scrolled).toEqual(['portal-asks', 'portal-jobs']);
+    expect(document.body.querySelector('[data-testid="contact"]')!.textContent).toContain('Peak Builders');
+  });
+
+  it("shows each job's progress: status, dates, steps done, and a timeline with where things are now", async () => {
+    view = {
+      ...base,
+      asks: [],
+      jobs: [
+        {
+          ...base.jobs[0],
+          status: 'in_progress',
+          startDate: '2026-10-28',
+          endDate: '2026-11-16',
+          steps: [
+            { title: 'Demo', start: '2026-10-30', done: true },
+            { title: 'Cabinets', start: '2026-11-04', end: '2026-11-08', done: false },
+            { title: 'Tile', start: '2026-11-10', done: false },
+            { title: 'Paint', done: false },
+            { title: 'Trim', done: false },
+            { title: 'Cleanup', done: false },
+            { title: 'Walkthrough', done: false },
+          ],
+        },
+      ],
+    };
+    await open();
+    const job = document.body.querySelector('[data-testid="job"]')!;
+    expect(job.querySelector('[data-testid="job-status"]')!.textContent).toBe('In progress');
+    expect(job.textContent).toContain('Oct 28 – Nov 16');
+    expect(job.querySelector('[data-testid="progress"]')!.textContent).toBe('1 of 7 steps done');
+    const steps = () => Array.from(job.querySelectorAll('[data-testid="step"]')).map((s) => [s.getAttribute('data-state'), s.textContent]);
+    // The agreement comes first; the first step not done is "now"; long timelines show 6 until asked.
+    expect(steps()).toEqual([
+      ['done', 'Agreement signedOct 5'],
+      ['done', 'DemoOct 30'],
+      ['now', 'CabinetsNowNov 4 – Nov 8'],
+      ['next', 'TileNov 10'],
+      ['next', 'Paint'],
+      ['next', 'Trim'],
+    ]);
+    await act(async () => button('Show all 8 steps').click());
+    expect(steps()).toHaveLength(8);
   });
 
   it('says so when nothing needs them', async () => {
     view = { ...base, asks: [], jobs: [] };
     await open();
-    expect(document.body.textContent).toContain('Nothing needed from you right now.');
+    expect(document.body.querySelector('[data-testid="all-caught-up"]')!.textContent).toContain("You're all caught up");
     expect(document.body.querySelector('[data-testid="jobs"]')).toBeNull();
   });
 

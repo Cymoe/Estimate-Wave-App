@@ -484,6 +484,11 @@ export interface PortalView {
     total: number;
     documents: Array<{ kind: 'estimate' | 'change_order' | 'affidavit'; number: string; signedAt?: string; path?: string }>;
     selections: Array<{ description: string; name?: string; url?: string }>;
+    /** From the job's project: where it stands and its steps (no notes or crew). */
+    status?: 'planning' | 'in_progress' | 'on_hold' | 'completed' | 'cancelled';
+    startDate?: string;
+    endDate?: string;
+    steps?: Array<{ title: string; start?: string; end?: string; done: boolean }>;
   }>;
 }
 

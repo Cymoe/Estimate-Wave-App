@@ -33,20 +33,20 @@ function PortalContent() {
     load();
   }, [load]);
 
-  if (view === undefined) return <LightPage className="bg-gray-50 flex items-center justify-center text-gray-500">{t.loading}</LightPage>;
+  if (view === undefined) return <LightPage className="bg-[#F5F6F8] flex items-center justify-center text-gray-500">{t.loading}</LightPage>;
   if (view === null)
     return (
-      <LightPage className="bg-gray-50 flex flex-col items-center justify-center gap-6 px-6 text-center text-gray-700">
+      <LightPage className="bg-[#F5F6F8] flex flex-col items-center justify-center gap-6 px-6 text-center text-gray-700">
         <p>{t.invalid}</p>
         <LangToggle className="text-xs text-gray-400" />
       </LightPage>
     );
 
   return (
-    <LightPage className="bg-gray-50 text-gray-900">
-      <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
+    <LightPage className="bg-[#F5F6F8] text-gray-900">
+      <div className="mx-auto max-w-xl px-4 pb-8 pt-8 sm:pt-12">
         <PortalView view={view} lang={lang} token={token} onPicked={load} />
-        <footer className="flex flex-col items-center gap-3 pt-4">
+        <footer className="mt-8 flex flex-col items-center gap-3 pb-4">
           <LangToggle className="text-xs text-gray-400" />
           <LegalLinks className="text-xs text-gray-400" />
         </footer>

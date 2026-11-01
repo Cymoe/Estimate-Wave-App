@@ -36,6 +36,23 @@ const en = {
   chosen: 'Your selections',
   call: 'Call',
   email: 'Email',
+  // The card app (PortalView): tiles, the all-clear, each job's progress.
+  toDo: 'To do',
+  documentsTile: 'Documents',
+  allCaughtUp: "You're all caught up",
+  allCaughtUpBody: "We'll let you know when there's something for you.",
+  reviewSign: 'Review & sign',
+  status: { planning: 'Planned', in_progress: 'In progress', on_hold: 'On hold', completed: 'Complete', cancelled: 'Cancelled' } as Record<
+    string,
+    string
+  >,
+  stepsDone: (done: number, all: number) => `${done} of ${all} steps done`,
+  showAllSteps: (n: number) => `Show all ${n} steps`,
+  showFewer: 'Show fewer',
+  agreementSigned: 'Agreement signed',
+  now: 'Now',
+  documentsHeading: 'Documents',
+  contact: 'Questions? Reach us anytime.',
   /** A pick the company asked for (tile, a faucet). */
   picks: {
     pickYour: (what: string) => `Pick: ${what}`,
@@ -92,6 +109,19 @@ const es: typeof en = {
   chosen: 'Tus selecciones',
   call: 'Llamar',
   email: 'Correo',
+  toDo: 'Pendientes',
+  documentsTile: 'Documentos',
+  allCaughtUp: 'Estás al día',
+  allCaughtUpBody: 'Te avisaremos cuando haya algo para ti.',
+  reviewSign: 'Revisar y firmar',
+  status: { planning: 'Planeado', in_progress: 'En curso', on_hold: 'En pausa', completed: 'Terminado', cancelled: 'Cancelado' },
+  stepsDone: (done, all) => `${done} de ${all} pasos hechos`,
+  showAllSteps: (n) => `Ver los ${n} pasos`,
+  showFewer: 'Ver menos',
+  agreementSigned: 'Contrato firmado',
+  now: 'Ahora',
+  documentsHeading: 'Documentos',
+  contact: '¿Preguntas? Escríbenos o llámanos cuando quieras.',
   picks: {
     pickYour: (what) => `Elige: ${what}`,
     included: (amount) => `${amount} incluido`,

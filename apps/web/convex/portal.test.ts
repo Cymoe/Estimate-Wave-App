@@ -67,13 +67,15 @@ describe("the client portal", () => {
     expect(page.asks).toEqual([
       { kind: "estimate", at: expect.any(String), number: expect.any(String), title: "Deck", total: 5000, path: `/share/estimate/${deckLink}` },
     ]);
-    expect(page.jobs).toEqual([
+    expect(page.jobs).toMatchObject([
       {
         key: expect.stringMatching(/^p:/),
         name: "Bathroom remodel",
         total: 3550,
         documents: [{ kind: "estimate", number: expect.any(String), signedAt: expect.any(String), path: `/share/estimate/${bathroomLink}` }],
         selections: [],
+        status: "planning",
+        steps: [],
       },
     ]);
 
@@ -203,5 +205,32 @@ describe("the client portal", () => {
     await expect(rival.as.query(api.portal.preview, { clientId })).rejects.toThrow();
     await expect(rival.as.mutation(api.portal.send, { clientId })).rejects.toThrow();
     await expect(rival.as.query(api.portal.forProject, { projectId })).rejects.toThrow();
+  });
+
+  test("each job shows where it stands: the project's status, dates and steps (no notes or crew)", async () => {
+    const t = setup();
+    const { as, clientId, projectId, organizationId } = await annsJobs(t);
+    await as.mutation(api.projects.update, { id: projectId, data: { status: "in_progress", startDate: "2026-10-28", endDate: "2026-11-16" } });
+    const demo = await as.mutation(api.tasks.add, { projectId, title: "Demo", startDate: "2026-10-30", notes: "Gate code 1234" });
+    await as.mutation(api.tasks.add, { projectId, title: "Cabinets", startDate: "2026-11-04", endDate: "2026-11-08" });
+    await as.mutation(api.tasks.update, { id: demo, done: true });
+    const token = await as.mutation(api.portal.link, { clientId });
+    const [job] = (await t.query(api.portal.get, { token }))!.jobs;
+    expect(job).toMatchObject({ status: "in_progress", startDate: "2026-10-28", endDate: "2026-11-16" });
+    expect(job.steps).toEqual([
+      { title: "Demo", start: "2026-10-30", end: undefined, done: true },
+      { title: "Cabinets", start: "2026-11-04", end: "2026-11-08", done: false },
+    ]);
+    expect(JSON.stringify(job)).not.toContain("Gate code");
+
+    // An estimate on no project: a job with no timeline.
+    const solo = (await as.mutation(api.estimates.create, {
+      organizationId,
+      data: { title: "Porch light", clientId, items: [{ _id: "x", description: "Fixture", quantity: 1, unitPrice: 300 }] },
+    }))!._id as Id<"estimates">;
+    await t.mutation(api.publicEstimates.accept, { token: await as.mutation(api.estimates.shareLink, { id: solo }), signature: SIG });
+    const porch = (await t.query(api.portal.get, { token }))!.jobs.find((j) => j.name === "Porch light")!;
+    expect(porch.steps).toBeUndefined();
+    expect(porch.status).toBeUndefined();
   });
 });
