@@ -8,6 +8,8 @@ export interface AgreementWording {
   paymentTerms?: string;
   warranty?: string;
   extraTerms?: string;
+  /** The note new estimates start with, at the top of the client's link. */
+  clientMessage?: string;
 }
 
 /** The terms one estimate carries; blanks fall back to the company's wording, then the defaults. */

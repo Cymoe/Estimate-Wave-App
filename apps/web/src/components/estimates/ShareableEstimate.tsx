@@ -21,6 +21,8 @@ interface ClientEstimate {
   estimate_number: string;
   title?: string;
   description?: string;
+  /** The company's note to the client, name already filled in. */
+  client_message?: string;
   status: string;
   issue_date: string;
   expiry_date?: string;
@@ -60,6 +62,7 @@ function fromView(view: any): ClientEstimate {
     estimate_number: view.estimateNumber,
     title: view.title,
     description: view.description,
+    client_message: view.clientMessage,
     status: view.status,
     issue_date: view.issueDate,
     expiry_date: view.expiryDate,
@@ -351,6 +354,14 @@ const ShareableEstimatePage: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* The company's note to the client, in their own words */}
+        {estimate.client_message && (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6 print:shadow-none" data-testid="client-message">
+            <p className="text-gray-800 whitespace-pre-wrap">{estimate.client_message}</p>
+            {estimate.business?.name && <p className="mt-3 text-sm text-gray-500">— {estimate.business.name}</p>}
+          </div>
+        )}
 
         {/* Description */}
         {estimate.description && (

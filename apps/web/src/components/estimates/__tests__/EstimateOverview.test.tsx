@@ -108,6 +108,22 @@ describe('estimate overview', () => {
 
   const button = (text: string) => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === text) as HTMLButtonElement | undefined;
 
+  it('the note to the client saves when the box loses focus, only if it changed', async () => {
+    stored = { ...base, client_message: 'Hi {first name}' };
+    await openOverview();
+    const box = document.body.querySelector('textarea[aria-label="Note to the client"]') as HTMLTextAreaElement;
+    expect(box.value).toBe('Hi {first name}');
+    await act(async () => box.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
+    expect(update).not.toHaveBeenCalled();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, '  Hi {first name}, thanks for having us out!  ');
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => box.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
+    expect(update).toHaveBeenCalledWith('e1', { client_message: 'Hi {first name}, thanks for having us out!' });
+    expect(document.body.querySelector('[data-testid="client-note"]')!.textContent).toContain('Saved');
+  });
+
   it('the line item details can be hidden from the client, and the switch goes back if saving fails', async () => {
     stored = { ...base };
     await openOverview();

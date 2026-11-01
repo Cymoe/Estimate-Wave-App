@@ -288,6 +288,7 @@ async function startFrom(
       estimateNumber: documentNumber("EST"),
       title: `${name} - Estimate`,
       description,
+      clientMessage: (await ctx.db.get(organizationId))?.agreement?.clientMessage,
       clientId: data.clientId,
       projectId,
       items: from.items.map((item, index) => ({ ...item, _id: crypto.randomUUID(), displayOrder: index })),

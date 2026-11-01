@@ -107,10 +107,12 @@ export const get = query({
 export const createDef = mutationDef({
   args: { organizationId: v.id("organizations"), data: v.any() },
   handler: async (ctx, { organizationId, data }) => {
-    const { user } = await requireMember(ctx, organizationId);
+    const { user, organization } = await requireMember(ctx, organizationId);
     const fields = pick(data, writableFields);
     await assertLinksInOrg(ctx, organizationId, fields);
     const now = nowIso();
+    // A new estimate starts with the company's note to clients (its own copy, so later edits to the default don't change it).
+    if (fields.clientMessage === undefined && organization.agreement?.clientMessage) fields.clientMessage = organization.agreement.clientMessage;
     const doc = withTotals({
       status: "draft" as const,
       issueDate: now,

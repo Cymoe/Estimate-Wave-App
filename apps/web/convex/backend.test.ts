@@ -2629,6 +2629,32 @@ describe("client link", () => {
     expect((await t.query(api.publicEstimates.get, { token }))!.business!.logoUrl).toBeUndefined();
   });
 
+  test("the note to the client: new estimates start with the company's, {first name} is filled in, and later edits to the default don't change it", async () => {
+    const { t, as, id, token, organizationId } = await sharedEstimate();
+    // Made before there was a default: no note.
+    expect((await t.query(api.publicEstimates.get, { token }))!.clientMessage).toBeUndefined();
+    await as.mutation(api.organizations.setAgreement, { id: organizationId, clientMessage: "  Hi {first name}, thanks for having us out!  " });
+    const client = (await as.query(api.estimates.get, { id }))!.clientId!;
+    const second = (await as.mutation(api.estimates.create, { organizationId, data: { clientId: client, items: [] } }))!;
+    expect(second.clientMessage).toBe("Hi {first name}, thanks for having us out!");
+    const secondToken = await as.mutation(api.estimates.shareLink, { id: second._id });
+    expect((await t.query(api.publicEstimates.get, { token: secondToken }))!.clientMessage).toBe("Hi Dan, thanks for having us out!");
+
+    // Its own copy: changing the default later leaves it alone; editing it on the estimate shows the edit.
+    await as.mutation(api.organizations.setAgreement, { id: organizationId, clientMessage: "Something else" });
+    expect((await as.query(api.estimates.get, { id: second._id }))!.clientMessage).toBe("Hi {first name}, thanks for having us out!");
+    await as.mutation(api.estimates.update, { id: second._id, data: { clientMessage: "Thanks {name}." } });
+    expect((await t.query(api.publicEstimates.get, { token: secondToken }))!.clientMessage).toBe("Thanks Dan Shah.");
+
+    // With no client, the name is left out cleanly.
+    const noClient = (await as.mutation(api.estimates.create, {
+      organizationId,
+      data: { items: [], clientMessage: "Hi {first name}, here it is." },
+    }))!;
+    const noClientToken = await as.mutation(api.estimates.shareLink, { id: noClient._id });
+    expect((await t.query(api.publicEstimates.get, { token: noClientToken }))!.clientMessage).toBe("Hi, here it is.");
+  });
+
   test("with the line items hidden, the link has only a total per category, and showing them brings the lines back", async () => {
     const { t, as, id, token } = await sharedEstimate();
     await as.mutation(api.estimates.update, {

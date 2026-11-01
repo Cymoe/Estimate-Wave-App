@@ -40,6 +40,8 @@ export interface Estimate {
   tax_amount?: number;
   total_amount: number;
   notes?: string;
+  /** A note to the client at the top of their link; "{first name}" is filled in. */
+  client_message?: string;
   terms?: string;
   client_signature?: string;
   signed_at?: string;
@@ -130,6 +132,7 @@ function toLegacy(doc: Doc, clients?: Map<string, Doc>, projects?: Map<string, D
     tax_amount: doc.taxAmount,
     total_amount: doc.totalAmount,
     notes: doc.notes,
+    client_message: doc.clientMessage,
     terms: doc.terms,
     client_signature: doc.clientSignature,
     signed_at: doc.signedAt,
@@ -175,6 +178,7 @@ function toConvex(estimate: Partial<Estimate> & Doc): Doc {
     tax_rate: 'taxRate',
     notes: 'notes',
     terms: 'terms',
+    client_message: 'clientMessage',
     contract_terms: 'contractTerms',
   };
   const out: Doc = {};

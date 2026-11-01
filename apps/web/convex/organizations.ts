@@ -117,11 +117,17 @@ export const setAgreement = mutation({
     paymentTerms: v.optional(v.string()),
     warranty: v.optional(v.string()),
     extraTerms: v.optional(v.string()),
+    clientMessage: v.optional(v.string()),
   },
-  handler: async (ctx, { id, paymentTerms, warranty, extraTerms }) => {
+  handler: async (ctx, { id, paymentTerms, warranty, extraTerms, clientMessage }) => {
     await requireMember(ctx, id, "admin");
     const clean = (text: string | undefined, max: number) => text?.trim().slice(0, max) || undefined;
-    const agreement = { paymentTerms: clean(paymentTerms, 1000), warranty: clean(warranty, 200), extraTerms: clean(extraTerms, 10000) };
+    const agreement = {
+      paymentTerms: clean(paymentTerms, 1000),
+      warranty: clean(warranty, 200),
+      extraTerms: clean(extraTerms, 10000),
+      clientMessage: clean(clientMessage, 2000),
+    };
     await ctx.db.patch(id, { agreement, updatedAt: nowIso() });
     return agreement;
   },

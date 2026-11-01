@@ -25,6 +25,7 @@ import { JobPhotos } from '../common/JobPhotos';
 import { ContractTab } from './ContractTab';
 import { approvalLine, canApprove, confirmApproval, copyText, duplicateEstimate, sendEstimateLink } from './estimateActions';
 import { EstimateProject } from './EstimateProject';
+import { ClientNoteCard } from './ClientNoteCard';
 import { WORK_TYPE_NAMES } from '../../../convex/lib/workTypes';
 
 // Header actions share one size so they line up; only the main action is filled.
@@ -760,6 +761,11 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                 </div>
               )}
             </div>
+
+            {/* The note at the top of the client's link */}
+            {estimate.id && (
+              <ClientNoteCard estimateId={estimate.id} note={estimate.client_message} onSaved={(saved) => setEstimate((current) => (current ? { ...current, client_message: saved.client_message } : current))} />
+            )}
 
             {/* What the client's link shows: each line, or only the totals by category */}
             <div className="bg-[#1a1a1a] border border-[#333] p-4" data-testid="client-view">

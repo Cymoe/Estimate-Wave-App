@@ -82,7 +82,9 @@ export const ContractsSettings: React.FC<{ organizationId: string }> = ({ organi
     const kind = pickingFor.current;
     await act(`upload-${kind}`, () => uploadContractDoc(organizationId, kind, file), `${file.name} is uploaded.`);
   };
-  const wordingChanged = (['paymentTerms', 'warranty', 'extraTerms'] as const).some((k) => (wording[k] ?? '') !== (savedWording[k] ?? ''));
+  const wordingChanged = (['paymentTerms', 'warranty', 'extraTerms', 'clientMessage'] as const).some(
+    (k) => (wording[k] ?? '') !== (savedWording[k] ?? ''),
+  );
   const saveWording = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy('wording');
@@ -206,6 +208,21 @@ export const ContractsSettings: React.FC<{ organizationId: string }> = ({ organi
             className={field}
             aria-label="Additional terms"
           />
+        </label>
+        <label className="block">
+          <span className="block text-xs text-gray-400 mb-1">Note to clients</span>
+          <textarea
+            value={wording.clientMessage ?? ''}
+            onChange={(e) => setWording({ ...wording, clientMessage: e.target.value })}
+            placeholder="Hi {first name}, thanks for having us out. Here's everything we talked about."
+            rows={3}
+            disabled={!canEdit}
+            className={field}
+            aria-label="Note to clients"
+          />
+          <span className="block text-xs text-gray-500 mt-1">
+            Shown at the top of each new estimate's link; you can change it on any estimate. {'{first name}'} becomes the client's first name.
+          </span>
         </label>
         {canEdit && (
           <button

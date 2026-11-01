@@ -104,10 +104,16 @@ describe('Settings → Contracts', () => {
     expect(save.disabled).toBe(true); // nothing changed yet
     await act(async () => type(terms, '30% deposit, 70% on completion'));
     await act(async () => type(form.querySelector('textarea[aria-label="Additional terms"]') as HTMLTextAreaElement, 'Driveway access on work days.'));
+    await act(async () => type(form.querySelector('textarea[aria-label="Note to clients"]') as HTMLTextAreaElement, 'Hi {first name}, thanks!'));
     expect(save.disabled).toBe(false);
     await act(async () => save.click());
     await flush();
-    expect(setAgreement).toHaveBeenCalledWith('o1', { paymentTerms: '30% deposit, 70% on completion', warranty: '2 years', extraTerms: 'Driveway access on work days.' });
+    expect(setAgreement).toHaveBeenCalledWith('o1', {
+      paymentTerms: '30% deposit, 70% on completion',
+      warranty: '2 years',
+      extraTerms: 'Driveway access on work days.',
+      clientMessage: 'Hi {first name}, thanks!',
+    });
     expect(document.body.textContent).toContain('Agreement wording saved.');
     expect(buttonIn(form, 'Save wording')!.disabled).toBe(true);
   });

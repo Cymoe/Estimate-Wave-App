@@ -126,6 +126,12 @@ describe('client estimate page', () => {
     expect(button('Line item details (2)')).toBeUndefined();
   });
 
+  it("shows the company's note to the client, signed with the company name", async () => {
+    view = { ...sent, clientMessage: 'Hi Dan, thanks for having us out!' };
+    await open();
+    expect(document.body.querySelector('[data-testid="client-message"]')!.textContent).toBe('Hi Dan, thanks for having us out!— Shah Builders');
+  });
+
   it("shows the company's logo at the top when it has one", async () => {
     view = { ...sent, business: { name: 'Shah Builders', logoUrl: 'https://files.example/logo.png' } };
     await open();

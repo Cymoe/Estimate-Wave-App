@@ -183,6 +183,8 @@ export const agreementWording = v.object({
   paymentTerms: v.optional(v.string()),
   warranty: v.optional(v.string()),
   extraTerms: v.optional(v.string()),
+  // The note new estimates start with, shown at the top of the client's link.
+  clientMessage: v.optional(v.string()),
 });
 
 // A design file (image or PDF) attached to the estimate, shown on the
@@ -275,6 +277,8 @@ export const estimateFields = {
   // When Webb Leads last emailed the estimate to the client (convex/estimateEmail.ts).
   lastEmailedAt: v.optional(v.string()),
   remindersOff: v.optional(v.boolean()),
+  // A note to the client at the top of their link; new estimates start with the company's (agreement.clientMessage).
+  clientMessage: v.optional(v.string()),
   // The client's link shows totals by category only, not each line (estimates.setLineItemsShown).
   hideLineItems: v.optional(v.boolean()),
 };

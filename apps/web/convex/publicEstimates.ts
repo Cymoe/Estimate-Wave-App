@@ -31,6 +31,19 @@ async function requireByToken(ctx: MutationCtx, token: string): Promise<Doc<"est
   return estimate;
 }
 
+/** The note to the client with "{first name}" (or "{name}") filled in. */
+function personalNote(note: string | undefined, clientName: string | undefined): string | undefined {
+  const text = note?.trim();
+  if (!text) return undefined;
+  const full = clientName?.trim() ?? "";
+  const first = full.split(/\s+/)[0] ?? "";
+  // With no client name, "Hi {first name}," reads "Hi,".
+  return text
+    .replace(/ ?\{\s*first\s*name\s*\}/gi, first ? ` ${first}` : "")
+    .replace(/ ?\{\s*name\s*\}/gi, full ? ` ${full}` : "")
+    .replace(/^ /gm, "");
+}
+
 type ClientItem = { description: string; quantity: number; unitPrice: number; totalPrice: number; category?: string };
 
 /** The lines the client sees: each one, or with the lines hidden, a total per category. */
@@ -93,6 +106,7 @@ export const get = query({
       estimateNumber: estimate.estimateNumber,
       title: estimate.title,
       description: estimate.description,
+      clientMessage: personalNote(estimate.clientMessage, client?.name),
       status: estimate.status,
       issueDate: estimate.issueDate,
       expiryDate: estimate.expiryDate,
