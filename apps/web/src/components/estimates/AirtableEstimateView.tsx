@@ -11,6 +11,9 @@ interface AirtableItem {
   total: number;
   /** The line's type of work, shown under its name. */
   category?: string;
+  /** An optional add-on the client can tick, and whether it's ticked to start. */
+  optional?: boolean;
+  included?: boolean;
 }
 
 interface AirtableEstimateViewProps {
@@ -170,6 +173,11 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
               <td className="py-1.5 px-3 text-white text-[13px] font-normal border-r border-[#333333]">
                 {item.name}
                 {item.category && <span className="block text-[11px] text-gray-500" data-testid="item-category">{item.category}</span>}
+                {item.optional && (
+                  <span className="inline-block mt-0.5 px-1.5 text-[10px] uppercase tracking-wide border border-amber-500/50 text-amber-300" data-testid="item-optional">
+                    {item.included ? 'Optional · ticked' : 'Optional'}
+                  </span>
+                )}
               </td>
               
               {/* Price Cell */}

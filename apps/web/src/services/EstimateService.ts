@@ -20,6 +20,9 @@ export interface EstimateItem {
   category?: string;
   /** The contractor picked the category, so the price book trade doesn't replace it. */
   category_chosen?: boolean;
+  /** An optional add-on the client can tick; only ticked ones (included) count in the price. */
+  optional?: boolean;
+  included?: boolean;
   display_order?: number;
 }
 
@@ -167,6 +170,8 @@ function toLegacy(doc: Doc, clients?: Map<string, Doc>, projects?: Map<string, D
       cost_code: item.costCode,
       category: item.category,
       category_chosen: item.categoryChosen,
+      optional: item.optional,
+      included: item.included,
       display_order: item.displayOrder,
     })),
     client: client ? toLegacyClient(client) : undefined,
@@ -209,6 +214,8 @@ function toConvex(estimate: Partial<Estimate> & Doc): Doc {
       costCode: item.cost_code,
       category: item.category || undefined,
       categoryChosen: item.category_chosen || undefined,
+      optional: item.optional || undefined,
+      included: (item.optional && item.included) || undefined,
       productId: item.product_id,
       displayOrder: item.display_order ?? index,
     }));

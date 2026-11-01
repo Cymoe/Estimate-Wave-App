@@ -36,6 +36,10 @@ export function normalizeItems(raw: unknown): DocumentItem[] {
     if (item?.costCode != null) normalized.costCode = String(item.costCode);
     if (typeof item?.category === "string" && item.category) normalized.category = item.category;
     if (normalized.category && item?.categoryChosen === true) normalized.categoryChosen = true;
+    if (item?.optional === true) {
+      normalized.optional = true;
+      if (item?.included === true) normalized.included = true;
+    }
     if (item?.workPackItemId != null) normalized.workPackItemId = String(item.workPackItemId);
     if (item?.productId != null) normalized.productId = String(item.productId);
     return normalized;

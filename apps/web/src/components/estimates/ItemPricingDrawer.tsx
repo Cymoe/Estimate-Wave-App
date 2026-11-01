@@ -11,14 +11,18 @@ export interface PricedItem {
   red_line_price?: number;
   cap_price?: number;
   category?: string;
+  optional?: boolean;
+  included?: boolean;
 }
 
-/** What Save hands back; the category only when it was changed. */
+/** What Save hands back; the category and add-on settings only when they were changed. */
 export interface PricingChanges {
   unit_price: number;
   quantity: number;
   category?: string;
   category_chosen?: boolean;
+  optional?: boolean;
+  included?: boolean;
 }
 
 interface ItemPricingDrawerProps {
@@ -46,6 +50,9 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
   const [priceText, setPriceText] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [category, setCategory] = useState('');
+  // An optional add-on the client can tick on their link, and whether it's ticked to start.
+  const [optional, setOptional] = useState(false);
+  const [included, setIncluded] = useState(false);
   // The drawer stays mounted and slides like the estimate drawer. It keeps
   // showing the last item while sliding out.
   const [shownItem, setShownItem] = useState<PricedItem | null>(null);
@@ -63,6 +70,8 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
     setPriceText(item.unit_price.toFixed(2));
     setQuantity(item.quantity || 1);
     setCategory(item.category ?? '');
+    setOptional(Boolean(item.optional));
+    setIncluded(Boolean(item.optional && item.included));
     // Wait for the closed position to paint so the slide-in animates.
     let inner = 0;
     const outer = requestAnimationFrame(() => {
@@ -102,7 +111,13 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
   const save = () => {
     const picked = category.trim();
     const changed = shownItem && picked && picked !== (shownItem.category ?? '');
-    onSave(changed ? { unit_price: price, quantity, category: picked, category_chosen: true } : { unit_price: price, quantity });
+    const addOnChanged = shownItem && (optional !== Boolean(shownItem.optional) || (optional && included !== Boolean(shownItem.included)));
+    onSave({
+      unit_price: price,
+      quantity,
+      ...(changed ? { category: picked, category_chosen: true } : {}),
+      ...(addOnChanged ? { optional, included: optional && included } : {}),
+    });
     onClose();
   };
 
@@ -243,6 +258,35 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
                 </datalist>
                 <span className="block text-xs text-gray-500 mt-1">Groups this line on the agreement and the client&rsquo;s summary.</span>
               </label>
+
+              {/* Optional add-on: the client ticks it on their link, and only then is it in the price */}
+              <div className="border border-[#333333] p-3 space-y-2" data-testid="add-on-setting">
+                <label className="flex items-start gap-3 text-sm text-gray-200 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={optional}
+                    onChange={(e) => setOptional(e.target.checked)}
+                    aria-label="Optional add-on"
+                    className="mt-0.5 w-4 h-4"
+                  />
+                  <span>
+                    Optional add-on
+                    <span className="block text-xs text-gray-500">The client can tick it on their estimate; it's only in the price if they do.</span>
+                  </span>
+                </label>
+                {optional && (
+                  <label className="flex items-center gap-3 pl-7 text-sm text-gray-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={included}
+                      onChange={(e) => setIncluded(e.target.checked)}
+                      aria-label="Ticked to start"
+                      className="w-4 h-4"
+                    />
+                    Ticked to start (your recommendation)
+                  </label>
+                )}
+              </div>
 
               {/* Commission */}
               <div className="border border-[#333333] p-4">

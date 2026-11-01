@@ -28,6 +28,12 @@ interface EstimateItem {
   /** Price-book floor and ceiling; the item starts at cap. */
   red_line_price?: number;
   cap_price?: number;
+  /** Kept from the saved line when editing, so the edit doesn't drop them. */
+  id?: string;
+  category?: string;
+  category_chosen?: boolean;
+  optional?: boolean;
+  included?: boolean;
 }
 
 interface Template {
@@ -309,7 +315,13 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
         unit: item.unit || 'ea',
         description: item.description,
         red_line_price: item.red_line_price,
-        cap_price: item.cap_price
+        cap_price: item.cap_price,
+        // The line's id, type of work and add-on settings ride through the edit unchanged.
+        id: item.id,
+        category: item.category,
+        category_chosen: item.category_chosen,
+        optional: item.optional,
+        included: item.included,
       }));
       
       setSelectedItems(estimateItems);

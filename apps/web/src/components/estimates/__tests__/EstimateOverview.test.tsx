@@ -240,6 +240,31 @@ describe('estimate overview', () => {
     expect(update).toHaveBeenCalledWith('e1', { project_id: '' });
   });
 
+  it('optional add-ons are tagged on the line, and the totals say what the most could be', async () => {
+    stored = {
+      ...base,
+      subtotal: 1000,
+      total_amount: 1000,
+      items: [
+        { id: 'i1', description: 'Vanity', quantity: 1, unit_price: 1000, total_price: 1000 },
+        { id: 'i2', description: 'Quartz upgrade', quantity: 1, unit_price: 1200, total_price: 1200, optional: true },
+        { id: 'i3', description: 'Lighted mirror', quantity: 1, unit_price: 300, total_price: 300, optional: true, included: true },
+      ],
+    };
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () =>
+      createRoot(container).render(
+        <MemoryRouter>
+          <EstimateDetail estimateId="e1" onClose={() => {}} inDrawer />
+        </MemoryRouter>,
+      ),
+    );
+    await act(async () => {});
+    expect(Array.from(document.body.querySelectorAll('[data-testid="item-optional"]')).map((t) => t.textContent)).toEqual(['Optional', 'Optional · ticked']);
+    expect(document.body.querySelector('[data-testid="with-add-ons"]')!.textContent).toBe('up to $2,500.00 with add-ons');
+  });
+
   it('the line items show each line\'s category under its name', async () => {
     stored = { ...base, items: [{ ...base.items[0], category: 'Cabinets & Vanities' }] };
     const container = document.createElement('div');

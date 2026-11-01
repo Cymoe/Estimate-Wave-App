@@ -65,6 +65,27 @@ describe('ItemPricingDrawer', () => {
     act(() => root.unmount());
   });
 
+  it('makes a line an optional add-on, ticked to start or not, and saves only what changed', () => {
+    const onSave = jest.fn();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() => root.render(<ItemPricingDrawer item={item} onClose={() => {}} onSave={onSave} />));
+    const dialog = document.querySelector('[role="dialog"]')!;
+    const save = () => act(() => [...dialog.querySelectorAll('button')].find(b => b.textContent?.includes('Save'))!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    const box = (label: string) => dialog.querySelector(`input[aria-label="${label}"]`) as HTMLInputElement | null;
+    expect(box('Optional add-on')!.checked).toBe(false);
+    expect(box('Ticked to start')).toBeNull();
+    act(() => box('Optional add-on')!.click());
+    act(() => box('Ticked to start')!.click());
+    save();
+    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 187.5, quantity: 2, optional: true, included: true });
+    act(() => root.render(<ItemPricingDrawer item={{ ...item, optional: true, included: true }} onClose={() => {}} onSave={onSave} />));
+    save();
+    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 187.5, quantity: 2 });
+    act(() => root.unmount());
+  });
+
   it('never saves a price below red line', () => {
     const { onSave, dialog, button, priceInput, unmount } = setup();
     act(() => type(priceInput, '50'));
