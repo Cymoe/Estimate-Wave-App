@@ -49,6 +49,8 @@ interface ClientEstimate {
   /** What's signed besides the estimate: the agreement and any attachments. */
   documents: RecordDocument[];
   acknowledged_at?: string;
+  /** The company shows only the totals by category: no line item details. */
+  line_items_hidden?: boolean;
   items: Array<{ id: string; description: string; quantity: number; unit_price: number; total_price: number; category?: string }>;
 }
 
@@ -77,6 +79,7 @@ function fromView(view: any): ClientEstimate {
     locked_at: view.lockedAt,
     documents: view.documents ?? [],
     acknowledged_at: view.acknowledgedAt,
+    line_items_hidden: view.lineItemsHidden === true,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     items: (view.items ?? []).map((item: any, i: number) => ({
       id: String(i),
@@ -384,7 +387,8 @@ const ShareableEstimatePage: React.FC = () => {
           </table>
         </div>
 
-        {/* Line items: the detail behind the summary, opened on request */}
+        {/* Line items: the detail behind the summary, opened on request (unless the company shows only the summary) */}
+        {!estimate.line_items_hidden && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden mb-6">
           <button
             type="button"
@@ -475,6 +479,7 @@ const ShareableEstimatePage: React.FC = () => {
             </table>
           </div>
         </div>
+        )}
 
         {/* The agreement, signed together with the estimate: the company's own PDF, or Webb Leads' (with the agreed design) */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6 text-gray-900" data-testid="agreement">

@@ -51,6 +51,7 @@ const serverOnly = new Set([
   "remindersSent",
   "lastReminderAt",
   "remindersOff",
+  "hideLineItems",
   "lastEmailedAt",
 ]);
 
@@ -228,6 +229,20 @@ export const approve = mutation({
       details: { estimateNumber: doc.estimateNumber, from: doc.status },
     });
     return await ctx.db.get(id);
+  },
+});
+
+/**
+ * Whether the client's link lists each line or only the totals by category.
+ * Only what the client sees changes; the estimate, its price and the
+ * agreement stay the same, so it can be switched at any time.
+ */
+export const setLineItemsShown = mutation({
+  args: { id: v.id("estimates"), shown: v.boolean() },
+  handler: async (ctx, { id, shown }) => {
+    await getOwned(ctx, "estimates", id);
+    await ctx.db.patch(id, { hideLineItems: shown ? undefined : true, updatedAt: nowIso() });
+    return null;
   },
 });
 

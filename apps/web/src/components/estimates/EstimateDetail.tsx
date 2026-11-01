@@ -196,6 +196,19 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  /** Shows or hides each line on the client's link; the switch moves at once and goes back if saving fails. */
+  const setLineItemsShown = async (shown: boolean) => {
+    if (!estimate?.id) return;
+    setEstimate((current) => (current ? { ...current, hide_line_items: !shown } : current));
+    try {
+      await estimatesAPI.setLineItemsShown(estimate.id, shown);
+    } catch (err) {
+      console.error('Error saving what the client sees:', err);
+      setEstimate((current) => (current ? { ...current, hide_line_items: shown } : current));
+      setSaveError("Couldn't save that change. Check your connection and try again.");
+    }
+  };
+
   /** Accepts it for the client without their signature, after saying what that does. */
   const handleApprove = async () => {
     if (!estimate?.id || !confirmApproval(estimate)) return;
@@ -746,6 +759,28 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                   )}
                 </div>
               )}
+            </div>
+
+            {/* What the client's link shows: each line, or only the totals by category */}
+            <div className="bg-[#1a1a1a] border border-[#333] p-4" data-testid="client-view">
+              <div className="flex items-center justify-between gap-3 mb-1">
+                <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wide">What the client sees</h3>
+                <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!estimate.hide_line_items}
+                    onChange={(e) => setLineItemsShown(e.target.checked)}
+                    aria-label="Show line item details"
+                    className="w-4 h-4"
+                  />
+                  Show line item details
+                </label>
+              </div>
+              <p className="text-sm text-gray-400">
+                {estimate.hide_line_items
+                  ? 'The client sees the total for each category, not each line or its price.'
+                  : 'The client sees the totals by category and can open every line with its price.'}
+              </p>
             </div>
 
             {/* Reminder emails while the client hasn't signed */}

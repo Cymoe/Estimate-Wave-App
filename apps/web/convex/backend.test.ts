@@ -2592,6 +2592,47 @@ describe("client link", () => {
     return { t, as, id: estimate!._id, token, organizationId };
   }
 
+  test("with the line items hidden, the link has only a total per category, and showing them brings the lines back", async () => {
+    const { t, as, id, token } = await sharedEstimate();
+    await as.mutation(api.estimates.update, {
+      id,
+      data: {
+        items: [
+          {
+            description: "Vanity",
+            quantity: 1,
+            unitPrice: 900,
+            redLinePrice: 600,
+            capPrice: 900,
+            category: "Cabinets & Vanities",
+            categoryChosen: true,
+          },
+          { description: "Rough plumbing", quantity: 1, unitPrice: 400, redLinePrice: 300, capPrice: 400 },
+          { description: "Supply lines", quantity: 2, unitPrice: 50.5, redLinePrice: 40, capPrice: 50.5 },
+        ],
+      },
+    });
+    await as.mutation(api.estimates.setLineItemsShown, { id, shown: false });
+    expect((await as.query(api.estimates.get, { id }))!.hideLineItems).toBe(true);
+    const hidden = (await t.query(api.publicEstimates.get, { token }))!;
+    expect(hidden.lineItemsHidden).toBe(true);
+    expect(hidden.items).toEqual([
+      { description: "Cabinets & Vanities", quantity: 1, unitPrice: 900, totalPrice: 900, category: "Cabinets & Vanities" },
+      { description: "Plumbing", quantity: 1, unitPrice: 501, totalPrice: 501, category: "Plumbing" },
+    ]);
+    expect(JSON.stringify(hidden)).not.toContain("Rough plumbing");
+    expect(hidden.totalAmount).toBe(1401);
+
+    await as.mutation(api.estimates.setLineItemsShown, { id, shown: true });
+    const shown = (await t.query(api.publicEstimates.get, { token }))!;
+    expect(shown.lineItemsHidden).toBeUndefined();
+    expect(shown.items.map((i: { description: string }) => i.description)).toEqual(["Vanity", "Rough plumbing", "Supply lines"]);
+
+    // Someone else's estimate can't be switched.
+    const other = await signUp(t, "b@example.com");
+    await expect(other.as.mutation(api.estimates.setLineItemsShown, { id, shown: false })).rejects.toThrow();
+  });
+
   test("each estimate gets one secret link, and the token can't be set directly", async () => {
     const { as, id, token } = await sharedEstimate();
     expect(token).toMatch(/^[0-9a-f]{32}$/);

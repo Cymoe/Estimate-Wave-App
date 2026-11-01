@@ -52,8 +52,12 @@ jest.mock('../../../services/EstimateService', () => ({
   },
 }));
 const emailToClient = jest.fn<Promise<{ to: string; link: string }>, [string]>(async () => ({ to: 'dan@example.com', link: 'https://app.example/share/estimate/tok123' }));
+const setLineItemsShown = jest.fn<Promise<null>, [string, boolean]>(async () => null);
 jest.mock('../../../lib/api', () => ({
-  estimatesAPI: { emailToClient: (id: string) => emailToClient(id) },
+  estimatesAPI: {
+    emailToClient: (id: string) => emailToClient(id),
+    setLineItemsShown: (id: string, shown: boolean) => setLineItemsShown(id, shown),
+  },
   organizationsAPI: { getById: async () => null },
   clientsAPI: { list: async () => [{ id: 'c2', name: 'Priya Shah' }, { id: 'c1', name: 'Dan Shah' }] },
 }));
@@ -103,6 +107,26 @@ describe('estimate overview', () => {
   });
 
   const button = (text: string) => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === text) as HTMLButtonElement | undefined;
+
+  it('the line item details can be hidden from the client, and the switch goes back if saving fails', async () => {
+    stored = { ...base };
+    await openOverview();
+    const card = () => document.body.querySelector('[data-testid="client-view"]')!;
+    const toggle = () => card().querySelector('input[aria-label="Show line item details"]') as HTMLInputElement;
+    expect(toggle().checked).toBe(true);
+    expect(card().textContent).toContain('can open every line with its price');
+    await act(async () => toggle().click());
+    expect(setLineItemsShown).toHaveBeenLastCalledWith('e1', false);
+    expect(toggle().checked).toBe(false);
+    expect(card().textContent).toContain('The client sees the total for each category, not each line or its price.');
+    setLineItemsShown.mockRejectedValueOnce(new Error('offline'));
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    await act(async () => toggle().click());
+    expect(setLineItemsShown).toHaveBeenLastCalledWith('e1', true);
+    expect(toggle().checked).toBe(false);
+    expect(document.body.querySelector('[role="alert"]')!.textContent).toContain("Couldn't save that change");
+    (console.error as jest.Mock).mockRestore();
+  });
 
   it('a draft can be approved without a signature from the ⋯ menu, after confirming, and then says who approved it', async () => {
     stored = { ...base };

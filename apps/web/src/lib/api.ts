@@ -380,6 +380,11 @@ export const estimatesAPI = {
     return run('query', api.estimates.get, { id });
   },
 
+  /** Whether the client's link lists each line or only the totals by category. */
+  setLineItemsShown(id: string, shown: boolean): Promise<null> {
+    return run('mutation', api.estimates.setLineItemsShown, { id, shown });
+  },
+
   async create(data: any) {
     return run('mutation', api.estimates.create, { organizationId: requireOrganizationId(data), data });
   },

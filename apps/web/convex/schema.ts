@@ -275,6 +275,8 @@ export const estimateFields = {
   // When Webb Leads last emailed the estimate to the client (convex/estimateEmail.ts).
   lastEmailedAt: v.optional(v.string()),
   remindersOff: v.optional(v.boolean()),
+  // The client's link shows totals by category only, not each line (estimates.setLineItemsShown).
+  hideLineItems: v.optional(v.boolean()),
 };
 
 // A payment recorded on an invoice, from when invoicing existed (no longer used).

@@ -108,6 +108,24 @@ describe('client estimate page', () => {
     ]);
   });
 
+  it('with the line items hidden by the company, shows the summary and no line item details', async () => {
+    view = {
+      ...sent,
+      lineItemsHidden: true,
+      items: [
+        { description: 'Electrical', quantity: 1, unitPrice: 300, totalPrice: 300, category: 'Electrical' },
+        { description: 'Interior Painting', quantity: 1, unitPrice: 500, totalPrice: 500, category: 'Interior Painting' },
+      ],
+      subtotal: 800,
+      totalAmount: 800,
+    };
+    await open();
+    const rows = Array.from(document.body.querySelectorAll('[data-testid="category-summary"] tbody tr')).map((r) => r.textContent);
+    expect(rows).toEqual(['Electrical$300.00', 'Interior Painting$500.00']);
+    expect(document.body.querySelector('[data-testid="line-item-details"]')).toBeNull();
+    expect(button('Line item details (2)')).toBeUndefined();
+  });
+
   it('Save as PDF and Print open the print screen, with the company and estimate as the file name; the signing box stays off the copy', async () => {
     const print = jest.spyOn(window, 'print').mockImplementation(() => {});
     view = { ...sent, business: { name: 'Shah Builders' } };

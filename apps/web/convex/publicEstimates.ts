@@ -30,6 +30,32 @@ async function requireByToken(ctx: MutationCtx, token: string): Promise<Doc<"est
   return estimate;
 }
 
+type ClientItem = { description: string; quantity: number; unitPrice: number; totalPrice: number; category?: string };
+
+/** The lines the client sees: each one, or with the lines hidden, a total per category. */
+function clientItems(items: Array<ClientItem>, hidden: boolean): ClientItem[] {
+  const lines = items.map(({ description, quantity, unitPrice, totalPrice, category }) => ({
+    description,
+    quantity,
+    unitPrice,
+    totalPrice,
+    category,
+  }));
+  if (!hidden) return lines;
+  const totals = new Map<string, number>();
+  for (const line of lines) {
+    const category = line.category?.trim() || "";
+    totals.set(category, Math.round(((totals.get(category) ?? 0) + line.totalPrice) * 100) / 100);
+  }
+  return [...totals].map(([category, total]) => ({
+    description: category,
+    quantity: 1,
+    unitPrice: total,
+    totalPrice: total,
+    category: category || undefined,
+  }));
+}
+
 export const get = query({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
@@ -69,13 +95,9 @@ export const get = query({
       status: estimate.status,
       issueDate: estimate.issueDate,
       expiryDate: estimate.expiryDate,
-      items: (await withCategories(ctx, signed ? signed.items : estimate.items)).map((item) => ({
-        description: item.description,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        totalPrice: item.totalPrice,
-        category: item.category,
-      })),
+      // With the lines hidden, the client gets one line per category: never each line's wording or price.
+      items: clientItems(await withCategories(ctx, signed ? signed.items : estimate.items), estimate.hideLineItems === true),
+      lineItemsHidden: estimate.hideLineItems === true || undefined,
       subtotal: signed ? signed.subtotal : estimate.subtotal,
       taxRate: estimate.taxRate,
       taxAmount: signed ? signed.taxAmount : estimate.taxAmount,
