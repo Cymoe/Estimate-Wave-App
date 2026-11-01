@@ -921,7 +921,10 @@ describe("the weekly run", () => {
     stubServices(calls);
     vi.useFakeTimers();
     await owner.as.mutation(api.ads.draftNow, {});
-    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    // One scheduled function at a time: the voice and render steps each save a file, and convex-test's
+    // storage can't take two actions saving at once ("Write outside of transaction"), which the real
+    // backend can. Running every timer together made this fail now and then on the slower CI machine.
+    await t.finishAllScheduledFunctions(() => vi.advanceTimersToNextTimer(), 500);
     vi.useRealTimers();
 
     const [batch] = await owner.as.query(api.ads.batches, {});
