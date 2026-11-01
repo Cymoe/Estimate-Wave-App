@@ -164,6 +164,8 @@ export const get = query({
       signedAt: estimate.signedAt,
       approvedAt: estimate.approvedAt,
       client: client ? { name: client.name, language: langOf(client) } : undefined,
+      // The client's portal (everything for their jobs), when the company has made one.
+      portalToken: client?.portalToken,
       business: organization
         ? {
             name: organization.name,

@@ -13,7 +13,7 @@ jest.mock('../../../lib/api', () => ({
   signoffsAPI: { forEstimate: async () => rows, request: (e: string, k: string, d?: string) => request(e, k, d) },
 }));
 const copied: string[] = [];
-jest.mock('../estimateActions', () => ({ copyText: async (t: string) => copied.push(t) }));
+jest.mock('../estimateActions', () => ({ shareOrCopy: async (url: string) => (copied.push(url), 'copied') }));
 
 import { SignoffControls } from '../SignoffControls';
 

@@ -100,3 +100,20 @@ export async function duplicateEstimate(estimate: Estimate, organizationId: stri
     })),
   });
 }
+
+/**
+ * Hands someone a link: the share sheet on a phone or iPad (Messages, Mail),
+ * else it's copied. Says which, or 'closed' when the share sheet was closed.
+ */
+export async function shareOrCopy(url: string, title: string, text: string): Promise<'shared' | 'copied' | 'closed'> {
+  if (typeof navigator.share === 'function') {
+    try {
+      await navigator.share({ title, text, url });
+      return 'shared';
+    } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return 'closed';
+    }
+  }
+  await copyText(url);
+  return 'copied';
+}

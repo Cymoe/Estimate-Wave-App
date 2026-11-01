@@ -1152,8 +1152,13 @@ export default defineSchema({
     ...clientFields,
     organizationId: v.id("organizations"),
     userId: v.id("users"),
+    // The client's portal link (convex/portal.ts): the key to everything for
+    // their jobs, no login. Removed to turn the link off.
+    portalToken: v.optional(v.string()),
     ...timestamps,
-  }).index("by_organization", ["organizationId"]),
+  })
+    .index("by_organization", ["organizationId"])
+    .index("by_portal_token", ["portalToken"]),
 
   projects: defineTable({
     ...projectFields,

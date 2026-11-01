@@ -2,7 +2,7 @@ import { withLang } from '../../../convex/lib/i18n';
 import { useCallback, useEffect, useState } from 'react';
 import { Send } from 'lucide-react';
 import { signoffsAPI, type Signoff, type SignoffKind } from '../../lib/api';
-import { copyText } from './estimateActions';
+import { shareOrCopy } from './estimateActions';
 
 const errorText = (err: unknown) => (err instanceof Error && err.message ? err.message : 'That didn’t work');
 const todayIso = () => {
@@ -15,19 +15,10 @@ const signoffLink = (token: string) => `${window.location.origin}/share/signoff/
 /** Hands the client the link: the share sheet on a phone or iPad, else copied. */
 async function share(signoff: Signoff, clientName?: string, lang: 'en' | 'es' = 'en') {
   const url = withLang(signoffLink(signoff.token), lang);
-  if (typeof navigator.share === 'function') {
-    try {
-      const first = clientName?.split(' ')[0];
-      const what = lang === 'es' ? (signoff.kind === 'affidavit' ? 'confirmación de obra terminada' : 'cambios al trabajo') : signoff.name.toLowerCase();
-      const text = lang === 'es' ? `${first ? `Hola ${first}, aquí` : 'Aquí'} está la ${what} para firmar:` : `${first ? `Hi ${first}, here` : 'Here'}'s the ${what} to sign:`;
-      await navigator.share({ title: `${signoff.name} ${signoff.number}`, text, url });
-      return 'shared';
-    } catch (err) {
-      if ((err as Error)?.name === 'AbortError') return 'closed';
-    }
-  }
-  await copyText(url);
-  return 'copied';
+  const first = clientName?.split(' ')[0];
+  const what = lang === 'es' ? (signoff.kind === 'affidavit' ? 'confirmación de obra terminada' : 'cambios al trabajo') : signoff.name.toLowerCase();
+  const text = lang === 'es' ? `${first ? `Hola ${first}, aquí` : 'Aquí'} está la ${what} para firmar:` : `${first ? `Hi ${first}, here` : 'Here'}'s the ${what} to sign:`;
+  return shareOrCopy(url, `${signoff.name} ${signoff.number}`, text);
 }
 
 /**

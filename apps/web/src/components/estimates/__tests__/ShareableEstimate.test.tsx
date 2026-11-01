@@ -346,6 +346,18 @@ describe('client estimate page', () => {
     expect(document.body.textContent).toContain('Presupuesto no encontrado');
   });
 
+  it("links back to the client's portal when the company has made one", async () => {
+    view = { ...sent };
+    await open();
+    expect(document.body.querySelector('[data-testid="portal-link"]')).toBeNull();
+    document.body.innerHTML = '';
+    view = { ...sent, portalToken: 'p123' };
+    await open();
+    const link = document.body.querySelector('[data-testid="portal-link"]')!;
+    expect(link.getAttribute('href')).toBe('/portal/p123');
+    expect(link.textContent).toContain('Everything for your work with Shah Builders');
+  });
+
   it('is just the estimate: no selections to make on it', async () => {
     view = { ...sent, allowances: [{ itemId: 'tile', description: 'Tile allowance', quantity: 1, allowanceUnitPrice: 1200, allowanceTotal: 1200 }] };
     await open();

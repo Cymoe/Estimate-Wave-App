@@ -8,7 +8,9 @@ import { ClientService, type Client } from '../../services/ClientService';
 import { ExpenseService, paymentState, summarize, type Expense } from '../../services/ExpenseService';
 import { EstimateService, type Estimate } from '../../services/EstimateService';
 import { formatCurrency } from '../../utils/format';
-import { tasksAPI, templatesAPI, type ProjectTask } from '../../lib/api';
+import { portalAPI, portalUrl, selectionsAPI, tasksAPI, templatesAPI, type Allowance, type ProjectTask } from '../../lib/api';
+import { shareOrCopy } from '../estimates/estimateActions';
+import { pickMessage } from '../../i18n/portal';
 import { ExpensesList } from '../expenses/ExpensesList';
 import { JobPhotos } from '../common/JobPhotos';
 import { ProjectTasks } from './ProjectTasks';
@@ -434,6 +436,22 @@ export const ProjectPanel: React.FC<{
     }
   };
 
+  /** Asks the client to pick one thing: it goes into their portal, and they get the portal's link. */
+  const askForPick = async (estimateId: string, allowance: Allowance) => {
+    const estimate = estimates?.find((e) => e.id === estimateId);
+    const clientId = estimate?.client_id ?? project?.client_id;
+    if (!clientId) throw new Error('Add the client to this estimate first.');
+    await selectionsAPI.ask(estimateId, allowance.itemId);
+    const token = await portalAPI.link(clientId);
+    const name = estimate?.client?.name ?? client?.name;
+    const how = await shareOrCopy(
+      portalUrl(token),
+      allowance.description,
+      pickMessage(name, allowance.description, allowance.pickBy, estimate?.client?.language ?? 'en'),
+    );
+    if (how === 'copied') showToast('Link copied. Paste it into a text or email to your client.');
+  };
+
   const openExpenses = (add: boolean) => {
     setAddingExpense(add);
     setActiveTab('expenses');
@@ -653,6 +671,7 @@ export const ProjectPanel: React.FC<{
               estimates={estimates ?? []}
               onEstimatesChanged={() => setEstimatesAdded((n) => n + 1)}
               onCount={setSelectionsToDo}
+              onAsk={askForPick}
             />
           </div>
         )}

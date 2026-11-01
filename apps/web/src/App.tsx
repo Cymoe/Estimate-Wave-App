@@ -9,6 +9,7 @@ import { PriceBook as PriceBookPage } from './pages/PriceBook';
 import { EditEstimatePage } from './pages/EditEstimatePage';
 import { ShareableEstimate } from './components/estimates/ShareableEstimate';
 import { SignoffPage } from './pages/SignoffPage';
+import { PortalPage } from './pages/PortalPage';
 import { EstimateContractView } from './components/contracts/EstimateContractView';
 import { SharedServiceOption } from './pages/SharedServiceOption';
 // Packages page removed as part of simplification
@@ -413,6 +414,8 @@ function AppRoutes() {
       />
       {/* Public page where a client signs a change order or the affidavit - no auth required */}
       <Route path="/share/signoff/:token" element={<SignoffPage />} />
+      {/* The client portal: everything for a client's jobs, from one private link - no auth required */}
+      <Route path="/portal/:token" element={<PortalPage />} />
       {/* Public page a company pays through to load its lead balance - no auth required */}
       <Route path="/fund/:token" element={<FundAccountPage />} />
       {/* "Open it in Claude / ChatGPT" from a lead alert. */}

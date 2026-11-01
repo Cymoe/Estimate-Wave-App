@@ -9,6 +9,7 @@ import { LangProvider, LangToggle } from '../../i18n';
 import { formatDay, useLang } from '../../i18n/lang';
 import { SHARE, refusalText } from '../../i18n/share';
 import { AgreementTerms } from '../contracts/AgreementTerms';
+import { PortalBackLink } from '../common/PortalBackLink';
 import { SignedRecord, type RecordDocument } from '../contracts/SignedRecord';
 import { SignaturePad } from '../contracts/SignaturePad';
 import { LightPage } from '../common/LightPage';
@@ -36,6 +37,8 @@ interface ClientEstimate {
   signed_at?: string;
   approved_at?: string;
   client?: { name: string; language?: 'en' | 'es' };
+  /** The client's portal, when the company has made one. */
+  portal_token?: string;
   business?: { name?: string; email?: string; phone?: string; address?: string; logoUrl?: string };
   design?: { url: string; name: string; contentType?: string };
   agreement?: {
@@ -82,6 +85,7 @@ function fromView(view: any): ClientEstimate {
     signed_at: view.signedAt,
     approved_at: view.approvedAt,
     client: view.client,
+    portal_token: view.portalToken,
     business: view.business,
     design: view.design,
     agreement: view.agreement,
@@ -684,6 +688,9 @@ const ShareableEstimatePage: React.FC = () => {
             </p>
           </div>
         )}
+        <div className="mt-6">
+          <PortalBackLink token={estimate.portal_token} company={estimate.business?.name} lang={lang} />
+        </div>
         <LangToggle className="text-xs text-gray-400 mt-8 print:hidden" />
         <LegalLinks className="text-xs text-gray-400 mt-2 print:hidden" />
       </div>

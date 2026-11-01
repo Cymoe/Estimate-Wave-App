@@ -10,6 +10,7 @@ import { LangProvider, LangToggle } from '../i18n';
 import { formatLongDate, formatMoment, useLang } from '../i18n/lang';
 import { SIGNOFF } from '../i18n/signoff';
 import { refusalText } from '../i18n/share';
+import { PortalBackLink } from '../components/common/PortalBackLink';
 
 interface SignoffView {
   kind: 'change_order' | 'affidavit';
@@ -21,6 +22,8 @@ interface SignoffView {
   propertyAddress?: string;
   clientName?: string;
   clientLanguage?: 'en' | 'es';
+  /** The client's portal, when the company has made one. */
+  portalToken?: string;
   company?: { name: string; phone?: string; email?: string; logoUrl?: string };
   changes?: Array<{ description: string; before?: number; after?: number }>;
   previousTotal?: number;
@@ -223,6 +226,7 @@ function SignoffContent() {
             {view.company.email ? ` · ${view.company.email}` : ''}
           </p>
         )}
+        <PortalBackLink token={view.portalToken} company={view.company?.name} lang={lang} />
         <LangToggle className="text-xs text-gray-400" />
         <LegalLinks className="text-xs text-gray-400" />
       </div>

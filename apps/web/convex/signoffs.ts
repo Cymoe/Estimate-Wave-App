@@ -183,6 +183,7 @@ export const get = query({
       propertyAddress: estimate.contractSnapshot?.terms?.propertyAddress || estimate.contractSnapshot?.client?.address,
       clientName: client?.name ?? estimate.contractSnapshot?.client?.name,
       clientLanguage: langOf(client),
+      portalToken: client?.portalToken,
       company: organization
         ? { name: organization.name, phone: organization.phone, email: organization.email, logoUrl: await logoUrlOf(ctx, organization) }
         : undefined,

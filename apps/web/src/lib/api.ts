@@ -435,6 +435,50 @@ export const selectionsAPI = {
   reopen: (id: string): Promise<null> => run('mutation', api.selections.reopen, { id }),
 };
 
+/** One open ask on the client's portal: sign something, or pick something. */
+export type PortalAsk =
+  | { kind: 'estimate'; at: string; number: string; title?: string; total: number; path: string }
+  | { kind: 'change_order' | 'affidavit'; at: string; number: string; title?: string; difference?: number; path: string }
+  | {
+      kind: 'selection';
+      at: string;
+      estimateId: string;
+      itemId: string;
+      description: string;
+      quantity: number;
+      allowanceUnitPrice: number;
+      allowanceTotal: number;
+      pickBy?: string;
+      pick?: { url?: string; name?: string; unitPrice?: number; note?: string; status: 'picked' };
+    };
+export interface PortalView {
+  client: { name: string; language: 'en' | 'es' };
+  company?: { name: string; phone?: string; email?: string; logoUrl?: string };
+  asks: PortalAsk[];
+  jobs: Array<{
+    key: string;
+    name: string;
+    total: number;
+    documents: Array<{ kind: 'estimate' | 'change_order' | 'affidavit'; number: string; signedAt?: string; path?: string }>;
+    selections: Array<{ description: string; name?: string; url?: string }>;
+  }>;
+}
+
+/** The client portal: one private link per client with everything for their jobs. */
+export const portalAPI = {
+  current: (clientId: string): Promise<string | null> => run('query', api.portal.current, { clientId }),
+  link: (clientId: string): Promise<string> => run('mutation', api.portal.link, { clientId }),
+  turnOff: (clientId: string): Promise<null> => run('mutation', api.portal.turnOff, { clientId }),
+  // The client's side (no sign-in).
+  get: (token: string): Promise<PortalView | null> => run('query', api.portal.get, { token }),
+  pick: (token: string, estimateId: string, itemId: string, pick: { url: string; name?: string; unitPrice?: number; note?: string }): Promise<null> =>
+    run('mutation', api.portal.pick, defined({ token, estimateId, itemId, ...pick })),
+  setLanguage: (token: string, language: 'en' | 'es') => run('mutation', api.portal.setLanguage, { token, language }),
+};
+
+/** The portal's address for a token. */
+export const portalUrl = (token: string) => `${window.location.origin}/portal/${token}`;
+
 export const estimatesAPI = {
   async list(organizationId: string, filters?: { clientId?: string; status?: string }) {
     return run('query', api.estimates.list, defined({ organizationId, clientId: filters?.clientId, status: filters?.status }));
