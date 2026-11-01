@@ -10,14 +10,12 @@ const accept = jest.fn<Promise<void>, [string, string, boolean?]>(async (_token,
   view = { ...view, status: 'accepted', clientSignature: signature, signedAt: '2026-10-11T12:00:00Z' };
 });
 const setLanguage = jest.fn(async () => {});
-const pick = jest.fn<Promise<null>, [string, string, Record<string, unknown>]>(async () => null);
 jest.mock('../../../lib/api', () => ({
   publicEstimatesAPI: {
     get: async () => view,
     markOpened: (token: string) => markOpened(token),
     accept: (token: string, signature: string, agreed?: boolean) => accept(token, signature, agreed),
     setLanguage: (token: string, language: string) => setLanguage(token, language),
-    pick: (token: string, itemId: string, chosen: Record<string, unknown>) => pick(token, itemId, chosen),
   },
 }));
 
@@ -348,98 +346,10 @@ describe('client estimate page', () => {
     expect(document.body.textContent).toContain('Presupuesto no encontrado');
   });
 
-  describe('selections', () => {
-    const type = async (label: string, value: string) => {
-      const input = Array.from(document.body.querySelectorAll('[data-testid="allowance-form"] label'))
-        .find((l) => l.textContent?.includes(label))!
-        .querySelector('input')!;
-      await act(async () => {
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-      });
-    };
-    const withAllowances = {
-      ...sent,
-      clientDetail: 'categories',
-      allowances: [
-        { itemId: 'tile', description: 'Tile allowance', quantity: 300, allowanceUnitPrice: 4, allowanceTotal: 1200, pickBy: '2026-12-01' },
-        {
-          itemId: 'faucet',
-          description: 'Faucet allowance',
-          quantity: 1,
-          allowanceUnitPrice: 350,
-          allowanceTotal: 350,
-          pick: {
-            url: 'https://lowes.com/pd/faucet',
-            name: 'Delta Trinsic',
-            unitPrice: 520,
-            status: 'approved',
-            approvedUnitPrice: 520,
-            difference: 170,
-          },
-        },
-      ],
-    };
-
-    it('lists what the client picks, with what each includes, even with prices hidden', async () => {
-      view = { ...withAllowances };
-      await open();
-      const rows = Array.from(document.body.querySelectorAll('[data-testid="allowance"]'));
-      expect(rows).toHaveLength(2);
-      expect(rows[0].textContent).toContain('Tile allowance');
-      expect(rows[0].textContent).toContain('$1,200.00 included · 300 × $4.00');
-      expect(rows[0].textContent).toContain('Pick by Dec 1, 2026');
-      expect(rows[1].textContent).toContain('Delta Trinsic');
-      expect(rows[1].textContent).toContain('$170.00 over the allowance');
-      expect(rows[1].textContent).toContain('Approved');
-      // An approved pick can't be changed from here.
-      expect(rows[1].querySelector('button')).toBeNull();
-      expect(rows[1].querySelector('a')!.getAttribute('href')).toBe('https://lowes.com/pd/faucet');
-    });
-
-    it('sends a link to what they chose, with its name and price', async () => {
-      view = { ...withAllowances };
-      pick.mockImplementationOnce(async () => {
-        view = {
-          ...withAllowances,
-          allowances: [
-            {
-              ...withAllowances.allowances[0],
-              pick: { url: 'https://homedepot.com/p/1', name: 'Marble', unitPrice: 5.4, status: 'picked', difference: 420 },
-            },
-            withAllowances.allowances[1],
-          ],
-        };
-        return null;
-      });
-      await open();
-      await act(async () => button('Pick yours')!.click());
-      await type('Link to the product', 'https://homedepot.com/p/1');
-      await type('What is it?', 'Marble');
-      await type('Price per unit', '$5.40');
-      await act(async () => button('Send my pick')!.click());
-      await act(async () => {});
-      expect(pick).toHaveBeenCalledWith('tok123', 'tile', { url: 'https://homedepot.com/p/1', name: 'Marble', unitPrice: 5.4, note: undefined });
-      const tile = document.body.querySelector('[data-testid="allowance"]')!;
-      expect(tile.textContent).toContain('Marble');
-      expect(tile.textContent).toContain('$420.00 over the allowance');
-      expect(tile.textContent).toContain('Waiting for the company to confirm');
-      expect(button('Change')).toBeTruthy();
-    });
-
-    it("says a refused pick in the client's language", async () => {
-      view = { ...withAllowances, client: { name: 'Ana Ruiz', language: 'es' } };
-      pick.mockImplementationOnce(async () => {
-        const err = new Error("Paste the link to the product's page") as Error & { reason?: string };
-        err.reason = 'selection_link';
-        throw err;
-      });
-      await open();
-      expect(document.body.textContent).toContain('Tus selecciones');
-      await act(async () => button('Elegir')!.click());
-      await type('Enlace al producto', 'nope');
-      await act(async () => button('Enviar mi selección')!.click());
-      expect(document.body.textContent).toContain('Pega el enlace a la página del producto.');
-    });
+  it('is just the estimate: no selections to make on it', async () => {
+    view = { ...sent, allowances: [{ itemId: 'tile', description: 'Tile allowance', quantity: 1, allowanceUnitPrice: 1200, allowanceTotal: 1200 }] };
+    await open();
+    expect(document.body.querySelector('[data-testid="allowance-picks"]')).toBeNull();
+    expect(document.body.textContent).not.toContain('Your selections');
   });
 });

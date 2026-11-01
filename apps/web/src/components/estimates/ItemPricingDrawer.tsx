@@ -58,7 +58,6 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
   const [quantity, setQuantity] = useState(1);
   const [category, setCategory] = useState('');
   const [isAllowance, setIsAllowance] = useState(false);
-  const [pickBy, setPickBy] = useState('');
   // The drawer stays mounted and slides like the estimate drawer. It keeps
   // showing the last item while sliding out.
   const [shownItem, setShownItem] = useState<PricedItem | null>(null);
@@ -77,7 +76,6 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
     setQuantity(item.quantity || 1);
     setCategory(item.category ?? '');
     setIsAllowance(Boolean(item.allowance));
-    setPickBy(item.allowance?.pickBy ?? '');
     // Wait for the closed position to paint so the slide-in animates.
     let inner = 0;
     const outer = requestAnimationFrame(() => {
@@ -118,9 +116,8 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
   const save = () => {
     const picked = category.trim();
     const changed = shownItem && picked && picked !== (shownItem.category ?? '');
-    // An approved pick keeps the allowance it was approved against.
-    const amount = shownItem?.allowance?.amount;
-    const allowance = isAllowance ? { ...(amount !== undefined ? { amount } : {}), ...(pickBy ? { pickBy } : {}) } : null;
+    // The pick-by date (set on the project) and an approved pick's allowance ride along.
+    const allowance = isAllowance ? { ...(shownItem?.allowance ?? {}) } : null;
     onSave(changed ? { unit_price: price, quantity, category: picked, category_chosen: true, allowance } : { unit_price: price, quantity, allowance });
     onClose();
   };
@@ -280,26 +277,14 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
                   <span>
                     <span className="block text-sm text-gray-200">Allowance: the client picks this</span>
                     <span className="block text-xs text-gray-500">
-                      This price is what&rsquo;s included. The client sends you a link to what they pick from their estimate, and you approve the price.
+                      This price is what&rsquo;s included. Once the estimate is signed, it shows on the project&rsquo;s Selections for the client&rsquo;s pick.
                     </span>
                   </span>
                 </label>
-                {isAllowance && (
-                  <label className="flex items-center gap-2 text-sm text-gray-300 pl-7">
-                    Pick by
-                    <input
-                      type="date"
-                      value={pickBy}
-                      onChange={(e) => setPickBy(e.target.value)}
-                      aria-label="Pick by"
-                      className="bg-[#0A0A0A] border border-[#333333] px-2 py-1 text-sm text-white"
-                    />
-                  </label>
-                )}
                 {isAllowance && shownItem.allowance?.amount !== undefined && (
                   <p className="text-xs text-gray-400 pl-7">
                     Their pick is approved, so the price is what you approved ({formatCurrency(shownItem.allowance.amount)} each was included). To change it, reopen
-                    the pick on the Overview tab.
+                    the pick on the project&rsquo;s Selections.
                   </p>
                 )}
               </div>

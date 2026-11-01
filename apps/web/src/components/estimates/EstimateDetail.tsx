@@ -29,7 +29,6 @@ import { ClientNoteCard } from './ClientNoteCard';
 import { WORK_TYPE_NAMES } from '../../../convex/lib/workTypes';
 import { estimateTotals } from '../../../convex/lib/totals';
 import { DiscountCard } from './DiscountCard';
-import { SelectionsCard } from './SelectionsCard';
 
 // Header actions share one size so they line up; only the main action is filled.
 const actionBase = 'h-9 flex items-center gap-2 px-4 border rounded-sm transition-colors text-sm font-medium';
@@ -808,18 +807,6 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                       : current,
                   )
                 }
-              />
-            )}
-
-            {/* Allowances the client picks for (tile, a faucet), and approving their picks */}
-            {estimate.id && estimate.items?.some((item) => item.allowance) && (
-              <SelectionsCard
-                estimateId={estimate.id}
-                linesKey={estimate.items
-                  .filter((item) => item.allowance)
-                  .map((item) => `${item.id}:${item.quantity}:${item.unit_price}`)
-                  .join('|')}
-                onEstimateChanged={() => loadEstimate(true)}
               />
             )}
 

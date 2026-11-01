@@ -1,21 +1,11 @@
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
-import { mutation, query, type MutationCtx } from "./_generated/server";
+import { mutation, type MutationCtx } from "./_generated/server";
 import { fail, getOwned, logActivity, nowIso } from "./lib/access";
 import { withTotals } from "./lib/documents";
-import { allowanceViews, selectionsFor } from "./lib/selections";
 
 // The company's side of allowances: what the client picked for each, and
 // approving a pick at a price (which becomes the line's price) or reopening it.
-
-/** Each allowance line on the estimate with the client's pick. */
-export const forEstimate = query({
-  args: { estimateId: v.id("estimates") },
-  handler: async (ctx, { estimateId }) => {
-    const { doc: estimate } = await getOwned(ctx, "estimates", estimateId);
-    return allowanceViews(estimate.items, await selectionsFor(ctx, estimate));
-  },
-});
 
 async function pickAndLine(ctx: MutationCtx, id: Doc<"selections">["_id"]) {
   const pick = await ctx.db.get(id);

@@ -144,7 +144,7 @@ describe('ItemPricingDrawer', () => {
     unmount();
   });
 
-  it('marks a line as an allowance the client picks, with a pick-by date, and keeps an approved one', () => {
+  it('marks a line as an allowance the client picks; its pick-by date and an approved allowance ride along', () => {
     const onSave = jest.fn();
     const container = document.createElement('div');
     document.body.appendChild(container);
@@ -152,17 +152,14 @@ describe('ItemPricingDrawer', () => {
     act(() => root.render(<ItemPricingDrawer item={{ ...item, red_line_price: undefined }} onClose={() => {}} onSave={onSave} />));
     const dialog = document.querySelector('[role="dialog"]')!;
     const save = () => act(() => [...dialog.querySelectorAll('button')].find((b) => b.textContent?.includes('Save'))!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-    expect(dialog.querySelector('input[aria-label="Pick by"]')).toBeNull();
     act(() => (dialog.querySelector('input[aria-label="Allowance"]') as HTMLInputElement).click());
-    act(() => type(dialog.querySelector('input[aria-label="Pick by"]') as HTMLInputElement, '2026-12-01'));
     save();
-    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 187.5, quantity: 2, allowance: { pickBy: '2026-12-01' } });
+    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 187.5, quantity: 2, allowance: {} });
 
-    // Approved: the allowance it was approved against rides along; unticking makes it a plain line.
-    act(() => root.render(<ItemPricingDrawer item={{ ...item, unit_price: 3, allowance: { amount: 4 } }} onClose={() => {}} onSave={onSave} />));
+    act(() => root.render(<ItemPricingDrawer item={{ ...item, unit_price: 3, allowance: { amount: 4, pickBy: '2026-12-01' } }} onClose={() => {}} onSave={onSave} />));
     expect(dialog.textContent).toContain('Their pick is approved');
     save();
-    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 3, quantity: 2, allowance: { amount: 4 } });
+    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 3, quantity: 2, allowance: { amount: 4, pickBy: '2026-12-01' } });
     act(() => (dialog.querySelector('input[aria-label="Allowance"]') as HTMLInputElement).click());
     save();
     expect(onSave).toHaveBeenLastCalledWith({ unit_price: 3, quantity: 2, allowance: null });

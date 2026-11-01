@@ -412,7 +412,6 @@ export interface Allowance {
 
 /** Allowances: the client picks the product, the company approves it at a price. */
 export const selectionsAPI = {
-  forEstimate: (estimateId: string): Promise<Allowance[]> => run('query', api.selections.forEstimate, { estimateId }),
   approve: (id: string, unitPrice: number): Promise<null> => run('mutation', api.selections.approve, { id, unitPrice }),
   reopen: (id: string): Promise<null> => run('mutation', api.selections.reopen, { id }),
 };
@@ -503,10 +502,6 @@ export const publicEstimatesAPI = {
 
   /** The client flipped the page's language; remembered on their record. */
   setLanguage: (token: string, language: 'en' | 'es') => run('mutation', api.publicEstimates.setLanguage, { token, language }),
-
-  /** The client's pick for an allowance: a link to the product, and its name and price as they saw it. */
-  pick: (token: string, itemId: string, pick: { url: string; name?: string; unitPrice?: number; note?: string }): Promise<null> =>
-    run('mutation', api.publicEstimates.pick, defined({ token, itemId, ...pick })),
 };
 
 // Projects API
