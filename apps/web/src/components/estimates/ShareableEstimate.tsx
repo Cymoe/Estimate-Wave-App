@@ -387,24 +387,35 @@ const ShareableEstimatePage: React.FC = () => {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
-                {estimate.items?.map((item) => (
-                  <tr key={item.id}>
-                    <td className="px-6 py-4">
-                      <div className="text-sm text-gray-900">{item.description}</div>
-                    </td>
-                    <td className="px-6 py-4 text-center text-sm text-gray-900">
-                      {item.quantity}
-                    </td>
-                    <td className="px-6 py-4 text-right text-sm text-gray-900">
-                      {formatCurrency(item.unit_price)}
-                    </td>
-                    <td className="px-6 py-4 text-right text-sm font-medium text-gray-900">
-                      {formatCurrency(item.total_price)}
-                    </td>
+              {/* Grouped by category, in the summary's order, each with its total */}
+              {categoryTotals(estimate.items.map((item) => ({ category: item.category, total: item.total_price }))).map(({ category, total }) => (
+                <tbody key={category} className="divide-y divide-gray-200 border-t border-gray-200" data-testid="category-group">
+                  <tr className="bg-gray-50/60">
+                    <th colSpan={3} scope="rowgroup" className="px-6 pt-4 pb-2 text-left text-sm font-semibold text-gray-900">
+                      {category === OTHER_CATEGORY ? t.other : category}
+                    </th>
+                    <td className="px-6 pt-4 pb-2 text-right text-sm font-semibold text-gray-900 whitespace-nowrap">{formatCurrency(total)}</td>
                   </tr>
-                ))}
-              </tbody>
+                  {estimate.items
+                    .filter((item) => (item.category?.trim() || OTHER_CATEGORY) === category)
+                    .map((item) => (
+                      <tr key={item.id}>
+                        <td className="pl-10 pr-6 py-4">
+                          <div className="text-sm text-gray-900">{item.description}</div>
+                        </td>
+                        <td className="px-6 py-4 text-center text-sm text-gray-900">
+                          {item.quantity}
+                        </td>
+                        <td className="px-6 py-4 text-right text-sm text-gray-900">
+                          {formatCurrency(item.unit_price)}
+                        </td>
+                        <td className="px-6 py-4 text-right text-sm font-medium text-gray-900">
+                          {formatCurrency(item.total_price)}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              ))}
               <tfoot className="bg-gray-50">
                 <tr>
                   <td colSpan={3} className="px-6 py-3 text-right text-sm font-medium text-gray-900">

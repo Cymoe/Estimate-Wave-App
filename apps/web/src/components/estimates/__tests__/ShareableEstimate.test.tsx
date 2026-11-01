@@ -94,6 +94,15 @@ describe('client estimate page', () => {
     expect(document.body.textContent).not.toContain('Paint ceilings');
     await act(async () => button('Line item details (4)')!.click());
     expect(document.body.textContent).toContain('Paint ceilings');
+    // The details break down under the same categories, in the same order, each with its total.
+    const groups = Array.from(document.body.querySelectorAll('[data-testid="category-group"]')).map((g) =>
+      Array.from(g.querySelectorAll('tr')).map((r) => r.textContent),
+    );
+    expect(groups).toEqual([
+      ['Electrical$300.00', 'New outlet2$150.00$300.00'],
+      ['Interior Painting$500.00', 'Paint walls100$3.00$300.00', 'Paint ceilings50$4.00$200.00'],
+      ['Other$100.00', 'Haul away1$100.00$100.00'],
+    ]);
   });
 
   it('shows the agreement terms above the one signature', async () => {
