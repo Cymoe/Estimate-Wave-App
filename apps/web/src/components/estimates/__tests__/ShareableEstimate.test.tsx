@@ -126,6 +126,18 @@ describe('client estimate page', () => {
     expect(button('Line item details (2)')).toBeUndefined();
   });
 
+  it("shows the company's logo at the top when it has one", async () => {
+    view = { ...sent, business: { name: 'Shah Builders', logoUrl: 'https://files.example/logo.png' } };
+    await open();
+    const logo = document.body.querySelector('[data-testid="company-logo"]') as HTMLImageElement;
+    expect(logo.getAttribute('src')).toBe('https://files.example/logo.png');
+    expect(logo.getAttribute('alt')).toBe('Shah Builders');
+    view = { ...sent };
+    document.body.innerHTML = '';
+    await open();
+    expect(document.body.querySelector('[data-testid="company-logo"]')).toBeNull();
+  });
+
   it('Save as PDF and Print open the print screen, with the company and estimate as the file name; the signing box stays off the copy', async () => {
     const print = jest.spyOn(window, 'print').mockImplementation(() => {});
     view = { ...sent, business: { name: 'Shah Builders' } };

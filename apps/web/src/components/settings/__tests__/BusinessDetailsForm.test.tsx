@@ -9,8 +9,15 @@ jest.mock('../../../lib/api', () => ({
   organizationsAPI: {
     getById: (id: string) => getById(id),
     update: (id: string, data: Record<string, string>) => update(id, data),
+    logoUploadUrl: async () => 'https://upload.example/1',
+    setLogo: (id: string, storageId: string | null, name?: string) => setLogo(id, storageId, name),
   },
 }));
+const setLogo = jest.fn<Promise<string | null>, [string, string | null, string | undefined]>(async (_id, storageId) =>
+  storageId ? 'https://files.example/logo.png' : null,
+);
+const uploadFile = jest.fn(async () => 'storage1');
+jest.mock('../../../services/uploads', () => ({ uploadFile: (...args: unknown[]) => uploadFile(...(args as [])) }));
 
 import { BusinessDetailsForm } from '../BusinessDetailsForm';
 
@@ -49,5 +56,30 @@ describe('business details form', () => {
     expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ name: 'Shah Builders' }));
     expect(document.body.textContent).toContain('Saved');
     expect(document.body.textContent).not.toContain('before sending estimates');
+  });
+
+  it('uploads, shows and removes the logo, and refuses a file that is not an image', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () => createRoot(container).render(<BusinessDetailsForm organizationId="org1" />));
+    await act(async () => {});
+    const box = () => document.body.querySelector('[data-testid="logo-setting"]')!;
+    expect(box().textContent).toContain('No logo');
+    const pick = async (file: File) => {
+      const input = box().querySelector('[data-testid="logo-file"]') as HTMLInputElement;
+      Object.defineProperty(input, 'files', { value: [file], configurable: true });
+      await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+      await act(async () => {});
+    };
+    await pick(new File(['%PDF'], 'contract.pdf', { type: 'application/pdf' }));
+    expect(box().textContent).toContain('Pick an image');
+    expect(setLogo).not.toHaveBeenCalled();
+    await pick(new File(['png'], 'logo.png', { type: 'image/png' }));
+    expect(uploadFile).toHaveBeenCalledWith('https://upload.example/1', expect.any(File));
+    expect(setLogo).toHaveBeenLastCalledWith('org1', 'storage1', 'logo.png');
+    expect(box().querySelector('img')!.getAttribute('src')).toBe('https://files.example/logo.png');
+    await act(async () => Array.from(box().querySelectorAll('button')).find((b) => b.textContent === 'Remove')!.click());
+    expect(setLogo).toHaveBeenLastCalledWith('org1', null, undefined);
+    expect(box().textContent).toContain('No logo');
   });
 });

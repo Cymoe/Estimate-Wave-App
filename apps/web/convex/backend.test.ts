@@ -2592,6 +2592,43 @@ describe("client link", () => {
     return { t, as, id: estimate!._id, token, organizationId };
   }
 
+  test("the company logo: admins set, replace and remove it; it shows on the link; non-images and members are refused", async () => {
+    const { t, as, token, organizationId } = await sharedEstimate();
+    const store = (type: string, body = "png") => t.run((ctx) => ctx.storage.store(new Blob([body], { type })));
+    const first = await store("image/png");
+    expect(await as.mutation(api.organizations.logoUploadUrl, { id: organizationId })).toEqual(expect.any(String));
+    const url = await as.mutation(api.organizations.setLogo, { id: organizationId, storageId: first, name: "logo.png" });
+    expect(url).toEqual(expect.any(String));
+    expect((await t.query(api.publicEstimates.get, { token }))!.business!.logoUrl).toBe(url);
+    expect((await as.query(api.organizations.get, { id: organizationId }))!.logoUrl).toBe(url);
+
+    // Replacing deletes the old file.
+    const second = await store("image/jpeg");
+    await as.mutation(api.organizations.setLogo, { id: organizationId, storageId: second, name: "logo.jpg" });
+    expect(await t.run((ctx) => ctx.db.system.get(first))).toBeNull();
+
+    await expect(
+      as.mutation(api.organizations.setLogo, { id: organizationId, storageId: await store("application/pdf"), name: "agreement.pdf" }),
+    ).rejects.toThrow(/image of 2MB or less/);
+    await expect(
+      as.mutation(api.organizations.setLogo, {
+        id: organizationId,
+        storageId: await store("image/png", "x".repeat(2 * 1024 * 1024 + 1)),
+        name: "big.png",
+      }),
+    ).rejects.toThrow(/image of 2MB or less/);
+
+    const member = await signUp(t, "crew@example.com");
+    await t.run((ctx) =>
+      ctx.db.insert("memberships", { organizationId, userId: member.userId, role: "member", createdAt: new Date().toISOString() }),
+    );
+    await expect(member.as.mutation(api.organizations.setLogo, { id: organizationId, storageId: null })).rejects.toThrow();
+
+    expect(await as.mutation(api.organizations.setLogo, { id: organizationId, storageId: null })).toBeNull();
+    expect(await t.run((ctx) => ctx.db.system.get(second))).toBeNull();
+    expect((await t.query(api.publicEstimates.get, { token }))!.business!.logoUrl).toBeUndefined();
+  });
+
   test("with the line items hidden, the link has only a total per category, and showing them brings the lines back", async () => {
     const { t, as, id, token } = await sharedEstimate();
     await as.mutation(api.estimates.update, {

@@ -2,7 +2,8 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { fail, isSuperAdmin, nowIso, organizationIdsFor, pick, requireMember, requireUser } from "./lib/access";
-import { createOrganizationWithOwner, uniqueSlug } from "./lib/organizations";
+import { fileType } from "./lib/contractDocs";
+import { createOrganizationWithOwner, logoUrlOf, uniqueSlug } from "./lib/organizations";
 import { organizationFields } from "./schema";
 
 /** Organizations the signed-in user belongs to (all of them for super admins). */
@@ -40,7 +41,38 @@ export const get = query({
   args: { id: v.id("organizations") },
   handler: async (ctx, { id }) => {
     const { organization } = await requireMember(ctx, id);
-    return organization;
+    return { ...organization, logoUrl: await logoUrlOf(ctx, organization) };
+  },
+});
+
+const MAX_LOGO_BYTES = 2 * 1024 * 1024;
+
+/** Where the browser uploads a logo before setLogo attaches it. Owners and admins only. */
+export const logoUploadUrl = mutation({
+  args: { id: v.id("organizations") },
+  handler: async (ctx, { id }) => {
+    await requireMember(ctx, id, "admin");
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+/**
+ * Sets the company's logo (an image of 2MB or less) shown on estimates,
+ * agreements and sign-offs, or removes it with null. The old file is deleted.
+ */
+export const setLogo = mutation({
+  args: { id: v.id("organizations"), storageId: v.union(v.id("_storage"), v.null()), name: v.optional(v.string()) },
+  handler: async (ctx, { id, storageId, name }) => {
+    const { organization } = await requireMember(ctx, id, "admin");
+    if (storageId !== null) {
+      const file = await ctx.db.system.get(storageId);
+      if (file === null) fail("NOT_FOUND", "The uploaded logo wasn't found");
+      if (!fileType(file.contentType, name ?? "").startsWith("image/") || file.size > MAX_LOGO_BYTES) fail("INVALID", "The logo must be an image of 2MB or less");
+    }
+    const old = organization.logoStorageId;
+    if (old && old !== storageId && (await ctx.db.system.get(old)) !== null) await ctx.storage.delete(old);
+    await ctx.db.patch(id, { logoStorageId: storageId ?? undefined, updatedAt: nowIso() });
+    return (await logoUrlOf(ctx, await ctx.db.get(id))) ?? null;
   },
 });
 

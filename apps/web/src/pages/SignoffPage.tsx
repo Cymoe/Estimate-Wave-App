@@ -21,7 +21,7 @@ interface SignoffView {
   propertyAddress?: string;
   clientName?: string;
   clientLanguage?: 'en' | 'es';
-  company?: { name: string; phone?: string; email?: string };
+  company?: { name: string; phone?: string; email?: string; logoUrl?: string };
   changes?: Array<{ description: string; before?: number; after?: number }>;
   previousTotal?: number;
   newTotal?: number;
@@ -95,6 +95,9 @@ function SignoffContent() {
     <LightPage className="bg-gray-50 text-gray-900">
       <div className="max-w-2xl mx-auto px-4 py-8 space-y-4">
         <header>
+          {view.company?.logoUrl && (
+            <img src={view.company.logoUrl} alt={view.company.name} className="max-h-14 max-w-[200px] object-contain mb-3" data-testid="company-logo" />
+          )}
           <p className="text-sm text-gray-500">{view.company?.name}</p>
           <h1 className="text-2xl font-semibold">{name}</h1>
           <p className="text-sm text-gray-500">

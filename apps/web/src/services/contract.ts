@@ -51,6 +51,8 @@ export interface Business {
   city?: string;
   state?: string;
   zip?: string;
+  /** The company logo shown to clients. */
+  logoUrl?: string;
   /** The company's wording for the built-in agreement (Settings → Contracts). */
   agreement?: AgreementWording;
 }

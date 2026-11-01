@@ -296,6 +296,9 @@ export const EstimateContractView: React.FC<EstimateContractViewProps> = ({ esti
         <div className="bg-white text-black p-8 rounded-lg shadow-lg print:shadow-none print:rounded-none">
           {/* Contract Header */}
           <div className="text-center mb-8">
+            {business?.logoUrl && (
+              <img src={business.logoUrl} alt={business.name ?? ''} className="max-h-16 max-w-[220px] object-contain mx-auto mb-4" data-testid="company-logo" />
+            )}
             <h1 className="text-2xl font-bold mb-2">SERVICES CONTRACT AGREEMENT</h1>
           </div>
 

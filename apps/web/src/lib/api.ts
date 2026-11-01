@@ -93,6 +93,14 @@ export const organizationsAPI = {
     return run('query', api.organizations.get, { id });
   },
 
+  /** The company logo on what clients see: upload, then attach (or null to remove). Returns its URL. */
+  async logoUploadUrl(id: string): Promise<string> {
+    return run('mutation', api.organizations.logoUploadUrl, { id });
+  },
+  async setLogo(id: string, storageId: string | null, name?: string): Promise<string | null> {
+    return run('mutation', api.organizations.setLogo, defined({ id, storageId, name }));
+  },
+
   /** 'owner' | 'admin' | 'member' for the signed-in user. */
   async myRole(id: string): Promise<'owner' | 'admin' | 'member'> {
     return run('query', api.organizations.myRole, { id });

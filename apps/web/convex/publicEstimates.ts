@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { logoUrlOf } from "./lib/organizations";
 import { mutation, query } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -133,6 +134,7 @@ export const get = query({
             email: organization.email,
             phone: organization.phone,
             address: address || undefined,
+            logoUrl: await logoUrlOf(ctx, organization),
           }
         : undefined,
     };

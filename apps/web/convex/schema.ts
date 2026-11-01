@@ -532,6 +532,8 @@ export default defineSchema({
     followUps: v.optional(v.object({ enabled: v.boolean(), afterDays: v.number() })),
     // Payment terms, warranty and extra clauses for the built-in agreement.
     agreement: v.optional(agreementWording),
+    // The company's logo on what clients see (organizations.setLogo).
+    logoStorageId: v.optional(v.id("_storage")),
     ...timestamps,
   }).index("by_slug", ["slug"]),
 

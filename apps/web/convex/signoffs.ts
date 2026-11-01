@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { logoUrlOf } from "./lib/organizations";
 import type { Doc } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { fail, getOwned, logActivity, nowIso } from "./lib/access";
@@ -182,7 +183,9 @@ export const get = query({
       propertyAddress: estimate.contractSnapshot?.terms?.propertyAddress || estimate.contractSnapshot?.client?.address,
       clientName: client?.name ?? estimate.contractSnapshot?.client?.name,
       clientLanguage: langOf(client),
-      company: organization ? { name: organization.name, phone: organization.phone, email: organization.email } : undefined,
+      company: organization
+        ? { name: organization.name, phone: organization.phone, email: organization.email, logoUrl: await logoUrlOf(ctx, organization) }
+        : undefined,
       changes: signoff.changes,
       previousTotal: signoff.previousTotal,
       newTotal: signoff.newTotal,

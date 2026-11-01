@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { CheckCircle } from 'lucide-react';
 import { organizationsAPI } from '../../lib/api';
+import { uploadFile } from '../../services/uploads';
 import { missingBusinessDetails, type Business } from '../../services/contract';
 
 type Field = 'name' | 'email' | 'phone' | 'address' | 'city' | 'state' | 'zip';
@@ -20,6 +21,11 @@ export const BusinessDetailsForm: React.FC<BusinessDetailsFormProps> = ({ organi
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  // The logo clients see on estimates, agreements and sign-offs; it saves as soon as it's picked.
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [logoBusy, setLogoBusy] = useState(false);
+  const [logoError, setLogoError] = useState<string | null>(null);
+  const logoPicker = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -29,6 +35,7 @@ export const BusinessDetailsForm: React.FC<BusinessDetailsFormProps> = ({ organi
       .then((org: Business | null) => {
         if (cancelled || !org) return;
         setValues(Object.fromEntries(Object.keys(EMPTY).map((key) => [key, org[key as Field] ?? ''])) as Record<Field, string>);
+        setLogoUrl(org.logoUrl ?? null);
       })
       .catch(() => !cancelled && setError("Your business details couldn't be loaded."))
       .finally(() => !cancelled && setLoading(false));
@@ -62,6 +69,27 @@ export const BusinessDetailsForm: React.FC<BusinessDetailsFormProps> = ({ organi
     }
   };
 
+  const changeLogo = async (file: File | null) => {
+    setLogoError(null);
+    if (file && !file.type.startsWith('image/')) {
+      setLogoError('Pick an image (PNG or JPG).');
+      return;
+    }
+    if (file && file.size > 2 * 1024 * 1024) {
+      setLogoError('That image is over 2MB. Pick a smaller one.');
+      return;
+    }
+    setLogoBusy(true);
+    try {
+      const storageId = file ? await uploadFile(await organizationsAPI.logoUploadUrl(organizationId), file) : null;
+      setLogoUrl(await organizationsAPI.setLogo(organizationId, storageId, file?.name));
+    } catch (err) {
+      setLogoError(err instanceof Error ? err.message : "The logo couldn't be saved.");
+    } finally {
+      setLogoBusy(false);
+    }
+  };
+
   const missing = loading ? [] : missingBusinessDetails(values);
   const input = (field: Field, label: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
     <label className="block">
@@ -86,6 +114,50 @@ export const BusinessDetailsForm: React.FC<BusinessDetailsFormProps> = ({ organi
           Add your {missing.join(', ')} before sending estimates.
         </p>
       )}
+      <div data-testid="logo-setting">
+        <span className="block text-sm font-medium text-gray-300 mb-1">Logo</span>
+        <div className="flex items-center gap-3">
+          <div className="w-28 h-16 flex items-center justify-center bg-white rounded-lg border border-[#333333] overflow-hidden">
+            {logoUrl ? (
+              <img src={logoUrl} alt="Your logo" className="max-w-full max-h-full object-contain" />
+            ) : (
+              <span className="text-xs text-gray-400">No logo</span>
+            )}
+          </div>
+          <input
+            ref={logoPicker}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            data-testid="logo-file"
+            onChange={(e) => {
+              const file = e.target.files?.[0] ?? null;
+              e.target.value = '';
+              if (file) changeLogo(file);
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => logoPicker.current?.click()}
+            disabled={loading || logoBusy}
+            className="h-9 px-3 text-sm border border-[#333333] text-gray-200 rounded-lg hover:bg-[#252525] disabled:opacity-50"
+          >
+            {logoBusy ? 'Saving...' : logoUrl ? 'Change' : 'Upload logo'}
+          </button>
+          {logoUrl && (
+            <button
+              type="button"
+              onClick={() => changeLogo(null)}
+              disabled={logoBusy}
+              className="h-9 px-3 text-sm text-red-400 hover:text-red-300 disabled:opacity-50"
+            >
+              Remove
+            </button>
+          )}
+        </div>
+        <p className="text-xs text-gray-500 mt-1">Shown at the top of your estimates, agreements and sign-offs. An image up to 2MB.</p>
+        {logoError && <p className="text-sm text-red-400 mt-1">{logoError}</p>}
+      </div>
       {input('name', 'Business name', { required: true, autoComplete: 'organization' })}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {input('email', 'Email', { type: 'email', autoComplete: 'email' })}

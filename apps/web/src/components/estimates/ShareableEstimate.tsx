@@ -34,7 +34,7 @@ interface ClientEstimate {
   signed_at?: string;
   approved_at?: string;
   client?: { name: string; language?: 'en' | 'es' };
-  business?: { name?: string; email?: string; phone?: string; address?: string };
+  business?: { name?: string; email?: string; phone?: string; address?: string; logoUrl?: string };
   design?: { url: string; name: string; contentType?: string };
   agreement?: {
     propertyAddress?: string;
@@ -266,6 +266,14 @@ const ShareableEstimatePage: React.FC = () => {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 mb-6 print:shadow-none">
           <div className="flex justify-between items-start mb-6">
             <div>
+              {estimate.business?.logoUrl && (
+                <img
+                  src={estimate.business.logoUrl}
+                  alt={estimate.business.name ?? ''}
+                  className="max-h-16 max-w-[220px] object-contain mb-4"
+                  data-testid="company-logo"
+                />
+              )}
               <h1 className="text-3xl font-bold text-gray-900 mb-2">
                 {estimate.title || t.titleFallback}
               </h1>

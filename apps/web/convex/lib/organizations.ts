@@ -1,5 +1,5 @@
-import type { Id } from "../_generated/dataModel";
-import type { MutationCtx } from "../_generated/server";
+import type { Doc, Id } from "../_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { nowIso } from "./access";
 import { acceptStaffInvite } from "./staff";
 
@@ -118,4 +118,11 @@ export async function acceptInvites(
     await ctx.db.patch(invite._id, { acceptedAt: now });
   }
   return open.length > 0;
+}
+
+/** The company's logo for clients: the uploaded file, else an older logo link. */
+export async function logoUrlOf(ctx: QueryCtx | MutationCtx, organization: Doc<"organizations"> | null): Promise<string | undefined> {
+  if (!organization) return undefined;
+  if (organization.logoStorageId) return (await ctx.storage.getUrl(organization.logoStorageId)) ?? organization.logoUrl;
+  return organization.logoUrl;
 }
