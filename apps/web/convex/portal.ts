@@ -260,17 +260,16 @@ async function portalView(ctx: QueryCtx, client: Doc<"clients">, preview: boolea
     perks: done
       ? {
           reviewUrl: perks?.reviewUrl,
-          referral: perks?.referralReward
-            ? await (async () => {
-                const referrals = await referralsOf(ctx, client);
-                return {
-                  reward: perks.referralReward!,
-                  code: client.referralCode,
-                  referred: referrals.length,
-                  earned: referrals.filter((r) => r.earned).length,
-                };
-              })()
-            : undefined,
+          // Always on a finished job; the reward only when the company set one.
+          referral: await (async () => {
+            const referrals = await referralsOf(ctx, client);
+            return {
+              reward: perks?.referralReward,
+              code: client.referralCode,
+              referred: referrals.length,
+              earned: referrals.filter((r) => r.earned).length,
+            };
+          })(),
         }
       : undefined,
     company: organization

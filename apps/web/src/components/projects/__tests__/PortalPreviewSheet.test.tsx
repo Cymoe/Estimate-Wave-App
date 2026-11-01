@@ -92,6 +92,21 @@ describe('the portal preview', () => {
     expect(document.body.querySelector('[data-testid="draft-changes"]')!.textContent).toContain('Faucet allowance$350.00$420.00');
   });
 
+  it('on a finished job without a review link, shows the company where the review card goes', async () => {
+    preview = {
+      ...base,
+      token: 'tok',
+      newCount: 0,
+      asks: [],
+      perks: { referral: { referred: 0, earned: 0 } },
+    };
+    await render();
+    const hint = document.body.querySelector('[data-testid="perk-review-placeholder"]')!;
+    expect(hint.textContent).toContain('add your Google review link');
+    expect(hint.querySelector('a')!.getAttribute('href')).toBe('/settings/organization');
+    expect(document.body.querySelector('[data-testid="perk-referral"]')).not.toBeNull();
+  });
+
   it('sends what was waiting and hands over the link with a note saying what to do', async () => {
     preview = queued;
     const { onChanged } = await render();

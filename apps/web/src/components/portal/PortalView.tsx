@@ -443,6 +443,8 @@ function JobCard({
       ? [job.startDate && day(job.startDate, lang), job.endDate && day(job.endDate, lang)].filter(Boolean).join(' – ')
       : null;
   let changeOrders = 0;
+  // Signed off as done, it's Complete whatever the project's status still says.
+  const status = job.completed ? 'completed' : job.status;
   return (
     <li className={`${card} p-5`} data-testid="job">
       <div className="flex items-start justify-between gap-3">
@@ -450,12 +452,12 @@ function JobCard({
           <h3 className="text-xl font-semibold leading-tight text-gray-900">{job.name}</h3>
           {dates && <p className="mt-1 text-[15px] text-gray-500">{dates}</p>}
         </div>
-        {job.status && (
+        {status && (
           <span
-            className={`flex-shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_PILL[job.status] ?? STATUS_PILL.planning}`}
+            className={`flex-shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_PILL[status] ?? STATUS_PILL.planning}`}
             data-testid="job-status"
           >
-            {t.status[job.status] ?? job.status}
+            {t.status[status] ?? status}
           </span>
         )}
       </div>
@@ -687,7 +689,8 @@ function Perks({ view, lang, token, preview }: { view: View; lang: Lang; token?:
   const company = view.company?.name ?? PORTAL[lang].theCompany;
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  if (!perks || (!perks.reviewUrl && !perks.referral)) return null;
+  // The review placeholder is the company's alone (preview); clients see only what's set.
+  if (!perks || (!perks.reviewUrl && !perks.referral && !preview)) return null;
   const referral = perks.referral;
 
   const share = async () => {
@@ -710,6 +713,19 @@ function Perks({ view, lang, token, preview }: { view: View; lang: Lang; token?:
     <section aria-label={t.heading} data-testid="perks">
       <h2 className="mb-3 text-[22px] font-bold tracking-tight text-gray-900">{t.heading}</h2>
       <ul className="space-y-3">
+        {!perks.reviewUrl && preview && (
+          <li className="rounded-2xl border-2 border-dashed border-gray-300 p-5 text-[15px] text-gray-500" data-testid="perk-review-placeholder">
+            <span className="flex items-start gap-3">
+              <Star className="mt-0.5 h-5 w-5 flex-shrink-0 text-gray-400" />
+              <span>
+                {t.reviewPlaceholder}{' '}
+                <a href="/settings/organization" target="_blank" rel="noopener noreferrer" className="font-medium text-blue-600 hover:underline">
+                  {t.reviewPlaceholderLink}
+                </a>
+              </span>
+            </span>
+          </li>
+        )}
         {perks.reviewUrl && (
           <AskShell icon={<Star className="h-5 w-5" />} tone="amber" title={t.reviewTitle} detail={t.reviewBody(company)} newLabel="" testId="perk-review">
             <a
@@ -728,7 +744,7 @@ function Perks({ view, lang, token, preview }: { view: View; lang: Lang; token?:
             icon={<Gift className="h-5 w-5" />}
             tone="pink"
             title={t.referTitle}
-            detail={t.referBody(referral.reward)}
+            detail={referral.reward ? t.referBody(referral.reward) : t.referBodyNoReward}
             newLabel=""
             testId="perk-referral"
           >

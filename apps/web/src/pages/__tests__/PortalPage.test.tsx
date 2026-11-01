@@ -320,11 +320,22 @@ describe('after the job', () => {
     expect(referral.textContent).toContain('Link copied');
   });
 
-  it('shows only the perks the company set up, and none before a job is done', async () => {
-    view = finished({ perks: { reviewUrl: undefined, referral: undefined } });
+  it('without a reward or review link, still offers the referral link; no review card and no setup hint for the client', async () => {
+    view = finished({ perks: { reviewUrl: undefined, referral: { referred: 0, earned: 0 } } });
     await open();
-    expect(document.body.querySelector('[data-testid="perks"]')).toBeNull();
-    expect(document.body.querySelector('[data-testid="home-file"]')).not.toBeNull();
+    const referral = document.body.querySelector('[data-testid="perk-referral"]')!;
+    expect(referral.textContent).toContain("Send them your link. We'll take great care of them.");
+    expect(document.body.querySelector('[data-testid="perk-review"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="perk-review-placeholder"]')).toBeNull();
+  });
+
+  it('says Complete once the job is signed off, whatever the project still says', async () => {
+    view = finished({ jobs: [{ ...finished().jobs[0], status: 'planning' }] });
+    await open();
+    expect(document.body.querySelector('[data-testid="job-status"]')!.textContent).toBe('Complete');
+  });
+
+  it('shows nothing extra before a job is done', async () => {
     document.body.innerHTML = '';
     view = { ...base };
     await open();

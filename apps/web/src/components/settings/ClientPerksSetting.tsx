@@ -85,8 +85,8 @@ export const ClientPerksSetting: React.FC<{ organizationId: string }> = ({
       <p className="text-sm text-gray-400 mb-4">
         Once a client signs the job-complete sign-off, their portal turns into
         their home file: the warranty with its end date and a button to ask for
-        warranty service. Add these and it also thanks them with a review ask
-        and a referral link.
+        warranty service, and a referral link they can share. Add your review
+        link to ask for a review too, and a reward to offer for referrals.
       </p>
       {!loaded ? (
         <p className="text-sm text-gray-500">{note?.text ?? "Loading…"}</p>
@@ -125,7 +125,7 @@ export const ClientPerksSetting: React.FC<{ organizationId: string }> = ({
               className={input}
             />
             <span className="block text-xs text-gray-500 mt-1">
-              What a client gets when a friend they send signs a job. Their
+              Optional: what a client gets when a friend they send signs a job. Their
               friends land in Leads marked who sent them; mark the reward given
               on the client’s page.
             </span>

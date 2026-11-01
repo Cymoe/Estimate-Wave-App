@@ -501,10 +501,10 @@ export interface PortalView {
       requests: Array<{ note: string; requestedAt: string; done: boolean }>;
     };
   }>;
-  /** What the client gets back once a job is done, each when the company set it up. */
+  /** What the client gets back once a job is done: a referral link (reward if set) and a review ask (when there's a review link). */
   perks?: {
     reviewUrl?: string;
-    referral?: { reward: string; code?: string; referred: number; earned: number };
+    referral?: { reward?: string; code?: string; referred: number; earned: number };
   };
 }
 

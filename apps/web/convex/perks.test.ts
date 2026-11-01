@@ -105,10 +105,10 @@ describe("after the job", () => {
       },
     });
 
-    // Without perks set up, nothing to show for them (the warranty still does).
+    // Without perks set up: still a referral link (no reward), and no review ask.
     await as.mutation(api.organizations.setPerks, { id: organizationId });
     page = (await t.query(api.portal.get, { token }))!;
-    expect(page.perks).toEqual({ reviewUrl: undefined, referral: undefined });
+    expect(page.perks).toEqual({ reviewUrl: undefined, referral: { reward: undefined, code: undefined, referred: 0, earned: 0 } });
     expect(page.jobs[0].completed).toBeDefined();
   });
 
