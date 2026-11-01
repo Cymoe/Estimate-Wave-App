@@ -12,6 +12,7 @@ import { tasksAPI, templatesAPI, type ProjectTask } from '../../lib/api';
 import { ExpensesList } from '../expenses/ExpensesList';
 import { JobPhotos } from '../common/JobPhotos';
 import { ProjectTasks } from './ProjectTasks';
+import { ProjectSelections } from './ProjectSelections';
 import { taskDays } from './taskDates';
 import {
   NoteDate,
@@ -27,8 +28,8 @@ import {
 import { Toast, useToast } from '../common/Notice';
 import { PROJECT_STATUSES, formatProjectDate, projectStatusInfo } from './projectStatus';
 
-type TabType = 'overview' | 'tasks' | 'estimates' | 'expenses' | 'photos';
-const TAB_IDS: TabType[] = ['overview', 'tasks', 'estimates', 'expenses', 'photos'];
+type TabType = 'overview' | 'tasks' | 'selections' | 'estimates' | 'expenses' | 'photos';
+const TAB_IDS: TabType[] = ['overview', 'tasks', 'selections', 'estimates', 'expenses', 'photos'];
 const isTab = (value: string | null): value is TabType => TAB_IDS.includes(value as TabType);
 
 const ESTIMATE_PILL: Record<string, string> = {
@@ -297,6 +298,7 @@ export const ProjectPanel: React.FC<{
   const { toast, show: showToast } = useToast();
   const [tasks, setTasks] = useState<ProjectTask[] | null>(null);
   const [openTasks, setOpenTasks] = useState<number | undefined>(undefined);
+  const [selectionsToDo, setSelectionsToDo] = useState<number | undefined>(undefined);
 
   useEffect(() => {
     if (!orgId) return;
@@ -473,9 +475,12 @@ export const ProjectPanel: React.FC<{
   const place = client ? [client.address, client.city].filter(Boolean).join(', ') : '';
   const nextUp = (tasks ?? []).filter((t) => !t.done).slice(0, 3);
 
+  const hasSelections = (estimates ?? []).some((e) => e.contract_locked_at && e.items?.some((item) => item.allowance));
   const tabs: Array<{ id: TabType; label: string; count?: number }> = [
     { id: 'overview', label: 'Overview' },
     { id: 'tasks', label: 'Tasks', count: openTasks },
+    // Selections: once a signed estimate has allowance lines for the client to pick.
+    ...(hasSelections ? [{ id: 'selections' as const, label: 'Selections', count: selectionsToDo || undefined }] : []),
     { id: 'estimates', label: 'Estimates', count: estimates?.length ?? 0 },
     { id: 'expenses', label: 'Expenses', count: summary.count },
     { id: 'photos', label: 'Photos' },
@@ -638,6 +643,17 @@ export const ProjectPanel: React.FC<{
         {activeTab === 'tasks' && (
           <div className="p-4">
             <ProjectTasks projectId={project.id!} organizationId={orgId} place={place} onCount={setOpenTasks} />
+          </div>
+        )}
+
+        {activeTab === 'selections' && (
+          <div className="p-4">
+            <ProjectSelections
+              projectId={project.id!}
+              estimates={estimates ?? []}
+              onEstimatesChanged={() => setEstimatesAdded((n) => n + 1)}
+              onCount={setSelectionsToDo}
+            />
           </div>
         )}
 

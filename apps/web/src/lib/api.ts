@@ -387,12 +387,17 @@ export const signoffsAPI = {
 /** What the client picked for an allowance, and how far over (+) or under (−) it comes to. */
 export interface AllowancePick {
   id?: string;
-  url: string;
+  /** Absent while the client is only asked. */
+  url?: string;
   name?: string;
   /** Per unit of the line, as the client typed it. */
   unitPrice?: number;
   note?: string;
-  status: 'picked' | 'approved';
+  /** asked: waiting for the client; picked: theirs to approve; approved: the line has its price. */
+  status: 'asked' | 'picked' | 'approved';
+  askedAt?: string;
+  /** The company entered it itself. */
+  entered?: boolean;
   pickedAt?: string;
   approvedAt?: string;
   approvedUnitPrice?: number;
@@ -410,8 +415,22 @@ export interface Allowance {
   pick?: AllowancePick;
 }
 
-/** Allowances: the client picks the product, the company approves it at a price. */
+/** One signed estimate on a project and its allowance lines. */
+export interface EstimateSelections {
+  estimateId: string;
+  estimateNumber: string;
+  title?: string;
+  allowances: Allowance[];
+}
+
+/** Selections on the project: the client picks the product (or the company enters it), the company approves it at a price. */
 export const selectionsAPI = {
+  forProject: (projectId: string): Promise<EstimateSelections[]> => run('query', api.selections.forProject, { projectId }),
+  setPickBy: (estimateId: string, itemId: string, pickBy: string | null): Promise<null> =>
+    run('mutation', api.selections.setPickBy, { estimateId, itemId, pickBy }),
+  ask: (estimateId: string, itemId: string): Promise<null> => run('mutation', api.selections.ask, { estimateId, itemId }),
+  record: (estimateId: string, itemId: string, pick: { url?: string; name?: string; unitPrice: number; note?: string }): Promise<null> =>
+    run('mutation', api.selections.record, defined({ estimateId, itemId, ...pick })),
   approve: (id: string, unitPrice: number): Promise<null> => run('mutation', api.selections.approve, { id, unitPrice }),
   reopen: (id: string): Promise<null> => run('mutation', api.selections.reopen, { id }),
 };

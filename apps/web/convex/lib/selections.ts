@@ -30,7 +30,7 @@ export function allowanceViews(items: Item[], picks: Doc<"selections">[]) {
     .map((item) => {
       const unit = allowanceUnitPrice(item);
       const pick = picks.find((p) => p.itemId === item._id);
-      const pickedPrice = pick?.status === "approved" ? pick.approvedUnitPrice : pick?.unitPrice;
+      const pickedPrice = pick?.status === "approved" ? pick.approvedUnitPrice : pick?.status === "picked" ? pick.unitPrice : undefined;
       return {
         itemId: item._id,
         description: item.description,
@@ -47,6 +47,8 @@ export function allowanceViews(items: Item[], picks: Doc<"selections">[]) {
               unitPrice: pick.unitPrice,
               note: pick.note,
               status: pick.status,
+              askedAt: pick.askedAt,
+              entered: pick.enteredBy !== undefined,
               pickedAt: pick.pickedAt,
               approvedAt: pick.approvedAt,
               approvedUnitPrice: pick.approvedUnitPrice,

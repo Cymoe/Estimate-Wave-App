@@ -1,50 +1,182 @@
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
-import { mutation, type MutationCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
+import { mutation, query, type MutationCtx } from "./_generated/server";
 import { fail, getOwned, logActivity, nowIso } from "./lib/access";
 import { withTotals } from "./lib/documents";
+import { allowanceViews, cleanLink, selectionsFor } from "./lib/selections";
 
-// The company's side of allowances: what the client picked for each, and
-// approving a pick at a price (which becomes the line's price) or reopening it.
+// Selections on the project: the signed estimates' allowance lines (tile, a
+// faucet) and what the client picked for each. The company asks the client
+// (it shows in their portal) or enters the pick itself; approving a pick sets
+// the line to its price, and the difference goes on the next change order.
 
-async function pickAndLine(ctx: MutationCtx, id: Doc<"selections">["_id"]) {
+type Line = Doc<"estimates">["items"][number];
+
+/** The project's signed estimates that have allowance lines, each with its lines and the picks. */
+export const forProject = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }) => {
+    await getOwned(ctx, "projects", projectId);
+    const estimates = await ctx.db
+      .query("estimates")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .take(100);
+    const out = [];
+    for (const estimate of estimates) {
+      if (!estimate.contractLockedAt || !estimate.items.some((i) => i.allowance)) continue;
+      out.push({
+        estimateId: estimate._id,
+        estimateNumber: estimate.estimateNumber,
+        title: estimate.title,
+        allowances: allowanceViews(estimate.items, await selectionsFor(ctx, estimate)),
+      });
+    }
+    return out;
+  },
+});
+
+/** A signed estimate's allowance line, and its selection row if it has one. */
+async function signedLine(ctx: MutationCtx, estimateId: Id<"estimates">, itemId: string) {
+  const { doc: estimate, user } = await getOwned(ctx, "estimates", estimateId);
+  if (!estimate.contractLockedAt) fail("INVALID", "Selections start once the estimate is signed");
+  const item = estimate.items.find((i) => i._id === itemId && i.allowance);
+  if (!item) fail("INVALID", "That allowance isn't on the estimate any more");
+  const row = (await selectionsFor(ctx, estimate)).find((p) => p.itemId === itemId) ?? null;
+  return { estimate, item, user, row };
+}
+
+async function pickAndLine(ctx: MutationCtx, id: Id<"selections">) {
   const pick = await ctx.db.get(id);
   if (pick === null) fail("NOT_FOUND", "Not found");
-  const { doc: estimate, user } = await getOwned(ctx, "estimates", pick.estimateId);
-  const item = estimate.items.find((i) => i._id === pick.itemId && i.allowance);
-  if (!item) fail("INVALID", "That allowance isn't on the estimate any more");
+  const { estimate, item, user } = await signedLine(ctx, pick.estimateId, pick.itemId);
   return { pick, estimate, item, user };
 }
 
 /** Saves the estimate with one line replaced, totals recalculated. */
-async function saveLine(ctx: MutationCtx, estimate: Doc<"estimates">, line: Doc<"estimates">["items"][number], now: string) {
+async function saveLine(ctx: MutationCtx, estimate: Doc<"estimates">, line: Line, now: string) {
   const items = estimate.items.map((i) => (i._id === line._id ? line : i));
   const { subtotal, discountAmount, taxAmount, totalAmount } = withTotals({ ...estimate, items });
   await ctx.db.patch(estimate._id, { items, subtotal, discountAmount, taxAmount, totalAmount, updatedAt: now });
 }
 
+const cleanPrice = (unitPrice: number) => {
+  if (!Number.isFinite(unitPrice) || unitPrice < 0 || unitPrice > 10_000_000) fail("INVALID", "Enter the price, $0 or more");
+  return Math.round(unitPrice * 100) / 100;
+};
+
+/**
+ * The line takes the pick's price; the allowance it had is kept. It's the
+ * client's choice now, not the price book's, so there's no red line or cap.
+ */
+async function priceLine(ctx: MutationCtx, estimate: Doc<"estimates">, item: Line, price: number, now: string) {
+  const line = {
+    ...item,
+    unitPrice: price,
+    totalPrice: item.quantity * price,
+    allowance: { ...item.allowance, amount: item.allowance!.amount ?? item.unitPrice },
+  };
+  delete line.redLinePrice;
+  delete line.capPrice;
+  await saveLine(ctx, estimate, line, now);
+}
+
+/** When the client needs to pick by (YYYY-MM-DD), or null for no date. */
+export const setPickBy = mutation({
+  args: { estimateId: v.id("estimates"), itemId: v.string(), pickBy: v.union(v.string(), v.null()) },
+  handler: async (ctx, { estimateId, itemId, pickBy }) => {
+    if (pickBy !== null && !/^\d{4}-\d{2}-\d{2}$/.test(pickBy)) fail("INVALID", "Pick a date");
+    const { estimate, item } = await signedLine(ctx, estimateId, itemId);
+    const allowance = { ...item.allowance! };
+    if (pickBy) allowance.pickBy = pickBy;
+    else delete allowance.pickBy;
+    await saveLine(ctx, estimate, { ...item, allowance }, nowIso());
+    return null;
+  },
+});
+
+/** Asks the client to pick this one: it shows in their portal until they do. */
+export const ask = mutation({
+  args: { estimateId: v.id("estimates"), itemId: v.string() },
+  handler: async (ctx, { estimateId, itemId }) => {
+    const { estimate, row } = await signedLine(ctx, estimateId, itemId);
+    if (row?.status === "approved") fail("INVALID", "This one is already approved. Reopen it first.");
+    const now = nowIso();
+    if (row) await ctx.db.patch(row._id, { askedAt: now, updatedAt: now });
+    else
+      await ctx.db.insert("selections", {
+        organizationId: estimate.organizationId,
+        estimateId,
+        itemId,
+        status: "asked",
+        askedAt: now,
+        updatedAt: now,
+      });
+    return null;
+  },
+});
+
+/**
+ * The company enters the client's pick itself (from the showroom, a text, a
+ * call): a link or a name, and the price. Entering it approves it.
+ */
+export const record = mutation({
+  args: {
+    estimateId: v.id("estimates"),
+    itemId: v.string(),
+    url: v.optional(v.string()),
+    name: v.optional(v.string()),
+    unitPrice: v.number(),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { estimateId, itemId, url, name, unitPrice, note }) => {
+    const price = cleanPrice(unitPrice);
+    const link = url?.trim() ? cleanLink(url) : undefined;
+    if (link === null) fail("INVALID", "That link doesn't look right");
+    const label = name?.trim().slice(0, 200) || undefined;
+    if (!link && !label) fail("INVALID", "Add a link or say what it is");
+    const { estimate, item, user, row } = await signedLine(ctx, estimateId, itemId);
+    const now = nowIso();
+    const fields = {
+      url: link,
+      name: label,
+      unitPrice: price,
+      note: note?.trim().slice(0, 500) || undefined,
+      status: "approved" as const,
+      enteredBy: user._id,
+      pickedAt: now,
+      approvedUnitPrice: price,
+      approvedAt: now,
+      approvedBy: user._id,
+      updatedAt: now,
+    };
+    if (row) await ctx.db.patch(row._id, fields);
+    else await ctx.db.insert("selections", { organizationId: estimate.organizationId, estimateId, itemId, ...fields });
+    await priceLine(ctx, estimate, item, price, now);
+    await logActivity(ctx, {
+      organizationId: estimate.organizationId,
+      userId: user._id,
+      action: "selection_approved",
+      resourceType: "estimate",
+      resourceId: estimate._id,
+      details: { estimateNumber: estimate.estimateNumber, item: item.description, product: label, unitPrice: price },
+    });
+    return null;
+  },
+});
+
 /**
  * Approves the client's pick at a price per unit (what they sent, or the
- * company's own, say with delivery). The line takes that price; once the
- * estimate is signed, the difference goes on the next change order.
+ * company's own, say with delivery). The line takes that price; the
+ * difference goes on the next change order.
  */
 export const approve = mutation({
   args: { id: v.id("selections"), unitPrice: v.number() },
   handler: async (ctx, { id, unitPrice }) => {
-    if (!Number.isFinite(unitPrice) || unitPrice < 0 || unitPrice > 10_000_000) fail("INVALID", "Enter the price, $0 or more");
+    const price = cleanPrice(unitPrice);
     const { pick, estimate, item, user } = await pickAndLine(ctx, id);
-    const price = Math.round(unitPrice * 100) / 100;
+    if (pick.status === "asked") fail("INVALID", "The client hasn't picked yet");
     const now = nowIso();
-    // The price is the client's choice now, not the price book's: no red line or cap.
-    const line = {
-      ...item,
-      unitPrice: price,
-      totalPrice: item.quantity * price,
-      allowance: { ...item.allowance, amount: item.allowance!.amount ?? item.unitPrice },
-    };
-    delete line.redLinePrice;
-    delete line.capPrice;
-    await saveLine(ctx, estimate, line, now);
+    await priceLine(ctx, estimate, item, price, now);
     await ctx.db.patch(id, { status: "approved", approvedUnitPrice: price, approvedAt: now, approvedBy: user._id, updatedAt: now });
     await logActivity(ctx, {
       organizationId: estimate.organizationId,
@@ -58,7 +190,7 @@ export const approve = mutation({
   },
 });
 
-/** Undoes an approval: the line goes back to the allowance and the client can pick again. */
+/** Undoes an approval: the line goes back to the allowance and the pick waits again. */
 export const reopen = mutation({
   args: { id: v.id("selections") },
   handler: async (ctx, { id }) => {

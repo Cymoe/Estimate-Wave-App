@@ -1197,16 +1197,22 @@ export default defineSchema({
     estimateId: v.id("estimates"),
     // The allowance line's _id in the estimate's items.
     itemId: v.string(),
-    url: v.string(),
+    // What was picked; absent while the client is only asked.
+    url: v.optional(v.string()),
     name: v.optional(v.string()),
     // Per unit of the line (each, per sq ft), as the client typed it.
     unitPrice: v.optional(v.number()),
     note: v.optional(v.string()),
-    status: v.union(v.literal("picked"), v.literal("approved")),
+    // asked: the company asked the client to pick (it shows in their portal);
+    // picked: the client sent their pick; approved: the line has its price.
+    status: v.union(v.literal("asked"), v.literal("picked"), v.literal("approved")),
+    askedAt: v.optional(v.string()),
+    // The company entered the pick itself (from the showroom, a text, a call).
+    enteredBy: v.optional(v.id("users")),
     approvedUnitPrice: v.optional(v.number()),
     approvedAt: v.optional(v.string()),
     approvedBy: v.optional(v.id("users")),
-    pickedAt: v.string(),
+    pickedAt: v.optional(v.string()),
     updatedAt: v.string(),
   }).index("by_estimate", ["estimateId"]),
 
@@ -1323,6 +1329,7 @@ export default defineSchema({
   })
     .index("by_organization_and_issue_date", ["organizationId", "issueDate"])
     .index("by_client", ["clientId"])
+    .index("by_project", ["projectId"])
     .index("by_share_token", ["shareToken"])
     .index("by_status", ["status"]),
 
