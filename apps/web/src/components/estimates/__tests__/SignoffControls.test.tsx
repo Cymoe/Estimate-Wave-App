@@ -58,6 +58,31 @@ describe('sending for signature', () => {
     rows = [{ id: 's2', kind: 'change_order', name: 'Change Order', status: 'signed', token: 't2', signerName: 'Ann Miller', signedAt: '2026-11-02T15:00:00Z', createdAt: '2026-11-01T15:00:00Z' }];
     await render({ kind: 'change_order' });
     expect(document.body.textContent).toMatch(/Signed by Ann Miller on Nov 2/);
+    expect(document.body.textContent).toContain('Change order 1');
+    // More changes after a signed one go out as the next change order.
+    expect(button('Send change order 2').disabled).toBe(false);
+  });
+
+  it('lists every signed change order, and the one waiting', async () => {
+    rows = [
+      { id: 's4', kind: 'change_order', name: 'Change Order', status: 'sent', token: 't4', createdAt: '2026-11-09T15:00:00Z' },
+      { id: 's3', kind: 'change_order', name: 'Change Order', status: 'signed', token: 't3', signerName: 'Ann Miller', signedAt: '2026-11-06T15:00:00Z', createdAt: '2026-11-05T15:00:00Z' },
+      { id: 's2', kind: 'change_order', name: 'Change Order', status: 'signed', token: 't2', signerName: 'Ann Miller', signedAt: '2026-11-02T15:00:00Z', createdAt: '2026-11-01T15:00:00Z' },
+    ];
+    await render({ kind: 'change_order' });
+    const list = document.body.querySelector('[data-testid="signed-change-orders"]')!;
+    expect(Array.from(list.querySelectorAll('li')).map((li) => li.textContent)).toEqual([
+      expect.stringMatching(/Change order 2.*Nov 6/),
+      expect.stringMatching(/Change order 1.*Nov 2/),
+    ]);
+    expect(document.body.textContent).toContain('waiting for the signature');
+    expect(button('Send again')).toBeDefined();
+  });
+
+  it('a signed affidavit is the last word', async () => {
+    rows = [{ id: 'a1', kind: 'affidavit', name: 'Affidavit', status: 'signed', token: 'ta', signerName: 'Ann Miller', signedAt: '2026-11-02T15:00:00Z', createdAt: '2026-11-01T15:00:00Z' }];
+    await render();
+    expect(document.body.textContent).toMatch(/Signed by Ann Miller on Nov 2/);
     expect(button('Send')).toBeUndefined();
   });
 });

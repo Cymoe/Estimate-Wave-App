@@ -243,8 +243,8 @@ export function ContractTab({
               <span className="block text-sm font-medium text-white">Changes to sign</span>
               <span className="block text-xs text-gray-400">
                 {changes > 0
-                  ? `${changes} change${changes === 1 ? '' : 's'} to the line items since signing. Send them for the client to approve.`
-                  : 'Nothing has changed since signing. Edit the line items, then send the changes here for the client to approve.'}
+                  ? `${changes} change${changes === 1 ? '' : 's'} to the line items since the client last signed. Send them for the client to approve.`
+                  : 'Nothing has changed since the client last signed. Edit the line items, then send the changes here for the client to approve. You can do this as many times as the job needs.'}
                 {ownPdf(changeOrderDoc) && (
                   <>
                     {' '}

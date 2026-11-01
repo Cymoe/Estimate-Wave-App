@@ -73,6 +73,38 @@ describe("change orders and the affidavit, signed later", () => {
     expect((await as.query(api.signoffs.forEstimate, { estimateId }))[0]).toMatchObject({ status: "signed", signerName: "Ann Miller" });
   });
 
+  test("more changes after a signed change order go out as the next one, against the scope as last signed", async () => {
+    const t = setup();
+    const { as, estimateId } = await signedJob(t);
+    const line = (id: string, description: string, price: number) => ({ _id: id, description, quantity: 1, unitPrice: price, totalPrice: price });
+
+    await as.mutation(api.estimates.update, {
+      id: estimateId,
+      data: { items: [line("a", "Shingles", 8000), line("b", "Gutters", 2000), line("c", "Skylight", 1200)] },
+    });
+    const first = await as.mutation(api.signoffs.request, { estimateId, kind: "change_order" });
+    await t.mutation(api.signoffs.sign, { token: first.token, signerName: "Ann Miller", signature: SIG });
+    await expect(as.mutation(api.signoffs.request, { estimateId, kind: "change_order" })).rejects.toThrow(/Nothing has changed/);
+
+    await as.mutation(api.estimates.update, {
+      id: estimateId,
+      data: { items: [line("a", "Shingles", 8000), line("b", "Gutters", 2500), line("c", "Skylight", 1200), line("d", "Vent", 300)] },
+    });
+    const second = await as.mutation(api.signoffs.request, { estimateId, kind: "change_order" });
+    expect(second).toMatchObject({ status: "sent", previousTotal: 11200, newTotal: 12000 });
+    expect(second.changes).toEqual([
+      { description: "Gutters", before: 2000, after: 2500 },
+      { description: "Vent", after: 300 },
+    ]);
+    await t.mutation(api.signoffs.sign, { token: second.token, signerName: "Ann Miller", signature: SIG });
+
+    const estimate = (await t.run((ctx) => ctx.db.get(estimateId)))!;
+    expect(estimate.contractSnapshot!.totalAmount).toBe(12000);
+    expect((await t.query(api.signoffs.get, { token: first.token }))!).toMatchObject({ status: "signed", newTotal: 11200 });
+    const all = await as.query(api.signoffs.forEstimate, { estimateId });
+    expect(all.filter((s) => s.kind === "change_order" && s.status === "signed")).toHaveLength(2);
+  });
+
   test("the affidavit shows the contract total; sending again replaces the unsigned one; it waits for the estimate's signature", async () => {
     const t = setup();
     const owner = await signUp(t, "solo@example.com");

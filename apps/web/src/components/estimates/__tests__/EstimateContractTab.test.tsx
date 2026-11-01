@@ -194,7 +194,7 @@ describe('estimate agreement tab', () => {
     expect(document.body.textContent).toContain(`Signed ${new Date('2026-10-11T12:00:00Z').toLocaleDateString()}`);
     const later = document.body.querySelector('[aria-label="After signing"]')!;
     expect(later.textContent).toContain('Changes to sign');
-    expect(later.textContent).toContain('1 change to the line items since signing');
+    expect(later.textContent).toContain('1 change to the line items since the client last signed');
     expect(later.textContent).toContain('Job complete sign-off');
     expect(later.querySelector('[data-testid="signoff-change_order"]')!.textContent).toContain('Send for signature');
     expect(byText('Add a PDF to this job')).toBeUndefined();
@@ -232,6 +232,6 @@ describe('estimate agreement tab', () => {
     const strip = document.body.querySelector('[data-testid="signoff-change_order"]')!;
     expect(strip.textContent).toContain('Nothing to send yet');
     expect((Array.from(strip.querySelectorAll('button')).find((b) => b.textContent?.includes('Send for signature')) as HTMLButtonElement).disabled).toBe(true);
-    expect(document.body.textContent).toContain('Nothing has changed since signing.');
+    expect(document.body.textContent).toContain('Nothing has changed since the client last signed.');
   });
 });

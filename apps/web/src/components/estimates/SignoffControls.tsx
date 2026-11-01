@@ -33,6 +33,8 @@ async function share(signoff: Signoff, clientName?: string, lang: 'en' | 'es' = 
 /**
  * Sending a change order or the affidavit for the client to sign, once the
  * estimate is signed: where the latest one stands, and Send / Send again.
+ * Change orders can keep coming: each signed one is listed, and the next
+ * changes go out as a new one.
  */
 export function SignoffControls({
   estimateId,
@@ -48,7 +50,8 @@ export function SignoffControls({
   /** Why it can't be sent yet (for example, nothing has changed). */
   disabledReason?: string;
 }) {
-  const [latest, setLatest] = useState<Signoff | null>(null);
+  // Newest first, without the withdrawn ones.
+  const [sent, setSent] = useState<Signoff[]>([]);
   const [completionDate, setCompletionDate] = useState(todayIso());
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -56,9 +59,9 @@ export function SignoffControls({
   const load = useCallback(async () => {
     try {
       const all = await signoffsAPI.forEstimate(estimateId);
-      setLatest(all.find((s) => s.kind === kind && s.status !== 'cancelled') ?? null);
+      setSent(all.filter((s) => s.kind === kind && s.status !== 'cancelled'));
     } catch {
-      setLatest(null);
+      setSent([]);
     }
   }, [estimateId, kind]);
   useEffect(() => {
@@ -80,13 +83,32 @@ export function SignoffControls({
     }
   };
 
+  const signedLine = (s: Signoff) => `Signed by ${s.signerName} on ${day(s.signedAt)}`;
+  const many = kind === 'change_order';
+  // A change order is never the last one: the latest is the one waiting, if any.
+  const latest = many ? (sent.find((s) => s.status === 'sent') ?? null) : (sent[0] ?? null);
+  const signed = many ? sent.filter((s) => s.status === 'signed') : [];
   const status = latest
     ? latest.status === 'signed'
-      ? `Signed by ${latest.signerName} on ${day(latest.signedAt)}`
+      ? signedLine(latest)
       : `Sent ${day(latest.createdAt)} · waiting for the signature`
-    : disabledReason ?? 'Not sent yet';
+    : (disabledReason ?? 'Not sent yet');
 
   return (
+    <>
+      {signed.length > 0 && (
+        <ul className="border-t border-[#262626] bg-[#151515] divide-y divide-[#262626] text-sm" aria-label="Signed change orders" data-testid="signed-change-orders">
+          {signed.map((s, i) => (
+            <li key={s.id} className="px-4 py-2 flex flex-wrap items-center gap-2">
+              <span className="text-white">Change order {signed.length - i}</span>
+              <span className="flex-1 min-w-[10rem] text-green-400">{signedLine(s)}</span>
+              <a href={signoffLink(s.token)} target="_blank" rel="noopener noreferrer" className="text-[#336699] hover:text-white underline-offset-2 hover:underline">
+                View signed
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
     <div className="px-4 py-3 border-t border-[#262626] bg-[#151515] flex flex-wrap items-center gap-2 text-sm" data-testid={`signoff-${kind}`}>
       <span className={`flex-1 min-w-[10rem] ${latest?.status === 'signed' ? 'text-green-400' : 'text-gray-400'}`}>{status}</span>
       {latest && latest.status !== 'cancelled' && (
@@ -113,10 +135,11 @@ export function SignoffControls({
           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50"
         >
           <Send className="w-4 h-4" />
-          {busy ? 'Sending…' : latest ? 'Send again' : 'Send for signature'}
+          {busy ? 'Sending…' : latest ? 'Send again' : signed.length > 0 ? `Send change order ${signed.length + 1}` : 'Send for signature'}
         </button>
       )}
       {note && <p className="basis-full text-xs text-gray-400" role="status">{note}</p>}
     </div>
+    </>
   );
 }
