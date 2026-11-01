@@ -82,15 +82,22 @@ describe("selections on the project", () => {
     const { as, projectId, estimateId } = await bathroom(t);
     await as.mutation(api.selections.setPickBy, { estimateId, itemId: "tile", pickBy: "2026-12-01" });
     expect((await line(t, estimateId, "tile")).allowance).toEqual({ pickBy: "2026-12-01" });
+    // Asking queues it for the next send from the portal preview; undo takes it back off.
     await as.mutation(api.selections.ask, { estimateId, itemId: "tile" });
-    const [job] = await as.query(api.selections.forProject, { projectId });
-    expect(job.allowances[0]).toMatchObject({ pickBy: "2026-12-01", pick: { status: "asked", askedAt: expect.any(String) } });
+    let [job] = await as.query(api.selections.forProject, { projectId });
+    expect(job.allowances[0]).toMatchObject({ pickBy: "2026-12-01", pick: { status: "asked", queued: true } });
+    expect(job.allowances[0].pick!.askedAt).toBeUndefined();
     expect(job.allowances[0].pick!.difference).toBeUndefined();
+    await as.mutation(api.selections.unqueue, { estimateId, itemId: "tile" });
+    [job] = await as.query(api.selections.forProject, { projectId });
+    expect(job.allowances[0].pick).toBeUndefined();
     await as.mutation(api.selections.setPickBy, { estimateId, itemId: "tile", pickBy: null });
     expect((await line(t, estimateId, "tile")).allowance).toEqual({});
     await expect(as.mutation(api.selections.ask, { estimateId, itemId: "labor" })).rejects.toThrow(/isn't on the estimate/);
     await expect(as.mutation(api.selections.setPickBy, { estimateId, itemId: "tile", pickBy: "soon" })).rejects.toThrow(/Pick a date/);
     // Nothing to approve until the client picks.
+    await as.mutation(api.selections.ask, { estimateId, itemId: "tile" });
+    [job] = await as.query(api.selections.forProject, { projectId });
     await expect(as.mutation(api.selections.approve, { id: job.allowances[0].pick!.id, unitPrice: 5 })).rejects.toThrow(/hasn't picked/);
   });
 
@@ -143,5 +150,19 @@ describe("selections on the project", () => {
     await expect(rival.as.mutation(api.selections.approve, { id, unitPrice: 1 })).rejects.toThrow();
     await expect(rival.as.mutation(api.selections.record, { estimateId, itemId: "faucet", name: "x", unitPrice: 1 })).rejects.toThrow();
     await expect(rival.as.mutation(api.selections.ask, { estimateId, itemId: "faucet" })).rejects.toThrow();
+  });
+
+  test("a change order is queued for the next send only when something changed; the tab sums the approved picks", async () => {
+    const t = setup();
+    const { as, projectId, estimateId } = await bathroom(t);
+    await expect(as.mutation(api.selections.queueChangeOrder, { estimateId })).rejects.toThrow(/Nothing has changed/);
+    await as.mutation(api.selections.record, { estimateId, itemId: "faucet", name: "Delta", unitPrice: 420 });
+    await as.mutation(api.selections.record, { estimateId, itemId: "tile", name: "Marble", unitPrice: 3.5 });
+    await as.mutation(api.selections.queueChangeOrder, { estimateId });
+    let [job] = await as.query(api.selections.forProject, { projectId });
+    expect(job).toMatchObject({ picksDifference: -80, changes: 2, changeOrderQueued: true, changeOrderWaiting: false });
+    await as.mutation(api.selections.unqueueChangeOrder, { estimateId });
+    [job] = await as.query(api.selections.forProject, { projectId });
+    expect(job.changeOrderQueued).toBe(false);
   });
 });

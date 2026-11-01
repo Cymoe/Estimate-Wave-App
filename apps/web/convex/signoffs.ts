@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { logoUrlOf } from "./lib/organizations";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { fail, getOwned, logActivity, nowIso } from "./lib/access";
 import { isLang, langOf } from "./lib/i18n";
@@ -21,18 +21,38 @@ type Kind = Doc<"signoffs">["kind"];
 const NAMES: Record<Kind, string> = { change_order: "Changes to the work", affidavit: "Job complete sign-off" };
 const PREFIX: Record<Kind, string> = { change_order: "CO", affidavit: "AFF" };
 
-/** What changed between the signed scope and the estimate now, line by line. */
+/**
+ * What changed between the signed scope and the estimate now, line by line.
+ * Lines are matched by id, then (for lines saved again with new ids) by the
+ * same description, so re-saving a line unchanged isn't a change.
+ */
 export function changesSince(signed: Doc<"estimates">["items"], current: Doc<"estimates">["items"]) {
   const changes: Array<{ description: string; before?: number; after?: number }> = [];
-  const matched = new Set<string>();
-  for (const item of current) {
-    const before = signed.find((s) => !matched.has(s._id) && s._id === item._id);
-    if (before) {
-      matched.add(before._id);
-      if (before.totalPrice !== item.totalPrice) changes.push({ description: item.description, before: before.totalPrice, after: item.totalPrice });
-    } else changes.push({ description: item.description, after: item.totalPrice });
-  }
-  for (const item of signed) if (!matched.has(item._id)) changes.push({ description: item.description, before: item.totalPrice });
+  const used = new Set<number>();
+  const match = new Map<number, number>();
+  const sameProduct = (a?: string, b?: string) => a === undefined || b === undefined || a === b;
+  current.forEach((item, ci) => {
+    const si = signed.findIndex((s, i) => !used.has(i) && s._id === item._id);
+    if (si < 0) return;
+    used.add(si);
+    match.set(ci, si);
+  });
+  current.forEach((item, ci) => {
+    if (match.has(ci)) return;
+    const si = signed.findIndex((s, i) => !used.has(i) && s.description === item.description && sameProduct(s.productId, item.productId));
+    if (si < 0) return;
+    used.add(si);
+    match.set(ci, si);
+  });
+  current.forEach((item, ci) => {
+    const si = match.get(ci);
+    if (si === undefined) changes.push({ description: item.description, after: item.totalPrice });
+    else if (signed[si].totalPrice !== item.totalPrice)
+      changes.push({ description: item.description, before: signed[si].totalPrice, after: item.totalPrice });
+  });
+  signed.forEach((item, si) => {
+    if (!used.has(si)) changes.push({ description: item.description, before: item.totalPrice });
+  });
   return changes;
 }
 
@@ -69,6 +89,71 @@ function view(s: Doc<"signoffs">) {
   };
 }
 
+/**
+ * A change order or the affidavit for the client to sign: a new link,
+ * replacing any unsigned one of the same kind. Used by "Send for signature"
+ * and by the portal's "Send to client".
+ */
+export async function createSignoff(
+  ctx: MutationCtx,
+  estimate: Doc<"estimates">,
+  kind: Kind,
+  userId: Id<"users">,
+  completionDate?: string,
+): Promise<Doc<"signoffs">> {
+  const snapshot = estimate.contractSnapshot;
+  if (estimate.status !== "accepted" || !snapshot) fail("INVALID", "Send it once the client has signed the estimate");
+  const now = nowIso();
+  let fields: Partial<Doc<"signoffs">> = {};
+  if (kind === "change_order") {
+    const changes = changesSince(snapshot.items, estimate.items);
+    if (changes.length === 0) fail("INVALID", "Nothing has changed since the estimate was signed");
+    fields = {
+      changes,
+      items: estimate.items,
+      previousTotal: snapshot.totalAmount,
+      subtotal: estimate.subtotal,
+      taxAmount: estimate.taxAmount,
+      newTotal: estimate.totalAmount,
+    };
+  } else {
+    const day = completionDate ?? now.slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) fail("INVALID", "The completion date must be YYYY-MM-DD");
+    fields = { completionDate: day };
+  }
+  for (const open of await ctx.db
+    .query("signoffs")
+    .withIndex("by_estimate", (q) => q.eq("estimateId", estimate._id))
+    .take(100))
+    if (open.kind === kind && open.status === "sent") await ctx.db.patch(open._id, { status: "cancelled", updatedAt: now });
+  const resolved = await resolveDocuments(ctx, estimate);
+  const document = toSigned(kind === "affidavit" ? resolved.affidavit : resolved.changeOrder);
+  const id = await ctx.db.insert("signoffs", {
+    organizationId: estimate.organizationId,
+    estimateId: estimate._id,
+    kind,
+    number: `${PREFIX[kind]}-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`,
+    token: crypto.randomUUID().replace(/-/g, ""),
+    status: "sent",
+    ...fields,
+    document,
+    createdBy: userId,
+    createdAt: now,
+    updatedAt: now,
+  });
+  // A change order sent here is no longer waiting for the portal's next send.
+  if (kind === "change_order" && estimate.changeOrderQueuedAt) await ctx.db.patch(estimate._id, { changeOrderQueuedAt: undefined });
+  await logActivity(ctx, {
+    organizationId: estimate.organizationId,
+    userId,
+    action: "sent_for_signature",
+    resourceType: "estimate",
+    resourceId: estimate._id,
+    details: { kind, estimateNumber: estimate.estimateNumber },
+  });
+  return (await ctx.db.get(id))!;
+}
+
 /** Sends a change order or the affidavit to the client: a new link, replacing any unsigned one of the same kind. */
 export const request = mutation({
   args: {
@@ -78,55 +163,7 @@ export const request = mutation({
   },
   handler: async (ctx, { estimateId, kind, completionDate }) => {
     const { doc: estimate, user } = await getOwned(ctx, "estimates", estimateId);
-    const snapshot = estimate.contractSnapshot;
-    if (estimate.status !== "accepted" || !snapshot) fail("INVALID", "Send it once the client has signed the estimate");
-    const now = nowIso();
-    let fields: Partial<Doc<"signoffs">> = {};
-    if (kind === "change_order") {
-      const changes = changesSince(snapshot.items, estimate.items);
-      if (changes.length === 0) fail("INVALID", "Nothing has changed since the estimate was signed");
-      fields = {
-        changes,
-        items: estimate.items,
-        previousTotal: snapshot.totalAmount,
-        subtotal: estimate.subtotal,
-        taxAmount: estimate.taxAmount,
-        newTotal: estimate.totalAmount,
-      };
-    } else {
-      const day = completionDate ?? now.slice(0, 10);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) fail("INVALID", "The completion date must be YYYY-MM-DD");
-      fields = { completionDate: day };
-    }
-    for (const open of await ctx.db
-      .query("signoffs")
-      .withIndex("by_estimate", (q) => q.eq("estimateId", estimateId))
-      .take(100))
-      if (open.kind === kind && open.status === "sent") await ctx.db.patch(open._id, { status: "cancelled", updatedAt: now });
-    const resolved = await resolveDocuments(ctx, estimate);
-    const document = toSigned(kind === "affidavit" ? resolved.affidavit : resolved.changeOrder);
-    const id = await ctx.db.insert("signoffs", {
-      organizationId: estimate.organizationId,
-      estimateId,
-      kind,
-      number: `${PREFIX[kind]}-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`,
-      token: crypto.randomUUID().replace(/-/g, ""),
-      status: "sent",
-      ...fields,
-      document,
-      createdBy: user._id,
-      createdAt: now,
-      updatedAt: now,
-    });
-    await logActivity(ctx, {
-      organizationId: estimate.organizationId,
-      userId: user._id,
-      action: "sent_for_signature",
-      resourceType: "estimate",
-      resourceId: estimateId,
-      details: { kind, estimateNumber: estimate.estimateNumber },
-    });
-    return view((await ctx.db.get(id))!);
+    return view(await createSignoff(ctx, estimate, kind, user._id, completionDate));
   },
 });
 

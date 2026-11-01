@@ -81,7 +81,25 @@ describe("the client portal", () => {
     await as.mutation(api.selections.setPickBy, { estimateId: bathroom, itemId: "tile", pickBy: "2026-12-01" });
     await as.mutation(api.selections.ask, { estimateId: bathroom, itemId: "tile" });
     await as.mutation(api.selections.record, { estimateId: bathroom, itemId: "faucet", name: "Delta Trinsic", unitPrice: 420 });
-    const order = await as.mutation(api.signoffs.request, { estimateId: bathroom, kind: "change_order" });
+    await as.mutation(api.selections.queueChangeOrder, { estimateId: bathroom });
+    // Queued: nothing reaches the client until the company sends.
+    page = (await t.query(api.portal.get, { token }))!;
+    expect(page.asks.map((a) => a.kind)).toEqual(["estimate"]);
+    // The preview shows the portal as it will be, with what's new marked, and the change order's real changes.
+    const preview = (await as.query(api.portal.preview, { clientId }))!;
+    expect(preview.token).toBe(token);
+    expect(preview.newCount).toBe(2);
+    expect(preview.asks.map((a) => [a.kind, a.isNew ?? false])).toEqual([
+      ["selection", true],
+      ["estimate", false],
+      ["change_order", true],
+    ]);
+    expect(preview.asks[2]).toMatchObject({ difference: 70, changes: [{ description: "Faucet allowance", before: 350, after: 420 }] });
+    expect(preview.asks[2]).not.toHaveProperty("path", expect.anything());
+    const sent = await as.mutation(api.portal.send, { clientId });
+    expect(sent).toEqual({ token, picks: [{ description: "Tile allowance", pickBy: "2026-12-01" }], changeOrders: 1 });
+    expect((await as.query(api.portal.preview, { clientId }))!.newCount).toBe(0);
+    const [order] = (await as.query(api.signoffs.forEstimate, { estimateId: bathroom })).filter((s) => s.kind === "change_order");
     page = (await t.query(api.portal.get, { token }))!;
     expect(page.asks.map((a) => a.kind)).toEqual(["selection", "estimate", "change_order"]);
     expect(page.asks[0]).toMatchObject({
@@ -112,6 +130,11 @@ describe("the client portal", () => {
       /isn't on the estimate/,
     );
     await as.mutation(api.selections.ask, { estimateId: bathroom, itemId: "tile" });
+    // Queued but not sent: still not theirs to pick.
+    await expect(t.mutation(api.portal.pick, { token, estimateId: bathroom, itemId: "tile", url: "https://homedepot.com/p/1" })).rejects.toThrow(
+      /isn't on the estimate/,
+    );
+    await as.mutation(api.portal.send, { clientId });
     await expect(t.mutation(api.portal.pick, { token, estimateId: bathroom, itemId: "tile", url: "javascript:alert(1)" })).rejects.toThrow(
       /Paste the link/,
     );
@@ -149,6 +172,7 @@ describe("the client portal", () => {
     const t = setup();
     const { as, organizationId, bathroom, clientId } = await annsJobs(t);
     await as.mutation(api.selections.ask, { estimateId: bathroom, itemId: "tile" });
+    await as.mutation(api.portal.send, { clientId });
     const bob = (await as.mutation(api.clients.create, { organizationId, data: { name: "Bob" } }))!._id as Id<"clients">;
     const bobToken = await as.mutation(api.portal.link, { clientId: bob });
     await expect(t.mutation(api.portal.pick, { token: bobToken, estimateId: bathroom, itemId: "tile", url: "https://x.com" })).rejects.toThrow(
@@ -162,5 +186,22 @@ describe("the client portal", () => {
     // The estimate link points back to the portal.
     const link = await as.mutation(api.estimates.shareLink, { id: bathroom });
     expect((await t.query(api.publicEstimates.get, { token: link }))!.portalToken).toBe(token);
+  });
+
+  test("a project's portal is its client's, or the one client on its estimates; another company gets nothing", async () => {
+    const t = setup();
+    const { as, organizationId, projectId, clientId, bathroom } = await annsJobs(t);
+    expect(await as.query(api.portal.forProject, { projectId })).toEqual({ clientId, name: "Ann Miller", language: "es", token: null, queued: 0 });
+    // A project with no client of its own: the one client on its estimates.
+    const bare = (await as.mutation(api.projects.create, { organizationId, data: { name: "Porch" } }))!._id as Id<"projects">;
+    expect(await as.query(api.portal.forProject, { projectId: bare })).toBeNull();
+    await as.mutation(api.estimates.create, { organizationId, data: { title: "Porch", clientId, projectId: bare, items: [] } });
+    expect((await as.query(api.portal.forProject, { projectId: bare }))!.clientId).toBe(clientId);
+    await as.mutation(api.selections.ask, { estimateId: bathroom, itemId: "tile" });
+    expect((await as.query(api.portal.forProject, { projectId }))!.queued).toBe(1);
+    const rival = await signUp(t, "rival@example.com");
+    await expect(rival.as.query(api.portal.preview, { clientId })).rejects.toThrow();
+    await expect(rival.as.mutation(api.portal.send, { clientId })).rejects.toThrow();
+    await expect(rival.as.query(api.portal.forProject, { projectId })).rejects.toThrow();
   });
 });

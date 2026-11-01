@@ -1,10 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ExternalLink } from 'lucide-react';
+import { CalendarDays, ExternalLink, Send } from 'lucide-react';
 import { selectionsAPI, type Allowance, type EstimateSelections } from '../../lib/api';
-import type { Estimate } from '../../services/EstimateService';
-import { changesSinceSigned } from '../../services/contract';
 import { formatCurrency } from '../../utils/format';
-import { SignoffControls } from '../estimates/SignoffControls';
 
 const day = (iso: string) => {
   const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
@@ -15,25 +12,98 @@ const todayIso = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 const versus = (n: number) => (Math.abs(n) < 0.005 ? 'right at the allowance' : n > 0 ? `${formatCurrency(n)} over` : `${formatCurrency(-n)} under`);
+const signedMoney = (n: number) => `${n >= 0 ? '+' : '−'}${formatCurrency(Math.abs(n))}`;
 const errorText = (err: unknown) => (err instanceof Error && err.message ? err.message : "That didn't work.");
 const field = 'bg-[#0A0A0A] border border-[#333] px-2 py-1.5 text-sm text-white focus:outline-none focus:border-[#336699]';
+const primary = 'px-3 py-1.5 text-sm font-medium bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50';
+const quiet = 'text-sm text-gray-400 hover:text-white disabled:opacity-50';
 
+type Stage = 'not_asked' | 'queued' | 'waiting' | 'ready' | 'approved';
+const stageOf = (a: Allowance): Stage =>
+  a.pick?.status === 'approved' ? 'approved' : a.pick?.status === 'picked' ? 'ready' : a.pick?.queued ? 'queued' : a.pick ? 'waiting' : 'not_asked';
+const isOverdue = (a: Allowance) => {
+  const stage = stageOf(a);
+  return (stage === 'not_asked' || stage === 'queued' || stage === 'waiting') && a.pickBy !== undefined && a.pickBy < todayIso();
+};
 /** Still to do on a line: the client picked and it's waiting for approval, or its pick-by date passed. */
-const needsYou = (a: Allowance) => a.pick?.status === 'picked' || (a.pick?.status !== 'approved' && a.pickBy !== undefined && a.pickBy < todayIso());
+const needsYou = (a: Allowance) => stageOf(a) === 'ready' || isOverdue(a);
 
-/** One allowance line: what's included, when to pick by, the pick, and what to do next. */
-function SelectionRow({
+const PILL: Record<Stage, { label: string; className: string }> = {
+  not_asked: { label: 'Not asked', className: 'bg-[#262626] text-gray-300' },
+  queued: { label: 'Queued', className: 'bg-[#336699]/25 text-[#9cc2ea]' },
+  waiting: { label: 'Waiting on client', className: 'bg-[#262626] text-gray-300' },
+  ready: { label: 'Ready to approve', className: 'bg-amber-500/20 text-amber-300' },
+  approved: { label: 'Approved', className: 'bg-green-500/15 text-green-400' },
+};
+
+/** When the client needs to pick by: a chip that opens a date field. */
+function PickBy({ allowance, busy, onSet }: { allowance: Allowance; busy: boolean; onSet: (date: string | null) => void }) {
+  const [editing, setEditing] = useState(false);
+  const overdue = isOverdue(allowance);
+  if (editing)
+    return (
+      <span className="inline-flex items-center gap-2">
+        <input
+          type="date"
+          autoFocus
+          defaultValue={allowance.pickBy ?? ''}
+          disabled={busy}
+          onChange={(e) => {
+            if (!e.target.value) return;
+            onSet(e.target.value);
+            setEditing(false);
+          }}
+          aria-label={`Pick by for ${allowance.description}`}
+          style={{ colorScheme: 'dark' }}
+          className={`${field} min-w-[10rem] py-1`}
+        />
+        {allowance.pickBy && (
+          <button
+            type="button"
+            className={quiet}
+            onClick={() => {
+              onSet(null);
+              setEditing(false);
+            }}
+          >
+            Clear
+          </button>
+        )}
+        <button type="button" className={quiet} onClick={() => setEditing(false)}>
+          Done
+        </button>
+      </span>
+    );
+  return (
+    <button
+      type="button"
+      onClick={() => setEditing(true)}
+      disabled={busy}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs ${
+        overdue ? 'border-red-500/50 text-red-300' : allowance.pickBy ? 'border-[#333] text-gray-300' : 'border-dashed border-[#444] text-gray-500'
+      } hover:text-white`}
+      data-testid="pick-by"
+    >
+      <CalendarDays className="w-3.5 h-3.5" />
+      {allowance.pickBy ? `${overdue ? 'Overdue: pick by' : 'Pick by'} ${day(allowance.pickBy)}` : 'Add pick-by date'}
+    </button>
+  );
+}
+
+/** One allowance line: what's included, where it stands, and the one thing to do next. */
+function SelectionCard({
   estimateId,
   allowance,
-  onAsk,
+  clientFirst,
   onChanged,
 }: {
   estimateId: string;
   allowance: Allowance;
-  onAsk?: (allowance: Allowance) => Promise<void>;
+  clientFirst: string;
   onChanged: () => Promise<void>;
 }) {
   const pick = allowance.pick;
+  const stage = stageOf(allowance);
   const perUnit = allowance.quantity !== 1;
   const each = perUnit ? ' each' : '';
   const [price, setPrice] = useState(String(pick?.unitPrice ?? allowance.allowanceUnitPrice));
@@ -49,7 +119,6 @@ function SelectionRow({
   };
   const typed = parse(price);
   const entryPrice = parse(entry.price);
-  const overdue = pick?.status !== 'approved' && pick?.status !== 'picked' && allowance.pickBy !== undefined && allowance.pickBy < todayIso();
 
   const act = async (work: () => Promise<unknown>) => {
     setBusy(true);
@@ -66,44 +135,34 @@ function SelectionRow({
     }
   };
 
-  const status =
-    pick?.status === 'approved'
-      ? null
-      : pick?.status === 'picked'
-        ? 'The client picked: waiting for you'
-        : pick?.status === 'asked'
-          ? `Asked ${pick.askedAt ? day(pick.askedAt) : ''}: waiting for the client`
-          : 'Not asked yet';
+  const pill = isOverdue(allowance) && stage !== 'queued' ? { label: 'Overdue', className: 'bg-red-500/15 text-red-300' } : PILL[stage];
+  const enterLink = (
+    <button type="button" disabled={busy} onClick={() => setEntering(true)} className={quiet}>
+      Enter it yourself
+    </button>
+  );
 
   return (
-    <li className="py-3" data-testid="selection">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-        <span className="text-sm text-white">{allowance.description}</span>
-        <span className="text-xs text-gray-400">
-          {formatCurrency(allowance.allowanceTotal)} included
-          {perUnit && ` (${allowance.quantity} × ${formatCurrency(allowance.allowanceUnitPrice)})`}
+    <li className="bg-[#1a1a1a] border border-[#333] p-4 space-y-3" data-testid="selection">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[15px] text-white">{allowance.description}</p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {formatCurrency(allowance.allowanceTotal)} included
+            {perUnit && ` · ${allowance.quantity} × ${formatCurrency(allowance.allowanceUnitPrice)}`}
+          </p>
+        </div>
+        <span className={`flex-shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${pill.className}`} data-testid="selection-stage">
+          {pill.label}
         </span>
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs">
-        {pick?.status !== 'approved' && (
-          <label className={`flex items-center gap-1.5 ${overdue ? 'text-red-400' : 'text-gray-400'}`}>
-            {overdue ? 'Overdue: pick by' : 'Pick by'}
-            <input
-              type="date"
-              value={allowance.pickBy ?? ''}
-              disabled={busy}
-              onChange={(e) => act(() => selectionsAPI.setPickBy(estimateId, allowance.itemId, e.target.value || null))}
-              aria-label={`Pick by for ${allowance.description}`}
-              className="bg-[#0A0A0A] border border-[#333] px-1.5 py-0.5 text-xs text-white"
-            />
-          </label>
-        )}
-        {status && <span className={pick?.status === 'picked' ? 'text-amber-300' : 'text-gray-500'}>{status}</span>}
-      </div>
+      {stage !== 'approved' && (
+        <PickBy allowance={allowance} busy={busy} onSet={(date) => act(() => selectionsAPI.setPickBy(estimateId, allowance.itemId, date))} />
+      )}
 
-      {pick && pick.status !== 'asked' && (
-        <div className="mt-2 bg-[#121212] border border-[#333] px-3 py-2 text-sm space-y-1" data-testid="selection-pick">
+      {pick && (stage === 'ready' || stage === 'approved') && (
+        <div className="bg-[#121212] border border-[#2a2a2a] px-3 py-2 text-sm space-y-1" data-testid="selection-pick">
           <div className="flex flex-wrap items-center gap-x-3">
             <span className="text-white">{pick.name || 'Their pick'}</span>
             {pick.url && (
@@ -117,32 +176,53 @@ function SelectionRow({
               </a>
             )}
           </div>
-          {pick.unitPrice !== undefined && pick.status === 'picked' && (
+          {stage === 'ready' && pick.unitPrice !== undefined && (
             <p className="text-xs text-gray-400">
               They saw {formatCurrency(pick.unitPrice)}
               {each}
               {pick.difference !== undefined && ` · ${versus(pick.difference)}`}
             </p>
           )}
+          {stage === 'approved' && (
+            <p className="text-xs text-green-400">
+              {pick.entered ? 'Entered and approved' : 'Approved'} at {formatCurrency(pick.approvedUnitPrice ?? 0)}
+              {each}
+              {pick.difference !== undefined && ` · ${versus(pick.difference)}`}
+            </p>
+          )}
           {pick.note && <p className="text-xs text-gray-400">&ldquo;{pick.note}&rdquo;</p>}
-          {pick.status === 'approved' ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-              <span className="text-xs text-green-400">
-                {pick.entered ? 'Entered and approved' : 'Approved'} at {formatCurrency(pick.approvedUnitPrice ?? 0)}
-                {each}
-                {pick.difference !== undefined && ` · ${versus(pick.difference)}`}
-              </span>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => act(() => selectionsAPI.reopen(pick.id!))}
-                className="text-xs text-gray-300 underline underline-offset-2 hover:text-white disabled:opacity-50"
-              >
-                Reopen
+        </div>
+      )}
+
+      {!entering && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          {stage === 'not_asked' && (
+            <>
+              <button type="button" disabled={busy} onClick={() => act(() => selectionsAPI.ask(estimateId, allowance.itemId))} className={primary}>
+                Ask {clientFirst}
               </button>
-            </div>
-          ) : (
-            <div className="flex flex-wrap items-center gap-2 pt-1">
+              {enterLink}
+            </>
+          )}
+          {stage === 'queued' && (
+            <>
+              <span className="text-sm text-[#9cc2ea]">Goes out when you send</span>
+              <button type="button" disabled={busy} onClick={() => act(() => selectionsAPI.unqueue(estimateId, allowance.itemId))} className={quiet}>
+                Undo
+              </button>
+              {enterLink}
+            </>
+          )}
+          {stage === 'waiting' && (
+            <>
+              <span className="text-sm text-gray-400">
+                Sent{pick?.askedAt ? ` ${day(pick.askedAt)}` : ''}: waiting on {clientFirst}
+              </span>
+              {enterLink}
+            </>
+          )}
+          {stage === 'ready' && (
+            <>
               <label className="flex items-center gap-1.5 text-xs text-gray-400">
                 {perUnit ? 'Price each' : 'Price'}
                 <input
@@ -157,38 +237,25 @@ function SelectionRow({
               <button
                 type="button"
                 disabled={busy || typed === null}
-                onClick={() => act(() => selectionsAPI.approve(pick.id!, typed!))}
-                className="px-3 py-1 text-sm bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50"
+                onClick={() => act(() => selectionsAPI.approve(pick!.id!, typed!))}
+                className={primary}
               >
                 {busy ? 'Saving…' : 'Approve'}
               </button>
               {typed !== null && <span className="text-xs text-gray-500">{versus((typed - allowance.allowanceUnitPrice) * allowance.quantity)}</span>}
-            </div>
+            </>
           )}
-        </div>
-      )}
-
-      {pick?.status !== 'approved' && !entering && (
-        <div className="flex flex-wrap gap-3 mt-2 text-sm">
-          {onAsk && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => act(() => onAsk(allowance))}
-              className="text-[#6b9bd1] hover:text-white disabled:opacity-50"
-            >
-              {pick?.status === 'asked' ? 'Ask again' : 'Ask the client'}
+          {stage === 'approved' && (
+            <button type="button" disabled={busy} onClick={() => act(() => selectionsAPI.reopen(pick!.id!))} className={quiet}>
+              Reopen
             </button>
           )}
-          <button type="button" disabled={busy} onClick={() => setEntering(true)} className="text-gray-300 hover:text-white disabled:opacity-50">
-            Enter it yourself
-          </button>
         </div>
       )}
 
       {entering && (
         <form
-          className="mt-2 bg-[#121212] border border-[#333] p-3 space-y-2"
+          className="bg-[#121212] border border-[#2a2a2a] p-3 space-y-2"
           data-testid="enter-pick"
           onSubmit={async (e) => {
             e.preventDefault();
@@ -204,6 +271,7 @@ function SelectionRow({
             if (saved) setEntering(false);
           }}
         >
+          <p className="text-xs text-gray-400">What {clientFirst} told you they picked. Saving approves it.</p>
           <input
             type="text"
             inputMode="url"
@@ -246,14 +314,10 @@ function SelectionRow({
             />
           </div>
           <div className="flex items-center gap-3">
-            <button
-              type="submit"
-              disabled={busy || entryPrice === null || (!entry.url.trim() && !entry.name.trim())}
-              className="px-3 py-1 text-sm bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50"
-            >
+            <button type="submit" disabled={busy || entryPrice === null || (!entry.url.trim() && !entry.name.trim())} className={primary}>
               {busy ? 'Saving…' : 'Save'}
             </button>
-            <button type="button" onClick={() => setEntering(false)} className="text-sm text-gray-400 hover:text-white">
+            <button type="button" onClick={() => setEntering(false)} className={quiet}>
               Cancel
             </button>
             {entryPrice !== null && (
@@ -262,27 +326,75 @@ function SelectionRow({
           </div>
         </form>
       )}
-      {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
+      {error && <p className="text-xs text-red-400">{error}</p>}
     </li>
+  );
+}
+
+/** Under an estimate's picks: what they come to, and the change order for them. */
+function ChangeOrderLine({ group, clientFirst, onChanged }: { group: EstimateSelections; clientFirst: string; onChanged: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const act = async (work: () => Promise<unknown>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await work();
+      await onChanged();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const approvedChanged = group.allowances.filter((a) => a.pick?.status === 'approved' && Math.abs(a.pick.difference ?? 0) >= 0.005).length;
+  const others = Math.max(group.changes - approvedChanged, 0);
+  if (group.changes === 0 && !group.changeOrderWaiting) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border border-[#333] bg-[#151515] px-4 py-3 text-sm" data-testid="change-order-line">
+      <span className="flex-1 min-w-[12rem] text-gray-300">
+        {approvedChanged > 0 && <>Approved picks: {signedMoney(group.picksDifference)} vs. allowances</>}
+        {approvedChanged > 0 && others > 0 && ', plus '}
+        {others > 0 && `${others} other change${others === 1 ? '' : 's'} since signing`}
+        {group.changes === 0 && group.changeOrderWaiting && `Change order sent: waiting for ${clientFirst}'s signature`}
+      </span>
+      {group.changes > 0 &&
+        (group.changeOrderQueued ? (
+          <>
+            <span className="text-[#9cc2ea]">Change order queued</span>
+            <button type="button" disabled={busy} onClick={() => act(() => selectionsAPI.unqueueChangeOrder(group.estimateId))} className={quiet}>
+              Undo
+            </button>
+          </>
+        ) : (
+          <button type="button" disabled={busy} onClick={() => act(() => selectionsAPI.queueChangeOrder(group.estimateId))} className={primary}>
+            Add change order to next send
+          </button>
+        ))}
+      {error && <p className="basis-full text-xs text-red-400">{error}</p>}
+    </div>
   );
 }
 
 /**
  * Selections: the allowance lines of the project's signed estimates (tile, a
- * faucet). The client picks (or the company enters it); approving sets the
- * line to that price, and the differences go to the client as one change order.
+ * faucet). Ask the client (it waits for the next send from the portal
+ * preview) or enter what they told you; approve their picks; then queue the
+ * change order and send it all at once.
  */
 export const ProjectSelections: React.FC<{
   projectId: string;
-  /** The project's estimates, for what changed since the client signed. */
-  estimates: Estimate[];
   /** A line's price changed: read the estimates again. */
   onEstimatesChanged: () => void;
   /** How many need the company: picks to approve and overdue ones. */
   onCount?: (count: number) => void;
-  /** Asks the client for one pick (shares their portal link). */
-  onAsk?: (estimateId: string, allowance: Allowance) => Promise<void>;
-}> = ({ projectId, estimates, onEstimatesChanged, onCount, onAsk }) => {
+  /** Whose portal this goes to, for the wording. */
+  portalClientName?: string;
+  /** Something was queued or taken off: the send counts change. */
+  onQueueChanged?: () => void;
+  /** Opens the portal preview, where queued things are sent. */
+  onPreview?: () => void;
+}> = ({ projectId, onEstimatesChanged, onCount, portalClientName, onQueueChanged, onPreview }) => {
   const [groups, setGroups] = useState<EstimateSelections[] | null>(null);
   const [error, setError] = useState(false);
   const load = useCallback(async () => {
@@ -299,6 +411,13 @@ export const ProjectSelections: React.FC<{
     load();
   }, [load]);
 
+  const clientFirst = portalClientName?.trim().split(/\s+/)[0] || 'the client';
+  const changed = async () => {
+    await load();
+    onEstimatesChanged();
+    onQueueChanged?.();
+  };
+
   if (error) return <p className="text-sm text-red-400">Selections couldn&rsquo;t load. Try again in a moment.</p>;
   if (groups === null) return <p className="text-sm text-gray-500">Loading…</p>;
   if (groups.length === 0)
@@ -308,49 +427,44 @@ export const ProjectSelections: React.FC<{
       </p>
     );
 
+  const queued = groups.reduce((n, g) => n + g.allowances.filter((a) => a.pick?.queued).length + (g.changeOrderQueued ? 1 : 0), 0);
   return (
-    <div className="space-y-4" data-testid="project-selections">
-      <p className="text-xs text-gray-500">
-        Ask the client to pick, or enter what they told you. Approving sets the line to that price; then send the differences for one signature.
-      </p>
-      {groups.map((group) => {
-        const estimate = estimates.find((e) => e.id === group.estimateId);
-        const changes = estimate ? (changesSinceSigned(estimate)?.changes.length ?? 0) : 0;
-        return (
-          <section key={group.estimateId} className="bg-[#1a1a1a] border border-[#333]" aria-label={`Selections for ${group.estimateNumber}`}>
-            <h3 className="px-4 pt-3 text-sm font-medium text-gray-400">
-              {group.estimateNumber}
-              {group.title && <span className="text-gray-500"> · {group.title}</span>}
-            </h3>
-            <ul className="px-4 divide-y divide-[#333]">
-              {group.allowances.map((allowance) => (
-                <SelectionRow
-                  key={allowance.itemId}
-                  estimateId={group.estimateId}
-                  allowance={allowance}
-                  onAsk={onAsk ? (a) => onAsk(group.estimateId, a) : undefined}
-                  onChanged={async () => {
-                    await load();
-                    onEstimatesChanged();
-                  }}
-                />
-              ))}
-            </ul>
-            <div className="px-4 pt-2 text-xs text-gray-400">
-              {changes > 0
-                ? `${changes} change${changes === 1 ? '' : 's'} since the client last signed. Send them for one signature.`
-                : 'Nothing has changed since the client last signed.'}
-            </div>
-            <SignoffControls
-              estimateId={group.estimateId}
-              kind="change_order"
-              clientName={estimate?.client?.name}
-              clientLanguage={estimate?.client?.language}
-              disabledReason={changes > 0 ? undefined : 'Nothing to send yet'}
-            />
-          </section>
-        );
-      })}
+    <div className="space-y-6 pb-20" data-testid="project-selections">
+      {groups.map((group) => (
+        <section key={group.estimateId} aria-label={`Selections for ${group.estimateNumber}`} className="space-y-3">
+          <h3 className="text-xs uppercase tracking-wide text-gray-500">
+            {group.estimateNumber}
+            {group.title && <span className="normal-case tracking-normal"> · {group.title}</span>}
+          </h3>
+          <ul className="space-y-3">
+            {group.allowances.map((allowance) => (
+              <SelectionCard
+                key={allowance.itemId}
+                estimateId={group.estimateId}
+                allowance={allowance}
+                clientFirst={clientFirst}
+                onChanged={changed}
+              />
+            ))}
+          </ul>
+          <ChangeOrderLine group={group} clientFirst={clientFirst} onChanged={changed} />
+        </section>
+      ))}
+
+      {queued > 0 && (
+        <div
+          className="sticky bottom-0 -mx-4 border-t border-[#333] bg-[#1a1a1a]/95 backdrop-blur px-4 py-3 flex items-center gap-3"
+          data-testid="send-bar"
+        >
+          <span className="flex-1 text-sm text-gray-200">
+            {queued} thing{queued === 1 ? '' : 's'} ready for {clientFirst}
+          </span>
+          <button type="button" onClick={onPreview} disabled={!onPreview} className={`${primary} inline-flex items-center gap-1.5`}>
+            <Send className="w-4 h-4" />
+            Preview &amp; send
+          </button>
+        </div>
+      )}
     </div>
   );
 };

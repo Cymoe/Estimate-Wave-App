@@ -1,7 +1,6 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Building2, FileText, FolderOpen, Globe, Languages, Mail, MapPin, Navigation, Phone, PhoneCall, Trash2 } from 'lucide-react';
-import { PortalLinkRow } from './PortalLinkRow';
+import { ArrowLeft, Building2, FileText, FolderOpen, Languages, Mail, MapPin, Navigation, Phone, PhoneCall, Trash2 } from 'lucide-react';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { ClientService, type Client } from '../../services/ClientService';
 import { ProjectService, type Project } from '../../services/ProjectService';
@@ -197,12 +196,6 @@ const ClientNote: React.FC<{ client: Client | null }> = ({ client }) => {
           </select>
           {draft.language === 'es' && <span className="text-xs text-gray-500 whitespace-nowrap">Estimate link, emails and texts in Spanish</span>}
         </NoteRow>
-        {client?.id && (
-          // Their page with everything for their jobs: one private link, no login.
-          <NoteRow icon={Globe} label="Client portal">
-            <PortalLinkRow clientId={client.id} clientName={draft.name} language={draft.language} />
-          </NoteRow>
-        )}
       </div>
 
       <div className="mt-5 pt-5 border-t border-[#222222]">

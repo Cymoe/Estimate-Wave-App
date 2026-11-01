@@ -33,6 +33,7 @@ html.light .bg-\[\#1E1E1E\]\/50 { background-color: rgba(247, 248, 250, 0.5); }
 html.light .bg-\[\#1F1F1F\] { background-color: #F7F8FA; }
 html.light .bg-\[\#1F2937\] { background-color: #F1F2F4; }
 html.light .bg-\[\#1a1a1a\] { background-color: #FFFFFF; }
+html.light .bg-\[\#1a1a1a\]\/95 { background-color: rgba(255, 255, 255, 0.95); }
 html.light .bg-\[\#22272d\] { background-color: #F1F2F4; }
 html.light .bg-\[\#222\] { background-color: #F7F8FA; }
 html.light .bg-\[\#252525\] { background-color: #F1F2F4; }
@@ -119,6 +120,7 @@ html.light .hover\:bg-\[\#262626\]:hover { background-color: #F1F2F4; }
 html.light .hover\:bg-\[\#2A2A2A\]:hover { background-color: #F1F2F4; }
 html.light .hover\:bg-\[\#2a2a2a\]:hover { background-color: #F1F2F4; }
 html.light .hover\:bg-\[\#333333\]:hover { background-color: #E8EAED; }
+html.light .hover\:bg-\[\#333\]:hover { background-color: #E8EAED; }
 html.light .hover\:bg-\[\#3A3A3A\]:hover { background-color: #E8EAED; }
 html.light .hover\:bg-\[\#404040\]:hover { background-color: #DDE0E4; }
 html.light .hover\:bg-\[\#444\]:hover { background-color: #DDE0E4; }
@@ -161,6 +163,7 @@ html.light .text-\[\#7fb0e0\] { color: #245C94; }
 html.light .text-\[\#7fb2e5\] { color: #1F5C99; }
 html.light .text-\[\#8db4dc\] { color: #2B5B8C; }
 html.light .text-\[\#9E9E9E\] { color: #616161; }
+html.light .text-\[\#9cc2ea\] { color: #205A97; }
 html.light .text-\[\#9cc3ea\] { color: #205C97; }
 html.light .text-\[\#9cc4ea\] { color: #205D97; }
 html.light .text-\[\#FFFFFF\] { color: #111827; }

@@ -148,22 +148,33 @@ export function changesSinceSigned(estimate: Estimate): { changes: ContractChang
   if (!snapshot) return null;
   const signed: Snapshot[] = snapshot.items ?? [];
   const current = estimate.items ?? [];
+  // Matched by id, then (lines saved again with new ids) by the same description, as the server does.
+  const used = new Set<number>();
+  const match = new Map<number, number>();
+  const sameProduct = (a?: string, b?: string) => a === undefined || b === undefined || a === b;
+  current.forEach((item, ci) => {
+    const si = signed.findIndex((s, i) => !used.has(i) && s._id === item.id);
+    if (si < 0) return;
+    used.add(si);
+    match.set(ci, si);
+  });
+  current.forEach((item, ci) => {
+    if (match.has(ci)) return;
+    const si = signed.findIndex((s, i) => !used.has(i) && s.description === item.description && sameProduct(s.productId, item.product_id));
+    if (si < 0) return;
+    used.add(si);
+    match.set(ci, si);
+  });
   const changes: ContractChange[] = [];
-  const matched = new Set<Snapshot>();
-  for (const item of current) {
-    const before = signed.find((s) => !matched.has(s) && s._id === item.id);
-    if (before) {
-      matched.add(before);
-      if (before.totalPrice !== item.total_price) {
-        changes.push({ description: item.description, before: before.totalPrice, after: item.total_price });
-      }
-    } else {
-      changes.push({ description: item.description, after: item.total_price });
-    }
-  }
-  for (const item of signed) {
-    if (!matched.has(item)) changes.push({ description: item.description, before: item.totalPrice });
-  }
+  current.forEach((item, ci) => {
+    const si = match.get(ci);
+    if (si === undefined) changes.push({ description: item.description, after: item.total_price });
+    else if (signed[si].totalPrice !== item.total_price)
+      changes.push({ description: item.description, before: signed[si].totalPrice, after: item.total_price });
+  });
+  signed.forEach((item, si) => {
+    if (!used.has(si)) changes.push({ description: item.description, before: item.totalPrice });
+  });
   return { changes, difference: estimate.total_amount - snapshot.totalAmount };
 }
 

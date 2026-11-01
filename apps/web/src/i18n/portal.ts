@@ -21,6 +21,9 @@ const en = {
   signComplete: 'Sign that the job is complete',
   changeBy: (amount: string, up: boolean) => (up ? `Adds ${amount}` : `Takes off ${amount}`),
   open: 'Open',
+  removed: 'Removed',
+  /** In the company's preview: what goes out with the next send. */
+  newBadge: 'New',
   yourJobs: 'Your jobs',
   agreed: (total: string) => `Agreed total ${total}`,
   documents: {
@@ -57,6 +60,7 @@ const en = {
     even: "Right at what's included",
     openLink: 'Open the link',
     failed: "Your pick couldn't be sent. Please try again.",
+    previewForm: 'Your client picks here: a link to the product, its name and price.',
   },
 };
 
@@ -74,6 +78,8 @@ const es: typeof en = {
   signComplete: 'Firma que la obra está terminada',
   changeBy: (amount, up) => (up ? `Suma ${amount}` : `Resta ${amount}`),
   open: 'Abrir',
+  removed: 'Quitado',
+  newBadge: 'Nuevo',
   yourJobs: 'Tus trabajos',
   agreed: (total) => `Total acordado ${total}`,
   documents: {
@@ -109,6 +115,7 @@ const es: typeof en = {
     even: 'Justo lo incluido',
     openLink: 'Abrir el enlace',
     failed: 'No se pudo enviar tu selección. Inténtalo de nuevo.',
+    previewForm: 'Tu cliente elige aquí: un enlace al producto, su nombre y precio.',
   },
 };
 
@@ -124,16 +131,42 @@ export function portalMessage(clientName: string | undefined, lang: Lang) {
     : `${first ? `Hi ${first}, here` : 'Here'}'s your page with everything for your job:`;
 }
 
-/** Asking the client to pick one thing ("tile" from "Tile allowance"), by a date if there is one. */
-export function pickMessage(clientName: string | undefined, what: string, pickBy: string | undefined, lang: Lang) {
+/** "tile" from "Tile allowance". */
+const thingOf = (description: string) =>
+  description
+    .replace(/\s*allowance\s*$/i, '')
+    .trim()
+    .toLowerCase() || description;
+
+/**
+ * The text that goes with the link when the company sends what was waiting:
+ * the picks to make (by the soonest pick-by date) and changes to sign.
+ */
+export function sendMessage(
+  clientName: string | undefined,
+  picks: Array<{ description: string; pickBy?: string }>,
+  changeOrders: number,
+  lang: Lang,
+) {
+  if (picks.length === 0 && changeOrders === 0) return portalMessage(clientName, lang);
   const first = firstName(clientName);
-  const thing =
-    what
-      .replace(/\s*allowance\s*$/i, '')
-      .trim()
-      .toLowerCase() || what;
-  const by = pickBy ? formatDay(pickBy, lang, { month: 'short', day: 'numeric' }) : undefined;
-  return lang === 'es'
-    ? `${first ? `Hola ${first}, ` : ''}elige tu ${thing}${by ? ` antes del ${by}` : ''} aquí:`
-    : `${first ? `Hi ${first}, please` : 'Please'} pick your ${thing}${by ? ` by ${by}` : ''} here:`;
+  const things = picks.map((p) => thingOf(p.description));
+  const soonest = picks
+    .map((p) => p.pickBy)
+    .filter((d): d is string => Boolean(d))
+    .sort()[0];
+  const by = soonest ? formatDay(soonest, lang, { month: 'short', day: 'numeric' }) : undefined;
+  const join = (list: string[], and: string) => (list.length < 2 ? list.join('') : `${list.slice(0, -1).join(', ')} ${and} ${list[list.length - 1]}`);
+  if (lang === 'es') {
+    const parts = [
+      ...(things.length ? [`elige ${join(things, 'y')}${by ? ` antes del ${by}` : ''}`] : []),
+      ...(changeOrders ? ['firma los cambios al trabajo'] : []),
+    ];
+    return `${first ? `Hola ${first}, ` : ''}por favor ${parts.join(' y ')} aquí:`;
+  }
+  const parts = [
+    ...(things.length ? [`pick your ${join(things, 'and')}${by ? ` by ${by}` : ''}`] : []),
+    ...(changeOrders ? ['sign the changes to the work'] : []),
+  ];
+  return `${first ? `Hi ${first}, please` : 'Please'} ${parts.join(' and ')} here:`;
 }

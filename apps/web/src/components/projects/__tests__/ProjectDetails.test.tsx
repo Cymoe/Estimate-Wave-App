@@ -77,7 +77,10 @@ jest.mock('../../../lib/api', () => ({
   costCodesAPI: { list: jest.fn(async () => []) },
   industriesAPI: { forOrganization: jest.fn(async () => []) },
   templatesAPI: { saveFromProject: (...args: unknown[]) => saveTemplate(...(args as [string, string])) },
+  portalAPI: { forProject: jest.fn(async () => portalInfo) },
 }));
+// Whose portal the project's is (null: no client yet).
+let portalInfo: { clientId: string; name: string; language: 'en' | 'es'; token: string | null; queued: number } | null = null;
 jest.mock('../../layouts/DashboardLayout', () => {
   const { createContext } = jest.requireActual('react');
   return { OrganizationContext: createContext({ selectedOrg: { id: 'org1' } }) };
@@ -302,6 +305,22 @@ describe('Project drawer', () => {
     await act(async () => jest.advanceTimersByTime(200));
     expect(onClose).toHaveBeenCalled();
     jest.useRealTimers();
+  });
+
+  it("has a Client portal button once the project has a client, showing what's waiting to send", async () => {
+    expenses = [];
+    portalInfo = null;
+    await render();
+    const button = () => document.body.querySelector('[data-testid="client-portal-button"]') as HTMLButtonElement;
+    expect(button().disabled).toBe(true);
+    expect(button().title).toBe('Add a client first');
+    act(() => roots.splice(0).forEach((r) => r.unmount()));
+    document.body.innerHTML = '';
+    portalInfo = { clientId: 'c1', name: 'Ann Miller', language: 'en', token: null, queued: 2 };
+    await render();
+    expect(button().disabled).toBe(false);
+    expect(button().textContent).toContain('Client portal2');
+    portalInfo = null;
   });
 
   it('closes with the X', async () => {

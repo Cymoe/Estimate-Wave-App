@@ -49,6 +49,7 @@ const serverOnly = new Set([
   "shareToken",
   "firstOpenedAt",
   "sentAt",
+  "changeOrderQueuedAt",
   "remindersSent",
   "lastReminderAt",
   "remindersOff",

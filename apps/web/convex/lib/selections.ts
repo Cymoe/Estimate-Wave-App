@@ -48,6 +48,7 @@ export function allowanceViews(items: Item[], picks: Doc<"selections">[]) {
               note: pick.note,
               status: pick.status,
               askedAt: pick.askedAt,
+              queued: pick.queuedAt !== undefined,
               entered: pick.enteredBy !== undefined,
               pickedAt: pick.pickedAt,
               approvedAt: pick.approvedAt,

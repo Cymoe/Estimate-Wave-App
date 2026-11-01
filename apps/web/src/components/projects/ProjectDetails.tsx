@@ -1,16 +1,28 @@
-import React, { useContext, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMatch, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowUpRight, CalendarCheck, CalendarDays, DollarSign, LayoutTemplate, Mail, MoreVertical, Phone, Trash2, User, X } from 'lucide-react';
+import {
+  ArrowUpRight,
+  CalendarCheck,
+  CalendarDays,
+  DollarSign,
+  Globe,
+  LayoutTemplate,
+  Mail,
+  MoreVertical,
+  Phone,
+  Trash2,
+  User,
+  X,
+} from 'lucide-react';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { ProjectService, type Project, type ProjectStatus } from '../../services/ProjectService';
 import { ClientService, type Client } from '../../services/ClientService';
 import { ExpenseService, paymentState, summarize, type Expense } from '../../services/ExpenseService';
 import { EstimateService, type Estimate } from '../../services/EstimateService';
 import { formatCurrency } from '../../utils/format';
-import { portalAPI, portalUrl, selectionsAPI, tasksAPI, templatesAPI, type Allowance, type ProjectTask } from '../../lib/api';
-import { shareOrCopy } from '../estimates/estimateActions';
-import { pickMessage } from '../../i18n/portal';
+import { portalAPI, tasksAPI, templatesAPI, type ProjectTask } from '../../lib/api';
+import { PortalPreviewSheet } from './PortalPreviewSheet';
 import { ExpensesList } from '../expenses/ExpensesList';
 import { JobPhotos } from '../common/JobPhotos';
 import { ProjectTasks } from './ProjectTasks';
@@ -436,21 +448,21 @@ export const ProjectPanel: React.FC<{
     }
   };
 
-  /** Asks the client to pick one thing: it goes into their portal, and they get the portal's link. */
-  const askForPick = async (estimateId: string, allowance: Allowance) => {
-    const estimate = estimates?.find((e) => e.id === estimateId);
-    const clientId = estimate?.client_id ?? project?.client_id;
-    if (!clientId) throw new Error('Add the client to this estimate first.');
-    await selectionsAPI.ask(estimateId, allowance.itemId);
-    const token = await portalAPI.link(clientId);
-    const name = estimate?.client?.name ?? client?.name;
-    const how = await shareOrCopy(
-      portalUrl(token),
-      allowance.description,
-      pickMessage(name, allowance.description, allowance.pickBy, estimate?.client?.language ?? 'en'),
-    );
-    if (how === 'copied') showToast('Link copied. Paste it into a text or email to your client.');
-  };
+  // The client portal for this project's client: preview, send what's waiting, turn off.
+  const [portal, setPortal] = useState<Awaited<ReturnType<typeof portalAPI.forProject>>>(null);
+  const [portalOpen, setPortalOpen] = useState(false);
+  const [portalRevision, setPortalRevision] = useState(0);
+  const refreshPortal = useCallback(() => setPortalRevision((n) => n + 1), []);
+  useEffect(() => {
+    let live = true;
+    portalAPI
+      .forProject(projectId)
+      .then((p) => live && setPortal(p))
+      .catch(() => live && setPortal(null));
+    return () => {
+      live = false;
+    };
+  }, [projectId, portalRevision, estimatesRevision, estimatesAdded]);
 
   const openExpenses = (add: boolean) => {
     setAddingExpense(add);
@@ -542,6 +554,26 @@ export const ProjectPanel: React.FC<{
                 <Mail className="w-4 h-4" />
               </a>
             )}
+            {/* The client's portal: see it as they will, then send */}
+            <button
+              type="button"
+              onClick={() => setPortalOpen(true)}
+              disabled={!portal}
+              title={portal ? `Preview and send ${portal.name}'s portal` : 'Add a client first'}
+              className={`${secondaryAction} disabled:opacity-50`}
+              data-testid="client-portal-button"
+            >
+              <Globe className="w-4 h-4" />
+              Client portal
+              {(portal?.queued ?? 0) > 0 && (
+                <span
+                  className="ml-1 rounded-full bg-[#336699] px-1.5 text-[11px] leading-5 text-white"
+                  aria-label={`${portal!.queued} waiting to send`}
+                >
+                  {portal!.queued}
+                </span>
+              )}
+            </button>
             <div className="relative">
               <button onClick={() => setShowMoreMenu((open) => !open)} aria-label="More actions" className={`${secondaryAction} px-2.5`}>
                 <MoreVertical className="w-4 h-4" />
@@ -668,10 +700,11 @@ export const ProjectPanel: React.FC<{
           <div className="p-4">
             <ProjectSelections
               projectId={project.id!}
-              estimates={estimates ?? []}
               onEstimatesChanged={() => setEstimatesAdded((n) => n + 1)}
               onCount={setSelectionsToDo}
-              onAsk={askForPick}
+              portalClientName={portal?.name}
+              onQueueChanged={refreshPortal}
+              onPreview={portal ? () => setPortalOpen(true) : undefined}
             />
           </div>
         )}
@@ -759,6 +792,7 @@ export const ProjectPanel: React.FC<{
         </div>
       </div>
       <Toast text={toast} />
+      {portalOpen && portal && <PortalPreviewSheet clientId={portal.clientId} onClose={() => setPortalOpen(false)} onChanged={refreshPortal} />}
     </div>
   );
 };

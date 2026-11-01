@@ -71,6 +71,27 @@ describe('changesSinceSigned', () => {
     expect(changesSinceSigned(estimate())).toBeNull();
   });
 
+  it("doesn't count lines saved again with new ids as changes", () => {
+    const result = changesSinceSigned(
+      estimate({
+        total_amount: 1000,
+        items: [
+          { id: 'a2', description: 'Vanity', quantity: 1, unit_price: 600, total_price: 600 },
+          { id: 'b2', description: 'Tile', quantity: 1, unit_price: 400, total_price: 400 },
+        ],
+        contract_locked_at: '2026-10-11T07:00:00Z',
+        contract_snapshot: {
+          items: [
+            { _id: 'a', description: 'Vanity', totalPrice: 600 },
+            { _id: 'b', description: 'Tile', totalPrice: 400 },
+          ],
+          totalAmount: 1000,
+        },
+      }),
+    );
+    expect(result).toEqual({ changes: [], difference: 0 });
+  });
+
   it('lists changed, added and removed items and the cost difference', () => {
     const result = changesSinceSigned(
       estimate({

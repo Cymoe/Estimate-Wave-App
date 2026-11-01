@@ -4,6 +4,8 @@ import { mutation, query, type MutationCtx } from "./_generated/server";
 import { fail, getOwned, logActivity, nowIso } from "./lib/access";
 import { withTotals } from "./lib/documents";
 import { allowanceViews, cleanLink, selectionsFor } from "./lib/selections";
+import { changesSince } from "./signoffs";
+import { cents } from "./lib/totals";
 
 // Selections on the project: the signed estimates' allowance lines (tile, a
 // faucet) and what the client picked for each. The company asks the client
@@ -24,11 +26,22 @@ export const forProject = query({
     const out = [];
     for (const estimate of estimates) {
       if (!estimate.contractLockedAt || !estimate.items.some((i) => i.allowance)) continue;
+      const allowances = allowanceViews(estimate.items, await selectionsFor(ctx, estimate));
+      const signoffs = await ctx.db
+        .query("signoffs")
+        .withIndex("by_estimate", (q) => q.eq("estimateId", estimate._id))
+        .take(100);
       out.push({
         estimateId: estimate._id,
         estimateNumber: estimate.estimateNumber,
         title: estimate.title,
-        allowances: allowanceViews(estimate.items, await selectionsFor(ctx, estimate)),
+        allowances,
+        // How far the approved picks come to over (+) or under (−) their allowances.
+        picksDifference: cents(allowances.reduce((sum, a) => sum + (a.pick?.status === "approved" ? (a.pick.difference ?? 0) : 0), 0)),
+        // Everything that changed since the client last signed (what a change order would list).
+        changes: estimate.contractSnapshot ? changesSince(estimate.contractSnapshot.items, estimate.items).length : 0,
+        changeOrderQueued: estimate.changeOrderQueuedAt !== undefined,
+        changeOrderWaiting: signoffs.some((x) => x.kind === "change_order" && x.status === "sent"),
       });
     }
     return out;
@@ -94,23 +107,60 @@ export const setPickBy = mutation({
   },
 });
 
-/** Asks the client to pick this one: it shows in their portal until they do. */
+/**
+ * Asks the client to pick this one. It waits for the next "Send to client"
+ * from the portal preview; until then the client doesn't see it.
+ */
 export const ask = mutation({
   args: { estimateId: v.id("estimates"), itemId: v.string() },
   handler: async (ctx, { estimateId, itemId }) => {
     const { estimate, row } = await signedLine(ctx, estimateId, itemId);
     if (row?.status === "approved") fail("INVALID", "This one is already approved. Reopen it first.");
     const now = nowIso();
-    if (row) await ctx.db.patch(row._id, { askedAt: now, updatedAt: now });
+    if (row) await ctx.db.patch(row._id, { queuedAt: now, updatedAt: now });
     else
       await ctx.db.insert("selections", {
         organizationId: estimate.organizationId,
         estimateId,
         itemId,
         status: "asked",
-        askedAt: now,
+        queuedAt: now,
         updatedAt: now,
       });
+    return null;
+  },
+});
+
+/** Takes a pick off the next send: one never sent goes back to not asked. */
+export const unqueue = mutation({
+  args: { estimateId: v.id("estimates"), itemId: v.string() },
+  handler: async (ctx, { estimateId, itemId }) => {
+    const { row } = await signedLine(ctx, estimateId, itemId);
+    if (!row?.queuedAt) return null;
+    if (row.status === "asked" && !row.askedAt) await ctx.db.delete(row._id);
+    else await ctx.db.patch(row._id, { queuedAt: undefined, updatedAt: nowIso() });
+    return null;
+  },
+});
+
+/** Puts the changes since the client last signed on the next send, as a change order to sign. */
+export const queueChangeOrder = mutation({
+  args: { estimateId: v.id("estimates") },
+  handler: async (ctx, { estimateId }) => {
+    const { doc: estimate } = await getOwned(ctx, "estimates", estimateId);
+    if (estimate.status !== "accepted" || !estimate.contractSnapshot) fail("INVALID", "Send it once the client has signed the estimate");
+    if (changesSince(estimate.contractSnapshot.items, estimate.items).length === 0)
+      fail("INVALID", "Nothing has changed since the client last signed");
+    await ctx.db.patch(estimateId, { changeOrderQueuedAt: nowIso() });
+    return null;
+  },
+});
+
+export const unqueueChangeOrder = mutation({
+  args: { estimateId: v.id("estimates") },
+  handler: async (ctx, { estimateId }) => {
+    await getOwned(ctx, "estimates", estimateId);
+    await ctx.db.patch(estimateId, { changeOrderQueuedAt: undefined });
     return null;
   },
 });

@@ -105,6 +105,33 @@ describe("change orders and the affidavit, signed later", () => {
     expect(all.filter((s) => s.kind === "change_order" && s.status === "signed")).toHaveLength(2);
   });
 
+  test("lines saved again with new ids aren't changes; a real change still is", async () => {
+    const t = setup();
+    const { as, estimateId } = await signedJob(t);
+    await as.mutation(api.estimates.update, {
+      id: estimateId,
+      data: {
+        items: [
+          { _id: "a2", description: "Shingles", quantity: 1, unitPrice: 8000, totalPrice: 8000 },
+          { _id: "b2", description: "Gutters", quantity: 1, unitPrice: 2000, totalPrice: 2000 },
+        ],
+      },
+    });
+    await expect(as.mutation(api.signoffs.request, { estimateId, kind: "change_order" })).rejects.toThrow(/Nothing has changed/);
+    await as.mutation(api.estimates.update, {
+      id: estimateId,
+      data: {
+        items: [
+          { _id: "a3", description: "Shingles", quantity: 1, unitPrice: 8000, totalPrice: 8000 },
+          { _id: "b3", description: "Gutters", quantity: 1, unitPrice: 2400, totalPrice: 2400 },
+        ],
+      },
+    });
+    expect((await as.mutation(api.signoffs.request, { estimateId, kind: "change_order" })).changes).toEqual([
+      { description: "Gutters", before: 2000, after: 2400 },
+    ]);
+  });
+
   test("the affidavit shows the contract total; sending again replaces the unsigned one; it waits for the estimate's signature", async () => {
     const t = setup();
     const owner = await signUp(t, "solo@example.com");

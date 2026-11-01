@@ -282,6 +282,8 @@ export const estimateFields = {
   // When it was first sent, and the reminders emailed to the client since
   // (followUps.ts). remindersOff stops them for this estimate.
   sentAt: v.optional(v.string()),
+  // A change order waiting for the next "Send to client" from the portal preview (portal.ts).
+  changeOrderQueuedAt: v.optional(v.string()),
   remindersSent: v.optional(v.number()),
   lastReminderAt: v.optional(v.string()),
   // When Webb Leads last emailed the estimate to the client (convex/estimateEmail.ts).
@@ -1212,6 +1214,8 @@ export default defineSchema({
     // picked: the client sent their pick; approved: the line has its price.
     status: v.union(v.literal("asked"), v.literal("picked"), v.literal("approved")),
     askedAt: v.optional(v.string()),
+    // Asked, but waiting for the next "Send to client": the portal doesn't show it until then.
+    queuedAt: v.optional(v.string()),
     // The company entered the pick itself (from the showroom, a text, a call).
     enteredBy: v.optional(v.id("users")),
     approvedUnitPrice: v.optional(v.number()),

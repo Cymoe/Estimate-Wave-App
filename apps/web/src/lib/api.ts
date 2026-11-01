@@ -396,6 +396,8 @@ export interface AllowancePick {
   /** asked: waiting for the client; picked: theirs to approve; approved: the line has its price. */
   status: 'asked' | 'picked' | 'approved';
   askedAt?: string;
+  /** Waiting for the next send from the portal preview. */
+  queued?: boolean;
   /** The company entered it itself. */
   entered?: boolean;
   pickedAt?: string;
@@ -421,6 +423,13 @@ export interface EstimateSelections {
   estimateNumber: string;
   title?: string;
   allowances: Allowance[];
+  /** How far the approved picks come to over (+) or under (−) their allowances. */
+  picksDifference: number;
+  /** Everything changed since the client last signed. */
+  changes: number;
+  changeOrderQueued: boolean;
+  /** A change order sent and waiting for the client's signature. */
+  changeOrderWaiting: boolean;
 }
 
 /** Selections on the project: the client picks the product (or the company enters it), the company approves it at a price. */
@@ -429,6 +438,9 @@ export const selectionsAPI = {
   setPickBy: (estimateId: string, itemId: string, pickBy: string | null): Promise<null> =>
     run('mutation', api.selections.setPickBy, { estimateId, itemId, pickBy }),
   ask: (estimateId: string, itemId: string): Promise<null> => run('mutation', api.selections.ask, { estimateId, itemId }),
+  unqueue: (estimateId: string, itemId: string): Promise<null> => run('mutation', api.selections.unqueue, { estimateId, itemId }),
+  queueChangeOrder: (estimateId: string): Promise<null> => run('mutation', api.selections.queueChangeOrder, { estimateId }),
+  unqueueChangeOrder: (estimateId: string): Promise<null> => run('mutation', api.selections.unqueueChangeOrder, { estimateId }),
   record: (estimateId: string, itemId: string, pick: { url?: string; name?: string; unitPrice: number; note?: string }): Promise<null> =>
     run('mutation', api.selections.record, defined({ estimateId, itemId, ...pick })),
   approve: (id: string, unitPrice: number): Promise<null> => run('mutation', api.selections.approve, { id, unitPrice }),
@@ -437,8 +449,18 @@ export const selectionsAPI = {
 
 /** One open ask on the client's portal: sign something, or pick something. */
 export type PortalAsk =
-  | { kind: 'estimate'; at: string; number: string; title?: string; total: number; path: string }
-  | { kind: 'change_order' | 'affidavit'; at: string; number: string; title?: string; difference?: number; path: string }
+  | { kind: 'estimate'; at: string; number: string; title?: string; total: number; path: string; isNew?: boolean }
+  | {
+      kind: 'change_order' | 'affidavit';
+      at: string;
+      number: string;
+      title?: string;
+      difference?: number;
+      /** Absent on a change order not sent yet (the preview), which lists its changes instead. */
+      path?: string;
+      changes?: Array<{ description: string; before?: number; after?: number }>;
+      isNew?: boolean;
+    }
   | {
       kind: 'selection';
       at: string;
@@ -450,6 +472,7 @@ export type PortalAsk =
       allowanceTotal: number;
       pickBy?: string;
       pick?: { url?: string; name?: string; unitPrice?: number; note?: string; status: 'picked' };
+      isNew?: boolean;
     };
 export interface PortalView {
   client: { name: string; language: 'en' | 'es' };
@@ -469,6 +492,14 @@ export const portalAPI = {
   current: (clientId: string): Promise<string | null> => run('query', api.portal.current, { clientId }),
   link: (clientId: string): Promise<string> => run('mutation', api.portal.link, { clientId }),
   turnOff: (clientId: string): Promise<null> => run('mutation', api.portal.turnOff, { clientId }),
+  /** Whose portal a project's is, and how much is waiting for the next send. */
+  forProject: (projectId: string): Promise<{ clientId: string; name: string; language: 'en' | 'es'; token: string | null; queued: number } | null> =>
+    run('query', api.portal.forProject, { projectId }),
+  /** The portal as it will be after the next send, with what's new marked. */
+  preview: (clientId: string): Promise<PortalView & { token: string | null; newCount: number }> => run('query', api.portal.preview, { clientId }),
+  /** Sends what's waiting: the picks go onto the portal, the change orders are made. */
+  send: (clientId: string): Promise<{ token: string; picks: Array<{ description: string; pickBy?: string }>; changeOrders: number }> =>
+    run('mutation', api.portal.send, { clientId }),
   // The client's side (no sign-in).
   get: (token: string): Promise<PortalView | null> => run('query', api.portal.get, { token }),
   pick: (token: string, estimateId: string, itemId: string, pick: { url: string; name?: string; unitPrice?: number; note?: string }): Promise<null> =>
