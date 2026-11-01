@@ -388,9 +388,9 @@ export const estimatesAPI = {
     return run('query', api.estimates.get, { id });
   },
 
-  /** Whether the client's link lists each line or only the totals by category. */
-  setLineItemsShown(id: string, shown: boolean): Promise<null> {
-    return run('mutation', api.estimates.setLineItemsShown, { id, shown });
+  /** How much of the price the client's link shows: every line and price, the lines without prices, or only the totals by category. */
+  setClientDetail(id: string, detail: 'full' | 'lines' | 'categories'): Promise<null> {
+    return run('mutation', api.estimates.setClientDetail, { id, detail });
   },
 
   async create(data: any) {

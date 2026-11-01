@@ -2655,7 +2655,7 @@ describe("client link", () => {
     expect((await t.query(api.publicEstimates.get, { token: noClientToken }))!.clientMessage).toBe("Hi, here it is.");
   });
 
-  test("with the line items hidden, the link has only a total per category, and showing them brings the lines back", async () => {
+  test("price detail on the link: every line and price, lines without prices, or totals by category; prices never leak", async () => {
     const { t, as, id, token } = await sharedEstimate();
     await as.mutation(api.estimates.update, {
       id,
@@ -2675,25 +2675,53 @@ describe("client link", () => {
         ],
       },
     });
-    await as.mutation(api.estimates.setLineItemsShown, { id, shown: false });
-    expect((await as.query(api.estimates.get, { id }))!.hideLineItems).toBe(true);
-    const hidden = (await t.query(api.publicEstimates.get, { token }))!;
-    expect(hidden.lineItemsHidden).toBe(true);
-    expect(hidden.items).toEqual([
+    const view = async () => (await t.query(api.publicEstimates.get, { token }))!;
+    const totals = [
+      { category: "Cabinets & Vanities", total: 900 },
+      { category: "Plumbing", total: 501 },
+    ];
+
+    const full = await view();
+    expect(full.clientDetail).toBe("full");
+    expect(full.items.map((i: { description: string; totalPrice?: number }) => [i.description, i.totalPrice])).toEqual([
+      ["Vanity", 900],
+      ["Rough plumbing", 400],
+      ["Supply lines", 101],
+    ]);
+    expect(full.categoryTotals).toEqual(totals);
+
+    await as.mutation(api.estimates.setClientDetail, { id, detail: "lines" });
+    const lines = await view();
+    expect(lines.clientDetail).toBe("lines");
+    expect(lines.items).toEqual([
+      { description: "Vanity", quantity: 1, category: "Cabinets & Vanities" },
+      { description: "Rough plumbing", quantity: 1, category: "Plumbing" },
+      { description: "Supply lines", quantity: 2, category: "Plumbing" },
+    ]);
+    expect(lines.categoryTotals).toEqual(totals);
+    expect(JSON.stringify(lines.items)).not.toMatch(/400|50\.5|101/);
+
+    await as.mutation(api.estimates.setClientDetail, { id, detail: "categories" });
+    const categories = await view();
+    expect(categories.items).toEqual([
       { description: "Cabinets & Vanities", quantity: 1, unitPrice: 900, totalPrice: 900, category: "Cabinets & Vanities" },
       { description: "Plumbing", quantity: 1, unitPrice: 501, totalPrice: 501, category: "Plumbing" },
     ]);
-    expect(JSON.stringify(hidden)).not.toContain("Rough plumbing");
-    expect(hidden.totalAmount).toBe(1401);
+    expect(JSON.stringify(categories)).not.toContain("Rough plumbing");
+    expect(categories.totalAmount).toBe(1401);
 
-    await as.mutation(api.estimates.setLineItemsShown, { id, shown: true });
-    const shown = (await t.query(api.publicEstimates.get, { token }))!;
-    expect(shown.lineItemsHidden).toBeUndefined();
-    expect(shown.items.map((i: { description: string }) => i.description)).toEqual(["Vanity", "Rough plumbing", "Supply lines"]);
+    // The earlier on/off switch still reads as totals by category until the detail is set again.
+    await t.run((ctx) => ctx.db.patch(id, { clientDetail: undefined, hideLineItems: true }));
+    expect((await view()).clientDetail).toBe("categories");
+    await as.mutation(api.estimates.setClientDetail, { id, detail: "full" });
+    expect((await view()).clientDetail).toBe("full");
+    expect((await t.run((ctx) => ctx.db.get(id)))!.hideLineItems).toBeUndefined();
 
-    // Someone else's estimate can't be switched.
+    // Someone else's estimate can't be switched, and the field can't be set through update.
     const other = await signUp(t, "b@example.com");
-    await expect(other.as.mutation(api.estimates.setLineItemsShown, { id, shown: false })).rejects.toThrow();
+    await expect(other.as.mutation(api.estimates.setClientDetail, { id, detail: "lines" })).rejects.toThrow();
+    await as.mutation(api.estimates.update, { id, data: { clientDetail: "categories" } });
+    expect((await view()).clientDetail).toBe("full");
   });
 
   test("each estimate gets one secret link, and the token can't be set directly", async () => {

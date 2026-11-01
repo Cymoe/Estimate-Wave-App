@@ -51,9 +51,12 @@ interface ClientEstimate {
   /** What's signed besides the estimate: the agreement and any attachments. */
   documents: RecordDocument[];
   acknowledged_at?: string;
-  /** The company shows only the totals by category: no line item details. */
-  line_items_hidden?: boolean;
-  items: Array<{ id: string; description: string; quantity: number; unit_price: number; total_price: number; category?: string }>;
+  /** How much the company shows: every line and price, the lines without prices, or only the totals by category. */
+  client_detail: 'full' | 'lines' | 'categories';
+  /** The total per category, from the server (lines without prices carry none of their own). */
+  category_totals?: Array<{ category?: string; total: number }>;
+  /** Without prices when the company shows the lines but not what each costs. */
+  items: Array<{ id: string; description: string; quantity: number; unit_price?: number; total_price?: number; category?: string }>;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -82,7 +85,8 @@ function fromView(view: any): ClientEstimate {
     locked_at: view.lockedAt,
     documents: view.documents ?? [],
     acknowledged_at: view.acknowledgedAt,
-    line_items_hidden: view.lineItemsHidden === true,
+    client_detail: view.clientDetail === 'lines' || view.clientDetail === 'categories' ? view.clientDetail : 'full',
+    category_totals: view.categoryTotals,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     items: (view.items ?? []).map((item: any, i: number) => ({
       id: String(i),
@@ -108,14 +112,17 @@ function agreementFor(estimate: ClientEstimate): ContractData {
     contractorPhone: estimate.business?.phone ?? '',
     workDescription: terms?.workDescription ?? estimate.description ?? '',
     totalAmount: estimate.total_amount,
-    lineItems: estimate.items.map((item) => ({
-      description: item.description,
-      quantity: item.quantity,
-      unit: 'ea',
-      unitPrice: item.unit_price,
-      total: item.total_price,
-      category: item.category,
-    })),
+    // The agreement's scope and price table read only the total per category, so it says the same at every level of detail.
+    lineItems: estimate.category_totals
+      ? estimate.category_totals.map(({ category, total }) => ({ description: category ?? '', quantity: 1, unit: 'ea', unitPrice: total, total, category }))
+      : estimate.items.map((item) => ({
+          description: item.description,
+          quantity: item.quantity,
+          unit: 'ea',
+          unitPrice: item.unit_price ?? 0,
+          total: item.total_price ?? 0,
+          category: item.category,
+        })),
     startDate: terms?.startDate ?? '',
     completionDate: terms?.completionDate ?? '',
     paymentTerms: terms?.paymentTerms ?? '',
@@ -237,6 +244,13 @@ const ShareableEstimatePage: React.FC = () => {
           : estimate.status === 'expired'
             ? t.statusExpired
             : estimate.status.charAt(0).toUpperCase() + estimate.status.slice(1);
+
+  // The summary by category; the details below use the same groups in the same order.
+  const summary = categoryTotals(
+    estimate.category_totals ?? estimate.items.map((item) => ({ category: item.category, total: item.total_price ?? 0 })),
+  );
+  const priced = estimate.client_detail === 'full';
+  const span = priced ? 3 : 2;
 
   /** Opens the print screen; the page title names the saved file ("Shah Builders – Estimate & Agreement · EST-2026-000001"). */
   const saveOrPrint = () => {
@@ -376,7 +390,7 @@ const ShareableEstimatePage: React.FC = () => {
           <h3 className="text-lg font-semibold text-gray-900 mb-3">{t.summary}</h3>
           <table className="w-full text-gray-900">
             <tbody>
-              {categoryTotals(estimate.items.map((item) => ({ category: item.category, total: item.total_price }))).map(
+              {summary.map(
                 ({ category, total }) => (
                   <tr key={category} className="border-b border-gray-200">
                     <td className="py-3 pr-4">{category === OTHER_CATEGORY ? t.other : category}</td>
@@ -407,7 +421,7 @@ const ShareableEstimatePage: React.FC = () => {
         </div>
 
         {/* Line items: the detail behind the summary, opened on request (unless the company shows only the summary) */}
-        {!estimate.line_items_hidden && (
+        {estimate.client_detail !== 'categories' && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden mb-6">
           <button
             type="button"
@@ -430,19 +444,21 @@ const ShareableEstimatePage: React.FC = () => {
                   <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                     {t.colQty}
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    {t.colUnitPrice}
-                  </th>
+                  {priced && (
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      {t.colUnitPrice}
+                    </th>
+                  )}
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     {t.colTotal}
                   </th>
                 </tr>
               </thead>
               {/* Grouped by category, in the summary's order, each with its total */}
-              {categoryTotals(estimate.items.map((item) => ({ category: item.category, total: item.total_price }))).map(({ category, total }) => (
+              {summary.map(({ category, total }) => (
                 <tbody key={category} className="divide-y divide-gray-200 border-t border-gray-200" data-testid="category-group">
                   <tr className="bg-gray-50/60">
-                    <th colSpan={3} scope="rowgroup" className="px-6 pt-4 pb-2 text-left text-sm font-semibold text-gray-900">
+                    <th colSpan={span} scope="rowgroup" className="px-6 pt-4 pb-2 text-left text-sm font-semibold text-gray-900">
                       {category === OTHER_CATEGORY ? t.other : category}
                     </th>
                     <td className="px-6 pt-4 pb-2 text-right text-sm font-semibold text-gray-900 whitespace-nowrap">{formatCurrency(total)}</td>
@@ -457,11 +473,14 @@ const ShareableEstimatePage: React.FC = () => {
                         <td className="px-6 py-4 text-center text-sm text-gray-900">
                           {item.quantity}
                         </td>
-                        <td className="px-6 py-4 text-right text-sm text-gray-900">
-                          {formatCurrency(item.unit_price)}
-                        </td>
+                        {priced && (
+                          <td className="px-6 py-4 text-right text-sm text-gray-900">
+                            {formatCurrency(item.unit_price ?? 0)}
+                          </td>
+                        )}
+                        {/* With the lines' prices hidden, only the category above carries a price */}
                         <td className="px-6 py-4 text-right text-sm font-medium text-gray-900">
-                          {formatCurrency(item.total_price)}
+                          {priced ? formatCurrency(item.total_price ?? 0) : ''}
                         </td>
                       </tr>
                     ))}
@@ -469,7 +488,7 @@ const ShareableEstimatePage: React.FC = () => {
               ))}
               <tfoot className="bg-gray-50">
                 <tr>
-                  <td colSpan={3} className="px-6 py-3 text-right text-sm font-medium text-gray-900">
+                  <td colSpan={span} className="px-6 py-3 text-right text-sm font-medium text-gray-900">
                     {t.subtotal}:
                   </td>
                   <td className="px-6 py-3 text-right text-sm font-medium text-gray-900">
@@ -478,7 +497,7 @@ const ShareableEstimatePage: React.FC = () => {
                 </tr>
                 {(estimate.tax_rate ?? 0) > 0 && (
                   <tr>
-                    <td colSpan={3} className="px-6 py-3 text-right text-sm font-medium text-gray-900">
+                    <td colSpan={span} className="px-6 py-3 text-right text-sm font-medium text-gray-900">
                       {t.tax(estimate.tax_rate ?? 0)}:
                     </td>
                     <td className="px-6 py-3 text-right text-sm font-medium text-gray-900">
@@ -487,7 +506,7 @@ const ShareableEstimatePage: React.FC = () => {
                   </tr>
                 )}
                 <tr>
-                  <td colSpan={3} className="px-6 py-4 text-right text-lg font-bold text-gray-900">
+                  <td colSpan={span} className="px-6 py-4 text-right text-lg font-bold text-gray-900">
                     {t.total}:
                   </td>
                   <td className="px-6 py-4 text-right text-xl font-bold text-blue-600">

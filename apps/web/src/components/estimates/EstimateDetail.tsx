@@ -7,7 +7,7 @@ import {
   CheckCircle, XCircle, FileText, User,
   Phone, Mail, MapPin, Copy, Eye, Calendar, X, MoreVertical
 } from 'lucide-react';
-import { EstimateService, Estimate, EstimateItem } from '../../services/EstimateService';
+import { EstimateService, Estimate, EstimateItem, type ClientDetail } from '../../services/EstimateService';
 import { priceAt } from '../../utils/priceRange';
 import { formatCurrency } from '../../utils/format';
 import { clientsAPI, estimatesAPI } from '../../lib/api';
@@ -32,6 +32,13 @@ import { WORK_TYPE_NAMES } from '../../../convex/lib/workTypes';
 const actionBase = 'h-9 flex items-center gap-2 px-4 border rounded-sm transition-colors text-sm font-medium';
 const primaryAction = `${actionBase} bg-[#336699] border-[#336699] text-white hover:bg-[#2a5580]`;
 const secondaryAction = `${actionBase} bg-transparent border-[#333333] text-gray-200 hover:bg-[#22272d] hover:text-white`;
+
+/** The three levels of price detail on the client's link. */
+const CLIENT_DETAIL_CHOICES: Array<{ id: ClientDetail; label: string; help: string }> = [
+  { id: 'full', label: 'Full detail', help: 'The totals by category, and every line with its price when they open the details.' },
+  { id: 'lines', label: 'Lines, no prices', help: 'The totals by category and every line of work, but not what each line costs.' },
+  { id: 'categories', label: 'Category totals', help: 'Only the total for each category: no lines and no line prices.' },
+];
 
 /** Fills in the price-range defaults the pricing tools expect, on a copy. */
 function prepare(estimate: Estimate): Estimate {
@@ -197,15 +204,17 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  /** Shows or hides each line on the client's link; the switch moves at once and goes back if saving fails. */
-  const setLineItemsShown = async (shown: boolean) => {
+  /** How much of the price the client's link shows; the choice moves at once and goes back if saving fails. */
+  const setClientDetail = async (detail: ClientDetail) => {
     if (!estimate?.id) return;
-    setEstimate((current) => (current ? { ...current, hide_line_items: !shown } : current));
+    const before = estimate.client_detail ?? 'full';
+    if (detail === before) return;
+    setEstimate((current) => (current ? { ...current, client_detail: detail } : current));
     try {
-      await estimatesAPI.setLineItemsShown(estimate.id, shown);
+      await estimatesAPI.setClientDetail(estimate.id, detail);
     } catch (err) {
       console.error('Error saving what the client sees:', err);
-      setEstimate((current) => (current ? { ...current, hide_line_items: shown } : current));
+      setEstimate((current) => (current ? { ...current, client_detail: before } : current));
       setSaveError("Couldn't save that change. Check your connection and try again.");
     }
   };
@@ -767,26 +776,29 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
               <ClientNoteCard estimateId={estimate.id} note={estimate.client_message} onSaved={(saved) => setEstimate((current) => (current ? { ...current, client_message: saved.client_message } : current))} />
             )}
 
-            {/* What the client's link shows: each line, or only the totals by category */}
+            {/* How much of the price the client's link shows */}
             <div className="bg-[#1a1a1a] border border-[#333] p-4" data-testid="client-view">
-              <div className="flex items-center justify-between gap-3 mb-1">
-                <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wide">What the client sees</h3>
-                <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={!estimate.hide_line_items}
-                    onChange={(e) => setLineItemsShown(e.target.checked)}
-                    aria-label="Show line item details"
-                    className="w-4 h-4"
-                  />
-                  Show line item details
-                </label>
+              <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wide mb-2">What the client sees</h3>
+              <div role="radiogroup" aria-label="What the client sees" className="grid grid-cols-3 border border-[#333]">
+                {CLIENT_DETAIL_CHOICES.map((choice) => {
+                  const on = (estimate.client_detail ?? 'full') === choice.id;
+                  return (
+                    <button
+                      key={choice.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      onClick={() => setClientDetail(choice.id)}
+                      className={`px-2 py-2 text-sm border-r last:border-r-0 border-[#333] transition-colors ${
+                        on ? 'bg-[#336699] text-white' : 'text-gray-300 hover:bg-[#22272d]'
+                      }`}
+                    >
+                      {choice.label}
+                    </button>
+                  );
+                })}
               </div>
-              <p className="text-sm text-gray-400">
-                {estimate.hide_line_items
-                  ? 'The client sees the total for each category, not each line or its price.'
-                  : 'The client sees the totals by category and can open every line with its price.'}
-              </p>
+              <p className="text-sm text-gray-400 mt-2">{CLIENT_DETAIL_CHOICES.find((c) => c.id === (estimate.client_detail ?? 'full'))!.help}</p>
             </div>
 
             {/* Reminder emails while the client hasn't signed */}

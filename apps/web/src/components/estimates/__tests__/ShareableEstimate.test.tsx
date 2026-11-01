@@ -108,13 +108,17 @@ describe('client estimate page', () => {
     ]);
   });
 
-  it('with the line items hidden by the company, shows the summary and no line item details', async () => {
+  it('with category totals only, shows the summary and no line item details', async () => {
     view = {
       ...sent,
-      lineItemsHidden: true,
+      clientDetail: 'categories',
       items: [
         { description: 'Electrical', quantity: 1, unitPrice: 300, totalPrice: 300, category: 'Electrical' },
         { description: 'Interior Painting', quantity: 1, unitPrice: 500, totalPrice: 500, category: 'Interior Painting' },
+      ],
+      categoryTotals: [
+        { category: 'Interior Painting', total: 500 },
+        { category: 'Electrical', total: 300 },
       ],
       subtotal: 800,
       totalAmount: 800,
@@ -124,6 +128,39 @@ describe('client estimate page', () => {
     expect(rows).toEqual(['Electrical$300.00', 'Interior Painting$500.00']);
     expect(document.body.querySelector('[data-testid="line-item-details"]')).toBeNull();
     expect(button('Line item details (2)')).toBeUndefined();
+  });
+
+  it('with lines but no prices, lists every line under its category with only the category totals', async () => {
+    view = {
+      ...sent,
+      clientDetail: 'lines',
+      items: [
+        { description: 'Paint walls', quantity: 100, category: 'Interior Painting' },
+        { description: 'New outlet', quantity: 2, category: 'Electrical' },
+        { description: 'Paint ceilings', quantity: 50, category: 'Interior Painting' },
+      ],
+      categoryTotals: [
+        { category: 'Interior Painting', total: 500 },
+        { category: 'Electrical', total: 300 },
+      ],
+      subtotal: 800,
+      totalAmount: 800,
+    };
+    await open();
+    const rows = Array.from(document.body.querySelectorAll('[data-testid="category-summary"] tbody tr')).map((r) => r.textContent);
+    expect(rows).toEqual(['Electrical$300.00', 'Interior Painting$500.00']);
+    await act(async () => button('Line item details (3)')!.click());
+    const details = document.body.querySelector('[data-testid="line-item-details"]')!;
+    expect(Array.from(details.querySelectorAll('thead th')).map((th) => th.textContent)).toEqual(['Description', 'Qty', 'Total']);
+    const groups = Array.from(details.querySelectorAll('[data-testid="category-group"]')).map((g) =>
+      Array.from(g.querySelectorAll('tr')).map((r) => r.textContent),
+    );
+    expect(groups).toEqual([
+      ['Electrical$300.00', 'New outlet2'],
+      ['Interior Painting$500.00', 'Paint walls100', 'Paint ceilings50'],
+    ]);
+    // The agreement's price table still has the category totals.
+    expect(document.body.querySelector('[data-testid="agreement"]')!.textContent).toContain('$500.00');
   });
 
   it("shows the company's note to the client, signed with the company name", async () => {

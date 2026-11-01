@@ -52,6 +52,7 @@ const serverOnly = new Set([
   "lastReminderAt",
   "remindersOff",
   "hideLineItems",
+  "clientDetail",
   "lastEmailedAt",
 ]);
 
@@ -235,15 +236,16 @@ export const approve = mutation({
 });
 
 /**
- * Whether the client's link lists each line or only the totals by category.
- * Only what the client sees changes; the estimate, its price and the
- * agreement stay the same, so it can be switched at any time.
+ * How much of the price the client's link shows: "full" (every line and its
+ * price), "lines" (the lines without their prices) or "categories" (only the
+ * total per category). Only what the client sees changes; the estimate, its
+ * price and the agreement stay the same, so it can be switched at any time.
  */
-export const setLineItemsShown = mutation({
-  args: { id: v.id("estimates"), shown: v.boolean() },
-  handler: async (ctx, { id, shown }) => {
+export const setClientDetail = mutation({
+  args: { id: v.id("estimates"), detail: v.union(v.literal("full"), v.literal("lines"), v.literal("categories")) },
+  handler: async (ctx, { id, detail }) => {
     await getOwned(ctx, "estimates", id);
-    await ctx.db.patch(id, { hideLineItems: shown ? undefined : true, updatedAt: nowIso() });
+    await ctx.db.patch(id, { clientDetail: detail === "full" ? undefined : detail, hideLineItems: undefined, updatedAt: nowIso() });
     return null;
   },
 });

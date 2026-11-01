@@ -44,10 +44,31 @@ function personalNote(note: string | undefined, clientName: string | undefined):
     .replace(/^ /gm, "");
 }
 
-type ClientItem = { description: string; quantity: number; unitPrice: number; totalPrice: number; category?: string };
+type Line = { description: string; quantity: number; unitPrice: number; totalPrice: number; category?: string };
+type ClientDetail = "full" | "lines" | "categories";
 
-/** The lines the client sees: each one, or with the lines hidden, a total per category. */
-function clientItems(items: Array<ClientItem>, hidden: boolean): ClientItem[] {
+/** How much of the price the client sees; the earlier on/off switch reads as "categories". */
+function clientDetailOf(estimate: Doc<"estimates">): ClientDetail {
+  return estimate.clientDetail ?? (estimate.hideLineItems ? "categories" : "full");
+}
+
+const cents = (n: number) => Math.round(n * 100) / 100;
+
+/** The total per category ("" for lines without one), in the order the lines first use them. */
+function categoryTotals(lines: Line[]) {
+  const totals = new Map<string, number>();
+  for (const line of lines) {
+    const category = line.category?.trim() || "";
+    totals.set(category, cents((totals.get(category) ?? 0) + line.totalPrice));
+  }
+  return [...totals].map(([category, total]) => ({ category: category || undefined, total }));
+}
+
+/**
+ * The lines the client sees: each with its price, each without its price
+ * (no line's price leaves the server), or one line per category.
+ */
+function clientItems(items: Line[], detail: ClientDetail) {
   const lines = items.map(({ description, quantity, unitPrice, totalPrice, category }) => ({
     description,
     quantity,
@@ -55,19 +76,16 @@ function clientItems(items: Array<ClientItem>, hidden: boolean): ClientItem[] {
     totalPrice,
     category,
   }));
-  if (!hidden) return lines;
-  const totals = new Map<string, number>();
-  for (const line of lines) {
-    const category = line.category?.trim() || "";
-    totals.set(category, Math.round(((totals.get(category) ?? 0) + line.totalPrice) * 100) / 100);
-  }
-  return [...totals].map(([category, total]) => ({
-    description: category,
-    quantity: 1,
-    unitPrice: total,
-    totalPrice: total,
-    category: category || undefined,
-  }));
+  if (detail === "lines") return lines.map(({ description, quantity, category }) => ({ description, quantity, category }));
+  if (detail === "categories")
+    return categoryTotals(lines).map(({ category, total }) => ({
+      description: category ?? "",
+      quantity: 1,
+      unitPrice: total,
+      totalPrice: total,
+      category,
+    }));
+  return lines;
 }
 
 export const get = query({
@@ -102,6 +120,7 @@ export const get = query({
       : client
         ? [client.address, client.city, client.state, client.zip].filter(Boolean).join(", ") || undefined
         : undefined;
+    const lines = await withCategories(ctx, signed ? signed.items : estimate.items);
     return {
       estimateNumber: estimate.estimateNumber,
       title: estimate.title,
@@ -110,9 +129,10 @@ export const get = query({
       status: estimate.status,
       issueDate: estimate.issueDate,
       expiryDate: estimate.expiryDate,
-      // With the lines hidden, the client gets one line per category: never each line's wording or price.
-      items: clientItems(await withCategories(ctx, signed ? signed.items : estimate.items), estimate.hideLineItems === true),
-      lineItemsHidden: estimate.hideLineItems === true || undefined,
+      // What the company shows: every line and price, the lines without prices, or one line per category.
+      clientDetail: clientDetailOf(estimate),
+      items: clientItems(lines, clientDetailOf(estimate)),
+      categoryTotals: categoryTotals(lines),
       subtotal: signed ? signed.subtotal : estimate.subtotal,
       taxRate: estimate.taxRate,
       taxAmount: signed ? signed.taxAmount : estimate.taxAmount,

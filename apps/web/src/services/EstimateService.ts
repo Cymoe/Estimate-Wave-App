@@ -23,6 +23,8 @@ export interface EstimateItem {
   display_order?: number;
 }
 
+export type ClientDetail = 'full' | 'lines' | 'categories';
+
 export interface Estimate {
   id?: string;
   user_id?: string;
@@ -48,8 +50,8 @@ export interface Estimate {
   /** Accepted by the company for the client, without their signature. */
   approved_at?: string;
   approved_by_name?: string;
-  /** The client's link shows totals by category only, not each line. */
-  hide_line_items?: boolean;
+  /** How much of the price the client's link shows: every line and price, the lines without prices, or only the totals by category. */
+  client_detail?: ClientDetail;
   /** Contract terms the user wrote (see services/contract.ts). */
   contract_terms?: import('./contract').ContractTerms;
   /** Set when the estimate was accepted: the contract as agreed. */
@@ -138,7 +140,7 @@ function toLegacy(doc: Doc, clients?: Map<string, Doc>, projects?: Map<string, D
     signed_at: doc.signedAt,
     approved_at: doc.approvedAt,
     approved_by_name: doc.approvedBy?.name,
-    hide_line_items: doc.hideLineItems,
+    client_detail: doc.clientDetail ?? (doc.hideLineItems ? 'categories' : 'full'),
     contract_terms: doc.contractTerms,
     contract_locked_at: doc.contractLockedAt,
     contract_snapshot: doc.contractSnapshot,

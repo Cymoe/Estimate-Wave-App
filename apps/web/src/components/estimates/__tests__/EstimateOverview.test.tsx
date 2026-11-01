@@ -52,11 +52,11 @@ jest.mock('../../../services/EstimateService', () => ({
   },
 }));
 const emailToClient = jest.fn<Promise<{ to: string; link: string }>, [string]>(async () => ({ to: 'dan@example.com', link: 'https://app.example/share/estimate/tok123' }));
-const setLineItemsShown = jest.fn<Promise<null>, [string, boolean]>(async () => null);
+const setClientDetail = jest.fn<Promise<null>, [string, string]>(async () => null);
 jest.mock('../../../lib/api', () => ({
   estimatesAPI: {
     emailToClient: (id: string) => emailToClient(id),
-    setLineItemsShown: (id: string, shown: boolean) => setLineItemsShown(id, shown),
+    setClientDetail: (id: string, detail: string) => setClientDetail(id, detail),
   },
   organizationsAPI: { getById: async () => null },
   clientsAPI: { list: async () => [{ id: 'c2', name: 'Priya Shah' }, { id: 'c1', name: 'Dan Shah' }] },
@@ -124,22 +124,26 @@ describe('estimate overview', () => {
     expect(document.body.querySelector('[data-testid="client-note"]')!.textContent).toContain('Saved');
   });
 
-  it('the line item details can be hidden from the client, and the switch goes back if saving fails', async () => {
+  it('chooses how much of the price the client sees, and goes back if saving fails', async () => {
     stored = { ...base };
     await openOverview();
     const card = () => document.body.querySelector('[data-testid="client-view"]')!;
-    const toggle = () => card().querySelector('input[aria-label="Show line item details"]') as HTMLInputElement;
-    expect(toggle().checked).toBe(true);
-    expect(card().textContent).toContain('can open every line with its price');
-    await act(async () => toggle().click());
-    expect(setLineItemsShown).toHaveBeenLastCalledWith('e1', false);
-    expect(toggle().checked).toBe(false);
-    expect(card().textContent).toContain('The client sees the total for each category, not each line or its price.');
-    setLineItemsShown.mockRejectedValueOnce(new Error('offline'));
+    const choice = (label: string) => Array.from(card().querySelectorAll('[role="radio"]')).find((b) => b.textContent === label) as HTMLButtonElement;
+    const checked = () => Array.from(card().querySelectorAll('[role="radio"][aria-checked="true"]')).map((b) => b.textContent);
+    expect(checked()).toEqual(['Full detail']);
+    expect(card().textContent).toContain('every line with its price');
+    await act(async () => choice('Lines, no prices').click());
+    expect(setClientDetail).toHaveBeenLastCalledWith('e1', 'lines');
+    expect(checked()).toEqual(['Lines, no prices']);
+    expect(card().textContent).toContain('but not what each line costs');
+    // Tapping the one already chosen saves nothing.
+    await act(async () => choice('Lines, no prices').click());
+    expect(setClientDetail).toHaveBeenCalledTimes(1);
+    setClientDetail.mockRejectedValueOnce(new Error('offline'));
     jest.spyOn(console, 'error').mockImplementation(() => {});
-    await act(async () => toggle().click());
-    expect(setLineItemsShown).toHaveBeenLastCalledWith('e1', true);
-    expect(toggle().checked).toBe(false);
+    await act(async () => choice('Category totals').click());
+    expect(setClientDetail).toHaveBeenLastCalledWith('e1', 'categories');
+    expect(checked()).toEqual(['Lines, no prices']);
     expect(document.body.querySelector('[role="alert"]')!.textContent).toContain("Couldn't save that change");
     (console.error as jest.Mock).mockRestore();
   });

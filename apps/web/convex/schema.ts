@@ -279,7 +279,10 @@ export const estimateFields = {
   remindersOff: v.optional(v.boolean()),
   // A note to the client at the top of their link; new estimates start with the company's (agreement.clientMessage).
   clientMessage: v.optional(v.string()),
-  // The client's link shows totals by category only, not each line (estimates.setLineItemsShown).
+  // How much of the price the client's link shows (estimates.setClientDetail): every line and price
+  // (absent), the lines without their prices, or only the total per category.
+  clientDetail: v.optional(v.union(v.literal("lines"), v.literal("categories"))),
+  // The earlier on/off switch; true reads as "categories" until the detail is set again.
   hideLineItems: v.optional(v.boolean()),
 };
 
