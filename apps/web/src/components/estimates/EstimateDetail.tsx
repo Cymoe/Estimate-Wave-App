@@ -1167,6 +1167,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
       {showPricingSelector && selectedOrg && (
         <OnTop>
         <ContextualPricingSelector
+          salesMode={salesMode}
           isOpen={showPricingSelector}
           onClose={() => setShowPricingSelector(false)}
           onAddItems={(items) => {

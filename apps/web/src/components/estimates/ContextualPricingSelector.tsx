@@ -48,6 +48,8 @@ interface ContextualPricingSelectorProps {
   organizationId: string;
   projectContext?: ProjectContext;
   existingItems?: SelectedItem[];
+  /** Sales mode: items come in at their cap, and the heading says so. */
+  salesMode?: boolean;
 }
 
 const ALL = 'all';
@@ -69,8 +71,8 @@ const matches = (item: LineItem, search: string) =>
  * Adds Price Book items to an estimate. It opens as a drawer over the
  * estimate, as wide as it, with the trades in the same left column the
  * estimate keeps its pricing options in, and the items as rows like the
- * estimate's own: tap + to add one, then set how many. Items come in at
- * their cap price, keeping their red line and cap.
+ * estimate's own: tap a row (or its +) to add one, again for more, then set how
+ * many. Items come in at their cap price, keeping their red line and cap.
  */
 export const ContextualPricingSelector: React.FC<ContextualPricingSelectorProps> = ({
   isOpen,
@@ -79,6 +81,7 @@ export const ContextualPricingSelector: React.FC<ContextualPricingSelectorProps>
   organizationId,
   projectContext,
   existingItems = [],
+  salesMode = false,
 }) => {
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [tradeNames, setTradeNames] = useState<Map<string, string>>(new Map());
@@ -271,7 +274,7 @@ export const ContextualPricingSelector: React.FC<ContextualPricingSelectorProps>
           <div className="min-w-0 flex-1">
             <h2 className="text-base font-semibold text-white">Add items</h2>
             <p className="text-xs text-gray-400 mt-1">
-              {projectContext?.projectType ? `${projectContext.projectType} · ` : ''}From your Price Book, at cap price. Adjust each one on the estimate.
+              {projectContext?.projectType ? `${projectContext.projectType} · ` : ''}{salesMode ? 'From your Price Book, at cap price. Adjust each one on the estimate.' : 'From your Price Book. Tap an item to add it, again for more; change any price on the estimate.'}
             </p>
           </div>
           <button
@@ -335,7 +338,9 @@ export const ContextualPricingSelector: React.FC<ContextualPricingSelectorProps>
                         return (
                           <li
                             key={item.id}
-                            className={`flex items-center gap-3 px-4 py-2.5 border-l-2 ${picked ? 'border-[#336699] bg-[#336699]/10' : 'border-transparent'}`}
+                            // The whole row adds it, and each tap after adds one more.
+                            onClick={() => (picked ? updateQuantity(item.id, picked.quantity + 1) : add(item))}
+                            className={`flex items-center gap-3 px-4 py-2.5 border-l-2 cursor-pointer select-none transition-colors [@media(hover:hover)]:hover:bg-[#1E1E1E] active:bg-[#22272d] ${picked ? 'border-[#336699] bg-[#336699]/10' : 'border-transparent'}`}
                             data-testid="item-row"
                           >
                             <span className="flex-1 min-w-0">
@@ -356,7 +361,10 @@ export const ContextualPricingSelector: React.FC<ContextualPricingSelectorProps>
                               <span className="flex items-center border border-[#333333] flex-shrink-0">
                                 <button
                                   type="button"
-                                  onClick={() => updateQuantity(item.id, picked.quantity - 1)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    updateQuantity(item.id, picked.quantity - 1);
+                                  }}
                                   className="p-2 text-gray-300 hover:bg-[#1E1E1E]"
                                   aria-label={`Fewer ${item.name}`}
                                 >
@@ -367,7 +375,10 @@ export const ContextualPricingSelector: React.FC<ContextualPricingSelectorProps>
                                 </span>
                                 <button
                                   type="button"
-                                  onClick={() => updateQuantity(item.id, picked.quantity + 1)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    updateQuantity(item.id, picked.quantity + 1);
+                                  }}
                                   className="p-2 text-gray-300 hover:bg-[#1E1E1E]"
                                   aria-label={`More ${item.name}`}
                                 >
@@ -377,7 +388,10 @@ export const ContextualPricingSelector: React.FC<ContextualPricingSelectorProps>
                             ) : (
                               <button
                                 type="button"
-                                onClick={() => add(item)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  add(item);
+                                }}
                                 className="w-9 h-9 flex items-center justify-center border border-[#333333] text-gray-300 hover:bg-[#1E1E1E] hover:text-white flex-shrink-0"
                                 aria-label={`Add ${item.name}`}
                               >

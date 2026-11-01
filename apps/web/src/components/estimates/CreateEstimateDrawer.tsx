@@ -904,6 +904,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
 
         {/* Contextual Pricing Selector */}
         <ContextualPricingSelector
+          salesMode={selectedOrg?.sales_mode === true}
           isOpen={showPricingSelector}
           onClose={() => setShowPricingSelector(false)}
           onAddItems={handleAddItemsFromSelector}

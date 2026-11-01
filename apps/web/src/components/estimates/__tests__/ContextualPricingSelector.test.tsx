@@ -73,6 +73,24 @@ describe('Add items drawer', () => {
     ]);
   });
 
+  it('tapping anywhere on a row adds it, each tap after adds one more, and the buttons count only once', async () => {
+    await render();
+    const row = () => Array.from(dialog().querySelectorAll('[data-testid="item-row"]')).find((r) => r.textContent?.includes('3-Tab Asphalt Shingles')) as HTMLElement;
+    const quantity = () => dialog().querySelector('[aria-label="3-Tab Asphalt Shingles quantity"]')?.textContent;
+    await act(async () => row().click());
+    expect(quantity()).toBe('1');
+    await act(async () => row().click());
+    await act(async () => row().click());
+    expect(quantity()).toBe('3');
+    await press('More 3-Tab Asphalt Shingles');
+    expect(quantity()).toBe('4');
+    await press('Fewer 3-Tab Asphalt Shingles');
+    expect(quantity()).toBe('3');
+    // Without Sales mode the heading doesn't talk about cap prices.
+    expect(dialog().textContent).toContain('Tap an item to add it, again for more');
+    expect(dialog().textContent).not.toContain('at cap price');
+  });
+
   it('Add waits until something is chosen, and taking the last one off empties it', async () => {
     await render();
     const add = () => Array.from(dialog().querySelectorAll('button')).find((b) => b.textContent?.startsWith('Add') && !b.getAttribute('aria-label')) as HTMLButtonElement;
