@@ -12,6 +12,7 @@ import {
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { withCategories } from "./lib/categories";
+import { redLineTotal, type Discount } from "./lib/totals";
 import { lockContract } from "./lib/contract";
 import { deletePhotos } from "./photos";
 import {
@@ -53,6 +54,7 @@ const serverOnly = new Set([
   "remindersOff",
   "hideLineItems",
   "clientDetail",
+  "discountAmount",
   "lastEmailedAt",
 ]);
 
@@ -105,6 +107,27 @@ export const get = query({
   },
 });
 
+/** A discount as given: a dollar amount, or a percent up to 100, with a short label. */
+function cleanDiscount(discount: Discount | undefined): Discount | undefined {
+  if (!discount) return undefined;
+  if (!Number.isFinite(discount.value) || discount.value < 0 || (discount.kind === "percent" && discount.value > 100))
+    fail("INVALID", "The discount is a dollar amount, or a percent from 0 to 100");
+  if (discount.value === 0) return undefined;
+  const label = discount.label?.trim().slice(0, 60);
+  return { kind: discount.kind, value: Math.round(discount.value * 100) / 100, ...(label ? { label } : {}) };
+}
+
+const dollars = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** A discount can't take the price of the lines below their red line, the same floor each line has. */
+function assertAboveRedLine(doc: { items: Doc<"estimates">["items"]; subtotal: number; discountAmount?: number }) {
+  const off = doc.discountAmount ?? 0;
+  if (off <= 0) return;
+  const floor = redLineTotal(doc.items);
+  if (doc.subtotal - off < floor - 0.005)
+    fail("INVALID", `That discount takes the price below red line. The most you can take off is ${dollars(Math.max(0, doc.subtotal - floor))}.`);
+}
+
 export const createDef = mutationDef({
   args: { organizationId: v.id("organizations"), data: v.any() },
   handler: async (ctx, { organizationId, data }) => {
@@ -114,6 +137,7 @@ export const createDef = mutationDef({
     const now = nowIso();
     // A new estimate starts with the company's note to clients (its own copy, so later edits to the default don't change it).
     if (fields.clientMessage === undefined && organization.agreement?.clientMessage) fields.clientMessage = organization.agreement.clientMessage;
+    if ("discount" in fields) fields.discount = cleanDiscount(fields.discount);
     const doc = withTotals({
       status: "draft" as const,
       issueDate: now,
@@ -129,6 +153,7 @@ export const createDef = mutationDef({
       createdAt: now,
       updatedAt: now,
     });
+    assertAboveRedLine(doc);
     const id = await ctx.db.insert("estimates", doc);
     await logActivity(ctx, {
       organizationId,
@@ -157,15 +182,21 @@ export const updateDef = mutationDef({
         "The contract was accepted, so its terms can't change. Use a change order.",
       );
     }
+    if ("discount" in patch) {
+      if (doc.contractLockedAt) fail("INVALID", "The contract was signed, so its discount can't change. Use a change order.");
+      patch.discount = cleanDiscount(patch.discount);
+    }
     await assertLinksInOrg(ctx, doc.organizationId, patch);
     if ("items" in patch)
       patch.items = await withCategories(ctx, normalizeItems(patch.items));
-    const { subtotal, taxAmount, totalAmount } = withTotals({
+    const { subtotal, discountAmount, taxAmount, totalAmount } = withTotals({
       ...doc,
       ...patch,
     });
+    // Only a new discount, or new lines under one, can break the floor; a signed price stays as signed.
+    if (("discount" in patch || "items" in patch) && !doc.contractLockedAt) assertAboveRedLine({ items: patch.items ?? doc.items, subtotal, discountAmount });
     const now = nowIso();
-    const updated = { ...doc, ...patch, subtotal, taxAmount, totalAmount };
+    const updated = { ...doc, ...patch, subtotal, discountAmount, taxAmount, totalAmount };
     const lock =
       patch.status === "accepted" && !doc.contractLockedAt
         ? await lockContract(ctx, updated, now)
@@ -177,6 +208,7 @@ export const updateDef = mutationDef({
     await ctx.db.patch(id, {
       ...patch,
       subtotal,
+      discountAmount,
       taxAmount,
       totalAmount,
       ...lock,

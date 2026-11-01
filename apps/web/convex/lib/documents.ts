@@ -1,6 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { fail } from "./access";
+import { estimateTotals, type Discount } from "./totals";
 
 type DocumentItem = Doc<"estimates">["items"][number];
 
@@ -45,13 +46,12 @@ export function normalizeItems(raw: unknown): DocumentItem[] {
  * Same rule as the old backend: when there are items, subtotal/tax/total are
  * derived from them; otherwise any totals the caller supplied are kept.
  */
-export function withTotals<T extends { items: DocumentItem[]; taxRate: number; subtotal: number; taxAmount: number; totalAmount: number }>(
-  doc: T,
-): T {
+export function withTotals<
+  T extends { items: DocumentItem[]; taxRate: number; subtotal: number; taxAmount: number; totalAmount: number; discount?: Discount },
+>(doc: T): T & { discountAmount?: number } {
   if (doc.items.length === 0) return doc;
-  const subtotal = doc.items.reduce((sum, item) => sum + item.totalPrice, 0);
-  const taxAmount = (subtotal * doc.taxRate) / 100;
-  return { ...doc, subtotal, taxAmount, totalAmount: subtotal + taxAmount };
+  const { subtotal, discountAmount, taxAmount, totalAmount } = estimateTotals(doc);
+  return { ...doc, subtotal, discountAmount: discountAmount || undefined, taxAmount, totalAmount };
 }
 
 export async function assertLinksInOrg(

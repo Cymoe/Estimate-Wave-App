@@ -108,6 +108,42 @@ describe('estimate overview', () => {
 
   const button = (text: string) => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === text) as HTMLButtonElement | undefined;
 
+  it('adds a discount ($ or %) with a label, shows what it takes off, shows a refusal, and removes it', async () => {
+    stored = { ...base, subtotal: 1000, total_amount: 1000, items: [{ id: 'i1', description: 'Vanity', quantity: 1, unit_price: 1000, total_price: 1000 }] };
+    await openOverview();
+    const card = () => document.body.querySelector('[data-testid="discount"]')!;
+    const set = async (label: string, value: string) => {
+      const input = card().querySelector(`input[aria-label="${label}"]`) as HTMLInputElement;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    };
+    const saveButton = () => Array.from(card().querySelectorAll('button')).find((b) => b.textContent === 'Save discount') as HTMLButtonElement;
+    expect(saveButton().disabled).toBe(true);
+    await act(async () => (Array.from(card().querySelectorAll('[role="radio"]')).find((b) => b.textContent === '%') as HTMLButtonElement).click());
+    await set('Discount amount', '10');
+    await set('Discount label', ' Fall special ');
+    expect(card().textContent).toContain('Takes off $100.00 before tax.');
+    stored = { ...stored, discount: { kind: 'percent', value: 10, label: 'Fall special' }, discount_amount: 100, total_amount: 900 };
+    await act(async () => saveButton().click());
+    expect(update).toHaveBeenLastCalledWith('e1', { discount: { kind: 'percent', value: 10, label: 'Fall special' } });
+    expect(card().textContent).toContain('−$100.00');
+
+    // The server's refusal (below red line) is shown as it says it.
+    update.mockImplementationOnce(() => {
+      throw new Error('That discount takes the price below red line. The most you can take off is $300.00.');
+    });
+    await set('Discount amount', '50');
+    await act(async () => saveButton().click());
+    expect(card().textContent).toContain('The most you can take off is $300.00.');
+
+    stored = { ...stored, discount: undefined, discount_amount: undefined, total_amount: 1000 };
+    await act(async () => (Array.from(card().querySelectorAll('button')).find((b) => b.textContent === 'Remove') as HTMLButtonElement).click());
+    expect(update).toHaveBeenLastCalledWith('e1', { discount: null });
+    expect(card().textContent).not.toContain('−$');
+  });
+
   it('the note to the client saves when the box loses focus, only if it changed', async () => {
     stored = { ...base, client_message: 'Hi {first name}' };
     await openOverview();

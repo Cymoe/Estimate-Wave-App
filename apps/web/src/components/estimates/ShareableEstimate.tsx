@@ -55,6 +55,9 @@ interface ClientEstimate {
   client_detail: 'full' | 'lines' | 'categories';
   /** The total per category, from the server (lines without prices carry none of their own). */
   category_totals?: Array<{ category?: string; total: number }>;
+  /** A discount off the work, before tax, and what the company calls it. */
+  discount_amount?: number;
+  discount_label?: string;
   /** Without prices when the company shows the lines but not what each costs. */
   items: Array<{ id: string; description: string; quantity: number; unit_price?: number; total_price?: number; category?: string }>;
 }
@@ -87,6 +90,8 @@ function fromView(view: any): ClientEstimate {
     acknowledged_at: view.acknowledgedAt,
     client_detail: view.clientDetail === 'lines' || view.clientDetail === 'categories' ? view.clientDetail : 'full',
     category_totals: view.categoryTotals,
+    discount_amount: view.discountAmount,
+    discount_label: view.discountLabel,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     items: (view.items ?? []).map((item: any, i: number) => ({
       id: String(i),
@@ -112,6 +117,9 @@ function agreementFor(estimate: ClientEstimate): ContractData {
     contractorPhone: estimate.business?.phone ?? '',
     workDescription: terms?.workDescription ?? estimate.description ?? '',
     totalAmount: estimate.total_amount,
+    discountAmount: estimate.discount_amount,
+    discountLabel: estimate.discount_label,
+    taxAmount: estimate.tax_amount || undefined,
     // The agreement's scope and price table read only the total per category, so it says the same at every level of detail.
     lineItems: estimate.category_totals
       ? estimate.category_totals.map(({ category, total }) => ({ description: category ?? '', quantity: 1, unit: 'ea', unitPrice: total, total, category }))
@@ -250,6 +258,7 @@ const ShareableEstimatePage: React.FC = () => {
     estimate.category_totals ?? estimate.items.map((item) => ({ category: item.category, total: item.total_price ?? 0 })),
   );
   const priced = estimate.client_detail === 'full';
+  const discount = estimate.discount_amount ?? 0;
   const span = priced ? 3 : 2;
 
   /** Opens the print screen; the page title names the saved file ("Shah Builders – Estimate & Agreement · EST-2026-000001"). */
@@ -400,12 +409,20 @@ const ShareableEstimatePage: React.FC = () => {
               )}
             </tbody>
             <tfoot>
+              {(discount > 0 || (estimate.tax_rate ?? 0) > 0) && (
+                <tr>
+                  <td className="pt-3 text-gray-600">{t.subtotal}</td>
+                  <td className="pt-3 text-right text-gray-600">{formatCurrency(estimate.subtotal)}</td>
+                </tr>
+              )}
+              {discount > 0 && (
+                <tr data-testid="summary-discount">
+                  <td className="pt-1 text-green-700">{estimate.discount_label || t.discount}</td>
+                  <td className="pt-1 text-right text-green-700">−{formatCurrency(discount)}</td>
+                </tr>
+              )}
               {(estimate.tax_rate ?? 0) > 0 && (
                 <>
-                  <tr>
-                    <td className="pt-3 text-gray-600">{t.subtotal}</td>
-                    <td className="pt-3 text-right text-gray-600">{formatCurrency(estimate.subtotal)}</td>
-                  </tr>
                   <tr>
                     <td className="pt-1 text-gray-600">{t.tax(estimate.tax_rate ?? 0)}</td>
                     <td className="pt-1 text-right text-gray-600">{formatCurrency(estimate.tax_amount || 0)}</td>
@@ -495,6 +512,14 @@ const ShareableEstimatePage: React.FC = () => {
                     {formatCurrency(estimate.subtotal)}
                   </td>
                 </tr>
+                {discount > 0 && (
+                  <tr>
+                    <td colSpan={span} className="px-6 py-3 text-right text-sm font-medium text-green-700">
+                      {estimate.discount_label || t.discount}:
+                    </td>
+                    <td className="px-6 py-3 text-right text-sm font-medium text-green-700">−{formatCurrency(discount)}</td>
+                  </tr>
+                )}
                 {(estimate.tax_rate ?? 0) > 0 && (
                   <tr>
                     <td colSpan={span} className="px-6 py-3 text-right text-sm font-medium text-gray-900">

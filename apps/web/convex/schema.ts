@@ -241,6 +241,9 @@ export const contractSnapshot = v.object({
   ),
   items: v.array(documentItem),
   subtotal: v.number(),
+  // The discount as signed: what it took off and what it was called.
+  discountAmount: v.optional(v.number()),
+  discountLabel: v.optional(v.string()),
   taxAmount: v.number(),
   totalAmount: v.number(),
   terms: v.optional(contractTerms),
@@ -277,6 +280,9 @@ export const estimateFields = {
   // When Webb Leads last emailed the estimate to the client (convex/estimateEmail.ts).
   lastEmailedAt: v.optional(v.string()),
   remindersOff: v.optional(v.boolean()),
+  // A discount on the whole estimate ($ or %), taken off before tax, and what it takes off (set by the server).
+  discount: v.optional(v.object({ kind: v.union(v.literal("amount"), v.literal("percent")), value: v.number(), label: v.optional(v.string()) })),
+  discountAmount: v.optional(v.number()),
   // A note to the client at the top of their link; new estimates start with the company's (agreement.clientMessage).
   clientMessage: v.optional(v.string()),
   // How much of the price the client's link shows (estimates.setClientDetail): every line and price

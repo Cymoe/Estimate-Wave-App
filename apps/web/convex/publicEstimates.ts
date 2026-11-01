@@ -134,6 +134,8 @@ export const get = query({
       items: clientItems(lines, clientDetailOf(estimate)),
       categoryTotals: categoryTotals(lines),
       subtotal: signed ? signed.subtotal : estimate.subtotal,
+      discountAmount: (signed ? signed.discountAmount : estimate.discountAmount) || undefined,
+      discountLabel: signed ? signed.discountLabel : estimate.discountAmount ? estimate.discount?.label : undefined,
       taxRate: estimate.taxRate,
       taxAmount: signed ? signed.taxAmount : estimate.taxAmount,
       totalAmount: signed ? signed.totalAmount : estimate.totalAmount,

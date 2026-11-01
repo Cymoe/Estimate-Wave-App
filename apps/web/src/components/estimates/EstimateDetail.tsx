@@ -27,6 +27,8 @@ import { approvalLine, canApprove, confirmApproval, copyText, duplicateEstimate,
 import { EstimateProject } from './EstimateProject';
 import { ClientNoteCard } from './ClientNoteCard';
 import { WORK_TYPE_NAMES } from '../../../convex/lib/workTypes';
+import { estimateTotals } from '../../../convex/lib/totals';
+import { DiscountCard } from './DiscountCard';
 
 // Header actions share one size so they line up; only the main action is filled.
 const actionBase = 'h-9 flex items-center gap-2 px-4 border rounded-sm transition-colors text-sm font-medium';
@@ -342,14 +344,19 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
       const unitPrice = Math.max(Number(item.unit_price) || 0, item.red_line_price ?? 0);
       return { ...item, unit_price: unitPrice, total_price: unitPrice * (Number(item.quantity) || 0) };
     });
-    const subtotal = nextItems.reduce((sum, item) => sum + item.total_price, 0);
-    const taxAmount = estimate.tax_rate ? (subtotal * estimate.tax_rate / 100) : 0;
+    // The same arithmetic the server saves: the discount comes off before tax.
+    const totals = estimateTotals({
+      items: nextItems.map((item) => ({ totalPrice: item.total_price })),
+      taxRate: estimate.tax_rate,
+      discount: estimate.discount,
+    });
     setEstimate({
       ...estimate,
       items: nextItems,
-      subtotal,
-      tax_amount: taxAmount,
-      total_amount: subtotal + taxAmount
+      subtotal: totals.subtotal,
+      discount_amount: totals.discountAmount || undefined,
+      tax_amount: totals.taxAmount,
+      total_amount: totals.totalAmount,
     });
     pendingItems.current = nextItems;
     saveItems(estimate.id!);
@@ -463,6 +470,9 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
       </div>
       <div className="flex-1 py-2 px-3 text-right text-gray-500 border-r border-[#333333]">
         Sum
+        {(estimate.discount_amount ?? 0) > 0 && (
+          <span className="block text-[10px] text-green-400">{estimate.discount?.label || 'Discount'} −{formatCurrency(estimate.discount_amount ?? 0)}</span>
+        )}
       </div>
       <div className="w-28 py-2 px-3 text-right text-gray-300 border-r border-[#333333]">
         {formatCurrency(estimate.subtotal)}
@@ -774,6 +784,27 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
             {/* The note at the top of the client's link */}
             {estimate.id && (
               <ClientNoteCard estimateId={estimate.id} note={estimate.client_message} onSaved={(saved) => setEstimate((current) => (current ? { ...current, client_message: saved.client_message } : current))} />
+            )}
+
+            {/* A discount on the whole estimate, before tax */}
+            {estimate.id && (
+              <DiscountCard
+                estimate={estimate}
+                onSaved={(saved) =>
+                  setEstimate((current) =>
+                    current
+                      ? {
+                          ...current,
+                          discount: saved.discount,
+                          discount_amount: saved.discount_amount,
+                          subtotal: saved.subtotal,
+                          tax_amount: saved.tax_amount,
+                          total_amount: saved.total_amount,
+                        }
+                      : current,
+                  )
+                }
+              />
             )}
 
             {/* How much of the price the client's link shows */}

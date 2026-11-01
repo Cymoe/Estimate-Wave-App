@@ -11,6 +11,10 @@ export interface ContractData {
   contractorPhone: string;
   workDescription: string;
   totalAmount: number;
+  /** A discount taken off the work, and what it's called. */
+  discountAmount?: number;
+  discountLabel?: string;
+  taxAmount?: number;
   lineItems: Array<{
     description: string;
     quantity: number;
@@ -102,6 +106,9 @@ export function contractFor(estimate: Estimate, business?: Business | null): Con
     contractorPhone: business?.phone ?? '',
     workDescription: terms.workDescription || estimate.description || '',
     totalAmount: snapshot ? snapshot.totalAmount : estimate.total_amount,
+    discountAmount: (snapshot ? snapshot.discountAmount : estimate.discount_amount) || undefined,
+    discountLabel: snapshot ? snapshot.discountLabel : estimate.discount?.label,
+    taxAmount: (snapshot ? snapshot.taxAmount : estimate.tax_amount) || undefined,
     lineItems,
     startDate: terms.startDate ?? '',
     completionDate: terms.completionDate ?? '',

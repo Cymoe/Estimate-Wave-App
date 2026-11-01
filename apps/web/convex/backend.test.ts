@@ -2655,6 +2655,43 @@ describe("client link", () => {
     expect((await t.query(api.publicEstimates.get, { token: noClientToken }))!.clientMessage).toBe("Hi, here it is.");
   });
 
+  test("a discount ($ or %) comes off before tax, shows on the link and the signed copy, and can't go below red line", async () => {
+    const { t, as, id, token } = await sharedEstimate();
+    // Vanity: $900, red line $600. Tax 10% on what's left after the discount.
+    await as.mutation(api.estimates.update, { id, data: { taxRate: 10, discount: { kind: "percent", value: 10, label: "  Fall special  " } } });
+    let estimate = (await as.query(api.estimates.get, { id }))!;
+    expect(estimate.discount).toEqual({ kind: "percent", value: 10, label: "Fall special" });
+    expect([estimate.subtotal, estimate.discountAmount, estimate.taxAmount, estimate.totalAmount]).toEqual([900, 90, 81, 891]);
+    const link = (await t.query(api.publicEstimates.get, { token }))!;
+    expect([link.discountAmount, link.discountLabel, link.totalAmount]).toEqual([90, "Fall special", 891]);
+
+    await as.mutation(api.estimates.update, { id, data: { discount: { kind: "amount", value: 250 } } });
+    estimate = (await as.query(api.estimates.get, { id }))!;
+    expect([estimate.discountAmount, estimate.totalAmount]).toEqual([250, 715]);
+
+    // Below red line ($600 of $900): refused, saying the most that can come off.
+    await expect(as.mutation(api.estimates.update, { id, data: { discount: { kind: "amount", value: 301 } } })).rejects.toThrow(
+      /below red line. The most you can take off is \$300.00/,
+    );
+    await expect(as.mutation(api.estimates.update, { id, data: { discount: { kind: "percent", value: 120 } } })).rejects.toThrow(
+      /percent from 0 to 100/,
+    );
+    expect((await as.query(api.estimates.get, { id }))!.discountAmount).toBe(250);
+
+    // Removing it puts the price back.
+    await as.mutation(api.estimates.update, { id, data: { discount: null } });
+    estimate = (await as.query(api.estimates.get, { id }))!;
+    expect([estimate.discount, estimate.discountAmount, estimate.totalAmount]).toEqual([undefined, undefined, 990]);
+
+    // Signed with a discount: the signed copy keeps it, and it can't change after.
+    await as.mutation(api.estimates.update, { id, data: { discount: { kind: "amount", value: 100, label: "Neighbor" } } });
+    await t.mutation(api.publicEstimates.accept, { token, signature: "data:image/png;base64,AAAA" });
+    const signed = (await as.query(api.estimates.get, { id }))!;
+    expect(signed.contractSnapshot).toMatchObject({ subtotal: 900, discountAmount: 100, discountLabel: "Neighbor", taxAmount: 80, totalAmount: 880 });
+    await expect(as.mutation(api.estimates.update, { id, data: { discount: null } })).rejects.toThrow(/its discount can't change/);
+    expect((await t.query(api.publicEstimates.get, { token }))!).toMatchObject({ discountAmount: 100, discountLabel: "Neighbor", totalAmount: 880 });
+  });
+
   test("price detail on the link: every line and price, lines without prices, or totals by category; prices never leak", async () => {
     const { t, as, id, token } = await sharedEstimate();
     await as.mutation(api.estimates.update, {

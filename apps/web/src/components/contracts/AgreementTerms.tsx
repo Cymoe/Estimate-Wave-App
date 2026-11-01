@@ -148,6 +148,18 @@ export const AgreementTerms: React.FC<AgreementTermsProps> = ({ contract: contra
                     <td className="border border-gray-300 px-3 py-2 text-right">{formatCurrency(total)}</td>
                   </tr>
                 ))}
+                {(contractData.discountAmount ?? 0) > 0 && (
+                  <tr data-testid="agreement-discount">
+                    <td className="border border-gray-300 px-3 py-2">{contractData.discountLabel || A.discount}</td>
+                    <td className="border border-gray-300 px-3 py-2 text-right">−{formatCurrency(contractData.discountAmount ?? 0)}</td>
+                  </tr>
+                )}
+                {(contractData.taxAmount ?? 0) > 0 && (
+                  <tr>
+                    <td className="border border-gray-300 px-3 py-2">{A.tax}</td>
+                    <td className="border border-gray-300 px-3 py-2 text-right">{formatCurrency(contractData.taxAmount ?? 0)}</td>
+                  </tr>
+                )}
                 <tr className="font-bold bg-gray-100">
                   <td className="border border-gray-300 px-3 py-2">{A.total}</td>
                   <td className="border border-gray-300 px-3 py-2 text-right">{formatCurrency(contractData.totalAmount)}</td>

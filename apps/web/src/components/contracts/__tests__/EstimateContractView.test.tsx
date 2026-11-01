@@ -131,6 +131,24 @@ describe('contract page', () => {
     expect(text).not.toContain('Outdoor Kitchen');
   });
 
+  it('the price table shows the discount and tax so the rows add up to the total', async () => {
+    stored = {
+      ...base,
+      items: [{ id: 'i1', description: 'Paint walls', quantity: 1, unit_price: 1000, total_price: 1000, category: 'Interior Painting' }],
+      subtotal: 1000,
+      discount: { kind: 'percent', value: 10, label: 'Fall special' },
+      discount_amount: 100,
+      tax_rate: 8,
+      tax_amount: 72,
+      total_amount: 972,
+    };
+    await render();
+    expect(document.body.querySelector('[data-testid="agreement-discount"]')!.textContent).toBe('Fall special−$100.00');
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('Tax$72.00');
+    expect(text).toContain('Total$972.00');
+  });
+
   it('shows the agreed design', async () => {
     stored = { ...base, design: { url: 'https://files.example/plan.png', name: 'plan.png', type: 'image/png' } };
     await render();

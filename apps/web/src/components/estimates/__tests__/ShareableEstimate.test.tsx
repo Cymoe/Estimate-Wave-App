@@ -163,6 +163,21 @@ describe('client estimate page', () => {
     expect(document.body.querySelector('[data-testid="agreement"]')!.textContent).toContain('$500.00');
   });
 
+  it('shows the discount under the subtotal, before tax, in the summary and the details', async () => {
+    view = { ...sent, subtotal: 900, discountAmount: 90, discountLabel: 'Fall special', taxRate: 10, taxAmount: 81, totalAmount: 891 };
+    await open();
+    const summary = document.body.querySelector('[data-testid="category-summary"] tfoot')!;
+    expect(Array.from(summary.querySelectorAll('tr')).map((r) => r.textContent)).toEqual([
+      'Subtotal$900.00',
+      'Fall special−$90.00',
+      'Tax (10%)$81.00',
+      'Total$891.00',
+    ]);
+    await act(async () => button('Line item details (1)')!.click());
+    expect(document.body.querySelector('[data-testid="line-item-details"] tfoot')!.textContent).toContain('Fall special:−$90.00');
+    expect(document.body.querySelector('[data-testid="agreement-discount"]')!.textContent).toBe('Fall special−$90.00');
+  });
+
   it("shows the company's note to the client, signed with the company name", async () => {
     view = { ...sent, clientMessage: 'Hi Dan, thanks for having us out!' };
     await open();
