@@ -2486,7 +2486,8 @@ describe("estimate item categories", () => {
         ],
       },
     });
-    expect(estimate!.items.map((i) => i.category)).toEqual(["Painting", "Painting", undefined, undefined]);
+    // Lines not from the price book get their type of work from their wording; these name none.
+    expect(estimate!.items.map((i) => i.category)).toEqual(["Painting", "Painting", "General", "General"]);
   });
 
   test("older items get their category when read, and the signed contract keeps it", async () => {
@@ -2517,6 +2518,48 @@ describe("estimate item categories", () => {
     });
     const accepted = await t.run(async (ctx) => ctx.db.get(id));
     expect(accepted!.contractSnapshot!.items[0].category).toBe("Painting");
+  });
+});
+
+describe("estimate item types of work", () => {
+  test("a hand-typed line gets its type of work, and a category the contractor picks sticks, even on a price book line", async () => {
+    const t = setup();
+    const { as, organizationId } = await signUp(t, "a@example.com");
+    const estimate = await as.mutation(api.estimates.create, {
+      organizationId,
+      data: { items: [{ description: "Rough plumbing: new valve and drain", quantity: 1, unitPrice: 900 }] },
+    });
+    expect(estimate!.items[0].category).toBe("Plumbing");
+    const chosen = await as.mutation(api.estimates.update, {
+      id: estimate!._id,
+      data: { items: [{ ...estimate!.items[0], category: "Shower", categoryChosen: true }] },
+    });
+    expect(chosen!.items[0]).toMatchObject({ category: "Shower", categoryChosen: true });
+    // Saved again without touching it, it stays.
+    const again = await as.mutation(api.estimates.update, { id: estimate!._id, data: { items: chosen!.items } });
+    expect(again!.items[0].category).toBe("Shower");
+    // The flag means nothing without a category.
+    const cleared = await as.mutation(api.estimates.update, {
+      id: estimate!._id,
+      data: { items: [{ ...again!.items[0], category: "", categoryChosen: true }] },
+    });
+    expect(cleared!.items[0]).toMatchObject({ category: "Plumbing" });
+    expect(cleared!.items[0].categoryChosen).toBeUndefined();
+  });
+
+  test("a package's lines start with their types of work, so its agreement lists categories", async () => {
+    const t = setup();
+    const { as, organizationId } = await signUp(t, "a@example.com");
+    const started = await as.mutation(api.projectTemplates.startPackage, {
+      organizationId,
+      packageId: "general-construction/remodel/bathroom-remodel",
+      data: { name: "Hall bath" },
+    });
+    const estimate = await as.query(api.estimates.get, { id: started.estimateId! });
+    const categories = new Set(estimate!.items.map((i) => i.category));
+    for (const c of ["Demolition", "Plumbing", "Electrical", "Tile", "Permits & Fees"]) expect(categories.has(c)).toBe(true);
+    expect(categories.has(undefined)).toBe(false);
+    expect(categories.has("General")).toBe(false);
   });
 });
 
@@ -2569,7 +2612,7 @@ describe("client link", () => {
       client: { name: "Dan Shah" },
       business: { name: "a@example.com Co" },
     });
-    expect(view!.items).toEqual([{ description: "Vanity", quantity: 1, unitPrice: 900, totalPrice: 900 }]);
+    expect(view!.items).toEqual([{ description: "Vanity", quantity: 1, unitPrice: 900, totalPrice: 900, category: "Cabinets & Vanities" }]);
     expect(JSON.stringify(view)).not.toMatch(/redLine|capPrice|organizationId|shareToken|contract/);
   });
 
@@ -2733,7 +2776,7 @@ describe("client link", () => {
       },
     });
     const view = await t.query(api.publicEstimates.get, { token });
-    expect(view!.items).toEqual([{ description: "Vanity", quantity: 1, unitPrice: 900, totalPrice: 900 }]);
+    expect(view!.items).toEqual([{ description: "Vanity", quantity: 1, unitPrice: 900, totalPrice: 900, category: "Cabinets & Vanities" }]);
     expect(view!.totalAmount).toBe(900);
     expect(view!.lockedAt).toEqual(expect.any(String));
   });

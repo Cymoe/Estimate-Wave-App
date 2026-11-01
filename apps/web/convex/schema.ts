@@ -93,8 +93,11 @@ export const documentItem = v.object({
   redLinePrice: v.optional(v.number()),
   capPrice: v.optional(v.number()),
   costCode: v.optional(v.string()),
-  // The price book cost code's name (e.g. "Interior Painting"), for category totals.
+  // The type of work the line is (e.g. "Painting", "Tile"): what the agreement's scope,
+  // its price table and the client's summary group by (lib/categories.ts).
   category: v.optional(v.string()),
+  // The contractor picked the category, so it isn't replaced by the price book trade.
+  categoryChosen: v.optional(v.boolean()),
   displayOrder: v.number(),
 });
 

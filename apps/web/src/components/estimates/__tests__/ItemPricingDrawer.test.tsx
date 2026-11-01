@@ -43,6 +43,28 @@ describe('ItemPricingDrawer', () => {
     unmount();
   });
 
+  it("shows the line's category, suggests types of work, and saves a new one as the contractor's choice", () => {
+    const onSave = jest.fn();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() =>
+      root.render(<ItemPricingDrawer item={{ ...item, category: 'Electrical' }} categories={['Electrical', 'Plumbing']} onClose={() => {}} onSave={onSave} />),
+    );
+    const dialog = document.querySelector('[role="dialog"]')!;
+    const save = () => [...dialog.querySelectorAll('button')].find(b => b.textContent?.includes('Save'))!;
+    const input = dialog.querySelector('input[aria-label="Category"]') as HTMLInputElement;
+    expect(input.value).toBe('Electrical');
+    expect([...dialog.querySelectorAll('datalist option')].map(o => o.getAttribute('value'))).toEqual(['Electrical', 'Plumbing']);
+    // Unchanged, Save leaves the category alone.
+    act(() => save().dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 187.5, quantity: 2 });
+    act(() => type(input, 'Lighting '));
+    act(() => save().dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 187.5, quantity: 2, category: 'Lighting', category_chosen: true });
+    act(() => root.unmount());
+  });
+
   it('never saves a price below red line', () => {
     const { onSave, dialog, button, priceInput, unmount } = setup();
     act(() => type(priceInput, '50'));

@@ -1,5 +1,5 @@
 import React from 'react';
-import { OTHER_CATEGORY, categoryTotals, type ContractData, type ContractTerms } from '../../services/contract';
+import { categoryTotals, type ContractData, type ContractTerms } from '../../services/contract';
 import { formatCurrency } from '../../utils/format';
 import { AGREEMENT } from '../../i18n/agreement';
 import type { Lang } from '../../i18n/lang';
@@ -17,14 +17,9 @@ interface AgreementTermsProps {
 const formatDate = (date: string, lang: Lang, toBeAgreed: string) =>
   date ? new Date(`${date.slice(0, 10)}T00:00:00`).toLocaleDateString(lang === 'es' ? 'es-US' : 'en-US') : toBeAgreed;
 
-/**
- * What the scope lists: each named category once, and lines with no category
- * by their own description, so a one-off job never reads as just "Other".
- */
+/** What the scope lists: each category of work once, the way the estimate groups it. */
 function scopeLines(items: ContractData['lineItems']): string[] {
-  return categoryTotals(items).flatMap(({ category }) =>
-    category === OTHER_CATEGORY ? items.filter((item) => !item.category?.trim()).map((item) => item.description) : [category],
-  );
+  return categoryTotals(items).map(({ category }) => category);
 }
 
 const input = 'p-1 border border-gray-300 rounded text-sm';

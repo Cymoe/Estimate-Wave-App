@@ -337,7 +337,8 @@ describe("niche research's pure parts", () => {
       maxDate: "2026-08-01",
       maxItems: 200,
     });
-    const snake = fromApifyItem(APIFY_CABINETS[0], now)!;
+    // The fixtures' start dates count back from the real clock, so read them against it too.
+    const snake = fromApifyItem(APIFY_CABINETS[0], new Date())!;
     expect(snake).toMatchObject({
       metaAdId: "9001",
       pageId: "p1",

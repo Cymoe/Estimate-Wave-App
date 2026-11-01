@@ -26,6 +26,7 @@ import { JobPhotos } from '../common/JobPhotos';
 import { ContractTab } from './ContractTab';
 import { approvalLine, canApprove, confirmApproval, copyText, duplicateEstimate, sendEstimateLink } from './estimateActions';
 import { EstimateProject } from './EstimateProject';
+import { WORK_TYPE_NAMES } from '../../../convex/lib/workTypes';
 
 // Header actions share one size so they line up; only the main action is filled.
 const actionBase = 'h-9 flex items-center gap-2 px-4 border rounded-sm transition-colors text-sm font-medium';
@@ -830,7 +831,8 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
             price: item.unit_price,
             original_price: item.original_unit_price,
             unit: item.unit || 'ea',
-            total: item.total_price
+            total: item.total_price,
+            category: item.category
           })) || []}
           onUpdateItem={(itemId, field, value) => {
             commitItems(estimate.items.map(item => {
@@ -1056,6 +1058,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
 
       <ItemPricingDrawer
         item={estimate.items?.find(item => item.id === pricingItemId) ?? null}
+        categories={[...new Set([...(estimate.items ?? []).map((i) => i.category).filter((c): c is string => Boolean(c)), ...WORK_TYPE_NAMES])]}
         onClose={() => setPricingItemId(null)}
         onSave={(changes) => {
           commitItems(estimate.items.map(item => item.id === pricingItemId ? { ...item, ...changes } : item));

@@ -124,6 +124,7 @@ describe('contract page', () => {
     await render();
     const scope = document.body.querySelector('[data-testid="scope-categories"]')!;
     expect(Array.from(scope.querySelectorAll('li')).map((li) => li.textContent)).toEqual(['Interior Painting', 'Plumbing']);
+    expect(scope.textContent).not.toContain('Paint walls'); // the lines themselves stay on the estimate
     const text = document.body.textContent ?? '';
     expect(text).toContain('Interior Painting$600.00');
     expect(text).toContain('Plumbing$900.00');

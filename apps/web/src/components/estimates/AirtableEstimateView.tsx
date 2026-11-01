@@ -9,6 +9,8 @@ interface AirtableItem {
   original_price?: number;
   unit?: string;
   total: number;
+  /** The line's type of work, shown under its name. */
+  category?: string;
 }
 
 interface AirtableEstimateViewProps {
@@ -167,6 +169,7 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
               {/* Name Cell - opens the item's pricing editor when there is one */}
               <td className="py-1.5 px-3 text-white text-[13px] font-normal border-r border-[#333333]">
                 {item.name}
+                {item.category && <span className="block text-[11px] text-gray-500" data-testid="item-category">{item.category}</span>}
               </td>
               
               {/* Price Cell */}

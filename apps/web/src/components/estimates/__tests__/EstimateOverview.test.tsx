@@ -160,6 +160,21 @@ describe('estimate overview', () => {
     expect(update).toHaveBeenCalledWith('e1', { project_id: '' });
   });
 
+  it('the line items show each line\'s category under its name', async () => {
+    stored = { ...base, items: [{ ...base.items[0], category: 'Cabinets & Vanities' }] };
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () =>
+      createRoot(container).render(
+        <MemoryRouter>
+          <EstimateDetail estimateId="e1" onClose={() => {}} inDrawer />
+        </MemoryRouter>,
+      ),
+    );
+    await act(async () => {});
+    expect(Array.from(document.body.querySelectorAll('[data-testid="item-category"]')).map((e) => e.textContent)).toEqual(['Cabinets & Vanities']);
+  });
+
   it('summarises the estimate without repeating the status', async () => {
     stored = { ...base };
     await openOverview();

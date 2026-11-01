@@ -16,8 +16,10 @@ export interface EstimateItem {
   product_id?: string;
   cost_code?: string;
   cost_code_name?: string;
-  /** The price book cost code's name, e.g. "Interior Painting". */
+  /** The type of work, e.g. "Plumbing" or "Tile": what the agreement and the client's summary group by. */
   category?: string;
+  /** The contractor picked the category, so the price book trade doesn't replace it. */
+  category_chosen?: boolean;
   display_order?: number;
 }
 
@@ -148,6 +150,7 @@ function toLegacy(doc: Doc, clients?: Map<string, Doc>, projects?: Map<string, D
       product_id: item.productId,
       cost_code: item.costCode,
       category: item.category,
+      category_chosen: item.categoryChosen,
       display_order: item.displayOrder,
     })),
     client: client ? toLegacyClient(client) : undefined,
@@ -187,6 +190,7 @@ function toConvex(estimate: Partial<Estimate> & Doc): Doc {
       capPrice: item.cap_price ?? undefined,
       costCode: item.cost_code,
       category: item.category || undefined,
+      categoryChosen: item.category_chosen || undefined,
       productId: item.product_id,
       displayOrder: item.display_order ?? index,
     }));

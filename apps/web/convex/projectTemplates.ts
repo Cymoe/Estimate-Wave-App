@@ -6,6 +6,7 @@ import { fail, getOwned, logActivity, nowIso, requireMember } from "./lib/access
 import { withCategories } from "./lib/categories";
 import { assertLinksInOrg, documentNumber, normalizeItems, withTotals } from "./lib/documents";
 import { findPackage, type BuiltInPackage } from "./catalog/packages";
+import { tradeLabel, workTypeOf } from "./lib/workTypes";
 
 /**
  * Project templates: a kind of job the company does, saved from a project
@@ -349,6 +350,8 @@ export function packageItems(p: BuiltInPackage): Doc<"projectTemplates">["items"
     totalPrice: Math.round(line.quantity * line.unitPrice * 100) / 100,
     redLinePrice: line.redLinePrice,
     capPrice: line.capPrice,
+    // Its type of work; a line that names none (an allowance, labor) takes the package's trade.
+    category: workTypeOf(line.description, tradeLabel(p.trade)),
     displayOrder: index,
   }));
 }

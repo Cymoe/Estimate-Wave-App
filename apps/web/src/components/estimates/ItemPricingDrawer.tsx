@@ -10,12 +10,23 @@ export interface PricedItem {
   unit_price: number;
   red_line_price?: number;
   cap_price?: number;
+  category?: string;
+}
+
+/** What Save hands back; the category only when it was changed. */
+export interface PricingChanges {
+  unit_price: number;
+  quantity: number;
+  category?: string;
+  category_chosen?: boolean;
 }
 
 interface ItemPricingDrawerProps {
   item: PricedItem | null;
   onClose: () => void;
-  onSave: (changes: { unit_price: number; quantity: number }) => void;
+  onSave: (changes: PricingChanges) => void;
+  /** Category names to suggest: the types of work and the estimate's own. */
+  categories?: string[];
   /** Removes the item from the estimate. */
   onRemove?: () => void;
 }
@@ -31,9 +42,10 @@ function rangeOf(item: PricedItem): PriceRange {
  * the salesperson's commission and the pricing options. The price can't go
  * below red line.
  */
-export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onClose, onSave, onRemove }) => {
+export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onClose, onSave, onRemove, categories = [] }) => {
   const [priceText, setPriceText] = useState('');
   const [quantity, setQuantity] = useState(1);
+  const [category, setCategory] = useState('');
   // The drawer stays mounted and slides like the estimate drawer. It keeps
   // showing the last item while sliding out.
   const [shownItem, setShownItem] = useState<PricedItem | null>(null);
@@ -50,6 +62,7 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
     setConfirmRemove(false);
     setPriceText(item.unit_price.toFixed(2));
     setQuantity(item.quantity || 1);
+    setCategory(item.category ?? '');
     // Wait for the closed position to paint so the slide-in animates.
     let inner = 0;
     const outer = requestAnimationFrame(() => {
@@ -87,7 +100,9 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
   const share = maxCommission > 0 ? Math.min(commission / maxCommission, 1) : 0;
 
   const save = () => {
-    onSave({ unit_price: price, quantity });
+    const picked = category.trim();
+    const changed = shownItem && picked && picked !== (shownItem.category ?? '');
+    onSave(changed ? { unit_price: price, quantity, category: picked, category_chosen: true } : { unit_price: price, quantity });
     onClose();
   };
 
@@ -208,6 +223,26 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
                   The price can't go below red line ({formatCurrency(range.redLine)}).
                 </p>
               )}
+
+              {/* The type of work: what the agreement and the client's summary group this line under */}
+              <label className="block">
+                <span className="block text-sm text-gray-300 mb-1.5">Category</span>
+                <input
+                  type="text"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  list="item-categories"
+                  aria-label="Category"
+                  placeholder="e.g. Plumbing"
+                  className="w-full bg-[#1E1E1E] border border-[#333333] px-3 py-2 text-white focus:outline-none focus:border-[#336699]"
+                />
+                <datalist id="item-categories">
+                  {categories.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
+                <span className="block text-xs text-gray-500 mt-1">Groups this line on the agreement and the client&rsquo;s summary.</span>
+              </label>
 
               {/* Commission */}
               <div className="border border-[#333333] p-4">
