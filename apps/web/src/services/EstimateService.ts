@@ -20,6 +20,8 @@ export interface EstimateItem {
   category?: string;
   /** The contractor picked the category, so the price book trade doesn't replace it. */
   category_chosen?: boolean;
+  /** An allowance: the client picks the product; pickBy is when (YYYY-MM-DD), amount the allowance once their pick is approved. */
+  allowance?: { pickBy?: string; amount?: number } | null;
   display_order?: number;
 }
 
@@ -167,6 +169,7 @@ function toLegacy(doc: Doc, clients?: Map<string, Doc>, projects?: Map<string, D
       cost_code: item.costCode,
       category: item.category,
       category_chosen: item.categoryChosen,
+      allowance: item.allowance,
       display_order: item.displayOrder,
     })),
     client: client ? toLegacyClient(client) : undefined,
@@ -209,6 +212,7 @@ function toConvex(estimate: Partial<Estimate> & Doc): Doc {
       costCode: item.cost_code,
       category: item.category || undefined,
       categoryChosen: item.category_chosen || undefined,
+      allowance: item.allowance || undefined,
       productId: item.product_id,
       displayOrder: item.display_order ?? index,
     }));

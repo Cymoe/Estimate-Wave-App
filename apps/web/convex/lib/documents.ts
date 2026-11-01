@@ -10,6 +10,16 @@ function toNumber(value: unknown, fallback: number): number {
   return typeof n === "number" && Number.isFinite(n) ? n : fallback;
 }
 
+/** An allowance as given (true, or { pickBy, amount }), keeping only a real date and amount. */
+function allowanceOf(raw: unknown): DocumentItem["allowance"] {
+  if (raw !== true && (typeof raw !== "object" || raw === null)) return undefined;
+  const { pickBy, amount } = (raw === true ? {} : raw) as { pickBy?: unknown; amount?: unknown };
+  const out: NonNullable<DocumentItem["allowance"]> = {};
+  if (typeof pickBy === "string" && /^\d{4}-\d{2}-\d{2}$/.test(pickBy)) out.pickBy = pickBy;
+  if (typeof amount === "number" && Number.isFinite(amount) && amount >= 0) out.amount = amount;
+  return out;
+}
+
 /**
  * Normalizes line items sent by the UI: gives each a stable string _id,
  * coerces numbers, keeps the unit price at or above the item's red line
@@ -38,6 +48,8 @@ export function normalizeItems(raw: unknown, { floor = true }: { floor?: boolean
     if (normalized.category && item?.categoryChosen === true) normalized.categoryChosen = true;
     if (item?.workPackItemId != null) normalized.workPackItemId = String(item.workPackItemId);
     if (item?.productId != null) normalized.productId = String(item.productId);
+    const allowance = allowanceOf(item?.allowance);
+    if (allowance) normalized.allowance = allowance;
     return normalized;
   });
 }

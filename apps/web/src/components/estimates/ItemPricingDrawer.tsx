@@ -11,7 +11,11 @@ export interface PricedItem {
   red_line_price?: number;
   cap_price?: number;
   category?: string;
+  /** An allowance: the client picks the product; amount is set once their pick is approved. */
+  allowance?: Allowance | null;
 }
+
+type Allowance = { pickBy?: string; amount?: number };
 
 /** What Save hands back; the category only when it was changed. */
 export interface PricingChanges {
@@ -19,6 +23,8 @@ export interface PricingChanges {
   quantity: number;
   category?: string;
   category_chosen?: boolean;
+  /** The allowance as set, or null for a plain line. */
+  allowance: Allowance | null;
 }
 
 interface ItemPricingDrawerProps {
@@ -51,6 +57,8 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
   const [priceText, setPriceText] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [category, setCategory] = useState('');
+  const [isAllowance, setIsAllowance] = useState(false);
+  const [pickBy, setPickBy] = useState('');
   // The drawer stays mounted and slides like the estimate drawer. It keeps
   // showing the last item while sliding out.
   const [shownItem, setShownItem] = useState<PricedItem | null>(null);
@@ -68,6 +76,8 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
     setPriceText(item.unit_price.toFixed(2));
     setQuantity(item.quantity || 1);
     setCategory(item.category ?? '');
+    setIsAllowance(Boolean(item.allowance));
+    setPickBy(item.allowance?.pickBy ?? '');
     // Wait for the closed position to paint so the slide-in animates.
     let inner = 0;
     const outer = requestAnimationFrame(() => {
@@ -108,7 +118,10 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
   const save = () => {
     const picked = category.trim();
     const changed = shownItem && picked && picked !== (shownItem.category ?? '');
-    onSave(changed ? { unit_price: price, quantity, category: picked, category_chosen: true } : { unit_price: price, quantity });
+    // An approved pick keeps the allowance it was approved against.
+    const amount = shownItem?.allowance?.amount;
+    const allowance = isAllowance ? { ...(amount !== undefined ? { amount } : {}), ...(pickBy ? { pickBy } : {}) } : null;
+    onSave(changed ? { unit_price: price, quantity, category: picked, category_chosen: true, allowance } : { unit_price: price, quantity, allowance });
     onClose();
   };
 
@@ -253,6 +266,43 @@ export const ItemPricingDrawer: React.FC<ItemPricingDrawerProps> = ({ item, onCl
                 </datalist>
                 <span className="block text-xs text-gray-500 mt-1">Groups this line on the agreement and the client&rsquo;s summary.</span>
               </label>
+
+              {/* An allowance: the client picks the product and this price is what's included */}
+              <div className="border border-[#333333] p-3 space-y-2" data-testid="allowance-setting">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isAllowance}
+                    onChange={(e) => setIsAllowance(e.target.checked)}
+                    aria-label="Allowance"
+                    className="mt-1 h-4 w-4 accent-[#336699]"
+                  />
+                  <span>
+                    <span className="block text-sm text-gray-200">Allowance: the client picks this</span>
+                    <span className="block text-xs text-gray-500">
+                      This price is what&rsquo;s included. The client sends you a link to what they pick from their estimate, and you approve the price.
+                    </span>
+                  </span>
+                </label>
+                {isAllowance && (
+                  <label className="flex items-center gap-2 text-sm text-gray-300 pl-7">
+                    Pick by
+                    <input
+                      type="date"
+                      value={pickBy}
+                      onChange={(e) => setPickBy(e.target.value)}
+                      aria-label="Pick by"
+                      className="bg-[#0A0A0A] border border-[#333333] px-2 py-1 text-sm text-white"
+                    />
+                  </label>
+                )}
+                {isAllowance && shownItem.allowance?.amount !== undefined && (
+                  <p className="text-xs text-gray-400 pl-7">
+                    Their pick is approved, so the price is what you approved ({formatCurrency(shownItem.allowance.amount)} each was included). To change it, reopen
+                    the pick on the Overview tab.
+                  </p>
+                )}
+              </div>
 
               {/* Commission (Sales mode) */}
               {salesMode && (

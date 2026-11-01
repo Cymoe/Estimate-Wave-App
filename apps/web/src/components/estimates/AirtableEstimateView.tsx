@@ -11,6 +11,8 @@ interface AirtableItem {
   total: number;
   /** The line's type of work, shown under its name. */
   category?: string;
+  /** The client picks the product for this line. */
+  allowance?: boolean;
 }
 
 interface AirtableEstimateViewProps {
@@ -169,7 +171,12 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
               {/* Name Cell - opens the item's pricing editor when there is one */}
               <td className="py-1.5 px-3 text-white text-[13px] font-normal border-r border-[#333333]">
                 {item.name}
-                {item.category && <span className="block text-[11px] text-gray-500" data-testid="item-category">{item.category}</span>}
+                {(item.category || item.allowance) && (
+                  <span className="block text-[11px] text-gray-500" data-testid="item-category">
+                    {item.category}
+                    {item.allowance && <span className="text-amber-300/90" data-testid="item-allowance">{item.category ? ' · ' : ''}Allowance</span>}
+                  </span>
+                )}
               </td>
               
               {/* Price Cell */}

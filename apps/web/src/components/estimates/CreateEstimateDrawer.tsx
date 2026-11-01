@@ -32,6 +32,7 @@ interface EstimateItem {
   id?: string;
   category?: string;
   category_chosen?: boolean;
+  allowance?: { pickBy?: string; amount?: number } | null;
 }
 
 interface Template {
@@ -318,6 +319,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
         id: item.id,
         category: item.category,
         category_chosen: item.category_chosen,
+        allowance: item.allowance,
       }));
       
       setSelectedItems(estimateItems);

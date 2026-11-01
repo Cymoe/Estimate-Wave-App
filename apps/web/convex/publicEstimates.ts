@@ -9,6 +9,7 @@ import { withCategories } from "./lib/categories";
 import { lockContract } from "./lib/contract";
 import { needsAcknowledgment, resolveDocuments, signedDocuments, stampSignedCopies } from "./lib/contractDocs";
 import { resolveTerms } from "./lib/contractDefaults";
+import { allowanceViews, cleanLink, selectionsFor } from "./lib/selections";
 
 // The client's side of an estimate, reached through its share link. No login:
 // the link's token is the only key, and only what a client should see leaves
@@ -133,6 +134,20 @@ export const get = query({
       clientDetail: clientDetailOf(estimate),
       items: clientItems(lines, clientDetailOf(estimate)),
       categoryTotals: categoryTotals(lines),
+      // What the client picks (tile, a faucet): each allowance with what it includes, at every
+      // detail level (they can't choose without it), from the estimate now so later ones show too.
+      allowances: allowanceViews(estimate.items, await selectionsFor(ctx, estimate)).map(({ pick, ...line }) => ({
+        ...line,
+        pick: pick && {
+          url: pick.url,
+          name: pick.name,
+          unitPrice: pick.unitPrice,
+          note: pick.note,
+          status: pick.status,
+          approvedUnitPrice: pick.approvedUnitPrice,
+          difference: pick.difference,
+        },
+      })),
       subtotal: signed ? signed.subtotal : estimate.subtotal,
       discountAmount: (signed ? signed.discountAmount : estimate.discountAmount) || undefined,
       discountLabel: signed ? signed.discountLabel : estimate.discountAmount ? estimate.discount?.label : undefined,
@@ -224,6 +239,54 @@ export const accept = mutation({
       resourceId: estimate._id,
       details: { estimateNumber: estimate.estimateNumber },
     });
+  },
+});
+
+/**
+ * The client's pick for an allowance: a link to the product, and its name and
+ * price as they saw it. They can change it until the company approves it.
+ */
+export const pick = mutation({
+  args: {
+    token: v.string(),
+    itemId: v.string(),
+    url: v.string(),
+    name: v.optional(v.string()),
+    unitPrice: v.optional(v.number()),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { token, itemId, url, name, unitPrice, note }) => {
+    const estimate = await requireByToken(ctx, token);
+    if (estimate.status === "rejected" || estimate.status === "expired") fail("INVALID", "This estimate is closed", "estimate_closed");
+    const item = estimate.items.find((i) => i._id === itemId && i.allowance);
+    if (!item) fail("NOT_FOUND", "That choice isn't on the estimate any more", "selection_gone");
+    const link = cleanLink(url);
+    if (!link) fail("INVALID", "Paste the link to the product's page", "selection_link");
+    if (unitPrice !== undefined && (!Number.isFinite(unitPrice) || unitPrice < 0 || unitPrice > 10_000_000))
+      fail("INVALID", "Enter the price, $0 or more", "selection_price");
+    const existing = (await selectionsFor(ctx, estimate)).find((p) => p.itemId === itemId);
+    if (existing?.status === "approved") fail("INVALID", "This choice is already approved. Ask the company to change it.", "selection_approved");
+    const now = nowIso();
+    const fields = {
+      url: link,
+      name: name?.trim().slice(0, 200) || undefined,
+      unitPrice: unitPrice === undefined ? undefined : Math.round(unitPrice * 100) / 100,
+      note: note?.trim().slice(0, 500) || undefined,
+      pickedAt: now,
+      updatedAt: now,
+    };
+    if (existing) await ctx.db.patch(existing._id, fields);
+    else
+      await ctx.db.insert("selections", { organizationId: estimate.organizationId, estimateId: estimate._id, itemId, status: "picked", ...fields });
+    await logActivity(ctx, {
+      organizationId: estimate.organizationId,
+      userId: estimate.userId,
+      action: "selection_picked",
+      resourceType: "estimate",
+      resourceId: estimate._id,
+      details: { estimateNumber: estimate.estimateNumber, item: item.description, product: fields.name },
+    });
+    return null;
   },
 });
 

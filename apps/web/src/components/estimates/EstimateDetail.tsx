@@ -29,6 +29,7 @@ import { ClientNoteCard } from './ClientNoteCard';
 import { WORK_TYPE_NAMES } from '../../../convex/lib/workTypes';
 import { estimateTotals } from '../../../convex/lib/totals';
 import { DiscountCard } from './DiscountCard';
+import { SelectionsCard } from './SelectionsCard';
 
 // Header actions share one size so they line up; only the main action is filled.
 const actionBase = 'h-9 flex items-center gap-2 px-4 border rounded-sm transition-colors text-sm font-medium';
@@ -810,6 +811,18 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
               />
             )}
 
+            {/* Allowances the client picks for (tile, a faucet), and approving their picks */}
+            {estimate.id && estimate.items?.some((item) => item.allowance) && (
+              <SelectionsCard
+                estimateId={estimate.id}
+                linesKey={estimate.items
+                  .filter((item) => item.allowance)
+                  .map((item) => `${item.id}:${item.quantity}:${item.unit_price}`)
+                  .join('|')}
+                onEstimateChanged={() => loadEstimate(true)}
+              />
+            )}
+
             {/* How much of the price the client's link shows */}
             <div className="bg-[#1a1a1a] border border-[#333] p-4" data-testid="client-view">
               <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wide mb-2">What the client sees</h3>
@@ -919,7 +932,8 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
             original_price: item.original_unit_price,
             unit: item.unit || 'ea',
             total: item.total_price,
-            category: item.category
+            category: item.category,
+            allowance: Boolean(item.allowance)
           })) || []}
           onUpdateItem={(itemId, field, value) => {
             commitItems(estimate.items.map(item => {

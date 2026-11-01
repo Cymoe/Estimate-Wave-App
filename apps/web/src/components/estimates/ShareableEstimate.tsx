@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { LegalLinks } from '../../pages/Legal';
 import { CheckCircle, Mail, Phone, MapPin, FileText, ChevronDown, Download, Printer } from 'lucide-react';
-import { publicEstimatesAPI } from '../../lib/api';
+import { publicEstimatesAPI, type Allowance } from '../../lib/api';
+import { AllowancePicks } from './AllowancePicks';
 import { formatCurrency } from '../../utils/format';
 import { OTHER_CATEGORY, categoryTotals, type ContractData } from '../../services/contract';
 import { LangProvider, LangToggle } from '../../i18n';
@@ -58,6 +59,8 @@ interface ClientEstimate {
   /** A discount off the work, before tax, and what the company calls it. */
   discount_amount?: number;
   discount_label?: string;
+  /** What the client picks (tile, a faucet): what's included for each, and their pick. */
+  allowances: Allowance[];
   /** Without prices when the company shows the lines but not what each costs. */
   items: Array<{ id: string; description: string; quantity: number; unit_price?: number; total_price?: number; category?: string }>;
 }
@@ -92,6 +95,7 @@ function fromView(view: any): ClientEstimate {
     category_totals: view.categoryTotals,
     discount_amount: view.discountAmount,
     discount_label: view.discountLabel,
+    allowances: view.allowances ?? [],
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     items: (view.items ?? []).map((item: any, i: number) => ({
       id: String(i),
@@ -542,6 +546,17 @@ const ShareableEstimatePage: React.FC = () => {
             </table>
           </div>
         </div>
+        )}
+
+        {/* What the client picks: each allowance, and a link to what they chose */}
+        {token && (
+          <AllowancePicks
+            token={token}
+            allowances={estimate.allowances}
+            lang={lang}
+            canPick={estimate.status !== 'rejected' && estimate.status !== 'expired'}
+            onPicked={loadEstimate}
+          />
         )}
 
         {/* The agreement, signed together with the estimate: the company's own PDF, or Webb Leads' (with the agreed design) */}

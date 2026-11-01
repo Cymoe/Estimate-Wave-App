@@ -101,6 +101,10 @@ export const documentItem = v.object({
   // From optional add-ons, which were removed; kept so any lines saved with them still load. Nothing reads them.
   optional: v.optional(v.boolean()),
   included: v.optional(v.boolean()),
+  // An allowance: the client picks the product (tile, a faucet) and this line's price is what's
+  // included for it. pickBy is when they need to choose (YYYY-MM-DD). Once their pick is approved
+  // the line takes its price and amount keeps the allowance as it was (convex/selections.ts).
+  allowance: v.optional(v.object({ pickBy: v.optional(v.string()), amount: v.optional(v.number()) })),
   displayOrder: v.number(),
 });
 
@@ -1184,6 +1188,27 @@ export default defineSchema({
     usageCount: v.number(),
     ...timestamps,
   }).index("by_organization", ["organizationId"]),
+
+  // What the client picked for an allowance line: a link to the product (a Home
+  // Depot or Lowe's page, anything), its name and price as they saw it. The
+  // company approves it at a price, which becomes the line's price.
+  selections: defineTable({
+    organizationId: v.id("organizations"),
+    estimateId: v.id("estimates"),
+    // The allowance line's _id in the estimate's items.
+    itemId: v.string(),
+    url: v.string(),
+    name: v.optional(v.string()),
+    // Per unit of the line (each, per sq ft), as the client typed it.
+    unitPrice: v.optional(v.number()),
+    note: v.optional(v.string()),
+    status: v.union(v.literal("picked"), v.literal("approved")),
+    approvedUnitPrice: v.optional(v.number()),
+    approvedAt: v.optional(v.string()),
+    approvedBy: v.optional(v.id("users")),
+    pickedAt: v.string(),
+    updatedAt: v.string(),
+  }).index("by_estimate", ["estimateId"]),
 
   // A change order or the affidavit of completion, sent to the client for
   // their signature after the estimate was signed (convex/signoffs.ts).

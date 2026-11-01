@@ -39,7 +39,7 @@ describe('ItemPricingDrawer', () => {
     const { onSave, button, unmount } = setup();
     act(() => button('Need Job').dispatchEvent(new MouseEvent('click', { bubbles: true })));
     act(() => button('Save').dispatchEvent(new MouseEvent('click', { bubbles: true })));
-    expect(onSave).toHaveBeenCalledWith({ unit_price: 97.5, quantity: 2 });
+    expect(onSave).toHaveBeenCalledWith({ unit_price: 97.5, quantity: 2, allowance: null });
     unmount();
   });
 
@@ -58,10 +58,10 @@ describe('ItemPricingDrawer', () => {
     expect([...dialog.querySelectorAll('datalist option')].map(o => o.getAttribute('value'))).toEqual(['Electrical', 'Plumbing']);
     // Unchanged, Save leaves the category alone.
     act(() => save().dispatchEvent(new MouseEvent('click', { bubbles: true })));
-    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 187.5, quantity: 2 });
+    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 187.5, quantity: 2, allowance: null });
     act(() => type(input, 'Lighting '));
     act(() => save().dispatchEvent(new MouseEvent('click', { bubbles: true })));
-    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 187.5, quantity: 2, category: 'Lighting', category_chosen: true });
+    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 187.5, quantity: 2, category: 'Lighting', category_chosen: true, allowance: null });
     act(() => root.unmount());
   });
 
@@ -77,7 +77,7 @@ describe('ItemPricingDrawer', () => {
     const price = dialog.querySelector('input[inputmode="decimal"]') as HTMLInputElement;
     act(() => type(price, '40'));
     act(() => [...dialog.querySelectorAll('button')].find(b => b.textContent?.includes('Save'))!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 40, quantity: 2 });
+    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 40, quantity: 2, allowance: null });
     act(() => root.unmount());
   });
 
@@ -86,7 +86,7 @@ describe('ItemPricingDrawer', () => {
     act(() => type(priceInput, '50'));
     expect(dialog.textContent).toContain("can't go below red line");
     act(() => button('Save').dispatchEvent(new MouseEvent('click', { bubbles: true })));
-    expect(onSave).toHaveBeenCalledWith({ unit_price: 87.5, quantity: 2 });
+    expect(onSave).toHaveBeenCalledWith({ unit_price: 87.5, quantity: 2, allowance: null });
     unmount();
   });
 
@@ -142,5 +142,30 @@ describe('ItemPricingDrawer', () => {
     expect(options.parentElement!.className).toContain('sm:flex-row');
     expect(options.nextElementSibling!.querySelector('input[inputmode="decimal"]')).not.toBeNull();
     unmount();
+  });
+
+  it('marks a line as an allowance the client picks, with a pick-by date, and keeps an approved one', () => {
+    const onSave = jest.fn();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() => root.render(<ItemPricingDrawer item={{ ...item, red_line_price: undefined }} onClose={() => {}} onSave={onSave} />));
+    const dialog = document.querySelector('[role="dialog"]')!;
+    const save = () => act(() => [...dialog.querySelectorAll('button')].find((b) => b.textContent?.includes('Save'))!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(dialog.querySelector('input[aria-label="Pick by"]')).toBeNull();
+    act(() => (dialog.querySelector('input[aria-label="Allowance"]') as HTMLInputElement).click());
+    act(() => type(dialog.querySelector('input[aria-label="Pick by"]') as HTMLInputElement, '2026-12-01'));
+    save();
+    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 187.5, quantity: 2, allowance: { pickBy: '2026-12-01' } });
+
+    // Approved: the allowance it was approved against rides along; unticking makes it a plain line.
+    act(() => root.render(<ItemPricingDrawer item={{ ...item, unit_price: 3, allowance: { amount: 4 } }} onClose={() => {}} onSave={onSave} />));
+    expect(dialog.textContent).toContain('Their pick is approved');
+    save();
+    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 3, quantity: 2, allowance: { amount: 4 } });
+    act(() => (dialog.querySelector('input[aria-label="Allowance"]') as HTMLInputElement).click());
+    save();
+    expect(onSave).toHaveBeenLastCalledWith({ unit_price: 3, quantity: 2, allowance: null });
+    act(() => root.unmount());
   });
 });
