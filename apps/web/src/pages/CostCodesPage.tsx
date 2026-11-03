@@ -284,7 +284,7 @@ export default function CostCodesPage({ triggerAddCostCode }: CostCodesPageProps
       await loadCostCodes();
     } catch (error) {
       console.error('Error deleting cost codes:', error);
-      notify('Failed to delete some cost codes. Please try again.');
+      notify("Some cost codes couldn't be deleted. Try again.");
     }
   };
   
@@ -398,7 +398,7 @@ export default function CostCodesPage({ triggerAddCostCode }: CostCodesPageProps
                 </span>
               </div>
               <div className="text-sm text-gray-400">
-                {loadingLineItems ? 'Loading...' : `${lineItems.length} items`}
+                {loadingLineItems ? 'Loading…' : `${lineItems.length} items`}
               </div>
             </div>
 

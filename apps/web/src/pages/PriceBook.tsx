@@ -218,7 +218,7 @@ export const PriceBook: React.FC = () => {
                 {isAddingItem ? (
                   <>
                     <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    <span>Loading...</span>
+                    <span>Loading…</span>
                   </>
                 ) : (
                   <>

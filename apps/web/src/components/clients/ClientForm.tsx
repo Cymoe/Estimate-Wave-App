@@ -41,7 +41,7 @@ export const ClientForm: React.FC<ClientFormProps> = ({
       setError(null);
       await onSubmit(formData);
     } catch (err) {
-      setError('Failed to submit form');
+      setError("Couldn't save the client. Try again.");
       setLoading(false);
     }
   };
@@ -134,7 +134,7 @@ export const ClientForm: React.FC<ClientFormProps> = ({
             </label>
             <div className="relative">
               <input
-                type="number"
+                type="number" inputMode="decimal"
                 value={formData.discount_percentage || 0}
                 onChange={(e) => {
                   const value = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));

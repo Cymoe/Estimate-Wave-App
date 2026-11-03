@@ -37,7 +37,7 @@ jest.mock('../../../services/ProjectService', () => ({
 }));
 jest.mock('../../../services/ClientService', () => ({
   ClientService: {
-    getById: jest.fn(async () => ({ id: 'c1', name: 'Ann Miller', phone: '432-555-0100' })),
+    getById: jest.fn(async () => ({ id: 'c1', name: 'Ann Miller', phone: '432-555-0100', address: '12 Oak St', city: 'Midland' })),
     list: jest.fn(async () => [{ id: 'c1', name: 'Ann Miller' }]),
   },
 }));
@@ -188,6 +188,11 @@ describe('Project drawer', () => {
     expect(dialog.textContent).not.toContain('Most Used');
     // The client's phone is one tap away.
     expect(dialog.querySelector('a[href="tel:4325550100"]')?.textContent).toBe('Call');
+    // Text them, or get directions to the job.
+    expect(dialog.querySelector('a[href="sms:4325550100"]')?.getAttribute('aria-label')).toBe('Text client');
+    expect(dialog.querySelector('a[aria-label="Directions to 12 Oak St, Midland"]')?.getAttribute('href')).toBe(
+      'https://maps.apple.com/?daddr=12%20Oak%20St%2C%20Midland',
+    );
   });
 
   it('adds an expense from the Expenses tab, and the overview counts it', async () => {

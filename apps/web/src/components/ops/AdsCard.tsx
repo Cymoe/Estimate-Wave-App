@@ -1331,7 +1331,7 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
         {text('accentColor', 'Accent colour')}
         <Field label="Ads to write each Monday">
           <input
-            type="number"
+            type="number" inputMode="decimal"
             min={1}
             max={4}
             value={form.hooksPerWeek}
@@ -1343,7 +1343,7 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
         </Field>
         <Field label="Most ads running at once">
           <input
-            type="number"
+            type="number" inputMode="decimal"
             min={2}
             max={12}
             value={form.liveTarget}
@@ -1390,7 +1390,7 @@ const Settings: React.FC<{ owner: boolean; act: Act }> = ({ owner, act }) => {
           </Field>
           <Field label="Days an ad must have run">
             <input
-              type="number"
+              type="number" inputMode="decimal"
               min={30}
               max={365}
               value={form.researchMinDays}

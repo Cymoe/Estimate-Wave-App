@@ -4,8 +4,11 @@ import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import App from "./App";
 import { AppErrorBoundary } from "./components/common/AppErrorBoundary";
 import { convex } from "./lib/convex";
+import { guardNumberInputsFromWheel } from "./lib/numberInputs";
 import "./index.css";
 import "./styles/light-theme.css";
+
+guardNumberInputsFromWheel();
 
 const element = document.getElementById("root");
 if (!element) throw new Error("Root element not found");

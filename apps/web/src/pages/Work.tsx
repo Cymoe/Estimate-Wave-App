@@ -6,7 +6,6 @@ import { EstimateDrawer } from '../components/estimates/EstimateDrawer';
 import { EstimateService } from '../services/EstimateService';
 import { useAuth } from '../contexts/AuthContext';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
-import { notify } from '../components/common/appDialogs';
 
 /**
  * The estimates list. New estimates start from the blue + button
@@ -119,32 +118,7 @@ export const Work: React.FC = () => {
             navigate(`/estimates/${estimate.id}`);
           } catch (error) {
             console.error('Error creating estimate:', error);
-            console.error('Error details:', {
-              message: error instanceof Error ? error.message : 'No message',
-              stack: error instanceof Error ? error.stack : 'No stack',
-              raw: error
-            });
-            
-            // Try to extract more useful error information
-            let errorMessage = 'Unknown error';
-            if (error instanceof Error) {
-              errorMessage = error.message;
-            } else if (typeof error === 'string') {
-              errorMessage = error;
-            } else if (error && typeof error === 'object') {
-              // Check for Supabase error format
-              if ('message' in error && error.message) {
-                errorMessage = error.message as string;
-              } else if ('error' in error && error.error) {
-                errorMessage = error.error as string;
-              } else if ('details' in error && error.details) {
-                errorMessage = error.details as string;
-              } else {
-                errorMessage = JSON.stringify(error);
-              }
-            }
-            
-            notify(`Failed to create estimate: ${errorMessage}`);
+            // The drawer says what went wrong and stays open.
             throw error; // Re-throw so the drawer doesn't close
           }
         }}

@@ -317,7 +317,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
       });
     } catch (error) {
       console.error('Error exporting estimates:', error);
-      notify(`Failed to export estimates: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      notify("Couldn't export the estimates. Try again.");
     }
   };
 
@@ -342,7 +342,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
       });
     } catch (error) {
       console.error('Error exporting estimates:', error);
-      notify(`Failed to export estimates: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      notify("Couldn't export the estimates. Try again.");
     }
   };
 

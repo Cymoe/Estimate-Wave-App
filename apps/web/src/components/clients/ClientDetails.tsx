@@ -1,4 +1,5 @@
 import React, { useContext, useEffect, useState } from 'react';
+import { usePageTitle } from '../../lib/pageTitle';
 import { estimateStatusLabel } from '../estimates/estimateActions';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Building2, FileText, FolderOpen, Languages, Mail, MapPin, Navigation, Phone, PhoneCall, Trash2 } from 'lucide-react';
@@ -53,6 +54,7 @@ export const ClientDetails: React.FC = () => {
   const { clientId } = useParams();
   const isNew = !clientId || clientId === 'new';
   const [client, setClient] = useState<Client | null | undefined>(isNew ? null : undefined);
+  usePageTitle(isNew ? 'New client' : client?.name);
 
   useEffect(() => {
     if (isNew) {

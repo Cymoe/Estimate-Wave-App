@@ -16,7 +16,7 @@ export const AuthButtons = () => {
       // The browser is redirected to Google and back automatically
     } catch (error) {
       console.error('Error signing in with Google:', error);
-      setError('Failed to sign in with Google. Please try again.');
+      setError("Couldn't sign in with Google. Try again.");
       setIsSigningIn(false);
     }
   };

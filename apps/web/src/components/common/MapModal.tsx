@@ -96,7 +96,7 @@ export const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, address, cl
         }
       } catch (err) {
         console.error('Map initialization error:', err);
-        setError('Failed to load map');
+        setError("Couldn't load the map.");
         setIsLoading(false);
       }
     };

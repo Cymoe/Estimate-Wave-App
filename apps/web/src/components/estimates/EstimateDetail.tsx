@@ -1,4 +1,5 @@
 import { FEATURES } from '../../config/features';
+import { usePageTitle } from '../../lib/pageTitle';
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useMatch, useNavigate, useParams } from 'react-router-dom';
@@ -87,6 +88,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
     return known ? prepare(known) : null;
   });
   const [loading, setLoading] = useState(() => !(id && EstimateService.cached(id)));
+  usePageTitle(estimate?.estimate_number);
   const [showShareModal, setShowShareModal] = useState(false);
   // Emailing it from the Share window: idle, sending, or what happened.
   const [emailNote, setEmailNote] = useState<{ text: string; good: boolean } | 'sending' | null>(null);
@@ -195,7 +197,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
       setEstimate(result ? prepare(result) : result);
     } catch (err) {
       console.error('Error fetching estimate:', err);
-      if (!quiet) setError('Failed to load estimate');
+      if (!quiet) setError("Couldn't load this estimate.");
     } finally {
       if (!quiet) setLoading(false);
     }
@@ -243,7 +245,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
       await loadEstimate(true);
     } catch (error) {
       console.error('Error updating status:', error);
-      notify('Failed to update estimate status');
+      notify("Couldn't change the status. Try again.");
     }
   };
 
@@ -317,7 +319,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
       setShowEditModal(false);
     } catch (error) {
       console.error('Error updating estimate:', error);
-      notify('Failed to update estimate');
+      notify("Couldn't save the estimate. Try again.");
     }
   };
 

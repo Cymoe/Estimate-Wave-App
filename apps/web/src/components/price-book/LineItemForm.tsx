@@ -194,7 +194,7 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
       if (error instanceof Error) {
         setSubmitError(error.message);
       } else {
-        setSubmitError('Failed to save line item. Please try again.');
+        setSubmitError("Couldn't save the item. Try again.");
       }
     } finally {
       setIsLoading(false);

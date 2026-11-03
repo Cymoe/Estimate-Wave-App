@@ -152,7 +152,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
       await LineItemService.update(editedId, data, selectedOrg.id);
     } catch (error) {
       console.error('Error updating line item:', error);
-      notify(error instanceof Error ? error.message : 'Failed to update line item');
+      notify(error instanceof Error ? error.message : "Couldn't save the item. Try again.");
       await fetchLineItems(); // Back to what's saved
     }
   };
@@ -179,7 +179,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
         await fetchLineItems();
       } catch (error) {
         console.error('Error deleting line item:', error);
-        notify(error instanceof Error ? error.message : 'Failed to delete line item');
+        notify(error instanceof Error ? error.message : "Couldn't delete the item. Try again.");
       }
     }
   };
@@ -230,7 +230,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
         await fetchLineItems();
       } catch (error) {
         console.error('Error importing file:', error);
-        notify('Failed to import file. Please check the format and try again.');
+        notify("Couldn't read that file. Check it's a CSV or Excel export and try again.");
       }
     };
     input.click();
@@ -241,7 +241,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
       await CostCodeExportService.exportToCSV(filteredLineItems, trades);
     } catch (error) {
       console.error('Error exporting to CSV:', error);
-      notify('Failed to export to CSV');
+      notify("Couldn't export the CSV. Try again.");
     }
   };
 
@@ -250,7 +250,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
       await CostCodeExportService.exportToExcel(filteredLineItems, trades);
     } catch (error) {
       console.error('Error exporting to Excel:', error);
-      notify('Failed to export to Excel');
+      notify("Couldn't export the Excel file. Try again.");
     }
   };
 
@@ -432,12 +432,12 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
         }
       } else if (lineItemsResult.status === 'rejected') {
         console.error('Failed to fetch line items:', lineItemsResult.reason);
-        setError('Failed to load line items');
+        setError("Couldn't load your price book.");
       }
     } catch (error) {
       console.error('Error fetching line items:', error);
       console.error('Error details:', error);
-      setError(error instanceof Error ? error.message : 'Failed to load line items');
+      setError(error instanceof Error ? error.message : "Couldn't load your price book.");
     } finally {
       if (!smartMerge) {
         setIsLoading(false);

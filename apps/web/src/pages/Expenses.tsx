@@ -444,7 +444,7 @@ export const Expenses: React.FC = () => {
                   autoFocus
                 />
                 <input
-                  type="number"
+                  type="number" inputMode="decimal"
                   value={newExpense.amount}
                   onChange={(e) => setNewExpense({...newExpense, amount: e.target.value})}
                   onKeyDown={handleKeyPress}

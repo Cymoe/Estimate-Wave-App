@@ -1,4 +1,5 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { usePageTitle } from '../../lib/pageTitle';
 import { estimateStatusLabel } from '../estimates/estimateActions';
 import { createPortal } from 'react-dom';
 import { useMatch, useNavigate, useSearchParams } from 'react-router-dom';
@@ -10,6 +11,8 @@ import {
   Globe,
   LayoutTemplate,
   Mail,
+  MapPin,
+  MessageSquare,
   MoreVertical,
   Phone,
   Plus,
@@ -308,6 +311,7 @@ export const ProjectPanel: React.FC<{
   });
   const [addingExpense, setAddingExpense] = useState(false);
   const [project, setProject] = useState<Project | null>(null);
+  usePageTitle(project?.name);
   const [client, setClient] = useState<Client | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [estimates, setEstimates] = useState<Estimate[] | null>(null);
@@ -604,9 +608,27 @@ export const ProjectPanel: React.FC<{
                 Call
               </a>
             )}
+            {client?.phone && (
+              <a href={`sms:${client.phone.replace(/[^\d+]/g, '')}`} className={`${secondaryAction} px-2.5`} aria-label="Text client" title="Text">
+                <MessageSquare className="w-4 h-4" />
+              </a>
+            )}
             {client?.email && (
-              <a href={`mailto:${client.email}`} className={`${secondaryAction} px-2.5`} aria-label="Email client">
+              <a href={`mailto:${client.email}`} className={`${secondaryAction} px-2.5`} aria-label="Email client" title="Email">
                 <Mail className="w-4 h-4" />
+              </a>
+            )}
+            {/* Directions to the job: the client's address in Maps. */}
+            {place && (
+              <a
+                href={`https://maps.apple.com/?daddr=${encodeURIComponent(place)}`}
+                target="_blank"
+                rel="noreferrer"
+                className={`${secondaryAction} px-2.5`}
+                aria-label={`Directions to ${place}`}
+                title={`Directions to ${place}`}
+              >
+                <MapPin className="w-4 h-4" />
               </a>
             )}
             {/* The client's portal: exactly what they see, and send what's waiting */}

@@ -145,7 +145,7 @@ export const EstimateContractView: React.FC<EstimateContractViewProps> = ({ esti
       if (saved) onSaved?.(saved);
     } catch (error) {
       console.error('Error saving contract:', error);
-      notify(error instanceof Error ? error.message : 'Failed to save contract');
+      notify(error instanceof Error ? error.message : "Couldn't save the agreement. Try again.");
     } finally {
       setSaving(false);
     }
@@ -161,7 +161,7 @@ export const EstimateContractView: React.FC<EstimateContractViewProps> = ({ esti
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#336699] mx-auto mb-4"></div>
-            <p className="text-gray-400 text-sm">Loading contract...</p>
+            <p className="text-gray-400 text-sm">Loading the agreement…</p>
           </div>
         </div>
       </div>

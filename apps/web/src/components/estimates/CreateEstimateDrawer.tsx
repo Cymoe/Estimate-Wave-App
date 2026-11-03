@@ -13,7 +13,7 @@ import { ClientSelector } from './ClientSelector';
 import { NewClientModal } from '../clients/NewClientModal';
 // import { ServiceCatalogService } from '../../services/ServiceCatalogService'; // Removed - using line items only
 import { MongoLineItemService as LineItemService } from '../../services/MongoLineItemService';
-import { notify } from '../common/appDialogs';
+import { askConfirm, notify } from '../common/appDialogs';
 
 interface EstimateItem {
   product_id: string;
@@ -558,7 +558,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
       handleClose();
     } catch (error) {
       console.error('Error saving estimate:', error);
-      notify('Failed to save estimate. Please try again.');
+      notify(error instanceof Error && error.message ? `Couldn't save the estimate: ${error.message}` : "Couldn't save the estimate. Try again.");
     } finally {
       setIsSaving(false);
     }
@@ -585,8 +585,26 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
       setShowNewClientModal(false);
     } catch (error) {
       console.error('Error creating client:', error);
-      notify('Failed to create client. Please try again.');
+      notify("Couldn't add the client. Try again.");
     }
+  };
+
+  /**
+   * Closing by tapping outside or the X: a new estimate with lines already
+   * picked asks first, so a stray tap on the iPad doesn't throw the work away.
+   */
+  const requestClose = async () => {
+    if (!editingEstimate && selectedItems.length > 0) {
+      const count = selectedItems.length;
+      const discard = await askConfirm({
+        title: 'Discard this estimate?',
+        message: `The ${count} line${count === 1 ? '' : 's'} you added won't be saved.`,
+        confirmLabel: 'Discard',
+        cancelLabel: 'Keep editing',
+      });
+      if (!discard) return;
+    }
+    handleClose();
   };
 
   const handleClose = () => {
@@ -688,7 +706,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
           className={`fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity z-[10000] ${
             isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
           }`}
-          onClick={handleClose}
+          onClick={requestClose}
         />
 
         {/* Clean View Drawer */}
@@ -702,7 +720,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <button
-                  onClick={handleClose}
+                  onClick={requestClose}
                   className="text-gray-400 hover:text-white transition-colors"
                 >
                   <X className="w-5 h-5" />
@@ -918,7 +936,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
         className={`fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity z-[10000] ${
           isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
-        onClick={handleClose}
+        onClick={requestClose}
       />
 
       {/* Drawer */}
@@ -934,8 +952,8 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
             {/* No title bar: close sits here so the items start at the very top */}
             <div className="flex items-center gap-2 px-4 pt-3 flex-shrink-0">
               <button
-                onClick={handleClose}
-                className="p-1 -ml-1 text-gray-400 hover:text-white transition-colors"
+                onClick={requestClose}
+                className="w-10 h-10 -ml-2 flex items-center justify-center text-gray-400 hover:text-white transition-colors"
                 aria-label="Close"
               >
                 <X className="w-4 h-4" />
@@ -1279,7 +1297,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                                 <Minus className="w-3 h-3" />
                               </button>
                               <input
-                                type="number"
+                                type="number" inputMode="decimal"
                                 value={item.quantity}
                                 onChange={(e) => updateItemQuantity(index, Number(e.target.value))}
                                 className="w-12 text-center px-1 py-1 bg-[#333333] border border-[#555555] rounded-[2px] text-white text-sm font-medium"

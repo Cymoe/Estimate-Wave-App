@@ -125,7 +125,7 @@ export const CostCodeForm: React.FC<CostCodeFormProps> = ({
       if (error instanceof Error) {
         setSubmitError(error.message);
       } else {
-        setSubmitError('Failed to save cost code. Please try again.');
+        setSubmitError("Couldn't save the cost code. Try again.");
       }
     } finally {
       setIsLoading(false);

@@ -132,7 +132,7 @@ export const BulkCustomizeServicesModal: React.FC<BulkCustomizeServicesModalProp
       }, 1500);
     } catch (err) {
       console.error('Error bulk copying services:', err);
-      setError('Failed to customize services. Please try again.');
+      setError("Couldn't customize those services. Try again.");
     } finally {
       setIsLoading(false);
     }

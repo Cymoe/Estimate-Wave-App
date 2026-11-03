@@ -136,7 +136,7 @@ export const ClientSelector: React.FC<ClientSelectorProps> = ({
       closeDropdown();
     } catch (error) {
       console.error('Error creating client:', error);
-      notify('Failed to create client. Please try again.');
+      notify("Couldn't add the client. Try again.");
     } finally {
       setIsCreating(false);
     }

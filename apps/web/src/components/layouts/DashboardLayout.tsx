@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, createContext, useCallback, useMemo } from 'react';
 import { Outlet, useNavigate, useLocation, NavLink } from 'react-router-dom';
+import { titleForPath, useRouteTitle } from '../../lib/pageTitle';
 import { QuickCreateButton } from '../common/QuickCreateButton';
 import { QuickCreateMenu } from '../common/QuickCreateMenu';
 import { useAuth } from '../../contexts/AuthContext';
@@ -85,6 +86,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
   const { user, signOut, session, isLoading } = useAuth();
   const isAuthenticated = !!session;
   const location = useLocation();
+  useRouteTitle(titleForPath(location.pathname));
   // The page renders once, in the desktop or the phone layout. Rendering it in
   // both (one hidden) ran every page twice and stacked two of each pop-up.
   const isDesktop = useIsDesktop();

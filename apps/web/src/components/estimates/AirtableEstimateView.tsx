@@ -187,7 +187,7 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
                 {editingCell?.itemId === item.id && editingCell?.field === 'price' ? (
                   <input
                     ref={inputRef}
-                    type="number"
+                    type="number" inputMode="decimal"
                     step="0.01"
                     value={editingCell.value}
                     onChange={(e) => setEditingCell({...editingCell, value: e.target.value})}
@@ -210,7 +210,7 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
                 {editingCell?.itemId === item.id && editingCell?.field === 'quantity' ? (
                   <input
                     ref={inputRef}
-                    type="number"
+                    type="number" inputMode="decimal"
                     step="1"
                     value={editingCell.value}
                     onChange={(e) => setEditingCell({...editingCell, value: e.target.value})}

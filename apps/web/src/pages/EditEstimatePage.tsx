@@ -27,7 +27,7 @@ export const EditEstimatePage: React.FC = () => {
       setEstimate(data);
     } catch (error) {
       console.error('Error loading estimate:', error);
-      notify('Failed to load estimate');
+      notify("Couldn't load this estimate.");
       navigate('/estimates');
     } finally {
       setLoading(false);
@@ -89,7 +89,7 @@ export const EditEstimatePage: React.FC = () => {
           navigate(`/estimates/${id}`);
         } catch (error) {
           console.error('Error updating estimate:', error);
-          notify('Failed to update estimate. Please try again.');
+          notify("Couldn't save the estimate. Try again.");
         }
       }}
     />

@@ -72,7 +72,7 @@ export const SharedServiceOption: React.FC = () => {
   if (!config) {
     return (
       <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
-        <div className="text-gray-400">Loading...</div>
+        <div className="text-gray-400">Loading…</div>
       </div>
     );
   }

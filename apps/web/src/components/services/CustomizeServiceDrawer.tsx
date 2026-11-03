@@ -828,7 +828,7 @@ export const CustomizeServiceDrawer: React.FC<CustomizeServiceDrawerProps> = ({
       }, 1500);
     } catch (error) {
       // Error saving customization
-      setErrorMessage('Failed to save customization. Please try again.');
+      setErrorMessage("Couldn't save your changes. Try again.");
       setTimeout(() => setErrorMessage(''), 5000);
     } finally {
       setIsSaving(false);
@@ -1293,7 +1293,7 @@ export const CustomizeServiceDrawer: React.FC<CustomizeServiceDrawerProps> = ({
                         <Minus className="w-3 h-3" />
                       </button>
                       <input
-                        type="number"
+                        type="number" inputMode="decimal"
                         value={item.quantity}
                         onChange={(e) => handleQuantityChange(item.id, parseFloat(e.target.value) || 0)}
                         className="w-16 px-2 py-1 bg-[#333333] border border-[#444444] rounded text-sm text-white text-center focus:border-[#336699] focus:outline-none"
@@ -1397,7 +1397,7 @@ export const CustomizeServiceDrawer: React.FC<CustomizeServiceDrawerProps> = ({
           
           <div className="flex-1 overflow-y-auto px-3 py-2">
             {isLoading ? (
-              <p className="text-sm text-gray-500 text-center py-8">Loading...</p>
+              <p className="text-sm text-gray-500 text-center py-8">Loading…</p>
             ) : filteredItems.length === 0 ? (
               <p className="text-sm text-gray-500 text-center py-8">
                 No items found
