@@ -231,6 +231,32 @@ describe('client estimate page', () => {
     expect(document.body.querySelectorAll('button[aria-label="Your signature"]')).toHaveLength(1);
   });
 
+  it('keeps signing in reach: a pinned bar with the total opens the sign sheet, Esc closes it', async () => {
+    view = { ...sent };
+    await open();
+    const bar = document.body.querySelector('[data-testid="sign-bar"]')!;
+    expect(bar.className).toContain('fixed');
+    expect(bar.textContent).toContain('Total');
+    expect(bar.textContent).toContain('$900.00');
+    const sheet = document.body.querySelector('[data-testid="sign-box"]')!;
+    expect(sheet.getAttribute('role')).toBe('dialog');
+    expect(sheet.getAttribute('aria-hidden')).toBe('true');
+    expect(sheet.className).toContain('translate-y-full');
+
+    await act(async () => button('Review & sign')!.click());
+    expect(sheet.getAttribute('aria-hidden')).toBeNull();
+    expect(sheet.className).toContain('translate-y-0');
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    expect(sheet.getAttribute('aria-hidden')).toBe('true');
+
+    // Reopened from the bar and signed: the bar goes with the sheet.
+    await act(async () => button('Review & sign')!.click());
+    await act(async () => button('draw')!.click());
+    await act(async () => button('Accept & Sign')!.click());
+    expect(document.body.querySelector('[data-testid="sign-bar"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="sign-box"]')).toBeNull();
+  });
+
   it('accepts with the drawn signature, then shows it accepted', async () => {
     view = { ...sent };
     await open();

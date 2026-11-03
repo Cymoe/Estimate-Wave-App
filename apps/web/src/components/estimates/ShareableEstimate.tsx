@@ -12,6 +12,7 @@ import { AgreementTerms } from '../contracts/AgreementTerms';
 import { PortalBackLink } from '../common/PortalBackLink';
 import { SignedRecord, type RecordDocument } from '../contracts/SignedRecord';
 import { SignaturePad } from '../contracts/SignaturePad';
+import { SignDock } from '../contracts/SignDock';
 import { LightPage } from '../common/LightPage';
 
 const copyButton =
@@ -280,7 +281,7 @@ const ShareableEstimatePage: React.FC = () => {
 
   return (
     <LightPage className="bg-gray-50 print:bg-white">
-      <div className="max-w-4xl mx-auto py-8 px-4 print:py-0 print:px-0">
+      <div className={`max-w-4xl mx-auto py-8 px-4 print:py-0 print:px-0 ${canSign ? 'pb-28' : ''}`}>
         {/* Keep a copy: both open the device's print screen, where "Save as PDF" (or Save to Files) is a choice */}
         <div className="flex justify-end gap-2 mb-3 print:hidden" data-testid="keep-a-copy">
           <button type="button" onClick={saveOrPrint} className={copyButton}>
@@ -645,9 +646,18 @@ const ShareableEstimatePage: React.FC = () => {
             <p className="text-sm text-gray-600">{t.approvedOn(estimate.business?.name || t.yourContractor, formatDay(estimate.approved_at ?? estimate.locked_at, lang))}</p>
           </div>
         ) : canSign ? (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 print:hidden" data-testid="sign-box">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">{t.acceptSign}</h3>
-            
+          // Pinned to the bottom of the screen, so signing is in reach while they read.
+          <SignDock
+            summary={
+              <>
+                <span className="block text-xs text-gray-500">{t.total}</span>
+                <span className="block text-lg font-semibold text-gray-900">{formatCurrency(estimate.total_amount)}</span>
+              </>
+            }
+            openLabel={t.reviewSign}
+            title={t.acceptSign}
+            closeLabel={t.close}
+          >
             <div className="mb-6">
               <SignaturePad onChange={setSignature} label={t.yourSignature} clearLabel={t.clear} />
               <p className="text-xs text-gray-500 mt-2">{t.bySigning}</p>
@@ -676,7 +686,7 @@ const ShareableEstimatePage: React.FC = () => {
               <CheckCircle className="w-5 h-5" />
               {signing ? t.signing : t.acceptSign}
             </button>
-          </div>
+          </SignDock>
         ) : (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 text-center print:hidden">
             <p className="text-gray-600">

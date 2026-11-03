@@ -129,6 +129,32 @@ describe('client signoff page', () => {
     expect(button('Sign: the job is complete').disabled).toBe(false);
   });
 
+  it('keeps signing in reach: a pinned bar opens the sign sheet, with the new total or the document named', async () => {
+    view = { ...changeOrder };
+    await open();
+    const bar = () => document.body.querySelector('[data-testid="sign-bar"]');
+    const sheet = () => document.body.querySelector('[data-testid="sign-box"]')!;
+    expect(bar()!.textContent).toContain('New contract total');
+    expect(bar()!.textContent).toContain('$9,700.00');
+    expect(sheet().getAttribute('aria-hidden')).toBe('true');
+    await act(async () => button('Review & sign').click());
+    expect(sheet().getAttribute('aria-hidden')).toBeNull();
+    await act(async () => (document.body.querySelector('[data-testid="sign-backdrop"]') as HTMLElement).click());
+    expect(sheet().getAttribute('aria-hidden')).toBe('true');
+
+    document.body.innerHTML = '';
+    view = { ...changeOrder, kind: 'affidavit', name: 'Affidavit of Completion', document: { name: 'Affidavit of Completion', source: 'tolliver' } };
+    await open();
+    expect(bar()!.textContent).toContain('Job complete sign-off');
+    expect(bar()!.textContent).not.toContain('$');
+
+    // Signed: no bar.
+    document.body.innerHTML = '';
+    view = { ...changeOrder, status: 'signed', signerName: 'Ann Miller', signedAt: '2026-11-02T15:00:00Z' };
+    await open();
+    expect(bar()).toBeNull();
+  });
+
   it('says so when the link is withdrawn or not valid', async () => {
     view = { ...changeOrder, status: 'cancelled' };
     await open();

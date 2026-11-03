@@ -31,6 +31,8 @@ const en = {
   signing: 'Signing…',
   sign: (kind: string) => (kind === 'affidavit' ? 'Sign: the job is complete' : 'Sign the changes'),
   signFailed: "It couldn't be signed. Please try again.",
+  reviewSign: 'Review & sign',
+  close: 'Close',
   questions: 'Questions?',
 };
 
@@ -63,6 +65,8 @@ const es: typeof en = {
   readAgree: (name) => `Leí y acepto ${name}.`,
   signing: 'Firmando…',
   sign: (kind) => (kind === 'affidavit' ? 'Firmar: la obra está terminada' : 'Firmar los cambios'),
+  reviewSign: 'Revisar y firmar',
+  close: 'Cerrar',
   signFailed: 'No se pudo firmar. Inténtalo de nuevo.',
   questions: '¿Preguntas?',
 };

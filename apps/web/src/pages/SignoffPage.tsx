@@ -5,6 +5,7 @@ import { CheckCircle, FileText } from 'lucide-react';
 import { signoffsAPI } from '../lib/api';
 import { formatCurrency } from '../utils/format';
 import { SignaturePad } from '../components/contracts/SignaturePad';
+import { SignDock } from '../components/contracts/SignDock';
 import { LightPage } from '../components/common/LightPage';
 import { LangProvider, LangToggle } from '../i18n';
 import { formatLongDate, formatMoment, useLang } from '../i18n/lang';
@@ -96,7 +97,7 @@ function SignoffContent() {
   const documentName = upload ? view.document.name : name;
   return (
     <LightPage className="bg-gray-50 text-gray-900">
-      <div className="max-w-2xl mx-auto px-4 py-8 space-y-4">
+      <div className={`max-w-2xl mx-auto px-4 py-8 space-y-4 ${view.status === 'sent' ? 'pb-28' : ''}`}>
         <header>
           {view.company?.logoUrl && (
             <img src={view.company.logoUrl} alt={view.company.name} className="max-h-14 max-w-[200px] object-contain mb-3" data-testid="company-logo" />
@@ -196,7 +197,25 @@ function SignoffContent() {
         ) : view.status === 'cancelled' ? (
           <p className="text-sm text-gray-600">{t.withdrawn(view.company?.name ?? t.theCompany)}</p>
         ) : (
-          <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-4" aria-label="Sign">
+          // Pinned to the bottom of the screen, so signing is in reach while they read.
+          <SignDock
+            summary={
+              view.kind === 'change_order' ? (
+                <>
+                  <span className="block text-xs text-gray-500">{t.newTotal}</span>
+                  <span className="block text-lg font-semibold text-gray-900">{formatCurrency(view.newTotal ?? 0)}</span>
+                </>
+              ) : (
+                <span className="block font-medium text-gray-900 truncate">{name}</span>
+              )
+            }
+            openLabel={t.reviewSign}
+            title={name}
+            closeLabel={t.close}
+            buttonClass="bg-[#336699] hover:bg-[#2a5580]"
+            widthClass="max-w-2xl"
+          >
+          <section className="space-y-4" aria-label="Sign">
             <label className="block">
               <span className="block text-sm font-medium text-gray-700 mb-1">{t.yourName}</span>
               <input value={signerName} onChange={(e) => setSignerName(e.target.value)} aria-label="Your name" className="w-full border border-gray-300 rounded px-3 py-2" />
@@ -213,11 +232,12 @@ function SignoffContent() {
               type="button"
               onClick={sign}
               disabled={busy || !signature || !signerName.trim() || (upload && !agreed)}
-              className="w-full sm:w-auto px-6 py-3 rounded-lg bg-[#336699] hover:bg-[#2a5580] text-white font-medium disabled:opacity-50"
+              className="w-full px-6 py-3 rounded-lg bg-[#336699] hover:bg-[#2a5580] text-white font-medium disabled:opacity-50"
             >
               {busy ? t.signing : t.sign(view.kind)}
             </button>
           </section>
+          </SignDock>
         )}
         {view.company && (
           <p className="text-xs text-gray-500 text-center">
