@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, ChevronRight } from 'lucide-react';
 import { useQuickCreateOptions } from '../common/quickCreateOptions';
+import { usePresence } from '../common/usePresence';
 
 interface MobileCreateMenuProps {
   isOpen: boolean;
@@ -17,7 +18,9 @@ const HINTS: Record<string, string> = {
 
 export const MobileCreateMenu: React.FC<MobileCreateMenuProps> = ({ isOpen, onClose }) => {
   const options = useQuickCreateOptions();
-  if (!isOpen) return null;
+  // Slides up from the bottom and back down, over a dim that fades.
+  const { mounted, shown } = usePresence(isOpen);
+  if (!mounted) return null;
 
   const handleAction = (action: () => void) => {
     action();
@@ -27,10 +30,18 @@ export const MobileCreateMenu: React.FC<MobileCreateMenuProps> = ({ isOpen, onCl
   return (
     <div className="md:hidden fixed inset-0 z-[10002]">
       {/* Backdrop */}
-      <div className="absolute inset-0" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} onClick={onClose} />
-      
+      <div
+        className={`absolute inset-0 transition-opacity ${shown ? 'opacity-100' : 'opacity-0'}`}
+        style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+        onClick={onClose}
+      />
+
       {/* Menu Sheet - slides up from bottom */}
-      <div className="absolute bottom-0 left-0 right-0 bg-[#1A2332] rounded-t-[16px] shadow-xl">
+      <div
+        className={`absolute bottom-0 left-0 right-0 bg-[#1A2332] rounded-t-[16px] shadow-xl transform transition-transform ${
+          shown ? 'translate-y-0' : 'translate-y-full'
+        }`}
+      >
         {/* Handle */}
         <div className="flex justify-center py-2">
           <div className="w-12 h-1 bg-gray-400 rounded-full" />

@@ -92,14 +92,26 @@ async function clientsById(organizationId: string) {
   return new Map(clients.map((client) => [client._id as string, client]));
 }
 
+/** The last copy loaded of each project, so its drawer opens filled in (as an estimate's does). */
+const cache = new Map<string, Project>();
+const keep = (project: Project) => {
+  if (project?.id) cache.set(project.id, project);
+  return project;
+};
+
 /** Projects, stored in Convex. */
 export class ProjectService {
+  /** The last copy loaded of a project, if any. */
+  static cached(id: string): Project | undefined {
+    return cache.get(id);
+  }
+
   static async list(organizationId: string, filters?: { clientId?: string }): Promise<Project[]> {
     const [docs, clients] = await Promise.all([
       projectsAPI.list(organizationId, filters?.clientId ? { clientId: filters.clientId } : undefined),
       clientsById(organizationId),
     ]);
-    return docs.map((doc: Doc) => toProject(doc, clients));
+    return docs.map((doc: Doc) => keep(toProject(doc, clients)));
   }
 
   static async getById(id: string): Promise<Project | null> {
@@ -109,7 +121,7 @@ export class ProjectService {
     } catch {
       return null;
     }
-    return toProject(doc, await clientsById(doc.organizationId));
+    return keep(toProject(doc, await clientsById(doc.organizationId)));
   }
 
   static async create(project: Omit<Project, 'id' | 'created_at' | 'updated_at'>): Promise<Project> {
@@ -119,7 +131,7 @@ export class ProjectService {
 
   static async update(id: string, updates: Partial<Project>): Promise<Project> {
     const doc = await projectsAPI.update(id, toConvexProject(updates));
-    return toProject(doc, await clientsById(doc.organizationId));
+    return keep(toProject(doc, await clientsById(doc.organizationId)));
   }
 
   static async updateStatus(id: string, status: ProjectStatus): Promise<Project> {
@@ -128,5 +140,6 @@ export class ProjectService {
 
   static async delete(id: string): Promise<void> {
     await projectsAPI.delete(id);
+    cache.delete(id);
   }
 }

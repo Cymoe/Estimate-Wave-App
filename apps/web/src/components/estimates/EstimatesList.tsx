@@ -18,6 +18,7 @@ import { createPortal } from 'react-dom';
 import { Toast, useToast } from '../common/Notice';
 import { isPlaceholderTitle } from '../../../convex/lib/jobName';
 import { notify } from '../common/appDialogs';
+import { lastSeen, remember } from '../../lib/lastSeen';
 
 /** Estimate, client, status, date, amount: shared by the header and every row. */
 const ROW_GRID = 'grid grid-cols-[minmax(8.5rem,1fr)_minmax(0,2fr)_6.5rem_7rem_minmax(7rem,1fr)] gap-4 items-center';
@@ -51,8 +52,10 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
   const navigate = useNavigate();
   const { selectedOrg } = useContext(OrganizationContext);
   const { isConstrained } = useContext(LayoutContext);
-  const [estimates, setEstimates] = useState<Estimate[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Opened again, the last copy shows at once and refreshes quietly.
+  const listKey = selectedOrg?.id ? `estimates:${selectedOrg.id}` : null;
+  const [estimates, setEstimates] = useState<Estimate[]>(() => lastSeen<Estimate[]>(listKey) ?? []);
+  const [loading, setLoading] = useState(() => !lastSeen(listKey));
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [dateRange, setDateRange] = useState<DateRange>('all');
   const [showFilterMenu, setShowFilterMenu] = useState(false);
@@ -166,15 +169,22 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
 
   // The org whose estimates are on screen; reloading the same org (after closing
   // an estimate) updates the rows quietly instead of showing the loading skeleton.
-  const loadedOrg = useRef<string | null>(null);
+  const loadedOrg = useRef<string | null>(lastSeen(listKey) ? selectedOrg?.id ?? null : null);
 
   const loadEstimates = async () => {
     if (!selectedOrg?.id) return;
     const orgId = selectedOrg.id;
+    const key = `estimates:${orgId}`;
+    // Another company picked: its last copy, if any, shows while this one loads.
+    const known = loadedOrg.current === orgId ? undefined : lastSeen<Estimate[]>(key);
+    if (known) {
+      setEstimates(known);
+      loadedOrg.current = orgId;
+    }
     const quiet = loadedOrg.current === orgId;
     try {
       if (!quiet) setLoading(true);
-      const estimatesData = await EstimateService.list(orgId);
+      const estimatesData = remember(key, await EstimateService.list(orgId));
       setEstimates(estimatesData);
       loadedOrg.current = orgId;
     } catch (error) {

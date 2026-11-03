@@ -311,7 +311,8 @@ export const ProjectPanel: React.FC<{
     return onEstimate ? 'estimates' : isTab(wanted) ? wanted : 'overview';
   });
   const [addingExpense, setAddingExpense] = useState(false);
-  const [project, setProject] = useState<Project | null>(null);
+  // The copy from the projects list (or the last visit) shows at once; the fresh one replaces it.
+  const [project, setProject] = useState<Project | null>(() => ProjectService.cached(projectId) ?? null);
   usePageTitle(project?.name);
   const [client, setClient] = useState<Client | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { usePresence } from './usePresence';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -38,20 +39,30 @@ export function useToast() {
   return { toast: state?.text ?? null, link: state?.link, show };
 }
 
-export const Toast: React.FC<{ text: string | null; link?: ToastLink }> = ({ text, link }) =>
-  text
-    ? createPortal(
-        <div role="status" className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[11600] max-w-[calc(100vw-32px)] px-4 py-2 rounded-lg bg-[#1E1E1E] border border-[#333333] text-sm text-white shadow-xl flex items-center gap-3">
-          <span>{text}</span>
-          {link && (
-            <Link to={link.to} className="shrink-0 inline-flex items-center min-h-[44px] font-medium text-[#6aa3d9] hover:text-white">
-              {link.label}
-            </Link>
-          )}
-        </div>,
-        document.body,
-      )
-    : null;
+export const Toast: React.FC<{ text: string | null; link?: ToastLink }> = ({ text, link }) => {
+  // Fades in, and keeps its last words on screen while it fades out.
+  const { mounted, shown } = usePresence(Boolean(text));
+  const last = useRef<{ text: string; link?: ToastLink }>({ text: '' });
+  if (text) last.current = { text, link };
+  if (!mounted && !text) return null;
+  const { text: words, link: to } = text ? { text, link } : last.current;
+  return createPortal(
+    <div
+      role="status"
+      className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[11600] max-w-[calc(100vw-32px)] px-4 py-2 rounded-lg bg-[#1E1E1E] border border-[#333333] text-sm text-white shadow-xl flex items-center gap-3 transition-opacity ${
+        shown && text ? 'opacity-100' : 'opacity-0'
+      }`}
+    >
+      <span>{words}</span>
+      {to && (
+        <Link to={to.to} className="shrink-0 inline-flex items-center min-h-[44px] font-medium text-[#6aa3d9] hover:text-white">
+          {to.label}
+        </Link>
+      )}
+    </div>,
+    document.body,
+  );
+};
 
 export const InlineNotice: React.FC<{ tone: 'good' | 'bad'; onDismiss?: () => void; className?: string; children: React.ReactNode }> = ({ tone, onDismiss, className = '', children }) => (
   <div

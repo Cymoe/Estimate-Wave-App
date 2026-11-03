@@ -28,10 +28,11 @@ export const SlideOutDrawer: React.FC<SlideOutDrawerProps> = ({
 
   const handleClose = () => {
     setIsClosing(true);
+    // The same speed as the estimate and project drawers.
     setTimeout(() => {
       onClose();
       setIsClosing(false);
-    }, 300);
+    }, 150);
   };
 
   useEffect(() => {
@@ -79,12 +80,12 @@ export const SlideOutDrawer: React.FC<SlideOutDrawerProps> = ({
     <div className="fixed inset-0 z-[11000] flex justify-end" role="dialog" aria-label={title}>
       {/* Backdrop with blur and darker opacity */}
       <div
-        className={`fixed inset-0 bg-black/70 backdrop-blur-sm transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0'}`}
+        className={`fixed inset-0 bg-black/70 backdrop-blur-sm transition-opacity ${open ? 'opacity-100' : 'opacity-0'}`}
         onClick={handleClose}
       />
 
       {/* Drawer */}
-      <div className={`relative w-full ${widthClasses[width]} bg-[#121212] h-[100dvh] shadow-2xl border-l border-[#333333] transform transition-transform duration-300 flex flex-col ${
+      <div className={`relative w-full ${widthClasses[width]} bg-[#121212] h-[100dvh] shadow-2xl border-l border-[#333333] transform transition-transform flex flex-col ${
         open ? 'translate-x-0' : 'translate-x-full'
       }`}>
         {/* Header */}

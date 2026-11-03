@@ -133,12 +133,14 @@ describe('estimate agreement tab', () => {
     expect(path).toBe('/estimates/e1');
     expect(sheet()!.textContent).toContain('SERVICES CONTRACT AGREEMENT');
     await act(async () => (sheet()!.querySelector('button[aria-label="Back"]') as HTMLButtonElement).click());
+    await act(async () => new Promise((r) => setTimeout(r, 200))); // it fades out
     expect(sheet()).toBeNull();
     expect(path).toBe('/estimates/e1');
     expect(document.body.textContent).toContain('Filled in from this estimate'); // still on the Agreement tab
     // Esc closes it too.
     await open();
     await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    await act(async () => new Promise((r) => setTimeout(r, 200)));
     expect(sheet()).toBeNull();
     expect(document.body.textContent).toContain('Filled in from this estimate');
   });

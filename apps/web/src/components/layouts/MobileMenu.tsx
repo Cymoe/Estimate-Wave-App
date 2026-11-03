@@ -2,6 +2,7 @@ import { SUPPORT_EMAIL } from '../../../convex/lib/support';
 import React, { Suspense, lazy, useState } from 'react';
 import { X, ChevronRight, User, Building, CreditCard, HelpCircle, LogOut, Plus } from 'lucide-react';
 import { NavShapeMark } from './NavShapes';
+import { usePresence } from '../common/usePresence';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { isStaff, isSuperAdmin } from '../../lib/roles';
@@ -33,15 +34,25 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
   const { plan, active: planActive } = usePlan(selectedOrg.id || undefined);
   const dim = planActive ? '' : ' opacity-40 grayscale';
 
-  if (!isOpen) return null;
+  // Slides in from the left and back out, over a dim that fades.
+  const { mounted, shown } = usePresence(isOpen);
+  if (!mounted) return null;
 
   return (
     <div className="md:hidden fixed inset-0 z-[10001]">
       {/* Backdrop */}
-      <div className="absolute inset-0" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} onClick={onClose} />
-      
+      <div
+        className={`absolute inset-0 transition-opacity ${shown ? 'opacity-100' : 'opacity-0'}`}
+        style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+        onClick={onClose}
+      />
+
       {/* Menu Drawer */}
-      <div className="absolute left-0 top-0 bottom-0 w-80 bg-[#1A1A1A] shadow-xl overflow-y-auto">
+      <div
+        className={`absolute left-0 top-0 bottom-0 w-80 bg-[#1A1A1A] shadow-xl overflow-y-auto transform transition-transform ${
+          shown ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-[#333333]">
           <h2 className="text-white font-medium text-lg">Menu</h2>

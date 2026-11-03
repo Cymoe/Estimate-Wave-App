@@ -29,6 +29,7 @@ const updateProject = jest.fn(async (_id: string, patch: Record<string, unknown>
 
 jest.mock('../../../services/ProjectService', () => ({
   ProjectService: {
+    cached: () => undefined,
     getById: jest.fn(async () => project),
     update: (id: string, patch: Record<string, unknown>) => updateProject(id, patch),
     updateStatus: jest.fn(async (_id: string, status: string) => ({ ...project, status })),

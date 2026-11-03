@@ -65,8 +65,15 @@ test('loading, then the empty state', async () => {
   expect(document.body.textContent).toContain('Nothing here yet');
 });
 
-test('closed, it reads nothing', async () => {
+test('closed, it reads nothing, and its dim is faded out and lets taps through', async () => {
   await render(<ActivityPanel isOpen={false} onClose={() => {}} />);
   expect(useActivity).not.toHaveBeenCalled();
-  expect($('[data-testid="activity-backdrop"]')).toBeNull();
+  expect($('[data-testid="activity-backdrop"]')!.className).toContain('opacity-0 pointer-events-none');
+});
+
+test('Esc closes it, like the other drawers', async () => {
+  const onClose = jest.fn();
+  await render(<ActivityPanel isOpen onClose={onClose} />);
+  await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+  expect(onClose).toHaveBeenCalled();
 });

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { SLIDE_MS } from '../common/usePresence';
 import { formatDate } from '../../utils/format';
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight, FileText, Plus, Trash2 } from 'lucide-react';
@@ -88,6 +89,15 @@ export function ContractTab({
   const [note, setNote] = useState<string | null>(null);
   // The agreement or signed record, open on top of the estimate so closing it leaves the estimate as it was.
   const [sheet, setSheet] = useState<'agreement' | 'record' | null>(null);
+  // The sheet fades out before it goes, as it faded in.
+  const [sheetLeaving, setSheetLeaving] = useState(false);
+  const closeSheet = () => {
+    setSheetLeaving(true);
+    window.setTimeout(() => {
+      setSheet(null);
+      setSheetLeaving(false);
+    }, SLIDE_MS);
+  };
   const picker = useRef<HTMLInputElement>(null);
   const id = estimate.id!;
   const locked = Boolean(estimate.contract_locked_at);
@@ -137,7 +147,7 @@ export function ContractTab({
 
   return (
     <div className="space-y-3">
-      {sheet && <EstimateContractView estimateId={id} record={sheet === 'record'} onClose={() => setSheet(null)} onSaved={onEstimateChange} />}
+      {sheet && <EstimateContractView estimateId={id} record={sheet === 'record'} onClose={closeSheet} leaving={sheetLeaving} onSaved={onEstimateChange} />}
       <input ref={picker} type="file" accept="application/pdf,.pdf" className="hidden" onChange={onFile} data-testid="job-contract-file" />
       <div className="bg-[#1a1a1a] border border-[#333] divide-y divide-[#333]">
         {agreement?.source === 'upload' && agreement.url ? (

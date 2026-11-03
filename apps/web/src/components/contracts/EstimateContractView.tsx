@@ -14,13 +14,15 @@ interface EstimateContractViewProps {
   /** Shown as a sheet over the estimate: which estimate, and how to close it. Without these it's the /estimates/:id/contract page. */
   estimateId?: string;
   onClose?: () => void;
+  /** Closing: the sheet fades out (it faded in when it opened). */
+  leaving?: boolean;
   /** The signed record instead of the agreement (the page's ?record=1). */
   record?: boolean;
   /** The estimate after its terms are saved here, so the estimate underneath stays current. */
   onSaved?: (estimate: Estimate) => void;
 }
 
-export const EstimateContractView: React.FC<EstimateContractViewProps> = ({ estimateId, onClose, record, onSaved }) => {
+export const EstimateContractView: React.FC<EstimateContractViewProps> = ({ estimateId, onClose, record, onSaved, leaving = false }) => {
   const params = useParams<{ id: string }>();
   const id = estimateId ?? params.id;
   const navigate = useNavigate();
@@ -109,7 +111,9 @@ export const EstimateContractView: React.FC<EstimateContractViewProps> = ({ esti
             role="dialog"
             aria-modal="true"
             aria-label={showRecord ? 'Signed record' : 'Agreement'}
-            className="agreement-sheet fixed inset-0 z-[10010] overflow-y-auto overscroll-contain bg-black print:static print:overflow-visible"
+            className={`agreement-sheet fixed inset-0 z-[10010] overflow-y-auto overscroll-contain bg-black print:static print:overflow-visible ${
+              leaving ? 'opacity-0 transition-opacity' : 'motion-safe:animate-fade-in-plain'
+            }`}
           >
             <style>{'@media print { body > :not(.agreement-sheet) { display: none !important; } }'}</style>
             {page}

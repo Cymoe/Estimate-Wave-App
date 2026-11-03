@@ -33,11 +33,14 @@ describe('Notice', () => {
     act(() => jest.advanceTimersByTime(2400));
     expect(pill()).not.toBeNull();
     act(() => jest.advanceTimersByTime(200));
+    expect(pill()!.className).toContain('opacity-0'); // fading out
+    act(() => jest.advanceTimersByTime(200));
     expect(pill()).toBeNull();
 
     act(() => long.click());
     act(() => jest.advanceTimersByTime(5900));
     expect(pill()).not.toBeNull();
+    act(() => jest.advanceTimersByTime(200)); // its time is up: fading
     act(() => jest.advanceTimersByTime(200));
     expect(pill()).toBeNull();
 
@@ -46,7 +49,8 @@ describe('Notice', () => {
     act(() => jest.advanceTimersByTime(1000));
     act(() => short.click());
     expect(pill()?.textContent).toBe('Bid removed.');
-    act(() => jest.advanceTimersByTime(2600));
+    act(() => jest.advanceTimersByTime(2600)); // its own time
+    act(() => jest.advanceTimersByTime(200)); // then the fade
     expect(pill()).toBeNull();
   });
 

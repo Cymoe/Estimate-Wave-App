@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { lastSeen, remember } from '../../lib/lastSeen';
 import { formatCurrency } from '../../utils/format';
 // import { supabase } from '../../lib/supabase'; // Removed - using MongoDB
 import { useAuth } from '../../contexts/AuthContext';
@@ -41,6 +42,8 @@ interface PriceBookProps {
   triggerAddItem?: number;
 }
 
+type Trade = { id: string; name: string; code: string; industry_id?: string; industry?: { id: string; name: string; icon?: string; color?: string } | null };
+
 export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -49,7 +52,10 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
   const [showNewLineItemModal, setShowNewLineItemModal] = useState(false);
   const [showEditLineItemModal, setShowEditLineItemModal] = useState(false);
   const [editingLineItem, setEditingLineItem] = useState<LineItem | null>(null);
-  const [lineItems, setLineItems] = useState<LineItem[]>([]);
+  // Opened again, the last copy shows at once and refreshes quietly.
+  const itemsKey = selectedOrg?.id ? `pricebook-items:${selectedOrg.id}` : null;
+  const codesKey = selectedOrg?.id ? `pricebook-codes:${selectedOrg.id}` : null;
+  const [lineItems, setLineItems] = useState<LineItem[]>(() => lastSeen<LineItem[]>(itemsKey) ?? []);
   const [searchTerm, setSearchTerm] = useState('');
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
@@ -57,13 +63,13 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
   const [priceSort, setPriceSort] = useState<'asc' | 'desc'>('desc');
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const optionsMenuRef = useRef<HTMLDivElement>(null);
-  const [trades, setTrades] = useState<{ id: string; name: string; code: string; industry_id?: string; industry?: { id: string; name: string; icon?: string; color?: string } | null }[]>([]);
+  const [trades, setTrades] = useState<Trade[]>(() => lastSeen<{ trades: Trade[] }>(codesKey)?.trades ?? []);
   // The company's trades: the Price Book opens on their items, with "All trades" one tap away.
   const [myTrades, setMyTrades] = useState<Set<string>>(new Set());
   const [myTradeNames, setMyTradeNames] = useState('');
   const [tradeScope, setTradeScope] = useState<'mine' | 'all'>('mine');
   const [selectedTradeId, setSelectedTradeId] = useState<string>('all');
-  const [groupedTrades, setGroupedTrades] = useState<Map<string, typeof trades>>(new Map());
+  const [groupedTrades, setGroupedTrades] = useState<Map<string, typeof trades>>(() => lastSeen<{ grouped: Map<string, typeof trades> }>(codesKey)?.grouped ?? new Map());
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [selectedDateRange, setSelectedDateRange] = useState('all');
@@ -75,9 +81,12 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
     }
     return false;
   });
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(() => !lastSeen(itemsKey));
   const [error, setError] = useState<string | null>(null);
-  const [isLoadingCostCodes, setIsLoadingCostCodes] = useState(true);
+  const [isLoadingCostCodes, setIsLoadingCostCodes] = useState(() => !lastSeen(codesKey));
+  useEffect(() => {
+    if (!isLoading) remember(itemsKey, lineItems);
+  }, [itemsKey, isLoading, lineItems]);
   const [quickFilter, setQuickFilter] = useState<'all' | 'labor' | 'materials' | 'services' | 'installation'>('all');
   const [recentlyUpdatedId, setRecentlyUpdatedId] = useState<string | null>(null);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
@@ -347,8 +356,8 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
 
   const fetchTrades = async () => {
     try {
-      setIsLoadingCostCodes(true);
-      
+      if (!lastSeen(codesKey)) setIsLoadingCostCodes(true);
+
       if (!selectedOrg?.id) {
         setTrades([]);
         return;
@@ -368,6 +377,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
         grouped.get(category).push(code);
       });
       setGroupedTrades(grouped);
+      remember(codesKey, { trades: data || [], grouped });
     } catch (err) {
       console.error('Error in fetchTrades:', err);
       console.error('Error details:', err);
@@ -379,7 +389,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
 
   const fetchLineItems = async (smartMerge = false) => {
     try {
-      if (!smartMerge) {
+      if (!smartMerge && !lastSeen(itemsKey)) {
         setIsLoading(true);
       }
       setError(null);

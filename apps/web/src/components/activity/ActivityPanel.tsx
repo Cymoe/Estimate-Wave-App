@@ -1,4 +1,4 @@
-import React, { useContext } from 'react';
+import React, { useContext, useEffect } from 'react';
 import { X, Activity } from 'lucide-react';
 import { ActivityFeed } from './ActivityFeed';
 import { OrganizationContext } from '../layouts/DashboardLayout';
@@ -12,20 +12,30 @@ interface ActivityPanelProps {
 export const ActivityPanel: React.FC<ActivityPanelProps> = ({ isOpen, onClose }) => {
   const { selectedOrg } = useContext(OrganizationContext);
 
+  // Esc closes it, like the other drawers.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
+
   return (
     <>
-      {isOpen && (
-        // The dim is inline: the light theme recolours bg-black, which turned this into a solid sheet.
-        <div
-          className="fixed inset-0 z-[9999]"
-          style={{ backgroundColor: 'rgba(0, 0, 0, 0.4)' }}
-          onClick={onClose}
-          data-testid="activity-backdrop"
-        />
-      )}
-
+      {/* The dim fades in and out with the panel. It's inline: the light theme recolours bg-black. */}
       <div
-        className={`fixed top-0 right-0 h-full w-full max-w-md bg-[#1E1E1E] border-l border-[#333333] shadow-xl z-[10000] transform transition-transform duration-300 flex flex-col ${
+        className={`fixed inset-0 z-[9999] transition-opacity ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        style={{ backgroundColor: 'rgba(0, 0, 0, 0.4)' }}
+        onClick={onClose}
+        aria-hidden="true"
+        data-testid="activity-backdrop"
+      />
+
+      {/* The same slide and speed as the estimate and project drawers. */}
+      <div
+        className={`fixed top-0 right-0 h-full w-full max-w-md bg-[#1E1E1E] border-l border-[#333333] shadow-xl z-[10000] transform transition-transform flex flex-col ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
         aria-hidden={!isOpen}

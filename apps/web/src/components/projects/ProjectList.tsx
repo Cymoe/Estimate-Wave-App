@@ -1,4 +1,5 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { lastSeen, remember } from '../../lib/lastSeen';
 import { ChevronDown, ChevronUp, Download, FileSpreadsheet, FolderOpen, MoreVertical, Search } from 'lucide-react';
 import { useLocation, useMatch, useNavigate, useSearchParams } from 'react-router-dom';
 import { OrganizationContext } from '../layouts/DashboardLayout';
@@ -23,8 +24,13 @@ const clientName = (p: Project) => p.client?.company_name || p.client?.name || '
 export const ProjectList: React.FC = () => {
   const navigate = useNavigate();
   const { selectedOrg } = useContext(OrganizationContext);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Opened again, the last copy shows at once and refreshes quietly.
+  const listKey = selectedOrg?.id ? `projects:${selectedOrg.id}` : null;
+  const [projects, setProjects] = useState<Project[]>(() => lastSeen<Project[]>(listKey) ?? []);
+  const [loading, setLoading] = useState(() => !lastSeen(listKey));
+  useEffect(() => {
+    if (!loading) remember(listKey, projects);
+  }, [listKey, loading, projects]);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | ProjectStatus>('all');
@@ -80,7 +86,9 @@ export const ProjectList: React.FC = () => {
   useEffect(() => {
     if (!selectedOrg?.id) return;
     let cancelled = false;
-    setLoading(true);
+    const known = lastSeen<Project[]>(`projects:${selectedOrg.id}`);
+    if (known) setProjects(known);
+    setLoading(!known);
     ProjectService.list(selectedOrg.id)
       .then((list) => !cancelled && setProjects(list))
       .catch((error) => console.error('Error loading projects:', error))

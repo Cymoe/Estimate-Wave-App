@@ -1,4 +1,5 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { lastSeen, remember } from '../lib/lastSeen';
 import { AddressLink } from '../components/common/AddressLink';
 import { fullAddress } from '../lib/mapsLinks';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -203,9 +204,16 @@ const LeadsPage: React.FC = () => {
   // A company in the Lead Market that hasn't set bids yet is told where its leads will come from.
   const wallet = useWallet<WalletSummary>(organizationId);
   const buysLeads = (wallet?.leadTrades?.length ?? 0) > 0 && (wallet?.standingBids ?? 0) === 0;
-  const [leads, setLeads] = useState<Lead[]>([]);
+  // Opened again, the last copy shows at once and refreshes quietly.
+  const listKey = organizationId ? `leads:${organizationId}` : null;
+  const [leads, setLeads] = useState<Lead[]>(() => lastSeen<Lead[]>(listKey) ?? []);
   const [trades, setTrades] = useState<Trade[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !lastSeen(listKey));
+  // The live list has arrived (not just the remembered copy): links to one lead wait for it.
+  const [fresh, setFresh] = useState(false);
+  useEffect(() => {
+    if (!loading) remember(listKey, leads);
+  }, [listKey, loading, leads]);
   const [editing, setEditing] = useState<Lead | 'new' | null>(null);
 
   // The blue + button's "Lead" opens /leads?new=1.
@@ -220,7 +228,7 @@ const LeadsPage: React.FC = () => {
   const looked = useRef<string | null>(null);
   useEffect(() => {
     const id = searchParams.get('lead');
-    if (!id || loading) return;
+    if (!id || !fresh) return;
     const lead = leads.find((row) => row.id === id);
     if (!lead) {
       if (looked.current === id) return;
@@ -249,7 +257,7 @@ const LeadsPage: React.FC = () => {
       leadsAPI.acknowledge(lead.id).then((at) => setLeads((rows) => rows.map((row) => (row.id === lead.id ? { ...row, acknowledgedAt: at } : row)))).catch(() => {});
     }
     setSearchParams({}, { replace: true });
-  }, [searchParams, setSearchParams, leads, loading, organizationId, setSelectedOrg]);
+  }, [searchParams, setSearchParams, leads, fresh, organizationId, setSelectedOrg]);
   const [quoting, setQuoting] = useState<{ lead: Lead; clientId: string } | null>(null);
 
   const load = async () => {
@@ -260,11 +268,15 @@ const LeadsPage: React.FC = () => {
       console.error('Error loading leads:', err);
     } finally {
       setLoading(false);
+      setFresh(true);
     }
   };
 
   useEffect(() => {
-    setLoading(true);
+    const known = lastSeen<Lead[]>(listKey);
+    if (known) setLeads(known);
+    setLoading(!known);
+    setFresh(false);
     load();
     industriesAPI.list().then(setTrades).catch(() => setTrades([]));
     // Stay live: any saved change (an appointment, a status, a note) shows up
@@ -275,6 +287,7 @@ const LeadsPage: React.FC = () => {
     return leadsAPI.watch(organizationId, (rows) => {
       setLeads(rows);
       setLoading(false);
+      setFresh(true);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [organizationId]);
