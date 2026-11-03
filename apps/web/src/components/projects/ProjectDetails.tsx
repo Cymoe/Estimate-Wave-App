@@ -1,5 +1,6 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { fullAddress } from '../../lib/mapsLinks';
+import { AddressLink } from '../common/AddressLink';
 import { usePageTitle } from '../../lib/pageTitle';
 import { estimateStatusLabel } from '../estimates/estimateActions';
 import { createPortal } from 'react-dom';
@@ -11,6 +12,7 @@ import {
   DollarSign,
   Globe,
   LayoutTemplate,
+  MapPin,
   MoreVertical,
   Plus,
   Trash2,
@@ -599,6 +601,12 @@ export const ProjectPanel: React.FC<{
             </label>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* The job site in Apple Maps */}
+            {place && (
+              <AddressLink address={place} className={`${secondaryAction} px-2.5`} aria-label={`Open ${place} in Apple Maps`}>
+                <MapPin className="w-4 h-4" />
+              </AddressLink>
+            )}
             {/* The client's portal: exactly what they see, and send what's waiting */}
             <button
               type="button"

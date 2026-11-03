@@ -2,8 +2,8 @@ import React from 'react';
 import { mapsSearchUrl } from '../../lib/mapsLinks';
 
 /**
- * Any address in the app: one tap opens it in Apple Maps (iPhone, iPad, Mac)
- * or Google Maps (everything else). A tap here never reaches a clickable card around it.
+ * Any address in the app: one tap opens it in Apple Maps.
+ * A tap here never reaches a clickable card around it.
  */
 export const AddressLink: React.FC<{
   /** The whole address (fullAddress from lib/mapsLinks). */
@@ -13,7 +13,7 @@ export const AddressLink: React.FC<{
   children: React.ReactNode;
 }> = ({ address, className, children, ...rest }) => {
   if (!address.trim()) return <>{children}</>;
-  const label = rest['aria-label'] ?? `Open ${address} in Maps`;
+  const label = rest['aria-label'] ?? `Open ${address} in Apple Maps`;
   return (
     <a
       href={mapsSearchUrl(address)}

@@ -186,8 +186,11 @@ describe('Project drawer', () => {
     );
     expect(dialog.textContent).not.toContain('Project Health');
     expect(dialog.textContent).not.toContain('Most Used');
-    // No contact buttons crowd the header: the client's name opens their page, which has them.
-    expect(dialog.querySelector('a[href^="tel:"], a[href^="sms:"], a[href^="mailto:"], a[href*="maps"]')).toBeNull();
+    // Just the map icon (to Apple Maps); no Call/Text/Email: the client's name opens their page, which has them.
+    expect(dialog.querySelector('a[href^="tel:"], a[href^="sms:"], a[href^="mailto:"]')).toBeNull();
+    expect(dialog.querySelector('a[href="https://maps.apple.com/?q=12%20Oak%20St%2C%20Midland"]')?.getAttribute('aria-label')).toBe(
+      'Open 12 Oak St, Midland in Apple Maps',
+    );
     const clientLink = dialog.querySelector('[data-testid="project-client-link"]') as HTMLButtonElement;
     expect(clientLink.textContent).toBe('Ann Miller');
     await act(async () => clientLink.click());

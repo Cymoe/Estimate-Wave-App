@@ -1,15 +1,5 @@
-/**
- * Where an address opens: Apple Maps on iPhone, iPad and Mac (iPadOS reports
- * itself as a Mac), Google Maps everywhere else.
- */
-export const prefersAppleMaps = (ua: string = typeof navigator !== 'undefined' ? navigator.userAgent : '') =>
-  /iPhone|iPad|iPod|Macintosh|Mac OS X/i.test(ua);
-
-/** The address shown in the device's maps app. */
-export const mapsSearchUrl = (address: string, ua?: string) =>
-  prefersAppleMaps(ua)
-    ? `https://maps.apple.com/?q=${encodeURIComponent(address)}`
-    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+/** The address in Apple Maps (the app on iPhone, iPad and Mac; maps.apple.com in any other browser). */
+export const mapsSearchUrl = (address: string) => `https://maps.apple.com/?q=${encodeURIComponent(address)}`;
 
 /** "12 Oak St, Midland, TX 79701" from its parts, skipping blanks. State and zip read "TX 79701". */
 export function fullAddress(street?: string, city?: string, state?: string, zip?: string): string {
