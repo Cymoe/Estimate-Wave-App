@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ProjectService } from '../../services/ProjectService';
 import { ExpenseService } from '../../services/ExpenseService';
 import { formatCurrency } from '../../utils/format';
+import { tasksAPI } from '../../lib/api';
 
 /** A project as the sidebar shortcuts and their hover preview show it. */
 export interface ProjectShortcut {
@@ -12,6 +13,11 @@ export interface ProjectShortcut {
   status: string;
   /** Share of the budget spent so far (0 without a budget). */
   progress: number;
+  /**
+   * How far along the job is: schedule tasks done out of all of them, 100
+   * once it's completed or signed off; undefined when it has no tasks yet.
+   */
+  completion?: number;
   budget?: number;
   spent: number;
   startDate?: string;
@@ -33,6 +39,13 @@ function relativeDay(iso: string) {
   return new Date(then).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+/** Done once it's completed or signed off; otherwise the share of its tasks ticked off; nothing to show without tasks. */
+export function completionOf(status: string, steps?: { done: number; total: number; signedOff: boolean }): number | undefined {
+  if (status === 'completed' || steps?.signedOff) return 100;
+  if (!steps || steps.total === 0) return undefined;
+  return Math.round((steps.done / steps.total) * 100);
+}
+
 /**
  * The organization's projects with what they have spent, for the sidebar:
  * open jobs first, most recently touched first.
@@ -43,10 +56,12 @@ export function useProjectShortcuts(organizationId: string | undefined) {
   const refresh = useCallback(async () => {
     if (!organizationId) return;
     try {
-      const [list, expenses] = await Promise.all([
+      const [list, expenses, progress] = await Promise.all([
         ProjectService.list(organizationId),
         ExpenseService.list(organizationId).catch(() => []),
+        tasksAPI.progress(organizationId).catch(() => []),
       ]);
+      const steps = new Map(progress.map((p) => [p.projectId, p]));
       const shortcuts = list.map((project): ProjectShortcut => {
         const own = expenses.filter((e) => e.project_id === project.id);
         const spent = own.reduce((sum, e) => sum + e.amount, 0);
@@ -58,6 +73,7 @@ export function useProjectShortcuts(organizationId: string | undefined) {
           clientId: project.client_id,
           status: project.status,
           progress: project.budget ? Math.round((spent / project.budget) * 100) : 0,
+          completion: completionOf(project.status, steps.get(project.id!)),
           budget: project.budget,
           spent,
           startDate: project.start_date,

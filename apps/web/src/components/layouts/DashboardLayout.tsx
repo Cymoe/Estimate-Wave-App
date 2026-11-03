@@ -16,7 +16,7 @@ import { PageHeaderBar } from '../common/PageHeaderBar';
 // import { supabase } from '../../lib/supabase';
 import { ActivityPanel } from '../activity/ActivityPanel';
 import { useProjectShortcuts } from '../projects/useProjectShortcuts';
-import { BudgetRing } from '../projects/BudgetRing';
+import { ProgressRing } from '../projects/ProgressRing';
 import { FEATURES } from '../../config/features';
 import { projectStatusInfo } from '../projects/projectStatus';
 
@@ -671,8 +671,8 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                                       </div>
                                       <div className="text-gray-400 text-[10px] truncate ml-3.5 leading-tight uppercase tracking-wide">{project.client || projectStatusInfo(project.status).label}</div>
                                     </div>
-                                    {project.budget ? (
-                                    <BudgetRing percent={project.progress} />
+                                    {project.completion !== undefined ? (
+                                    <ProgressRing percent={project.completion} />
                                     ) : null}
                                   </div>
                                 </button>

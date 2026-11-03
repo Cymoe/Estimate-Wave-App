@@ -200,3 +200,29 @@ export const schedule = query({
     return { tasks: rows, projects: running };
   },
 });
+
+/**
+ * How far along each of the company's projects is, for the project lists:
+ * schedule tasks done out of all of them (warranty requests aside, they come
+ * after the job), and whether the client signed the completion sign-off.
+ */
+export const progress = query({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    await requireMember(ctx, organizationId);
+    const projects = await ctx.db.query("projects").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).take(500);
+    const out: Array<{ projectId: Id<"projects">; done: number; total: number; signedOff: boolean }> = [];
+    for (const p of projects) {
+      const tasks = (await ctx.db.query("projectTasks").withIndex("by_project", (q) => q.eq("projectId", p._id)).take(MAX_TASKS)).filter(
+        (t) => !t.warrantyRequest,
+      );
+      let signedOff = false;
+      for (const e of await ctx.db.query("estimates").withIndex("by_project", (q) => q.eq("projectId", p._id)).collect()) {
+        const signoffs = await ctx.db.query("signoffs").withIndex("by_estimate", (q) => q.eq("estimateId", e._id)).collect();
+        if (signoffs.some((s) => s.kind === "affidavit" && s.signedAt)) signedOff = true;
+      }
+      out.push({ projectId: p._id, done: tasks.filter((t) => t.doneAt).length, total: tasks.length, signedOff });
+    }
+    return out;
+  },
+});

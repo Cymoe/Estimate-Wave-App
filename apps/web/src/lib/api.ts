@@ -320,6 +320,9 @@ export const tasksAPI = {
   update: (id: string, data: TaskInput) => run('mutation', api.tasks.update, defined({ id, ...data })),
   remove: (id: string) => run('mutation', api.tasks.remove, { id }),
   schedule: (organizationId: string, from: string, to: string): Promise<Schedule> => run('query', api.tasks.schedule, { organizationId, from, to }),
+  /** Each project's tasks done and in all, and whether the completion sign-off is signed. */
+  progress: (organizationId: string): Promise<Array<{ projectId: string; done: number; total: number; signedOff: boolean }>> =>
+    run('query', api.tasks.progress, { organizationId }),
 };
 
 /** A kind of job saved from a project: its estimate lines, tasks and length. */

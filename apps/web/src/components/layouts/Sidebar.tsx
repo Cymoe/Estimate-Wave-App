@@ -24,7 +24,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { FEATURES } from '../../config/features';
 import { WalletTile } from '../market/WalletTile';
 import { planLabel, usePlan } from '../market/plan';
-import { BudgetRing } from '../projects/BudgetRing';
+import { ProgressRing } from '../projects/ProgressRing';
 
 interface SidebarProps {
   isSidebarCollapsed: boolean;
@@ -419,9 +419,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           <div className={`w-1.5 h-1.5 rounded-full mr-2 flex-shrink-0 ${project.status === 'active' || project.status === 'completed' ? 'bg-green-500' : 'bg-yellow-500'}`}></div>
                           <span className={`text-white text-xs font-medium truncate ${here ? 'text-[#336699]' : 'group-hover:text-[#336699]'} transition-colors leading-tight`}>{project.name}</span>
                         </div>
-                        {project.budget ? (
+                        {project.completion !== undefined ? (
                           <div className="flex-shrink-0 ml-2">
-                            <BudgetRing percent={project.progress} size={16} />
+                            <ProgressRing percent={project.completion} size={16} />
                           </div>
                         ) : null}
                       </button>

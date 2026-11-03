@@ -57,6 +57,44 @@ describe("crew, tasks and the schedule", () => {
     expect(await t.run((ctx) => ctx.db.query("projectTasks").collect())).toEqual([]);
   });
 
+  test("progress: tasks done out of all of them, warranty requests aside; a signed completion sign-off counts", async () => {
+    const t = setup();
+    const { as, organizationId, projectId, userId } = await job(t);
+    const a = await as.mutation(api.tasks.add, { projectId, title: "Tear-off" });
+    await as.mutation(api.tasks.add, { projectId, title: "Dry-in" });
+    await as.mutation(api.tasks.add, { projectId, title: "Shingles" });
+    await as.mutation(api.tasks.update, { id: a, done: true });
+    const now = new Date().toISOString();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("projectTasks", {
+        organizationId, projectId, title: "Warranty", crewIds: [], order: 99,
+        warrantyRequest: { note: "Leak", requestedAt: now }, createdBy: userId, createdAt: now, updatedAt: now,
+      });
+    });
+    const other = (await as.mutation(api.projects.create, { organizationId, data: { name: "Empty job", status: "planning" } }))!;
+    let rows = await as.query(api.tasks.progress, { organizationId });
+    expect(rows.find((r) => r.projectId === projectId)).toEqual({ projectId, done: 1, total: 3, signedOff: false });
+    expect(rows.find((r) => r.projectId === other._id)).toMatchObject({ done: 0, total: 0, signedOff: false });
+
+    // The client signs the completion sign-off on the job's estimate.
+    await t.run(async (ctx) => {
+      const estimateId = await ctx.db.insert("estimates", {
+        organizationId, userId, projectId, estimateNumber: "EST-1", status: "accepted", issueDate: "2026-11-01",
+        subtotal: 0, taxRate: 0, taxAmount: 0, totalAmount: 0, items: [], createdAt: now, updatedAt: now,
+      });
+      await ctx.db.insert("signoffs", {
+        organizationId, estimateId, kind: "affidavit", number: "AFF-1", token: "tok", status: "signed",
+        document: { kind: "affidavit", source: "tolliver", name: "Affidavit of completion" },
+        signedAt: now, createdBy: userId, createdAt: now, updatedAt: now,
+      });
+    });
+    rows = await as.query(api.tasks.progress, { organizationId });
+    expect(rows.find((r) => r.projectId === projectId)!.signedOff).toBe(true);
+
+    const stranger = await signUp(t, "x@else.example");
+    await expect(stranger.as.query(api.tasks.progress, { organizationId })).rejects.toThrow();
+  });
+
   test("another company can't see or change them, or put its crew on them", async () => {
     const t = setup();
     const { as, organizationId, projectId } = await job(t);
