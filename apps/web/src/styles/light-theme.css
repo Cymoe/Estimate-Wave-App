@@ -52,7 +52,6 @@ html.light .bg-black { background-color: #F4F5F7; }
 html.light .bg-gray-600 { background-color: #D1D5DB; }
 html.light .bg-gray-700 { background-color: #E5E7EB; }
 html.light .bg-gray-700\/30 { background-color: rgba(229, 231, 235, 0.3); }
-html.light .bg-gray-800 { background-color: #F3F4F6; }
 html.light .bg-gray-900 { background-color: #FFFFFF; }
 html.light .bg-white\/10 { background-color: rgba(0, 0, 0, 0.050); }
 html.light .bg-white\/20 { background-color: rgba(0, 0, 0, 0.100); }
@@ -128,7 +127,6 @@ html.light .hover\:bg-\[\#404040\]:hover { background-color: #DDE0E4; }
 html.light .hover\:bg-\[\#444\]:hover { background-color: #DDE0E4; }
 html.light .hover\:bg-\[\#4B5563\]:hover { background-color: #C9CDD3; }
 html.light .hover\:bg-\[\#555555\]:hover { background-color: #C9CDD3; }
-html.light .hover\:bg-gray-700:hover { background-color: #E5E7EB; }
 html.light .hover\:bg-gray-800:hover { background-color: #F3F4F6; }
 html.light .hover\:bg-white\/10:hover { background-color: rgba(0, 0, 0, 0.050); }
 html.light .hover\:bg-white\/15:hover { background-color: rgba(0, 0, 0, 0.075); }
