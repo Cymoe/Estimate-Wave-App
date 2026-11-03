@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { LegalLinks } from '../../pages/Legal';
 import { CheckCircle, Mail, Phone, MapPin, FileText, ChevronDown, Download, Printer } from 'lucide-react';
 import { publicEstimatesAPI } from '../../lib/api';
-import { formatCurrency } from '../../utils/format';
+import { formatCurrency, localToday } from '../../utils/format';
 import { OTHER_CATEGORY, categoryTotals, type ContractData } from '../../services/contract';
 import { LangProvider, LangToggle } from '../../i18n';
 import { formatDay, useLang } from '../../i18n/lang';
@@ -244,7 +244,8 @@ const ShareableEstimatePage: React.FC = () => {
     );
   }
 
-  const isExpired = estimate.expiry_date && new Date(estimate.expiry_date) < new Date();
+  // Good through the whole expiry day where the client is, not until midnight UTC.
+  const isExpired = !!estimate.expiry_date && estimate.expiry_date.slice(0, 10) < localToday();
   const canSign = OPEN_STATUSES.includes(estimate.status) && !isExpired;
   const statusLabel =
     estimate.status === 'rejected'

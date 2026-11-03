@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { formatDate } from '../../utils/format';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, FileText, Edit, Save, Download } from 'lucide-react';
@@ -241,7 +242,7 @@ export const EstimateContractView: React.FC<EstimateContractViewProps> = ({ esti
               <h1 className="text-xl font-semibold text-white">Contract - {estimate.estimate_number}</h1>
               <p className="text-sm text-gray-400">
                 {locked
-                  ? `${approvalLine(estimate) ?? `Signed ${new Date(contractData.lockedAt!).toLocaleDateString()}`} · changes go on a change order`
+                  ? `${approvalLine(estimate) ?? `Signed ${formatDate(contractData.lockedAt!)}`} · changes go on a change order`
                   : `Contract for ${contractData.clientName || 'no client yet'} · follows the estimate`}
               </p>
             </div>

@@ -4,7 +4,7 @@ import { clientsAPI } from '../../lib/api';
 import { EstimateService, toLegacyClient } from '../../services/EstimateService';
 import { useAuth } from '../../contexts/AuthContext';
 import { OrganizationContext } from '../layouts/DashboardLayout';
-import { formatCurrency } from '../../utils/format';
+import { formatCurrency, formatDate } from '../../utils/format';
 import { priceRange } from '../../utils/priceRange';
 import { Search, Plus, Minus, X, Save, Package, ArrowRight, CheckCircle, Check, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import { EstimateTableView } from './EstimateTableView';
@@ -1353,7 +1353,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                   <div className="flex items-center gap-4 text-xs text-gray-400">
                     <span>Valid for {validityDays} days</span>
                     {validUntil && (
-                      <span>Until {new Date(validUntil).toLocaleDateString()}</span>
+                      <span>Until {formatDate(validUntil)}</span>
                     )}
                   </div>
                 </div>

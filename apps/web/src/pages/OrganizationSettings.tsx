@@ -1,5 +1,5 @@
 import React, { useContext } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Building2, Hammer, Users, Bell, Shield, Bot, FileText, LayoutTemplate } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { BusinessDetailsForm } from '../components/settings/BusinessDetailsForm';
@@ -15,6 +15,7 @@ import { OfficeLineSetting } from '../components/settings/OfficeLineSetting';
 
 export default function OrganizationSettings() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { selectedOrg, setSelectedOrg } = useContext(OrganizationContext);
   const [params, setParams] = useSearchParams();
   // The tab lives in the address (?tab=trades), so links like "Pick your trades first" and
@@ -47,7 +48,7 @@ export default function OrganizationSettings() {
       <div className="bg-[#0A0A0A] border-b border-[#333333]">
         <div className="px-6 py-4">
           <div className="flex items-center gap-4">
-            <button onClick={() => navigate(-1)} className="p-2 hover:bg-[#252525] rounded-lg transition-colors">
+            <button onClick={() => (location.key !== 'default' ? navigate(-1) : navigate('/work'))} aria-label="Back" className="w-11 h-11 flex items-center justify-center hover:bg-[#252525] rounded-lg transition-colors">
               <ArrowLeft className="w-5 h-5 text-gray-400" />
             </button>
             <div>

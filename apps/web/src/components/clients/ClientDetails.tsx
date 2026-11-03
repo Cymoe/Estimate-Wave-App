@@ -1,8 +1,8 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { usePageTitle } from '../../lib/pageTitle';
 import { estimateStatusLabel } from '../estimates/estimateActions';
-import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Building2, FileText, FolderOpen, Languages, Mail, MapPin, Navigation, Phone, PhoneCall, Trash2 } from 'lucide-react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft, Building2, FileText, FolderOpen, Languages, Mail, MapPin, MessageSquare, Navigation, Phone, PhoneCall, Trash2 } from 'lucide-react';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { ClientService, type Client } from '../../services/ClientService';
 import { ProjectService, type Project } from '../../services/ProjectService';
@@ -78,6 +78,9 @@ export const ClientDetails: React.FC = () => {
 
 const ClientNote: React.FC<{ client: Client | null }> = ({ client }) => {
   const navigate = useNavigate();
+  const location = useLocation();
+  // Back where they came from; opened straight from a link, back to estimates instead of off the app.
+  const goBack = () => (location.key !== 'default' ? navigate(-1) : navigate('/work'));
   const { selectedOrg } = useContext(OrganizationContext);
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [estimates, setEstimates] = useState<Estimate[] | null>(null);
@@ -119,7 +122,7 @@ const ClientNote: React.FC<{ client: Client | null }> = ({ client }) => {
     if (!client?.id || !(await askConfirm({ title: `Delete “${client.name}”?`, message: 'Their projects and estimates stay.', confirmLabel: 'Delete' }))) return;
     try {
       await ClientService.delete(client.id);
-      navigate(-1);
+      goBack();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not delete');
     }
@@ -128,6 +131,8 @@ const ClientNote: React.FC<{ client: Client | null }> = ({ client }) => {
   const phoneHref = draft.phone.trim() ? `tel:${draft.phone.replace(/[^\d+]/g, '')}` : null;
   const place = [draft.address, draft.city, draft.state, draft.zip].filter((s) => s.trim()).join(', ');
   const mapHref = draft.address.trim() ? `https://maps.apple.com/?q=${encodeURIComponent(place)}` : null;
+  // Call, Text and Maps beside a field: a full fingertip target.
+  const rowAction = 'w-10 h-10 -my-2 flex flex-shrink-0 items-center justify-center text-gray-500 hover:text-white';
   const field = (name: keyof Draft, placeholder: string, type = 'text') => (
     <input
       type={type}
@@ -143,7 +148,7 @@ const ClientNote: React.FC<{ client: Client | null }> = ({ client }) => {
   return (
     <form onSubmit={create} className="max-w-2xl mx-auto px-5 md:px-7 py-5 pb-32">
       <div className="flex items-center justify-between text-sm text-gray-500 mb-4">
-        <button type="button" onClick={() => navigate(-1)} className="inline-flex items-center gap-1.5 hover:text-white">
+        <button type="button" onClick={goBack} className="inline-flex items-center gap-1.5 hover:text-white">
           <ArrowLeft className="w-4 h-4" /> Back
         </button>
         {client ? <SaveStatus state={state} /> : <span>New client</span>}
@@ -168,9 +173,14 @@ const ClientNote: React.FC<{ client: Client | null }> = ({ client }) => {
         <NoteRow icon={Phone} label="Phone">
           {field('phone', 'Add phone', 'tel')}
           {phoneHref && (
-            <a href={phoneHref} className="p-1 text-gray-500 hover:text-white" aria-label="Call">
-              <PhoneCall className="w-4 h-4" />
-            </a>
+            <>
+              <a href={phoneHref} className={rowAction} aria-label="Call" title="Call">
+                <PhoneCall className="w-4 h-4" />
+              </a>
+              <a href={phoneHref.replace(/^tel:/, 'sms:')} className={rowAction} aria-label="Text" title="Text">
+                <MessageSquare className="w-4 h-4" />
+              </a>
+            </>
           )}
         </NoteRow>
         <NoteRow icon={Mail} label="Email">
@@ -179,7 +189,7 @@ const ClientNote: React.FC<{ client: Client | null }> = ({ client }) => {
         <NoteRow icon={MapPin} label="Address">
           {field('address', 'Add address')}
           {mapHref && (
-            <a href={mapHref} target="_blank" rel="noreferrer" className="p-1 text-gray-500 hover:text-white" aria-label="Open in Maps">
+            <a href={mapHref} target="_blank" rel="noreferrer" className={rowAction} aria-label="Open in Maps" title="Open in Maps">
               <Navigation className="w-4 h-4" />
             </a>
           )}

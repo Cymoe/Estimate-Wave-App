@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { EstimateService, Estimate, EstimateItem, type ClientDetail } from '../../services/EstimateService';
 import { priceAt } from '../../utils/priceRange';
-import { formatCurrency } from '../../utils/format';
+import { formatCurrency, formatDate } from '../../utils/format';
 import { clientsAPI, estimatesAPI } from '../../lib/api';
 import { changesSinceSigned } from '../../services/contract';
 import { CreateEstimateDrawer } from './CreateEstimateDrawer';
@@ -550,7 +550,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
               </span>
               {estimate.last_sent_at && (
                 <span className="text-xs text-gray-500">
-                  Sent {new Date(estimate.last_sent_at).toLocaleDateString()}
+                  Sent {formatDate(estimate.last_sent_at)}
                 </span>
               )}
             </div>
@@ -659,7 +659,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
 
         {/* Simple Client Info */}
         <div className="text-sm text-gray-400 mt-1 px-3">
-          {estimate.client?.name || 'No client'} • Created {new Date(estimate.issue_date).toLocaleDateString()}
+          {estimate.client?.name || 'No client'} • Created {formatDate(estimate.issue_date)}
         </div>
 
         {/* Tab Navigation */}
@@ -708,12 +708,12 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
               </div>
               <div className="p-4 text-sm space-y-0.5">
                 <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Dates</div>
-                <div className="text-white">Created {new Date(estimate.issue_date).toLocaleDateString()}</div>
+                <div className="text-white">Created {formatDate(estimate.issue_date)}</div>
                 {estimate.expiry_date && (
-                  <div className="text-gray-400">Expires {new Date(estimate.expiry_date).toLocaleDateString()}</div>
+                  <div className="text-gray-400">Expires {formatDate(estimate.expiry_date)}</div>
                 )}
                 {estimate.last_sent_at && (
-                  <div className="text-gray-400">Sent {new Date(estimate.last_sent_at).toLocaleDateString()}</div>
+                  <div className="text-gray-400">Sent {formatDate(estimate.last_sent_at)}</div>
                 )}
                 {approvalLine(estimate) && <div className="text-green-400">{approvalLine(estimate)}</div>}
               </div>
@@ -882,7 +882,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                   />
                 </div>
                 <p className="text-sm text-gray-400 mt-2">
-                  Signed on {new Date(estimate.signed_at!).toLocaleDateString()}
+                  Signed on {formatDate(estimate.signed_at!)}
                 </p>
               </div>
             )}

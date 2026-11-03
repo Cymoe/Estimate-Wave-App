@@ -1,4 +1,5 @@
 import { withLang } from '../../../convex/lib/i18n';
+import { formatDate } from '../../utils/format';
 import { EstimateService, Estimate } from '../../services/EstimateService';
 import { askConfirm, notify } from '../common/appDialogs';
 
@@ -25,7 +26,7 @@ export function confirmApproval(estimate: Estimate): Promise<boolean> {
 /** "Approved Oct 31 by Myles Webb", or null when the client signed it themselves. */
 export function approvalLine(estimate: Pick<Estimate, 'approved_at' | 'approved_by_name' | 'client_signature'>): string | null {
   if (!estimate.approved_at || estimate.client_signature) return null;
-  const day = new Date(estimate.approved_at).toLocaleDateString();
+  const day = formatDate(estimate.approved_at);
   return `Approved ${day}${estimate.approved_by_name ? ` by ${estimate.approved_by_name}` : ''} · no client signature`;
 }
 

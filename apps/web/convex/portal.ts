@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { centralDay } from "./lib/oauth";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { fail, getOwned, logActivity, nowIso } from "./lib/access";
@@ -65,7 +66,8 @@ const isOpen = (e: Estimate, today: string) => OPEN.has(e.status) && !(e.expiryD
 /** The portal page: what the client sees. Paths are relative to the site. */
 async function portalView(ctx: QueryCtx, client: Doc<"clients">) {
   const organization = await ctx.db.get(client.organizationId);
-  const today = new Date().toISOString().slice(0, 10);
+  // The company's day (Central): an estimate is good through its whole expiry day.
+  const today = centralDay();
   const estimates = (
     await ctx.db
       .query("estimates")

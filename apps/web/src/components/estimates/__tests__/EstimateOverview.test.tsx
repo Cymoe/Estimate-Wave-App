@@ -193,7 +193,7 @@ describe('estimate overview', () => {
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Approve EST-2026-523077 without a signature?'));
     expect(approve).toHaveBeenCalledWith('e1');
     await act(async () => {});
-    expect(document.body.textContent).toContain(`Approved ${new Date('2026-10-31T12:00:00Z').toLocaleDateString()} by Myles Webb · no client signature`);
+    expect(document.body.textContent).toContain('Approved Oct 31, 2026 by Myles Webb · no client signature');
     // Once accepted it can't be approved again.
     await act(async () => (document.body.querySelector('button[aria-label="More actions"]') as HTMLButtonElement).click());
     expect(button('Approve without signature')).toBeUndefined();

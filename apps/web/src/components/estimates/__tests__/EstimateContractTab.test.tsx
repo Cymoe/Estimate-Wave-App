@@ -191,7 +191,7 @@ describe('estimate agreement tab', () => {
     docs.locked = true;
     docs.attachments = [{ kind: 'attachment', source: 'upload', origin: 'signed', name: 'Warranty', docId: 'w1', url: 'https://files/w' }];
     await openTab();
-    expect(document.body.textContent).toContain(`Signed ${new Date('2026-10-11T12:00:00Z').toLocaleDateString()}`);
+    expect(document.body.textContent).toContain('Signed Oct 11, 2026');
     const later = document.body.querySelector('[aria-label="After signing"]')!;
     expect(later.textContent).toContain('Changes to sign');
     expect(later.textContent).toContain('1 change to the line items since the client last signed');
@@ -221,7 +221,7 @@ describe('estimate agreement tab', () => {
     };
     docs.locked = true;
     await openTab();
-    expect(document.body.textContent).toContain(`Approved ${new Date('2026-10-31T12:00:00Z').toLocaleDateString()} by Myles Webb · no client signature`);
+    expect(document.body.textContent).toContain('Approved Oct 31, 2026 by Myles Webb · no client signature');
     expect(document.body.querySelector('[data-testid="approve-without-signature"]')).toBeNull();
   });
 

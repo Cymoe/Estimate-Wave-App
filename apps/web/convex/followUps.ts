@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { centralDay } from "./lib/oauth";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
@@ -29,7 +30,7 @@ export function nextReminderAt(estimate: Doc<"estimates">, followUps: FollowUps,
   if (!enabled || estimate.remindersOff || !estimate.shareToken) return null;
   if (estimate.status !== "sent" && estimate.status !== "opened") return null;
   if ((estimate.remindersSent ?? 0) >= MAX_REMINDERS) return null;
-  if (estimate.expiryDate && estimate.expiryDate.slice(0, 10) < new Date(nowMs).toISOString().slice(0, 10)) return null;
+  if (estimate.expiryDate && estimate.expiryDate.slice(0, 10) < centralDay(nowMs)) return null;
   const since = estimate.lastReminderAt ?? estimate.sentAt ?? estimate.firstOpenedAt ?? estimate.updatedAt;
   return Date.parse(since) + afterDays * DAY_MS;
 }

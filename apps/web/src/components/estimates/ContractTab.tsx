@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { formatDate } from '../../utils/format';
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight, FileText, Plus, Trash2 } from 'lucide-react';
 import { SignoffControls } from './SignoffControls';
@@ -122,7 +123,7 @@ export function ContractTab({
     await act('upload-attachment', () => uploadContractDoc(organizationId, 'attachment', file, id), `${file.name} is added to this job.`);
   };
 
-  const signedOn = locked ? new Date(estimate.contract_locked_at!).toLocaleDateString() : '';
+  const signedOn = locked ? formatDate(estimate.contract_locked_at!) : '';
   // Approved for the client without their signature: say so instead of "Signed".
   const approved = approvalLine(estimate);
   const agreement = docs?.agreement;
