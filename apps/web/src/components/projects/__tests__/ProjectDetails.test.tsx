@@ -51,6 +51,7 @@ jest.mock('../../../services/EstimateService', () => ({
       { id: 'e7', estimate_number: 'EST-7', title: 'Trim', client_id: 'c1', status: 'sent', total_amount: 800, created_at: '2026-10-01' },
     ]),
     update: jest.fn(async () => ({})),
+    create: jest.fn(async () => ({ id: 'e9', estimate_number: 'EST-9', status: 'draft', total_amount: 0 })),
   },
 }));
 jest.mock('../../../services/ExpenseService', () => {
@@ -269,20 +270,35 @@ describe('Project drawer', () => {
     expect(getByProject).toHaveBeenCalledTimes(2);
   });
 
-  it('adds an estimate made before the project, listing the same client’s first', async () => {
+  it('starts a new estimate on the project, for its client, and opens it over the project', async () => {
+    expenses = [];
+    const { EstimateService } = jest.requireMock('../../../services/EstimateService');
+    await render('/projects/p1?tab=estimates');
+    await click('New estimate');
+    await act(async () => {});
+    expect(EstimateService.create).toHaveBeenCalledWith(
+      expect.objectContaining({ organization_id: 'org1', project_id: 'p1', client_id: 'c1', title: 'Kitchen trim - Estimate', status: 'draft', items: [] }),
+    );
+    expect(path).toBe('/projects/p1/estimates/e9');
+  });
+
+  it('adds an estimate made before the project from a quiet link, offering only this client’s', async () => {
     expenses = [];
     const { EstimateService } = jest.requireMock('../../../services/EstimateService');
     EstimateService.getByProject.mockClear();
     await render('/projects/p1?tab=estimates');
     await act(async () => {});
+    expect(document.body.querySelector('select[aria-label="Add an existing estimate"]')).toBeNull();
+    await click('or add one made before the project (1)');
     const select = document.body.querySelector('select[aria-label="Add an existing estimate"]') as HTMLSelectElement;
-    expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['Pick an estimate', 'EST-7 · Trim · $800.00', 'EST-8 · Fence · $1,200.00']);
+    // Another client's unfiled estimate (EST-8) isn't offered.
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['Pick one of their estimates', 'EST-7 · Trim · $800.00']);
     const before = EstimateService.getByProject.mock.calls.length;
     await act(async () => {
-      select.value = 'e8';
+      select.value = 'e7';
       select.dispatchEvent(new Event('change', { bubbles: true }));
     });
-    expect(EstimateService.update).toHaveBeenCalledWith('e8', { project_id: 'p1' });
+    expect(EstimateService.update).toHaveBeenCalledWith('e7', { project_id: 'p1' });
     expect(EstimateService.getByProject.mock.calls.length).toBeGreaterThan(before); // the tab reads its estimates again
   });
 

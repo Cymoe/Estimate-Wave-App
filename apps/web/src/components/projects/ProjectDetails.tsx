@@ -11,6 +11,7 @@ import {
   Mail,
   MoreVertical,
   Phone,
+  Plus,
   Trash2,
   User,
   X,
@@ -357,14 +358,44 @@ export const ProjectPanel: React.FC<{
     EstimateService.list(orgId)
       .then((rows) => {
         if (cancelled) return;
-        const mine = (e: Estimate) => (project?.client_id && e.client_id === project.client_id ? 0 : 1);
-        setUnfiled(rows.filter((e) => !e.project_id).sort((a, b) => mine(a) - mine(b) || (b.created_at ?? '').localeCompare(a.created_at ?? '')));
+        // Only this client's: a project isn't the place to pick from every estimate in the company.
+        const clientId = project?.client_id;
+        setUnfiled(
+          clientId
+            ? rows.filter((e) => !e.project_id && e.client_id === clientId).sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
+            : [],
+        );
       })
       .catch(() => !cancelled && setUnfiled([]));
     return () => {
       cancelled = true;
     };
   }, [activeTab, orgId, estimatesAdded, project?.client_id]);
+  // A new estimate on this project, for its client, opened over the project to fill in.
+  const [creatingEstimate, setCreatingEstimate] = useState(false);
+  const [estimateError, setEstimateError] = useState<string | null>(null);
+  const [showUnfiled, setShowUnfiled] = useState(false);
+  const newEstimate = async () => {
+    if (!orgId || !project?.id) return;
+    setCreatingEstimate(true);
+    setEstimateError(null);
+    try {
+      const created = await EstimateService.create({
+        organization_id: orgId,
+        project_id: project.id,
+        client_id: project.client_id,
+        title: `${project.name} - Estimate`,
+        status: 'draft',
+        items: [],
+      } as Parameters<typeof EstimateService.create>[0]);
+      setEstimatesAdded((n) => n + 1);
+      navigate(`/projects/${project.id}/estimates/${created.id}`);
+    } catch (err) {
+      setEstimateError(err instanceof Error ? err.message : 'The estimate couldn’t be made');
+    } finally {
+      setCreatingEstimate(false);
+    }
+  };
   const addEstimate = async (estimateId: string) => {
     setAdding(true);
     try {
@@ -733,10 +764,25 @@ export const ProjectPanel: React.FC<{
 
         {activeTab === 'estimates' && (
           <div className="p-4">
+            <div className="mb-3 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={newEstimate}
+                disabled={creatingEstimate}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50"
+              >
+                <Plus className="w-4 h-4" /> {creatingEstimate ? 'Creating…' : 'New estimate'}
+              </button>
+            </div>
+            {estimateError && (
+              <p className="mb-3 text-sm text-red-400" role="alert">
+                {estimateError}
+              </p>
+            )}
             {estimates === null ? (
               <p className="text-sm text-gray-500">Loading…</p>
             ) : estimates.length === 0 ? (
-              <p className="py-8 text-center text-sm text-gray-500">No estimates on this project yet.</p>
+              <p className="py-8 text-center text-sm text-gray-500">No estimates on this project yet. Start one with New estimate.</p>
             ) : (
               <ul className="bg-[#1a1a1a] border border-[#333] divide-y divide-[#262626]" aria-label="Estimates">
                 {estimates.map((estimate) => (
@@ -758,24 +804,31 @@ export const ProjectPanel: React.FC<{
                 ))}
               </ul>
             )}
+            {/* Quoted before the project existed: this client's estimates on no project, tucked behind a link. */}
             {unfiled && unfiled.length > 0 && (
-              <label className="mt-4 block">
-                <span className="block text-xs text-gray-400 mb-1">Add an estimate you already made</span>
-                <select
-                  aria-label="Add an existing estimate"
-                  value=""
-                  disabled={adding}
-                  onChange={(e) => e.target.value && addEstimate(e.target.value)}
-                  className="w-full bg-[#0A0A0A] border border-[#333] rounded px-3 py-2 text-sm text-white"
-                >
-                  <option value="">{adding ? 'Adding…' : 'Pick an estimate'}</option>
-                  {unfiled.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {[e.estimate_number, e.title || e.client?.name, formatCurrency(e.total_amount)].filter(Boolean).join(' · ')}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="mt-4">
+                {!showUnfiled ? (
+                  <button type="button" onClick={() => setShowUnfiled(true)} className="text-sm text-gray-400 hover:text-white">
+                    or add one made before the project ({unfiled.length})
+                  </button>
+                ) : (
+                  <select
+                    aria-label="Add an existing estimate"
+                    value=""
+                    autoFocus
+                    disabled={adding}
+                    onChange={(e) => e.target.value && addEstimate(e.target.value)}
+                    className="w-full bg-[#0A0A0A] border border-[#333] rounded px-3 py-2 text-sm text-white"
+                  >
+                    <option value="">{adding ? 'Adding…' : 'Pick one of their estimates'}</option>
+                    {unfiled.map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {[e.estimate_number, e.title, formatCurrency(e.total_amount)].filter(Boolean).join(' · ')}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
             )}
           </div>
         )}
