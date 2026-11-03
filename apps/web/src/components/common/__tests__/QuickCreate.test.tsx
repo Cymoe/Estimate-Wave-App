@@ -72,4 +72,11 @@ describe('the blue + button', () => {
     expect(items[0].style.transition).toBe('transform 100ms ease-in, opacity 100ms ease-in');
     expect(items[0].style.opacity).toBe('0');
   });
+
+  it('marks each choice with the shape of its nav tile', async () => {
+    const { container, render } = mount();
+    await render(true);
+    const shapes = Array.from(container.querySelectorAll('[role="menu"] li svg')).map((svg) => svg.getAttribute('data-shape'));
+    expect(shapes).toEqual(['leads', 'estimates', 'bids', 'projects', 'pricebook']);
+  });
 });

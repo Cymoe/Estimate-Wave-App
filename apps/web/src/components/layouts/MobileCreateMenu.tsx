@@ -58,7 +58,7 @@ export const MobileCreateMenu: React.FC<MobileCreateMenuProps> = ({ isOpen, onCl
                 className="flex items-center w-full px-4 py-4 text-white hover:bg-[#232D3F] transition-colors rounded-[4px]"
               >
                 <span className="text-[#336699] mr-4 w-8 h-8 flex items-center justify-center">
-                  <Icon size={20} />
+                  <Icon className="w-5 h-5" />
                 </span>
                 <div className="text-left flex-1">
                   <div className="font-medium">New {option.name.toLowerCase()}</div>
