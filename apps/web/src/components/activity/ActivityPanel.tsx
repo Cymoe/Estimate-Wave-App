@@ -1,6 +1,5 @@
 import React, { useContext } from 'react';
-import { X, Activity, ExternalLink } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { X, Activity } from 'lucide-react';
 import { ActivityFeed } from './ActivityFeed';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 
@@ -42,18 +41,7 @@ export const ActivityPanel: React.FC<ActivityPanelProps> = ({ isOpen, onClose })
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 min-h-0">
-          {isOpen && <ActivityFeed organizationId={selectedOrg?.id} limit={50} compact onOpen={onClose} />}
-        </div>
-
-        <div className="p-6 border-t border-[#333333] flex-shrink-0">
-          <Link
-            to="/activity"
-            onClick={onClose}
-            className="flex items-center justify-center gap-2 w-full py-2 px-4 bg-[#333333] hover:bg-[#404040] rounded-lg transition-colors text-white"
-          >
-            <span>View All Activity</span>
-            <ExternalLink className="w-4 h-4" />
-          </Link>
+          {isOpen && <ActivityFeed organizationId={selectedOrg?.id} limit={100} compact onOpen={onClose} />}
         </div>
       </div>
     </>

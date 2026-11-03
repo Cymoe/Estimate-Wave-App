@@ -39,7 +39,6 @@ import { Expenses } from './pages/Expenses';
 import { ClientDetailPage } from './pages/ClientDetailPage';
 import { Work } from './pages/Work';
 import { Projects as ProjectsPage } from './pages/Projects';
-import { ActivityPage } from './pages/ActivityPage';
 // import { ServicesPackages } from './pages/ServicesPackages'; // Removed - using line items only
 import { PrivacyPage, TermsPage } from './pages/Legal';
 import { NotFound } from './pages/NotFound';
@@ -364,17 +363,6 @@ function AppRoutes() {
         <Route path="/projects/:id/estimates/:estimateId" element={null} />
       </Route>
       
-      {/* Activity Log */}
-      <Route
-        path="/activity"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout>
-              <ActivityPage />
-            </DashboardLayout>
-          </ProtectedRoute>
-        }
-      />
       
       {/* Public shareable service option route - no auth required */}
       <Route

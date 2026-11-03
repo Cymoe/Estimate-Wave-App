@@ -16,7 +16,6 @@ jest.mock('../../layouts/DashboardLayout', () => {
 });
 
 import { ActivityPanel } from '../ActivityPanel';
-import { ActivityPage } from '../../../pages/ActivityPage';
 
 const sample: ActivityRow[] = [
   { id: 'a2', at: new Date(Date.now() - 5 * 60_000).toISOString(), who: 'Ann Miller', text: 'Signed estimate EST-9', link: '/estimates/e1', icon: 'sign', tone: 'green' },
@@ -42,7 +41,9 @@ afterEach(() => {
 test('the panel lists who did what, when, linked to it, over a dimmed (not blank) page', async () => {
   const onClose = jest.fn();
   await render(<ActivityPanel isOpen onClose={onClose} />);
-  expect(useActivity).toHaveBeenCalledWith('org1', undefined, 50);
+  expect(useActivity).toHaveBeenCalledWith('org1', undefined, 100);
+  // No page behind it any more.
+  expect(document.body.textContent).not.toContain('View All Activity');
   const items = $$('[data-testid="activity-row"]').map((r) => r.textContent);
   expect(items[0]).toMatch(/^Ann Miller Signed estimate EST-9\s*5 minutes ago$/);
   expect(items[1]).toContain('Office line Ordered PO-1 · Cabinet supplier ($3,811.50)');
@@ -68,15 +69,4 @@ test('closed, it reads nothing', async () => {
   await render(<ActivityPanel isOpen={false} onClose={() => {}} />);
   expect(useActivity).not.toHaveBeenCalled();
   expect($('[data-testid="activity-backdrop"]')).toBeNull();
-});
-
-test('the page filters by kind', async () => {
-  await render(<ActivityPage />);
-  expect(document.body.textContent).toContain('Peak Remodeling');
-  expect(useActivity).toHaveBeenLastCalledWith('org1', undefined, 300);
-  const chip = $$('button').find((b) => b.textContent === 'Purchase orders')!;
-  await act(async () => chip.click());
-  expect(chip.getAttribute('aria-pressed')).toBe('true');
-  expect(useActivity).toHaveBeenLastCalledWith('org1', 'purchase_order', 300);
-  expect($$('[data-testid="activity-row"]')).toHaveLength(2);
 });
