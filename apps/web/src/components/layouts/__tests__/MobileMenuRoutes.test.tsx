@@ -23,7 +23,7 @@ async function open() {
   await act(async () =>
     createRoot(container).render(
       <MemoryRouter initialEntries={['/leads']}>
-        <MobileMenu isOpen onClose={() => {}} selectedOrg={org} organizations={[org]} onOrgChange={() => {}} onShowHelp={() => {}} />
+        <MobileMenu isOpen onClose={() => {}} selectedOrg={org} organizations={[org]} onOrgChange={() => {}} />
         <Routes>
           <Route path="*" element={<Where />} />
         </Routes>
@@ -44,5 +44,12 @@ describe('the phone menu', () => {
     expect(path).toBe('/settings/organization');
     await act(async () => tap('Pro plan').click());
     expect(path).toBe('/plan');
+  });
+
+  it('offers Contact support by email; the tutorials are gone', async () => {
+    await open();
+    const support = Array.from(document.body.querySelectorAll('a')).find((a) => a.textContent?.includes('Contact support'))!;
+    expect(support.getAttribute('href')).toMatch(/^mailto:/);
+    expect(document.body.textContent).not.toMatch(/tutorial/i);
   });
 });

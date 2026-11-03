@@ -1,3 +1,4 @@
+import { SUPPORT_EMAIL } from '../../../convex/lib/support';
 import React, { Suspense, lazy, useState } from 'react';
 import { X, ChevronRight, User, Building, CreditCard, HelpCircle, LogOut, Plus } from 'lucide-react';
 import { NavShapeMark } from './NavShapes';
@@ -16,7 +17,6 @@ interface MobileMenuProps {
   selectedOrg: { id: string; name: string; industry: string };
   organizations: { id: string; name: string; industry: string }[];
   onOrgChange: (org: { id: string; name: string; industry: string }) => void;
-  onShowHelp: () => void;
 }
 
 export const MobileMenu: React.FC<MobileMenuProps> = ({
@@ -24,8 +24,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
   onClose,
   selectedOrg,
   organizations,
-  onOrgChange,
-  onShowHelp
+  onOrgChange
 }) => {
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
@@ -282,16 +281,14 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
               <span>Pro plan</span>
             </button>
 
-            <button
-              onClick={() => {
-                onShowHelp();
-                onClose();
-              }}
+            <a
+              href={`mailto:${SUPPORT_EMAIL}`}
+              onClick={onClose}
               className="w-full flex items-center gap-3 p-3 hover:bg-[#333333] rounded-[4px] transition-colors text-[#336699]"
             >
               <HelpCircle className="h-4 w-4" />
-              <span>Help & Tutorials</span>
-            </button>
+              <span>Contact support</span>
+            </a>
 
             <div className="border-t border-[#333333] mt-2 pt-2">
               <button

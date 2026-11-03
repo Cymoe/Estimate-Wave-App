@@ -1,37 +1,7 @@
 import React, { useState, useEffect, useRef, createContext, useCallback, useMemo } from 'react';
-import { SUPPORT_EMAIL } from '../../../convex/lib/support';
 import { Outlet, useNavigate, useLocation, NavLink } from 'react-router-dom';
 import { QuickCreateButton } from '../common/QuickCreateButton';
 import { QuickCreateMenu } from '../common/QuickCreateMenu';
-import {
-  Plus,
-  Menu, 
-  X, 
-  ChevronDown,
-  ChevronRight,
-  ChevronLeft,
-  LogOut,
-  TrendingUp,
-  DollarSign,
-  Target,
-  Clock,
-  FileStack,
-  Zap,
-  AlertTriangle,
-  ChevronUp,
-  CheckCircle2,
-  User,
-  Settings,
-  Building,
-  CreditCard,
-  HelpCircle,
-  Search,
-  UserPlus,
-  UserCheck,
-  UserX,
-  Users,
-  Activity
-} from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { industriesAPI, organizationsAPI } from '../../lib/api';
 import { TRADES_CHANGED } from '../settings/TradesEditor';
@@ -127,7 +97,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
     return saved ? JSON.parse(saved) : false;
   });
   const [showLineItemDrawer, setShowLineItemDrawer] = useState(false);
-  const [showHelpModal, setShowHelpModal] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
     const [showActivityPanel, setShowActivityPanel] = useState(false);
     const navigate = useNavigate();
@@ -396,7 +365,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
         activeElement.getAttribute('contenteditable') === 'true'
       );
       
-      if (isInputFocused || showLineItemDrawer || showHelpModal) {
+      if (isInputFocused || showLineItemDrawer) {
         return;
       }
 
@@ -429,7 +398,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [navigate, isCreateMenuOpen, showLineItemDrawer, showHelpModal]);
+  }, [navigate, isCreateMenuOpen, showLineItemDrawer]);
 
   useEffect(() => {
     const mainContent = document.getElementById('main-content');
@@ -785,7 +754,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                       liveRevenueButtonRef={liveRevenueButtonRef}
                       isProfileMenuOpen={isProfileMenuOpen}
                       setIsProfileMenuOpen={setIsProfileMenuOpen}
-                      setShowHelpModal={setShowHelpModal}
                       onActivityClick={() => setShowActivityPanel(true)}
                     />
                   </div>
@@ -866,219 +834,12 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                     />
                   )}
 
-                  {showHelpModal && (
-                    <div className="fixed inset-0 z-[11000] flex items-center justify-center">
-                      <div className="fixed inset-0 bg-black/60 backdrop-blur-md" onClick={() => setShowHelpModal(false)} />
-                      <div className="relative bg-[#1E1E1E] rounded-[4px] shadow-xl border border-[#333333] w-full max-w-4xl mx-4 max-h-[90vh] overflow-hidden">
-                        <div className="flex items-center justify-between p-6 border-b border-[#333333]">
-                          <div>
-                            <h2 className="text-2xl font-bold text-white mb-2">Help & Tutorials</h2>
-                            <p className="text-gray-400">Learn how to use each section of your construction business app</p>
-                          </div>
-                          <button
-                            onClick={() => setShowHelpModal(false)}
-                            className="text-gray-400 hover:text-white transition-colors"
-                          >
-                            <X className="w-6 h-6" />
-                          </button>
-                        </div>
-
-                        <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
-                          <div className="mb-8">
-                            <h3 className="text-white font-bold mb-4">
-                              Quick Start Tutorials
-                            </h3>
-                            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                              <div className="bg-[#333333] rounded-[4px] p-4 border border-[#404040] hover:border-[#336699] transition-colors cursor-pointer"
-                                   onClick={() => {
-                                     setShowHelpModal(false);
-                                     navigate('/clients?tutorial=true');
-                                   }}>
-                                <div className="flex items-center mb-3">
-                                  <div className="w-10 h-10 bg-[#336699] rounded-[4px] flex items-center justify-center mr-3">
-                                    <span className="text-base">👤</span>
-                                  </div>
-                                  <div>
-                                    <h4 className="text-white font-medium">Client Management</h4>
-                                    <p className="text-gray-400 text-sm">3 min tutorial</p>
-                                  </div>
-                                </div>
-                                <p className="text-gray-300 text-sm mb-3">
-                                  Learn how to add clients, track their project history, and manage relationships.
-                                </p>
-                                <div className="flex items-center text-[#336699] text-sm font-medium">
-                                  <span>Start Tutorial</span>
-                                  <ChevronRight className="w-4 h-4 ml-1" />
-                                </div>
-                              </div>
-
-                              <div className="bg-[#333333] rounded-[4px] p-4 border border-[#404040] hover:border-[#336699] transition-colors cursor-pointer"
-                                   onClick={() => {
-                                     setShowHelpModal(false);
-                                     navigate('/projects?tutorial=true');
-                                   }}>
-                                <div className="flex items-center mb-3">
-                                  <div className="w-10 h-10 bg-[#336699] rounded-[4px] flex items-center justify-center mr-3">
-                                    <span className="text-base">📁</span>
-                                  </div>
-                                  <div>
-                                    <h4 className="text-white font-medium">Project Management</h4>
-                                    <p className="text-gray-400 text-sm">4 min tutorial</p>
-                                  </div>
-                                </div>
-                                <p className="text-gray-300 text-sm mb-3">
-                                  Create projects, track progress, manage budgets, and keep everything organized.
-                                </p>
-                                <div className="flex items-center text-[#336699] text-sm font-medium">
-                                  <span>Start Tutorial</span>
-                                  <ChevronRight className="w-4 h-4 ml-1" />
-                                </div>
-                              </div>
-
-                              <div className="bg-[#333333] rounded-[4px] p-4 border border-[#404040] hover:border-[#336699] transition-colors cursor-pointer"
-                                   onClick={() => {
-                                     setShowHelpModal(false);
-                                     navigate('/products?tutorial=true');
-                                   }}>
-                                <div className="flex items-center mb-3">
-                                  <div className="w-10 h-10 bg-[#336699] rounded-[4px] flex items-center justify-center mr-3">
-                                    <span className="text-base">📦</span>
-                                  </div>
-                                  <div>
-                                    <h4 className="text-white font-medium">Product Catalog</h4>
-                                    <p className="text-gray-400 text-sm">6 min tutorial</p>
-                                  </div>
-                                </div>
-                                <p className="text-gray-300 text-sm mb-3">
-                                  Build your product catalog with materials, labor, and services.
-                                </p>
-                                <div className="flex items-center text-[#336699] text-sm font-medium">
-                                  <span>Start Tutorial</span>
-                                  <ChevronRight className="w-4 h-4 ml-1" />
-                                </div>
-                              </div>
-
-                              <div className="bg-[#333333] rounded-[4px] p-4 border border-[#404040] hover:border-[#336699] transition-colors cursor-pointer"
-                                   onClick={() => {
-                                     setShowHelpModal(false);
-                                     navigate('/price-book?tutorial=true');
-                                   }}>
-                                <div className="flex items-center mb-3">
-                                  <div className="w-10 h-10 bg-[#336699] rounded-[4px] flex items-center justify-center mr-3">
-                                    <span className="text-base">📘</span>
-                                  </div>
-                                  <div>
-                                    <h4 className="text-white font-medium">Price Book</h4>
-                                    <p className="text-gray-400 text-sm">7 min tutorial</p>
-                                  </div>
-                                </div>
-                                <p className="text-gray-300 text-sm mb-3">
-                                  Build your competitive advantage with a comprehensive price book.
-                                </p>
-                                <div className="flex items-center text-[#336699] text-sm font-medium">
-                                  <span>Start Tutorial</span>
-                                  <ChevronRight className="w-4 h-4 ml-1" />
-                                </div>
-                              </div>
-
-                              <div className="bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 rounded-[4px] p-4 border border-[#336699]/50 cursor-pointer"
-                                   onClick={() => {
-                                     setShowHelpModal(false);
-                                     navigate('/clients?tutorial=true');
-                                   }}>
-                                <div className="flex items-center mb-3">
-                                  <div className="w-10 h-10 bg-[#336699] rounded-[4px] flex items-center justify-center mr-3">
-                                    <span className="text-base">⠿</span>
-                                  </div>
-                                  <div>
-                                    <h4 className="text-white font-medium">Complete Walkthrough</h4>
-                                    <p className="text-gray-400 text-sm">15 min full tour</p>
-                                  </div>
-                                </div>
-                                <p className="text-gray-300 text-sm mb-3">
-                                  Take a complete tour through all features and see how they work together.
-                                </p>
-                                <div className="flex items-center text-[#5b8fc7] text-sm font-medium">
-                                  <span>Start Full Tour</span>
-                                  <ChevronRight className="w-4 h-4 ml-1" />
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="mb-8">
-                            <h3 className="text-white font-bold mb-4 flex items-center">
-                              <span className="text-[#336699] mr-2">📚</span>
-                              Additional Resources
-                            </h3>
-                            <div className="grid md:grid-cols-2 gap-4">
-                              <div className="bg-[#333333] rounded-[4px] p-4 border border-[#404040]">
-                                <h4 className="text-white font-medium mb-2">Video Library</h4>
-                                <p className="text-gray-300 text-sm mb-3">
-                                  Access our complete library of construction business tutorials and best practices.
-                                </p>
-                                <button className="text-[#336699] text-sm font-medium hover:text-white transition-colors">
-                                  Browse Videos →
-                                </button>
-                              </div>
-                              
-                              <div className="bg-[#333333] rounded-[4px] p-4 border border-[#404040]">
-                                <h4 className="text-white font-medium mb-2">Knowledge Base</h4>
-                                <p className="text-gray-300 text-sm mb-3">
-                                  Find answers to common questions and detailed feature documentation.
-                                </p>
-                                <button className="text-[#336699] text-sm font-medium hover:text-white transition-colors">
-                                  Search Articles →
-                                </button>
-                              </div>
-                              
-                              <div className="bg-[#333333] rounded-[4px] p-4 border border-[#404040]">
-                                <h4 className="text-white font-medium mb-2">Live Support</h4>
-                                <p className="text-gray-300 text-sm mb-3">
-                                  Get help from our construction industry experts via chat or phone.
-                                </p>
-                                <a href={`mailto:${SUPPORT_EMAIL}`} className="text-[#336699] text-sm font-medium hover:text-white transition-colors">
-                                  Contact Support →
-                                </a>
-                              </div>
-                              
-                            </div>
-                          </div>
-
-                          <div className="bg-[#1E1E1E] rounded-[4px] p-4 border border-[#333333]">
-                            <h3 className="text-white font-bold mb-3 flex items-center">
-                              <span className="text-[#9E9E9E] mr-2">🔄</span>
-                              Reset Tutorials
-                            </h3>
-                            <p className="text-gray-400 text-sm mb-4">
-                              Want to see the onboarding tutorials again? You can reset them to show up on each page.
-                            </p>
-                            <button 
-                              onClick={() => {
-                                localStorage.removeItem('clientsOnboardingCompleted');
-                                localStorage.removeItem('projectsOnboardingCompleted');
-                                localStorage.removeItem('productsOnboardingCompleted');
-                                localStorage.removeItem('priceBookOnboardingCompleted');
-                                setShowHelpModal(false);
-                                window.location.reload();
-                              }}
-                              className="bg-white text-black px-4 py-2 rounded-[8px] hover:bg-gray-100 transition-colors font-medium"
-                            >
-                              Reset All Tutorials
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
                   <MobileMenu
                     isOpen={isMobileMenuOpen}
                     onClose={() => setIsMobileMenuOpen(false)}
                     selectedOrg={selectedOrg}
                     organizations={organizations}
                     onOrgChange={setSelectedOrg}
-                    onShowHelp={() => setShowHelpModal(true)}
                   />
 
                   <MobileCreateMenu

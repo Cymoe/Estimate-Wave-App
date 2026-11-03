@@ -1,3 +1,4 @@
+import { SUPPORT_EMAIL } from '../../../convex/lib/support';
 import React, { Suspense, lazy, useRef, useEffect, useState } from 'react';
 import { useNavigate, useLocation, NavLink } from 'react-router-dom';
 import { NO_TRADES_LABEL } from '../settings/tradesLabels';
@@ -47,7 +48,6 @@ interface SidebarProps {
   liveRevenueButtonRef: React.RefObject<HTMLDivElement>;
   isProfileMenuOpen: boolean;
   setIsProfileMenuOpen: (value: boolean) => void;
-  setShowHelpModal: (value: boolean) => void;
   onActivityClick?: () => void;
 }
 
@@ -65,7 +65,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   recentProjects,
   isProfileMenuOpen,
   setIsProfileMenuOpen,
-  setShowHelpModal,
   onActivityClick
 }) => {
   const navigate = useNavigate();
@@ -532,16 +531,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 
                 <div className="border-t border-[#404040]" />
                 
-                <button
-                  onClick={() => {
-                    setShowHelpModal(true);
-                    setIsProfileMenuOpen(false);
-                  }}
+                <a
+                  href={`mailto:${SUPPORT_EMAIL}`}
+                  onClick={() => setIsProfileMenuOpen(false)}
                   className="w-full flex items-center px-4 py-3 text-sm text-[#336699] hover:bg-[#3A3A3A] transition-colors duration-200"
                 >
                   <HelpCircle className="w-4 h-4 mr-3 text-[#336699]" />
-                  <span className="font-['Roboto']">Help & Tutorials</span>
-                </button>
+                  <span className="font-['Roboto']">Contact support</span>
+                </a>
                 
                 <button
                   onClick={() => {

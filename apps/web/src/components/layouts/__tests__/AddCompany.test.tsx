@@ -38,7 +38,7 @@ async function render() {
     isProjectsSidebarOpen: false, setIsProjectsSidebarOpen: noop, isProjectsSidebarLocked: false, setProjectsSidebarLockedWithPersistence: noop,
     recentProjects: [], selectedTimePeriod: 'month', setSelectedTimePeriod: noop, currentData: {}, timePeriodHeaders: {},
     isLiveRevenuePopoverOpen: false, setIsLiveRevenuePopoverOpen: noop, liveRevenueButtonRef: { current: null },
-    isProfileMenuOpen: false, setIsProfileMenuOpen: noop, setShowHelpModal: noop, onActivityClick: noop,
+    isProfileMenuOpen: false, setIsProfileMenuOpen: noop, onActivityClick: noop,
   };
   await act(async () =>
     createRoot(container).render(
