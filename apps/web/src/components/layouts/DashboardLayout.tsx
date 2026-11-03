@@ -16,6 +16,7 @@ import { PageHeaderBar } from '../common/PageHeaderBar';
 // import { supabase } from '../../lib/supabase';
 import { ActivityPanel } from '../activity/ActivityPanel';
 import { useProjectShortcuts } from '../projects/useProjectShortcuts';
+import { BudgetRing } from '../projects/BudgetRing';
 import { FEATURES } from '../../config/features';
 import { projectStatusInfo } from '../projects/projectStatus';
 
@@ -671,17 +672,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                                       <div className="text-gray-400 text-[10px] truncate ml-3.5 leading-tight uppercase tracking-wide">{project.client || projectStatusInfo(project.status).label}</div>
                                     </div>
                                     {project.budget ? (
-                                    <div className="flex items-center gap-2" title="Share of the budget spent">
-                                      <div className="opacity-0 group-hover:opacity-100 transition-none">
-                                        <div className="w-8 h-1 bg-[#374151] rounded-full overflow-hidden">
-                                          <div 
-                                            className="h-full bg-[#3B82F6] rounded-full"
-                                            style={{ width: `${Math.min(project.progress, 100)}%` }}
-                                          />
-                                        </div>
-                                      </div>
-                                      <span className={`${project.progress > 100 ? 'text-red-400' : 'text-[#6b7280] group-hover:text-[#3B82F6]'} transition-none text-xs font-medium leading-tight`}>{project.progress}%</span>
-                                    </div>
+                                    <BudgetRing percent={project.progress} />
                                     ) : null}
                                   </div>
                                 </button>

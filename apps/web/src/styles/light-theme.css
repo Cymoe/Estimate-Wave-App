@@ -44,7 +44,6 @@ html.light .bg-\[\#2a2a2a\] { background-color: #F1F2F4; }
 html.light .bg-\[\#333333\] { background-color: #E8EAED; }
 html.light .bg-\[\#333333\]\/70 { background-color: rgba(232, 234, 237, 0.7); }
 html.light .bg-\[\#333\] { background-color: #E8EAED; }
-html.light .bg-\[\#374151\] { background-color: #DDE0E4; }
 html.light .bg-\[\#444444\] { background-color: #DDE0E4; }
 html.light .bg-black { background-color: #F4F5F7; }
 html.light .bg-gray-600 { background-color: #D1D5DB; }
@@ -91,7 +90,6 @@ html.light .focus-within\:bg-\[\#1B1B1B\]:focus-within { background-color: #FFFF
 html.light .focus-within\:border-\[\#444444\]:focus-within { border-color: #D5D9DE; }
 html.light .focus\:border-gray-900:focus { border-color: #EEF0F2; }
 html.light .focus\:ring-gray-900\/10:focus { --tw-ring-color: rgba(238, 240, 242, 0.1); }
-html.light .group:hover .group-hover\:text-\[\#3B82F6\] { color: #0948AE; }
 html.light .group:hover .group-hover\:text-\[\#5b8fc7\] { color: #2F5A89; }
 html.light .group:hover .group-hover\:text-gray-300 { color: #374151; }
 html.light .group:hover .group-hover\:text-gray-400 { color: #4B5563; }
@@ -153,11 +151,11 @@ html.light .text-\[\#5b8fc7\] { color: #2F5A89; }
 html.light .text-\[\#6699CC\] { color: #2E5C8A; }
 html.light .text-\[\#6699cc\] { color: #2E5C8A; }
 html.light .text-\[\#6aa3d9\] { color: #255D92; }
-html.light .text-\[\#6b7280\] { color: #7F8694; }
 html.light .text-\[\#6b9bd1\] { color: #2C598C; }
 html.light .text-\[\#7fb0e0\] { color: #245C94; }
 html.light .text-\[\#7fb2e5\] { color: #1F5C99; }
 html.light .text-\[\#8db4dc\] { color: #2B5B8C; }
+html.light .text-\[\#9CA3AF\] { color: #505763; }
 html.light .text-\[\#9E9E9E\] { color: #616161; }
 html.light .text-\[\#9cc2ea\] { color: #205A97; }
 html.light .text-\[\#9cc3ea\] { color: #205C97; }
@@ -227,4 +225,4 @@ html.light .text-yellow-400\/70 { color: rgba(133, 77, 14, 0.7); }
   html.light .\[\@media\(hover\:hover\)\]\:hover\:text-white:hover { color: #111827; }
 }
 
-html.light :is(.bg-\[\#336699\], .bg-\[\#D32F2F\], .bg-\[\#3B82F6\], .bg-\[\#F59E0B\], .bg-\[\#EAB308\], .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-blue-800, .bg-green-500, .bg-green-600, .bg-green-700, .bg-green-800, .bg-red-500, .bg-red-600, .bg-red-700, .bg-red-800, .bg-emerald-500, .bg-emerald-600, .bg-emerald-700, .bg-emerald-800, .bg-purple-500, .bg-purple-600, .bg-purple-700, .bg-purple-800, .bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-indigo-800, .bg-violet-500, .bg-violet-600, .bg-violet-700, .bg-violet-800, .bg-rose-500, .bg-rose-600, .bg-rose-700, .bg-rose-800, .bg-pink-500, .bg-pink-600, .bg-pink-700, .bg-pink-800, .bg-sky-500, .bg-sky-600, .bg-sky-700, .bg-sky-800, .bg-teal-500, .bg-teal-600, .bg-teal-700, .bg-teal-800, .bg-cyan-500, .bg-cyan-600, .bg-cyan-700, .bg-cyan-800, .bg-orange-500, .bg-orange-600, .bg-orange-700, .bg-orange-800)[class*="text-white"], html.light :is(.bg-\[\#336699\], .bg-\[\#D32F2F\], .bg-\[\#3B82F6\], .bg-\[\#F59E0B\], .bg-\[\#EAB308\], .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-blue-800, .bg-green-500, .bg-green-600, .bg-green-700, .bg-green-800, .bg-red-500, .bg-red-600, .bg-red-700, .bg-red-800, .bg-emerald-500, .bg-emerald-600, .bg-emerald-700, .bg-emerald-800, .bg-purple-500, .bg-purple-600, .bg-purple-700, .bg-purple-800, .bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-indigo-800, .bg-violet-500, .bg-violet-600, .bg-violet-700, .bg-violet-800, .bg-rose-500, .bg-rose-600, .bg-rose-700, .bg-rose-800, .bg-pink-500, .bg-pink-600, .bg-pink-700, .bg-pink-800, .bg-sky-500, .bg-sky-600, .bg-sky-700, .bg-sky-800, .bg-teal-500, .bg-teal-600, .bg-teal-700, .bg-teal-800, .bg-cyan-500, .bg-cyan-600, .bg-cyan-700, .bg-cyan-800, .bg-orange-500, .bg-orange-600, .bg-orange-700, .bg-orange-800) [class*="text-white"] { color: #FFFFFF !important; }
+html.light :is(.bg-\[\#336699\], .bg-\[\#D32F2F\], .bg-\[\#F59E0B\], .bg-\[\#EAB308\], .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-blue-800, .bg-green-500, .bg-green-600, .bg-green-700, .bg-green-800, .bg-red-500, .bg-red-600, .bg-red-700, .bg-red-800, .bg-emerald-500, .bg-emerald-600, .bg-emerald-700, .bg-emerald-800, .bg-purple-500, .bg-purple-600, .bg-purple-700, .bg-purple-800, .bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-indigo-800, .bg-violet-500, .bg-violet-600, .bg-violet-700, .bg-violet-800, .bg-rose-500, .bg-rose-600, .bg-rose-700, .bg-rose-800, .bg-pink-500, .bg-pink-600, .bg-pink-700, .bg-pink-800, .bg-sky-500, .bg-sky-600, .bg-sky-700, .bg-sky-800, .bg-teal-500, .bg-teal-600, .bg-teal-700, .bg-teal-800, .bg-cyan-500, .bg-cyan-600, .bg-cyan-700, .bg-cyan-800, .bg-orange-500, .bg-orange-600, .bg-orange-700, .bg-orange-800)[class*="text-white"], html.light :is(.bg-\[\#336699\], .bg-\[\#D32F2F\], .bg-\[\#F59E0B\], .bg-\[\#EAB308\], .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-blue-800, .bg-green-500, .bg-green-600, .bg-green-700, .bg-green-800, .bg-red-500, .bg-red-600, .bg-red-700, .bg-red-800, .bg-emerald-500, .bg-emerald-600, .bg-emerald-700, .bg-emerald-800, .bg-purple-500, .bg-purple-600, .bg-purple-700, .bg-purple-800, .bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-indigo-800, .bg-violet-500, .bg-violet-600, .bg-violet-700, .bg-violet-800, .bg-rose-500, .bg-rose-600, .bg-rose-700, .bg-rose-800, .bg-pink-500, .bg-pink-600, .bg-pink-700, .bg-pink-800, .bg-sky-500, .bg-sky-600, .bg-sky-700, .bg-sky-800, .bg-teal-500, .bg-teal-600, .bg-teal-700, .bg-teal-800, .bg-cyan-500, .bg-cyan-600, .bg-cyan-700, .bg-cyan-800, .bg-orange-500, .bg-orange-600, .bg-orange-700, .bg-orange-800) [class*="text-white"] { color: #FFFFFF !important; }
