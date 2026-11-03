@@ -484,7 +484,8 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
         <span>Add item</span>
       </button>
       <div className="flex-1 py-2 px-3 text-right text-gray-500 border-r border-[#333333]">
-        {estimate.items.length} {estimate.items.length === 1 ? 'item' : 'items'} · Sum
+        <span className="whitespace-nowrap">{estimate.items.length} {estimate.items.length === 1 ? 'item' : 'items'}</span>
+        <span className="hidden sm:inline"> · Sum</span>
         {(estimate.discount_amount ?? 0) > 0 && (
           <span className="block text-[10px] text-green-400">{estimate.discount?.label || 'Discount'} −{formatCurrency(estimate.discount_amount ?? 0)}</span>
         )}
@@ -535,8 +536,8 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
       {/* Fixed Header */}
       <div className="sticky top-0 z-30 bg-[#1a1a1a] border-b border-[#333333] flex-shrink-0">
         {/* Row 1: Navigation + Document Info */}
-        <div className="flex items-center justify-between mb-2 px-3 py-2">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2 px-3 py-2">
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             <button
               onClick={leave}
               aria-label={inDrawer ? 'Close' : 'Back to estimates'}
@@ -545,9 +546,9 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
               {inDrawer ? <X className="w-4 h-4 text-gray-400" /> : <ArrowLeft className="w-4 h-4 text-gray-400" />}
             </button>
             
-            <div className="flex items-center gap-3">
-              <h1 className="text-xl font-semibold text-white">{estimate.estimate_number}</h1>
-              <span className={`text-xs px-3 py-1 rounded-[4px] font-medium uppercase ${
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <h1 className="text-lg sm:text-xl font-semibold text-white whitespace-nowrap">{estimate.estimate_number}</h1>
+              <span className={`shrink-0 text-xs px-2 sm:px-3 py-1 rounded-[4px] font-medium uppercase ${
                 estimate.status === 'accepted' ? 'bg-green-500/20 text-green-300' :
                 estimate.status === 'rejected' ? 'bg-red-500/20 text-red-300' :
                 estimate.status === 'sent' ? 'bg-blue-500/20 text-blue-300' :
@@ -556,21 +557,23 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                 {estimateStatusLabel(estimate.status)}
               </span>
               {estimate.last_sent_at && (
-                <span className="text-xs text-gray-500">
+                <span className="hidden sm:inline text-xs text-gray-500 whitespace-nowrap">
                   Sent {formatDate(estimate.last_sent_at)}
                 </span>
               )}
             </div>
           </div>
 
-          {/* Actions: quiet secondary buttons, then the one primary action on the right */}
-          <div className="flex items-center gap-2">
+          {/* Actions: quiet secondary buttons, then the one primary action on the right.
+              On a phone the quiet ones are icons, so Send and the menu always fit. */}
+          <div className="flex items-center gap-2 shrink-0 ml-auto">
             <button
               onClick={openShareModal}
+              aria-label="Share"
               className={secondaryAction}
             >
               <Share2 className="w-4 h-4" />
-              Share
+              <span className="hidden sm:inline">Share</span>
             </button>
 
 
@@ -578,10 +581,11 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
             {estimate.status === 'sent' && estimate.client?.email && (
               <button
                 onClick={handleSend}
+                aria-label="Resend"
                 className={secondaryAction}
               >
                 <Send className="w-4 h-4" />
-                Resend
+                <span className="hidden sm:inline">Resend</span>
               </button>
             )}
 
@@ -639,6 +643,16 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                     <button
                       onClick={() => {
                         setShowMoreMenu(false);
+                        setShowEditModal(true);
+                      }}
+                      className="md:hidden w-full flex items-center text-left px-3 py-2.5 text-sm text-white hover:bg-[#333333]"
+                    >
+                      <Edit className="w-4 h-4 mr-3 flex-shrink-0 text-gray-400" />
+                      Edit details
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowMoreMenu(false);
                         handleDuplicate();
                       }}
                       className="w-full flex items-center text-left px-3 py-2.5 text-sm text-white hover:bg-[#333333]"
@@ -666,7 +680,13 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
 
         {/* Simple Client Info */}
         <div className="text-sm text-gray-400 mt-1 px-3">
-          {estimate.client?.name || 'No client'} • Created {formatDate(estimate.issue_date)}
+          {estimate.client?.name || (
+            // The client is picked on the Overview tab: say so where it's missed.
+            <button type="button" onClick={() => setActiveTab('overview')} className="text-[#6aa3d9] hover:text-white underline underline-offset-2">
+              Add client
+            </button>
+          )}{' '}
+          • Created {formatDate(estimate.issue_date)}
         </div>
 
         {/* Tab Navigation */}
@@ -1073,33 +1093,6 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
         </OnTop>
       )}
 
-      {/* Mobile Sticky Action Bar */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#1a1a1a] border-t border-[#333] p-4 z-40">
-        <div className="flex items-center justify-around gap-2">
-          {estimate.status === 'draft' && (
-            <button 
-              onClick={handleSend}
-              className="flex-1 bg-[#336699] text-white px-3 py-3 rounded-lg text-sm font-medium"
-            >
-              Send
-            </button>
-          )}
-          
-          <button 
-            onClick={() => setShowEditModal(true)}
-            className="flex-1 bg-[#336699] text-white px-3 py-3 rounded-lg text-sm font-medium"
-          >
-            Edit
-          </button>
-          
-          <button 
-            onClick={openShareModal}
-            className="flex-1 bg-[#2a2a2a] text-white px-3 py-3 rounded-lg text-sm font-medium"
-          >
-            Share
-          </button>
-        </div>
-      </div>
 
       {/* Edit Estimate Modal */}
       {showEditModal && (

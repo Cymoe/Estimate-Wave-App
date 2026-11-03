@@ -127,6 +127,23 @@ describe('estimate overview', () => {
     expect(document.body.querySelector('[data-testid="pricing-selector"]')).not.toBeNull();
   });
 
+  it('an estimate with no client says Add client under its number, which opens the Overview to pick one', async () => {
+    stored = { ...base, client: undefined, client_id: undefined };
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () =>
+      createRoot(container).render(
+        <MemoryRouter>
+          <EstimateDetail estimateId="e1" onClose={() => {}} inDrawer />
+        </MemoryRouter>,
+      ),
+    );
+    await act(async () => {});
+    await act(async () => button('Add client')!.click());
+    await act(async () => {});
+    expect(document.body.querySelector('[data-testid="discount"]')).not.toBeNull(); // on the Overview tab
+  });
+
   it('adds a discount ($ or %) with a label, shows what it takes off, shows a refusal, and removes it', async () => {
     stored = { ...base, subtotal: 1000, total_amount: 1000, items: [{ id: 'i1', description: 'Vanity', quantity: 1, unit_price: 1000, total_price: 1000 }] };
     await openOverview();
