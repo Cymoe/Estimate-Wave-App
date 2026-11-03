@@ -1,4 +1,5 @@
 import React, { useContext, useEffect, useState } from 'react';
+import { estimateStatusLabel } from '../estimates/estimateActions';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Building2, FileText, FolderOpen, Languages, Mail, MapPin, Navigation, Phone, PhoneCall, Trash2 } from 'lucide-react';
 import { OrganizationContext } from '../layouts/DashboardLayout';
@@ -10,6 +11,7 @@ import { NoteRow, SaveStatus, noteInput, noteSelect, noteTextarea, noteTitle, us
 import { LANGUAGE_OPTIONS } from '../../i18n/lang';
 import { projectStatusInfo } from '../projects/projectStatus';
 import { ClientReferrals } from './ClientReferrals';
+import { askConfirm } from '../common/appDialogs';
 
 type Draft = {
   name: string;
@@ -112,7 +114,7 @@ const ClientNote: React.FC<{ client: Client | null }> = ({ client }) => {
   };
 
   const remove = async () => {
-    if (!client?.id || !window.confirm(`Delete “${client.name}”? Their projects and estimates stay.`)) return;
+    if (!client?.id || !(await askConfirm({ title: `Delete “${client.name}”?`, message: 'Their projects and estimates stay.', confirmLabel: 'Delete' }))) return;
     try {
       await ClientService.delete(client.id);
       navigate(-1);
@@ -241,8 +243,8 @@ const ClientNote: React.FC<{ client: Client | null }> = ({ client }) => {
                   {estimate.estimate_number}
                   {estimate.title && <span className="text-gray-500"> · {estimate.title}</span>}
                 </span>
-                <span className={`rounded-full px-2 py-0.5 text-xs capitalize ${ESTIMATE_PILL[estimate.status] ?? ESTIMATE_PILL.draft}`}>
-                  {estimate.status}
+                <span className={`rounded-full px-2 py-0.5 text-xs ${ESTIMATE_PILL[estimate.status] ?? ESTIMATE_PILL.draft}`}>
+                  {estimateStatusLabel(estimate.status)}
                 </span>
                 <span className="tabular-nums text-gray-100">{formatCurrency(estimate.total_amount)}</span>
               </button>

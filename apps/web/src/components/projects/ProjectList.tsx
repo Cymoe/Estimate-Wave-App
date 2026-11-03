@@ -11,6 +11,7 @@ import { NewProjectDrawer } from './NewProjectDrawer';
 import { ProjectDetailsDrawer } from './ProjectDetails';
 import { EstimateDrawer } from '../estimates/EstimateDrawer';
 import { ScheduleView } from './Schedule';
+import { notify } from '../common/appDialogs';
 
 /** Project, client, status, dates, budget: shared by the header and every row. */
 const ROW_GRID = 'grid grid-cols-[minmax(0,2fr)_minmax(0,1.5fr)_6.5rem_minmax(9rem,1.2fr)_minmax(6rem,1fr)] gap-4 items-center';
@@ -142,7 +143,7 @@ export const ProjectList: React.FC = () => {
         { format, organizationId: selectedOrg.id },
       );
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Export failed');
+      notify(error instanceof Error ? error.message : 'Export failed');
     }
   };
 

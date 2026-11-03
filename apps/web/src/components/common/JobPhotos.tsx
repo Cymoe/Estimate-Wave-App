@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Camera, ChevronLeft, ChevronRight, Trash2, X } from 'lucide-react';
 import { photosAPI, type JobPhoto } from '../../lib/api';
 import { uploadFile } from '../../services/uploads';
+import { askConfirm } from './appDialogs';
 
 const errorText = (err: unknown) => (err instanceof Error && err.message ? err.message : 'That didn’t work');
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -124,7 +125,7 @@ export const JobPhotos: React.FC<{ organizationId: string; estimateId?: string; 
   };
 
   const remove = async (photo: JobPhoto) => {
-    if (!window.confirm('Delete this photo?')) return;
+    if (!(await askConfirm({ title: 'Delete this photo?', confirmLabel: 'Delete' }))) return;
     try {
       await photosAPI.remove(photo.id);
       setViewing(null);

@@ -242,7 +242,7 @@ describe('Project drawer', () => {
     await click('Estimates');
     const list = document.body.querySelector('[aria-label="Estimates"]')!;
     expect(list.textContent).toContain('EST-1');
-    expect(list.textContent).toContain('accepted');
+    expect(list.textContent).toContain('Accepted');
     expect(list.textContent).toContain('$3,000.00');
   });
 

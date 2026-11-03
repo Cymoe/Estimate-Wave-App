@@ -1,4 +1,5 @@
 import React from 'react';
+import { AppDialogs } from './components/common/AppDialogsHost';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -177,6 +178,7 @@ function AppRoutes() {
   return (
     <>
       <ScrollRestoration />
+      <AppDialogs />
       <Routes>
       {/* Public routes */}
       <Route path="/" element={renderLanding()} />

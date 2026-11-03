@@ -5,6 +5,7 @@ import { templatesAPI, type ProjectTemplate } from '../../lib/api';
 import { formatCurrency } from '../../utils/format';
 import { InlineNotice } from '../common/Notice';
 import { templateSummary } from '../../lib/templates';
+import { askConfirm } from '../common/appDialogs';
 
 const errorText = (err: unknown) => (err instanceof Error && err.message ? err.message : 'That didn’t work');
 
@@ -40,7 +41,7 @@ export const TemplatesSettings: React.FC<{ organizationId: string }> = ({ organi
   };
 
   const remove = async (t: ProjectTemplate) => {
-    if (!window.confirm(`Remove “${t.name}”? Projects already started from it aren't changed.`)) return;
+    if (!(await askConfirm({ title: `Remove “${t.name}”?`, message: "Projects already started from it aren't changed.", confirmLabel: 'Remove' }))) return;
     try {
       await templatesAPI.remove(t.id);
       setTemplates((list) => list?.filter((x) => x.id !== t.id) ?? null);

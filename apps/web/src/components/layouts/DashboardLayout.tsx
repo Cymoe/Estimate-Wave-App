@@ -141,13 +141,11 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
     
     const loadOrganizations = async () => {
       if (!user) {
-        console.log('No user, skipping organization load');
         return;
       }
       
       try {
         setLoadingOrgs(true);
-        console.log('Loading organizations for user:', user.id);
         
         // Organizations the signed-in user belongs to, and the trade names to label them with
         const [orgsData, tradeList] = await Promise.all([organizationsAPI.list(), industriesAPI.list().catch(() => [])]);
@@ -163,7 +161,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
           sales_mode: org.salesMode === true,
         }));
         
-        console.log('Loaded organizations from API:', formattedOrgs);
         
         setOrganizations(formattedOrgs);
         
@@ -410,17 +407,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
     
     const availableSpace = viewportWidth - leftSpace - rightSpace;
     
-    // Debug logging
-    console.log('Layout calculation:', {
-      viewportWidth,
-      leftSpace,
-      rightSpace,
-      availableSpace,
-      isProjectsSidebarLocked,
-      isProjectsSidebarOpen,
-      isSidebarCollapsed
-    });
-    
     // Adjusted breakpoints - more aggressive when projects sidebar is open
     const isProjectsOpen = isProjectsSidebarLocked || isProjectsSidebarOpen;
     
@@ -465,7 +451,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
 
   const setSidebarCollapsedWithLogging = (value: boolean | ((prev: boolean) => boolean)) => {
     const newValue = typeof value === 'function' ? value(isSidebarCollapsed) : value;
-    console.log('Sidebar state changing:', { from: isSidebarCollapsed, to: newValue, stack: new Error().stack });
     setIsSidebarCollapsed(value);
     localStorage.setItem('sidebarCollapsed', JSON.stringify(newValue));
   };
@@ -787,11 +772,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                   {showLineItemDrawer && (
                     <LineItemModal
                       onClose={() => setShowLineItemDrawer(false)}
-                      onSave={async (data) => {
-                        console.log('New line item created:', data);
-                        setShowLineItemDrawer(false);
-                        // Could refresh data here if needed
-                      }}
+                      onSave={async () => setShowLineItemDrawer(false)}
                     />
                   )}
 

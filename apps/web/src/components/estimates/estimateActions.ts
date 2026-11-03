@@ -1,17 +1,25 @@
 import { withLang } from '../../../convex/lib/i18n';
 import { EstimateService, Estimate } from '../../services/EstimateService';
+import { askConfirm, notify } from '../common/appDialogs';
+
+/** What a status is called on screen: "rejected" reads as "Declined", the word the client sees. */
+export const estimateStatusLabel = (status?: string) =>
+  status === 'rejected' ? 'Declined' : status ? status.charAt(0).toUpperCase() + status.slice(1) : '';
 
 /** An estimate the company can still approve for the client: not yet answered. */
 export const canApprove = (estimate: Estimate) => ['draft', 'sent', 'opened'].includes(estimate.status);
 
 /** Asks before approving without a signature, and says what it does. */
-export function confirmApproval(estimate: Estimate): boolean {
+export function confirmApproval(estimate: Estimate): Promise<boolean> {
   const who = estimate.client?.name ? ` for ${estimate.client.name}` : '';
-  return window.confirm(
-    `Approve ${estimate.estimate_number ?? 'this estimate'}${who} without a signature?\n\n` +
+  return askConfirm({
+    title: `Approve ${estimate.estimate_number ?? 'this estimate'}${who} without a signature?`,
+    message:
       'Use this when they agreed in person or on the phone. The agreement locks as it stands. ' +
       'It will show as approved by you, not signed by the client.',
-  );
+    confirmLabel: 'Approve',
+    tone: 'default',
+  });
 }
 
 /** "Approved Oct 31 by Myles Webb", or null when the client signed it themselves. */
@@ -62,7 +70,7 @@ export async function sendEstimateLink(estimate: Estimate): Promise<string | nul
   }
   if (!shared) {
     await copyText(url);
-    alert('Link copied. Paste it into a text or email to your client.');
+    notify('Link copied. Paste it into a text or email to your client.');
   }
   if (estimate.status === 'draft') await EstimateService.updateStatus(estimate.id, 'sent');
   return url;

@@ -41,7 +41,7 @@ export function useToast() {
 export const Toast: React.FC<{ text: string | null; link?: ToastLink }> = ({ text, link }) =>
   text
     ? createPortal(
-        <div role="status" className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[10030] max-w-[calc(100vw-32px)] px-4 py-2 rounded-lg bg-[#1E1E1E] border border-[#333333] text-sm text-white shadow-xl flex items-center gap-3">
+        <div role="status" className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[11600] max-w-[calc(100vw-32px)] px-4 py-2 rounded-lg bg-[#1E1E1E] border border-[#333333] text-sm text-white shadow-xl flex items-center gap-3">
           <span>{text}</span>
           {link && (
             <Link to={link.to} className="shrink-0 inline-flex items-center min-h-[44px] font-medium text-[#6aa3d9] hover:text-white">

@@ -11,6 +11,7 @@ import { formatCurrency } from '../utils/format';
 import { Modal } from '../components/common/Modal';
 import { CostCodeService } from '../services/CostCodeService';
 import { CostCodeForm } from '../components/cost-codes/CostCodeForm';
+import { askConfirm, notify } from '../components/common/appDialogs';
 
 interface CostCode {
   id: string;
@@ -268,9 +269,7 @@ export default function CostCodesPage({ triggerAddCostCode }: CostCodesPageProps
     if (selectedCostCodes.size === 0) return;
     
     const count = selectedCostCodes.size;
-    const confirmMessage = `Are you sure you want to delete ${count} cost code${count > 1 ? 's' : ''}? This action cannot be undone.`;
-    
-    if (!confirm(confirmMessage)) return;
+    if (!(await askConfirm({ title: `Delete ${count} cost code${count > 1 ? 's' : ''}?`, message: "This can't be undone.", confirmLabel: 'Delete' }))) return;
     
     try {
       // Delete each selected cost code
@@ -285,7 +284,7 @@ export default function CostCodesPage({ triggerAddCostCode }: CostCodesPageProps
       await loadCostCodes();
     } catch (error) {
       console.error('Error deleting cost codes:', error);
-      alert('Failed to delete some cost codes. Please try again.');
+      notify('Failed to delete some cost codes. Please try again.');
     }
   };
   

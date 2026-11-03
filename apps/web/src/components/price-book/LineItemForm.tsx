@@ -111,12 +111,6 @@ export const LineItemForm: React.FC<LineItemFormProps> = ({
   // Update form values when initialData changes
   useEffect(() => {
     if (initialData) {
-      console.log('🔍 LineItemForm - initialData:', {
-        name: initialData.name,
-        cost_code_id: initialData.cost_code_id,
-        has_cost_code_id: !!initialData.cost_code_id,
-        full_initialData: initialData
-      });
       
       reset({
         name: initialData.name || '',

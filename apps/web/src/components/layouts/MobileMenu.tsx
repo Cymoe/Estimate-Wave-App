@@ -38,7 +38,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
   return (
     <div className="md:hidden fixed inset-0 z-[10001]">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black bg-opacity-50" onClick={onClose} />
+      <div className="absolute inset-0" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} onClick={onClose} />
       
       {/* Menu Drawer */}
       <div className="absolute left-0 top-0 bottom-0 w-80 bg-[#1A1A1A] shadow-xl overflow-y-auto">

@@ -6,6 +6,7 @@ import { EstimateDrawer } from '../components/estimates/EstimateDrawer';
 import { EstimateService } from '../services/EstimateService';
 import { useAuth } from '../contexts/AuthContext';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
+import { notify } from '../components/common/appDialogs';
 
 /**
  * The estimates list. New estimates start from the blue + button
@@ -65,9 +66,6 @@ export const Work: React.FC = () => {
               throw new Error('User not authenticated');
             }
 
-            console.log('Creating estimate with data:', data);
-            console.log('Selected org:', selectedOrg);
-            console.log('User:', user);
 
             // Calculate subtotal and tax
             const subtotal = data.total_amount;
@@ -110,13 +108,10 @@ export const Work: React.FC = () => {
               }))
             };
 
-            console.log('Final estimate data being sent:', estimateData);
 
             // Create the estimate with items
             const estimate = await EstimateService.create(estimateData);
 
-            console.log('✅ Estimate created successfully:', estimate);
-            console.log('🚀 Navigating to estimate detail page:', `/estimates/${estimate.id}`);
 
             setShowCreateEstimate(false);
             
@@ -149,7 +144,7 @@ export const Work: React.FC = () => {
               }
             }
             
-            alert(`Failed to create estimate: ${errorMessage}`);
+            notify(`Failed to create estimate: ${errorMessage}`);
             throw error; // Re-throw so the drawer doesn't close
           }
         }}

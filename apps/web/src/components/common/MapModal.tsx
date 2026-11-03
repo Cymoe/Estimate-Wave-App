@@ -127,7 +127,7 @@ export const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, address, cl
   // Additional validation for address
   if (!address || address.trim() === '') {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
         <div className="bg-[#1E1E1E] rounded-lg p-8 max-w-md">
           <h2 className="text-lg font-semibold text-white mb-4">Invalid Address</h2>
           <p className="text-gray-400 mb-6">No valid address provided for this location.</p>
@@ -143,7 +143,7 @@ export const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, address, cl
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
       <div className="bg-[#1E1E1E] rounded-lg w-full max-w-4xl max-h-[90vh] overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-[#333]">

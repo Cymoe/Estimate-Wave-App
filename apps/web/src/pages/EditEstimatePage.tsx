@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
 import { EstimateService } from '../services/EstimateService';
 import { useAuth } from '../contexts/AuthContext';
+import { notify } from '../components/common/appDialogs';
 
 export const EditEstimatePage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -26,7 +27,7 @@ export const EditEstimatePage: React.FC = () => {
       setEstimate(data);
     } catch (error) {
       console.error('Error loading estimate:', error);
-      alert('Failed to load estimate');
+      notify('Failed to load estimate');
       navigate('/estimates');
     } finally {
       setLoading(false);
@@ -88,7 +89,7 @@ export const EditEstimatePage: React.FC = () => {
           navigate(`/estimates/${id}`);
         } catch (error) {
           console.error('Error updating estimate:', error);
-          alert('Failed to update estimate. Please try again.');
+          notify('Failed to update estimate. Please try again.');
         }
       }}
     />

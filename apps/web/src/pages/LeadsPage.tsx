@@ -20,6 +20,7 @@ import { ago, intakeAnswers, leadSummary } from '../components/leads/leadIntake'
 import { LeadExportService } from '../services/LeadExportService';
 import { Toast, useToast } from '../components/common/Notice';
 import { useConfirm } from '../components/common/ConfirmDialog';
+import { notify } from '../components/common/appDialogs';
 
 const OPEN: LeadStatus[] = ['new', 'no_answer', 'contacted', 'scheduled', 'quoted'];
 
@@ -286,7 +287,7 @@ const LeadsPage: React.FC = () => {
     try {
       await leadsAPI.update(lead.id, { status });
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Could not change the status');
+      notify(err instanceof Error ? err.message : 'Could not change the status');
     }
     load();
   };
@@ -297,7 +298,7 @@ const LeadsPage: React.FC = () => {
       // A field set to undefined is cleared, which the server needs as null.
       await leadsAPI.update(lead.id, Object.fromEntries(Object.entries(data).map(([key, value]) => [key, value ?? null])));
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Could not save the lead');
+      notify(err instanceof Error ? err.message : 'Could not save the lead');
       load();
     }
   };
@@ -308,7 +309,7 @@ const LeadsPage: React.FC = () => {
       const updated = await leadsAPI.logContact(lead.id, kind, note);
       setLeads((rows) => rows.map((row) => (row.id === lead.id ? { ...row, ...updated, id: lead.id } : row)));
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Could not save that');
+      notify(err instanceof Error ? err.message : 'Could not save that');
     }
   };
 
@@ -318,7 +319,7 @@ const LeadsPage: React.FC = () => {
       await leadsAPI.addSamples(organizationId);
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Could not add sample leads');
+      notify(err instanceof Error ? err.message : 'Could not add sample leads');
     }
   };
 
@@ -401,7 +402,7 @@ const LeadsPage: React.FC = () => {
     try {
       setQuoting({ lead, clientId: await leadsAPI.ensureClient(lead.id) });
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Could not start the estimate');
+      notify(err instanceof Error ? err.message : 'Could not start the estimate');
     }
   };
 
@@ -640,12 +641,12 @@ const LeadsPage: React.FC = () => {
                             <div className="flex items-center gap-1 flex-shrink-0">
                               {/* Where it came from: Webb Leads, and which way (bid, Marketplace, Vault...). */}
                               {leadTag(lead) && (
-                                <span className="text-[10px] uppercase tracking-wide px-1 border text-emerald-300 border-emerald-500/40 bg-emerald-500/10 whitespace-nowrap">
+                                <span className="text-xs px-1.5 border text-emerald-300 border-emerald-500/40 bg-emerald-500/10 whitespace-nowrap">
                                   {leadTag(lead)}
                                 </span>
                               )}
                               {lead.isSample && (
-                                <span className="text-[10px] uppercase tracking-wide text-gray-500 border border-[#333333] px-1">Sample</span>
+                                <span className="text-xs text-gray-400 border border-[#333333] px-1.5">Sample</span>
                               )}
                             </div>
                           </div>
@@ -766,7 +767,7 @@ const LeadsPage: React.FC = () => {
               load();
             } catch (err) {
               console.error('Error creating estimate from lead:', err);
-              alert(err instanceof Error ? err.message : 'Could not save the estimate');
+              notify(err instanceof Error ? err.message : 'Could not save the estimate');
             }
           }}
         />

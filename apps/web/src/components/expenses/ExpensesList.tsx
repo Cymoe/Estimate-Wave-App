@@ -4,6 +4,7 @@ import { formatCurrency } from '../../utils/format';
 import { costCodesAPI, industriesAPI } from '../../lib/api';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { ExpenseService, EXPENSE_CATEGORIES, paymentState, type Expense } from '../../services/ExpenseService';
+import { askConfirm } from '../common/appDialogs';
 
 interface CostCode {
   id: string;
@@ -127,7 +128,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
   };
 
   const handleDeleteExpense = async (expense: Expense) => {
-    if (!window.confirm(`Delete “${expense.description}” (${formatCurrency(expense.amount)})?`)) return;
+    if (!(await askConfirm({ title: `Delete “${expense.description}” (${formatCurrency(expense.amount)})?`, confirmLabel: 'Delete' }))) return;
     try {
       await ExpenseService.delete(expense.id);
       setExpenses(expenses.filter((e) => e.id !== expense.id));

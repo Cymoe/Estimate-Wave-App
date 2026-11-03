@@ -13,10 +13,11 @@ import { advancedSearch, SearchableField } from '../../utils/searchUtils';
 import { TableSkeleton } from '../skeletons/TableSkeleton';
 import { EstimateExportService } from '../../services/EstimateExportService';
 import { EstimateActionsMenu, EstimateAction } from './EstimateActionsMenu';
-import { confirmApproval, copyText, duplicateEstimate, sendEstimateLink } from './estimateActions';
+import { confirmApproval, copyText, duplicateEstimate, estimateStatusLabel, sendEstimateLink } from './estimateActions';
 import { createPortal } from 'react-dom';
 import { Toast, useToast } from '../common/Notice';
 import { isPlaceholderTitle } from '../../../convex/lib/jobName';
+import { notify } from '../common/appDialogs';
 
 /** Estimate, client, status, date, amount: shared by the header and every row. */
 const ROW_GRID = 'grid grid-cols-[minmax(8.5rem,1fr)_minmax(0,2fr)_6.5rem_7rem_minmax(7rem,1fr)] gap-4 items-center';
@@ -120,7 +121,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
           break;
         }
         case 'accept':
-          if (!confirmApproval(estimate)) return;
+          if (!(await confirmApproval(estimate))) return;
           await EstimateService.approve(estimate.id);
           await loadEstimates();
           showNotice(`${estimate.estimate_number} approved`);
@@ -135,7 +136,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
       }
     } catch (error) {
       console.error('Estimate action failed:', error);
-      alert(error instanceof Error ? error.message : 'Something went wrong. Please try again.');
+      notify(error instanceof Error ? error.message : 'Something went wrong. Please try again.');
     }
   };
 
@@ -149,7 +150,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
       showNotice(`${estimate.estimate_number} deleted`);
     } catch (error) {
       console.error('Error deleting estimate:', error);
-      alert("The estimate couldn't be deleted. Please try again.");
+      notify("The estimate couldn't be deleted. Please try again.");
     }
   };
 
@@ -304,7 +305,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
         .filter((id): id is string => id !== undefined);
       
       if (estimateIds.length === 0) {
-        alert('No estimates available to export.');
+        notify('No estimates available to export.');
         return;
       }
       
@@ -316,7 +317,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
       });
     } catch (error) {
       console.error('Error exporting estimates:', error);
-      alert(`Failed to export estimates: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      notify(`Failed to export estimates: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -329,7 +330,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
         .filter((id): id is string => id !== undefined);
       
       if (estimateIds.length === 0) {
-        alert('No estimates available to export.');
+        notify('No estimates available to export.');
         return;
       }
       
@@ -341,7 +342,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
       });
     } catch (error) {
       console.error('Error exporting estimates:', error);
-      alert(`Failed to export estimates: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      notify(`Failed to export estimates: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -712,8 +713,8 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
                       </div>
 
                       <div>
-                        <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize ${getStatusColor(estimate.status)}`}>
-                          {estimate.status}
+                        <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${getStatusColor(estimate.status)}`}>
+                          {estimateStatusLabel(estimate.status)}
                         </span>
                       </div>
 

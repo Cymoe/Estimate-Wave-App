@@ -27,7 +27,7 @@ export const MobileCreateMenu: React.FC<MobileCreateMenuProps> = ({ isOpen, onCl
   return (
     <div className="md:hidden fixed inset-0 z-[10002]">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black bg-opacity-50" onClick={onClose} />
+      <div className="absolute inset-0" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} onClick={onClose} />
       
       {/* Menu Sheet - slides up from bottom */}
       <div className="absolute bottom-0 left-0 right-0 bg-[#1A2332] rounded-t-[16px] shadow-xl">

@@ -6,6 +6,7 @@ import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { costCodesAPI } from '../lib/api';
 import { ProjectService } from '../services/ProjectService';
 import { ExpenseService, type Expense as StoredExpense } from '../services/ExpenseService';
+import { notify } from '../components/common/appDialogs';
 
 const todayIso = () => {
   const d = new Date();
@@ -159,7 +160,7 @@ export const Expenses: React.FC = () => {
       });
       setIsCreating(false);
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Could not add the expense');
+      notify(error instanceof Error ? error.message : 'Could not add the expense');
     }
   };
 

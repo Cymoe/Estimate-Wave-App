@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronLeft,
+  X,
   HelpCircle,
   LogOut,
   Activity,
@@ -168,7 +169,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   key={org.id}
                   className={`w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-[#2A2A2A] transition-colors ${selectedOrg.id === org.id ? 'bg-[#2A2A2A]' : ''}`}
                   onClick={() => {
-                    console.log('Switching to organization:', org.name, 'ID:', org.id, 'Industry:', org.industry);
                     setSelectedOrg(org);
                     localStorage.setItem('selectedOrgId', org.id);
                     setOrgDropdownOpen(false);
@@ -433,8 +433,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               
               {/* View All Projects Link with padding */}
               <div className="px-2 pb-2">
-                <div className="mt-3">
-                  <button 
+                <div className="mt-1">
+                  <button
                     data-projects-more-button
                     onClick={() => {
                       // Only allow toggle if sidebar is not locked
@@ -448,19 +448,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         }
                       }
                     }}
-                    className={`${isProjectsSidebarLocked ? 'text-white' : 'text-[#336699]'} text-[10px] font-medium hover:text-white transition-colors flex items-center justify-end uppercase tracking-wide ${isProjectsSidebarLocked ? 'cursor-default' : 'cursor-pointer'} w-full`}
+                    aria-expanded={isProjectsSidebarOpen}
+                    className={`${isProjectsSidebarLocked ? 'text-white cursor-default' : 'text-[#5b8fc7] hover:text-white cursor-pointer'} min-h-[40px] w-full flex items-center justify-between gap-2 px-1.5 text-xs font-medium transition-colors`}
                   >
-                    <ChevronLeft className={`w-2.5 h-2.5 mr-1 transition-transform ${isProjectsSidebarOpen && !isProjectsSidebarLocked ? 'rotate-90' : ''}`} />
-                    <span className="mr-1">{isProjectsSidebarLocked ? 'locked' : (isProjectsSidebarOpen ? 'close' : 'more')}</span>
-                    {isProjectsSidebarOpen && !isProjectsSidebarLocked ? (
-                      <span className="flex items-center">×</span>
-                    ) : (
-                      <span className="flex items-center">⋮⋮</span>
-                    )}
-                    {isProjectsSidebarLocked && (
-                      <svg className="w-2.5 h-2.5 ml-1" fill="currentColor" viewBox="0 0 20 20">
+                    <span>{isProjectsSidebarLocked ? 'Projects pinned open' : isProjectsSidebarOpen ? 'Close projects' : 'All projects'}</span>
+                    {isProjectsSidebarLocked ? (
+                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                         <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
                       </svg>
+                    ) : isProjectsSidebarOpen ? (
+                      <X className="w-3.5 h-3.5" aria-hidden="true" />
+                    ) : (
+                      <ChevronLeft className="w-3.5 h-3.5" aria-hidden="true" />
                     )}
                   </button>
                 </div>

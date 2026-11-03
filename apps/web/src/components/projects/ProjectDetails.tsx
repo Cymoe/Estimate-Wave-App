@@ -1,4 +1,5 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { estimateStatusLabel } from '../estimates/estimateActions';
 import { createPortal } from 'react-dom';
 import { useMatch, useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -43,6 +44,7 @@ import {
 } from '../common/StructuredNote';
 import { Toast, useToast } from '../common/Notice';
 import { PROJECT_STATUSES, formatProjectDate, projectStatusInfo } from './projectStatus';
+import { askConfirm, notify } from '../common/appDialogs';
 
 type TabType = 'overview' | 'tasks' | 'selections' | 'estimates' | 'orders' | 'expenses' | 'photos';
 const TAB_IDS: TabType[] = ['overview', 'tasks', 'selections', 'estimates', 'orders', 'expenses', 'photos'];
@@ -402,7 +404,7 @@ export const ProjectPanel: React.FC<{
       await EstimateService.update(estimateId, { project_id: projectId });
       setEstimatesAdded((n) => n + 1);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'The estimate couldn’t be added');
+      notify(err instanceof Error ? err.message : 'The estimate couldn’t be added');
     } finally {
       setAdding(false);
     }
@@ -447,7 +449,7 @@ export const ProjectPanel: React.FC<{
       saved(await ProjectService.updateStatus(project.id, status));
     } catch (err) {
       setProject(before);
-      alert(err instanceof Error ? err.message : 'Could not change the status');
+      notify(err instanceof Error ? err.message : 'Could not change the status');
     }
   };
 
@@ -464,19 +466,19 @@ export const ProjectPanel: React.FC<{
       const template = await templatesAPI.saveFromProject(project.id, name.trim());
       showToast(`Saved “${template.name}”. Pick it under Template when starting a project.`);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Could not save the template');
+      notify(err instanceof Error ? err.message : 'Could not save the template');
     }
   };
 
   const deleteProject = async () => {
     setShowMoreMenu(false);
-    if (!project?.id || !window.confirm(`Delete “${project.name}” and its expenses? Its estimates stay.`)) return;
+    if (!project?.id || !(await askConfirm({ title: `Delete “${project.name}” and its expenses?`, message: 'Its estimates stay.', confirmLabel: 'Delete' }))) return;
     try {
       await ProjectService.delete(project.id);
       onDeleted?.(project.id);
       onClose();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Could not delete the project');
+      notify(err instanceof Error ? err.message : 'Could not delete the project');
     }
   };
 
@@ -574,7 +576,7 @@ export const ProjectPanel: React.FC<{
       <div className="sticky top-0 z-30 bg-[#1a1a1a] border-b border-[#333333] flex-shrink-0">
         <div className="flex items-center justify-between gap-3 px-3 py-2">
           <div className="flex items-center gap-3 min-w-0">
-            <button onClick={onClose} aria-label="Close" className="p-2 hover:bg-[#333333] transition-colors">
+            <button onClick={onClose} aria-label="Close" className="w-11 h-11 -ml-1 flex items-center justify-center hover:bg-[#333333] transition-colors">
               <X className="w-4 h-4 text-gray-400" />
             </button>
             <h1 className="text-xl font-semibold text-white truncate">{project.name}</h1>
@@ -796,7 +798,7 @@ export const ProjectPanel: React.FC<{
                         {estimate.title && <span className="text-gray-500"> · {estimate.title}</span>}
                       </span>
                       <span className={`px-2 py-0.5 text-xs uppercase font-medium ${ESTIMATE_PILL[estimate.status] ?? ESTIMATE_PILL.draft}`}>
-                        {estimate.status}
+                        {estimateStatusLabel(estimate.status)}
                       </span>
                       <span className="font-mono tabular-nums text-white">{formatCurrency(estimate.total_amount)}</span>
                     </button>

@@ -6,6 +6,7 @@ import { ClientService } from '../../services/ClientService';
 import { useAuth } from '../../contexts/AuthContext';
 import { useContext } from 'react';
 import { OrganizationContext } from '../layouts/DashboardLayout';
+import { notify } from '../common/appDialogs';
 
 interface Client {
   id?: string;
@@ -135,7 +136,7 @@ export const ClientSelector: React.FC<ClientSelectorProps> = ({
       closeDropdown();
     } catch (error) {
       console.error('Error creating client:', error);
-      alert('Failed to create client. Please try again.');
+      notify('Failed to create client. Please try again.');
     } finally {
       setIsCreating(false);
     }

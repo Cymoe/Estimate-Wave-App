@@ -11,6 +11,8 @@ describe('SlideOutDrawer', () => {
   });
 
   it('renders into the page body, above any container it is used in, and slides in', async () => {
+    // Fake timers drive the two animation frames, so a busy test run can't outrun a fixed wait.
+    jest.useFakeTimers();
     const page = document.createElement('div');
     page.style.position = 'relative';
     page.style.zIndex = '40';
@@ -20,7 +22,7 @@ describe('SlideOutDrawer', () => {
     expect(dialog.parentElement).toBe(document.body);
     expect(page.contains(dialog)).toBe(false);
     expect(dialog.className).toContain('z-[11000]');
-    await act(() => new Promise((r) => setTimeout(r, 50)));
+    await act(async () => jest.advanceTimersByTime(100));
     expect(dialog.querySelector('.translate-x-0')).not.toBeNull();
   });
 

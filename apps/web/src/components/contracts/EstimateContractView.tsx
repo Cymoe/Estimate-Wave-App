@@ -8,6 +8,7 @@ import { estimatesAPI, organizationsAPI, type EstimateDocuments } from '../../li
 import { AgreementTerms, ContractSignatures } from './AgreementTerms';
 import { SignedRecord } from './SignedRecord';
 import { approvalLine } from '../estimates/estimateActions';
+import { notify } from '../common/appDialogs';
 interface EstimateContractViewProps {
   /** Shown as a sheet over the estimate: which estimate, and how to close it. Without these it's the /estimates/:id/contract page. */
   estimateId?: string;
@@ -144,7 +145,7 @@ export const EstimateContractView: React.FC<EstimateContractViewProps> = ({ esti
       if (saved) onSaved?.(saved);
     } catch (error) {
       console.error('Error saving contract:', error);
-      alert(error instanceof Error ? error.message : 'Failed to save contract');
+      notify(error instanceof Error ? error.message : 'Failed to save contract');
     } finally {
       setSaving(false);
     }

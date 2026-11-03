@@ -5,6 +5,7 @@ import { portalAPI, portalUrl, type PortalView as View } from '../../lib/api';
 import { shareOrCopy } from '../estimates/estimateActions';
 import { PortalView } from '../portal/PortalView';
 import { portalMessage, sendMessage } from '../../i18n/portal';
+import { askConfirm } from '../common/appDialogs';
 
 type Live = View & { token: string | null; queued: number };
 
@@ -73,8 +74,8 @@ export const PortalPreviewSheet: React.FC<{
       const token = view?.token ?? (await portalAPI.link(clientId));
       return how(await shareOrCopy(portalUrl(token), 'Your job page', portalMessage(name, lang)));
     });
-  const turnOff = () => {
-    if (!window.confirm(`Turn off ${first}'s portal link? The link they have stops working. Sharing again makes a new one.`)) return;
+  const turnOff = async () => {
+    if (!(await askConfirm({ title: `Turn off ${first}'s portal link?`, message: 'The link they have stops working. Sharing again makes a new one.', confirmLabel: 'Turn off' }))) return;
     act(async () => {
       await portalAPI.turnOff(clientId);
       return 'Turned off. Share again for a new link.';

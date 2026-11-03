@@ -23,12 +23,13 @@ import { DesignUpload } from './DesignUpload';
 import { RemindersCard } from './RemindersCard';
 import { JobPhotos } from '../common/JobPhotos';
 import { ContractTab } from './ContractTab';
-import { approvalLine, canApprove, confirmApproval, copyText, duplicateEstimate, sendEstimateLink } from './estimateActions';
+import { approvalLine, canApprove, confirmApproval, copyText, duplicateEstimate, estimateStatusLabel, sendEstimateLink } from './estimateActions';
 import { EstimateProject } from './EstimateProject';
 import { ClientNoteCard } from './ClientNoteCard';
 import { WORK_TYPE_NAMES } from '../../../convex/lib/workTypes';
 import { estimateTotals } from '../../../convex/lib/totals';
 import { DiscountCard } from './DiscountCard';
+import { notify } from '../common/appDialogs';
 
 // Header actions share one size so they line up; only the main action is filled.
 const actionBase = 'h-9 flex items-center gap-2 px-4 border rounded-sm transition-colors text-sm font-medium';
@@ -157,7 +158,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
       setChoosingClient(false);
     } catch (err) {
       console.error('Error setting client:', err);
-      alert("The client couldn't be saved. Please try again.");
+      notify("The client couldn't be saved. Please try again.");
     } finally {
       setSavingClient(false);
     }
@@ -225,13 +226,13 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
 
   /** Accepts it for the client without their signature, after saying what that does. */
   const handleApprove = async () => {
-    if (!estimate?.id || !confirmApproval(estimate)) return;
+    if (!estimate?.id || !(await confirmApproval(estimate))) return;
     try {
       await EstimateService.approve(estimate.id);
       await loadEstimate(true);
     } catch (error) {
       console.error('Error approving estimate:', error);
-      alert(error instanceof Error ? error.message : 'The estimate couldn’t be approved. Please try again.');
+      notify(error instanceof Error ? error.message : 'The estimate couldn’t be approved. Please try again.');
     }
   };
 
@@ -242,7 +243,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
       await loadEstimate(true);
     } catch (error) {
       console.error('Error updating status:', error);
-      alert('Failed to update estimate status');
+      notify('Failed to update estimate status');
     }
   };
 
@@ -260,7 +261,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
       await loadEstimate(true);
     } catch (error) {
       console.error('Error sending estimate:', error);
-      alert("The estimate link couldn't be created. Please try again.");
+      notify("The estimate link couldn't be created. Please try again.");
     }
   };
 
@@ -274,7 +275,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
       // In a drawer, the copy takes this estimate's place in the address (over a project, it stays over the project).
       if (copy.id) navigate(inDrawer ? location.pathname.replace(/[^/]+$/, copy.id) : `/estimates/${copy.id}`, { replace: inDrawer });
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Could not duplicate the estimate');
+      notify(err instanceof Error ? err.message : 'Could not duplicate the estimate');
     }
   };
 
@@ -290,6 +291,8 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
       leave();
     } catch (error) {
       console.error('Error deleting estimate:', error);
+      setShowDeleteConfirm(false);
+      notify(error instanceof Error && error.message ? error.message : "The estimate couldn't be deleted. Please try again.");
     }
   };
 
@@ -300,7 +303,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   const handleCopyShareLink = async () => {
     if (!shareUrl) return;
     await copyText(shareUrl);
-    alert('Link copied. Paste it into a text or email to your client.');
+    notify('Link copied. Paste it into a text or email to your client.');
   };
 
   const handleEditSave = async (data: any) => {
@@ -314,7 +317,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
       setShowEditModal(false);
     } catch (error) {
       console.error('Error updating estimate:', error);
-      alert('Failed to update estimate');
+      notify('Failed to update estimate');
     }
   };
 
@@ -528,7 +531,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
             <button
               onClick={leave}
               aria-label={inDrawer ? 'Close' : 'Back to estimates'}
-              className="p-2 hover:bg-[#333333] rounded-[4px] transition-colors"
+              className="w-11 h-11 -ml-1 flex items-center justify-center hover:bg-[#333333] rounded-[4px] transition-colors"
             >
               {inDrawer ? <X className="w-4 h-4 text-gray-400" /> : <ArrowLeft className="w-4 h-4 text-gray-400" />}
             </button>
@@ -541,7 +544,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                 estimate.status === 'sent' ? 'bg-blue-500/20 text-blue-300' :
                 'bg-gray-500/20 text-gray-300'
               }`}>
-                {estimate.status}
+                {estimateStatusLabel(estimate.status)}
               </span>
               {estimate.last_sent_at && (
                 <span className="text-xs text-gray-500">

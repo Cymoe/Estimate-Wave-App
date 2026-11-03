@@ -17,6 +17,7 @@ import {
 } from "../../lib/api";
 import { formatCurrency } from "../../utils/format";
 import { shareOrCopy } from "../estimates/estimateActions";
+import { askConfirm } from '../common/appDialogs';
 
 const errorText = (err: unknown) =>
   err instanceof Error && err.message ? err.message : "That didn't work.";
@@ -548,8 +549,8 @@ function OrderCard({
                   {(po.status === "draft" || po.status === "cancelled") && (
                     <button
                       type="button"
-                      onClick={() =>
-                        window.confirm(`Delete ${po.number} (${po.title})?`) &&
+                      onClick={async () =>
+                        (await askConfirm({ title: `Delete ${po.number} (${po.title})?`, confirmLabel: "Delete" })) &&
                         run(() => purchaseOrdersAPI.remove(po.id))
                       }
                       className="w-full px-3 py-2.5 text-left text-sm text-red-300 hover:bg-[#333]"

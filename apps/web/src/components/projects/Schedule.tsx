@@ -4,6 +4,7 @@ import { crewAPI, tasksAPI, type CrewMember, type Schedule as ScheduleData, type
 import { AddCrewForm } from './ProjectTasks';
 import { addDays, fromIso, isoDay, mondayOf, textLink } from './taskDates';
 import { LANGUAGE_OPTIONS } from '../../i18n/lang';
+import { askConfirm } from '../common/appDialogs';
 
 const field = 'bg-[#0A0A0A] border border-[#333] px-2.5 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#336699]';
 const secondary = 'inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-200 bg-[#1E1E1E] border border-[#333] hover:bg-[#2a2a2a] disabled:opacity-50';
@@ -87,7 +88,7 @@ const CrewManager: React.FC<{ organizationId: string; crew: CrewMember[]; onChan
                   </button>
                   <button
                     type="button"
-                    onClick={() => window.confirm(`Take ${person.name} off your crew? Tasks they were on keep their name.`) && act(() => crewAPI.archive(person.id, true))}
+                    onClick={async () => (await askConfirm({ title: `Take ${person.name} off your crew?`, message: 'Tasks they were on keep their name.', confirmLabel: 'Remove' })) && act(() => crewAPI.archive(person.id, true))}
                     className="text-xs text-gray-400 hover:text-red-300"
                   >
                     Remove

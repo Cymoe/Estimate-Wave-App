@@ -21,6 +21,7 @@ import { priceRange } from '../../utils/priceRange';
 import { IndustryService } from '../../services/IndustryService';
 import { TRADES_CHANGED } from '../settings/TradesEditor';
 import { allOutsideMyTrades, inMyTrades } from './tradeScope';
+import { askConfirm, notify } from '../common/appDialogs';
 
 /** Price-book items are priced at their red line. */
 const withRedLinePrice = (item: LineItem): LineItem => ({ ...item, price: priceRange(item).redLine });
@@ -151,7 +152,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
       await LineItemService.update(editedId, data, selectedOrg.id);
     } catch (error) {
       console.error('Error updating line item:', error);
-      alert(error instanceof Error ? error.message : 'Failed to update line item');
+      notify(error instanceof Error ? error.message : 'Failed to update line item');
       await fetchLineItems(); // Back to what's saved
     }
   };
@@ -172,13 +173,13 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
 
 
   const handleDeleteLineItem = async (lineItem: LineItem) => {
-    if (confirm('Are you sure you want to delete this line item?')) {
+    if (await askConfirm({ title: `Delete “${lineItem.name}”?`, confirmLabel: 'Delete' })) {
       try {
         await LineItemService.delete(lineItem.id, selectedOrg?.id);
         await fetchLineItems();
       } catch (error) {
         console.error('Error deleting line item:', error);
-        alert(error instanceof Error ? error.message : 'Failed to delete line item');
+        notify(error instanceof Error ? error.message : 'Failed to delete line item');
       }
     }
   };
@@ -220,16 +221,16 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
         
         if (result.errors.length > 0) {
           console.error('Import errors:', result.errors);
-          alert(`Import completed with errors:\n- ${result.success} items imported successfully\n- ${result.errors.length} errors\n\nCheck console for details.`);
+          notify(`Imported ${result.success} items. ${result.errors.length} rows couldn't be read.`);
         } else {
-          alert(`Successfully imported ${result.success} items!`);
+          notify(`Successfully imported ${result.success} items!`);
         }
         
         // Refresh the line items list
         await fetchLineItems();
       } catch (error) {
         console.error('Error importing file:', error);
-        alert('Failed to import file. Please check the format and try again.');
+        notify('Failed to import file. Please check the format and try again.');
       }
     };
     input.click();
@@ -238,20 +239,18 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
   const handleExportToCSV = async () => {
     try {
       await CostCodeExportService.exportToCSV(filteredLineItems, trades);
-      console.log('CSV export completed');
     } catch (error) {
       console.error('Error exporting to CSV:', error);
-      alert('Failed to export to CSV');
+      notify('Failed to export to CSV');
     }
   };
 
   const handleExportToExcel = async () => {
     try {
       await CostCodeExportService.exportToExcel(filteredLineItems, trades);
-      console.log('Excel export completed');
     } catch (error) {
       console.error('Error exporting to Excel:', error);
-      alert('Failed to export to Excel');
+      notify('Failed to export to Excel');
     }
   };
 
@@ -349,18 +348,14 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
   const fetchTrades = async () => {
     try {
       setIsLoadingCostCodes(true);
-      console.log('Fetching cost codes for organization:', selectedOrg?.id);
       
       if (!selectedOrg?.id) {
-        console.log('No organization selected, skipping cost codes fetch');
         setTrades([]);
         return;
       }
 
       // Use MongoDB API for cost codes
       const data = await costCodesAPI.list({ isActive: true });
-      console.log('Cost codes fetched:', data?.length || 0);
-      console.log('First few cost codes:', data?.slice(0, 3));
       setTrades(data || []);
       
       // Group by category for dropdown
@@ -372,7 +367,6 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
         }
         grouped.get(category).push(code);
       });
-      console.log('Grouped cost codes by category:', Array.from(grouped.keys()));
       setGroupedTrades(grouped);
     } catch (err) {
       console.error('Error in fetchTrades:', err);
@@ -397,7 +391,6 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
         return;
       }
       
-      console.log('Fetching line items for organization:', selectedOrg.id);
       
       // Fetch only line items for smart merge
       // The price book shows each item at its red line, the fixed price.
@@ -408,21 +401,6 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
       // Handle line items result
       if (lineItemsResult.status === 'fulfilled') {
         const data = lineItemsResult.value;
-        console.log('Line items fetched successfully:', data?.length || 0, 'items');
-        // Debug: Check if price range data is coming through
-        if (data && data.length > 0) {
-          const sampleItem = data.find((item: LineItem) => item.name === 'Master Carpenter' || item.name === 'Footing');
-          if (sampleItem) {
-            console.log('Sample item with price ranges:', {
-              name: sampleItem.name,
-              price: sampleItem.price,
-              base_price: sampleItem.base_price,
-              red_line_price: sampleItem.red_line_price,
-              cap_price: sampleItem.cap_price
-            });
-          }
-        }
-        
         if (smartMerge) {
           // Smart merge: only update items that have changed
           setLineItems(currentItems => {

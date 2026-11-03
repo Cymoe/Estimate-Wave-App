@@ -29,6 +29,7 @@ import {
 import { formatCurrency } from '../../utils/format';
 import { supabase } from '../../lib/supabase';
 import { ServiceCatalogService } from '../../services/ServiceCatalogService';
+import { askConfirm } from '../common/appDialogs';
 
 interface ServiceOption {
   id: string;
@@ -290,18 +291,25 @@ export const CustomizeServiceDrawer: React.FC<CustomizeServiceDrawerProps> = ({
       // Check for saved draft
       const draftItems = loadDraft();
       if (draftItems && draftItems.length > 0) {
-        // Ask user if they want to restore draft
-        const restore = window.confirm('You have unsaved changes from a previous session. Would you like to restore them?');
-        if (restore) {
-          setCurrentItems(draftItems);
-          setChangesHistory([items, draftItems]);
-          setCurrentHistoryIndex(1);
-        } else {
-          clearDraft();
-          setCurrentItems(items);
-          setChangesHistory([items]);
-          setCurrentHistoryIndex(0);
-        }
+        // Start from the saved items, then offer the unsaved changes back.
+        setCurrentItems(items);
+        setChangesHistory([items]);
+        setCurrentHistoryIndex(0);
+        askConfirm({
+          title: 'Restore your unsaved changes?',
+          message: 'You changed this service last time without saving.',
+          confirmLabel: 'Restore',
+          cancelLabel: 'Discard',
+          tone: 'default',
+        }).then((restore) => {
+          if (restore) {
+            setCurrentItems(draftItems);
+            setChangesHistory([items, draftItems]);
+            setCurrentHistoryIndex(1);
+          } else {
+            clearDraft();
+          }
+        });
       } else {
         setCurrentItems(items);
         setChangesHistory([items]);

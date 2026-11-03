@@ -13,6 +13,7 @@ import { ClientSelector } from './ClientSelector';
 import { NewClientModal } from '../clients/NewClientModal';
 // import { ServiceCatalogService } from '../../services/ServiceCatalogService'; // Removed - using line items only
 import { MongoLineItemService as LineItemService } from '../../services/MongoLineItemService';
+import { notify } from '../common/appDialogs';
 
 interface EstimateItem {
   product_id: string;
@@ -188,9 +189,6 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
   // Load estimate data when editing - but only after data is loaded
   useEffect(() => {
     if (isOpen && editingEstimate) {
-      console.log('Setting form data from editing estimate:', {
-        estimateId: editingEstimate.id
-      });
       
       // Set form data from existing estimate
       setSelectedClient(editingEstimate.client_id || '');
@@ -226,7 +224,6 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
   // Handle preloaded items from cart
   useEffect(() => {
     if (isOpen && preloadedItems && preloadedItems.length > 0 && !editingEstimate) {
-      console.log('Loading preloaded items:', preloadedItems);
       // Process preloaded items - services removed, all are line items now
       const processedItems = preloadedItems;
       setSelectedItems(processedItems);
@@ -349,7 +346,6 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
       let orgId = selectedOrg.id;
       if (!orgId || selectedOrg.name === 'Loading...') {
         orgId = localStorage.getItem('selectedOrgId') || '';
-        console.log('Using fallback organization ID from localStorage:', orgId);
       }
       
       if (!orgId) {
@@ -393,12 +389,6 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
       setTemplates(processedTemplates);
       
       // Debug logging
-      console.log('CreateEstimateDrawer - Data loaded:', {
-        organizationId: orgId,
-        clients: clientRows.length,
-        lineItems: allLineItems.length,
-        templates: processedTemplates.length
-      });
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -407,8 +397,6 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
   };
 
   const handleTemplateSelect = (template: Template) => {
-    console.log('Template selected:', template);
-    console.log('Template items:', template.items);
     
     // Add template items to existing items
     if (template.items && template.items.length > 0) {
@@ -420,7 +408,6 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
         unit: item.unit || 'ea',
         description: item.name || item.description
       }));
-      console.log('Adding items to estimate:', newItems);
       // Add to existing items
       setSelectedItems([...selectedItems, ...newItems]);
       
@@ -428,7 +415,6 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
       setAddedTemplateId(template.id);
       setTimeout(() => setAddedTemplateId(null), 2000);
     } else {
-      console.log('No items in template to add');
       // Still show feedback even if no items
       setAddedTemplateId(template.id);
       setTimeout(() => setAddedTemplateId(null), 2000);
@@ -528,21 +514,13 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
   };
 
   const handleSave = async () => {
-    console.log('🚀 HANDLE SAVE CALLED!');
-    console.log('🔍 Selected items:', selectedItems);
-    console.log('📊 Selected items length:', selectedItems.length);
-    console.log('👤 Selected client:', selectedClient);
-    console.log('📝 Estimate title:', estimateTitle);
-    console.log('📅 Issue date:', issueDate);
     
     // Only require items for initial creation - everything else can be filled later
     if (selectedItems.length === 0) {
-      console.log('❌ No items selected - showing alert');
-      alert('Please add at least one item to the estimate.');
+      notify('Please add at least one item to the estimate.');
       return;
     }
     
-    console.log('✅ Items validation passed, proceeding with save...');
 
     const formData: EstimateFormData = {
       client_id: selectedClient || '', // Allow empty - can be filled later
@@ -576,12 +554,11 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
 
     setIsSaving(true);
     try {
-      console.log('Saving enhanced estimate:', enhancedFormData);
       await onSave(enhancedFormData);
       handleClose();
     } catch (error) {
       console.error('Error saving estimate:', error);
-      alert('Failed to save estimate. Please try again.');
+      notify('Failed to save estimate. Please try again.');
     } finally {
       setIsSaving(false);
     }
@@ -608,7 +585,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
       setShowNewClientModal(false);
     } catch (error) {
       console.error('Error creating client:', error);
-      alert('Failed to create client. Please try again.');
+      notify('Failed to create client. Please try again.');
     }
   };
 
@@ -921,7 +898,6 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
 
         {/* New Client Modal */}
         {showNewClientModal && (() => {
-          console.log('Rendering NewClientModal, showNewClientModal:', showNewClientModal);
           return (
             <NewClientModal
               onClose={() => setShowNewClientModal(false)}
