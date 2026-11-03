@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { FolderOpen } from 'lucide-react';
 import { EstimateService, type Estimate } from '../../services/EstimateService';
 import { ProjectService, type Project } from '../../services/ProjectService';
+import { jobName } from '../../../convex/lib/jobName';
 
 const errorText = (err: unknown) => (err instanceof Error && err.message ? err.message : 'That didn’t work');
 const link = 'text-xs text-[#336699] hover:text-white disabled:opacity-50';
@@ -64,7 +65,12 @@ export function EstimateProject({
   const startProject = () =>
     run(async () => {
       if (!organizationId) throw new Error('Pick a company first');
-      const name = estimate.title?.trim() || (estimate.client?.name ? `${estimate.client.name} job` : `Job for ${estimate.estimate_number}`);
+      const name = jobName({
+        title: estimate.title,
+        clientName: estimate.client?.company_name || estimate.client?.name,
+        address: estimate.client?.address,
+        estimateNumber: estimate.estimate_number,
+      });
       const project = await ProjectService.create({
         organization_id: organizationId,
         name,

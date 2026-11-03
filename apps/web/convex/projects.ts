@@ -1,9 +1,10 @@
 import { v } from "convex/values";
 import { mutationDef } from "./lib/actor";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { fail, getOwned, logActivity, nowIso, pick, requireMember } from "./lib/access";
 import { assertLinksInOrg } from "./lib/documents";
 import { projectFields, projectStatus } from "./schema";
+import { isPlaceholderTitle, jobName } from "./lib/jobName";
 import { deleteTasks } from "./tasks";
 import { deletePhotos } from "./photos";
 
@@ -90,5 +91,34 @@ export const remove = mutation({
       details: { name: doc.name },
     });
     return { message: "Project deleted successfully" };
+  },
+});
+
+/**
+ * One-time tidy-up, run by the deploy: projects started from an estimate
+ * that was never named took its placeholder title ("Estimate 031934") and
+ * read like estimates in the project lists. Renamed by the same rule new
+ * ones follow (lib/jobName.ts). Safe to re-run: renamed ones no longer match.
+ */
+export const renamePlaceholderProjects = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    let renamed = 0;
+    for (const project of await ctx.db.query("projects").collect()) {
+      if (!isPlaceholderTitle(project.name)) continue;
+      const client = project.clientId ? await ctx.db.get(project.clientId) : null;
+      const estimates = await ctx.db.query("estimates").withIndex("by_project", (q) => q.eq("projectId", project._id)).collect();
+      const named = estimates.find((e) => !isPlaceholderTitle(e.title));
+      const name = jobName({
+        title: named?.title,
+        clientName: client?.companyName || client?.name,
+        address: client ? [client.address, client.city].filter(Boolean).join(", ") : undefined,
+        estimateNumber: estimates[0]?.estimateNumber,
+      });
+      if (name === project.name) continue;
+      await ctx.db.patch(project._id, { name, updatedAt: nowIso() });
+      renamed++;
+    }
+    return { renamed };
   },
 });
