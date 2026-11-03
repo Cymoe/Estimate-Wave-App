@@ -44,6 +44,12 @@ interface PriceBookProps {
 
 type Trade = { id: string; name: string; code: string; industry_id?: string; industry?: { id: string; name: string; icon?: string; color?: string } | null };
 
+/** Placeholder rows while the book loads: widths of the name, its note and the price, varied so it reads as a list. */
+const SKELETON_ROWS: [string, string, string][] = [
+  ['42%', '64%', '30%'], ['55%', '48%', '26%'], ['36%', '58%', '34%'], ['48%', '70%', '28%'],
+  ['60%', '44%', '32%'], ['40%', '62%', '24%'], ['52%', '50%', '30%'], ['34%', '56%', '27%'],
+];
+
 export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -84,6 +90,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
   const [isLoading, setIsLoading] = useState(() => !lastSeen(itemsKey));
   const [error, setError] = useState<string | null>(null);
   const [isLoadingCostCodes, setIsLoadingCostCodes] = useState(() => !lastSeen(codesKey));
+  const loadingBook = isLoading || isLoadingCostCodes;
   useEffect(() => {
     if (!isLoading) remember(itemsKey, lineItems);
   }, [itemsKey, isLoading, lineItems]);
@@ -679,7 +686,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
       }`}
     >
       <span className="truncate">{label}</span>
-      <span className={`text-[11px] ${selectedCategory === key ? 'text-white/80' : 'text-gray-500'}`}>{count}</span>
+      <span className={`text-[11px] ${selectedCategory === key ? 'text-white/80' : 'text-gray-500'}`}>{loadingBook ? '' : count}</span>
     </button>
   );
 
@@ -689,6 +696,21 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
       <div className="w-56 border-r border-[#333333] bg-[#0A0A0A] flex flex-col h-full flex-shrink-0" role="group" aria-label="Categories">
         <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-[#333333] scrollbar-track-transparent py-1">
           {categoryButton('all', 'All items', filteredLineItems.length)}
+          {loadingBook && (
+            <div className="animate-pulse" aria-hidden="true">
+              {[[40, [70, 55, 80]], [52, [60, 75]]].map(([label, rows], group) => (
+                <div key={group} className="mt-2">
+                  <div className="pl-6 pr-3 pt-3 pb-2"><div className="h-2.5 bg-[#262626] rounded" style={{ width: `${label}%` }} /></div>
+                  {(rows as number[]).map((width, row) => (
+                    <div key={row} className="pl-6 pr-3 py-[9px] flex items-center justify-between gap-2">
+                      <div className="h-3 bg-[#1E1E1E] rounded" style={{ width: `${width}%` }} />
+                      <div className="h-2.5 w-4 bg-[#1E1E1E] rounded" />
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
           {sidebarGroups.map(([tradeName, categories]) => (
             <div key={tradeName} className="mt-2">
               <div className="pl-6 pr-3 pt-2 pb-1 text-[11px] uppercase tracking-wide text-gray-500">{tradeName}</div>
@@ -728,7 +750,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
               value={selectedTradeId}
               onChange={(e) => setSelectedTradeId(e.target.value)}
             >
-              <option value="all" className="bg-[#121212] text-white">All Cost Codes ({lineItems.length})</option>
+              <option value="all" className="bg-[#121212] text-white">{loadingBook ? 'All Cost Codes' : `All Cost Codes (${lineItems.length})`}</option>
               {Array.from(groupedTrades.entries()).map(([industryName, codes]) => (
                 <optgroup 
                   key={industryName} 
@@ -833,103 +855,24 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
       
       {/* Table Content - Scrollable */}
       <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-[#333333] scrollbar-track-transparent">
-        {(isLoading || isLoadingCostCodes) ? (
-          <div className="animate-pulse">
-            {/* Industry Header Skeleton */}
-            <div className="px-6 py-3 bg-[#121212] border-y border-[#333333]">
-              <div className="h-4 bg-[#333333] rounded w-48 relative overflow-hidden">
-                <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-[#444444] to-transparent"></div>
-              </div>
-            </div>
-            
-            {/* Cost Code Header Skeleton */}
-            <div className="px-6 py-2.5 bg-[#22272d] border-y border-[#333333]/40">
-              <div className="flex items-center gap-3">
-                <div className="h-4 bg-[#336699]/30 rounded w-16 relative overflow-hidden">
-                  <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-[#336699]/50 to-transparent"></div>
+        {loadingBook ? (
+          // Same rows as the list below (name and note left, price and unit right), so nothing jumps when it fills in.
+          <div className="animate-pulse" data-testid="pricebook-skeleton" aria-hidden="true">
+            {SKELETON_ROWS.map(([name, note, price], index) => (
+              <div
+                key={index}
+                className={`grid grid-cols-9 gap-4 px-6 ${condensed ? 'py-1.5' : 'py-2.5'} items-center bg-[#121212] ${index < SKELETON_ROWS.length - 1 ? 'border-b border-[#262626]' : ''}`}
+              >
+                <div className="col-span-6 pr-4">
+                  <div className="h-3.5 my-[3px] bg-[#262626] rounded" style={{ width: name }} />
+                  {!condensed && <div className="h-3 mt-1.5 bg-[#1E1E1E] rounded" style={{ width: note }} />}
                 </div>
-                <div className="h-4 bg-[#333333] rounded w-32 relative overflow-hidden">
-                  <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-[#444444] to-transparent"></div>
-                </div>
-                <div className="h-3 bg-[#333333] rounded w-20 relative overflow-hidden">
-                  <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-[#444444] to-transparent"></div>
+                <div className="col-span-3 flex flex-col items-end">
+                  <div className="h-3.5 my-[3px] bg-[#262626] rounded" style={{ width: price }} />
+                  {!condensed && <div className="h-3 mt-1.5 w-12 bg-[#1E1E1E] rounded" />}
                 </div>
               </div>
-            </div>
-            
-            {/* Line Items Skeleton */}
-            <div className="border-l-2 border-[#336699]/20 ml-6">
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="grid grid-cols-9 gap-4 px-6 py-3 items-center border-b border-[#333333]/20">
-                  <div className="col-span-1">
-                    <div className="w-4 h-4 bg-[#333333] rounded relative overflow-hidden">
-                      <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-[#444444] to-transparent"></div>
-                    </div>
-                  </div>
-                  <div className="col-span-5">
-                    <div className="h-4 bg-[#333333] rounded w-48 mb-1 relative overflow-hidden">
-                      <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-[#444444] to-transparent"></div>
-                    </div>
-                    <div className="h-3 bg-[#333333] rounded w-32 relative overflow-hidden">
-                      <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-[#444444] to-transparent"></div>
-                    </div>
-                  </div>
-                  <div className="col-span-3 text-right">
-                    <div className="h-5 bg-[#333333] rounded w-20 ml-auto relative overflow-hidden">
-                      <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-[#444444] to-transparent"></div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            
-            {/* Second Industry Skeleton */}
-            <div className="mt-4">
-              <div className="px-6 py-3 bg-[#121212] border-y border-[#333333]">
-                <div className="h-4 bg-[#333333] rounded w-56 relative overflow-hidden">
-                  <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-[#444444] to-transparent"></div>
-                </div>
-              </div>
-              
-              <div className="px-6 py-2.5 bg-[#22272d] border-y border-[#333333]/40">
-                <div className="flex items-center gap-3">
-                  <div className="h-4 bg-[#336699]/30 rounded w-16 relative overflow-hidden">
-                    <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-[#336699]/50 to-transparent"></div>
-                  </div>
-                  <div className="h-4 bg-[#333333] rounded w-40 relative overflow-hidden">
-                    <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-[#444444] to-transparent"></div>
-                  </div>
-                  <div className="h-3 bg-[#333333] rounded w-20 relative overflow-hidden">
-                    <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-[#444444] to-transparent"></div>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="border-l-2 border-[#336699]/20 ml-6">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="grid grid-cols-9 gap-4 px-6 py-3 items-center border-b border-[#333333]/20">
-                    <div className="col-span-1">
-                      <div className="w-4 h-4 bg-[#333333] rounded relative overflow-hidden">
-                        <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-[#444444] to-transparent"></div>
-                      </div>
-                    </div>
-                    <div className="col-span-5">
-                      <div className="h-4 bg-[#333333] rounded w-56 mb-1 relative overflow-hidden">
-                        <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-[#444444] to-transparent"></div>
-                      </div>
-                      <div className="h-3 bg-[#333333] rounded w-24 relative overflow-hidden">
-                        <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-[#444444] to-transparent"></div>
-                      </div>
-                    </div>
-                    <div className="col-span-3 text-right">
-                      <div className="h-5 bg-[#333333] rounded w-24 ml-auto relative overflow-hidden">
-                        <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-[#444444] to-transparent"></div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            ))}
           </div>
         ) : error ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
