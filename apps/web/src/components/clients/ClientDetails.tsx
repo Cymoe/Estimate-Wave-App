@@ -1,4 +1,6 @@
 import React, { useContext, useEffect, useState } from 'react';
+import { AddressLink } from '../common/AddressLink';
+import { fullAddress } from '../../lib/mapsLinks';
 import { usePageTitle } from '../../lib/pageTitle';
 import { estimateStatusLabel } from '../estimates/estimateActions';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -129,8 +131,7 @@ const ClientNote: React.FC<{ client: Client | null }> = ({ client }) => {
   };
 
   const phoneHref = draft.phone.trim() ? `tel:${draft.phone.replace(/[^\d+]/g, '')}` : null;
-  const place = [draft.address, draft.city, draft.state, draft.zip].filter((s) => s.trim()).join(', ');
-  const mapHref = draft.address.trim() ? `https://maps.apple.com/?q=${encodeURIComponent(place)}` : null;
+  const place = draft.address.trim() ? fullAddress(draft.address, draft.city, draft.state, draft.zip) : '';
   // Call, Text and Maps beside a field: a full fingertip target.
   const rowAction = 'w-10 h-10 -my-2 flex flex-shrink-0 items-center justify-center text-gray-500 hover:text-white';
   const field = (name: keyof Draft, placeholder: string, type = 'text') => (
@@ -188,10 +189,10 @@ const ClientNote: React.FC<{ client: Client | null }> = ({ client }) => {
         </NoteRow>
         <NoteRow icon={MapPin} label="Address">
           {field('address', 'Add address')}
-          {mapHref && (
-            <a href={mapHref} target="_blank" rel="noreferrer" className={rowAction} aria-label="Open in Maps" title="Open in Maps">
+          {place && (
+            <AddressLink address={place} title={draft.name} className={rowAction} aria-label={`Map and directions to ${place}`}>
               <Navigation className="w-4 h-4" />
-            </a>
+            </AddressLink>
           )}
         </NoteRow>
         <NoteRow icon={MapPin} label="City / State">

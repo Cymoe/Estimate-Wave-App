@@ -14,7 +14,8 @@ import { formatCurrency, formatDate } from '../../utils/format';
 import { clientsAPI, estimatesAPI } from '../../lib/api';
 import { changesSinceSigned } from '../../services/contract';
 import { CreateEstimateDrawer } from './CreateEstimateDrawer';
-import { MapModal } from '../common/MapModal';
+import { AddressLink } from '../common/AddressLink';
+import { fullAddress } from '../../lib/mapsLinks';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { AirtableEstimateView } from './AirtableEstimateView';
 import { AirtableSidebar } from './AirtableSidebar';
@@ -93,7 +94,6 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   // Emailing it from the Share window: idle, sending, or what happened.
   const [emailNote, setEmailNote] = useState<{ text: string; good: boolean } | 'sending' | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showMapModal, setShowMapModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -753,15 +753,14 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                     </a>
                   )}
                   {estimate.client.address && (
-                    <button
-                      type="button"
-                      onClick={() => setShowMapModal(true)}
+                    <AddressLink
+                      address={fullAddress(estimate.client.address, estimate.client.city, estimate.client.state, estimate.client.zip)}
+                      title={estimate.client.name}
                       className="flex items-start gap-2 text-sm text-gray-400 hover:text-white text-left"
-                      title="View on map"
                     >
                       <MapPin className="w-4 h-4 mt-0.5" />
                       <span className="hover:underline">{estimate.client.address}</span>
-                    </button>
+                    </AddressLink>
                   )}
                 </div>
               ) : (
@@ -1106,17 +1105,6 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
         />
       )}
 
-      {/* Map Modal */}
-      {showMapModal && estimate?.client?.address && (
-        <OnTop>
-        <MapModal
-          isOpen={showMapModal}
-          onClose={() => setShowMapModal(false)}
-          address={estimate.client.address}
-          clientName={estimate.client.name}
-        />
-        </OnTop>
-      )}
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (

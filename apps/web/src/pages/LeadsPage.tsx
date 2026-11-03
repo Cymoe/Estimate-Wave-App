@@ -1,4 +1,6 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { AddressLink } from '../components/common/AddressLink';
+import { fullAddress } from '../lib/mapsLinks';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { CalendarClock, CalendarDays, ChevronsDownUp, ChevronsUpDown, Download, FileSpreadsheet, Kanban, Mail, MapPin, MessageSquare, MoreVertical, Phone, Plus, Search, UserPlus } from 'lucide-react';
@@ -152,14 +154,13 @@ const LeadCardDetails: React.FC<{
             </a>
           )}
           {lead.address && (
-            <a
-              href={`https://maps.apple.com/?q=${encodeURIComponent(lead.address)}`}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-2 text-gray-200 hover:text-white min-w-0"
+            <AddressLink
+              address={fullAddress(lead.address, lead.city)}
+              title={lead.name}
+              className="flex items-center gap-2 text-gray-200 hover:text-white min-w-0 text-left"
             >
               <MapPin className="w-3.5 h-3.5 flex-shrink-0 text-gray-500" /> <span className="truncate">{lead.address}</span>
-            </a>
+            </AddressLink>
           )}
         </div>
       )}

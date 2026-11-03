@@ -81,6 +81,9 @@ export interface Estimate {
     email: string;
     company_name?: string;
     address?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
     phone?: string;
     language?: 'en' | 'es';
   };

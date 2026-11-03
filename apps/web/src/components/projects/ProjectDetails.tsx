@@ -1,4 +1,6 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { AddressLink } from '../common/AddressLink';
+import { fullAddress } from '../../lib/mapsLinks';
 import { usePageTitle } from '../../lib/pageTitle';
 import { estimateStatusLabel } from '../estimates/estimateActions';
 import { createPortal } from 'react-dom';
@@ -560,7 +562,7 @@ export const ProjectPanel: React.FC<{
   const margin = contract > 0 ? Math.round((profit / contract) * 100) : null;
   const spentShare = budget > 0 ? Math.min(100, Math.round((summary.total / budget) * 100)) : 0;
   const clientLabel = client ? client.company_name || client.name : project.client?.name;
-  const place = client ? [client.address, client.city].filter(Boolean).join(', ') : '';
+  const place = client ? fullAddress(client.address, client.city, client.state, client.zip) : '';
   const nextUp = (tasks ?? []).filter((t) => !t.done).slice(0, 3);
 
   const hasSelections = (estimates ?? []).some((e) => e.contract_locked_at && e.items?.some((item) => item.allowance));
@@ -618,18 +620,11 @@ export const ProjectPanel: React.FC<{
                 <Mail className="w-4 h-4" />
               </a>
             )}
-            {/* Directions to the job: the client's address in Maps. */}
+            {/* The job on a map, with Directions in the device's maps app. */}
             {place && (
-              <a
-                href={`https://maps.apple.com/?daddr=${encodeURIComponent(place)}`}
-                target="_blank"
-                rel="noreferrer"
-                className={`${secondaryAction} px-2.5`}
-                aria-label={`Directions to ${place}`}
-                title={`Directions to ${place}`}
-              >
+              <AddressLink address={place} title={clientLabel || project.name} className={`${secondaryAction} px-2.5`} aria-label={`Map and directions to ${place}`}>
                 <MapPin className="w-4 h-4" />
-              </a>
+              </AddressLink>
             )}
             {/* The client's portal: exactly what they see, and send what's waiting */}
             <button

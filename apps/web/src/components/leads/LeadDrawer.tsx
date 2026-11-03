@@ -1,4 +1,6 @@
 import React, { Fragment, useEffect, useRef, useState } from 'react';
+import { AddressLink } from '../common/AddressLink';
+import { fullAddress } from '../../lib/mapsLinks';
 import { createPortal } from 'react-dom';
 import {
   Building2,
@@ -265,9 +267,7 @@ export const LeadDrawer: React.FC<{
   const status = STATUSES.find((s) => s.value === (lead?.status ?? newStatus)) ?? STATUSES[0];
   const appointment = lead ? lead.appointmentAt : newAppointment;
   const phoneHref = draft.phone.trim() ? `tel:${draft.phone.replace(/[^\d+]/g, '')}` : null;
-  const mapHref = draft.address.trim()
-    ? `https://maps.apple.com/?q=${encodeURIComponent([draft.address, draft.city].filter((s) => s.trim()).join(', '))}`
-    : null;
+  const place = draft.address.trim() ? fullAddress(draft.address, draft.city) : '';
   const added = lead?.createdAt
     ? new Date(lead.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
     : null;
@@ -368,10 +368,15 @@ export const LeadDrawer: React.FC<{
                 aria-label="Address"
                 className={plainInput}
               />
-              {mapHref && (
-                <a href={mapHref} target="_blank" rel="noreferrer" className="p-1 text-gray-500 hover:text-white" aria-label="Open in Maps">
+              {place && (
+                <AddressLink
+                  address={place}
+                  title={draft.name}
+                  className="w-10 h-10 -my-2 flex flex-shrink-0 items-center justify-center text-gray-500 hover:text-white"
+                  aria-label={`Map and directions to ${place}`}
+                >
                   <Navigation className="w-4 h-4" />
-                </a>
+                </AddressLink>
               )}
             </Row>
             <Row icon={Building2} label="City">
