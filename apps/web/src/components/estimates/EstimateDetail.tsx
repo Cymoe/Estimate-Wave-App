@@ -6,7 +6,7 @@ import { useLocation, useMatch, useNavigate, useParams } from 'react-router-dom'
 import { 
   ArrowLeft, Edit, Send, Share2, Trash2,
   CheckCircle, XCircle, FileText, User,
-  Phone, Mail, MapPin, Copy, Eye, Calendar, X, MoreVertical
+  Phone, Mail, MapPin, Copy, Eye, Calendar, X, MoreVertical, Plus
 } from 'lucide-react';
 import { EstimateService, Estimate, EstimateItem, type ClientDetail } from '../../services/EstimateService';
 import { priceAt } from '../../utils/priceRange';
@@ -473,11 +473,18 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
 
   const totalBar = estimate.items && estimate.items.length > 0 ? (
           <div className="flex items-center text-[12px] font-medium">
-      <div className="w-20 py-2 px-3 text-gray-500 border-r border-[#333333] text-center">
-        {estimate.items.length} items
-      </div>
+      {/* Always on screen, however long the list: adding a line never means scrolling to the end. */}
+      <button
+        type="button"
+        onClick={() => setShowPricingSelector(true)}
+        data-testid="add-item-bar"
+        className="self-stretch shrink-0 flex items-center gap-1.5 px-3 text-[13px] font-medium text-white bg-[#336699] hover:bg-[#2a5580] transition-colors"
+      >
+        <Plus className="w-4 h-4" />
+        <span>Add item</span>
+      </button>
       <div className="flex-1 py-2 px-3 text-right text-gray-500 border-r border-[#333333]">
-        Sum
+        {estimate.items.length} {estimate.items.length === 1 ? 'item' : 'items'} · Sum
         {(estimate.discount_amount ?? 0) > 0 && (
           <span className="block text-[10px] text-green-400">{estimate.discount?.label || 'Discount'} −{formatCurrency(estimate.discount_amount ?? 0)}</span>
         )}

@@ -62,7 +62,7 @@ jest.mock('../../../lib/api', () => ({
   clientsAPI: { list: async () => [{ id: 'c2', name: 'Priya Shah' }, { id: 'c1', name: 'Dan Shah' }] },
 }));
 jest.mock('../CreateEstimateDrawer', () => ({ CreateEstimateDrawer: () => null }));
-jest.mock('../ContextualPricingSelector', () => ({ ContextualPricingSelector: () => null }));
+jest.mock('../ContextualPricingSelector', () => ({ ContextualPricingSelector: () => <div data-testid="pricing-selector" /> }));
 jest.mock('../../layouts/DashboardLayout', () => {
   const { createContext } = jest.requireActual('react');
   return { OrganizationContext: createContext({ selectedOrg: { id: 'org1' } }) };
@@ -106,6 +106,26 @@ describe('estimate overview', () => {
   });
 
   const button = (text: string) => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === text) as HTMLButtonElement | undefined;
+
+  it('keeps Add item in the line items bar at the bottom, so it never takes scrolling to find', async () => {
+    stored = { ...base };
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () =>
+      createRoot(container).render(
+        <MemoryRouter>
+          <EstimateDetail estimateId="e1" onClose={() => {}} inDrawer />
+        </MemoryRouter>,
+      ),
+    );
+    await act(async () => {});
+    const add = document.body.querySelector('[data-testid="add-item-bar"]') as HTMLButtonElement;
+    expect(add.textContent).toBe('Add item');
+    expect(add.parentElement!.textContent).toContain('1 item · Sum');
+    expect(document.body.querySelector('[data-testid="pricing-selector"]')).toBeNull();
+    await act(async () => add.click());
+    expect(document.body.querySelector('[data-testid="pricing-selector"]')).not.toBeNull();
+  });
 
   it('adds a discount ($ or %) with a label, shows what it takes off, shows a refusal, and removes it', async () => {
     stored = { ...base, subtotal: 1000, total_amount: 1000, items: [{ id: 'i1', description: 'Vanity', quantity: 1, unit_price: 1000, total_price: 1000 }] };
