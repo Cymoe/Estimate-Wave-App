@@ -324,6 +324,8 @@ function AppRoutes() {
       >
         <Route path="/work" element={null} />
         <Route path="/estimates/:id" element={null} />
+        {/* The estimate's project in a second drawer on top, so the estimate stays put behind it. */}
+        <Route path="/estimates/:id/project/:projectId" element={null} />
       </Route>
       
       {/* Sales Mode was removed; old links go to estimates. */}

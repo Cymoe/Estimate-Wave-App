@@ -3,6 +3,7 @@ import { useLocation, useMatch, useNavigate, useSearchParams } from 'react-route
 import { EstimatesList } from '../components/estimates/EstimatesList';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
 import { EstimateDrawer } from '../components/estimates/EstimateDrawer';
+import { ProjectDetailsDrawer } from '../components/projects/ProjectDetails';
 import { EstimateService } from '../services/EstimateService';
 import { useAuth } from '../contexts/AuthContext';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
@@ -18,7 +19,10 @@ export const Work: React.FC = () => {
   const { selectedOrg } = useContext(OrganizationContext);
   const [showCreateEstimate, setShowCreateEstimate] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
-  const openEstimateId = useMatch('/estimates/:id')?.params.id;
+  // /estimates/:id/project/:projectId: the estimate's project in a drawer on top of it.
+  const projectOverEstimate = useMatch('/estimates/:id/project/:projectId');
+  const openEstimateId = useMatch('/estimates/:id')?.params.id ?? projectOverEstimate?.params.id;
+  const openProjectId = projectOverEstimate?.params.projectId;
   const location = useLocation();
   const [refreshList, setRefreshList] = useState(0);
   // The estimate whose drawer is closing: its row stops being highlighted at once.
@@ -52,6 +56,17 @@ export const Work: React.FC = () => {
           estimateId={openEstimateId}
           onClose={closeEstimate}
           onClosing={() => setClosingId(openEstimateId)}
+          covered={Boolean(openProjectId)}
+        />
+      )}
+
+      {/* The estimate's project slides in on top; closing it shows the estimate as it was. */}
+      {openEstimateId && openProjectId && (
+        <ProjectDetailsDrawer
+          projectId={openProjectId}
+          onClose={() =>
+            location.key !== 'default' ? navigate(-1) : navigate(`/estimates/${openEstimateId}`, { replace: true })
+          }
         />
       )}
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useMatch, useNavigate } from 'react-router-dom';
 import { FolderOpen } from 'lucide-react';
 import { EstimateService, type Estimate } from '../../services/EstimateService';
 import { ProjectService, type Project } from '../../services/ProjectService';
@@ -26,6 +26,13 @@ export function EstimateProject({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
+  // On the estimates page the project opens in a drawer on top of this estimate.
+  const onEstimatesPage = useMatch('/estimates/:id') !== null;
+  const openProject = (projectId: string) =>
+    onEstimatesPage
+      ? navigate(`/estimates/${estimate.id}/project/${projectId}?tab=estimates`)
+      : // Closing the project comes back to this estimate (ProjectList.closeProject).
+        navigate(`/projects/${projectId}?tab=estimates`, { state: { returnTo: `${location.pathname}${location.search}` } });
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [choosing, setChoosing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -143,8 +150,7 @@ export function EstimateProject({
         ) : (
           <button
             type="button"
-            // Closing the project comes back to this estimate (ProjectList.closeProject).
-            onClick={() => navigate(`/projects/${project.id}?tab=estimates`, { state: { returnTo: `${location.pathname}${location.search}` } })}
+            onClick={() => openProject(project.id!)}
             className="flex items-center gap-2 text-base font-medium text-[#5b8fc7] hover:underline"
           >
             <FolderOpen className="w-4 h-4" />

@@ -31,6 +31,21 @@ jest.mock('../../components/estimates/EstimateDetail', () => ({
   ),
 }));
 jest.mock('../../components/estimates/CreateEstimateDrawer', () => ({ CreateEstimateDrawer: () => null }));
+// The project drawer itself is tested with ProjectDetails; here only where it opens and closes to.
+// Like the real one, it portals onto document.body.
+jest.mock('../../components/projects/ProjectDetails', () => {
+  const { createPortal } = jest.requireActual('react-dom');
+  return {
+    ProjectDetailsDrawer: ({ projectId, onClose }: { projectId: string; onClose: () => void }) =>
+      createPortal(
+        <div role="dialog" aria-label="Project">
+          <span>{`project ${projectId} on top`}</span>
+          <button onClick={onClose}>Close project</button>
+        </div>,
+        document.body,
+      ),
+  };
+});
 jest.mock('../../services/EstimateService', () => ({ EstimateService: { getById: async () => null } }));
 jest.mock('../../lib/api', () => ({ organizationsAPI: { getById: async () => null } }));
 jest.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }));
@@ -66,6 +81,7 @@ async function render(initial: (string | { pathname: string; state?: unknown })[
           <Route element={<Work />}>
             <Route path="/work" element={null} />
             <Route path="/estimates/:id" element={null} />
+            <Route path="/estimates/:id/project/:projectId" element={null} />
           </Route>
           <Route path="/estimates/:id/contract" element={<EstimateContractView />} />
           <Route path="/projects/:id" element={<p>project page</p>} />
@@ -161,5 +177,34 @@ describe('estimates open in a drawer over the list', () => {
     expect(path).toBe('/work');
     expect(highlighted).toBeUndefined();
   });
-});
 
+  it("an estimate's project opens in a drawer on top of it, and closing it shows the same estimate", async () => {
+    await render(['/work']);
+    await click('EST-2 row');
+    await act(async () => goTo('/estimates/e2/project/p1')); // the project name on the estimate
+    expect(path).toBe('/estimates/e2/project/p1');
+    const dialogs = Array.from(document.body.querySelectorAll('[role="dialog"]'));
+    // The estimate stays mounted behind (hidden from assistive tech); the project is on top.
+    expect(dialogs.map((d) => d.getAttribute('aria-label'))).toEqual(['Estimate', 'Project']);
+    expect(dialogs[0].getAttribute('aria-hidden')).toBe('true');
+    expect(document.body.textContent).toContain('estimate e2 in drawer');
+    expect(document.body.textContent).toContain('project p1 on top');
+    expect(listMounts).toBe(1); // nothing behind it reloaded
+
+    // Esc belongs to the project on top, not the covered estimate.
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    expect(path).toBe('/estimates/e2/project/p1');
+
+    await click('Close project');
+    expect(path).toBe('/estimates/e2');
+    expect(document.body.textContent).toContain('estimate e2 in drawer');
+    expect(document.body.querySelector('[aria-label="Estimate"]')!.getAttribute('aria-hidden')).toBeNull();
+  });
+
+  it('opened straight onto an estimate\'s project, closing it goes to that estimate', async () => {
+    await render(['/estimates/e5/project/p2']);
+    await click('Close project');
+    expect(path).toBe('/estimates/e5');
+    expect(document.body.textContent).toContain('estimate e5 in drawer');
+  });
+});

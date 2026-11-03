@@ -304,6 +304,8 @@ export const ProjectPanel: React.FC<{
   // ?tab=estimates (a refresh, a link) starts on that tab, as does opening straight onto one of the
   // project's estimates; after that the tab is just state here.
   const onEstimate = useMatch('/projects/:id/estimates/:estimateId') !== null;
+  // Opened on top of one of its estimates (from the estimates page): that estimate is right behind.
+  const estimateBehind = useMatch('/estimates/:id/project/:projectId')?.params.id;
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     const wanted = searchParams.get('tab');
     return onEstimate ? 'estimates' : isTab(wanted) ? wanted : 'overview';
@@ -801,7 +803,9 @@ export const ProjectPanel: React.FC<{
                 {estimates.map((estimate) => (
                   <li key={estimate.id}>
                     <button
-                      onClick={() => navigate(`/projects/${project.id}/estimates/${estimate.id}`)}
+                      onClick={() =>
+                        estimate.id === estimateBehind ? onClose() : navigate(`/projects/${project.id}/estimates/${estimate.id}`)
+                      }
                       className="w-full grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-4 py-3 text-left text-sm hover:bg-[#222]"
                     >
                       <span className="truncate text-white">

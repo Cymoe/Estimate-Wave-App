@@ -12,7 +12,9 @@ export const EstimateDrawer: React.FC<{
   onClose: () => void;
   /** Called as soon as closing starts, before the slide-out finishes. */
   onClosing?: () => void;
-}> = ({ estimateId, onClose, onClosing }) => {
+  /** Its project is open in a drawer on top: Esc belongs to that one. */
+  covered?: boolean;
+}> = ({ estimateId, onClose, onClosing, covered = false }) => {
   const { shown, slideOut } = useSlideIn();
   const close = () => {
     onClosing?.();
@@ -22,6 +24,7 @@ export const EstimateDrawer: React.FC<{
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (covered) return;
       // Esc closes the drawer unless something inside it (a modal, an open cell) handles it first.
       const target = e.target as HTMLElement | null;
       const typing = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
@@ -42,6 +45,7 @@ export const EstimateDrawer: React.FC<{
         ref={panel}
         role="dialog"
         aria-label="Estimate"
+        aria-hidden={covered || undefined}
         className={`fixed right-0 top-0 h-[100dvh] w-full md:w-[720px] max-w-full bg-[#000000] shadow-xl transform transition-transform z-[10001] flex flex-col overflow-hidden ${
           shown ? 'translate-x-0' : 'translate-x-full'
         }`}
