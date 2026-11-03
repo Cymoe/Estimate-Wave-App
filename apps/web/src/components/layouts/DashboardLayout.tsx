@@ -15,8 +15,7 @@ import { PageHeaderBar } from '../common/PageHeaderBar';
 // Supabase removed - using MongoDB
 // import { supabase } from '../../lib/supabase';
 import { ActivityPanel } from '../activity/ActivityPanel';
-import { ProjectPreviewPanel } from '../projects/ProjectPreviewPanel';
-import { useProjectShortcuts, type ProjectShortcut } from '../projects/useProjectShortcuts';
+import { useProjectShortcuts } from '../projects/useProjectShortcuts';
 import { FEATURES } from '../../config/features';
 import { projectStatusInfo } from '../projects/projectStatus';
 
@@ -120,9 +119,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
   const liveRevenueButtonRef = useRef<HTMLDivElement>(null);
   const liveRevenuePopoverRef = useRef<HTMLDivElement>(null);
   const projectsSidebarRef = useRef<HTMLDivElement>(null);
-  const [hoveredProject, setHoveredProject] = useState<ProjectShortcut | null>(null);
-  const [previewPosition, setPreviewPosition] = useState({ top: 0 });
-  const previewHideTimer = useRef<number | undefined>(undefined);
   const [projectsSearch, setProjectsSearch] = useState('');
   const [isProjectsSearchExpanded, setIsProjectsSearchExpanded] = useState(false);
   const [projectsSortOrder, setProjectsSortOrder] = useState<'latest' | 'earliest'>('latest');
@@ -330,16 +326,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
     return project.name.toLowerCase().includes(search) || project.client.toLowerCase().includes(search);
   });
   const sortedProjects = projectsSortOrder === 'latest' ? filteredProjects : [...filteredProjects].reverse();
-
-  /** The hover card shows at once and lingers briefly so the pointer can move onto it. */
-  const showPreview = (project: ProjectShortcut | null) => {
-    window.clearTimeout(previewHideTimer.current);
-    if (project) setHoveredProject(project);
-  };
-  const hidePreview = () => {
-    window.clearTimeout(previewHideTimer.current);
-    previewHideTimer.current = window.setTimeout(() => setHoveredProject(null), 150);
-  };
 
   const cycleTimePeriod = () => {
     const periods: Array<'D' | 'W' | 'M' | 'Q' | 'Y'> = ['D', 'W', 'M', 'Q', 'Y'];
@@ -669,12 +655,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                                       setIsProjectsSidebarOpen(false);
                                     }
                                   }}
-                                  onMouseEnter={(e) => {
-                                    const rect = e.currentTarget.getBoundingClientRect();
-                                    setPreviewPosition({ top: rect.top });
-                                    showPreview(project);
-                                  }}
-                                  onMouseLeave={() => hidePreview()}
                                   className={`w-full text-left p-3 project-flash-hover border-b border-gray-700/30 group ${index === sortedProjects.length - 1 ? 'border-b-0' : ''}`}
                                 >
                                   <div className="flex items-center justify-between">
@@ -719,17 +699,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                       </div>
                       )}
                     </div>
-
-                    {/* Project Preview Panel */}
-                    {(isProjectsSidebarOpen || isProjectsSidebarLocked) && (
-                      <ProjectPreviewPanel 
-                        project={hoveredProject}
-                        isVisible={!!hoveredProject}
-                        position={previewPosition}
-                        onHover={(hovering) => (hovering ? showPreview(hoveredProject) : hidePreview())}
-                        sidebarWidth={isSidebarCollapsed ? 48 : 192}
-                      />
-                    )}
 
                     {/* Main Sidebar */}
                     <Sidebar

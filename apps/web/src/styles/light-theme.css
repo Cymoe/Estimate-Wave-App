@@ -18,7 +18,6 @@ html.light .bg-\[\#0F1A26\] { background-color: #FFFFFF; }
 html.light .bg-\[\#0a0a0a\] { background-color: #F4F5F7; }
 html.light .bg-\[\#0a0a0a\]\/85 { background-color: rgba(244, 245, 247, 0.85); }
 html.light .bg-\[\#0c0c0c\] { background-color: #FFFFFF; }
-html.light .bg-\[\#111827\] { background-color: #FFFFFF; }
 html.light .bg-\[\#111\] { background-color: #FFFFFF; }
 html.light .bg-\[\#121212\] { background-color: #FFFFFF; }
 html.light .bg-\[\#151515\] { background-color: #FFFFFF; }
@@ -32,7 +31,6 @@ html.light .bg-\[\#1D1F25\] { background-color: #F7F8FA; }
 html.light .bg-\[\#1E1E1E\] { background-color: #F7F8FA; }
 html.light .bg-\[\#1E1E1E\]\/50 { background-color: rgba(247, 248, 250, 0.5); }
 html.light .bg-\[\#1F1F1F\] { background-color: #F7F8FA; }
-html.light .bg-\[\#1F2937\] { background-color: #F1F2F4; }
 html.light .bg-\[\#1a1a1a\] { background-color: #FFFFFF; }
 html.light .bg-\[\#1a1a1a\]\/95 { background-color: rgba(255, 255, 255, 0.95); }
 html.light .bg-\[\#22272d\] { background-color: #F1F2F4; }
@@ -67,7 +65,6 @@ html.light .border-\[\#333333\]\/20 { border-color: rgba(226, 229, 233, 0.2); }
 html.light .border-\[\#333333\]\/40 { border-color: rgba(226, 229, 233, 0.4); }
 html.light .border-\[\#333333\]\/50 { border-color: rgba(226, 229, 233, 0.5); }
 html.light .border-\[\#333\] { border-color: #E2E5E9; }
-html.light .border-\[\#374151\] { border-color: #D5D9DE; }
 html.light .border-\[\#3a3a3a\] { border-color: #E2E5E9; }
 html.light .border-\[\#404040\] { border-color: #D5D9DE; }
 html.light .border-\[\#444444\] { border-color: #D5D9DE; }
@@ -125,7 +122,6 @@ html.light .hover\:bg-\[\#333\]:hover { background-color: #E8EAED; }
 html.light .hover\:bg-\[\#3A3A3A\]:hover { background-color: #E8EAED; }
 html.light .hover\:bg-\[\#404040\]:hover { background-color: #DDE0E4; }
 html.light .hover\:bg-\[\#444\]:hover { background-color: #DDE0E4; }
-html.light .hover\:bg-\[\#4B5563\]:hover { background-color: #C9CDD3; }
 html.light .hover\:bg-\[\#555555\]:hover { background-color: #C9CDD3; }
 html.light .hover\:bg-gray-800:hover { background-color: #F3F4F6; }
 html.light .hover\:bg-white\/10:hover { background-color: rgba(0, 0, 0, 0.050); }
