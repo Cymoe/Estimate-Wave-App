@@ -113,21 +113,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Organization header and sidebar toggle */}
         <div className={`p-2 border-b border-[#333333] relative flex ${isSidebarCollapsed ? 'flex-col gap-1' : ''} items-center justify-between flex-shrink-0 overflow-visible`}>
           <button
-            onClick={() => setSidebarCollapsedWithLogging(!isSidebarCollapsed)}
+            onClick={() => {
+              // Closing the rail closes the company list with it.
+              if (!isSidebarCollapsed) setOrgDropdownOpen(false);
+              setSidebarCollapsedWithLogging(!isSidebarCollapsed);
+            }}
             className={`${isSidebarCollapsed ? 'w-full' : 'w-8'} h-8 flex items-center justify-center rounded-[4px] bg-[#1E1E1E] text-[#9E9E9E] hover:text-white transition-colors`}
             aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             title={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
             {isSidebarCollapsed ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
           </button>
-          {/* Collapsed: the company's initials, which open the list beside the rail without expanding it. */}
+          {/* Collapsed: the company's initials. The list doesn't fit beside the closed rail, so a tap opens the
+              rail and shows the list there. */}
           {isSidebarCollapsed && (
             <button
               type="button"
-              onClick={() => setOrgDropdownOpen(!orgDropdownOpen)}
+              onClick={() => {
+                setSidebarCollapsedWithLogging(false);
+                setOrgDropdownOpen(true);
+              }}
               className="w-full h-8 flex items-center justify-center rounded-[4px] bg-[#1A1A1A] border border-[#2A2A2A] text-[11px] font-semibold text-white hover:bg-[#2A2A2A] transition-colors"
               aria-label={`Switch company (now ${selectedOrg.name})`}
-              aria-expanded={orgDropdownOpen}
               title={selectedOrg.name}
             >
               {orgInitials(selectedOrg.name)}
@@ -151,9 +158,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
           
           {/* Organization Dropdown */}
-          {orgDropdownOpen && (
+          {orgDropdownOpen && !isSidebarCollapsed && (
             <div
-              className={`absolute ${isSidebarCollapsed ? 'right-full top-2 mr-1 w-56' : 'left-2 right-2 top-[calc(100%-8px)] mt-1'} bg-[#1A1A1A] border border-[#2A2A2A] shadow-lg z-50 py-1 overflow-hidden`}
+              className={`absolute left-2 right-2 top-[calc(100%-8px)] mt-1 bg-[#1A1A1A] border border-[#2A2A2A] shadow-lg z-50 py-1 overflow-hidden`}
               role="menu"
               aria-label="Companies"
             >

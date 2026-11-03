@@ -67,29 +67,40 @@ describe('the right nav', () => {
     expect(nav.querySelector('a[href="/projects"] svg')!.getAttribute('data-shape')).toBe('projects');
   });
 
-  it('switches company from the closed rail without opening it back up', async () => {
+  it('never opens the company list beside the closed rail: the initials open the rail, with the list in it', async () => {
     const setOrgDropdownOpen = jest.fn();
-    const setSelectedOrg = jest.fn();
     const setSidebarCollapsedWithLogging = jest.fn();
     const orgs = [
       { id: 'o1', name: 'Mio Homes', industry: 'General Construction' },
       { id: 'o2', name: 'Basin Roofing Co', industry: 'Roofing' },
     ];
-    let nav = await render(true, { organizations: orgs, setOrgDropdownOpen, setSelectedOrg, setSidebarCollapsedWithLogging });
+    let nav = await render(true, { organizations: orgs, setOrgDropdownOpen, setSidebarCollapsedWithLogging });
     const switcher = nav.querySelector('button[aria-label="Switch company (now Mio Homes)"]') as HTMLButtonElement;
     expect(switcher.textContent).toBe('MH');
     await act(async () => switcher.click());
+    expect(setSidebarCollapsedWithLogging).toHaveBeenCalledWith(false);
     expect(setOrgDropdownOpen).toHaveBeenCalledWith(true);
     document.body.innerHTML = '';
 
-    nav = await render(true, { organizations: orgs, orgDropdownOpen: true, setOrgDropdownOpen, setSelectedOrg, setSidebarCollapsedWithLogging });
+    // Even if the list is marked open, the closed rail doesn't show it.
+    nav = await render(true, { organizations: orgs, orgDropdownOpen: true });
+    expect(nav.querySelector('[role="menu"][aria-label="Companies"]')).toBeNull();
+    document.body.innerHTML = '';
+
+    // Open rail: the list shows under the header, inside the rail.
+    nav = await render(false, { organizations: orgs, orgDropdownOpen: true });
     const menu = nav.querySelector('[role="menu"][aria-label="Companies"]')!;
-    expect(menu.className).toContain('right-full');
-    const basin = Array.from(menu.querySelectorAll('button')).find((b) => b.textContent?.includes('Basin Roofing Co')) as HTMLButtonElement;
-    await act(async () => basin.click());
-    expect(setSelectedOrg).toHaveBeenCalledWith(orgs[1]);
-    expect(setOrgDropdownOpen).toHaveBeenLastCalledWith(false);
-    expect(setSidebarCollapsedWithLogging).not.toHaveBeenCalled();
+    expect(menu.className).not.toContain('right-full');
+    expect(menu.textContent).toContain('Basin Roofing Co');
+  });
+
+  it('closing the rail closes the company list', async () => {
+    const setOrgDropdownOpen = jest.fn();
+    const setSidebarCollapsedWithLogging = jest.fn();
+    const nav = await render(false, { orgDropdownOpen: true, setOrgDropdownOpen, setSidebarCollapsedWithLogging });
+    await act(async () => (nav.querySelector('button[aria-label="Collapse sidebar"]') as HTMLButtonElement).click());
+    expect(setOrgDropdownOpen).toHaveBeenCalledWith(false);
+    expect(setSidebarCollapsedWithLogging).toHaveBeenCalledWith(true);
   });
 
   it('shortens a company name to its initials', () => {
