@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutationDef, queryDef } from "./lib/actor";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import {
   fail,
   getOwned,
@@ -32,6 +32,7 @@ import {
   withTotals,
 } from "./lib/documents";
 import { estimateFields, estimateStatus } from "./schema";
+import { isPlaceholderTitle } from "./lib/jobName";
 
 // Fields the UI may set directly; signature fields only change via `sign`,
 // and the contract is locked by the server when the estimate is accepted.
@@ -556,5 +557,23 @@ export const shareLink = mutation({
     const shareToken = crypto.randomUUID().replace(/-/g, "");
     await ctx.db.patch(id, { shareToken, updatedAt: nowIso() });
     return shareToken;
+  },
+});
+
+/**
+ * Estimates nobody named used to be saved as "Estimate 123456" (a counter that
+ * never matched the estimate number). Clear those titles so screens show the
+ * number and the client instead. Safe to re-run: cleared ones no longer match.
+ */
+export const clearPlaceholderTitles = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    let cleared = 0;
+    for (const estimate of await ctx.db.query("estimates").collect()) {
+      if (estimate.title === undefined || !isPlaceholderTitle(estimate.title)) continue;
+      await ctx.db.patch(estimate._id, { title: undefined });
+      cleared++;
+    }
+    return { cleared };
   },
 });

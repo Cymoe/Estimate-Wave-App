@@ -548,7 +548,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
       client_id: selectedClient || '', // Allow empty - can be filled later
       items: selectedItems,
       total_amount: calculateTotal(),
-      title: estimateTitle || `Estimate ${Date.now().toString().slice(-6)}`, // Auto-generate if empty
+      title: estimateTitle.trim(), // Unnamed estimates go by their number and client
       description: estimateDescription,
       valid_until: validUntil || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Default 30 days
       status: 'draft',

@@ -260,7 +260,7 @@ export const ProjectList: React.FC = () => {
           </div>
 
           {/* Table */}
-          <div className="min-h-[400px] pb-32">
+          <div className="min-h-[400px]">
             {loading ? (
               <TableSkeleton rows={6} />
             ) : shown.length === 0 ? (

@@ -101,6 +101,9 @@ jobs:
         # title; name them after the client instead. Safe to re-run: renamed
         # ones no longer match.
         run: npx convex run projects:renamePlaceholderProjects
+      - name: Clear "Estimate 0…" titles on estimates nobody named
+        # Screens show the estimate number and client instead. Safe to re-run.
+        run: npx convex run estimates:clearPlaceholderTitles
       - name: Pull Midland's permits
         # The Webb Report's permits. Incremental after the first run.
         run: npx convex run permits:syncMidland

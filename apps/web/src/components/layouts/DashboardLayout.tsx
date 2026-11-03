@@ -530,7 +530,8 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                   >
                     {/* Main Content Area */}
                     <div className="min-h-full overflow-y-auto">
-                      <div className={`min-h-full ${fullWidth ? '' : 'max-w-5xl mx-auto px-4'}`}>
+                      {/* Bottom room so the last row can scroll clear of the blue + button. */}
+                      <div className={`min-h-full pb-28 ${fullWidth ? '' : 'max-w-5xl mx-auto px-4'}`} data-testid="desktop-main">
                         {isDesktop && children}
                       </div>
                     </div>
@@ -656,7 +657,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                                       setIsProjectsSidebarOpen(false);
                                     }
                                   }}
-                                  className={`w-full text-left p-3 project-flash-hover border-b border-gray-700/30 group ${index === sortedProjects.length - 1 ? 'border-b-0' : ''}`}
+                                  className={`w-full text-left px-3 py-3 min-h-[52px] project-flash-hover border-b border-gray-700/30 group ${index === sortedProjects.length - 1 ? 'border-b-0' : ''}`}
                                 >
                                   <div className="flex items-center justify-between">
                                     <div className="flex-1 min-w-0">
@@ -667,9 +668,9 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                                           project.status === 'cancelled' ? 'bg-gray-500' :
                                           'bg-yellow-500'
                                         }`}></div>
-                                        <span className="text-white text-xs font-medium truncate leading-tight">{project.name}</span>
+                                        <span className="text-white text-sm font-medium truncate leading-tight">{project.name}</span>
                                       </div>
-                                      <div className="text-gray-400 text-[10px] truncate ml-3.5 leading-tight uppercase tracking-wide">{project.client || projectStatusInfo(project.status).label}</div>
+                                      <div className="text-gray-300 text-xs truncate ml-3.5 mt-0.5 leading-tight" data-testid="project-subline">{project.client || projectStatusInfo(project.status).label}</div>
                                     </div>
                                     {project.completion !== undefined ? (
                                     <ProgressRing percent={project.completion} />
@@ -682,7 +683,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                             {sortedProjects.length === 0 && (
                               <div className="text-center py-6">
                                 <div className="text-gray-400 text-xs">No projects found</div>
-                                <div className="text-gray-500 text-[10px] mt-1">{projectsSearch ? 'Try adjusting your search' : 'Tap the blue + and choose Project'}</div>
+                                <div className="text-gray-500 text-xs mt-1">{projectsSearch ? 'Try adjusting your search' : 'Tap the blue + and choose Project'}</div>
                               </div>
                             )}
                           </div>

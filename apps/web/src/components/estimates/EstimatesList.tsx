@@ -16,9 +16,18 @@ import { EstimateActionsMenu, EstimateAction } from './EstimateActionsMenu';
 import { confirmApproval, copyText, duplicateEstimate, sendEstimateLink } from './estimateActions';
 import { createPortal } from 'react-dom';
 import { Toast, useToast } from '../common/Notice';
+import { isPlaceholderTitle } from '../../../convex/lib/jobName';
 
 /** Estimate, client, status, date, amount: shared by the header and every row. */
 const ROW_GRID = 'grid grid-cols-[minmax(8.5rem,1fr)_minmax(0,2fr)_6.5rem_7rem_minmax(7rem,1fr)] gap-4 items-center';
+
+/** "Waiting" covers both sent and opened: the client has it and hasn't answered. */
+type StatusFilter = 'all' | 'waiting' | Estimate['status'];
+type DateRange = 'all' | '7d' | '30d' | '90d';
+const RANGE_DAYS: Record<DateRange, number> = { all: 0, '7d': 7, '30d': 30, '90d': 90 };
+
+const matchesStatusFilter = (status: Estimate['status'], filter: StatusFilter) =>
+  filter === 'all' || (filter === 'waiting' ? status === 'sent' || status === 'opened' : status === filter);
 
 interface EstimatesListProps {
   onCreateEstimate?: () => void;
@@ -43,7 +52,8 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
   const { isConstrained } = useContext(LayoutContext);
   const [estimates, setEstimates] = useState<Estimate[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<'all' | Estimate['status']>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [dateRange, setDateRange] = useState<DateRange>('all');
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   
@@ -245,9 +255,12 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
       matchesSearch = searchResults.length > 0;
     }
     
-    const matchesStatus = statusFilter === 'all' || estimate.status === statusFilter;
-    
-    return matchesSearch && matchesStatus;
+    const matchesStatus = matchesStatusFilter(estimate.status, statusFilter);
+    const days = RANGE_DAYS[dateRange];
+    const matchesDate =
+      !days || (!!estimate.created_at && Date.now() - new Date(estimate.created_at).getTime() <= days * 86_400_000);
+
+    return matchesSearch && matchesStatus && matchesDate;
   }).sort((a, b) => {
     // Sort by selected field and direction
     let aValue: any, bValue: any;
@@ -340,6 +353,23 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
     acc[estimate.status] = (acc[estimate.status] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
+  const sumOf = (filter: StatusFilter) =>
+    estimates.filter((e) => matchesStatusFilter(e.status, filter)).reduce((sum, e) => sum + (e.total_amount || 0), 0);
+  const waitingCount = (statusCounts.sent || 0) + (statusCounts.opened || 0);
+  // Win rate counts only estimates the client has seen: drafts haven't had a chance yet.
+  const sentEver = estimates.length - (statusCounts.draft || 0);
+  const winRate = sentEver ? Math.round(((statusCounts.accepted || 0) / sentEver) * 100) : null;
+  const filtersOn = statusFilter !== 'all' || dateRange !== 'all';
+  const statusOptions: [StatusFilter, string, number][] = [
+    ['all', 'All', estimates.length],
+    ['draft', 'Drafts', statusCounts.draft || 0],
+    ['waiting', 'Waiting on client', waitingCount],
+    ['accepted', 'Accepted', statusCounts.accepted || 0],
+    ['rejected', 'Declined', statusCounts.rejected || 0],
+    ['expired', 'Expired', statusCounts.expired || 0],
+  ];
+  /** Tapping a stat filters to it; tapping the same one again shows everything. */
+  const toggleStatus = (filter: StatusFilter) => setStatusFilter((now) => (now === filter ? 'all' : filter));
 
   const handleSort = (field: 'amount' | 'date' | 'estimate_number' | 'client') => {
     if (sortField === field) {
@@ -354,6 +384,7 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
 
   const resetFilters = () => {
     setStatusFilter('all');
+    setDateRange('all');
     setSortField('date');
     setSortDirection('desc');
   };
@@ -462,65 +493,72 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
                   className="w-full bg-[#1E1E1E] border border-[#333333] rounded-[4px] pl-9 pr-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
                 />
               </label>
-              <div className="relative">
-                <select
-                  className="bg-[#1E1E1E] border border-[#333333] rounded-[4px] px-3 py-2 text-sm text-white focus:outline-none focus:border-[#336699] appearance-none pr-10 min-w-[200px]"
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as any)}
-                >
-                  <option value="all">All Estimates ({estimates.length})</option>
-                  <option value="draft">Drafts ({statusCounts.draft || 0})</option>
-                  <option value="sent">Sent ({statusCounts.sent || 0})</option>
-                  <option value="opened">Opened ({statusCounts.opened || 0})</option>
-                  <option value="accepted">Accepted ({statusCounts.accepted || 0})</option>
-                  <option value="rejected">Rejected ({statusCounts.rejected || 0})</option>
-                  <option value="expired">Expired ({statusCounts.expired || 0})</option>
-                </select>
-                <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" />
-              </div>
-              
               <div className="relative" ref={filterMenuRef}>
-                <button 
+                <button
                   onClick={() => setShowFilterMenu(!showFilterMenu)}
                   aria-label="Filters"
                   title="Filters"
-                  className={`p-2.5 bg-[#1E1E1E] hover:bg-[#252525] text-white border border-[#333333] rounded-[4px] transition-colors flex items-center ${showFilterMenu ? 'bg-[#252525]' : ''}`}
+                  aria-expanded={showFilterMenu}
+                  className={`relative h-10 px-3 bg-[#1E1E1E] hover:bg-[#252525] text-white border rounded-[4px] transition-colors flex items-center gap-2 text-sm ${filtersOn ? 'border-[#336699]' : 'border-[#333333]'} ${showFilterMenu ? 'bg-[#252525]' : ''}`}
                 >
                   <Filter className="w-4 h-4" />
+                  {filtersOn && (
+                    <span className="w-2 h-2 rounded-full bg-[#3B82F6]" data-testid="filters-on" aria-label="Filters on" />
+                  )}
                 </button>
-                
-                {/* Filter Menu Dropdown */}
+
                 {showFilterMenu && (
-                  <div className={`absolute top-full left-0 mt-1 ${isConstrained ? 'right-0 left-auto w-[280px]' : 'w-80'} bg-[#1E1E1E] border border-[#333333] rounded-[4px] shadow-lg z-50 p-3 md:p-4`}>
-                    <div className="space-y-3 md:space-y-4">
+                  <div className={`absolute top-full mt-1 ${isConstrained ? 'right-0 w-[280px]' : 'left-0 w-80'} bg-[#1E1E1E] border border-[#333333] rounded-[4px] shadow-lg z-50 p-3 md:p-4`}>
+                    <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">Date Range</label>
-                        <select className="w-full px-3 py-2 bg-[#333333] border border-[#404040] rounded-[4px] text-white focus:outline-none focus:border-[#336699]">
-                          <option value="all">All Time</option>
-                          <option value="7d">Last 7 Days</option>
-                          <option value="30d">Last 30 Days</option>
-                          <option value="90d">Last 90 Days</option>
+                        <div className="text-sm font-medium text-gray-300 mb-2">Status</div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {statusOptions.map(([value, label, count]) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => setStatusFilter(value)}
+                              aria-pressed={statusFilter === value}
+                              className={`min-h-[40px] px-3 py-2 text-left text-sm rounded-[4px] border transition-colors ${statusFilter === value ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333333] text-gray-300 hover:bg-[#252525]'}`}
+                            >
+                              {label} <span className="text-gray-500 tabular-nums">{count}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <label htmlFor="estimate-date-range" className="block text-sm font-medium text-gray-300 mb-2">Created</label>
+                        <select
+                          id="estimate-date-range"
+                          value={dateRange}
+                          onChange={(e) => setDateRange(e.target.value as DateRange)}
+                          className="w-full min-h-[40px] px-3 py-2 bg-[#333333] border border-[#404040] rounded-[4px] text-white focus:outline-none focus:border-[#336699]"
+                        >
+                          <option value="all">Any time</option>
+                          <option value="7d">Last 7 days</option>
+                          <option value="30d">Last 30 days</option>
+                          <option value="90d">Last 90 days</option>
                         </select>
                       </div>
-
-                      {/* Clear Filters */}
-                      <div className="pt-2 md:pt-3 border-t border-[#333333]">
-                        <button
-                          onClick={() => {
-                            resetFilters();
-                            setShowFilterMenu(false);
-                          }}
-                          className="w-full bg-[#333333] hover:bg-[#404040] text-white py-1.5 md:py-2 px-2 md:px-3 rounded-[4px] text-xs md:text-sm font-medium transition-colors"
-                        >
-                          Clear All Filters
-                        </button>
-                      </div>
+                      {filtersOn && (
+                        <div className="pt-3 border-t border-[#333333]">
+                          <button
+                            onClick={() => {
+                              resetFilters();
+                              setShowFilterMenu(false);
+                            }}
+                            className="w-full min-h-[40px] bg-[#333333] hover:bg-[#404040] text-white px-3 rounded-[4px] text-sm font-medium transition-colors"
+                          >
+                            Clear filters
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
               </div>
             </div>
-            
+
             <div className="flex items-center gap-3">
               {/* Options menu */}
               <div className="relative" ref={optionsMenuRef}>
@@ -560,55 +598,38 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
           </div>
         </div>
 
-        {/* Stats Section */}
-        <div className={`${isConstrained ? 'px-4 py-1.5' : 'px-4 py-2'} border-b border-[#333333]/50`}>
-          {isConstrained ? (
-            <div className="grid grid-cols-4 gap-4">
-              <div className="text-center">
-                <div className="text-xs text-gray-400 uppercase tracking-wider">TOTAL</div>
-                <div className="text-base font-semibold mt-1">{estimates.length}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-xs text-gray-400 uppercase tracking-wider">VALUE</div>
-                <div className="text-base font-semibold text-yellow-400 mt-1">{formatCurrency(estimates.reduce((sum, est) => sum + est.total_amount, 0))}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-xs text-gray-400 uppercase tracking-wider">ACCEPTED</div>
-                <div className="text-base font-semibold text-green-400 mt-1">{statusCounts.accepted || 0}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-xs text-gray-400 uppercase tracking-wider">PENDING</div>
-                <div className="text-base font-semibold text-blue-400 mt-1">{statusCounts.sent || 0}</div>
-              </div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-4 gap-4">
-              <div>
-                <div className="text-xs text-gray-400 uppercase tracking-wider">TOTAL ESTIMATES</div>
-                <div className="text-lg font-semibold mt-1">{estimates.length}</div>
-                <div className="text-xs text-gray-500">all estimates • lifetime business</div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-400 uppercase tracking-wider">TOTAL VALUE</div>
-                <div className="text-lg font-semibold text-yellow-400 mt-1">{formatCurrency(estimates.reduce((sum, est) => sum + est.total_amount, 0))}</div>
-                <div className="text-xs text-gray-500">potential revenue • win rate pending</div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-400 uppercase tracking-wider">ACCEPTED</div>
-                <div className="text-lg font-semibold text-green-400 mt-1">{statusCounts.accepted || 0}</div>
-                <div className="text-xs text-gray-500">{Math.round(((statusCounts.accepted || 0) / Math.max(estimates.length, 1)) * 100)}% win rate</div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-400 uppercase tracking-wider">PENDING</div>
-                <div className="text-lg font-semibold text-blue-400 mt-1">{statusCounts.sent || 0}</div>
-                <div className="text-xs text-gray-500">{statusCounts.draft || 0} draft • awaiting response</div>
-              </div>
-            </div>
-          )}
+        {/* Stats: each one is a filter. */}
+        <div className={`${isConstrained ? 'px-2 py-1.5' : 'px-2 py-2'} border-b border-[#333333]/50`}>
+          <div className="grid grid-cols-4 gap-1">
+            {([
+              ['draft', 'Drafts', String(statusCounts.draft || 0), 'text-white', formatCurrency(sumOf('draft'))],
+              ['waiting', isConstrained ? 'Waiting' : 'Waiting on client', String(waitingCount), 'text-blue-400', formatCurrency(sumOf('waiting'))],
+              ['accepted', 'Accepted', String(statusCounts.accepted || 0), 'text-green-400', winRate === null ? 'nothing sent yet' : `${winRate}% win rate`],
+              ['accepted', isConstrained ? 'Won' : 'Accepted value', formatCurrency(sumOf('accepted')), 'text-green-400', 'signed work'],
+            ] as const).map(([filter, label, value, tone, sub], i) => {
+              const on = statusFilter === filter;
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => toggleStatus(filter)}
+                  aria-pressed={on}
+                  data-testid={`stat-${i}`}
+                  className={`min-h-[44px] rounded-[4px] px-2 py-1.5 text-left transition-colors ${isConstrained ? 'text-center' : ''} ${on ? 'bg-[#336699]/20 ring-1 ring-inset ring-[#336699]' : 'hover:bg-[#1A1A1A]'}`}
+                >
+                  <div className="text-xs text-gray-400 uppercase tracking-wider truncate">{label}</div>
+                  <div className={`${isConstrained ? 'text-base' : 'text-lg'} font-semibold tabular-nums mt-0.5 truncate ${tone}`}>{value}</div>
+                  {!isConstrained && (
+                    <div className="text-xs text-gray-500 truncate">{sub}</div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Content */}
-        <div className="overflow-visible min-h-[400px] pb-32">
+        <div className="overflow-visible min-h-[400px]">
           {filteredEstimates.length === 0 ? (
             <div className="p-12 text-center">
               <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -616,14 +637,14 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
               </div>
               <h3 className="text-lg font-medium text-white mb-2">No estimates found</h3>
               <p className="text-gray-400 mb-6">
-                {searchTerm || statusFilter !== 'all' 
+                {searchTerm || filtersOn 
                   ? 'Try adjusting your search or filters.'
                   : onCreateEstimate
                     ? 'Get started by creating your first estimate.'
                     : 'Tap the blue + and choose Estimate to create one.'
                 }
               </p>
-              {(!searchTerm && statusFilter === 'all' && onCreateEstimate) && (
+              {(!searchTerm && !filtersOn && onCreateEstimate) && (
                 <button
                   onClick={onCreateEstimate}
                   className="flex items-center gap-2 px-4 py-2 bg-[#336699] text-white rounded-[8px] font-medium hover:bg-[#2d5a87] transition-colors mx-auto"
@@ -673,15 +694,20 @@ export const EstimatesList: React.FC<EstimatesListProps> = ({ onCreateEstimate, 
                         }
                         navigate(`/estimates/${estimate.id}`);
                       }}
-                      className={`group ${ROW_GRID} select-none [-webkit-touch-callout:none] px-4 py-2.5 text-sm [@media(hover:hover)]:hover:bg-[#1A1A1A] active:bg-[#1A1A1A] ${estimate.id === selectedId || estimate.id === menuFor?.estimate.id ? 'bg-[#1A1A1A]' : ''} transition-colors cursor-pointer border-b border-[#333333]/50 last:border-b-0`}
+                      className={`group ${ROW_GRID} select-none [-webkit-touch-callout:none] px-4 py-3 min-h-[52px] text-sm [@media(hover:hover)]:hover:bg-[#1A1A1A] active:bg-[#1A1A1A] ${estimate.id === selectedId || estimate.id === menuFor?.estimate.id ? 'bg-[#1A1A1A]' : ''} transition-colors cursor-pointer border-b border-[#333333]/50 last:border-b-0`}
                     >
-                      <div className="font-medium text-white truncate">{estimate.estimate_number}</div>
+                      <div className="min-w-0">
+                        <div className="font-medium text-white truncate">{estimate.estimate_number}</div>
+                        {!isPlaceholderTitle(estimate.title) && (
+                          <div className="text-xs text-gray-400 truncate" data-testid="estimate-title">{estimate.title}</div>
+                        )}
+                      </div>
 
                       <div className="min-w-0 truncate">
                         {estimate.client?.name ? (
                           <span className="text-gray-200">{estimate.client.name}</span>
                         ) : (
-                          <span className="text-gray-500">{estimate.title || 'No client'}</span>
+                          <span className="text-gray-500">No client</span>
                         )}
                       </div>
 

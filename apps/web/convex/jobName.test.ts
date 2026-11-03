@@ -37,4 +37,22 @@ describe("what a job from an estimate is called", () => {
     expect(names).toEqual(["Ann Miller job", "Job for EST-2026-002500", "Kitchen Remodel"]);
     expect(await t.mutation(internal.projects.renamePlaceholderProjects, {})).toEqual({ renamed: 0 });
   });
+
+  test("the deploy clears 'Estimate 0…' titles on estimates, and keeps real ones", async () => {
+    const t = setup();
+    const { organizationId, userId } = await signUp(t, "owner@peak.example");
+    const now = new Date().toISOString();
+    const ids = await t.run(async (ctx) => {
+      const estimate = (estimateNumber: string, title?: string) =>
+        ctx.db.insert("estimates", {
+          organizationId, userId, estimateNumber, ...(title === undefined ? {} : { title }), status: "draft",
+          issueDate: "2026-10-31", subtotal: 0, taxRate: 0, taxAmount: 0, totalAmount: 0, items: [], createdAt: now, updatedAt: now,
+        });
+      return Promise.all([estimate("EST-2026-002500", "Estimate 002499"), estimate("EST-2026-002501", "Kitchen Remodel"), estimate("EST-2026-002502")]);
+    });
+    expect(await t.mutation(internal.estimates.clearPlaceholderTitles, {})).toEqual({ cleared: 1 });
+    const titles = await t.run(async (ctx) => Promise.all(ids.map(async (id) => (await ctx.db.get(id))!.title ?? null)));
+    expect(titles).toEqual([null, "Kitchen Remodel", null]);
+    expect(await t.mutation(internal.estimates.clearPlaceholderTitles, {})).toEqual({ cleared: 0 });
+  });
 });

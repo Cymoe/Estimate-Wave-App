@@ -69,7 +69,8 @@ describe('EstimatesList', () => {
     expect(search).toBeTruthy();
     // Toolbar first, then the totals.
     const text = container.textContent ?? '';
-    expect(text.indexOf('All Estimates')).toBeLessThan(text.indexOf('TOTAL ESTIMATES'));
+    expect(container.querySelector('select')).toBeNull(); // one filter control, not a status dropdown too
+    expect(text.indexOf('Drafts')).toBeGreaterThan(-1);
     expect(text).not.toMatch(/Create Estimate|CREATE FIRST ESTIMATE/);
 
     jest.useFakeTimers();
@@ -78,6 +79,67 @@ describe('EstimatesList', () => {
       search.dispatchEvent(new Event('input', { bubbles: true }));
     });
     act(() => jest.advanceTimersByTime(300));
+    expect(container.textContent).toContain('EST-2026-002');
+    expect(container.textContent).not.toContain('EST-2026-001');
+  });
+
+  it('shows the title under the number and the client (or "No client"), never a placeholder title', async () => {
+    rows = [
+      { ...estimate(1, 'Kitchen trim'), client: { name: 'Ann Lee' } },
+      estimate(2, 'Estimate 002499'),
+    ];
+    const container = await render();
+    const titles = Array.from(container.querySelectorAll('[data-testid="estimate-title"]')).map((el) => el.textContent);
+    expect(titles).toEqual(['Kitchen trim']);
+    expect(container.textContent).not.toContain('Estimate 002499');
+    expect(container.textContent).toContain('Ann Lee');
+    expect(container.textContent).toContain('No client');
+  });
+
+  it('the stats are filters: drafts, waiting on the client, accepted', async () => {
+    rows = [
+      estimate(1, 'Kitchen trim'),
+      { ...estimate(2, 'Garage door'), status: 'sent' },
+      { ...estimate(3, 'Deck'), status: 'opened' },
+      { ...estimate(4, 'Roof'), status: 'accepted' },
+    ];
+    const container = await render();
+    const stat = (i: number) => container.querySelector(`[data-testid="stat-${i}"]`) as HTMLButtonElement;
+    const numbers = () => Array.from(container.querySelectorAll('[class*="cursor-pointer"]')).map((r) => r.textContent?.match(/EST-2026-00\d/)?.[0]);
+    expect(stat(0).textContent).toContain('1'); // one draft
+    expect(stat(1).textContent).toContain('2'); // sent + opened
+    expect(stat(1).textContent).toContain('$5,000');
+    expect(stat(2).textContent).toContain('33% win rate'); // 1 of the 3 sent
+    expect(stat(3).textContent).toContain('$4,000');
+
+    await act(async () => stat(1).click());
+    expect(stat(1).getAttribute('aria-pressed')).toBe('true');
+    expect(numbers().sort()).toEqual(['EST-2026-002', 'EST-2026-003']);
+    expect(container.querySelector('[data-testid="filters-on"]')).toBeTruthy();
+
+    await act(async () => stat(1).click()); // same one again: everything
+    expect(numbers()).toHaveLength(4);
+    expect(container.querySelector('[data-testid="filters-on"]')).toBeNull();
+  });
+
+  it('the filter menu holds status (declined, expired too) and a working date range', async () => {
+    rows = [
+      { ...estimate(1, 'Old'), status: 'rejected', created_at: '2020-01-01T00:00:00Z' },
+      { ...estimate(2, 'New'), created_at: new Date().toISOString() },
+    ];
+    const container = await render();
+    await act(async () => (container.querySelector('button[aria-label="Filters"]') as HTMLButtonElement).click());
+    const option = (label: string) =>
+      Array.from(container.querySelectorAll('button[aria-pressed]')).find((b) => b.textContent?.startsWith(label)) as HTMLButtonElement;
+    await act(async () => option('Declined').click());
+    expect(container.textContent).toContain('EST-2026-001');
+    expect(container.textContent).not.toContain('EST-2026-002');
+    await act(async () => option('All').click());
+    const range = container.querySelector('#estimate-date-range') as HTMLSelectElement;
+    await act(async () => {
+      range.value = '30d';
+      range.dispatchEvent(new Event('change', { bubbles: true }));
+    });
     expect(container.textContent).toContain('EST-2026-002');
     expect(container.textContent).not.toContain('EST-2026-001');
   });
