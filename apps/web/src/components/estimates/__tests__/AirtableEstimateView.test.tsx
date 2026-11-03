@@ -93,3 +93,36 @@ describe('AirtableEstimateView with a pricing drawer', () => {
   });
 });
 
+
+describe('AirtableEstimateView adding items', () => {
+  it('keeps Add item in the always-visible totals bar as well as after the last line', () => {
+    const onAddItem = jest.fn();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const items = Array.from({ length: 18 }, (_, i) => ({ id: `i${i}`, name: `Item ${i}`, quantity: 1, price: 10, unit: 'ea', total: 10 }));
+    act(() => {
+      root.render(
+        <AirtableEstimateView items={items} onUpdateItem={() => {}} onAddItem={onAddItem} isEditable subtotal={180} tax={0} total={180} />,
+      );
+    });
+    const footerAdd = container.querySelector('[data-testid="add-item-footer"]') as HTMLButtonElement;
+    expect(footerAdd.textContent).toBe('Add item');
+    expect(footerAdd.closest('.sticky')).not.toBeNull();
+    act(() => footerAdd.click());
+    const rowAdd = Array.from(container.querySelectorAll('tbody button')).find((b) => b.textContent === 'Add item') as HTMLButtonElement;
+    act(() => rowAdd.click());
+    expect(onAddItem).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain('18 items · Sum');
+
+    // Read-only: no way to add.
+    act(() => {
+      root.render(
+        <AirtableEstimateView items={items} onUpdateItem={() => {}} onAddItem={onAddItem} subtotal={180} tax={0} total={180} />,
+      );
+    });
+    expect(container.querySelector('[data-testid="add-item-footer"]')).toBeNull();
+    act(() => root.unmount());
+    container.remove();
+  });
+});

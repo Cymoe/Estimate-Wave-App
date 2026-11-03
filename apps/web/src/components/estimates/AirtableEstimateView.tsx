@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { Plus } from 'lucide-react';
 import { formatCurrency } from '../../utils/format';
 
 interface AirtableItem {
@@ -238,10 +239,12 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
               <tr className="border-b border-[#333333] hover:bg-[#22272d]">
                 <td colSpan={6} className="border-r border-[#333333]">
                 <button
+                  type="button"
                   onClick={onAddItem}
-                  className="w-full text-left py-1.5 px-3 text-gray-500 text-[13px] hover:text-gray-300 transition-colors flex items-center gap-2"
+                  className="w-full text-left py-2.5 px-3 text-[#6aa3d9] text-[13px] font-medium hover:text-white transition-colors flex items-center gap-2"
                 >
-                  <span className="text-gray-500">Add...</span>
+                  <Plus className="w-4 h-4" />
+                  <span>Add item</span>
                 </button>
               </td>
             </tr>
@@ -254,11 +257,20 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
       {showStickyFooter && (
         <div className="sticky bottom-0 left-0 right-0 bg-[#1D1F25] border-t border-[#333333] z-20 flex-shrink-0">
           <div className="flex items-center text-[12px] font-medium">
-            <div className="w-20 py-2 px-3 text-gray-500 border-r border-[#333333] text-center">
-              {items.length} items
-            </div>
+            {/* Always on screen, however long the list: adding an item never means scrolling to the end. */}
+            {isEditable ? (
+              <button
+                type="button"
+                onClick={onAddItem}
+                data-testid="add-item-footer"
+                className="self-stretch shrink-0 flex items-center gap-1.5 px-3 text-[13px] font-medium text-white bg-[#336699] hover:bg-[#2a5580] transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add item</span>
+              </button>
+            ) : null}
             <div className="flex-1 py-2 px-3 text-right text-gray-500 border-r border-[#333333]">
-              Sum
+              {items.length} {items.length === 1 ? 'item' : 'items'} · Sum
             </div>
             <div className="w-28 py-2 px-3 text-right text-gray-300 border-r border-[#333333]">
               {formatCurrency(subtotal)}
