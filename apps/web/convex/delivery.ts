@@ -9,6 +9,7 @@ import { tellStaff } from "./notify";
 import { badLeadLine } from "./lib/support";
 import { sendEmail, type SendResult } from "./lib/email";
 import { usMobile } from "./lib/phone";
+import { sendSms } from "./lib/sms";
 
 // Other modules import sendEmail from here; it lives in lib/email.ts.
 export { sendEmail };
@@ -271,25 +272,6 @@ ${open.map((o) => `<p style="margin:0 0 6px"><a href="${o.url}" style="color:#33
 }
 
 type Result = SendResult;
-
-async function sendSms(to: string, text: string): Promise<Result> {
-  const sid = process.env.TWILIO_ACCOUNT_SID;
-  const token = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_FROM;
-  if (!sid || !token || !from) return { status: "skipped", error: "Twilio not set up (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM)" };
-  try {
-    const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
-      method: "POST",
-      headers: { authorization: `Basic ${btoa(`${sid}:${token}`)}`, "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ To: to, From: from, Body: text }).toString(),
-    });
-    const data = (await res.json().catch(() => ({}))) as { sid?: string; message?: string };
-    if (!res.ok) return { status: "failed", error: data.message ?? `Twilio ${res.status}` };
-    return { status: "sent", providerId: data.sid };
-  } catch (err) {
-    return { status: "failed", error: err instanceof Error ? err.message : String(err) };
-  }
-}
 
 /** Runs right after a sale (scheduled from sellLead) and again on "Resend alerts". */
 export const sendLeadAlerts = internalAction({

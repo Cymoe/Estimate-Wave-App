@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import { auth } from "./auth";
 import { verifyStripeSignature } from "./lib/stripe";
+import { twilioSignatureOk } from "./lib/sms";
 import { addOAuthRoutes } from "./lib/oauthRoutes";
 import { addMcpRoutes } from "./lib/mcpServer";
 
@@ -108,6 +109,30 @@ http.route({
       return json({ ok: true, ...(await ctx.runMutation(internal.funding.expire, { sessionId })) });
     }
     return json({ ok: true, ignored: true });
+  }),
+});
+
+/**
+ * Texts to the Webb Leads number (Twilio's "A message comes in" webhook):
+ * the office line (agent.ts). Signed by Twilio with TWILIO_AUTH_TOKEN; the
+ * answer goes out as its own text, so this replies with empty TwiML at once.
+ * TWILIO_WEBHOOK_URL overrides the URL that was signed, when Twilio posts
+ * to a different address than the one this function sees.
+ */
+http.route({
+  path: "/twilio/sms",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const token = process.env.TWILIO_AUTH_TOKEN;
+    if (!token) return new Response("Texting isn't set up", { status: 503 });
+    const params: Record<string, string> = {};
+    for (const [k, val] of new URLSearchParams(await request.text())) params[k] = val;
+    const url = process.env.TWILIO_WEBHOOK_URL ?? request.url;
+    if (!(await twilioSignatureOk(token, url, params, request.headers.get("x-twilio-signature")))) {
+      return new Response("Bad signature", { status: 403 });
+    }
+    if (params.From && params.Body !== undefined) await ctx.runMutation(internal.agent.inboundSms, { from: params.From, body: params.Body });
+    return new Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response></Response>", { headers: { "content-type": "text/xml" } });
   }),
 });
 

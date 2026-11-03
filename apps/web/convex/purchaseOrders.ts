@@ -7,6 +7,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { fail, getOwned, logActivity, nowIso } from "./lib/access";
+import { mutationDef } from "./lib/actor";
 import { documentNumber } from "./lib/documents";
 import { logoUrlOf } from "./lib/organizations";
 import {
@@ -321,7 +322,7 @@ export const buildFromEstimate = mutation({
 });
 
 /** Sends the PO: it's Ordered, and its link for the vendor is made (returned to share). */
-export const markOrdered = mutation({
+export const markOrderedDef = mutationDef({
   args: { id: v.id("purchaseOrders") },
   handler: async (ctx, { id }) => {
     const { po, user } = await ownedPo(ctx, id);
@@ -353,6 +354,7 @@ export const markOrdered = mutation({
     return shareToken;
   },
 });
+export const markOrdered = mutation(markOrderedDef);
 
 /** Received: the final amount (the vendor's invoice) goes onto the project's expenses. */
 export const markReceived = mutation({

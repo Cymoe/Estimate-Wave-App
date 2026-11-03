@@ -1235,4 +1235,34 @@ export const assistantsAPI = {
   disconnect: (id: string) => run('mutation', api.oauth.disconnect, { id }),
 };
 
+export type OfficeLineSettings = {
+  on: boolean;
+  briefAt?: string;
+  allowSpend: boolean;
+  notes: string;
+  canEdit: boolean;
+  myMobile?: string;
+  lineNumber?: string;
+  ready: { texting: boolean; assistant: boolean };
+};
+
+export type OfficeLineRow = {
+  id: string;
+  at: string;
+  direction: 'in' | 'out' | 'internal';
+  kind: 'message' | 'action' | 'ask' | 'brief' | 'error';
+  text: string;
+  ask?: { id: string; number: number; status: 'pending' | 'done' | 'declined' | 'expired' | 'failed'; result?: string };
+};
+
+/** The office line: the owner texts Webb Leads and an agent works the company, asking before it sends or spends. */
+export const officeLineAPI = {
+  get: (organizationId: string): Promise<OfficeLineSettings> => run('query', api.agent.settings, { organizationId }),
+  set: (organizationId: string, changes: { on?: boolean; briefAt?: string | null; allowSpend?: boolean; notes?: string }) =>
+    run('mutation', api.agent.configure, defined({ organizationId, ...changes })),
+  log: (organizationId: string): Promise<OfficeLineRow[]> => run('query', api.agent.log, { organizationId }),
+  answer: (organizationId: string, askId: string, yes: boolean) => run('mutation', api.agent.answer, { organizationId, askId, yes }),
+  test: (organizationId: string) => run('mutation', api.agent.test, { organizationId }),
+};
+
 export { APIError };

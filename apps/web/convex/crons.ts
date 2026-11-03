@@ -54,4 +54,7 @@ crons.daily("pull ad insights", { hourUTC: 9, minuteUTC: 35 }, internal.ads.pull
 // The 1st of the month: search the painting niche in Meta's Ad Library (only when the switch in Ops → Ads → Settings is on).
 crons.monthly("niche research", { day: 1, hourUTC: 10, minuteUTC: 0 }, internal.ads.researchRun, {});
 
+// The office line (agent.ts): each company's morning brief at its time, and asks nobody answered expire.
+crons.interval("office line briefs", { minutes: 15 }, internal.agent.morningBriefs, {});
+
 export default crons;

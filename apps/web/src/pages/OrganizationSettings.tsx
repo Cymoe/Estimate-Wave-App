@@ -11,6 +11,7 @@ import { TemplatesSettings } from '../components/settings/TemplatesSettings';
 import { ClientRemindersSettings } from '../components/settings/ClientRemindersSettings';
 import { SalesModeSetting } from '../components/settings/SalesModeSetting';
 import { ClientPerksSetting } from '../components/settings/ClientPerksSetting';
+import { OfficeLineSetting } from '../components/settings/OfficeLineSetting';
 
 export default function OrganizationSettings() {
   const navigate = useNavigate();
@@ -120,6 +121,8 @@ export default function OrganizationSettings() {
                 onChange={(on) => setSelectedOrg({ ...selectedOrg, sales_mode: on })}
               />
             )}
+
+            {activeTab === 'general' && <OfficeLineSetting organizationId={selectedOrg.id} />}
 
             {activeTab === 'general' && <ClientPerksSetting organizationId={selectedOrg.id} />}
 

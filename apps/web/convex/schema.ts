@@ -532,7 +532,8 @@ export default defineSchema({
     mobile: v.optional(v.string()),
   })
     .index("email", ["email"])
-    .index("phone", ["phone"]),
+    .index("phone", ["phone"])
+    .index("by_mobile", ["mobile"]),
 
   organizations: defineTable({
     ...organizationFields,
@@ -563,6 +564,22 @@ export default defineSchema({
     // link to the company's review page, and the reward for a referral that
     // becomes a signed job. Each card shows in the portal only when set.
     perks: v.optional(v.object({ reviewUrl: v.optional(v.string()), referralReward: v.optional(v.string()) })),
+    // The office line (convex/agent.ts): the owner texts Webb Leads and an agent
+    // works the company for them, asking before anything goes out or is spent.
+    officeLine: v.optional(
+      v.object({
+        on: v.boolean(),
+        // Who turned it on: the morning brief goes to their mobile.
+        userId: v.optional(v.id("users")),
+        // "06:30", local (Central) time; absent: no morning brief.
+        briefAt: v.optional(v.string()),
+        lastBriefDay: v.optional(v.string()),
+        // Buying leads and bidding (each still asks).
+        allowSpend: v.boolean(),
+        // What the owner asked it to remember ("my cabinet guy is Midland Cabinet Co").
+        notes: v.optional(v.string()),
+      }),
+    ),
     ...timestamps,
   }).index("by_slug", ["slug"]),
 
@@ -1318,6 +1335,35 @@ export default defineSchema({
   })
     .index("by_project", ["projectId"])
     .index("by_organization_and_start", ["organizationId", "startDate"]),
+
+  // The office line's asks: what the agent would do that goes out or spends,
+  // waiting on the owner's YES. YES runs exactly the stored tool and args.
+  agentAsks: defineTable({
+    organizationId: v.id("organizations"),
+    userId: v.id("users"),
+    number: v.number(),
+    tool: v.string(),
+    args: v.any(),
+    summary: v.string(),
+    status: v.union(v.literal("pending"), v.literal("done"), v.literal("declined"), v.literal("expired"), v.literal("failed")),
+    result: v.optional(v.string()),
+    createdAt: v.string(),
+    expiresAt: v.string(),
+    answeredAt: v.optional(v.string()),
+  }).index("by_org_status", ["organizationId", "status"]),
+
+  // Everything the office line heard, said and did: its memory of the
+  // conversation and the "did / asked" list in Settings.
+  agentLog: defineTable({
+    organizationId: v.id("organizations"),
+    userId: v.optional(v.id("users")),
+    direction: v.union(v.literal("in"), v.literal("out"), v.literal("internal")),
+    kind: v.union(v.literal("message"), v.literal("action"), v.literal("ask"), v.literal("brief"), v.literal("error")),
+    text: v.string(),
+    tool: v.optional(v.string()),
+    askId: v.optional(v.id("agentAsks")),
+    at: v.string(),
+  }).index("by_org_at", ["organizationId", "at"]),
 
   // Purchase orders on a project (convex/purchaseOrders.ts): what's bought
   // from a supplier or a sub, at the company's cost. Pre-built from the

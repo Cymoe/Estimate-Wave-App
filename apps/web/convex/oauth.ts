@@ -293,7 +293,7 @@ export const myConnections = query({
         .query("aiConnections")
         .withIndex("by_user", (q) => q.eq("userId", user._id))
         .collect()
-    ).filter((c) => c.organizationId === organizationId && !c.revokedAt);
+    ).filter((c) => c.organizationId === organizationId && !c.revokedAt && c.clientId !== "office-line");
     return {
       canSpend: canSpend(role),
       connections: rows
