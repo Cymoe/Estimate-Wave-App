@@ -581,7 +581,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               ref={profileButtonRef}
               onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-              className={`w-full ${isSidebarCollapsed ? 'px-2 py-4 justify-center' : 'p-4'} flex items-center hover:bg-[#252525] transition-colors duration-200 cursor-pointer group`}
+              className={`w-full text-left ${isSidebarCollapsed ? 'px-2 py-4 justify-center' : 'p-4'} flex items-center hover:bg-[#252525] transition-colors duration-200 cursor-pointer group`}
               aria-label={isSidebarCollapsed ? 'Account menu' : undefined}
             >
               {/* User Info - only when sidebar expanded */}

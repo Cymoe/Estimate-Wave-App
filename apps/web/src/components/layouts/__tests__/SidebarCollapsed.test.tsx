@@ -103,6 +103,12 @@ describe('the right nav', () => {
     expect(setSidebarCollapsedWithLogging).toHaveBeenCalledWith(true);
   });
 
+  it('lines the name and plan up on the left of the account button, beside the avatar', async () => {
+    const nav = await render(false);
+    const account = Array.from(nav.querySelectorAll('button')).find((b) => b.textContent?.includes('Myles Webb'))!;
+    expect(account.className).toContain('text-left');
+  });
+
   it('shortens a company name to its initials', () => {
     expect(orgInitials('Basin Roofing Co')).toBe('BR');
     expect(orgInitials('Test')).toBe('TE');
