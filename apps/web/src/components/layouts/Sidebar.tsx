@@ -113,32 +113,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className={`hidden md:flex ${isSidebarCollapsed ? 'w-12' : 'w-48'} h-[100dvh] bg-[#000000] border-l border-gray-700 flex-col transition-all duration-300`}>
         {/* Organization header and sidebar toggle */}
         <div className={`p-2 border-b border-[#333333] relative flex ${isSidebarCollapsed ? 'flex-col gap-1' : ''} items-center justify-between flex-shrink-0 overflow-visible`}>
-          <button
-            onClick={() => {
-              // Closing the rail closes the company list with it.
-              if (!isSidebarCollapsed) setOrgDropdownOpen(false);
-              setSidebarCollapsedWithLogging(!isSidebarCollapsed);
-            }}
-            className={`${isSidebarCollapsed ? 'w-full' : 'w-8'} h-8 flex items-center justify-center rounded-[4px] bg-[#1E1E1E] text-[#9E9E9E] hover:text-white transition-colors`}
-            aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            title={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            {isSidebarCollapsed ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-          </button>
-          {/* Collapsed: the company's initials. The list doesn't fit beside the closed rail, so a tap opens the
-              rail and shows the list there. */}
-          {isSidebarCollapsed && (
+          {/* Closed: only the company's initials, and a tap opens the rail (the company list waits for the open
+              rail, where it fits). Open: the arrow that closes it, then the company switcher. */}
+          {isSidebarCollapsed ? (
             <button
               type="button"
-              onClick={() => {
-                setSidebarCollapsedWithLogging(false);
-                setOrgDropdownOpen(true);
-              }}
+              onClick={() => setSidebarCollapsedWithLogging(false)}
               className="w-full h-8 flex items-center justify-center rounded-[4px] bg-[#1A1A1A] border border-[#2A2A2A] text-[11px] font-semibold text-white hover:bg-[#2A2A2A] transition-colors"
-              aria-label={`Switch company (now ${selectedOrg.name})`}
+              aria-label={`Open the menu (${selectedOrg.name})`}
               title={selectedOrg.name}
             >
               {orgInitials(selectedOrg.name)}
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                // Closing the rail closes the company list with it.
+                setOrgDropdownOpen(false);
+                setSidebarCollapsedWithLogging(true);
+              }}
+              className="w-8 h-8 flex items-center justify-center rounded-[4px] bg-[#1E1E1E] text-[#9E9E9E] hover:text-white transition-colors"
+              aria-label="Collapse sidebar"
+              title="Collapse sidebar"
+            >
+              <ChevronRight className="w-4 h-4" />
             </button>
           )}
           {!isSidebarCollapsed && (

@@ -67,7 +67,7 @@ describe('the right nav', () => {
     expect(nav.querySelector('a[href="/projects"] svg')!.getAttribute('data-shape')).toBe('projects');
   });
 
-  it('never opens the company list beside the closed rail: the initials open the rail, with the list in it', async () => {
+  it('closed: just the initials, which open the rail; no arrow, and never the company list', async () => {
     const setOrgDropdownOpen = jest.fn();
     const setSidebarCollapsedWithLogging = jest.fn();
     const orgs = [
@@ -75,11 +75,13 @@ describe('the right nav', () => {
       { id: 'o2', name: 'Basin Roofing Co', industry: 'Roofing' },
     ];
     let nav = await render(true, { organizations: orgs, setOrgDropdownOpen, setSidebarCollapsedWithLogging });
-    const switcher = nav.querySelector('button[aria-label="Switch company (now Mio Homes)"]') as HTMLButtonElement;
-    expect(switcher.textContent).toBe('MH');
-    await act(async () => switcher.click());
+    expect(nav.querySelector('button[aria-label="Expand sidebar"]')).toBeNull();
+    expect(nav.querySelector('button[aria-label="Collapse sidebar"]')).toBeNull();
+    const initials = nav.querySelector('button[aria-label="Open the menu (Mio Homes)"]') as HTMLButtonElement;
+    expect(initials.textContent).toBe('MH');
+    await act(async () => initials.click());
     expect(setSidebarCollapsedWithLogging).toHaveBeenCalledWith(false);
-    expect(setOrgDropdownOpen).toHaveBeenCalledWith(true);
+    expect(setOrgDropdownOpen).not.toHaveBeenCalled();
     document.body.innerHTML = '';
 
     // Even if the list is marked open, the closed rail doesn't show it.
@@ -87,10 +89,10 @@ describe('the right nav', () => {
     expect(nav.querySelector('[role="menu"][aria-label="Companies"]')).toBeNull();
     document.body.innerHTML = '';
 
-    // Open rail: the list shows under the header, inside the rail.
+    // Open rail: the arrow to close it, and the company list under the header.
     nav = await render(false, { organizations: orgs, orgDropdownOpen: true });
+    expect(nav.querySelector('button[aria-label="Collapse sidebar"]')).not.toBeNull();
     const menu = nav.querySelector('[role="menu"][aria-label="Companies"]')!;
-    expect(menu.className).not.toContain('right-full');
     expect(menu.textContent).toContain('Basin Roofing Co');
   });
 
