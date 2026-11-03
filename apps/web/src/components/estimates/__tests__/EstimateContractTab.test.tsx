@@ -56,7 +56,6 @@ jest.mock('../../../services/ContractDocsService', () => ({
   uploadContractDoc: (...args: unknown[]) => uploadContractDoc(...(args as [])),
 }));
 jest.mock('../CreateEstimateDrawer', () => ({ CreateEstimateDrawer: () => null }));
-jest.mock('../../common/MapModal', () => ({ MapModal: () => null }));
 jest.mock('../DesignUpload', () => ({ DesignUpload: () => null }));
 jest.mock('../ContextualPricingSelector', () => ({ ContextualPricingSelector: () => null }));
 jest.mock('../../layouts/DashboardLayout', () => {

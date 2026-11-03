@@ -1,4 +1,4 @@
-import { directionsUrl, fullAddress, mapsAppName, mapsSearchUrl, prefersAppleMaps } from '../mapsLinks';
+import { fullAddress, mapsSearchUrl, prefersAppleMaps } from '../mapsLinks';
 
 const IPAD = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15';
@@ -9,14 +9,10 @@ describe('maps links', () => {
   it('Apple devices (an iPad says it is a Mac) get Apple Maps; the rest get Google Maps', () => {
     expect([IPAD, IPHONE].map((ua) => prefersAppleMaps(ua))).toEqual([true, true]);
     expect([WINDOWS, ANDROID].map((ua) => prefersAppleMaps(ua))).toEqual([false, false]);
-    expect(mapsAppName(IPAD)).toBe('Apple Maps');
-    expect(mapsAppName(ANDROID)).toBe('Google Maps');
   });
 
-  it('directions and search go to the right app, with the address encoded', () => {
+  it('an address opens in the right app, encoded', () => {
     const at = '12 Oak St, Midland, TX 79701';
-    expect(directionsUrl(at, IPAD)).toBe('https://maps.apple.com/?daddr=12%20Oak%20St%2C%20Midland%2C%20TX%2079701');
-    expect(directionsUrl(at, WINDOWS)).toBe('https://www.google.com/maps/dir/?api=1&destination=12%20Oak%20St%2C%20Midland%2C%20TX%2079701');
     expect(mapsSearchUrl(at, IPHONE)).toBe('https://maps.apple.com/?q=12%20Oak%20St%2C%20Midland%2C%20TX%2079701');
     expect(mapsSearchUrl(at, ANDROID)).toBe('https://www.google.com/maps/search/?api=1&query=12%20Oak%20St%2C%20Midland%2C%20TX%2079701');
   });

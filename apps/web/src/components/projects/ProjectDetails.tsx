@@ -1,5 +1,4 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { AddressLink } from '../common/AddressLink';
 import { fullAddress } from '../../lib/mapsLinks';
 import { usePageTitle } from '../../lib/pageTitle';
 import { estimateStatusLabel } from '../estimates/estimateActions';
@@ -12,11 +11,7 @@ import {
   DollarSign,
   Globe,
   LayoutTemplate,
-  Mail,
-  MapPin,
-  MessageSquare,
   MoreVertical,
-  Phone,
   Plus,
   Trash2,
   User,
@@ -604,28 +599,6 @@ export const ProjectPanel: React.FC<{
             </label>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            {client?.phone && (
-              <a href={`tel:${client.phone.replace(/[^\d+]/g, '')}`} className={secondaryAction}>
-                <Phone className="w-4 h-4" />
-                Call
-              </a>
-            )}
-            {client?.phone && (
-              <a href={`sms:${client.phone.replace(/[^\d+]/g, '')}`} className={`${secondaryAction} px-2.5`} aria-label="Text client" title="Text">
-                <MessageSquare className="w-4 h-4" />
-              </a>
-            )}
-            {client?.email && (
-              <a href={`mailto:${client.email}`} className={`${secondaryAction} px-2.5`} aria-label="Email client" title="Email">
-                <Mail className="w-4 h-4" />
-              </a>
-            )}
-            {/* The job on a map, with Directions in the device's maps app. */}
-            {place && (
-              <AddressLink address={place} title={clientLabel || project.name} className={`${secondaryAction} px-2.5`} aria-label={`Map and directions to ${place}`}>
-                <MapPin className="w-4 h-4" />
-              </AddressLink>
-            )}
             {/* The client's portal: exactly what they see, and send what's waiting */}
             <button
               type="button"
@@ -669,7 +642,20 @@ export const ProjectPanel: React.FC<{
           </div>
         </div>
         <div className="text-sm text-gray-400 px-3 pb-2">
-          {clientLabel || 'No client'} • {dates(project)}
+          {/* The client's name opens their page: Call, Text, Email and the address are there. */}
+          {client?.id && clientLabel ? (
+            <button
+              type="button"
+              onClick={() => navigate(`/clients/${client.id}`)}
+              className="text-gray-300 hover:text-white underline-offset-2 hover:underline"
+              data-testid="project-client-link"
+            >
+              {clientLabel}
+            </button>
+          ) : (
+            clientLabel || 'No client'
+          )}{' '}
+          • {dates(project)}
         </div>
         <div className="border-t border-[#333333] flex items-center overflow-x-auto" role="tablist">
           {tabs.map((tab) => (

@@ -755,7 +755,6 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                   {estimate.client.address && (
                     <AddressLink
                       address={fullAddress(estimate.client.address, estimate.client.city, estimate.client.state, estimate.client.zip)}
-                      title={estimate.client.name}
                       className="flex items-start gap-2 text-sm text-gray-400 hover:text-white text-left"
                     >
                       <MapPin className="w-4 h-4 mt-0.5" />

@@ -1,43 +1,30 @@
-import React, { Suspense, lazy, useCallback, useState } from 'react';
-
-// The map (and MapLibre with it) downloads the first time someone opens one.
-const MapModal = lazy(() => import('./MapModal'));
+import React from 'react';
+import { mapsSearchUrl } from '../../lib/mapsLinks';
 
 /**
- * Any address in the app: tapping it opens the map, with Directions in the
- * device's maps app. A tap here never reaches a clickable card around it.
+ * Any address in the app: one tap opens it in Apple Maps (iPhone, iPad, Mac)
+ * or Google Maps (everything else). A tap here never reaches a clickable card around it.
  */
 export const AddressLink: React.FC<{
   /** The whole address (fullAddress from lib/mapsLinks). */
   address: string;
-  /** Whose place it is, shown on the pin. */
-  title?: string;
   className?: string;
   'aria-label'?: string;
   children: React.ReactNode;
-}> = ({ address, title, className, children, ...rest }) => {
-  const [open, setOpen] = useState(false);
-  const close = useCallback(() => setOpen(false), []);
+}> = ({ address, className, children, ...rest }) => {
   if (!address.trim()) return <>{children}</>;
+  const label = rest['aria-label'] ?? `Open ${address} in Maps`;
   return (
-    <>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen(true);
-        }}
-        className={className}
-        aria-label={rest['aria-label'] ?? `Map of ${address}`}
-        title={rest['aria-label'] ?? `Map of ${address}`}
-      >
-        {children}
-      </button>
-      {open && (
-        <Suspense fallback={null}>
-          <MapModal isOpen onClose={close} address={address} clientName={title} />
-        </Suspense>
-      )}
-    </>
+    <a
+      href={mapsSearchUrl(address)}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      className={className}
+      aria-label={label}
+      title={label}
+    >
+      {children}
+    </a>
   );
 };

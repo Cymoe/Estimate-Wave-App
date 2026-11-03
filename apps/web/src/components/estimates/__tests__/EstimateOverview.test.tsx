@@ -62,7 +62,6 @@ jest.mock('../../../lib/api', () => ({
   clientsAPI: { list: async () => [{ id: 'c2', name: 'Priya Shah' }, { id: 'c1', name: 'Dan Shah' }] },
 }));
 jest.mock('../CreateEstimateDrawer', () => ({ CreateEstimateDrawer: () => null }));
-jest.mock('../../common/MapModal', () => ({ MapModal: () => null }));
 jest.mock('../ContextualPricingSelector', () => ({ ContextualPricingSelector: () => null }));
 jest.mock('../../layouts/DashboardLayout', () => {
   const { createContext } = jest.requireActual('react');

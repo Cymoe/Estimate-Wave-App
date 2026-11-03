@@ -190,7 +190,7 @@ const ClientNote: React.FC<{ client: Client | null }> = ({ client }) => {
         <NoteRow icon={MapPin} label="Address">
           {field('address', 'Add address')}
           {place && (
-            <AddressLink address={place} title={draft.name} className={rowAction} aria-label={`Map and directions to ${place}`}>
+            <AddressLink address={place} className={rowAction} aria-label={`Open ${place} in Maps`}>
               <Navigation className="w-4 h-4" />
             </AddressLink>
           )}

@@ -371,9 +371,8 @@ export const LeadDrawer: React.FC<{
               {place && (
                 <AddressLink
                   address={place}
-                  title={draft.name}
                   className="w-10 h-10 -my-2 flex flex-shrink-0 items-center justify-center text-gray-500 hover:text-white"
-                  aria-label={`Map and directions to ${place}`}
+                  aria-label={`Open ${place} in Maps`}
                 >
                   <Navigation className="w-4 h-4" />
                 </AddressLink>

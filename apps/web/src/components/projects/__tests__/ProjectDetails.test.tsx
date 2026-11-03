@@ -186,11 +186,12 @@ describe('Project drawer', () => {
     );
     expect(dialog.textContent).not.toContain('Project Health');
     expect(dialog.textContent).not.toContain('Most Used');
-    // The client's phone is one tap away.
-    expect(dialog.querySelector('a[href="tel:4325550100"]')?.textContent).toBe('Call');
-    // Text them, or open the job on the map (with Directions from there).
-    expect(dialog.querySelector('a[href="sms:4325550100"]')?.getAttribute('aria-label')).toBe('Text client');
-    expect(dialog.querySelector('button[aria-label="Map and directions to 12 Oak St, Midland"]')).toBeTruthy();
+    // No contact buttons crowd the header: the client's name opens their page, which has them.
+    expect(dialog.querySelector('a[href^="tel:"], a[href^="sms:"], a[href^="mailto:"], a[href*="maps"]')).toBeNull();
+    const clientLink = dialog.querySelector('[data-testid="project-client-link"]') as HTMLButtonElement;
+    expect(clientLink.textContent).toBe('Ann Miller');
+    await act(async () => clientLink.click());
+    expect(path).toBe('/clients/c1');
   });
 
   it('adds an expense from the Expenses tab, and the overview counts it', async () => {
