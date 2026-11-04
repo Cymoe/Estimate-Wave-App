@@ -33,7 +33,6 @@ import { estimateTotals } from '../../../convex/lib/totals';
 import { DiscountCard } from './DiscountCard';
 import { notify } from '../common/appDialogs';
 import { dialogOnTopOf } from '../common/StructuredNote';
-import { pointTo } from '../../lib/pointTo';
 
 // Header actions share one size so they line up; only the main action is filled.
 const actionBase = 'h-11 flex items-center gap-2 px-4 border rounded-sm transition-colors text-sm font-medium';
@@ -46,6 +45,24 @@ const CLIENT_DETAIL_CHOICES: Array<{ id: ClientDetail; label: string; help: stri
   { id: 'lines', label: 'Lines, no prices', help: 'The totals by category and every line of work, but not what each line costs.' },
   { id: 'categories', label: 'Category totals', help: 'Only the total for each category: no lines and no line prices.' },
 ];
+
+/** The small uppercase label over each section of the Details tab. */
+const sectionLabel = 'text-xs font-medium text-gray-400 uppercase tracking-wider';
+
+/** A tiny picture of each price-detail level: lines on the left, prices on the right. */
+function ClientViewSketch({ kind }: { kind: ClientDetail }) {
+  const rows = kind === 'categories' ? 3 : 4;
+  return (
+    <span className="block h-12 space-y-1.5">
+      {Array.from({ length: rows }, (_, i) => (
+        <span key={i} className="flex items-center justify-between gap-2">
+          <span className="h-1.5 bg-[#4a4f57]" style={{ width: `${[78, 62, 70, 55][i]}%` }} />
+          {(kind !== 'lines' || i === rows - 1) && <span className="h-1.5 w-5 bg-[#5b7fa8]" />}
+        </span>
+      ))}
+    </span>
+  );
+}
 
 /** Fills in the price-range defaults the pricing tools expect, on a copy. */
 function prepare(estimate: Estimate): Estimate {
@@ -240,6 +257,20 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
     } catch (err) {
       console.error('Error saving what the client sees:', err);
       setEstimate((current) => (current ? { ...current, client_detail: before } : current));
+      setSaveError("Couldn't save that change. Check your connection and try again.");
+    }
+  };
+
+  /** How long the price holds, picked right on the Details tab; it goes back if saving fails. */
+  const setValidUntil = async (day: string) => {
+    if (!estimate?.id || !day) return;
+    const before = estimate.expiry_date;
+    setEstimate((current) => (current ? { ...current, expiry_date: day } : current));
+    try {
+      await EstimateService.update(estimate.id, { expiry_date: day });
+    } catch (err) {
+      console.error('Error saving the valid-until date:', err);
+      setEstimate((current) => (current ? { ...current, expiry_date: before } : current));
       setSaveError("Couldn't save that change. Check your connection and try again.");
     }
   };
@@ -702,25 +733,11 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
           </div>
         </div>
 
-        {/* Simple Client Info */}
-        <div className="text-sm text-gray-400 mt-1 px-3">
-          {estimate.client?.name ||
-            (estimate.client_id ? null : (
-              // Only with no client at all. It opens the Details tab and brings the client card into view.
-              <button
-                type="button"
-                onClick={(e) => {
-                  const panel = e.currentTarget.closest('[role="dialog"]') ?? document;
-                  setActiveTab('overview');
-                  pointTo(() => panel.querySelector('[data-testid="client-card"]'));
-                }}
-                className="text-[#6aa3d9] hover:text-white underline underline-offset-2"
-              >
-                Add client
-              </button>
-            ))}
-          {estimate.client?.name || !estimate.client_id ? ' • ' : ''}
-          Created {formatDate(estimate.issue_date)}
+        {/* Who it's for, when it was made and what it comes to. The client is picked on the Details tab. */}
+        <div className="text-sm text-gray-400 mt-1 px-3" data-testid="estimate-subline">
+          {estimate.client?.name || (estimate.client_id ? null : 'No client yet')}
+          {estimate.client?.name || !estimate.client_id ? ' · ' : ''}
+          Created {formatDate(estimate.issue_date)} · {formatCurrency(estimate.total_amount)}
         </div>
 
         {/* Tab Navigation */}
@@ -753,51 +770,20 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
         style={{ paddingBottom: activeTab === 'items' && !inDrawer ? '60px' : '0' }}
       >
         {/* Details tab (id 'overview') */}
+        {/* Details tab (id 'overview'): flat sections, one under the other */}
         {activeTab === 'overview' && (
-          <div className="p-4 space-y-4">
-            {/* Summary: total, items and dates (status is in the header) */}
-            <div className="bg-[#1a1a1a] rounded-lg border border-[#333] grid grid-cols-3 divide-x divide-[#333]">
-              <div className="p-4 min-w-0">
-                <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Total</div>
-                <div className="text-lg font-semibold text-[#5b8fc7] whitespace-nowrap overflow-hidden text-ellipsis">
-                  {formatCurrency(estimate.total_amount)}
+          <div className="divide-y divide-[#333333]">
+            {/* Who it's for, and how long the price holds */}
+            <div className="px-4 py-5 grid grid-cols-5 gap-3 sm:gap-4">
+              <div className="col-span-3 min-w-0 transition-shadow" data-testid="client-card">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className={sectionLabel}>Client</h3>
+                  {estimate.client && !choosingClient && (
+                    <button type="button" onClick={startChoosingClient} className="text-xs text-[#7fb0e0] hover:text-white">
+                      Change
+                    </button>
+                  )}
                 </div>
-              </div>
-              <div className="p-4">
-                <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Items</div>
-                <div className="text-lg font-semibold text-white">{estimate.items?.length || 0}</div>
-              </div>
-              <div className="p-4 text-sm space-y-0.5">
-                <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Dates</div>
-                <div className="text-white">Created {formatDate(estimate.issue_date)}</div>
-                {estimate.expiry_date && (
-                  <div className="text-gray-400">Expires {formatDate(estimate.expiry_date)}</div>
-                )}
-                {estimate.last_sent_at && (
-                  <div className="text-gray-400">Sent {formatDate(estimate.last_sent_at)}</div>
-                )}
-                {approvalLine(estimate) && <div className="text-green-400">{approvalLine(estimate)}</div>}
-              </div>
-            </div>
-            {FEATURES.projects && (
-              <EstimateProject
-                estimate={estimate}
-                organizationId={estimate.organization_id || selectedOrg?.id}
-                onChanged={() => loadEstimate(true)}
-                behind={overProject}
-              />
-            )}
-
-            {/* Client: pick one here when there's none, or change it */}
-            <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-4 transition-shadow" data-testid="client-card">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wide">Client</h3>
-                {estimate.client && !choosingClient && (
-                  <button type="button" onClick={startChoosingClient} className="text-xs text-[#336699] hover:text-white">
-                    Change
-                  </button>
-                )}
-              </div>
               {estimate.client && !choosingClient ? (
                 <div className="space-y-1.5">
                   <div className="text-base font-medium text-white">{estimate.client.name}</div>
@@ -830,7 +816,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                     value=""
                     disabled={clientOptions === null || savingClient}
                     onChange={(e) => e.target.value && chooseClient(e.target.value)}
-                    className="flex-1 min-w-0 bg-[#0A0A0A] border border-[#333] rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-[#336699]"
+                    className="flex-1 min-w-0 h-10 bg-[#121212] border border-[#333333] px-3 text-sm text-white focus:outline-none focus:border-[#336699]"
                   >
                     <option value="">
                       {savingClient ? 'Saving…' : clientOptions === null ? 'Loading clients…' : clientOptions.length ? 'Choose client' : 'No clients yet'}
@@ -846,6 +832,17 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                   )}
                 </div>
               )}
+              </div>
+              <div className="col-span-2 min-w-0">
+                <h3 className={`${sectionLabel} mb-2`}>Valid until</h3>
+                <input
+                  type="date"
+                  aria-label="Valid until"
+                  value={estimate.expiry_date?.slice(0, 10) ?? ''}
+                  onChange={(e) => setValidUntil(e.target.value)}
+                  className="w-full min-w-0 h-10 bg-[#121212] border border-[#333333] px-2 sm:px-3 text-sm text-white focus:outline-none focus:border-[#336699]"
+                />
+              </div>
             </div>
 
             {/* The note at the top of the client's link */}
@@ -875,9 +872,9 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
             )}
 
             {/* How much of the price the client's link shows */}
-            <div className="bg-[#1a1a1a] border border-[#333] p-4" data-testid="client-view">
-              <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wide mb-2">What the client sees</h3>
-              <div role="radiogroup" aria-label="What the client sees" className="grid grid-cols-3 border border-[#333]">
+            <div className="px-4 py-5" data-testid="client-view">
+              <h3 className={`${sectionLabel} mb-3`}>What the client sees</h3>
+              <div role="radiogroup" aria-label="What the client sees" className="grid grid-cols-3 gap-3">
                 {CLIENT_DETAIL_CHOICES.map((choice) => {
                   const on = (estimate.client_detail ?? 'full') === choice.id;
                   return (
@@ -886,12 +883,19 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
                       type="button"
                       role="radio"
                       aria-checked={on}
+                      aria-label={choice.label}
                       onClick={() => setClientDetail(choice.id)}
-                      className={`px-2 py-2 text-sm border-r last:border-r-0 border-[#333] transition-colors ${
-                        on ? 'bg-[#336699] text-white' : 'text-gray-300 hover:bg-[#22272d]'
-                      }`}
+                      className="text-left group"
                     >
-                      {choice.label}
+                      <span
+                        className={`block border p-3 transition-colors ${
+                          on ? 'border-[#336699] bg-[#336699]/15' : 'border-[#333333] bg-[#121212] group-hover:border-[#555555]'
+                        }`}
+                        aria-hidden="true"
+                      >
+                        <ClientViewSketch kind={choice.id} />
+                      </span>
+                      <span className={`block mt-2 text-sm ${on ? 'text-white font-medium' : 'text-gray-400'}`}>{choice.label}</span>
                     </button>
                   );
                 })}
@@ -899,30 +903,36 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
               <p className="text-sm text-gray-400 mt-2">{CLIENT_DETAIL_CHOICES.find((c) => c.id === (estimate.client_detail ?? 'full'))!.help}</p>
             </div>
 
-            {/* Reminder emails while the client hasn't signed */}
-            {estimate.id && <RemindersCard estimateId={estimate.id} />}
+            {/* Files: job photos, and the agreed design that goes on the contract */}
+            <div className="px-4 py-5 space-y-5" data-testid="files">
+              <h3 className={sectionLabel}>Files</h3>
+              {estimate.id && (estimate.organization_id || selectedOrg?.id) && (
+                <JobPhotos organizationId={(estimate.organization_id || selectedOrg?.id)!} estimateId={estimate.id} title="Photos" bare />
+              )}
+              <DesignUpload estimateId={estimate.id!} design={estimate.design} onChange={() => loadEstimate(true)} />
+            </div>
 
-            {/* Job photos */}
-            {estimate.id && (estimate.organization_id || selectedOrg?.id) && (
-              <JobPhotos organizationId={(estimate.organization_id || selectedOrg?.id)!} estimateId={estimate.id} />
+            {/* Reminder emails, once it's out with the client */}
+            {estimate.id && estimate.status !== 'draft' && <RemindersCard estimateId={estimate.id} />}
+
+            {/* Approved by the company without the client signing */}
+            {approvalLine(estimate) && (
+              <div className="px-4 py-5 text-sm text-green-400">{approvalLine(estimate)}</div>
             )}
-
-            {/* Agreed design: shown on the contract */}
-            <DesignUpload estimateId={estimate.id!} design={estimate.design} onChange={() => loadEstimate(true)} />
 
             {/* Notes and Terms */}
             {(estimate.notes || estimate.terms) && (
-              <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6">
+              <div className="px-4 py-5 space-y-5">
                 {estimate.notes && (
-                  <div className="mb-6">
-                    <h3 className="text-sm font-medium text-gray-400 mb-3 uppercase tracking-wider">Notes</h3>
+                  <div>
+                    <h3 className={`${sectionLabel} mb-2`}>Notes</h3>
                     <p className="text-sm text-white whitespace-pre-wrap leading-relaxed">{estimate.notes}</p>
                   </div>
                 )}
                 
                 {estimate.terms && (
                   <div>
-                    <h3 className="text-sm font-medium text-gray-400 mb-3 uppercase tracking-wider">Terms & Conditions</h3>
+                    <h3 className={`${sectionLabel} mb-2`}>Terms & Conditions</h3>
                     <p className="text-sm text-white whitespace-pre-wrap leading-relaxed">{estimate.terms}</p>
                   </div>
                 )}
@@ -931,9 +941,9 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
 
             {/* Signature Section */}
             {estimate.status === 'accepted' && estimate.client_signature && (
-              <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6">
-                <h3 className="text-lg font-semibold text-white mb-4">Client Signature</h3>
-                <div className="border border-[#333] rounded-lg p-4 bg-white">
+              <div className="px-4 py-5">
+                <h3 className={`${sectionLabel} mb-2`}>Client signature</h3>
+                <div className="border border-[#333] p-4 bg-white">
                   <img 
                     src={estimate.client_signature} 
                     alt="Client Signature" 
@@ -946,6 +956,15 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
               </div>
             )}
 
+
+            {FEATURES.projects && (
+              <EstimateProject
+                estimate={estimate}
+                organizationId={estimate.organization_id || selectedOrg?.id}
+                onChanged={() => loadEstimate(true)}
+                behind={overProject}
+              />
+            )}
 
           </div>
         )}

@@ -76,16 +76,16 @@ export const DesignUpload: React.FC<DesignUploadProps> = ({ estimateId, design, 
 
   if (design) {
     return (
-      <div className="bg-[#1a1a1a] border border-[#333] rounded-lg p-4">
+      <div data-testid="agreed-design">
         {fileInput}
-        <div className="flex items-center justify-between gap-3 mb-3">
-          <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wide">Agreed Design</h3>
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <h4 className="text-sm text-gray-300">Agreed design <span className="text-gray-500">· on the contract</span></h4>
           <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={busy !== null}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-[#2a2a2a] rounded disabled:opacity-50"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-[#2a2a2a] disabled:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${busy === 'uploading' ? 'animate-spin' : ''}`} />
               Replace
@@ -94,7 +94,7 @@ export const DesignUpload: React.FC<DesignUploadProps> = ({ estimateId, design, 
               type="button"
               onClick={remove}
               disabled={busy !== null}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded disabled:opacity-50"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 disabled:opacity-50"
             >
               <Trash2 className="w-3.5 h-3.5" />
               Remove
@@ -106,7 +106,7 @@ export const DesignUpload: React.FC<DesignUploadProps> = ({ estimateId, design, 
             href={design.url}
             target="_blank"
             rel="noreferrer"
-            className="flex items-center gap-3 p-3 border border-[#333] rounded hover:bg-[#222] text-sm text-white"
+            className="flex items-center gap-3 p-3 border border-[#333] hover:bg-[#222] text-sm text-white"
           >
             <FileText className="w-6 h-6 text-gray-400 flex-shrink-0" />
             <span className="truncate">{design.name}</span>
@@ -116,21 +116,20 @@ export const DesignUpload: React.FC<DesignUploadProps> = ({ estimateId, design, 
             <img
               src={design.url}
               alt={design.name}
-              className="w-full max-h-72 object-contain rounded border border-[#333] bg-black"
+              className="w-full max-h-72 object-contain border border-[#333] bg-black"
             />
           </a>
         )}
-        <p className="text-xs text-gray-500 mt-2">Included in the contract under "Agreed Design".</p>
         {errorText}
       </div>
     );
   }
 
   return (
-    <div className="bg-[#1a1a1a] border border-[#333] rounded-lg p-4">
-      <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wide mb-3">Agreed Design</h3>
+    <div data-testid="agreed-design">
+      <h4 className="text-sm text-gray-300 mb-2">Agreed design <span className="text-gray-500">· on the contract</span></h4>
       <div
-        className={`border-2 border-dashed rounded-lg p-6 text-center transition-all ${
+        className={`border border-dashed p-4 text-center transition-all ${
           dragOver ? 'border-blue-400 bg-blue-400/10' : 'border-[#444444] hover:border-[#555555]'
         }`}
         onDrop={(e) => {
@@ -148,23 +147,23 @@ export const DesignUpload: React.FC<DesignUploadProps> = ({ estimateId, design, 
         {fileInput}
         {busy === 'uploading' ? (
           <div className="space-y-2">
-            <div className="animate-spin mx-auto w-8 h-8 border-2 border-blue-400 border-t-transparent rounded-full"></div>
+            <div className="animate-spin mx-auto w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full"></div>
             <p className="text-sm text-gray-300">Uploading design...</p>
           </div>
         ) : (
-          <div className="space-y-3">
-            <FileImage size={32} className="mx-auto text-gray-400" />
-            <div className="space-y-1">
-              <p className="text-sm text-white">Drop your design or asset here, or</p>
+          <div className="flex items-center gap-3 text-left">
+            <FileImage className="w-6 h-6 flex-shrink-0 text-gray-500" />
+            <p className="text-sm text-gray-400">
+              The design, drawing or plan the client agrees to. Drop it here or{' '}
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="text-blue-400 hover:text-blue-300 text-sm font-medium"
+                className="text-[#7fb0e0] hover:text-white font-medium"
               >
-                browse files
+                choose a file
               </button>
-            </div>
-            <p className="text-xs text-gray-500">PNG, JPG, PDF up to 10MB · included in the contract</p>
+              . PNG, JPG or PDF up to 10MB.
+            </p>
           </div>
         )}
       </div>

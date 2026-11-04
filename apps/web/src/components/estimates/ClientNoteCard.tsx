@@ -28,9 +28,9 @@ export const ClientNoteCard: React.FC<{ estimateId: string; note?: string; onSav
   };
 
   return (
-    <div className="bg-[#1a1a1a] border border-[#333] p-4" data-testid="client-note">
+    <div className="px-4 py-5" data-testid="client-note">
       <div className="flex items-center justify-between gap-3 mb-2">
-        <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wide">Note to the client</h3>
+        <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider">Note to the client</h3>
         <span className="text-xs text-gray-500" aria-live="polite">
           {state === 'saving' ? 'Saving…' : state === 'saved' ? 'Saved' : ''}
         </span>

@@ -80,11 +80,19 @@ const Viewer: React.FC<{
  * photos (the camera or the library on a phone or iPad), and a full-screen
  * viewer with captions.
  */
-export const JobPhotos: React.FC<{ organizationId: string; estimateId?: string; projectId?: string; title?: string }> = ({
+export const JobPhotos: React.FC<{
+  organizationId: string;
+  estimateId?: string;
+  projectId?: string;
+  title?: string;
+  /** Inside another section (an estimate's Files): no box of its own, a plain sub-heading. */
+  bare?: boolean;
+}> = ({
   organizationId,
   estimateId,
   projectId,
   title = 'Photos',
+  bare = false,
 }) => {
   const [photos, setPhotos] = useState<JobPhoto[] | null>(null);
   const [uploading, setUploading] = useState(0);
@@ -136,9 +144,9 @@ export const JobPhotos: React.FC<{ organizationId: string; estimateId?: string; 
   };
 
   return (
-    <section className="bg-[#1a1a1a] border border-[#333] p-4" aria-label={title} data-testid="job-photos">
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wide">
+    <section className={bare ? '' : 'bg-[#1a1a1a] border border-[#333] p-4'} aria-label={title} data-testid="job-photos">
+      <div className={`flex items-center justify-between gap-3 ${bare ? 'mb-2' : 'mb-3'}`}>
+        <h3 className={bare ? 'text-sm text-gray-300' : 'text-xs font-medium text-gray-400 uppercase tracking-wide'}>
           {title}
           {photos && photos.length > 0 && <span className="ml-1.5 text-gray-500">{photos.length}</span>}
         </h3>

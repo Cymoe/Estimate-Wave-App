@@ -92,9 +92,9 @@ export function EstimateProject({
 
   const project = estimate.project;
   return (
-    <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-4" data-testid="estimate-project">
+    <div className="px-4 py-5" data-testid="estimate-project">
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wide">Project</h3>
+        <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider">Project</h3>
         {project && !choosing && (
           <button type="button" onClick={startChoosing} className={link} disabled={busy}>
             Change
@@ -116,7 +116,7 @@ export function EstimateProject({
                 if (value === '__none') run(() => EstimateService.update(id, { project_id: '' }));
                 else if (value) attach(value);
               }}
-              className="w-full bg-[#0A0A0A] border border-[#333] rounded px-3 py-2 text-sm text-white"
+              className="w-full bg-[#0A0A0A] border border-[#333] px-3 py-2 text-sm text-white"
             >
               <option value="" disabled>
                 {projects.length ? 'Pick a project' : 'No projects yet'}
@@ -160,8 +160,8 @@ export function EstimateProject({
           </button>
         )
       ) : (
-        <div className="space-y-2">
-          <p className="text-sm text-gray-500">Not part of a project yet.</p>
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+          <p className="text-sm text-gray-400">Not part of a project yet.</p>
           <div className="flex flex-wrap gap-x-4 gap-y-1">
             <button type="button" onClick={startChoosing} className={link} disabled={busy}>
               Add to a project

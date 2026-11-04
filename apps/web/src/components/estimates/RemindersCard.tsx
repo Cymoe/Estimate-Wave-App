@@ -31,9 +31,9 @@ export const RemindersCard: React.FC<{ estimateId: string }> = ({ estimateId }) 
             : '';
 
   return (
-    <div className="bg-[#1a1a1a] border border-[#333] p-4" data-testid="reminders">
+    <div className="px-4 py-5" data-testid="reminders">
       <div className="flex items-center justify-between gap-3 mb-1">
-        <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wide">Reminders</h3>
+        <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider">Reminders</h3>
         {state.companyOn && state.clientEmail && (
           <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
             <input

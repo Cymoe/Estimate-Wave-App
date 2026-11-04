@@ -150,7 +150,7 @@ describe('estimate overview', () => {
     expect(picker()).not.toBeNull();
   });
 
-  it('an estimate with no client says Add client under its number, which opens the Details tab on the client card', async () => {
+  it('an estimate with no client says so under its number, and its Details tab opens on the client picker', async () => {
     stored = { ...base, client: undefined, client_id: undefined };
     const container = document.createElement('div');
     document.body.appendChild(container);
@@ -165,11 +165,15 @@ describe('estimate overview', () => {
     // The tab is named for what it holds (everything besides the lines and the agreement), not "Overview".
     expect(button('Details')).toBeDefined();
     expect(button('Overview')).toBeUndefined();
-    await act(async () => button('Add client')!.click());
-    await act(async () => new Promise<void>((r) => requestAnimationFrame(() => r())));
-    expect(document.body.querySelector('[data-testid="discount"]')).not.toBeNull(); // on the Details tab
-    // It lands somewhere you can see: the client card is outlined for a moment.
-    expect(document.body.querySelector('[data-testid="client-card"]')!.className).toContain('ring-2');
+    const subline = document.body.querySelector('[data-testid="estimate-subline"]')!.textContent;
+    expect(subline).toMatch(/^No client yet · Created .+ · \$3,210,993\.50$/);
+    expect(button('Add client')).toBeUndefined();
+    await act(async () => button('Details')!.click());
+    // Client and Valid until come first, side by side.
+    const first = document.body.querySelector('[data-testid="client-card"]')!.parentElement!;
+    expect(first.textContent).toContain('Client');
+    expect(first.querySelector('input[aria-label="Valid until"]')).not.toBeNull();
+    expect(first.querySelector('select[aria-label="Choose client"]')).not.toBeNull();
   });
 
   it("doesn't offer Add client when the estimate has a client whose details aren't in yet", async () => {
@@ -334,13 +338,39 @@ describe('estimate overview', () => {
     expect(Array.from(document.body.querySelectorAll('[data-testid="item-category"]')).map((e) => e.textContent)).toEqual(['Cabinets & Vanities']);
   });
 
-  it('summarises the estimate without repeating the status', async () => {
+  it('saves a new Valid until date picked on the Details tab', async () => {
+    stored = { ...base, expiry_date: '2026-12-01' };
+    await openOverview();
+    const input = document.body.querySelector('input[aria-label="Valid until"]') as HTMLInputElement;
+    expect(input.value).toBe('2026-12-01');
+    update.mockClear();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '2026-12-15');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(update).toHaveBeenCalledWith('e1', { expiry_date: '2026-12-15' });
+    expect(input.value).toBe('2026-12-15');
+  });
+
+  it('puts the total in the line under the number, and lays the Details tab out as flat sections', async () => {
     stored = { ...base };
     await openOverview();
+    expect(document.body.querySelector('[data-testid="estimate-subline"]')!.textContent).toContain('$3,210,993.50');
     const text = document.body.textContent ?? '';
-    expect(text).toContain('$3,210,993.50');
-    expect(text).toContain('Items1');
+    expect(text).not.toContain('Items1');
     expect(text).not.toContain('Estimate Summary');
+    // One section after another: client and valid until, the note, the discount, what the client sees, files.
+    const order = ['client-card', 'client-note', 'discount', 'client-view', 'files'].map(
+      (id) => document.body.querySelector(`[data-testid="${id}"]`)!,
+    );
+    for (let i = 1; i < order.length; i += 1)
+      expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Files holds the job photos and the agreed design.
+    const files = document.body.querySelector('[data-testid="files"]')!;
+    expect(files.querySelector('[data-testid="job-photos"]')).not.toBeNull();
+    expect(files.querySelector('[data-testid="agreed-design"]')).not.toBeNull();
+    // A draft hasn't gone out, so there's nothing to remind about yet.
+    expect(document.body.querySelector('[data-testid="reminders"]')).toBeNull();
   });
 
   it('lets you choose a client when there is none', async () => {

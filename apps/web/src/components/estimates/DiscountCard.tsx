@@ -46,9 +46,9 @@ export const DiscountCard: React.FC<{ estimate: Estimate; onSaved: (estimate: Es
 
   const field = 'bg-[#121212] border border-[#333] px-3 py-2 text-sm text-white focus:outline-none focus:border-[#336699] disabled:opacity-50';
   return (
-    <div className="bg-[#1a1a1a] border border-[#333] p-4" data-testid="discount">
+    <div className="px-4 py-5" data-testid="discount">
       <div className="flex items-center justify-between gap-3 mb-2">
-        <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wide">Discount</h3>
+        <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider">Discount</h3>
         {(estimate.discount_amount ?? 0) > 0 && <span className="text-sm text-green-400">−{formatCurrency(estimate.discount_amount ?? 0)}</span>}
       </div>
       {locked ? (
