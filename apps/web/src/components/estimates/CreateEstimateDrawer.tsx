@@ -1109,7 +1109,7 @@ export const CreateEstimateDrawer: React.FC<CreateEstimateDrawerProps> = ({
                                         {formatCurrency(item.price)}
                                       </div>
                                       <div className="text-sm text-gray-400">per {item.unit}</div>
-                                      <div className="text-sm text-[#336699] font-medium mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <div className="text-sm text-[#336699] font-medium mt-1 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 transition-opacity">
                                         + Add Item
                                       </div>
                                     </div>

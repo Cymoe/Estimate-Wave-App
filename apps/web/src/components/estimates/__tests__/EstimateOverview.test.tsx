@@ -92,7 +92,7 @@ async function openOverview() {
     ),
   );
   await act(async () => {});
-  await act(async () => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent === 'Overview')!.click());
+  await act(async () => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent === 'Client & pricing')!.click());
   await act(async () => {});
 }
 
@@ -139,6 +139,9 @@ describe('estimate overview', () => {
       ),
     );
     await act(async () => {});
+    // The tab says what's on it, so the client settings aren't missed behind "Overview".
+    expect(button('Client & pricing')).toBeDefined();
+    expect(button('Overview')).toBeUndefined();
     await act(async () => button('Add client')!.click());
     await act(async () => {});
     expect(document.body.querySelector('[data-testid="discount"]')).not.toBeNull(); // on the Overview tab

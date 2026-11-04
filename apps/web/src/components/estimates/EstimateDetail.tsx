@@ -124,7 +124,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
     }
   };
 
-  // Choosing the estimate's client from the Overview.
+  // Choosing the estimate's client from the Client & pricing tab.
   const [choosingClient, setChoosingClient] = useState(false);
   const [clientOptions, setClientOptions] = useState<Array<{ id: string; name: string }> | null>(null);
   const [savingClient, setSavingClient] = useState(false);
@@ -142,7 +142,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
       setClientOptions([]);
     }
   };
-  // With no client yet, the picker shows straight away on the Overview.
+  // With no client yet, the picker shows straight away on the Client & pricing tab.
   useEffect(() => {
     if (activeTab === 'overview' && estimate && !estimate.client) loadClientOptions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -681,7 +681,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
         {/* Simple Client Info */}
         <div className="text-sm text-gray-400 mt-1 px-3">
           {estimate.client?.name || (
-            // The client is picked on the Overview tab: say so where it's missed.
+            // The client is picked on the Client & pricing tab: say so where it's missed.
             <button type="button" onClick={() => setActiveTab('overview')} className="text-[#6aa3d9] hover:text-white underline underline-offset-2">
               Add client
             </button>
@@ -694,7 +694,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
           <div className="flex items-center">
             {[
               { id: 'items', label: 'Line Items' },
-              { id: 'overview', label: 'Overview' },
+              { id: 'overview', label: 'Client & pricing' },
               { id: 'contract', label: 'Agreement' },
             ].map((tab) => (
               <button
@@ -718,7 +718,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
         className={`flex-1 ${inDrawer ? 'min-h-0' : ''} ${inDrawer && activeTab === 'items' ? 'overflow-hidden' : 'overflow-y-auto'}`}
         style={{ paddingBottom: activeTab === 'items' && !inDrawer ? '60px' : '0' }}
       >
-        {/* Overview Tab */}
+        {/* Client & pricing tab (id 'overview') */}
         {activeTab === 'overview' && (
           <div className="p-4 space-y-4">
             {/* Summary: total, items and dates (status is in the header) */}

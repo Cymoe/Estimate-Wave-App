@@ -1269,12 +1269,14 @@ export const CustomizeServiceDrawer: React.FC<CustomizeServiceDrawerProps> = ({
                         {item.line_item?.cost_code?.name} {!clientPreviewMode && `• ${formatCurrency(item.line_item?.price || 0)}/${item.line_item?.unit}`}
                       </p>
                     </div>
+                    {/* Always shown on touch screens (no hover there); fades in on hover with a mouse. */}
                     <button
                       onClick={() => handleRemoveItem(item.id)}
+                      aria-label="Remove item"
                       className={`p-1 transition-colors ${
                         currentItems.length <= 1
-                          ? 'text-gray-600 cursor-not-allowed opacity-0 group-hover:opacity-50'
-                          : 'text-gray-400 hover:text-red-400 opacity-0 group-hover:opacity-100'
+                          ? 'text-gray-600 cursor-not-allowed opacity-50 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-50'
+                          : 'text-gray-400 hover:text-red-400 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100'
                       }`}
                       disabled={currentItems.length <= 1}
                       title={currentItems.length <= 1 ? 'At least one item must remain' : 'Remove item'}
