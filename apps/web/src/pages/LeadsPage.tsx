@@ -2,7 +2,7 @@ import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { lastSeen, remember } from '../lib/lastSeen';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
-import { CalendarClock, CalendarDays, Download, FileSpreadsheet, Kanban, MessageSquare, MoreVertical, Phone, Plus, Search, UserPlus } from 'lucide-react';
+import { CalendarClock, CalendarDays, Download, FileSpreadsheet, Kanban, MoreVertical, Plus, Search, UserPlus } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
 import { industriesAPI, leadsAPI } from '../lib/api';
@@ -56,7 +56,6 @@ const dollars = (amount: number) => `$${Math.round(amount).toLocaleString('en-US
 
 type ContactKind = 'call' | 'text' | 'note';
 
-const tel = (phone: string) => phone.replace(/[^\d+]/g, '');
 const shortDay = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
 /** A small dot that leads a status line. */
@@ -105,18 +104,14 @@ const LeadStatusLine: React.FC<{ lead: Lead; now: number; todayIso: string }> = 
 
 const control =
   'h-10 bg-[#121212] border border-[#333333] text-sm text-white focus:outline-none focus:border-[#336699]';
-const iconButton =
-  'w-10 h-10 flex items-center justify-center border border-[#333333] bg-[#0A0A0A] [@media(hover:hover)]:hover:border-[#555555] transition-colors';
-
-/** One lead on the board: who, how much, the gist, what's next, and Call and Text. Anywhere else opens it. */
+/** One lead on the board: who, how much, the gist and what's next. Tapping it opens the lead. */
 const LeadCard: React.FC<{
   lead: Lead;
   now: number;
   todayIso: string;
   trade?: string;
   onOpen: () => void;
-  onContact: (lead: Lead, kind: ContactKind) => void;
-}> = ({ lead, now, todayIso, trade, onOpen, onContact }) => {
+}> = ({ lead, now, todayIso, trade, onOpen }) => {
   const summary = leadSummary(lead.notes);
   const since = lead.assignedAt ?? lead.createdAt;
   const value = leadValue(lead);
@@ -141,24 +136,11 @@ const LeadCard: React.FC<{
           {summary}
         </p>
       )}
-      <div className="mt-2 flex items-end justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          <div className="flex min-w-0"><LeadStatusLine lead={lead} now={now} todayIso={todayIso} /></div>
-          {(trade || since) && (
-            <div className="text-xs text-gray-500 truncate">
-              {[trade, since ? `came in ${ago(since, now)}` : ''].filter(Boolean).join(' · ')}
-            </div>
-          )}
-        </div>
-        {/* Only Call and Text keep the tap; anywhere else on the card opens the lead. */}
-        {lead.phone && (
-          <div className="flex gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-            <a href={`tel:${tel(lead.phone)}`} onClick={() => onContact(lead, 'call')} aria-label={`Call ${lead.name}`} title={lead.phone} className={iconButton}>
-              <Phone className="w-4 h-4 text-emerald-400" />
-            </a>
-            <a href={`sms:${tel(lead.phone)}`} onClick={() => onContact(lead, 'text')} aria-label={`Text ${lead.name}`} title={lead.phone} className={iconButton}>
-              <MessageSquare className="w-4 h-4 text-gray-200" />
-            </a>
+      <div className="mt-2 min-w-0 space-y-1">
+        <div className="flex min-w-0"><LeadStatusLine lead={lead} now={now} todayIso={todayIso} /></div>
+        {(trade || since) && (
+          <div className="text-xs text-gray-500 truncate">
+            {[trade, since ? `came in ${ago(since, now)}` : ''].filter(Boolean).join(' · ')}
           </div>
         )}
       </div>
@@ -613,7 +595,6 @@ const LeadsPage: React.FC = () => {
                         todayIso={todayIso}
                         trade={lead.jobType ? tradeName.get(lead.jobType) ?? lead.jobType : undefined}
                         onOpen={() => setEditing(lead)}
-                        onContact={logContact}
                       />
                     ))}
                   </div>

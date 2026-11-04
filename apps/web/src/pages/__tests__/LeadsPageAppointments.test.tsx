@@ -172,7 +172,7 @@ describe('Leads board', () => {
     expect((document.body.querySelector('form input[aria-label="Name"]') as HTMLInputElement).value).toBe('');
   });
 
-  it('opens the lead from anywhere on a card except Call and Text', async () => {
+  it('opens the lead from anywhere on a card', async () => {
     rows = [{ ...rows[0], appointmentAt: undefined, phone: '(432) 555-0100', jobType: 'landscaping', city: 'Midland' }] as typeof rows;
     const container = document.createElement('div');
     document.body.appendChild(container);
@@ -334,7 +334,7 @@ describe('Leads board', () => {
     rows = [own];
   });
 
-  it('shows the gist, what to do next, and Call and Text buttons that log the contact', async () => {
+  it('shows the gist and what to do next, with no Call or Text buttons on the card', async () => {
     const own = rows[0];
     rows = [
       {
@@ -352,21 +352,10 @@ describe('Leads board', () => {
     expect(card().querySelector('[data-testid="lead-status-line"]')?.textContent).toBe('Not contacted yet');
     expect(card().querySelector('select[aria-label="Status"]')).toBeNull();
 
-    // Tapping Call logs a call; the status line says so, and the drawer stays shut.
-    const call = card().querySelector('a[aria-label="Call Cari Doguet"]')!;
-    expect(call.getAttribute('href')).toBe('tel:4322600076');
-    act(() => click(call));
-    await flush();
-    expect(logContact).toHaveBeenCalledWith('l2', 'call', undefined);
-    expect(card().querySelector('[data-testid="lead-status-line"]')?.textContent).toBe('Last touched just now · 1 call');
-    expect(document.body.querySelector('form')).toBeNull();
-    // A text is counted on its own, not as a call.
-    const text = card().querySelector('a[aria-label="Text Cari Doguet"]')!;
-    expect(text.getAttribute('href')).toBe('sms:4322600076');
-    act(() => click(text));
-    await flush();
-    expect(logContact).toHaveBeenCalledWith('l2', 'text', undefined);
-    expect(card().querySelector('[data-testid="lead-status-line"]')?.textContent).toBe('Last touched just now · 1 call · 1 text');
+    // People call and text from their own phone; the card is just for reading and opening the lead.
+    expect(card().querySelector('a[href^="tel:"], a[href^="sms:"]')).toBeNull();
+    act(() => click(card()));
+    expect((document.body.querySelector('form input[aria-label="Name"]') as HTMLInputElement).value).toBe('Cari Doguet');
     rows = [own];
   });
 
