@@ -231,7 +231,7 @@ jest.mock('../../../lib/api', () => ({
 jest.mock('../../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1', role } }) }));
 
 import LeadMarketPage from '../../../pages/LeadMarketPage';
-import { WalletBar, bidStatus, type WalletSummary } from '../WalletBar';
+import { WalletBar, WalletPill, bidStatus, type WalletSummary } from '../WalletBar';
 import { WalletTile } from '../WalletTile';
 import { LeadCredit } from '../LeadCredit';
 import { suggestedBonus } from '../wallet';
@@ -1251,6 +1251,7 @@ describe('the bid status line', () => {
       text: "You're viewing this company as Webb Leads staff, so your own mobile isn't used. Its lead texts go to (432) 555-0188; no owner has added a mobile. To get them yourself, add yourself as an owner.",
       action: 'team',
       label: 'Team & Permissions',
+      short: 'Staff view · texts go to (432) 555-0188',
     });
     expect(line(alerts({ viewerRole: 'staff', viewerHasMobile: true }))).toEqual({
       tone: 'warn',
@@ -1292,6 +1293,21 @@ describe('the bid status line', () => {
     const alert = container.querySelector('[role="alert"]')!;
     expect(alert.textContent).toContain("You've been outbid on a bid");
     expect(alert.querySelector('a[href="/bids"]')?.textContent).toBe('See bids');
+  });
+
+  it('shows a staff viewer where the texts go as a pill by the title, not a full line', async () => {
+    wallet = {
+      ...base,
+      balanceCents: 100000,
+      standingBids: 2,
+      pausedBids: 0,
+      alerts: { mobiles: 0, companyPhone: '+14325550188', viewerRole: 'staff', viewerHasMobile: true },
+    };
+    const bar = await render(<WalletBar organizationId="o2" />);
+    expect(bar.querySelector('[data-bid-status]')).toBeNull();
+    const pill = (await render(<WalletPill organizationId="o2" />)).querySelector('[data-wallet-pill]')!;
+    expect(pill.textContent).toContain('Staff view · texts go to (432) 555-0188');
+    expect(pill.querySelector('a[href="/settings/organization?tab=team"]')?.textContent).toBe('Team & Permissions');
   });
 });
 

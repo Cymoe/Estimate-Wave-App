@@ -18,10 +18,13 @@ html.light .bg-\[\#0F1A26\] { background-color: #FFFFFF; }
 html.light .bg-\[\#0a0a0a\] { background-color: #F4F5F7; }
 html.light .bg-\[\#0a0a0a\]\/85 { background-color: rgba(244, 245, 247, 0.85); }
 html.light .bg-\[\#0c0c0c\] { background-color: #FFFFFF; }
+html.light .bg-\[\#0f1114\] { background-color: #FFFFFF; }
 html.light .bg-\[\#111\] { background-color: #FFFFFF; }
 html.light .bg-\[\#121212\] { background-color: #FFFFFF; }
+html.light .bg-\[\#121418\] { background-color: #FFFFFF; }
 html.light .bg-\[\#151515\] { background-color: #FFFFFF; }
 html.light .bg-\[\#161616\] { background-color: #FFFFFF; }
+html.light .bg-\[\#16181d\] { background-color: #FFFFFF; }
 html.light .bg-\[\#181818\] { background-color: #FFFFFF; }
 html.light .bg-\[\#1A1A1A\] { background-color: #FFFFFF; }
 html.light .bg-\[\#1A1A1A\]\/30 { background-color: rgba(255, 255, 255, 0.3); }
@@ -33,6 +36,7 @@ html.light .bg-\[\#1E1E1E\]\/50 { background-color: rgba(247, 248, 250, 0.5); }
 html.light .bg-\[\#1F1F1F\] { background-color: #F7F8FA; }
 html.light .bg-\[\#1a1a1a\] { background-color: #FFFFFF; }
 html.light .bg-\[\#1a1a1a\]\/95 { background-color: rgba(255, 255, 255, 0.95); }
+html.light .bg-\[\#1d2733\] { background-color: #F1F2F4; }
 html.light .bg-\[\#22272d\] { background-color: #F1F2F4; }
 html.light .bg-\[\#222\] { background-color: #F7F8FA; }
 html.light .bg-\[\#252525\] { background-color: #F1F2F4; }
@@ -54,14 +58,18 @@ html.light .bg-white\/10 { background-color: rgba(0, 0, 0, 0.050); }
 html.light .bg-white\/20 { background-color: rgba(0, 0, 0, 0.100); }
 html.light .bg-white\/5 { background-color: rgba(0, 0, 0, 0.025); }
 html.light .border-\[\#1E1E1E\] { border-color: #EEF0F2; }
+html.light .border-\[\#1f2228\] { border-color: #E9EBEE; }
 html.light .border-\[\#222222\] { border-color: #E9EBEE; }
+html.light .border-\[\#23262d\] { border-color: #E9EBEE; }
 html.light .border-\[\#262626\] { border-color: #E9EBEE; }
 html.light .border-\[\#2A2A2A\] { border-color: #E9EBEE; }
 html.light .border-\[\#2C2C2C\] { border-color: #E9EBEE; }
 html.light .border-\[\#2a2a2a\] { border-color: #E9EBEE; }
+html.light .border-\[\#2a2d34\] { border-color: #E2E5E9; }
 html.light .border-\[\#333333\] { border-color: #E2E5E9; }
 html.light .border-\[\#333333\]\/20 { border-color: rgba(226, 229, 233, 0.2); }
 html.light .border-\[\#333333\]\/50 { border-color: rgba(226, 229, 233, 0.5); }
+html.light .border-\[\#33363d\] { border-color: #E2E5E9; }
 html.light .border-\[\#333\] { border-color: #E2E5E9; }
 html.light .border-\[\#3a3a3a\] { border-color: #E2E5E9; }
 html.light .border-\[\#404040\] { border-color: #D5D9DE; }
@@ -217,9 +225,10 @@ html.light .text-yellow-400\/70 { color: rgba(133, 77, 14, 0.7); }
   html.light .\[\@media\(hover\:hover\)\]\:hover\:bg-\[\#222\]:hover { background-color: #F7F8FA; }
   html.light .\[\@media\(hover\:hover\)\]\:hover\:bg-\[\#252525\]:hover { background-color: #F1F2F4; }
   html.light .\[\@media\(hover\:hover\)\]\:hover\:bg-\[\#2a2a2a\]:hover { background-color: #F1F2F4; }
-  html.light .\[\@media\(hover\:hover\)\]\:hover\:border-\[\#555555\]:hover { border-color: #C3C8CF; }
+  html.light .\[\@media\(hover\:hover\)\]\:hover\:border-\[\#3a3e47\]:hover { border-color: #D5D9DE; }
+  html.light .\[\@media\(hover\:hover\)\]\:hover\:border-\[\#4a4e57\]:hover { border-color: #C3C8CF; }
   html.light .\[\@media\(hover\:hover\)\]\:hover\:text-red-300:hover { color: #b91c1c; }
   html.light .\[\@media\(hover\:hover\)\]\:hover\:text-white:hover { color: #111827; }
 }
 
-html.light :is(.bg-\[\#336699\], .bg-\[\#D32F2F\], .bg-\[\#3B82F6\], .bg-\[\#F59E0B\], .bg-\[\#EAB308\], .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-blue-800, .bg-green-500, .bg-green-600, .bg-green-700, .bg-green-800, .bg-red-500, .bg-red-600, .bg-red-700, .bg-red-800, .bg-emerald-500, .bg-emerald-600, .bg-emerald-700, .bg-emerald-800, .bg-purple-500, .bg-purple-600, .bg-purple-700, .bg-purple-800, .bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-indigo-800, .bg-violet-500, .bg-violet-600, .bg-violet-700, .bg-violet-800, .bg-rose-500, .bg-rose-600, .bg-rose-700, .bg-rose-800, .bg-pink-500, .bg-pink-600, .bg-pink-700, .bg-pink-800, .bg-sky-500, .bg-sky-600, .bg-sky-700, .bg-sky-800, .bg-teal-500, .bg-teal-600, .bg-teal-700, .bg-teal-800, .bg-cyan-500, .bg-cyan-600, .bg-cyan-700, .bg-cyan-800, .bg-orange-500, .bg-orange-600, .bg-orange-700, .bg-orange-800)[class*="text-white"], html.light :is(.bg-\[\#336699\], .bg-\[\#D32F2F\], .bg-\[\#3B82F6\], .bg-\[\#F59E0B\], .bg-\[\#EAB308\], .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-blue-800, .bg-green-500, .bg-green-600, .bg-green-700, .bg-green-800, .bg-red-500, .bg-red-600, .bg-red-700, .bg-red-800, .bg-emerald-500, .bg-emerald-600, .bg-emerald-700, .bg-emerald-800, .bg-purple-500, .bg-purple-600, .bg-purple-700, .bg-purple-800, .bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-indigo-800, .bg-violet-500, .bg-violet-600, .bg-violet-700, .bg-violet-800, .bg-rose-500, .bg-rose-600, .bg-rose-700, .bg-rose-800, .bg-pink-500, .bg-pink-600, .bg-pink-700, .bg-pink-800, .bg-sky-500, .bg-sky-600, .bg-sky-700, .bg-sky-800, .bg-teal-500, .bg-teal-600, .bg-teal-700, .bg-teal-800, .bg-cyan-500, .bg-cyan-600, .bg-cyan-700, .bg-cyan-800, .bg-orange-500, .bg-orange-600, .bg-orange-700, .bg-orange-800) [class*="text-white"] { color: #FFFFFF !important; }
+html.light :is(.bg-\[\#336699\], .bg-\[\#D32F2F\], .bg-\[\#3B82F6\], .bg-\[\#F59E0B\], .bg-\[\#EAB308\], .bg-\[\#3b74c4\], .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-blue-800, .bg-green-500, .bg-green-600, .bg-green-700, .bg-green-800, .bg-red-500, .bg-red-600, .bg-red-700, .bg-red-800, .bg-emerald-500, .bg-emerald-600, .bg-emerald-700, .bg-emerald-800, .bg-purple-500, .bg-purple-600, .bg-purple-700, .bg-purple-800, .bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-indigo-800, .bg-violet-500, .bg-violet-600, .bg-violet-700, .bg-violet-800, .bg-rose-500, .bg-rose-600, .bg-rose-700, .bg-rose-800, .bg-pink-500, .bg-pink-600, .bg-pink-700, .bg-pink-800, .bg-sky-500, .bg-sky-600, .bg-sky-700, .bg-sky-800, .bg-teal-500, .bg-teal-600, .bg-teal-700, .bg-teal-800, .bg-cyan-500, .bg-cyan-600, .bg-cyan-700, .bg-cyan-800, .bg-orange-500, .bg-orange-600, .bg-orange-700, .bg-orange-800)[class*="text-white"], html.light :is(.bg-\[\#336699\], .bg-\[\#D32F2F\], .bg-\[\#3B82F6\], .bg-\[\#F59E0B\], .bg-\[\#EAB308\], .bg-\[\#3b74c4\], .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-blue-800, .bg-green-500, .bg-green-600, .bg-green-700, .bg-green-800, .bg-red-500, .bg-red-600, .bg-red-700, .bg-red-800, .bg-emerald-500, .bg-emerald-600, .bg-emerald-700, .bg-emerald-800, .bg-purple-500, .bg-purple-600, .bg-purple-700, .bg-purple-800, .bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-indigo-800, .bg-violet-500, .bg-violet-600, .bg-violet-700, .bg-violet-800, .bg-rose-500, .bg-rose-600, .bg-rose-700, .bg-rose-800, .bg-pink-500, .bg-pink-600, .bg-pink-700, .bg-pink-800, .bg-sky-500, .bg-sky-600, .bg-sky-700, .bg-sky-800, .bg-teal-500, .bg-teal-600, .bg-teal-700, .bg-teal-800, .bg-cyan-500, .bg-cyan-600, .bg-cyan-700, .bg-cyan-800, .bg-orange-500, .bg-orange-600, .bg-orange-700, .bg-orange-800) [class*="text-white"] { color: #FFFFFF !important; }

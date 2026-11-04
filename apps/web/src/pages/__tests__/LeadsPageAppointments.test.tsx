@@ -34,12 +34,17 @@ jest.mock('../../lib/api', () => ({
     update: (...args: [string, Record<string, unknown>]) => update(...args),
     logContact: (...args: [string, string, string?]) => logContact(...args),
     acknowledge: (id: string) => acknowledge(id),
+    removeSamples: (org: string) => removeSamples(org),
   },
   industriesAPI: { list: jest.fn(async () => []) },
   walletAPI: { get: jest.fn(async () => null) },
 }));
 jest.mock('../../services/EstimateService', () => ({ EstimateService: {} }));
 const acknowledge = jest.fn(async (_id: string) => '2026-10-22T16:04:00Z');
+const removeSamples = jest.fn(async (org: string) => {
+  expect(org).toBeTruthy();
+  rows = rows.filter((row) => !(row as { isSample?: boolean }).isSample);
+});
 const exportCsv = jest.fn();
 const exportExcel = jest.fn();
 jest.mock('../../services/LeadExportService', () => ({ LeadExportService: { csv: (...a: unknown[]) => exportCsv(...a), excel: (...a: unknown[]) => exportExcel(...a) } }));
@@ -134,35 +139,48 @@ describe('Leads board', () => {
     document.body.innerHTML = '';
   });
 
-  it('opens the lead when its name is tapped; the toolbar button opens every card and there is no per-card arrow', async () => {
+  it('opens the lead when its name is tapped; cards stay calm, with no expand toggle or note box', async () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
     await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
     await flush();
 
     expect(container.querySelector('button[aria-label="Expand lead"]')).toBeNull();
-    const toggle = () => Array.from(container.querySelectorAll('button')).find((b) => /Expand leads|Collapse leads/.test(b.textContent ?? ''))!;
+    expect(Array.from(container.querySelectorAll('button')).some((b) => /Expand leads|Collapse leads/.test(b.textContent ?? ''))).toBe(false);
     expect(container.querySelector('input[aria-label="Add a note"]')).toBeNull();
-    act(() => click(toggle()));
-    expect(toggle().textContent).toContain('Collapse leads');
-    expect(container.querySelector('input[aria-label="Add a note"]')).toBeTruthy();
     expect(document.body.querySelector('form')).toBeNull();
-    act(() => click(toggle()));
 
     const name = Array.from(container.querySelectorAll('span')).find((el) => el.textContent === 'Rocky Vansau')!;
     act(() => click(name));
     expect((document.body.querySelector('form input[aria-label="Name"]') as HTMLInputElement).value).toBe('Rocky Vansau');
   });
 
-  it('opens the lead from anywhere on a collapsed card except the Call link', async () => {
+  it('folds empty stages to slim strips, and New lead opens a blank lead', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
+    await flush();
+    // Only Estimate Scheduled has a lead; every other stage is a strip with its name and a 0.
+    expect(container.querySelector('section[aria-label="Estimate Scheduled"]')).toBeTruthy();
+    expect(container.querySelector('section[aria-label="New"]')).toBeNull();
+    const strip = container.querySelector('[data-empty-stage="no_answer"]')!;
+    expect(strip.textContent).toBe('0No Answer');
+    expect(container.querySelectorAll('[data-empty-stage]').length).toBe(6);
+
+    const newLead = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'New lead')!;
+    act(() => click(newLead));
+    expect((document.body.querySelector('form input[aria-label="Name"]') as HTMLInputElement).value).toBe('');
+  });
+
+  it('opens the lead from anywhere on a card except Call and Text', async () => {
     rows = [{ ...rows[0], appointmentAt: undefined, phone: '(432) 555-0100', jobType: 'landscaping', city: 'Midland' }] as typeof rows;
     const container = document.createElement('div');
     document.body.appendChild(container);
     await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
     await flush();
     const card = container.querySelector('[data-lead-card]')!;
-    // The trade sits beside the value, bottom right of the card.
-    const corner = Array.from(card.querySelectorAll('div')).find((el) => /^landscaping/i.test(el.textContent ?? ''))!;
+    // The trade and when it came in sit on the last line.
+    const corner = Array.from(card.querySelectorAll('div')).find((el) => /^landscaping · came in \d+d ago$/i.test(el.textContent ?? ''))!;
     act(() => click(corner));
     expect(document.body.querySelector('form input[aria-label="Name"]')).toBeTruthy();
     // Create estimate lives in the drawer now, not on the card.
@@ -267,7 +285,7 @@ describe('Leads board', () => {
     rows = [own];
   });
 
-  it('shows the notes once per card, and moving a lead to Lost needs no pop-up', async () => {
+  it('shows the gist once per card, and moving a lead to Lost needs no pop-up', async () => {
     const own = rows[0];
     rows = [
       { id: 'l7', name: 'Dan Shah', status: 'new', createdAt: '2026-10-02T00:00:00Z', phone: '(555) 410-9921', jobType: 'hvac', city: 'Odessa', notes: 'AC unit is 18 years old, short-cycling. Asked about heat pumps.' },
@@ -279,14 +297,9 @@ describe('Leads board', () => {
     await flush();
     const card = () => container.querySelector('[data-lead-card]')!;
     const count = (text: string) => (card().textContent ?? '').split(text).length - 1;
-    // Collapsed: the one-line summary, no city beside the trade.
+    // One line of the notes, and no city beside the trade.
     expect(count('AC unit is 18 years old')).toBe(1);
     expect(card().textContent).not.toContain('Odessa');
-    // Expanded: the full notes once; the trade stays alone over the value so the status line never wraps.
-    act(() => click(Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Expand leads'))!));
-    expect(count('AC unit is 18 years old')).toBe(1);
-    expect(card().textContent).toContain('heat pumps');
-    expect(card().textContent).not.toContain('hvac · Odessa');
 
     // Lost from the drawer: no browser prompt, just the stage.
     act(() => click(Array.from(card().querySelectorAll('span')).find((el) => el.textContent === 'Dan Shah')!));
@@ -316,12 +329,12 @@ describe('Leads board', () => {
     await flush();
     const line = (who: string) =>
       Array.from(container.querySelectorAll('[data-lead-card]')).find((el) => el.textContent?.includes(who))!.querySelector('[data-testid="lead-status-line"]')?.textContent;
-    expect(line('Oak Street Dental')).toMatch(/^Came in \d+d ago$/);
-    expect(line('Maria Lopez')).toMatch(/^Came in \d+d ago · not contacted$/);
+    expect(line('Oak Street Dental')).toBeUndefined();
+    expect(line('Maria Lopez')).toBe('Not contacted yet');
     rows = [own];
   });
 
-  it('shows the intake answers, a Call button and what to do next; a call and a note are logged from the card', async () => {
+  it('shows the gist, what to do next, and Call and Text buttons that log the contact', async () => {
     const own = rows[0];
     rows = [
       {
@@ -336,33 +349,72 @@ describe('Leads board', () => {
     const card = () => container.querySelector('[data-lead-card]')!;
     expect(card().textContent).toContain('Get your render done · Irrigation · As soon as possible');
     expect(card().textContent).not.toContain('What are you looking');
-    expect(card().querySelector('[data-testid="lead-status-line"]')?.textContent).toMatch(/^Came in \d+d ago · not contacted$/);
+    expect(card().querySelector('[data-testid="lead-status-line"]')?.textContent).toBe('Not contacted yet');
     expect(card().querySelector('select[aria-label="Status"]')).toBeNull();
 
-    // Tapping Call logs a call; the status line says so.
-    const call = Array.from(card().querySelectorAll('a')).find((a) => a.getAttribute('href') === 'tel:4322600076')!;
+    // Tapping Call logs a call; the status line says so, and the drawer stays shut.
+    const call = card().querySelector('a[aria-label="Call Cari Doguet"]')!;
+    expect(call.getAttribute('href')).toBe('tel:4322600076');
     act(() => click(call));
     await flush();
     expect(logContact).toHaveBeenCalledWith('l2', 'call', undefined);
     expect(card().querySelector('[data-testid="lead-status-line"]')?.textContent).toBe('Last touched just now · 1 call');
+    expect(document.body.querySelector('form')).toBeNull();
     // A text is counted on its own, not as a call.
-    act(() => click(Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Expand leads'))!));
-    const text = Array.from(card().querySelectorAll('a')).find((a) => a.getAttribute('href') === 'sms:4322600076')!;
+    const text = card().querySelector('a[aria-label="Text Cari Doguet"]')!;
+    expect(text.getAttribute('href')).toBe('sms:4322600076');
     act(() => click(text));
     await flush();
     expect(logContact).toHaveBeenCalledWith('l2', 'text', undefined);
     expect(card().querySelector('[data-testid="lead-status-line"]')?.textContent).toBe('Last touched just now · 1 call · 1 text');
+    rows = [own];
+  });
 
-    // The open card lists the answers, and a note typed there is stamped and kept.
-    expect(card().querySelector('[aria-label="Intake answers"]')?.textContent).toContain('Irrigation');
-    const noteBox = card().querySelector('input[aria-label="Add a note"]') as HTMLInputElement;
-    act(() => pick(noteBox, 'left VM'));
-    await act(async () => {
-      noteBox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    });
+  it('gathers overdue follow-ups into one line, and Show them narrows the board to them', async () => {
+    const own = rows[0];
+    rows = [
+      { id: 'l5', name: 'Maria Lopez', status: 'new', createdAt: '2026-10-02T00:00:00Z', phone: '(555) 201-3344', followUpDate: '2026-10-18' },
+      { id: 'l6', name: 'Oak Street Dental', status: 'contacted', createdAt: '2026-10-02T00:00:00Z', followUpDate: '2026-10-20', lastContactAt: '2026-10-19T15:00:00Z' },
+      { id: 'l8', name: 'Tom Becker', status: 'contacted', createdAt: '2026-10-02T00:00:00Z' },
+    ] as unknown as typeof rows;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
     await flush();
-    expect(logContact).toHaveBeenCalledWith('l2', 'note', 'left VM');
-    expect(card().querySelector('[aria-label="Intake answers"]')?.textContent).toContain('left VM');
+    const followUps = () => container.querySelector('[data-testid="follow-up-line"]')!;
+    expect(followUps().textContent).toContain('2 leads need a follow-up · Maria Lopez, Oak Street Dental');
+    const line = (who: string) =>
+      Array.from(container.querySelectorAll('[data-lead-card]')).find((el) => el.textContent?.includes(who))?.querySelector('[data-testid="lead-status-line"]')?.textContent;
+    expect(line('Maria Lopez')).toBe('Not contacted yet · follow-up was due Oct 18');
+    expect(line('Oak Street Dental')).toBe('Follow-up was due Oct 20');
+
+    const names = () => Array.from(container.querySelectorAll('[data-lead-card]')).map((el) => el.querySelector('span')?.textContent);
+    expect(names()).toEqual(['Maria Lopez', 'Oak Street Dental', 'Tom Becker']);
+    act(() => click(Array.from(followUps().querySelectorAll('button')).find((b) => b.textContent === 'Show them')!));
+    expect(names()).toEqual(['Maria Lopez', 'Oak Street Dental']);
+    act(() => click(Array.from(followUps().querySelectorAll('button')).find((b) => b.textContent === 'Show all')!));
+    expect(names()).toHaveLength(3);
+    rows = [own];
+  });
+
+  it('says sample leads are showing beside the title, and Remove takes them away after asking', async () => {
+    const own = rows[0];
+    rows = [own, { id: 's1', name: 'Tom Becker', status: 'contacted', createdAt: '2026-10-02T00:00:00Z', isSample: true }] as unknown as typeof rows;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
+    await flush();
+    expect(container.textContent).toContain('Showing sample leads');
+    expect(container.textContent).not.toContain("You're looking at sample leads");
+    const card = Array.from(container.querySelectorAll('[data-lead-card]')).find((el) => el.textContent?.includes('Tom Becker'))!;
+    expect(card.textContent).toContain('Sample');
+    await act(async () => click(Array.from(container.querySelectorAll('button')).find((b) => b.textContent === 'Remove')!));
+    const yes = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent === 'Remove samples')!;
+    await act(async () => click(yes));
+    await flush();
+    expect(removeSamples).toHaveBeenCalledWith('org1');
+    expect(container.textContent).not.toContain('Tom Becker');
+    expect(container.textContent).not.toContain('Showing sample leads');
     rows = [own];
   });
 

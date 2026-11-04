@@ -1,25 +1,21 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { lastSeen, remember } from '../lib/lastSeen';
-import { AddressLink } from '../components/common/AddressLink';
-import { fullAddress } from '../lib/mapsLinks';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
-import { CalendarClock, CalendarDays, ChevronsDownUp, ChevronsUpDown, Download, FileSpreadsheet, Kanban, Mail, MapPin, MessageSquare, MoreVertical, Phone, Plus, Search, UserPlus } from 'lucide-react';
+import { CalendarClock, CalendarDays, Download, FileSpreadsheet, Kanban, MessageSquare, MoreVertical, Phone, Plus, Search, UserPlus } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
 import { industriesAPI, leadsAPI } from '../lib/api';
 import { EstimateService } from '../services/EstimateService';
 import { useAuth } from '../contexts/AuthContext';
-import { formatCurrency } from '../utils/format';
 import { LeadsCalendar } from '../components/leads/LeadsCalendar';
-import { AppointmentField } from '../components/leads/AppointmentField';
 import { LeadDrawer } from '../components/leads/LeadDrawer';
-import { WalletBar, openFundingPage, type WalletSummary } from '../components/market/WalletBar';
+import { WalletBar, WalletPill, openFundingPage, type WalletSummary } from '../components/market/WalletBar';
 import { useWallet } from '../lib/live';
 import { leadTag } from '../components/market/leadRoute';
 import { STATUSES, type Lead, type LeadStatus, type Trade } from '../components/leads/leadTypes';
 import { appointmentDay, formatAppointmentShort, toLocalInput } from '../utils/appointments';
-import { ago, intakeAnswers, leadSummary } from '../components/leads/leadIntake';
+import { ago, leadSummary } from '../components/leads/leadIntake';
 import { LeadExportService } from '../services/LeadExportService';
 import { Toast, useToast } from '../components/common/Notice';
 import { useConfirm } from '../components/common/ConfirmDialog';
@@ -42,7 +38,6 @@ const FILTERS: { value: LeadFilter; label: string }[] = [
   { value: 'recent', label: 'Added in the last 30 days' },
 ];
 const VIEW_KEY = 'leadsView';
-const COMPACT_KEY = 'leadsCompact';
 
 /** Whether a lead matches the search box: name, phone (any format), email, address or notes. */
 function matchesSearch(lead: Lead, query: string) {
@@ -56,141 +51,117 @@ function matchesSearch(lead: Lead, query: string) {
 const NO_COUNTY = '__none';
 
 const leadValue = (lead: Lead) => lead.estimate?.totalAmount ?? lead.estimatedValue ?? 0;
+/** "$14,500": a lead's value is a rough number, so the board shows whole dollars. */
+const dollars = (amount: number) => `$${Math.round(amount).toLocaleString('en-US')}`;
 
 type ContactKind = 'call' | 'text' | 'note';
 
 const tel = (phone: string) => phone.replace(/[^\d+]/g, '');
-const callButton =
-  'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-emerald-600/90 text-white text-xs font-medium whitespace-nowrap [@media(hover:hover)]:hover:bg-emerald-600';
-const quietButton =
-  'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-[#333333] text-gray-200 text-xs whitespace-nowrap [@media(hover:hover)]:hover:border-[#555555]';
+const shortDay = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+/** A small dot that leads a status line. */
+const Dot: React.FC<{ tone: string }> = ({ tone }) => <span className={`w-2 h-2 rounded-full flex-shrink-0 ${tone}`} aria-hidden="true" />;
 
 /**
  * One line that says what to do next: the appointment when there is one
- * (amber inside a day), else when the lead was last touched and how many
- * calls so far, else that nobody has called yet.
+ * (amber inside a day), else that nobody has called yet, else a follow-up
+ * that has gone by, else when the lead was last touched. Amber is the only
+ * warning colour on the board; nothing shouts.
  */
-const LeadStatusLine: React.FC<{ lead: Lead; now: number }> = ({ lead, now }) => {
+const LeadStatusLine: React.FC<{ lead: Lead; now: number; todayIso: string }> = ({ lead, now, todayIso }) => {
+  const line = (tone: string, text: React.ReactNode, icon?: React.ReactNode) => (
+    <span className={`inline-flex items-start gap-2 text-sm leading-5 min-w-0 ${tone}`} data-testid="lead-status-line">
+      {icon && <span className="h-5 flex items-center flex-shrink-0">{icon}</span>}
+      <span>{text}</span>
+    </span>
+  );
   if (lead.appointmentAt && Date.parse(lead.appointmentAt) > now - 60 * 60_000) {
     const soon = Date.parse(lead.appointmentAt) - now < 24 * 60 * 60_000;
-    return (
-      <span className={`inline-flex items-center gap-1 text-xs ${soon ? 'text-amber-300' : 'text-gray-400'}`} data-testid="lead-status-line">
-        <CalendarClock className="w-3 h-3 flex-shrink-0" /> Appt {formatAppointmentShort(lead.appointmentAt)}
-      </span>
+    return line(
+      soon ? 'text-amber-300' : 'text-[#7fb0e0]',
+      `Appointment ${formatAppointmentShort(lead.appointmentAt)}`,
+      <CalendarClock className="w-4 h-4 flex-shrink-0" />,
     );
   }
+  if (lead.status === 'lost') return lead.lostReason ? line('text-gray-400', lead.lostReason) : null;
+  const open = OPEN.includes(lead.status);
+  const followUpGone = open && !!lead.followUpDate && lead.followUpDate < todayIso;
+  const due = followUpGone ? `follow-up was due ${shortDay(lead.followUpDate!)}` : '';
+  if (open && !lead.lastContactAt && (lead.status === 'new' || lead.status === 'no_answer')) {
+    return line('text-amber-300', `Not contacted yet${due ? ` · ${due}` : ''}`, <Dot tone="bg-amber-300" />);
+  }
+  if (followUpGone) return line('text-amber-300', due.charAt(0).toUpperCase() + due.slice(1), <Dot tone="bg-amber-300" />);
   if (lead.lastContactAt) {
     const calls = lead.contacts ?? 0;
     const texts = lead.texts ?? 0;
-    return (
-      <span className="text-xs text-gray-400" data-testid="lead-status-line">
-        Last touched {ago(lead.lastContactAt, now)}
-        {calls > 0 ? ` · ${calls} call${calls === 1 ? '' : 's'}` : ''}
-        {texts > 0 ? ` · ${texts} text${texts === 1 ? '' : 's'}` : ''}
-      </span>
+    return line(
+      'text-gray-400',
+      `Last touched ${ago(lead.lastContactAt, now)}${calls > 0 ? ` · ${calls} call${calls === 1 ? '' : 's'}` : ''}${texts > 0 ? ` · ${texts} text${texts === 1 ? '' : 's'}` : ''}`,
     );
   }
-  if (!OPEN.includes(lead.status)) return null;
-  const since = lead.assignedAt ?? lead.createdAt;
-  // Past No Answer the company has reached them, even if no call was logged.
-  if (lead.status !== 'new' && lead.status !== 'no_answer') {
-    return since ? <span className="text-xs text-gray-500" data-testid="lead-status-line">Came in {ago(since, now)}</span> : null;
-  }
-  // Nobody has called yet: how long it's been sitting is the number that matters.
-  const waitingMs = since ? now - Date.parse(since) : 0;
-  const tone = waitingMs > 24 * 60 * 60_000 ? 'text-red-400' : waitingMs > 60 * 60_000 ? 'text-amber-300' : 'text-gray-500';
-  return (
-    <span className={`text-xs ${tone}`} data-testid="lead-status-line">
-      {since ? `Came in ${ago(since, now)} · not contacted` : 'Not contacted yet'}
-    </span>
-  );
+  if (open && lead.followUpDate) return line('text-gray-400', `Follow up ${shortDay(lead.followUpDate)}`);
+  return null;
 };
 
-/**
- * The working part of an open board card: Call and Text, the address as a
- * map link, the appointment, the intake answers, and a one-line box to add
- * a day-stamped note without opening the lead.
- */
-const LeadCardDetails: React.FC<{
+const control =
+  'h-11 rounded-lg bg-[#121418] border border-[#2a2d34] text-sm text-white focus:outline-none focus:border-[#336699]';
+const iconButton =
+  'w-11 h-11 flex items-center justify-center rounded-lg border border-[#2a2d34] bg-[#16181d] [@media(hover:hover)]:hover:border-[#4a4e57] transition-colors';
+
+/** One lead on the board: who, how much, the gist, what's next, and Call and Text. Anywhere else opens it. */
+const LeadCard: React.FC<{
   lead: Lead;
-  onChange: (lead: Lead, data: Partial<Lead>) => void;
-  onContact: (lead: Lead, kind: ContactKind, note?: string) => Promise<void>;
-}> = ({ lead, onChange, onContact }) => {
-  const [note, setNote] = useState('');
-  const [saving, setSaving] = useState(false);
-  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
-  const answers = intakeAnswers(lead.notes);
-
-  // The follow-up date is the company's own reminder; an appointment never sets or clears it.
-  const changeAppointment = (iso: string | null) => onChange(lead, { appointmentAt: iso ?? undefined });
-  const addNote = async () => {
-    const text = note.trim();
-    if (!text || saving) return;
-    setSaving(true);
-    try {
-      await onContact(lead, 'note', text);
-      setNote('');
-    } finally {
-      setSaving(false);
-    }
-  };
-
+  now: number;
+  todayIso: string;
+  trade?: string;
+  onOpen: () => void;
+  onContact: (lead: Lead, kind: ContactKind) => void;
+}> = ({ lead, now, todayIso, trade, onOpen, onContact }) => {
+  const summary = leadSummary(lead.notes);
+  const since = lead.assignedAt ?? lead.createdAt;
+  const value = leadValue(lead);
+  const chip = 'text-xs px-2 py-0.5 rounded-md border whitespace-nowrap';
   return (
-    <div className="mt-2 space-y-2" onClick={stop}>
-      {lead.phone && (
-        <div className="flex flex-wrap items-center gap-2">
-          <a href={`tel:${tel(lead.phone)}`} onClick={() => onContact(lead, 'call')} className={callButton}>
-            <Phone className="w-3.5 h-3.5" /> Call {lead.phone}
-          </a>
-          <a href={`sms:${tel(lead.phone)}`} onClick={() => onContact(lead, 'text')} className={quietButton}>
-            <MessageSquare className="w-3.5 h-3.5" /> Text
-          </a>
+    <div
+      data-lead-card
+      onClick={onOpen}
+      className="rounded-xl border border-[#23262d] bg-[#121418] p-4 cursor-pointer [@media(hover:hover)]:hover:border-[#3a3e47] transition-colors"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+          <span className="text-[15px] font-semibold leading-tight">{lead.name}</span>
+          {/* Where it came from: Webb Leads, and which way (bid, Marketplace, Vault...). */}
+          {leadTag(lead) && <span className={`${chip} text-emerald-300 border-emerald-500/40 bg-emerald-500/10`}>{leadTag(lead)}</span>}
+          {lead.isSample && <span className={`${chip} text-gray-400 border-[#33363d]`}>Sample</span>}
         </div>
+        {value > 0 && <span className="text-[15px] font-semibold whitespace-nowrap">{dollars(value)}</span>}
+      </div>
+      {summary && (
+        <p className="mt-1.5 text-sm text-gray-300 truncate" title={summary}>
+          {summary}
+        </p>
       )}
-      {(lead.email || lead.address) && (
-        <div className="space-y-1 text-xs">
-          {lead.email && (
-            <a href={`mailto:${lead.email}`} className="flex items-center gap-2 text-gray-200 hover:text-white min-w-0">
-              <Mail className="w-3.5 h-3.5 flex-shrink-0 text-gray-500" /> <span className="truncate">{lead.email}</span>
+      <div className="mt-3 flex items-end justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          <div className="flex min-w-0"><LeadStatusLine lead={lead} now={now} todayIso={todayIso} /></div>
+          {(trade || since) && (
+            <div className="text-sm text-gray-500 truncate">
+              {[trade, since ? `came in ${ago(since, now)}` : ''].filter(Boolean).join(' · ')}
+            </div>
+          )}
+        </div>
+        {/* Only Call and Text keep the tap; anywhere else on the card opens the lead. */}
+        {lead.phone && (
+          <div className="flex gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+            <a href={`tel:${tel(lead.phone)}`} onClick={() => onContact(lead, 'call')} aria-label={`Call ${lead.name}`} title={lead.phone} className={iconButton}>
+              <Phone className="w-4 h-4 text-emerald-400" />
             </a>
-          )}
-          {lead.address && (
-            <AddressLink
-              address={fullAddress(lead.address, lead.city)}
-              className="flex items-center gap-2 text-gray-200 hover:text-white min-w-0 text-left"
-            >
-              <MapPin className="w-3.5 h-3.5 flex-shrink-0 text-gray-500" /> <span className="truncate">{lead.address}</span>
-            </AddressLink>
-          )}
-        </div>
-      )}
-      <AppointmentField value={lead.appointmentAt} onChange={changeAppointment} className="text-xs" />
-      {answers.length > 0 ? (
-        <ul className="text-xs text-gray-300 space-y-0.5" aria-label="Intake answers">
-          {answers.map((answer, i) => (
-            <li key={i} className="flex gap-1.5">
-              <span className="text-gray-600">·</span>
-              <span>{answer}</span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        lead.notes && <p className="text-xs text-gray-300 whitespace-pre-line line-clamp-4">{lead.notes}</p>
-      )}
-      <input
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            addNote();
-          }
-        }}
-        onBlur={addNote}
-        placeholder="Add a note: called, left VM…"
-        aria-label="Add a note"
-        className="w-full bg-[#0A0A0A] border border-[#333333] px-2 py-1.5 text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-[#336699]"
-      />
+            <a href={`sms:${tel(lead.phone)}`} onClick={() => onContact(lead, 'text')} aria-label={`Text ${lead.name}`} title={lead.phone} className={iconButton}>
+              <MessageSquare className="w-4 h-4 text-gray-200" />
+            </a>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
@@ -305,17 +276,6 @@ const LeadsPage: React.FC = () => {
     load();
   };
 
-  const saveLead = async (lead: Lead, data: Partial<Lead>) => {
-    setLeads((rows) => rows.map((row) => (row.id === lead.id ? { ...row, ...data } : row)));
-    try {
-      // A field set to undefined is cleared, which the server needs as null.
-      await leadsAPI.update(lead.id, Object.fromEntries(Object.entries(data).map(([key, value]) => [key, value ?? null])));
-    } catch (err) {
-      notify(err instanceof Error ? err.message : 'Could not save the lead');
-      load();
-    }
-  };
-
   /** A call, text or card note: the server stamps it and the card's status line follows. */
   const logContact = async (lead: Lead, kind: ContactKind, note?: string) => {
     try {
@@ -348,22 +308,6 @@ const LeadsPage: React.FC = () => {
   const hasSamples = leads.some((lead) => lead.isSample);
 
   const [query, setQuery] = useState('');
-  // Compact cards show the name, the gist, a Call button and the status line; the toolbar button opens them all.
-  const [compact, setCompact] = useState(() => {
-    try {
-      return localStorage.getItem(COMPACT_KEY) !== 'false';
-    } catch {
-      return true;
-    }
-  });
-  const chooseCompact = (next: boolean) => {
-    setCompact(next);
-    try {
-      localStorage.setItem(COMPACT_KEY, String(next));
-    } catch {
-      // Not remembered; the cards still switch.
-    }
-  };
   const [leadFilter, setLeadFilter] = useState<LeadFilter>('all');
   // '' is every county; NO_COUNTY is leads whose county isn't known.
   const [countyFilter, setCountyFilter] = useState('');
@@ -467,25 +411,32 @@ const LeadsPage: React.FC = () => {
     if (leadFilter === 'recent') return (lead.createdAt ?? '') >= monthAgo;
     return true;
   });
+  // The follow-up line counts every lead the "Follow-up overdue" filter shows, whatever else is filtered.
+  const overdue = leads.filter((lead) => isOverdue(lead, todayIso));
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white">
       <Toast text={toast} />
       {confirmDialog}
-      <div className="p-6">
+      <div className="px-4 py-5 md:px-8 md:py-7">
+        {/* Title row: the page name and the quiet staff pill; on the right, the sample leads and their Remove. */}
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-3 mb-5">
+          <h1 className="hidden md:block text-3xl font-bold tracking-tight">Leads</h1>
+          <WalletPill organizationId={organizationId} />
+          {hasSamples && (
+            <div className="ml-auto flex items-center gap-3 text-sm">
+              <span className="text-gray-400">Showing sample leads</span>
+              <button type="button" onClick={removeSamples} className="text-[#7fb0e0] [@media(hover:hover)]:hover:text-white">
+                Remove
+              </button>
+            </div>
+          )}
+        </div>
         <WalletBar organizationId={organizationId} />
         {elsewhere && (
-          <p role="alert" className="mb-4 px-4 py-3 border border-amber-500/40 bg-amber-500/10 text-sm text-amber-200">
+          <p role="alert" className="mb-4 px-4 py-3 rounded-xl border border-amber-500/40 bg-amber-500/10 text-sm text-amber-200">
             {elsewhere}
           </p>
-        )}
-        {hasSamples && (
-          <div className="mb-4 px-4 py-3 border border-[#336699]/50 bg-[#336699]/10 text-sm flex items-center justify-between gap-3">
-            <span className="text-gray-300">You're looking at sample leads. Add your own any time.</span>
-            <button onClick={removeSamples} className="text-[#7fb0e0] hover:text-white whitespace-nowrap">
-              Remove sample leads
-            </button>
-          </div>
         )}
         {loading ? (
           <p className="text-sm text-gray-500">Loading leads…</p>
@@ -525,34 +476,25 @@ const LeadsPage: React.FC = () => {
           </div>
         ) : (
           <>
-          <div className="flex flex-wrap items-center gap-2 mb-4">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-4">
             <label className="relative flex-1 min-w-[200px] max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
               <input
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search name, phone, email, address, notes…"
+                placeholder="Search leads"
+                title="Name, phone, email, address or notes"
                 aria-label="Search leads"
-                className="w-full pl-9 pr-3 py-2 bg-[#121212] border border-[#333333] text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
+                className={`${control} w-full pl-10 pr-3 placeholder-gray-500`}
               />
             </label>
-            <select
-              value={leadFilter}
-              onChange={(e) => setLeadFilter(e.target.value as LeadFilter)}
-              aria-label="Filter leads"
-              className="px-3 py-2 bg-[#121212] border border-[#333333] text-sm text-white focus:outline-none focus:border-[#336699]"
-            >
+            <select value={leadFilter} onChange={(e) => setLeadFilter(e.target.value as LeadFilter)} aria-label="Filter leads" className={`${control} px-3`}>
               {FILTERS.map((f) => (
                 <option key={f.value} value={f.value}>{f.label}</option>
               ))}
             </select>
-            <select
-              value={countyFilter}
-              onChange={(e) => setCountyFilter(e.target.value)}
-              aria-label="Filter by county"
-              className="px-3 py-2 bg-[#121212] border border-[#333333] text-sm text-white focus:outline-none focus:border-[#336699]"
-            >
+            <select value={countyFilter} onChange={(e) => setCountyFilter(e.target.value)} aria-label="Filter by county" className={`${control} px-3`}>
               <option value="">All counties</option>
               {counties.map(([county, count]) => (
                 <option key={county} value={county}>{county} County ({count})</option>
@@ -560,43 +502,33 @@ const LeadsPage: React.FC = () => {
               {noCounty > 0 && <option value={NO_COUNTY}>No county ({noCounty})</option>}
             </select>
             {(query || leadFilter !== 'all' || countyFilter) && (
-              <span className="text-xs text-gray-400">{visible.length} of {leads.length}</span>
+              <span className="text-sm text-gray-400">{visible.length} of {leads.length}</span>
             )}
-            {view === 'board' && (
+            <div className="ml-auto flex items-center gap-2 sm:gap-3">
+              <div className="flex h-11 rounded-lg border border-[#2a2d34] overflow-hidden" role="group" aria-label="View">
+                {([['board', Kanban, 'Board'], ['calendar', CalendarDays, 'Calendar']] as const).map(([key, Icon, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => chooseView(key)}
+                    aria-pressed={view === key}
+                    aria-label={label}
+                    title={label}
+                    className={`inline-flex items-center justify-center w-11 ${view === key ? 'bg-[#1d2733] text-[#7fb0e0]' : 'text-gray-400 hover:text-white'}`}
+                  >
+                    <Icon className="w-4 h-4" />
+                  </button>
+                ))}
+              </div>
               <button
-                onClick={() => chooseCompact(!compact)}
-                aria-pressed={compact}
-                title={compact ? 'Show every lead in full' : 'Show just names and phones'}
-                className="ml-auto inline-flex items-center gap-1.5 px-3 py-2 text-sm border border-[#333333] text-gray-300 hover:text-white"
+                ref={menuButtonRef}
+                type="button"
+                onClick={toggleMenu}
+                aria-label="More"
+                aria-expanded={menuAt !== null}
+                className="h-11 w-11 inline-flex items-center justify-center rounded-lg border border-[#2a2d34] text-gray-400 hover:text-white"
               >
-                {compact ? <ChevronsUpDown className="w-4 h-4" /> : <ChevronsDownUp className="w-4 h-4" />}
-                {compact ? 'Expand leads' : 'Collapse leads'}
+                <MoreVertical className="w-4 h-4" />
               </button>
-            )}
-            <div className={`${view === 'board' ? '' : 'ml-auto '}flex border border-[#333333]`} role="group" aria-label="View">
-              {([['board', Kanban, 'Board'], ['calendar', CalendarDays, 'Calendar']] as const).map(([key, Icon, label]) => (
-                <button
-                  key={key}
-                  onClick={() => chooseView(key)}
-                  aria-pressed={view === key}
-                  aria-label={label}
-                  title={label}
-                  className={`inline-flex items-center justify-center px-3 py-2 ${view === key ? 'bg-[#336699] text-white' : 'text-gray-400 hover:text-white'}`}
-                >
-                  <Icon className="w-4 h-4" />
-                </button>
-              ))}
-            </div>
-            <button
-              ref={menuButtonRef}
-              type="button"
-              onClick={toggleMenu}
-              aria-label="More"
-              aria-expanded={menuAt !== null}
-              className="p-2 border border-[#333333] text-gray-400 hover:text-white"
-            >
-              <MoreVertical className="w-4 h-4" />
-            </button>
             {menuAt &&
               createPortal(
                 <div ref={menuRef} role="menu" style={{ top: menuAt.top, right: menuAt.right }} className="fixed z-[10030] w-48 bg-[#1E1E1E] border border-[#333333] shadow-xl py-1">
@@ -611,106 +543,82 @@ const LeadsPage: React.FC = () => {
                 </div>,
                 document.body,
               )}
+              <button
+                type="button"
+                onClick={() => setEditing('new')}
+                className="h-11 inline-flex items-center gap-2 px-4 rounded-lg bg-[#3b74c4] text-white text-sm font-medium [@media(hover:hover)]:hover:bg-[#3366b0]"
+              >
+                <Plus className="w-4 h-4" /> New lead
+              </button>
+            </div>
           </div>
+          {/* Every follow-up that has gone by, in one line, with a way to see just those. */}
+          {overdue.length > 0 && (
+            <div className="mb-5 px-4 py-3 rounded-xl border border-amber-500/20 bg-amber-500/[0.06] text-sm flex items-center gap-3" data-testid="follow-up-line">
+              <Dot tone="bg-amber-300" />
+              <span className="min-w-0 truncate">
+                <span className="font-semibold text-white">
+                  {overdue.length} {overdue.length === 1 ? 'lead needs' : 'leads need'} a follow-up
+                </span>
+                <span className="text-gray-400">
+                  {' · '}
+                  {overdue.slice(0, 3).map((lead) => lead.name).join(', ')}
+                  {overdue.length > 3 ? ` +${overdue.length - 3} more` : ''}
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setLeadFilter(leadFilter === 'overdue' ? 'all' : 'overdue')}
+                className="ml-auto text-[#7fb0e0] [@media(hover:hover)]:hover:text-white whitespace-nowrap"
+              >
+                {leadFilter === 'overdue' ? 'Show all' : 'Show them'}
+              </button>
+            </div>
+          )}
           {view === 'calendar' ? (
             <LeadsCalendar leads={visible} onOpen={(lead) => setEditing(lead)} />
           ) : (
-          <div className="flex gap-3 overflow-x-auto pb-2">
+          <div className="flex gap-4 overflow-x-auto pb-2">
             {STATUSES.map((column) => {
               const cards = visible.filter((lead) => lead.status === column.value);
+              // An empty stage folds to a slim strip, so the busy ones get the room.
+              if (cards.length === 0) {
+                return (
+                  <div
+                    key={column.value}
+                    data-empty-stage={column.value}
+                    title={`${column.label}: no leads`}
+                    className="flex-shrink-0 w-12 rounded-xl border border-[#1f2228] bg-[#0f1114] flex flex-col items-center gap-3 py-4"
+                  >
+                    <Dot tone={column.dot} />
+                    <span className="text-sm text-gray-500">0</span>
+                    <span className="text-sm text-gray-400 [writing-mode:vertical-rl] whitespace-nowrap">{column.label}</span>
+                  </div>
+                );
+              }
               const total = cards.reduce((sum, lead) => sum + leadValue(lead), 0);
               return (
-                <div
-                  key={column.value}
-                  className="flex-shrink-0 w-72 flex flex-col border border-[#333333] bg-[#0A0A0A]"
-                >
-                  <div className="px-3 py-2 border-b border-[#333333]">
-                    <div className="flex items-center justify-between">
-                      <span className={`text-sm font-medium ${column.color}`}>{column.label}</span>
-                      <span className="text-xs text-gray-500">{cards.length}</span>
-                    </div>
-                    <div className="text-xs text-gray-400">{formatCurrency(total)}</div>
+                <section key={column.value} aria-label={column.label} className="flex-shrink-0 w-80 sm:w-96 flex flex-col">
+                  <div className="flex items-center gap-2.5 px-1 pb-3">
+                    <Dot tone={column.dot} />
+                    <span className="text-base font-semibold">{column.label}</span>
+                    <span className="text-sm text-gray-500">{cards.length}</span>
+                    {total > 0 && <span className="ml-auto text-sm text-gray-400">{dollars(total)}</span>}
                   </div>
-                  <div className="p-2 space-y-2 min-h-[120px]">
-                    {cards.map((lead) => {
-                      const overdue = isOverdue(lead, todayIso);
-                      const showFollowUp = !!lead.followUpDate && !lead.appointmentAt && OPEN.includes(lead.status);
-                      return (
-                        <div
-                          key={lead.id}
-                          data-lead-card
-                          onClick={() => setEditing(lead)}
-                          className={`bg-[#121212] border border-[#333333] hover:border-[#555555] cursor-pointer ${compact ? 'px-3 py-2' : 'p-3'}`}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <span className="text-sm font-medium leading-tight">{lead.name}</span>
-                              {compact && leadSummary(lead.notes) && (
-                                <p className="text-xs text-gray-400 mt-0.5 truncate" title={leadSummary(lead.notes)}>
-                                  {leadSummary(lead.notes)}
-                                </p>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-1 flex-shrink-0">
-                              {/* Where it came from: Webb Leads, and which way (bid, Marketplace, Vault...). */}
-                              {leadTag(lead) && (
-                                <span className="text-xs px-1.5 border text-emerald-300 border-emerald-500/40 bg-emerald-500/10 whitespace-nowrap">
-                                  {leadTag(lead)}
-                                </span>
-                              )}
-                              {lead.isSample && (
-                                <span className="text-xs text-gray-400 border border-[#333333] px-1.5">Sample</span>
-                              )}
-                            </div>
-                          </div>
-                          {/* Only the Call link keeps the tap; anywhere else on the card opens the lead. */}
-                          <div className="flex items-end justify-between gap-2 mt-1.5">
-                            <div className="min-w-0 space-y-1.5">
-                              {/* Collapsed cards carry their own Call button; expanded ones get Call and Text below. */}
-                              {compact && (lead.phone ? (
-                                <a
-                                  href={`tel:${tel(lead.phone)}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    logContact(lead, 'call');
-                                  }}
-                                  className={callButton}
-                                >
-                                  <Phone className="w-3.5 h-3.5" /> {lead.phone}
-                                </a>
-                              ) : (
-                                <span className="text-xs text-gray-500">No phone</span>
-                              ))}
-                              <div className="whitespace-nowrap"><LeadStatusLine lead={lead} now={now} /></div>
-                            </div>
-                            {/* The trade sits right on top of the value, both flush right, no gap between them. */}
-                            <div className="text-xs text-right flex-shrink-0 leading-tight">
-                              {lead.jobType && <div className="text-gray-500 truncate">{tradeName.get(lead.jobType) ?? lead.jobType}</div>}
-                              {leadValue(lead) > 0 && <div className="text-white">{formatCurrency(leadValue(lead))}</div>}
-                            </div>
-                          </div>
-                          {!compact && (
-                          <>
-                          {showFollowUp && (
-                            <div className="mt-1 text-xs">
-                              <span className={overdue ? 'text-red-400' : 'text-gray-400'}>
-                                Follow up {overdue ? 'overdue · ' : ''}
-                                {new Date(`${lead.followUpDate}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                              </span>
-                            </div>
-                          )}
-                          {lead.status === 'lost' && lead.lostReason && (
-                            <div className="text-xs text-gray-500 mt-1">{lead.lostReason}</div>
-                          )}
-                          <LeadCardDetails lead={lead} onChange={saveLead} onContact={logContact} />
-                          </>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {cards.length === 0 && <p className="text-xs text-gray-600 text-center py-6">No leads here</p>}
+                  <div className="space-y-3">
+                    {cards.map((lead) => (
+                      <LeadCard
+                        key={lead.id}
+                        lead={lead}
+                        now={now}
+                        todayIso={todayIso}
+                        trade={lead.jobType ? tradeName.get(lead.jobType) ?? lead.jobType : undefined}
+                        onOpen={() => setEditing(lead)}
+                        onContact={logContact}
+                      />
+                    ))}
                   </div>
-                </div>
+                </section>
               );
             })}
           </div>

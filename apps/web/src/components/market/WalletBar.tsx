@@ -93,6 +93,8 @@ export function bidStatus(wallet: WalletSummary): {
   label?: string;
   /** A second, quieter link to the Bids page. */
   alsoBids?: boolean;
+  /** A few words for a pill beside the page title, when nothing needs doing (see WalletPill). */
+  short?: string;
 } | null {
   const bids = wallet.standingBids ?? 0;
   // Trades come first: they decide which leads a company can win at all.
@@ -188,6 +190,7 @@ export function bidStatus(wallet: WalletSummary): {
           text: `You're viewing this company as Webb Leads staff, so your own mobile isn't used. Its lead texts go to ${line}; no owner has added a mobile. To get them yourself, add yourself as an owner.`,
           action: 'team',
           label: 'Team & Permissions',
+          short: `Staff view · texts go to ${line}`,
         }
       : {
           tone: 'warn',
@@ -240,13 +243,38 @@ export const WalletBar: React.FC<{ organizationId?: string }> = ({ organizationI
           )}
         </p>
       )}
-      {status && <BidStatusLine wallet={wallet} status={status} onAddFunds={addFunds} />}
+      {/* A status with a short form is the pill beside the title instead (WalletPill). */}
+      {status && !status.short && <BidStatusLine wallet={wallet} status={status} onAddFunds={addFunds} />}
       {fundError && (
         <p role="alert" className="-mt-2 mb-4 text-sm text-red-300">
           {fundError}
         </p>
       )}
     </>
+  );
+};
+
+/**
+ * The quiet form of the bid status, beside the Leads title: a pill with a few
+ * words (the whole sentence on hover) and its one link. Only for a status
+ * with nothing to do (see `short`); the others stay full lines in WalletBar.
+ */
+export const WalletPill: React.FC<{ organizationId?: string }> = ({ organizationId }) => {
+  const wallet = useWallet<WalletSummary>(organizationId) ?? null;
+  const status = wallet ? bidStatus(wallet) : null;
+  if (!status?.short) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 min-w-0" role="status" data-wallet-pill>
+      <span title={status.text} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-[#333333] text-sm text-gray-300 min-w-0">
+        <span className="w-2 h-2 rounded-full bg-gray-500 flex-shrink-0" aria-hidden="true" />
+        <span className="truncate">{status.short}</span>
+      </span>
+      {status.action === 'team' && (
+        <Link to="/settings/organization?tab=team" className="text-sm text-[#7fb0e0] [@media(hover:hover)]:hover:text-white whitespace-nowrap">
+          {status.label}
+        </Link>
+      )}
+    </div>
   );
 };
 
