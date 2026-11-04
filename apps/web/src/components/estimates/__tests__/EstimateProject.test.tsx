@@ -44,11 +44,11 @@ describe("the estimate's project", () => {
 
   it('on the estimates page, opens in a drawer on top of this estimate', async () => {
     await tapProject('/estimates/e1?tab=items', '/estimates/:id');
-    expect(where).toEqual({ path: '/estimates/e1/project/p1', search: '?tab=estimates', state: null });
+    expect(where).toEqual({ path: '/estimates/e1/project/p1', search: '', state: null }); // on the project's first tab
   });
 
   it('anywhere else, opens the project marked to come back here when it closes', async () => {
     await tapProject('/clients/c1', '/clients/:id');
-    expect(where).toEqual({ path: '/projects/p1', search: '?tab=estimates', state: { returnTo: '/clients/c1' } });
+    expect(where).toEqual({ path: '/projects/p1', search: '', state: { returnTo: '/clients/c1' } });
   });
 });

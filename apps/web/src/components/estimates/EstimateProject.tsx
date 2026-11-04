@@ -27,12 +27,14 @@ export function EstimateProject({
   const navigate = useNavigate();
   const location = useLocation();
   // On the estimates page the project opens in a drawer on top of this estimate.
+  // Either way it opens on its first tab: tapping the project means "show me the project",
+  // and the estimate is still right behind it.
   const onEstimatesPage = useMatch('/estimates/:id') !== null;
   const openProject = (projectId: string) =>
     onEstimatesPage
-      ? navigate(`/estimates/${estimate.id}/project/${projectId}?tab=estimates`)
+      ? navigate(`/estimates/${estimate.id}/project/${projectId}`)
       : // Closing the project comes back to this estimate (ProjectList.closeProject).
-        navigate(`/projects/${projectId}?tab=estimates`, { state: { returnTo: `${location.pathname}${location.search}` } });
+        navigate(`/projects/${projectId}`, { state: { returnTo: `${location.pathname}${location.search}` } });
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [choosing, setChoosing] = useState(false);
   const [busy, setBusy] = useState(false);
