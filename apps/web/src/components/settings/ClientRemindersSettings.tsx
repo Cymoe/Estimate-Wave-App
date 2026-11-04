@@ -47,7 +47,7 @@ export const ClientRemindersSettings: React.FC<{ organizationId: string }> = ({ 
     <section aria-label="Client reminders" className="space-y-3">
       <p className="text-sm text-gray-400">
         When a client hasn&rsquo;t signed an estimate, Webb Leads emails them a friendly reminder with its link, from your company name (replies come to
-        you). Two reminders at most; none once they sign. You can stop them for one estimate from its Client &amp; pricing tab.
+        you). Two reminders at most; none once they sign. You can stop them for one estimate from its Details tab.
       </p>
       <label className="flex items-center gap-3 min-h-[44px] cursor-pointer">
         <input

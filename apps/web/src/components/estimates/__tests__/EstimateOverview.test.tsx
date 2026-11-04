@@ -92,7 +92,7 @@ async function openOverview() {
     ),
   );
   await act(async () => {});
-  await act(async () => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent === 'Client & pricing')!.click());
+  await act(async () => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent === 'Details')!.click());
   await act(async () => {});
 }
 
@@ -139,8 +139,8 @@ describe('estimate overview', () => {
       ),
     );
     await act(async () => {});
-    // The tab says what's on it, so the client settings aren't missed behind "Overview".
-    expect(button('Client & pricing')).toBeDefined();
+    // The tab is named for what it holds (everything besides the lines and the agreement), not "Overview".
+    expect(button('Details')).toBeDefined();
     expect(button('Overview')).toBeUndefined();
     await act(async () => button('Add client')!.click());
     await act(async () => {});
