@@ -138,24 +138,24 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
         <table className="w-full" style={{ borderCollapse: 'collapse' }}>
           <thead className="sticky top-0 z-10">
               <tr className="bg-[#1D1F25] border-b border-[#333333]">
-            <th className="text-left py-2.5 px-3 font-medium text-gray-300 text-[13px] sm:text-[14px] border-r border-[#333333]">
+            <th className="text-left py-2 px-3 font-medium text-gray-300 text-[13px] border-r border-[#333333]">
               <div className="flex items-center gap-1.5">
                 <span className="text-gray-500">A</span>
                 <span>Description</span>
               </div>
             </th>
-            <th className="text-right py-2.5 px-2 sm:px-3 font-medium text-gray-300 text-[13px] sm:text-[14px] w-24 sm:w-28 border-r border-[#333333]">
+            <th className="text-right py-2 px-3 font-medium text-gray-300 text-[13px] w-28 border-r border-[#333333]">
               <div className="flex items-center justify-end gap-1.5">
                 <span className="text-gray-500">$</span>
                 <span>Price</span>
               </div>
             </th>
-            <th className="text-center py-2.5 px-2 font-medium text-gray-300 text-[13px] sm:text-[14px] w-12 sm:w-14 border-r border-[#333333]">
+            <th className="text-center py-2 px-2 font-medium text-gray-300 text-[13px] w-16 border-r border-[#333333]">
               <div className="flex items-center justify-center gap-1.5">
                 <span>Qty</span>
               </div>
             </th>
-            <th className="text-right py-2.5 px-3 font-medium text-gray-300 text-[13px] sm:text-[14px] w-28 sm:w-32 border-r border-[#333333]">
+            <th className="text-right py-2 px-3 font-medium text-gray-300 text-[13px] w-28 border-r border-[#333333]">
               <div className="flex items-center justify-end gap-1.5">
                 <span className="text-gray-500">ƒ</span>
                 <span>Total</span>
@@ -173,10 +173,10 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
               >
               
               {/* Name Cell - opens the item's pricing editor when there is one */}
-              <td className="py-3 px-3 text-white text-[15px] sm:text-[17px] leading-snug font-normal border-r border-[#333333]">
+              <td className="py-1.5 px-3 text-white text-[13px] font-normal border-r border-[#333333]">
                 {item.name}
                 {(item.category || item.allowance) && (
-                  <span className="block mt-0.5 text-[13px] sm:text-[14px] text-gray-400" data-testid="item-category">
+                  <span className="block text-[11px] text-gray-400" data-testid="item-category">
                     {item.category}
                     {item.allowance && <span className="text-amber-300" data-testid="item-allowance">{item.category ? ' · ' : ''}Allowance</span>}
                   </span>
@@ -185,7 +185,7 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
               
               {/* Price Cell */}
               <td 
-                className="py-3 px-2 sm:px-3 text-right text-white text-[15px] sm:text-[17px] tabular-nums whitespace-nowrap font-normal cursor-pointer border-r border-[#333333]"
+                className="py-1.5 px-3 text-right text-white text-[13px] font-normal cursor-pointer border-r border-[#333333]"
                 onClick={onEditPrice ? undefined : () => handleCellClick(item.id, 'price', item.price)}
               >
                 {editingCell?.itemId === item.id && editingCell?.field === 'price' ? (
@@ -197,7 +197,7 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
                     onChange={(e) => setEditingCell({...editingCell, value: e.target.value})}
                     onBlur={handleCellUpdate}
                     onKeyDown={handleKeyDown}
-                    className="w-full px-1 py-0.5 bg-[#0A0A0A] border border-[#336699] rounded-sm outline-none text-white text-right text-[15px] sm:text-[17px]"
+                    className="w-full px-1 py-0.5 bg-[#0A0A0A] border border-[#336699] rounded-sm outline-none text-white text-right text-[13px]"
                   />
                 ) : (
                   <div className={`px-1 py-0.5 -mx-1 -my-0.5 rounded-sm inline-block ${onEditPrice ? '' : 'hover:bg-[#22272d] cursor-pointer'}`}>
@@ -208,7 +208,7 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
               
               {/* Quantity Cell */}
               <td 
-                className="py-3 px-2 text-center text-white text-[15px] sm:text-[17px] tabular-nums font-normal cursor-pointer border-r border-[#333333]"
+                className="py-1.5 px-2 text-center text-white text-[13px] font-normal cursor-pointer border-r border-[#333333]"
                 onClick={onEditPrice ? undefined : () => handleCellClick(item.id, 'quantity', item.quantity)}
               >
                 {editingCell?.itemId === item.id && editingCell?.field === 'quantity' ? (
@@ -220,7 +220,7 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
                     onChange={(e) => setEditingCell({...editingCell, value: e.target.value})}
                     onBlur={handleCellUpdate}
                     onKeyDown={handleKeyDown}
-                    className="w-full px-1 py-0.5 bg-[#0A0A0A] border border-[#336699] rounded-sm outline-none text-white text-center text-[15px] sm:text-[17px]"
+                    className="w-full px-1 py-0.5 bg-[#0A0A0A] border border-[#336699] rounded-sm outline-none text-white text-center text-[13px]"
                   />
                 ) : (
                   <div className={`px-1 py-0.5 -mx-1 -my-0.5 rounded-sm inline-block ${onEditPrice ? '' : 'hover:bg-[#22272d] cursor-pointer'}`}>
@@ -230,7 +230,7 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
               </td>
               
               {/* Total Cell */}
-              <td className="py-3 px-3 text-right text-white text-[15px] sm:text-[17px] tabular-nums whitespace-nowrap font-normal border-r border-[#333333]">
+              <td className="py-1.5 px-3 text-right text-white text-[13px] font-normal border-r border-[#333333]">
                 {formatCurrency(item.total)}
               </td>
               
@@ -244,7 +244,7 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
                 <button
                   type="button"
                   onClick={onAddItem}
-                  className="w-full text-left py-3 px-3 text-[#6aa3d9] text-[15px] sm:text-[16px] font-medium hover:text-white transition-colors flex items-center gap-2"
+                  className="w-full text-left py-2.5 px-3 text-[#6aa3d9] text-[13px] font-medium hover:text-white transition-colors flex items-center gap-2"
                 >
                   <Plus className="w-4 h-4" />
                   <span>Add item</span>
@@ -259,18 +259,18 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
       {/* Fixed Summary Footer - Always visible at bottom, full width but respects sidebars */}
       {showStickyFooter && (
         <div className="sticky bottom-0 left-0 right-0 bg-[#1D1F25] border-t border-[#333333] z-20 flex-shrink-0">
-          <div className="flex items-center text-[13px] sm:text-[15px] font-medium tabular-nums">
-            <div className="flex-1 py-2.5 px-3 text-right text-gray-400 border-r border-[#333333]">
+          <div className="flex items-center text-[12px] font-medium">
+            <div className="flex-1 py-2 px-3 text-right text-gray-500 border-r border-[#333333]">
               {items.length} {items.length === 1 ? 'item' : 'items'} · Sum
             </div>
-            <div className="w-24 sm:w-28 py-2.5 px-2 sm:px-3 text-right text-gray-300 whitespace-nowrap border-r border-[#333333]">
+            <div className="w-28 py-2 px-3 text-right text-gray-300 border-r border-[#333333]">
               {formatCurrency(subtotal)}
             </div>
-            <div className="w-12 sm:w-14 py-2.5 px-2 text-center text-gray-300 border-r border-[#333333]">
+            <div className="w-16 py-2 px-2 text-center text-gray-300 border-r border-[#333333]">
               {items.reduce((sum, item) => sum + (item.quantity || 0), 0)}
             </div>
-            <div className="w-28 sm:w-32 py-2.5 px-3 text-right border-r border-[#333333] flex flex-col items-end">
-              <span className="text-white font-bold text-[15px] sm:text-[17px] whitespace-nowrap">{formatCurrency(total)}</span>
+            <div className="w-28 py-2 px-3 text-right border-r border-[#333333] flex flex-col items-end">
+              <span className="text-white font-semibold">{formatCurrency(total)}</span>
               {marginIndicator && redlineTotal > 0 && (
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span className="text-[10px] text-gray-500">Comm:</span>
