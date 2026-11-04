@@ -21,6 +21,8 @@ interface ExpensesListProps {
   onChange?: (expenses: Expense[]) => void;
   /** Opens with the add form showing. */
   startAdding?: boolean;
+  /** The "Cost Categories" (etc.) heading; off where the page already labels the list. */
+  heading?: boolean;
 }
 
 /** A yyyy-mm-dd date as a local date (not midnight UTC, which is the day before in the US). */
@@ -33,7 +35,7 @@ const todayIso = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable = true, defaultViewMode = 'cost-codes', onChange, startAdding = false }) => {
+export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable = true, defaultViewMode = 'cost-codes', onChange, startAdding = false, heading = true }) => {
   const { selectedOrg } = useContext(OrganizationContext);
   const organizationId: string | undefined = selectedOrg?.id;
   const [expenses, setExpensesState] = useState<Expense[]>([]);
@@ -314,13 +316,15 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({ projectId, editable 
     <div className="space-y-6">
       {/* Controls */}
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <h2 className="text-sm font-medium uppercase tracking-wider text-gray-400">
-            {viewMode === 'cost-codes' ? 'Cost Categories' : 
-             viewMode === 'categories' ? 'Expense Types' : 
-             viewMode === 'payee' ? 'Payees' : 'Timeline'}
-          </h2>
-        </div>
+        {heading && (
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-medium uppercase tracking-wider text-gray-400">
+              {viewMode === 'cost-codes' ? 'Cost Categories' :
+               viewMode === 'categories' ? 'Expense Types' :
+               viewMode === 'payee' ? 'Payees' : 'Timeline'}
+            </h2>
+          </div>
+        )}
 
         <div className="flex items-center gap-2">
           {/* View Mode Selector */}

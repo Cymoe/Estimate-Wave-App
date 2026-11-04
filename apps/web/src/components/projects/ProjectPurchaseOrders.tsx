@@ -48,6 +48,8 @@ const PILL: Record<
 
 export type OrdersSummary = {
   open: number;
+  /** Sent to the vendor, not yet received: what the committed money is. */
+  ordered: number;
   committed: number;
   received: number;
 };
@@ -55,6 +57,7 @@ const summaryOf = (data: ProjectOrders): OrdersSummary => ({
   open: data.orders.filter(
     (o) => o.status === "draft" || o.status === "ordered",
   ).length,
+  ordered: data.orders.filter((o) => o.status === "ordered").length,
   committed: data.committed,
   received: data.received,
 });
@@ -585,7 +588,10 @@ export const ProjectPurchaseOrders: React.FC<{
   onSummary?: (summary: OrdersSummary) => void;
   /** A PO was received: the project's expenses changed. */
   onExpensesChanged?: () => void;
-}> = ({ projectId, companyName, onSummary, onExpensesChanged }) => {
+  /** Show only this many at first, with a link for the rest (and any newly opened one). */
+  shortList?: number;
+}> = ({ projectId, companyName, onSummary, onExpensesChanged, shortList }) => {
+  const [showAll, setShowAll] = useState(false);
   const [data, setData] = useState<ProjectOrders | null>(null);
   const [failed, setFailed] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -727,7 +733,10 @@ export const ProjectPurchaseOrders: React.FC<{
         </div>
       ) : (
         <ul className="space-y-2">
-          {data.orders.map((po) => (
+          {(showAll || !shortList
+            ? data.orders
+            : data.orders.filter((po, i) => i < shortList || po.id === openId)
+          ).map((po) => (
             <OrderCard
               key={po.id}
               po={po}
@@ -739,6 +748,15 @@ export const ProjectPurchaseOrders: React.FC<{
             />
           ))}
         </ul>
+      )}
+      {!showAll && shortList && data.orders.length > shortList && (
+        <button
+          type="button"
+          onClick={() => setShowAll(true)}
+          className="mt-3 text-sm text-[#5b8fc7] hover:text-white"
+        >
+          Show all {data.orders.length}
+        </button>
       )}
     </div>
   );

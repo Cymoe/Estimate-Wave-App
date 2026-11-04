@@ -49,9 +49,13 @@ import { Toast, useToast } from '../common/Notice';
 import { PROJECT_STATUSES, formatProjectDate, projectStatusInfo } from './projectStatus';
 import { askConfirm, notify } from '../common/appDialogs';
 
-type TabType = 'overview' | 'tasks' | 'selections' | 'estimates' | 'orders' | 'expenses' | 'photos';
-const TAB_IDS: TabType[] = ['overview', 'tasks', 'selections', 'estimates', 'orders', 'expenses', 'photos'];
+type TabType = 'overview' | 'tasks' | 'money' | 'selections' | 'photos';
+const TAB_IDS: TabType[] = ['overview', 'tasks', 'money', 'selections', 'photos'];
 const isTab = (value: string | null): value is TabType => TAB_IDS.includes(value as TabType);
+/** The Money tab's sections; the old ?tab=estimates, orders and expenses links land on them. */
+type MoneySection = 'estimates' | 'orders' | 'expenses';
+const MONEY_SECTIONS: MoneySection[] = ['estimates', 'orders', 'expenses'];
+const isMoneySection = (value: string | null): value is MoneySection => MONEY_SECTIONS.includes(value as MoneySection);
 
 const ESTIMATE_PILL: Record<string, string> = {
   draft: 'bg-gray-500/20 text-gray-300',
@@ -78,14 +82,6 @@ const dates = (project: Project) => {
   return start ? `Starts ${start}` : end ? `Ends ${end}` : 'No dates';
 };
 
-/** What a job's costs look like once they're in, shown faded until the project has its own. */
-const EXAMPLE_COSTS = [
-  { category: 'Materials', amount: 7400 },
-  { category: 'Labor', amount: 5200 },
-  { category: 'Subcontractor', amount: 2800 },
-  { category: 'Permits', amount: 650 },
-];
-
 const byCategory = (expenses: Expense[]) => {
   const totals = new Map<string, number>();
   for (const e of expenses) totals.set(e.category || 'Other', (totals.get(e.category || 'Other') ?? 0) + e.amount);
@@ -94,103 +90,169 @@ const byCategory = (expenses: Expense[]) => {
 
 const shortDate = (iso: string) => formatProjectDate(iso).replace(/, \d{4}$/, '');
 
-const PAID_PILL: Record<string, string> = {
-  paid: 'text-green-400',
-  pending: 'text-yellow-400',
-  unpaid: 'text-red-400',
+const sectionLabel = 'text-xs font-medium text-gray-400 uppercase tracking-wider';
+
+/** The bar's colours, matched by the squares beside each money row. */
+const SWATCH = {
+  contract: 'bg-green-500/20 border border-green-500/40',
+  budget: 'bg-[#336699]',
+  spent: 'bg-[#9cc2ea]',
+  committed: 'border border-dashed border-gray-500',
 };
 
-/** Where the money goes: costs by type, the budget, and the latest costs. */
-const CostsOverview: React.FC<{ expenses: Expense[]; budget: number; onOpen: () => void; onAdd: () => void }> = ({
-  expenses,
-  budget,
-  onOpen,
-  onAdd,
-}) => {
-  const example = expenses.length === 0;
-  const rows = example ? EXAMPLE_COSTS : byCategory(expenses);
-  const total = rows.reduce((sum, r) => sum + r.amount, 0);
-  const largest = Math.max(...rows.map((r) => r.amount), 1);
-  const recent = [...expenses].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 5);
-  const left = budget - total;
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+/** A yyyy-mm-dd date as a local day number, so day counts don't drift across time zones. */
+const dayNumber = (iso: string) => {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  return Math.round(new Date(y, (m || 1) - 1, d || 1).getTime() / 86_400_000);
+};
+
+/** Where the job is in its dates: "Day 7 of 20", "Starts in 3 days", "Ended Nov 16". */
+function scheduleText(start: string | undefined, end: string | undefined, today = new Date()): string | null {
+  const now = Math.round(new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() / 86_400_000);
+  const days = (n: number) => plural(n, 'day');
+  if (start) {
+    const s = dayNumber(start);
+    if (now < s) return s - now === 1 ? 'Starts tomorrow' : `Starts in ${days(s - now)}`;
+    if (end) {
+      const e = dayNumber(end);
+      if (now > e) return `Ended ${shortDate(end)}`;
+      return `Day ${now - s + 1} of ${Math.max(1, e - s + 1)}`;
+    }
+    return `Day ${now - s + 1}`;
+  }
+  if (end) {
+    const e = dayNumber(end);
+    if (now > e) return `Ended ${shortDate(end)}`;
+    return now === e ? 'Ends today' : `Ends in ${days(e - now)}`;
+  }
+  return null;
+}
+
+/**
+ * The profit the job is heading for: what the client agreed to pay, less the
+ * cost budget (or what's spent and committed, once that's more), with a bar
+ * from $0 to the contract showing the budget and what's gone so far.
+ */
+const ProfitSummary: React.FC<{ contract: number; budget: number; spent: number; committed: number }> = ({
+  contract,
+  budget,
+  spent,
+  committed,
+}) => {
+  const soFar = spent + committed;
+  const basis = budget > 0 ? Math.max(budget, soFar) : soFar;
+  const profit = contract - basis;
+  const margin = contract > 0 ? Math.round((profit / contract) * 100) : null;
+  const caption =
+    contract <= 0
+      ? 'Once an estimate is accepted, its total is the contract and the profit shows here.'
+      : budget <= 0
+        ? 'The contract less what’s spent and committed. Add a cost budget to project it.'
+        : soFar > budget
+          ? 'Spent and committed are past the cost budget, so this counts them instead.'
+          : 'If the job comes in on its cost budget.';
+  const scale = Math.max(contract, budget, soFar, 1);
+  const pct = (n: number) => `${Math.min(100, (n / scale) * 100)}%`;
   return (
-    <>
-      <section className="bg-[#1a1a1a] border border-[#333] p-4" aria-label="Costs by type" data-testid="costs-by-type">
-        <div className="flex items-center justify-between mb-3 text-xs">
-          <h3 className="font-medium text-gray-400 uppercase tracking-wide">Costs by type</h3>
-          {example ? (
-            <span className="px-1.5 py-0.5 border border-[#333] text-gray-500">Example</span>
-          ) : (
-            <span className="text-gray-500">{formatCurrency(total)}</span>
-          )}
+    <div className="px-4 py-5" data-testid="project-summary">
+      <div className="text-sm text-gray-400">{budget > 0 ? 'Projected profit' : 'Profit so far'}</div>
+      <div className="mt-1 flex items-baseline gap-3 flex-wrap">
+        <span
+          className={`text-4xl font-semibold tabular-nums ${margin === null ? 'text-gray-500' : profit >= 0 ? 'text-green-400' : 'text-red-400'}`}
+        >
+          {margin === null ? '—' : formatCurrency(Math.round(profit)).replace(/\.00$/, '')}
+        </span>
+        {margin !== null && <span className="text-base text-gray-300">{margin}% margin</span>}
+      </div>
+      <p className="mt-1 text-sm text-gray-500">{caption}</p>
+      {contract > 0 && (
+        <div className="mt-4" aria-hidden="true">
+          <div className="relative h-3 bg-[#262626]" data-testid="profit-bar">
+            <div className={`absolute inset-y-0 left-0 ${SWATCH.contract}`} style={{ width: pct(contract) }} />
+            {budget > 0 && <div className={`absolute inset-y-0 left-0 ${SWATCH.budget}`} style={{ width: pct(budget) }} />}
+            {committed > 0 && (
+              // Striped, like the dashed square beside Committed: ordered, not yet paid.
+              <div
+                className="absolute inset-y-0"
+                style={{
+                  left: pct(spent),
+                  width: pct(committed),
+                  backgroundImage: 'repeating-linear-gradient(135deg, rgba(255,255,255,0.45) 0 2px, transparent 2px 5px)',
+                }}
+                data-testid="committed-bar"
+              />
+            )}
+            {spent > 0 && <div className={`absolute inset-y-0 left-0 ${SWATCH.spent}`} style={{ width: pct(spent) }} />}
+          </div>
+          <div className="mt-1.5 flex justify-between text-xs text-gray-500 tabular-nums">
+            <span>$0</span>
+            <span>Contract {formatCurrency(Math.round(contract)).replace(/\.00$/, '')}</span>
+          </div>
         </div>
-        <ul className={`space-y-2.5 ${example ? 'opacity-50 select-none' : ''}`} aria-hidden={example || undefined}>
+      )}
+    </div>
+  );
+};
+
+/** One money row on the Overview: a square matching the bar, the name and what's behind it, the amount. */
+const MoneyRow: React.FC<{
+  swatch?: string;
+  label: string;
+  detail?: string;
+  amount: React.ReactNode;
+  strong?: boolean;
+  onOpen?: () => void;
+  testId?: string;
+}> = ({ swatch, label, detail, amount, strong, onOpen, testId }) => {
+  const body = (
+    <>
+      <span className={`w-3 h-3 flex-shrink-0 ${swatch ?? ''}`} aria-hidden="true" />
+      <span className="flex-1 min-w-0">
+        <span className={`block ${strong ? 'text-gray-300' : 'text-white'}`}>{label}</span>
+        {detail && <span className="block text-xs text-gray-500 truncate">{detail}</span>}
+      </span>
+      <span className={`tabular-nums text-right ${strong ? 'font-semibold' : ''}`}>{amount}</span>
+    </>
+  );
+  const row = 'w-full min-h-[56px] flex items-center gap-3 py-3 text-left text-[15px]';
+  return (
+    <li data-testid={testId}>
+      {onOpen ? (
+        <button type="button" onClick={onOpen} className={`${row} hover:bg-[#1a1a1a]`}>
+          {body}
+        </button>
+      ) : (
+        <div className={row}>{body}</div>
+      )}
+    </li>
+  );
+};
+
+/** Spent by type: a bar for each kind of cost, longest first. */
+const SpentByType: React.FC<{ expenses: Expense[] }> = ({ expenses }) => {
+  const rows = byCategory(expenses);
+  const largest = Math.max(...rows.map((r) => r.amount), 1);
+  return (
+    <section className="px-4 py-5" aria-label="Spent by type" data-testid="costs-by-type">
+      <h3 className={`${sectionLabel} mb-3`}>Spent by type</h3>
+      {rows.length === 0 ? (
+        <p className="text-sm text-gray-500">Nothing spent yet. Costs show here by type as they’re logged.</p>
+      ) : (
+        <ul className="space-y-3">
           {rows.map((row) => (
-            <li key={row.category} className="grid grid-cols-[7rem_1fr_auto] items-center gap-3 text-sm">
-              <span className="text-gray-300 truncate">{row.category}</span>
-              <span className="h-2 bg-[#262626]">
-                <span className="block h-2 bg-[#336699]" style={{ width: `${Math.round((row.amount / largest) * 100)}%` }} />
+            <li key={row.category} className="grid grid-cols-[7rem_1fr_auto] items-center gap-4 text-[15px]">
+              <span className="text-white truncate">{row.category}</span>
+              <span className="h-1.5 bg-[#262626]">
+                <span className="block h-1.5 bg-[#336699]" style={{ width: `${Math.round((row.amount / largest) * 100)}%` }} />
               </span>
-              <span className="font-mono tabular-nums text-white text-right w-36">
-                {formatCurrency(row.amount)}
-                <span className="text-gray-500"> · {Math.round((row.amount / total) * 100)}%</span>
-              </span>
+              <span className="tabular-nums text-white text-right">{formatCurrency(row.amount)}</span>
             </li>
           ))}
         </ul>
-        {example ? (
-          <div className="mt-4 pt-3 border-t border-[#262626] flex items-center justify-between gap-3 text-sm">
-            <span className="text-gray-400">Log costs as you go to see where the money goes and what the job makes.</span>
-            <button type="button" onClick={onAdd} className="flex-shrink-0 px-3 py-1.5 bg-[#336699] hover:bg-[#2a5580] text-white">
-              Add a cost
-            </button>
-          </div>
-        ) : (
-          budget > 0 && (
-            <div className="mt-4 pt-3 border-t border-[#262626]" data-testid="budget">
-              <div className="flex items-center justify-between text-sm mb-1.5">
-                <span className="text-gray-400">Budget {formatCurrency(budget)}</span>
-                <span className={left >= 0 ? 'text-gray-300' : 'text-red-400'}>
-                  {left >= 0 ? `${formatCurrency(left)} left` : `${formatCurrency(-left)} over`}
-                </span>
-              </div>
-              <div className="h-1.5 bg-[#262626]">
-                <div
-                  className={`h-1.5 ${left >= 0 ? 'bg-[#336699]' : 'bg-red-400'}`}
-                  style={{ width: `${Math.min(100, Math.round((total / budget) * 100))}%` }}
-                />
-              </div>
-            </div>
-          )
-        )}
-      </section>
-
-      {!example && (
-        <section className="bg-[#1a1a1a] border border-[#333]" aria-label="Recent costs">
-          <div className="flex items-center justify-between px-4 pt-4 pb-2 text-xs">
-            <h3 className="font-medium text-gray-400 uppercase tracking-wide">Recent costs</h3>
-            <button type="button" onClick={onOpen} className="text-[#336699] hover:text-white">
-              See all
-            </button>
-          </div>
-          <ul className="divide-y divide-[#262626]">
-            {recent.map((e) => (
-              <li key={e.id} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-4 py-2.5 text-sm">
-                <span className="min-w-0">
-                  <span className="block truncate text-white">{e.description}</span>
-                  <span className="block text-xs text-gray-500 truncate">
-                    {[e.category, e.vendor, shortDate(e.date)].filter(Boolean).join(' · ')}
-                  </span>
-                </span>
-                <span className={`text-xs capitalize ${PAID_PILL[paymentState(e.status)]}`}>{paymentState(e.status)}</span>
-                <span className="font-mono tabular-nums text-white">{formatCurrency(e.amount)}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
       )}
-    </>
+    </section>
   );
 };
 
@@ -216,9 +278,9 @@ const ProjectFields: React.FC<{ project: Project; organizationId: string; onSave
   }, [organizationId]);
 
   return (
-    <section className="bg-[#1a1a1a] border border-[#333] p-4" aria-label="Details">
+    <section className="px-4 py-5" aria-label="Details">
       <div className="flex items-center justify-between mb-2 text-xs">
-        <h3 className="font-medium text-gray-400 uppercase tracking-wide">Details</h3>
+        <h3 className={sectionLabel}>Details</h3>
         <SaveStatus state={state} />
       </div>
       {error && <p className="mb-2 text-sm text-red-400">{error}</p>}
@@ -302,16 +364,28 @@ export const ProjectPanel: React.FC<{
   const [searchParams] = useSearchParams();
   const { selectedOrg } = useContext(OrganizationContext);
   const orgId: string | undefined = selectedOrg?.id;
-  // ?tab=estimates (a refresh, a link) starts on that tab, as does opening straight onto one of the
-  // project's estimates; after that the tab is just state here.
+  // ?tab=money (a refresh, a link) starts on that tab, as does opening straight onto one of the
+  // project's estimates; after that the tab is just state here. ?tab=estimates, orders and
+  // expenses (the tabs Money replaced) open Money on that section.
   const onEstimate = useMatch('/projects/:id/estimates/:estimateId') !== null;
   // Opened on top of one of its estimates (from the estimates page): that estimate is right behind.
   const estimateBehind = useMatch('/estimates/:id/project/:projectId')?.params.id;
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     const wanted = searchParams.get('tab');
-    return onEstimate ? 'estimates' : isTab(wanted) ? wanted : 'overview';
+    return onEstimate || isMoneySection(wanted) ? 'money' : isTab(wanted) ? wanted : 'overview';
   });
-  const [addingExpense, setAddingExpense] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  /** Money, scrolled to one of its sections, which is outlined for a moment. */
+  const openMoney = useCallback((section: MoneySection) => {
+    setActiveTab('money');
+    pointTo(() => root.current?.querySelector(`[data-testid="money-${section}"]`));
+  }, []);
+  useEffect(() => {
+    const wanted = searchParams.get('tab');
+    if (!onEstimate && isMoneySection(wanted) && wanted !== 'estimates') openMoney(wanted);
+    // Only on opening.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // The copy from the projects list (or the last visit) shows at once; the fresh one replaces it.
   const [project, setProject] = useState<Project | null>(() => ProjectService.cached(projectId) ?? null);
   usePageTitle(project?.name);
@@ -362,7 +436,7 @@ export const ProjectPanel: React.FC<{
   const [unfiled, setUnfiled] = useState<Estimate[] | null>(null);
   const [adding, setAdding] = useState(false);
   useEffect(() => {
-    if (activeTab !== 'estimates' || !orgId) return;
+    if (activeTab !== 'money' || !orgId) return;
     let cancelled = false;
     EstimateService.list(orgId)
       .then((rows) => {
@@ -514,7 +588,8 @@ export const ProjectPanel: React.FC<{
       .then((data) => {
         if (!live) return;
         const open = data.orders.filter((o) => o.status === 'draft' || o.status === 'ordered').length;
-        setOrders({ open, committed: data.committed, received: data.received });
+        const ordered = data.orders.filter((o) => o.status === 'ordered').length;
+        setOrders({ open, ordered, committed: data.committed, received: data.received });
       })
       .catch(() => live && setOrders(null));
     return () => {
@@ -524,11 +599,6 @@ export const ProjectPanel: React.FC<{
   const reloadExpenses = useCallback(() => {
     if (orgId) ExpenseService.list(orgId, projectId).then(setExpenses).catch(() => {});
   }, [orgId, projectId]);
-
-  const openExpenses = (add: boolean) => {
-    setAddingExpense(add);
-    setActiveTab('expenses');
-  };
 
   // Whether the tab row runs past the right edge (it scrolls sideways on a phone).
   const tabRow = useRef<HTMLDivElement>(null);
@@ -574,11 +644,22 @@ export const ProjectPanel: React.FC<{
   const status = projectStatusInfo(project.status);
   const summary = summarize(expenses);
   const budget = project.budget ?? 0;
-  const contract = (estimates ?? []).filter((e) => e.status === 'accepted').reduce((sum, e) => sum + e.total_amount, 0);
-  // Profit is what the client agreed to pay, less what the job has cost so far.
-  const profit = contract - summary.total;
-  const margin = contract > 0 ? Math.round((profit / contract) * 100) : null;
-  const spentShare = budget > 0 ? Math.min(100, Math.round((summary.total / budget) * 100)) : 0;
+  const accepted = (estimates ?? []).filter((e) => e.status === 'accepted');
+  const contract = accepted.reduce((sum, e) => sum + e.total_amount, 0);
+  const committed = orders?.committed ?? 0;
+  const left = budget - summary.total - committed;
+  // "2 expenses · 1 pending": how many aren't paid yet, by state.
+  const unpaid = (['pending', 'unpaid'] as const)
+    .map((state) => [state, expenses.filter((e) => paymentState(e.status) === state).length] as const)
+    .filter(([, n]) => n > 0)
+    .map(([state, n]) => `${n} ${state}`);
+  const schedule = scheduleText(project.start_date, project.end_date);
+  /** The Details section's budget or date field, brought into view and focused. */
+  const pointToField = (label: string) =>
+    pointTo(
+      () => root.current?.querySelector('section[aria-label="Details"]'),
+      () => root.current?.querySelector<HTMLElement>(`[aria-label="${label}"]`),
+    );
   const clientLabel = client ? client.company_name || client.name : project.client?.name;
   const place = client ? fullAddress(client.address, client.city, client.state, client.zip) : '';
   const nextUp = (tasks ?? []).filter((t) => !t.done).slice(0, 3);
@@ -587,16 +668,15 @@ export const ProjectPanel: React.FC<{
   const tabs: Array<{ id: TabType; label: string; count?: number }> = [
     { id: 'overview', label: 'Overview' },
     { id: 'tasks', label: 'Tasks', count: openTasks },
+    // The estimates, purchase orders and expenses, one under the other.
+    { id: 'money', label: 'Money' },
     // Selections: once a signed estimate has allowance lines for the client to pick.
     ...(hasSelections ? [{ id: 'selections' as const, label: 'Selections', count: selectionsToDo || undefined }] : []),
-    { id: 'estimates', label: 'Estimates', count: estimates?.length ?? 0 },
-    { id: 'orders', label: 'Purchase orders', count: orders?.open },
-    { id: 'expenses', label: 'Expenses', count: summary.count },
     { id: 'photos', label: 'Photos' },
   ];
 
   return (
-    <div className="h-full bg-[#000000] flex flex-col">
+    <div ref={root} className="h-full bg-[#000000] flex flex-col">
       <div className="sticky top-0 z-30 bg-[#1a1a1a] border-b border-[#333333] flex-shrink-0">
         {/* On a phone the buttons move to a second line when they don't fit, so the name shows and the menu is in reach. */}
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-3 py-2">
@@ -703,7 +783,7 @@ export const ProjectPanel: React.FC<{
               Add client
             </button>
           )}
-          {clientLabel || !project.client_id ? ' • ' : ''}
+          {clientLabel || !project.client_id ? ' · ' : ''}
           {dates(project)}
         </div>
         {/* On a phone the tabs scroll sideways; a fade at the right edge shows there are more. */}
@@ -714,7 +794,7 @@ export const ProjectPanel: React.FC<{
               key={tab.id}
               role="tab"
               aria-selected={activeTab === tab.id}
-              onClick={() => (tab.id === 'expenses' ? openExpenses(false) : setActiveTab(tab.id))}
+              onClick={() => setActiveTab(tab.id)}
               className={`flex-shrink-0 whitespace-nowrap px-4 py-3 text-sm font-medium transition-colors border-b-2 ${
                 activeTab === tab.id
                   ? 'text-white border-[#336699] bg-[#336699]/10'
@@ -734,61 +814,85 @@ export const ProjectPanel: React.FC<{
 
       <div className="flex-1 min-h-0 overflow-y-auto">
         {activeTab === 'overview' && (
-          <div className="p-4 space-y-4">
-            {/* What it's worth, what it has cost, what it makes */}
-            <div className="bg-[#1a1a1a] border border-[#333] grid grid-cols-3 divide-x divide-[#333]" data-testid="project-summary">
-              <div className="p-4 min-w-0">
-                <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Contract</div>
-                <div className={`text-lg font-semibold truncate ${contract > 0 ? 'text-white' : 'text-gray-500'}`}>
-                  {contract > 0 ? formatCurrency(contract) : '—'}
-                </div>
-                <div className="text-xs text-gray-500 mt-0.5">{contract <= 0 ? 'no accepted estimate' : 'accepted estimates'}</div>
-              </div>
-              <button type="button" onClick={() => openExpenses(false)} className="p-4 min-w-0 text-left hover:bg-[#222]">
-                <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Costs</div>
-                <div className="text-lg font-semibold text-white truncate">{formatCurrency(summary.total)}</div>
-                {budget > 0 ? (
-                  <>
-                    <div className="text-xs text-gray-500 mt-0.5">of {formatCurrency(budget)} budget</div>
-                    <div className="mt-2 h-1 bg-[#333]">
-                      <div className={`h-1 ${summary.total > budget ? 'bg-red-400' : 'bg-[#336699]'}`} style={{ width: `${spentShare}%` }} />
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-xs text-gray-500 mt-0.5">no budget set</div>
-                )}
-              </button>
-              <div className="p-4 min-w-0">
-                <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Profit</div>
-                <div
-                  className={`text-lg font-semibold truncate ${margin === null ? 'text-gray-500' : profit >= 0 ? 'text-green-400' : 'text-red-400'}`}
-                >
-                  {margin === null ? '—' : formatCurrency(profit)}
-                </div>
-                <div className="text-xs text-gray-500 mt-0.5">{margin === null ? 'once an estimate is accepted' : `${margin}% margin`}</div>
-              </div>
-            </div>
+          <div className="divide-y divide-[#333333]">
+            <ProfitSummary contract={contract} budget={budget} spent={summary.total} committed={committed} />
 
-            <ProjectFields key={project.id} project={project} organizationId={orgId} onSaved={saved} />
-            <section className="bg-[#1a1a1a] border border-[#333]" aria-label="Next up" data-testid="next-up">
-              <div className="flex items-center justify-between px-4 pt-4 pb-2">
-                <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wide">Next up</h3>
-                <button type="button" onClick={() => setActiveTab('tasks')} className="text-sm text-[#5b8fc7] hover:text-white">
-                  {nextUp.length ? 'All tasks' : 'Add tasks'}
-                </button>
+            {/* Where the money stands: each row opens its part of Money. */}
+            <ul className="px-4 py-2 divide-y divide-[#262626]" aria-label="Money" data-testid="money-rows">
+              <MoneyRow
+                swatch={SWATCH.contract}
+                label="Contract"
+                detail={accepted.length ? plural(accepted.length, 'accepted estimate') : 'No accepted estimate yet'}
+                amount={<span className={contract > 0 ? 'text-white' : 'text-gray-500'}>{contract > 0 ? formatCurrency(contract) : '—'}</span>}
+                onOpen={() => openMoney('estimates')}
+              />
+              <MoneyRow
+                swatch={SWATCH.budget}
+                label="Cost budget"
+                amount={
+                  budget > 0 ? (
+                    <span className="text-white">{formatCurrency(budget)}</span>
+                  ) : (
+                    <span className="text-[#5b8fc7]">Add budget</span>
+                  )
+                }
+                onOpen={() => pointToField('Budget')}
+              />
+              <MoneyRow
+                swatch={SWATCH.spent}
+                label="Spent"
+                detail={summary.count ? [plural(summary.count, 'expense'), ...unpaid].join(' · ') : 'Nothing logged yet'}
+                amount={<span className="text-white">{formatCurrency(summary.total)}</span>}
+                onOpen={() => openMoney('expenses')}
+              />
+              <MoneyRow
+                swatch={SWATCH.committed}
+                label="Committed"
+                detail={orders?.ordered ? plural(orders.ordered, 'purchase order') : 'Nothing ordered yet'}
+                amount={<span className="text-white">{formatCurrency(committed)}</span>}
+                onOpen={() => openMoney('orders')}
+                testId="committed"
+              />
+              {budget > 0 && (
+                <MoneyRow
+                  label={left >= 0 ? 'Left in budget' : 'Over budget'}
+                  amount={<span className={left >= 0 ? 'text-white' : 'text-red-400'}>{formatCurrency(Math.abs(left))}</span>}
+                  strong
+                  testId="budget-left"
+                />
+              )}
+            </ul>
+
+            <SpentByType expenses={expenses} />
+
+            <section className="px-4 py-2" aria-label="Next up" data-testid="next-up">
+              <div className="min-h-[56px] flex items-center justify-between gap-3 py-3 border-b border-[#262626] text-[15px]">
+                <span className="text-white">Schedule</span>
+                {schedule ? (
+                  <span className="text-gray-400 tabular-nums" data-testid="schedule">{schedule}</span>
+                ) : (
+                  <button type="button" onClick={() => pointToField('Start date')} className="text-[#5b8fc7] hover:text-white">
+                    Add dates
+                  </button>
+                )}
               </div>
-              {nextUp.length === 0 ? (
-                <p className="px-4 pb-4 text-sm text-gray-500">
-                  {tasks?.length ? 'Every task is done.' : 'Plan the job in steps with days and crew; they show on your schedule.'}
-                </p>
-              ) : (
-                <ul className="divide-y divide-[#262626] border-t border-[#262626]">
+              <div className="min-h-[56px] flex items-center justify-between gap-3 py-3 text-[15px]">
+                <span className="text-white">Next up</span>
+                <span className="flex items-center gap-3">
+                  {nextUp.length === 0 && <span className="text-gray-400">{tasks?.length ? 'Every task is done' : 'No tasks yet'}</span>}
+                  <button type="button" onClick={() => setActiveTab('tasks')} className="text-[#5b8fc7] hover:text-white">
+                    {tasks?.length ? 'All tasks' : 'Add tasks'}
+                  </button>
+                </span>
+              </div>
+              {nextUp.length > 0 && (
+                <ul className="-mt-1 pb-2 divide-y divide-[#262626]">
                   {nextUp.map((t) => (
                     <li key={t.id}>
                       <button
                         type="button"
                         onClick={() => setActiveTab('tasks')}
-                        className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-[#222]"
+                        className="w-full flex items-center gap-3 py-2.5 text-left text-sm hover:bg-[#1a1a1a]"
                       >
                         <span className="flex-1 min-w-0 truncate text-white">{t.title}</span>
                         <span className="text-xs text-gray-500 truncate max-w-[40%]">{t.crew.map((c) => c.name).join(', ')}</span>
@@ -799,7 +903,8 @@ export const ProjectPanel: React.FC<{
                 </ul>
               )}
             </section>
-            <CostsOverview expenses={expenses} budget={budget} onOpen={() => openExpenses(false)} onAdd={() => openExpenses(true)} />
+
+            <ProjectFields key={project.id} project={project} organizationId={orgId} onSaved={saved} />
           </div>
         )}
 
@@ -822,88 +927,95 @@ export const ProjectPanel: React.FC<{
           </div>
         )}
 
-        {activeTab === 'estimates' && (
-          <div className="p-4">
-            <div className="mb-3 flex items-center justify-end">
-              <button
-                type="button"
-                onClick={newEstimate}
-                disabled={creatingEstimate}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50"
-              >
-                <Plus className="w-4 h-4" /> {creatingEstimate ? 'Creating…' : 'New estimate'}
-              </button>
-            </div>
-            {estimateError && (
-              <p className="mb-3 text-sm text-red-400" role="alert">
-                {estimateError}
-              </p>
-            )}
-            {estimates === null ? (
-              <p className="text-sm text-gray-500">Loading…</p>
-            ) : estimates.length === 0 ? (
-              <p className="py-8 text-center text-sm text-gray-500">No estimates on this project yet. Start one with New estimate.</p>
-            ) : (
-              <ul className="bg-[#1a1a1a] border border-[#333] divide-y divide-[#262626]" aria-label="Estimates">
-                {estimates.map((estimate) => (
-                  <li key={estimate.id}>
-                    <button
-                      onClick={() =>
-                        estimate.id === estimateBehind ? onClose() : navigate(`/projects/${project.id}/estimates/${estimate.id}`)
-                      }
-                      className="w-full grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-4 py-3 text-left text-sm hover:bg-[#222]"
-                    >
-                      <span className="truncate text-white">
-                        {estimate.estimate_number}
-                        {estimate.title && <span className="text-gray-500"> · {estimate.title}</span>}
-                      </span>
-                      <span className={`px-2 py-0.5 text-xs uppercase font-medium ${ESTIMATE_PILL[estimate.status] ?? ESTIMATE_PILL.draft}`}>
-                        {estimateStatusLabel(estimate.status)}
-                      </span>
-                      <span className="font-mono tabular-nums text-white">{formatCurrency(estimate.total_amount)}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {/* Quoted before the project existed: this client's estimates on no project, tucked behind a link. */}
-            {unfiled && unfiled.length > 0 && (
-              <div className="mt-4">
-                {!showUnfiled ? (
-                  <button type="button" onClick={() => setShowUnfiled(true)} className="text-sm text-gray-400 hover:text-white">
-                    or add one made before the project ({unfiled.length})
-                  </button>
-                ) : (
-                  <select
-                    aria-label="Add an existing estimate"
-                    value=""
-                    autoFocus
-                    disabled={adding}
-                    onChange={(e) => e.target.value && addEstimate(e.target.value)}
-                    className="w-full bg-[#0A0A0A] border border-[#333] rounded px-3 py-2 text-sm text-white"
-                  >
-                    <option value="">{adding ? 'Adding…' : 'Pick one of their estimates'}</option>
-                    {unfiled.map((e) => (
-                      <option key={e.id} value={e.id}>
-                        {[e.estimate_number, e.title, formatCurrency(e.total_amount)].filter(Boolean).join(' · ')}
-                      </option>
-                    ))}
-                  </select>
-                )}
+        {activeTab === 'money' && (
+          <div className="divide-y divide-[#333333]">
+            <section className="px-4 py-5" aria-label="Estimates section" data-testid="money-estimates">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className={sectionLabel}>
+                  Estimates
+                  {contract > 0 && <span className="ml-2 normal-case tracking-normal text-gray-500">{formatCurrency(contract)} accepted</span>}
+                </h3>
+                <button
+                  type="button"
+                  onClick={newEstimate}
+                  disabled={creatingEstimate}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50"
+                >
+                  <Plus className="w-4 h-4" /> {creatingEstimate ? 'Creating…' : 'New estimate'}
+                </button>
               </div>
-            )}
-          </div>
-        )}
+              {estimateError && (
+                <p className="mb-3 text-sm text-red-400" role="alert">
+                  {estimateError}
+                </p>
+              )}
+              {estimates === null ? (
+                <p className="text-sm text-gray-500">Loading…</p>
+              ) : estimates.length === 0 ? (
+                <p className="py-8 text-center text-sm text-gray-500">No estimates on this project yet. Start one with New estimate.</p>
+              ) : (
+                <ul className="bg-[#1a1a1a] border border-[#333] divide-y divide-[#262626]" aria-label="Estimates">
+                  {estimates.map((estimate) => (
+                    <li key={estimate.id}>
+                      <button
+                        onClick={() =>
+                          estimate.id === estimateBehind ? onClose() : navigate(`/projects/${project.id}/estimates/${estimate.id}`)
+                        }
+                        className="w-full grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-4 py-3 text-left text-sm hover:bg-[#222]"
+                      >
+                        <span className="truncate text-white">
+                          {estimate.estimate_number}
+                          {estimate.title && <span className="text-gray-500"> · {estimate.title}</span>}
+                        </span>
+                        <span className={`px-2 py-0.5 text-xs uppercase font-medium ${ESTIMATE_PILL[estimate.status] ?? ESTIMATE_PILL.draft}`}>
+                          {estimateStatusLabel(estimate.status)}
+                        </span>
+                        <span className="font-mono tabular-nums text-white">{formatCurrency(estimate.total_amount)}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {/* Quoted before the project existed: this client's estimates on no project, tucked behind a link. */}
+              {unfiled && unfiled.length > 0 && (
+                <div className="mt-4">
+                  {!showUnfiled ? (
+                    <button type="button" onClick={() => setShowUnfiled(true)} className="text-sm text-gray-400 hover:text-white">
+                      or add one made before the project ({unfiled.length})
+                    </button>
+                  ) : (
+                    <select
+                      aria-label="Add an existing estimate"
+                      value=""
+                      autoFocus
+                      disabled={adding}
+                      onChange={(e) => e.target.value && addEstimate(e.target.value)}
+                      className="w-full bg-[#0A0A0A] border border-[#333] rounded px-3 py-2 text-sm text-white"
+                    >
+                      <option value="">{adding ? 'Adding…' : 'Pick one of their estimates'}</option>
+                      {unfiled.map((e) => (
+                        <option key={e.id} value={e.id}>
+                          {[e.estimate_number, e.title, formatCurrency(e.total_amount)].filter(Boolean).join(' · ')}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
+            </section>
 
-        {activeTab === 'orders' && (
-          <div className="p-4">
-            <ProjectPurchaseOrders projectId={project.id!} companyName={selectedOrg?.name} onSummary={setOrders} onExpensesChanged={reloadExpenses} />
-          </div>
-        )}
+            <section className="px-4 py-5" aria-label="Purchase orders section" data-testid="money-orders">
+              <h3 className={`${sectionLabel} mb-3`}>Purchase orders</h3>
+              <ProjectPurchaseOrders projectId={project.id!} companyName={selectedOrg?.name} onSummary={setOrders} onExpensesChanged={reloadExpenses} shortList={5} />
+            </section>
 
-        {activeTab === 'expenses' && (
-          <div className="p-4">
-            <ExpensesList projectId={project.id!} onChange={setExpenses} startAdding={addingExpense} />
+            <section className="px-4 py-5" aria-label="Expenses section" data-testid="money-expenses">
+              <h3 className={`${sectionLabel} mb-3`}>
+                Expenses
+                <span className="ml-2 normal-case tracking-normal text-gray-500">{formatCurrency(summary.total)}</span>
+              </h3>
+              <ExpensesList projectId={project.id!} onChange={setExpenses} heading={false} />
+            </section>
           </div>
         )}
 
@@ -914,31 +1026,6 @@ export const ProjectPanel: React.FC<{
         )}
       </div>
 
-      {/* The job's numbers, always in view, like an estimate's total bar. */}
-      <div className="flex-shrink-0 grid grid-cols-4 divide-x divide-[#333] border-t border-[#333] bg-[#1a1a1a] text-sm" data-testid="project-totals">
-        <div className="px-4 py-3 text-gray-400">
-          {summary.count} cost{summary.count === 1 ? '' : 's'}
-        </div>
-        <div className="px-4 py-3 text-right">
-          <div className="text-[11px] text-gray-500 uppercase tracking-wide">Contract</div>
-          <div className="font-mono tabular-nums text-white">{contract > 0 ? formatCurrency(contract) : '—'}</div>
-        </div>
-        <div className="px-4 py-3 text-right">
-          <div className="text-[11px] text-gray-500 uppercase tracking-wide">{budget > 0 ? `Costs · ${spentShare}% of budget` : 'Costs'}</div>
-          <div className="font-mono tabular-nums text-white">{formatCurrency(summary.total)}</div>
-          {(orders?.committed ?? 0) > 0 && (
-            <div className="text-[11px] text-gray-500 tabular-nums" data-testid="committed">
-              + {formatCurrency(orders!.committed)} committed
-            </div>
-          )}
-        </div>
-        <div className="px-4 py-3 text-right">
-          <div className="text-[11px] text-gray-500 uppercase tracking-wide">Profit{margin !== null ? ` · ${margin}%` : ''}</div>
-          <div className={`font-mono tabular-nums ${margin === null ? 'text-gray-500' : profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-            {margin === null ? '—' : formatCurrency(profit)}
-          </div>
-        </div>
-      </div>
       <Toast text={toast} />
       {portalOpen && portal && <PortalPreviewSheet clientId={portal.clientId} onClose={() => setPortalOpen(false)} onChanged={refreshPortal} />}
     </div>

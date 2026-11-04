@@ -140,6 +140,9 @@ function type(el: HTMLInputElement, value: string) {
   el.dispatchEvent(new Event('input', { bubbles: true }));
 }
 const summary = () => document.body.querySelector('[data-testid="project-summary"]')!.textContent ?? '';
+const money = () =>
+  Array.from(document.body.querySelectorAll('[data-testid="money-rows"] li')).map((li) => li.textContent);
+const selectedTab = () => document.body.querySelector('[role="tab"][aria-selected="true"]')!.textContent;
 
 describe('Project drawer', () => {
   afterEach(() => {
@@ -150,7 +153,7 @@ describe('Project drawer', () => {
     onSaved.mockClear();
   });
 
-  it('opens as a drawer as wide as the estimate, with the contract, costs and profit', async () => {
+  it('opens as a drawer as wide as the estimate, with the projected profit and where the money stands', async () => {
     expenses = [
       { id: 'x1', description: 'Lumber', amount: 600, category: 'Materials', date: '2026-10-02', status: 'paid' },
       { id: 'x2', description: 'Nails', amount: 100, category: 'Materials', date: '2026-10-03', status: 'pending' },
@@ -159,32 +162,29 @@ describe('Project drawer', () => {
     const dialog = body.querySelector('[role="dialog"][aria-label="Project"]')!;
     expect(dialog.className).toContain('md:w-[720px]');
     expect(dialog.querySelector('h1')!.textContent).toBe('Kitchen trim');
-    expect(dialog.textContent).toContain('Ann Miller • Oct 1, 2026 – Jan 1, 2099');
-    expect(Array.from(dialog.querySelectorAll('[role="tab"]')).map((t) => t.textContent)).toEqual([
-      'Overview',
-      'Tasks1',
-      'Estimates1',
-      'Purchase orders0',
-      'Expenses2',
-      'Photos',
-    ]);
+    expect(dialog.textContent).toContain('Ann Miller · Oct 1, 2026 – Jan 1, 2099');
+    // Estimates, purchase orders and expenses are all under Money, with no count summed across them.
+    expect(Array.from(dialog.querySelectorAll('[role="tab"]')).map((t) => t.textContent)).toEqual(['Overview', 'Tasks1', 'Money', 'Photos']);
     // The next open tasks, with their crew and day.
     const nextUp = dialog.querySelector('[data-testid="next-up"]')!.textContent;
     expect(nextUp).toContain('Tear-off');
     expect(nextUp).toContain('Joe Ruiz');
     expect(nextUp).not.toContain('Order materials');
-    expect(summary()).toContain('Contract$3,000.00accepted estimates');
-    expect(summary()).toContain('Costs$700.00of $1,000.00 budget');
-    expect(summary()).toContain('Profit$2,300.0077% margin');
-    // Where the money went, the budget, the latest costs, and the numbers pinned at the bottom.
+    // The profit if the job comes in on its cost budget: $3,000 less $1,000.
+    expect(summary()).toBe('Projected profit$2,00067% marginIf the job comes in on its cost budget.$0Contract $3,000');
+    expect(money()).toEqual([
+      'Contract1 accepted estimate$3,000.00',
+      'Cost budget$1,000.00',
+      'Spent2 expenses · 1 pending$700.00',
+      'CommittedNothing ordered yet$0.00',
+      'Left in budget$300.00',
+    ]);
     const types = dialog.querySelector('[data-testid="costs-by-type"]')!;
-    expect(types.textContent).toContain('Materials$700.00 · 100%');
-    expect(types.textContent).not.toContain('Example');
-    expect(dialog.querySelector('[data-testid="budget"]')!.textContent).toBe('Budget $1,000.00$300.00 left');
-    expect(dialog.querySelector('[aria-label="Recent costs"]')!.textContent).toContain('NailsMaterials · Oct 3pending$100.00');
-    expect(dialog.querySelector('[data-testid="project-totals"]')!.textContent).toBe(
-      '2 costsContract$3,000.00Costs · 70% of budget$700.00Profit · 77%$2,300.00',
-    );
+    expect(types.textContent).toBe('Spent by typeMaterials$700.00');
+    expect(dialog.querySelector('[data-testid="schedule"]')!.textContent).toMatch(/^Day \d+ of \d+$/);
+    // No list of recent costs and no totals bar pinned at the bottom: Money has them.
+    expect(dialog.querySelector('[aria-label="Recent costs"]')).toBeNull();
+    expect(dialog.querySelector('[data-testid="project-totals"]')).toBeNull();
     expect(dialog.textContent).not.toContain('Project Health');
     expect(dialog.textContent).not.toContain('Most Used');
     // Just the map icon (to Apple Maps); no Call/Text/Email: the client's name opens their page, which has them.
@@ -198,10 +198,10 @@ describe('Project drawer', () => {
     expect(path).toBe('/clients/c1');
   });
 
-  it('adds an expense from the Expenses tab, and the overview counts it', async () => {
+  it('adds an expense under Money, and the overview counts it', async () => {
     expenses = [{ id: 'x1', description: 'Lumber', amount: 600, category: 'Materials', date: '2026-10-02', status: 'paid' }];
     await render();
-    await click('Expenses');
+    await click('Money');
     await act(async () => (document.body.querySelector('button[aria-label="Add expense"]') as HTMLButtonElement).click());
     const description = document.body.querySelector('input[aria-label="What did you pay for?"]') as HTMLInputElement;
     const amount = document.body.querySelector('input[aria-label="Amount"]') as HTMLInputElement;
@@ -214,8 +214,10 @@ describe('Project drawer', () => {
       expect.objectContaining({ organization_id: 'org1', project_id: 'p1', description: 'Dumpster', amount: 450, status: 'pending' }),
     );
     await click('Overview');
-    expect(summary()).toContain('Costs$1,050.00of $1,000.00 budget');
-    expect(document.body.querySelector('[data-testid="budget"]')!.textContent).toBe('Budget $1,000.00$50.00 over');
+    // Past the budget, the projection counts what's actually spent.
+    expect(summary()).toContain('Projected profit$1,95065% marginSpent and committed are past the cost budget, so this counts them instead.');
+    expect(money()).toContain('Spent2 expenses · 1 pending$1,050.00');
+    expect(document.body.querySelector('[data-testid="budget-left"]')!.textContent).toBe('Over budget$50.00');
   });
 
   it('edits the details in place, and tells the list behind', async () => {
@@ -232,32 +234,55 @@ describe('Project drawer', () => {
     expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1', budget: 2500 }));
   });
 
-  it('shows example costs, faded, until the project has its own', async () => {
+  it('says plainly when nothing is spent yet, with no example numbers', async () => {
     expenses = [];
     await render();
     const types = document.body.querySelector('[data-testid="costs-by-type"]')!;
-    expect(types.textContent).toContain('Example');
-    expect(types.textContent).toContain('Materials$7,400.00');
-    expect(types.querySelector('ul')!.className).toContain('opacity-50');
-    expect(document.body.querySelector('[aria-label="Recent costs"]')).toBeNull();
-    await click('Add a cost');
-    expect(document.body.querySelector('input[aria-label="What did you pay for?"]')).not.toBeNull();
+    expect(types.textContent).toBe('Spent by typeNothing spent yet. Costs show here by type as they’re logged.');
+    expect(money()).toContain('SpentNothing logged yet$0.00');
   });
 
-  it('lists the estimates on their own tab', async () => {
-    expenses = [];
+  it('with no cost budget, shows the profit so far and Add budget goes to the budget field', async () => {
+    expenses = [{ id: 'x1', description: 'Lumber', amount: 600, category: 'Materials', date: '2026-10-02', status: 'paid' }];
+    const { ProjectService } = jest.requireMock('../../../services/ProjectService');
+    (ProjectService.getById as jest.Mock).mockImplementationOnce(async () => ({ ...project, budget: undefined }));
     await render();
-    await click('Estimates');
+    expect(summary()).toContain('Profit so far$2,40080% marginThe contract less what’s spent and committed.');
+    expect(document.body.querySelector('[data-testid="budget-left"]')).toBeNull();
+    await click('Cost budget');
+    await act(async () => new Promise<void>((r) => requestAnimationFrame(() => r())));
+    expect(document.activeElement).toBe(document.body.querySelector('input[aria-label="Budget"]'));
+  });
+
+  it('Money holds the estimates, the purchase orders and the expenses, one under the other', async () => {
+    expenses = [{ id: 'x1', description: 'Lumber', amount: 600, category: 'Materials', date: '2026-10-02', status: 'paid' }];
+    await render();
+    await click('Money');
+    await act(async () => {});
+    const sections = Array.from(document.body.querySelectorAll('[data-testid^="money-"]')).map((el) => el.getAttribute('data-testid'));
+    expect(sections).toEqual(['money-estimates', 'money-orders', 'money-expenses']);
     const list = document.body.querySelector('[aria-label="Estimates"]')!;
     expect(list.textContent).toContain('EST-1');
     expect(list.textContent).toContain('Accepted');
     expect(list.textContent).toContain('$3,000.00');
+    expect(document.body.querySelector('[data-testid="money-estimates"] h3')!.textContent).toBe('Estimates$3,000.00 accepted');
+    expect(document.body.querySelector('[data-testid="money-orders"] [data-testid="purchase-orders"]')).not.toBeNull();
+    expect(document.body.querySelector('[data-testid="money-expenses"] h3')!.textContent).toBe('Expenses$600.00');
   });
 
-  it('?tab=estimates starts on that tab, and a row opens the estimate over the project', async () => {
+  it('a money row on the Overview opens Money on its section', async () => {
+    expenses = [];
+    await render();
+    await click('Spent');
+    await act(async () => new Promise<void>((r) => requestAnimationFrame(() => r())));
+    expect(selectedTab()).toBe('Money');
+    expect(document.body.querySelector('[data-testid="money-expenses"]')!.className).toContain('ring-2');
+  });
+
+  it('?tab=estimates (the old tab) starts on Money, and a row opens the estimate over the project', async () => {
     expenses = [];
     await render('/projects/p1?tab=estimates');
-    expect(document.body.querySelector('[role="tab"][aria-selected="true"]')!.textContent).toContain('Estimates');
+    expect(selectedTab()).toBe('Money');
     await click('EST-1');
     expect(path).toBe('/projects/p1/estimates/e1');
   });
@@ -268,7 +293,7 @@ describe('Project drawer', () => {
     getByProject.mockClear();
     const body = await render('/projects/p1/estimates/e1', { covered: true });
     expect(body.querySelector('[aria-label="Project"]')!.getAttribute('aria-hidden')).toBe('true');
-    expect(body.querySelector('[role="tab"][aria-selected="true"]')!.textContent).toContain('Estimates'); // the tab behind the estimate
+    expect(selectedTab()).toBe('Money'); // the tab behind the estimate
     await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
     expect(onClose).not.toHaveBeenCalled();
     expect(getByProject).toHaveBeenCalledTimes(1);
@@ -353,25 +378,49 @@ describe('Project drawer', () => {
     portalInfo = null;
   });
 
-  it('has a Purchase orders tab counting the open ones, and the committed money under the costs', async () => {
-    expenses = [];
+  it('counts what the ordered purchase orders commit against the budget, and opens them under Money', async () => {
+    expenses = [{ id: 'x1', description: 'Lumber', amount: 100, category: 'Materials', date: '2026-10-02', status: 'paid' }];
     const po = (id: string, status: string, total: number) => ({ id, number: `PO-${id}`, title: `Vendor ${id}`, lines: [], total, status });
-    ordersInfo = { orders: [po('1', 'draft', 500), po('2', 'ordered', 1200), po('3', 'received', 300)], committed: 1200, received: 300 };
+    ordersInfo = { orders: [po('1', 'draft', 500), po('2', 'ordered', 600), po('3', 'received', 300)], committed: 600, received: 300 };
     await render();
-    const tab = Array.from(document.body.querySelectorAll('[role="tab"]')).find((t) => t.textContent?.startsWith('Purchase orders'))!;
-    expect(tab.textContent).toBe('Purchase orders2');
-    expect(document.body.querySelector('[data-testid="committed"]')!.textContent).toBe('+ $1,200.00 committed');
-    await act(async () => (tab as HTMLButtonElement).click());
+    expect(document.body.querySelector('[data-testid="committed"]')!.textContent).toBe('Committed1 purchase order$600.00');
+    // $1,000 budget less $100 spent and $600 committed.
+    expect(document.body.querySelector('[data-testid="budget-left"]')!.textContent).toBe('Left in budget$300.00');
+    await act(async () => (document.body.querySelector('[data-testid="committed"] button') as HTMLButtonElement).click());
     await act(async () => {});
+    expect(selectedTab()).toBe('Money');
     expect(document.body.querySelectorAll('[data-testid="po"]')).toHaveLength(3);
     ordersInfo = noOrders;
+  });
+
+  it('keeps a long list of purchase orders short under Money, with Show all for the rest', async () => {
+    expenses = [];
+    const po = (id: string) => ({ id, number: `PO-${id}`, title: `Vendor ${id}`, lines: [], total: 100, status: 'ordered' });
+    ordersInfo = { orders: ['1', '2', '3', '4', '5', '6', '7'].map(po), committed: 700, received: 0 };
+    await render();
+    await click('Money');
+    await act(async () => {});
+    expect(document.body.querySelectorAll('[data-testid="po"]')).toHaveLength(5);
+    await click('Show all 7');
+    expect(document.body.querySelectorAll('[data-testid="po"]')).toHaveLength(7);
+    ordersInfo = noOrders;
+  });
+
+  it('says No tasks yet with Add tasks when the job has none', async () => {
+    expenses = [];
+    const { tasksAPI } = jest.requireMock('../../../lib/api');
+    (tasksAPI.forProject as jest.Mock).mockImplementationOnce(async () => []);
+    await render();
+    expect(document.body.querySelector('[data-testid="next-up"]')!.textContent).toContain('Next upNo tasks yetAdd tasks');
+    await click('Add tasks');
+    expect(selectedTab()).toContain('Tasks');
   });
 
   it('a project with no client says Add client under its name, which opens the Overview on the client picker', async () => {
     const { ProjectService } = jest.requireMock('../../../services/ProjectService');
     (ProjectService.getById as jest.Mock).mockImplementationOnce(async () => ({ ...project, client_id: undefined, client: undefined }));
     await render('/projects/p1?tab=estimates');
-    expect(document.body.querySelector('[role="tab"][aria-selected="true"]')!.textContent).toContain('Estimates');
+    expect(selectedTab()).toBe('Money');
     await click('Add client');
     await act(async () => new Promise<void>((r) => requestAnimationFrame(() => r())));
     expect(document.body.querySelector('[role="tab"][aria-selected="true"]')!.textContent).toContain('Overview');

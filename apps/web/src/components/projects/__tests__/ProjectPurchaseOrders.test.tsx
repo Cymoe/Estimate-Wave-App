@@ -145,6 +145,7 @@ describe("Purchase orders on the project", () => {
     const { onSummary } = await render();
     expect(onSummary).toHaveBeenLastCalledWith({
       open: 2,
+      ordered: 1,
       committed: 1794,
       received: 425,
     });
