@@ -265,12 +265,12 @@ export const WalletPill: React.FC<{ organizationId?: string }> = ({ organization
   if (!status?.short) return null;
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 min-w-0" role="status" data-wallet-pill>
-      <span title={status.text} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-[#333333] text-sm text-gray-300 min-w-0">
+      <span title={status.text} className="inline-flex items-center gap-2 px-2.5 py-1 border border-[#333333] text-xs text-gray-300 min-w-0">
         <span className="w-2 h-2 rounded-full bg-gray-500 flex-shrink-0" aria-hidden="true" />
         <span className="truncate">{status.short}</span>
       </span>
       {status.action === 'team' && (
-        <Link to="/settings/organization?tab=team" className="text-sm text-[#7fb0e0] [@media(hover:hover)]:hover:text-white whitespace-nowrap">
+        <Link to="/settings/organization?tab=team" className="text-xs text-[#7fb0e0] [@media(hover:hover)]:hover:text-white whitespace-nowrap">
           {status.label}
         </Link>
       )}

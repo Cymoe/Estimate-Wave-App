@@ -70,8 +70,8 @@ const Dot: React.FC<{ tone: string }> = ({ tone }) => <span className={`w-2 h-2 
  */
 const LeadStatusLine: React.FC<{ lead: Lead; now: number; todayIso: string }> = ({ lead, now, todayIso }) => {
   const line = (tone: string, text: React.ReactNode, icon?: React.ReactNode) => (
-    <span className={`inline-flex items-start gap-2 text-sm leading-5 min-w-0 ${tone}`} data-testid="lead-status-line">
-      {icon && <span className="h-5 flex items-center flex-shrink-0">{icon}</span>}
+    <span className={`inline-flex items-start gap-1.5 text-xs leading-4 min-w-0 ${tone}`} data-testid="lead-status-line">
+      {icon && <span className="h-4 flex items-center flex-shrink-0">{icon}</span>}
       <span>{text}</span>
     </span>
   );
@@ -80,7 +80,7 @@ const LeadStatusLine: React.FC<{ lead: Lead; now: number; todayIso: string }> = 
     return line(
       soon ? 'text-amber-300' : 'text-[#7fb0e0]',
       `Appointment ${formatAppointmentShort(lead.appointmentAt)}`,
-      <CalendarClock className="w-4 h-4 flex-shrink-0" />,
+      <CalendarClock className="w-3 h-3 flex-shrink-0" />,
     );
   }
   if (lead.status === 'lost') return lead.lostReason ? line('text-gray-400', lead.lostReason) : null;
@@ -104,9 +104,9 @@ const LeadStatusLine: React.FC<{ lead: Lead; now: number; todayIso: string }> = 
 };
 
 const control =
-  'h-11 rounded-lg bg-[#121418] border border-[#2a2d34] text-sm text-white focus:outline-none focus:border-[#336699]';
+  'h-10 bg-[#121212] border border-[#333333] text-sm text-white focus:outline-none focus:border-[#336699]';
 const iconButton =
-  'w-11 h-11 flex items-center justify-center rounded-lg border border-[#2a2d34] bg-[#16181d] [@media(hover:hover)]:hover:border-[#4a4e57] transition-colors';
+  'w-10 h-10 flex items-center justify-center border border-[#333333] bg-[#0A0A0A] [@media(hover:hover)]:hover:border-[#555555] transition-colors';
 
 /** One lead on the board: who, how much, the gist, what's next, and Call and Text. Anywhere else opens it. */
 const LeadCard: React.FC<{
@@ -120,32 +120,32 @@ const LeadCard: React.FC<{
   const summary = leadSummary(lead.notes);
   const since = lead.assignedAt ?? lead.createdAt;
   const value = leadValue(lead);
-  const chip = 'text-xs px-2 py-0.5 rounded-md border whitespace-nowrap';
+  const chip = 'text-xs px-1.5 border whitespace-nowrap';
   return (
     <div
       data-lead-card
       onClick={onOpen}
-      className="rounded-xl border border-[#23262d] bg-[#121418] p-4 cursor-pointer [@media(hover:hover)]:hover:border-[#3a3e47] transition-colors"
+      className="border border-[#333333] bg-[#121212] p-3 cursor-pointer [@media(hover:hover)]:hover:border-[#555555] transition-colors"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
-          <span className="text-[15px] font-semibold leading-tight">{lead.name}</span>
+          <span className="text-sm font-medium leading-tight">{lead.name}</span>
           {/* Where it came from: Webb Leads, and which way (bid, Marketplace, Vault...). */}
           {leadTag(lead) && <span className={`${chip} text-emerald-300 border-emerald-500/40 bg-emerald-500/10`}>{leadTag(lead)}</span>}
-          {lead.isSample && <span className={`${chip} text-gray-400 border-[#33363d]`}>Sample</span>}
+          {lead.isSample && <span className={`${chip} text-gray-400 border-[#333333]`}>Sample</span>}
         </div>
-        {value > 0 && <span className="text-[15px] font-semibold whitespace-nowrap">{dollars(value)}</span>}
+        {value > 0 && <span className="text-sm font-medium whitespace-nowrap">{dollars(value)}</span>}
       </div>
       {summary && (
-        <p className="mt-1.5 text-sm text-gray-300 truncate" title={summary}>
+        <p className="mt-1 text-xs text-gray-400 truncate" title={summary}>
           {summary}
         </p>
       )}
-      <div className="mt-3 flex items-end justify-between gap-3">
+      <div className="mt-2 flex items-end justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <div className="flex min-w-0"><LeadStatusLine lead={lead} now={now} todayIso={todayIso} /></div>
           {(trade || since) && (
-            <div className="text-sm text-gray-500 truncate">
+            <div className="text-xs text-gray-500 truncate">
               {[trade, since ? `came in ${ago(since, now)}` : ''].filter(Boolean).join(' · ')}
             </div>
           )}
@@ -418,10 +418,10 @@ const LeadsPage: React.FC = () => {
     <div className="min-h-screen bg-[#0A0A0A] text-white">
       <Toast text={toast} />
       {confirmDialog}
-      <div className="px-4 py-5 md:px-8 md:py-7">
+      <div className="p-6">
         {/* Title row: the page name and the quiet staff pill; on the right, the sample leads and their Remove. */}
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-3 mb-5">
-          <h1 className="hidden md:block text-3xl font-bold tracking-tight">Leads</h1>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-4">
+          <h1 className="hidden md:block text-xl font-semibold">Leads</h1>
           <WalletPill organizationId={organizationId} />
           {hasSamples && (
             <div className="ml-auto flex items-center gap-3 text-sm">
@@ -434,7 +434,7 @@ const LeadsPage: React.FC = () => {
         </div>
         <WalletBar organizationId={organizationId} />
         {elsewhere && (
-          <p role="alert" className="mb-4 px-4 py-3 rounded-xl border border-amber-500/40 bg-amber-500/10 text-sm text-amber-200">
+          <p role="alert" className="mb-4 px-4 py-3 border border-amber-500/40 bg-amber-500/10 text-sm text-amber-200">
             {elsewhere}
           </p>
         )}
@@ -476,9 +476,9 @@ const LeadsPage: React.FC = () => {
           </div>
         ) : (
           <>
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-4">
+          <div className="flex flex-wrap items-center gap-2 mb-4">
             <label className="relative flex-1 min-w-[200px] max-w-md">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
               <input
                 type="search"
                 value={query}
@@ -486,7 +486,7 @@ const LeadsPage: React.FC = () => {
                 placeholder="Search leads"
                 title="Name, phone, email, address or notes"
                 aria-label="Search leads"
-                className={`${control} w-full pl-10 pr-3 placeholder-gray-500`}
+                className={`${control} w-full pl-9 pr-3 placeholder-gray-500`}
               />
             </label>
             <select value={leadFilter} onChange={(e) => setLeadFilter(e.target.value as LeadFilter)} aria-label="Filter leads" className={`${control} px-3`}>
@@ -504,8 +504,8 @@ const LeadsPage: React.FC = () => {
             {(query || leadFilter !== 'all' || countyFilter) && (
               <span className="text-sm text-gray-400">{visible.length} of {leads.length}</span>
             )}
-            <div className="ml-auto flex items-center gap-2 sm:gap-3">
-              <div className="flex h-11 rounded-lg border border-[#2a2d34] overflow-hidden" role="group" aria-label="View">
+            <div className="ml-auto flex items-center gap-2">
+              <div className="flex h-10 border border-[#333333]" role="group" aria-label="View">
                 {([['board', Kanban, 'Board'], ['calendar', CalendarDays, 'Calendar']] as const).map(([key, Icon, label]) => (
                   <button
                     key={key}
@@ -513,7 +513,7 @@ const LeadsPage: React.FC = () => {
                     aria-pressed={view === key}
                     aria-label={label}
                     title={label}
-                    className={`inline-flex items-center justify-center w-11 ${view === key ? 'bg-[#1d2733] text-[#7fb0e0]' : 'text-gray-400 hover:text-white'}`}
+                    className={`inline-flex items-center justify-center w-10 ${view === key ? 'bg-[#336699] text-white' : 'text-gray-400 hover:text-white'}`}
                   >
                     <Icon className="w-4 h-4" />
                   </button>
@@ -525,7 +525,7 @@ const LeadsPage: React.FC = () => {
                 onClick={toggleMenu}
                 aria-label="More"
                 aria-expanded={menuAt !== null}
-                className="h-11 w-11 inline-flex items-center justify-center rounded-lg border border-[#2a2d34] text-gray-400 hover:text-white"
+                className="h-10 w-10 inline-flex items-center justify-center border border-[#333333] text-gray-400 hover:text-white"
               >
                 <MoreVertical className="w-4 h-4" />
               </button>
@@ -546,7 +546,7 @@ const LeadsPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setEditing('new')}
-                className="h-11 inline-flex items-center gap-2 px-4 rounded-lg bg-[#3b74c4] text-white text-sm font-medium [@media(hover:hover)]:hover:bg-[#3366b0]"
+                className="h-10 inline-flex items-center gap-2 px-4 bg-[#336699] text-white text-sm font-medium [@media(hover:hover)]:hover:bg-[#2a5580]"
               >
                 <Plus className="w-4 h-4" /> New lead
               </button>
@@ -554,7 +554,7 @@ const LeadsPage: React.FC = () => {
           </div>
           {/* Every follow-up that has gone by, in one line, with a way to see just those. */}
           {overdue.length > 0 && (
-            <div className="mb-5 px-4 py-3 rounded-xl border border-amber-500/20 bg-amber-500/[0.06] text-sm flex items-center gap-3" data-testid="follow-up-line">
+            <div className="mb-4 px-4 py-3 border border-amber-500/40 bg-amber-500/10 text-sm flex items-center gap-3" data-testid="follow-up-line">
               <Dot tone="bg-amber-300" />
               <span className="min-w-0 truncate">
                 <span className="font-semibold text-white">
@@ -569,7 +569,7 @@ const LeadsPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setLeadFilter(leadFilter === 'overdue' ? 'all' : 'overdue')}
-                className="ml-auto text-[#7fb0e0] [@media(hover:hover)]:hover:text-white whitespace-nowrap"
+                className="ml-auto text-amber-100 underline underline-offset-2 [@media(hover:hover)]:hover:text-white whitespace-nowrap"
               >
                 {leadFilter === 'overdue' ? 'Show all' : 'Show them'}
               </button>
@@ -578,7 +578,7 @@ const LeadsPage: React.FC = () => {
           {view === 'calendar' ? (
             <LeadsCalendar leads={visible} onOpen={(lead) => setEditing(lead)} />
           ) : (
-          <div className="flex gap-4 overflow-x-auto pb-2">
+          <div className="flex gap-3 overflow-x-auto pb-2">
             {STATUSES.map((column) => {
               const cards = visible.filter((lead) => lead.status === column.value);
               // An empty stage folds to a slim strip, so the busy ones get the room.
@@ -588,24 +588,23 @@ const LeadsPage: React.FC = () => {
                     key={column.value}
                     data-empty-stage={column.value}
                     title={`${column.label}: no leads`}
-                    className="flex-shrink-0 w-12 rounded-xl border border-[#1f2228] bg-[#0f1114] flex flex-col items-center gap-3 py-4"
+                    className="flex-shrink-0 w-11 border border-[#333333] bg-[#0A0A0A] flex flex-col items-center gap-3 py-3"
                   >
                     <Dot tone={column.dot} />
-                    <span className="text-sm text-gray-500">0</span>
-                    <span className="text-sm text-gray-400 [writing-mode:vertical-rl] whitespace-nowrap">{column.label}</span>
+                    <span className="text-xs text-gray-500">0</span>
+                    <span className={`text-sm font-medium [writing-mode:vertical-rl] whitespace-nowrap ${column.color}`}>{column.label}</span>
                   </div>
                 );
               }
               const total = cards.reduce((sum, lead) => sum + leadValue(lead), 0);
               return (
-                <section key={column.value} aria-label={column.label} className="flex-shrink-0 w-80 sm:w-96 flex flex-col">
-                  <div className="flex items-center gap-2.5 px-1 pb-3">
-                    <Dot tone={column.dot} />
-                    <span className="text-base font-semibold">{column.label}</span>
-                    <span className="text-sm text-gray-500">{cards.length}</span>
-                    {total > 0 && <span className="ml-auto text-sm text-gray-400">{dollars(total)}</span>}
+                <section key={column.value} aria-label={column.label} className="flex-shrink-0 w-80 flex flex-col border border-[#333333] bg-[#0A0A0A]">
+                  <div className="flex items-center gap-2 px-3 py-2 border-b border-[#333333]">
+                    <span className={`text-sm font-medium ${column.color}`}>{column.label}</span>
+                    <span className="text-xs text-gray-500">{cards.length}</span>
+                    {total > 0 && <span className="ml-auto text-xs text-gray-400">{dollars(total)}</span>}
                   </div>
-                  <div className="space-y-3">
+                  <div className="p-2 space-y-2">
                     {cards.map((lead) => (
                       <LeadCard
                         key={lead.id}
