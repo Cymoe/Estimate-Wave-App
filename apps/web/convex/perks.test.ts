@@ -310,6 +310,8 @@ describe("after the job", () => {
       token: await as.mutation(api.estimates.shareLink, { id: solo }),
       signature: SIG,
     });
+    // One signed before signing made a project: no project to file the service under.
+    await t.run((ctx) => ctx.db.patch(solo, { projectId: undefined }));
     await finish(solo);
     const porch = (await t.query(api.portal.get, { token }))!.jobs.find(
       (j) => j.name === "Porch light",

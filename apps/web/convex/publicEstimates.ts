@@ -7,6 +7,7 @@ import { fail, logActivity, nowIso } from "./lib/access";
 import { isLang, langOf } from "./lib/i18n";
 import { withCategories } from "./lib/categories";
 import { lockContract } from "./lib/contract";
+import { projectOnAccept } from "./lib/projectOnAccept";
 import { needsAcknowledgment, resolveDocuments, signedDocuments, stampSignedCopies } from "./lib/contractDocs";
 import { resolveTerms } from "./lib/contractDefaults";
 
@@ -210,11 +211,13 @@ export const accept = mutation({
     // Uploaded documents are signed only once the client says they've read them.
     if (lock.contractSnapshot && needsAcknowledgment(lock.contractSnapshot.documents) && !agreedToDocuments)
       fail("INVALID", "Please confirm you've read the attached documents", "documents_unread");
+    const project = await projectOnAccept(ctx, estimate, estimate.userId, now);
     await ctx.db.patch(estimate._id, {
       clientSignature: signature,
       signedAt: now,
       status: "accepted",
       ...lock,
+      ...project,
       updatedAt: now,
     });
     await stampSignedCopies(ctx, estimate._id);

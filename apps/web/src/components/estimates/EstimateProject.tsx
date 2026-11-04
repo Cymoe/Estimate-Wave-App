@@ -161,13 +161,16 @@ export function EstimateProject({
         )
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-          <p className="text-sm text-gray-400">Not part of a project yet.</p>
+          {/* Accepting makes the project (convex/lib/projectOnAccept.ts); one accepted before that has none. */}
+          <p className="text-sm text-gray-400">
+            {estimate.status === 'accepted' ? 'Not part of a project yet.' : 'Becomes a project automatically when the client accepts.'}
+          </p>
           <div className="flex flex-wrap gap-x-4 gap-y-1">
             <button type="button" onClick={startChoosing} className={link} disabled={busy}>
               Add to a project
             </button>
             <button type="button" onClick={startProject} className={link} disabled={busy}>
-              Start a new project from it
+              {estimate.status === 'accepted' ? 'Start a new project from it' : 'Start one now'}
             </button>
           </div>
         </div>

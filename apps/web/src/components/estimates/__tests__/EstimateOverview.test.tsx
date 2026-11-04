@@ -286,7 +286,8 @@ describe('estimate overview', () => {
     stored = { ...base, client_id: 'c1', client: { name: 'Dan Shah' } };
     await openOverview();
     const card = () => document.body.querySelector('[data-testid="estimate-project"]')!;
-    expect(card().textContent).toContain('Not part of a project yet.');
+    // A draft says what happens on its own; it can still go on a project now.
+    expect(card().textContent).toContain('Becomes a project automatically when the client accepts.');
     await act(async () => button('Add to a project')!.click());
     await act(async () => {});
     const select = card().querySelector('select[aria-label="Add to project"]') as HTMLSelectElement;
@@ -301,7 +302,7 @@ describe('estimate overview', () => {
   it('or starts a new project from the estimate', async () => {
     stored = { ...base, title: 'Kitchen remodel', client_id: 'c1', organization_id: 'org1' };
     await openOverview();
-    await act(async () => button('Start a new project from it')!.click());
+    await act(async () => button('Start one now')!.click());
     await act(async () => {});
     expect(createProject).toHaveBeenCalledWith(expect.objectContaining({ name: 'Kitchen remodel', client_id: 'c1', status: 'planned', budget: 3210993.5, organization_id: 'org1' }));
     expect(update).toHaveBeenCalledWith('e1', { project_id: 'p9' });

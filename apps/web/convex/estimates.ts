@@ -14,6 +14,7 @@ import type { MutationCtx } from "./_generated/server";
 import { withCategories } from "./lib/categories";
 import { redLineTotal, type Discount } from "./lib/totals";
 import { lockContract } from "./lib/contract";
+import { projectOnAccept } from "./lib/projectOnAccept";
 import { deletePhotos } from "./photos";
 import {
   CHOICE_KEY,
@@ -209,6 +210,11 @@ export const updateDef = mutationDef({
       patch.status === "accepted" && doc.status !== "accepted" && !doc.clientSignature
         ? { approvedAt: now, approvedBy: approver(user) }
         : {};
+    // Accepted is when it becomes a job: a project of its own, unless it's on one already.
+    const project =
+      patch.status === "accepted" && doc.status !== "accepted" && !("projectId" in patch)
+        ? await projectOnAccept(ctx, updated, user._id, now)
+        : {};
     await ctx.db.patch(id, {
       ...patch,
       subtotal,
@@ -217,6 +223,7 @@ export const updateDef = mutationDef({
       totalAmount,
       ...lock,
       ...approval,
+      ...project,
       // Reminders count from when it was first sent.
       ...(patch.status === "sent" && !doc.sentAt ? { sentAt: now } : {}),
       updatedAt: now,
@@ -258,7 +265,8 @@ export const approve = mutation({
     if ((doc.items ?? []).length === 0) fail("INVALID", "Add line items before approving the estimate.");
     const now = nowIso();
     const lock = doc.contractLockedAt ? {} : await lockContract(ctx, doc, now);
-    await ctx.db.patch(id, { status: "accepted", approvedAt: now, approvedBy: approver(user), ...lock, updatedAt: now });
+    const project = await projectOnAccept(ctx, doc, user._id, now);
+    await ctx.db.patch(id, { status: "accepted", approvedAt: now, approvedBy: approver(user), ...lock, ...project, updatedAt: now });
     await logActivity(ctx, {
       organizationId: doc.organizationId,
       userId: user._id,
@@ -347,11 +355,13 @@ export const sign = mutation({
       !agreedToDocuments
     )
       fail("INVALID", "Please confirm you've read the attached documents");
+    const project = doc.status === "accepted" ? {} : await projectOnAccept(ctx, doc, user._id, now);
     await ctx.db.patch(id, {
       clientSignature: signature,
       signedAt: now,
       status: "accepted",
       ...lock,
+      ...project,
       updatedAt: now,
     });
     await stampSignedCopies(ctx, id);

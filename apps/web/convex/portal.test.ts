@@ -217,12 +217,13 @@ describe("the client portal", () => {
     ]);
     expect(JSON.stringify(job)).not.toContain("Gate code");
 
-    // An estimate on no project: a job with no timeline.
+    // An estimate on no project (one signed before signing made a project): a job with no timeline.
     const solo = (await as.mutation(api.estimates.create, {
       organizationId,
       data: { title: "Porch light", clientId, items: [{ _id: "x", description: "Fixture", quantity: 1, unitPrice: 300 }] },
     }))!._id as Id<"estimates">;
     await t.mutation(api.publicEstimates.accept, { token: await as.mutation(api.estimates.shareLink, { id: solo }), signature: SIG });
+    await t.run((ctx) => ctx.db.patch(solo, { projectId: undefined }));
     const porch = (await t.query(api.portal.get, { token }))!.jobs.find((j) => j.name === "Porch light")!;
     expect(porch.steps).toBeUndefined();
     expect(porch.status).toBeUndefined();
