@@ -529,6 +529,23 @@ export const ProjectPanel: React.FC<{
     setActiveTab('expenses');
   };
 
+  // Whether the tab row runs past the right edge (it scrolls sideways on a phone).
+  const tabRow = useRef<HTMLDivElement>(null);
+  const [moreTabs, setMoreTabs] = useState(false);
+  const checkTabs = useCallback(() => {
+    const row = tabRow.current;
+    setMoreTabs(Boolean(row && row.scrollLeft + row.clientWidth < row.scrollWidth - 4));
+  }, []);
+  // After every render (tabs come and go with the project's data), and whenever the row resizes.
+  useEffect(() => checkTabs());
+  const headerShown = Boolean(project);
+  useEffect(() => {
+    if (!headerShown || typeof ResizeObserver === 'undefined' || !tabRow.current) return;
+    const watcher = new ResizeObserver(checkTabs);
+    watcher.observe(tabRow.current);
+    return () => watcher.disconnect();
+  }, [checkTabs, headerShown]);
+
   if (loading && !project) {
     return (
       <div className="h-full bg-[#000000] flex flex-col" aria-busy="true">
@@ -665,12 +682,27 @@ export const ProjectPanel: React.FC<{
             >
               {clientLabel}
             </button>
+          ) : clientLabel ? (
+            clientLabel
           ) : (
-            clientLabel || 'No client'
+            // The client is picked in the Overview's Details: say so where it's missed.
+            <button
+              type="button"
+              onClick={(e) => {
+                const panel = e.currentTarget.closest('[role="dialog"]') ?? document;
+                setActiveTab('overview');
+                requestAnimationFrame(() => panel.querySelector<HTMLSelectElement>('select[aria-label="Client"]')?.focus());
+              }}
+              className="text-[#6aa3d9] hover:text-white underline underline-offset-2"
+            >
+              Add client
+            </button>
           )}{' '}
           • {dates(project)}
         </div>
-        <div className="border-t border-[#333333] flex items-center overflow-x-auto" role="tablist">
+        {/* On a phone the tabs scroll sideways; a fade at the right edge shows there are more. */}
+        <div className="relative border-t border-[#333333]">
+        <div ref={tabRow} onScroll={checkTabs} className="flex items-center overflow-x-auto" role="tablist">
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -687,6 +719,10 @@ export const ProjectPanel: React.FC<{
               {tab.count !== undefined && <span className="ml-1.5 text-xs text-gray-500">{tab.count}</span>}
             </button>
           ))}
+        </div>
+        {moreTabs && (
+          <div aria-hidden="true" className="tab-fade pointer-events-none absolute inset-y-0 right-0 w-10" data-testid="more-tabs" />
+        )}
         </div>
       </div>
 

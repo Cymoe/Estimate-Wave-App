@@ -375,3 +375,11 @@ input[type="datetime-local"]::-webkit-date-and-time-value,
 input[type="time"]::-webkit-date-and-time-value {
   text-align: left;
 }
+
+/* A fade at the right edge of a sideways-scrolling row of tabs: more this way. */
+.tab-fade {
+  background: linear-gradient(to left, #1a1a1a, rgba(26, 26, 26, 0));
+}
+html.light .tab-fade {
+  background: linear-gradient(to left, #ffffff, rgba(255, 255, 255, 0));
+}

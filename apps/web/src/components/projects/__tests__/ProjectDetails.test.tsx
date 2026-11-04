@@ -367,6 +367,17 @@ describe('Project drawer', () => {
     ordersInfo = noOrders;
   });
 
+  it('a project with no client says Add client under its name, which opens the Overview on the client picker', async () => {
+    const { ProjectService } = jest.requireMock('../../../services/ProjectService');
+    (ProjectService.getById as jest.Mock).mockImplementationOnce(async () => ({ ...project, client_id: undefined, client: undefined }));
+    await render('/projects/p1?tab=estimates');
+    expect(document.body.querySelector('[role="tab"][aria-selected="true"]')!.textContent).toContain('Estimates');
+    await click('Add client');
+    await act(async () => new Promise<void>((r) => requestAnimationFrame(() => r())));
+    expect(document.body.querySelector('[role="tab"][aria-selected="true"]')!.textContent).toContain('Overview');
+    expect(document.activeElement).toBe(document.body.querySelector('select[aria-label="Client"]'));
+  });
+
   it('closes with the X', async () => {
     expenses = [];
     jest.useFakeTimers();
