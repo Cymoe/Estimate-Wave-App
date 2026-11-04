@@ -136,33 +136,22 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
     <div className={`w-full bg-[#0A0A0A] flex flex-col ${fill ? 'h-full' : 'h-screen'}`}>
       <div className="flex-1 overflow-y-auto pb-12">
         <table className="w-full" style={{ borderCollapse: 'collapse' }}>
-          <thead className="sticky top-0 z-10">
-              <tr className="bg-[#1D1F25] border-b border-[#333333]">
-            <th className="text-left py-2 px-3 font-medium text-gray-300 text-[13px] border-r border-[#333333]">
-              <div className="flex items-center gap-1.5">
-                <span className="text-gray-500">A</span>
-                <span>Description</span>
-              </div>
-            </th>
-            <th className="text-right py-2 px-3 font-medium text-gray-300 text-[13px] w-28 border-r border-[#333333]">
-              <div className="flex items-center justify-end gap-1.5">
-                <span className="text-gray-500">$</span>
-                <span>Price</span>
-              </div>
-            </th>
-            <th className="text-center py-2 px-2 font-medium text-gray-300 text-[13px] w-16 border-r border-[#333333]">
-              <div className="flex items-center justify-center gap-1.5">
-                <span>Qty</span>
-              </div>
-            </th>
-            <th className="text-right py-2 px-3 font-medium text-gray-300 text-[13px] w-28 border-r border-[#333333]">
-              <div className="flex items-center justify-end gap-1.5">
-                <span className="text-gray-500">ƒ</span>
-                <span>Total</span>
-              </div>
-            </th>
-          </tr>
-        </thead>
+          {/* No visible header: price, quantity, total reads on its own, and the sums bar
+              below lines up under the same columns. The labels stay for screen readers. */}
+          <colgroup>
+            <col />
+            <col className="w-28" />
+            <col className="w-16" />
+            <col className="w-28" />
+          </colgroup>
+          <thead className="sr-only">
+            <tr>
+              <th scope="col">Description</th>
+              <th scope="col">Price</th>
+              <th scope="col">Qty</th>
+              <th scope="col">Total</th>
+            </tr>
+          </thead>
         <tbody>
           {items.map((item, index) => (
               <tr
