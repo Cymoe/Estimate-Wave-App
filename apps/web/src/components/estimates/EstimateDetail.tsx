@@ -21,7 +21,6 @@ import { AirtableEstimateView } from './AirtableEstimateView';
 import { AirtableSidebar } from './AirtableSidebar';
 import { ItemPricingDrawer } from './ItemPricingDrawer';
 import { ContextualPricingSelector } from './ContextualPricingSelector';
-import { DesignUpload } from './DesignUpload';
 import { RemindersCard } from './RemindersCard';
 import { JobPhotos } from '../common/JobPhotos';
 import { ContractTab } from './ContractTab';
@@ -903,13 +902,23 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
               <p className="text-sm text-gray-400 mt-2">{CLIENT_DETAIL_CHOICES.find((c) => c.id === (estimate.client_detail ?? 'full'))!.help}</p>
             </div>
 
-            {/* Files: job photos, and the agreed design that goes on the contract */}
-            <div className="px-4 py-5 space-y-5" data-testid="files">
-              <h3 className={sectionLabel}>Files</h3>
+            {/* Files: photos and PDFs; the ones marked In contract go on the agreement */}
+            <div className="px-4 py-5" data-testid="files">
               {estimate.id && (estimate.organization_id || selectedOrg?.id) && (
-                <JobPhotos organizationId={(estimate.organization_id || selectedOrg?.id)!} estimateId={estimate.id} title="Photos" bare />
+                <JobPhotos
+                  organizationId={(estimate.organization_id || selectedOrg?.id)!}
+                  estimateId={estimate.id}
+                  title="Files"
+                  files
+                  locked={!!estimate.contract_locked_at}
+                  legacyDesign={estimate.design}
+                  onRemoveLegacyDesign={async () => {
+                    await EstimateService.removeDesign(estimate.id!);
+                    await loadEstimate(true);
+                  }}
+                  onContractChange={() => loadEstimate(true)}
+                />
               )}
-              <DesignUpload estimateId={estimate.id!} design={estimate.design} onChange={() => loadEstimate(true)} />
             </div>
 
             {/* Reminder emails, once it's out with the client */}

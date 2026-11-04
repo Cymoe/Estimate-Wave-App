@@ -121,18 +121,40 @@ describe('changesSinceSigned', () => {
   });
 });
 
-describe('agreed design', () => {
-  it('comes from the estimate, or from the signed contract once accepted', () => {
+describe('files on the agreement', () => {
+  it('are the files marked In contract while open, or the files as signed once accepted', () => {
     const design = { url: 'https://files.example/a.png', name: 'a.png', type: 'image/png' };
-    expect(contractFor(estimate({ design })).agreedDesign).toEqual(design);
+    const plan = { url: 'https://files.example/plan.pdf', name: 'plan.pdf', type: 'application/pdf' };
+    expect(contractFor(estimate({ design, contract_files: [design, plan] })).agreedDesigns).toEqual([design, plan]);
+    // An estimate loaded without the list still shows its design.
+    expect(contractFor(estimate({ design })).agreedDesigns).toEqual([design]);
+    expect(contractFor(estimate({})).agreedDesigns).toEqual([]);
     const signed = contractFor(
       estimate({
-        design: undefined,
+        contract_files: [design],
         contract_locked_at: '2026-10-11T07:00:00Z',
-        contract_snapshot: { items: [], totalAmount: 0, design: { url: 'https://files.example/b.pdf', name: 'b.pdf', contentType: 'application/pdf' } },
+        contract_snapshot: {
+          items: [],
+          totalAmount: 0,
+          designs: [
+            { url: 'https://files.example/b.pdf', name: 'b.pdf', contentType: 'application/pdf' },
+            { url: 'https://files.example/c.jpg', name: 'c.jpg', contentType: 'image/jpeg' },
+          ],
+        },
       }),
     );
-    expect(signed.agreedDesign).toEqual({ url: 'https://files.example/b.pdf', name: 'b.pdf', type: 'application/pdf' });
+    expect(signed.agreedDesigns).toEqual([
+      { url: 'https://files.example/b.pdf', name: 'b.pdf', type: 'application/pdf' },
+      { url: 'https://files.example/c.jpg', name: 'c.jpg', type: 'image/jpeg' },
+    ]);
+    // Signed before the list: its one design.
+    const older = contractFor(
+      estimate({
+        contract_locked_at: '2026-10-11T07:00:00Z',
+        contract_snapshot: { items: [], totalAmount: 0, design: { url: 'https://files.example/d.png', name: 'd.png', contentType: 'image/png' } },
+      }),
+    );
+    expect(older.agreedDesigns).toEqual([{ url: 'https://files.example/d.png', name: 'd.png', type: 'image/png' }]);
   });
 });
 

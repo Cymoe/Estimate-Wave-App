@@ -254,7 +254,10 @@ export const contractSnapshot = v.object({
   taxAmount: v.number(),
   totalAmount: v.number(),
   terms: v.optional(contractTerms),
+  // Contracts signed before files could be marked In contract kept one design here.
   design: v.optional(estimateDesign),
+  // Every file that went on the contract, as signed (the design and any file marked In contract).
+  designs: v.optional(v.array(estimateDesign)),
   // The documents signed with it (the agreement and attachments), and when
   // the client confirmed reading the uploaded ones.
   documents: v.optional(v.array(signedDocument)),
@@ -1292,6 +1295,8 @@ export default defineSchema({
     contentType: v.string(),
     size: v.number(),
     caption: v.optional(v.string()),
+    // On an estimate: goes on its contract with the agreement the client signs.
+    inContract: v.optional(v.boolean()),
     uploadedBy: v.id("users"),
     createdAt: v.string(),
   })

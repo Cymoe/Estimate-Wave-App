@@ -1564,7 +1564,7 @@ describe("estimates", () => {
       id: estimate!._id,
       data: { status: "accepted" },
     });
-    expect(accepted!.contractSnapshot!.design!.storageId).toBe(second);
+    expect(accepted!.contractSnapshot!.designs!.map((d) => d.storageId)).toEqual([second]);
     const removed = await as.mutation(api.estimates.removeDesign, {
       id: estimate!._id,
     });

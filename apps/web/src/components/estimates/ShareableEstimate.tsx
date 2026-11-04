@@ -41,7 +41,8 @@ interface ClientEstimate {
   /** The client's portal, when the company has made one. */
   portal_token?: string;
   business?: { name?: string; email?: string; phone?: string; address?: string; logoUrl?: string };
-  design?: { url: string; name: string; contentType?: string };
+  /** The files that go with the agreement: the design and any file marked In contract. */
+  designs: Array<{ url: string; name: string; contentType?: string }>;
   agreement?: {
     propertyAddress?: string;
     workDescription?: string;
@@ -88,7 +89,7 @@ function fromView(view: any): ClientEstimate {
     client: view.client,
     portal_token: view.portalToken,
     business: view.business,
-    design: view.design,
+    designs: view.designs ?? [],
     agreement: view.agreement,
     locked_at: view.lockedAt,
     documents: view.documents ?? [],
@@ -142,7 +143,7 @@ function agreementFor(estimate: ClientEstimate): ContractData {
     warrantyPeriod: terms?.warrantyPeriod ?? '',
     extraTerms: terms?.extraTerms,
     lockedAt: estimate.locked_at,
-    agreedDesign: estimate.design && { url: estimate.design.url, name: estimate.design.name, type: estimate.design.contentType },
+    agreedDesigns: estimate.designs.map((d) => ({ url: d.url, name: d.name, type: d.contentType })),
   };
 }
 
@@ -557,18 +558,18 @@ const ShareableEstimatePage: React.FC = () => {
             <>
               <DocumentCard doc={uploadedAgreement} t={t} />
               <p className="text-sm text-gray-600 mt-3">
-                {estimate.design
+                {estimate.designs.length > 0
                   ? t.partOfAgreementWithDesign
                   : t.partOfAgreement}
               </p>
-              {estimate.design && (
-                <p className="text-sm mt-2">
+              {estimate.designs.map((d, i) => (
+                <p key={i} className="text-sm mt-2">
                   {t.agreedDesign}{' '}
-                  <a href={estimate.design.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline underline-offset-2">
-                    {estimate.design.name}
+                  <a href={d.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline underline-offset-2">
+                    {d.name}
                   </a>
                 </p>
-              )}
+              ))}
             </>
           ) : (
             <AgreementTerms contract={agreementFor(estimate)} lang={lang} />

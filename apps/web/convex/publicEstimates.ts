@@ -8,6 +8,7 @@ import { isLang, langOf } from "./lib/i18n";
 import { withCategories } from "./lib/categories";
 import { lockContract } from "./lib/contract";
 import { projectOnAccept } from "./lib/projectOnAccept";
+import { contractFiles, signedFiles } from "./lib/contractFiles";
 import { needsAcknowledgment, resolveDocuments, signedDocuments, stampSignedCopies } from "./lib/contractDocs";
 import { resolveTerms } from "./lib/contractDefaults";
 
@@ -99,7 +100,8 @@ export const get = query({
     // Once signed, the client sees what they signed, not later edits.
     const signed = estimate.contractSnapshot;
     const terms = resolveTerms(organization?.agreement, signed ? signed.terms : estimate.contractTerms);
-    const design = signed ? signed.design : estimate.design;
+    // The files on the contract: as signed once signed, else as they stand.
+    const designs = signed ? signedFiles(signed) : await contractFiles(ctx, estimate);
     // What the client signs besides the estimate: the agreement and any
     // attachments (the uploaded PDFs as signed, once signed). Fingerprints
     // only go out after signing, on the signed record.
@@ -142,13 +144,7 @@ export const get = query({
       totalAmount: signed ? signed.totalAmount : estimate.totalAmount,
       notes: estimate.notes,
       terms: estimate.terms,
-      design: design
-        ? {
-            url: design.url,
-            name: design.name,
-            contentType: design.contentType,
-          }
-        : undefined,
+      designs: designs.map((d) => ({ url: d.url, name: d.name, contentType: d.contentType })),
       agreement: {
         propertyAddress: terms.propertyAddress || clientAddress,
         workDescription: terms.workDescription || estimate.description,

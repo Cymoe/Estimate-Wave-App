@@ -63,23 +63,24 @@ export const AgreementTerms: React.FC<AgreementTermsProps> = ({ contract: contra
         </p>,
       )}
 
-      {contractData.agreedDesign &&
+      {/* The design and any other file that goes with the agreement: pictures shown, PDFs linked. */}
+      {contractData.agreedDesigns.length > 0 &&
         section(
           A.agreedDesign,
-          contractData.agreedDesign.type === 'application/pdf' || contractData.agreedDesign.name.toLowerCase().endsWith('.pdf') ? (
-            <p className="text-sm">
-              {A.designAttached}{' '}
-              <a href={contractData.agreedDesign.url} target="_blank" rel="noreferrer" className="text-blue-700 underline">
-                {contractData.agreedDesign.name}
-              </a>
-            </p>
-          ) : (
-            <img
-              src={contractData.agreedDesign.url}
-              alt={contractData.agreedDesign.name}
-              className="w-full max-h-[480px] object-contain border border-gray-300"
-            />
-          ),
+          <div className="space-y-4" data-testid="agreed-files">
+            {contractData.agreedDesigns.map((file, i) =>
+              (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) ? (
+                <p key={i} className="text-sm">
+                  {A.designAttached}{' '}
+                  <a href={file.url} target="_blank" rel="noreferrer" className="text-blue-700 underline">
+                    {file.name}
+                  </a>
+                </p>
+              ) : (
+                <img key={i} src={file.url} alt={file.name} className="w-full max-h-[480px] object-contain border border-gray-300" />
+              ),
+            )}
+          </div>,
         )}
 
       {section(

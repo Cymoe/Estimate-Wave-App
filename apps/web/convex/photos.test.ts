@@ -39,11 +39,14 @@ describe("job photos", () => {
     expect((await as.query(api.photos.list, { estimateId }))[0].caption).toBe("After tear-off");
   });
 
-  test("only images of 15MB or less, on one estimate or project; the file goes when the photo does", async () => {
+  test("only photos and PDFs of 15MB or less, on one estimate or project; the file goes when the photo does", async () => {
     const t = setup();
     const { as, estimateId, projectId } = await job(t);
-    const pdf = await store(t, "application/pdf");
-    await expect(as.mutation(api.photos.add, { storageId: pdf, fileName: "plan.pdf", estimateId })).rejects.toThrow(/JPEG, PNG, HEIC or WebP/);
+    const text = await store(t, "text/plain");
+    await expect(as.mutation(api.photos.add, { storageId: text, fileName: "notes.txt", estimateId })).rejects.toThrow(/JPEG, PNG, HEIC or WebP\) or a PDF/);
+    const pdf = await as.mutation(api.photos.add, { storageId: await store(t, ""), fileName: "Plan.PDF", estimateId });
+    expect((await as.query(api.photos.list, { estimateId })).find((p: { id: string }) => p.id === pdf)).toMatchObject({ contentType: "application/pdf", inContract: false });
+    await as.mutation(api.photos.remove, { id: pdf });
     const big = await store(t, "image/jpeg", "x".repeat(15 * 1024 * 1024 + 1));
     await expect(as.mutation(api.photos.add, { storageId: big, fileName: "big.jpg", estimateId })).rejects.toThrow(/15MB/);
     await expect(as.mutation(api.photos.add, { storageId: await store(t), fileName: "a.jpg", estimateId, projectId })).rejects.toThrow(/one estimate or one project/);
@@ -71,5 +74,38 @@ describe("job photos", () => {
     await as.mutation(api.projects.remove, { id: projectId });
     expect(await exists(t, onProject)).toBe(false);
     expect(await t.run((ctx) => ctx.db.query("jobPhotos").collect())).toHaveLength(0);
+  });
+
+  test("files marked In contract go on the client's link and are kept with the signed contract", async () => {
+    const t = setup();
+    const { as, estimateId } = await job(t);
+    const plan = await store(t, "application/pdf");
+    const planId = await as.mutation(api.photos.add, { storageId: plan, fileName: "plan.pdf", estimateId });
+    const photo = await as.mutation(api.photos.add, { storageId: await store(t), fileName: "tile.jpg", estimateId });
+    await as.mutation(api.photos.add, { storageId: await store(t), fileName: "before.jpg", estimateId });
+    await as.mutation(api.photos.setInContract, { id: planId, inContract: true });
+    await as.mutation(api.photos.setInContract, { id: photo, inContract: true });
+
+    const token = await as.mutation(api.estimates.shareLink, { id: estimateId });
+    const names = async () => ((await t.query(api.publicEstimates.get, { token }))!.designs as Array<{ name: string }>).map((d) => d.name);
+    expect(await names()).toEqual(["plan.pdf", "tile.jpg"]);
+    // The company's own view of the estimate lists them too, for the agreement preview.
+    expect((await as.query(api.estimates.get, { id: estimateId }))!.contractFiles.map((f: { name: string }) => f.name)).toEqual(["plan.pdf", "tile.jpg"]);
+    await as.mutation(api.photos.setInContract, { id: photo, inContract: false });
+    expect(await names()).toEqual(["plan.pdf"]);
+
+    // Signed: the files are frozen with it. They can't be switched, and deleting one keeps the stored file.
+    await t.mutation(api.publicEstimates.accept, { token, signature: "data:image/png;base64,AAAA" });
+    await expect(as.mutation(api.photos.setInContract, { id: photo, inContract: true })).rejects.toThrow(/signed/);
+    await as.mutation(api.photos.remove, { id: planId });
+    expect(await exists(t, plan)).toBe(true);
+    expect(await names()).toEqual(["plan.pdf"]);
+  });
+
+  test("a project's own files can't go on a contract", async () => {
+    const t = setup();
+    const { as, projectId } = await job(t);
+    const id = await as.mutation(api.photos.add, { storageId: await store(t), fileName: "a.jpg", projectId });
+    await expect(as.mutation(api.photos.setInContract, { id, inContract: true })).rejects.toThrow(/estimate's files/);
   });
 });

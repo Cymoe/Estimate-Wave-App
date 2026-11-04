@@ -241,6 +241,10 @@ export interface JobPhoto {
   id: string;
   url?: string;
   fileName: string;
+  /** An image type, or application/pdf. */
+  contentType?: string;
+  /** On an estimate: goes on its contract with the agreement. */
+  inContract?: boolean;
   caption?: string;
   createdAt: string;
   estimateId?: string;
@@ -248,13 +252,14 @@ export interface JobPhoto {
   from?: string;
 }
 
-/** Job photos on an estimate or a project. */
+/** Job photos and files (images and PDFs) on an estimate or a project. */
 export const photosAPI = {
   list: (target: { estimateId?: string; projectId?: string }): Promise<JobPhoto[]> => run('query', api.photos.list, defined(target)),
   uploadUrl: (organizationId: string): Promise<string> => run('mutation', api.photos.uploadUrl, { organizationId }),
   add: (args: { storageId: string; fileName: string; estimateId?: string; projectId?: string; caption?: string }) =>
     run('mutation', api.photos.add, defined(args)),
   setCaption: (id: string, caption: string) => run('mutation', api.photos.setCaption, { id, caption }),
+  setInContract: (id: string, inContract: boolean) => run('mutation', api.photos.setInContract, { id, inContract }),
   remove: (id: string) => run('mutation', api.photos.remove, { id }),
 };
 

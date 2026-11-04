@@ -2,18 +2,20 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { fail, getOwned, logActivity, nowIso, requireMember } from "./lib/access";
+import { signedWith } from "./lib/contractFiles";
 
-// Job photos on an estimate or a project. A project's photos include the
-// photos taken on its estimates.
+// Job photos and files (images and PDFs) on an estimate or a project. A
+// project's include the ones on its estimates. An estimate's can be marked In
+// contract: they go on the agreement the client signs.
 
 export const MAX_PHOTO_BYTES = 15 * 1024 * 1024;
-const PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "image/gif"];
+const PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "image/gif", "application/pdf"];
 
 /** The image type, from the upload or the file name (iPhones sometimes send no type). */
 function photoType(contentType: string | undefined, fileName: string) {
   if (contentType && contentType !== "application/octet-stream") return contentType.toLowerCase();
   const ext = fileName.toLowerCase().split(".").pop() ?? "";
-  return { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", heic: "image/heic", heif: "image/heif", gif: "image/gif" }[ext] ?? "";
+  return { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", heic: "image/heic", heif: "image/heif", gif: "image/gif", pdf: "application/pdf" }[ext] ?? "";
 }
 
 /** The estimate or project a photo belongs to, checked against the signed-in member. */
@@ -29,6 +31,8 @@ async function withUrl(ctx: QueryCtx, photo: Doc<"jobPhotos">, from?: string) {
     id: photo._id,
     url: (await ctx.storage.getUrl(photo.storageId)) ?? undefined,
     fileName: photo.fileName,
+    contentType: photo.contentType,
+    inContract: photo.inContract ?? false,
     caption: photo.caption,
     createdAt: photo.createdAt,
     estimateId: photo.estimateId,
@@ -61,7 +65,7 @@ export const add = mutation({
     if (file === null) fail("NOT_FOUND", "The uploaded file wasn't found");
     const type = photoType(file.contentType, fileName);
     if (!PHOTO_TYPES.includes(type) || file.size > MAX_PHOTO_BYTES)
-      fail("INVALID", "A photo must be a JPEG, PNG, HEIC or WebP image of 15MB or less");
+      fail("INVALID", "A file must be a photo (JPEG, PNG, HEIC or WebP) or a PDF of 15MB or less");
     const id = await ctx.db.insert("jobPhotos", {
       organizationId,
       estimateId,
@@ -120,12 +124,28 @@ export const setCaption = mutation({
   },
 });
 
+/** Puts an estimate's file on its contract, or takes it off, until the contract is signed. */
+export const setInContract = mutation({
+  args: { id: v.id("jobPhotos"), inContract: v.boolean() },
+  handler: async (ctx, { id, inContract }) => {
+    const { photo } = await ownPhoto(ctx, id);
+    if (photo.estimateId === undefined) fail("INVALID", "Only an estimate's files go on its contract");
+    const estimate = await ctx.db.get(photo.estimateId);
+    if (estimate?.contractLockedAt) fail("INVALID", "The contract is signed, so its files stay as they were signed");
+    await ctx.db.patch(id, { inContract: inContract || undefined });
+    return null;
+  },
+});
+
 export const remove = mutation({
   args: { id: v.id("jobPhotos") },
   handler: async (ctx, { id }) => {
     const { photo, user } = await ownPhoto(ctx, id);
     await ctx.db.delete(id);
-    if ((await ctx.db.system.get(photo.storageId)) !== null) await ctx.storage.delete(photo.storageId);
+    // A file a signed contract went out with stays stored, so the signed contract still shows it.
+    const estimate = photo.estimateId ? await ctx.db.get(photo.estimateId) : null;
+    if (!signedWith(estimate, photo.storageId) && (await ctx.db.system.get(photo.storageId)) !== null)
+      await ctx.storage.delete(photo.storageId);
     await logActivity(ctx, { organizationId: photo.organizationId, userId: user._id, action: "photo_removed", resourceType: photo.estimateId ? "estimate" : "project", resourceId: photo.estimateId ?? photo.projectId, details: { fileName: photo.fileName } });
     return null;
   },

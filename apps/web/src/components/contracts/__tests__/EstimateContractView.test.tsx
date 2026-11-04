@@ -149,11 +149,18 @@ describe('contract page', () => {
     expect(text).toContain('Total$972.00');
   });
 
-  it('shows the agreed design', async () => {
-    stored = { ...base, design: { url: 'https://files.example/plan.png', name: 'plan.png', type: 'image/png' } };
+  it('shows every file that goes with the agreement: pictures shown, PDFs linked', async () => {
+    stored = {
+      ...base,
+      contract_files: [
+        { url: 'https://files.example/plan.png', name: 'plan.png', type: 'image/png' },
+        { url: 'https://files.example/specs.pdf', name: 'specs.pdf', type: 'application/pdf' },
+      ],
+    };
     await render();
-    expect(document.body.textContent).toContain('AGREED DESIGN');
+    expect(document.body.textContent).toContain('AGREED DESIGN AND FILES');
     expect((document.body.querySelector('img[alt="plan.png"]') as HTMLImageElement).src).toBe('https://files.example/plan.png');
+    expect((document.body.querySelector('a[href="https://files.example/specs.pdf"]') as HTMLAnchorElement).textContent).toBe('specs.pdf');
   });
 
   it('?record=1 shows the signed record: who signed, when, and the exact file', async () => {

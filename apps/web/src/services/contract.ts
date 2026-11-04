@@ -31,8 +31,8 @@ export interface ContractData {
   extraTerms?: string;
   /** When the estimate was accepted and this contract stopped following it. */
   lockedAt?: string;
-  /** The agreed design (image or PDF) attached to the estimate. */
-  agreedDesign?: { url: string; name: string; type?: string };
+  /** The files that go with the agreement: the design and any file marked In contract (images or PDFs). */
+  agreedDesigns: Array<{ url: string; name: string; type?: string }>;
 }
 
 /** The parts of the contract the user writes, saved on the estimate. */
@@ -116,9 +116,10 @@ export function contractFor(estimate: Estimate, business?: Business | null): Con
     warrantyPeriod: terms.warrantyPeriod ?? '',
     extraTerms: terms.extraTerms,
     lockedAt: estimate.contract_locked_at,
-    agreedDesign: snapshot
-      ? snapshot.design && { url: snapshot.design.url, name: snapshot.design.name, type: snapshot.design.contentType }
-      : estimate.design,
+    // As signed once signed (one design on contracts signed before the list), else as they stand.
+    agreedDesigns: snapshot
+      ? ((snapshot.designs ?? (snapshot.design ? [snapshot.design] : [])) as Snapshot[]).map((d) => ({ url: d.url, name: d.name, type: d.contentType }))
+      : estimate.contract_files ?? (estimate.design ? [estimate.design] : []),
   };
 }
 

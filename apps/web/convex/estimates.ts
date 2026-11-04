@@ -15,6 +15,7 @@ import { withCategories } from "./lib/categories";
 import { redLineTotal, type Discount } from "./lib/totals";
 import { lockContract } from "./lib/contract";
 import { projectOnAccept } from "./lib/projectOnAccept";
+import { contractFiles, signedFiles, signedWith } from "./lib/contractFiles";
 import { deletePhotos } from "./photos";
 import {
   CHOICE_KEY,
@@ -69,7 +70,7 @@ async function deleteDesignFile(
   estimate: Doc<"estimates">,
   storageId: Id<"_storage">,
 ) {
-  if (estimate.contractSnapshot?.design?.storageId === storageId) return;
+  if (signedWith(estimate, storageId)) return;
   if ((await ctx.db.system.get(storageId)) !== null)
     await ctx.storage.delete(storageId);
 }
@@ -106,7 +107,8 @@ export const get = query({
   handler: async (ctx, { id }) => {
     const { doc } = await getOwned(ctx, "estimates", id);
     // Estimates saved before items kept their category get it filled in here.
-    return { ...doc, items: await withCategories(ctx, doc.items) };
+    // The files on its contract come along for the agreement preview.
+    return { ...doc, items: await withCategories(ctx, doc.items), contractFiles: await contractFiles(ctx, doc) };
   },
 });
 
@@ -299,7 +301,7 @@ export const remove = mutation({
   handler: async (ctx, { id }) => {
     const { doc, user } = await getOwned(ctx, "estimates", id);
     await ctx.db.delete(id);
-    for (const file of [doc.design, doc.contractSnapshot?.design]) {
+    for (const file of [doc.design, ...(doc.contractSnapshot ? signedFiles(doc.contractSnapshot) : [])]) {
       if (file && (await ctx.db.system.get(file.storageId)) !== null)
         await ctx.storage.delete(file.storageId);
     }

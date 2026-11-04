@@ -3,6 +3,7 @@ import type { MutationCtx } from "../_generated/server";
 import { withCategories } from "./categories";
 import { resolveTerms } from "./contractDefaults";
 import { markSigned, resolveDocuments, signedDocuments } from "./contractDocs";
+import { contractFiles } from "./contractFiles";
 
 /**
  * Freezes the contract as it stands, for an estimate being accepted: its
@@ -27,7 +28,8 @@ export async function lockContract(ctx: MutationCtx, estimate: Doc<"estimates">,
       taxAmount: estimate.taxAmount,
       totalAmount: estimate.totalAmount,
       terms: resolveTerms(organization?.agreement, estimate.contractTerms),
-      design: estimate.design,
+      // Every file on the contract as it stands: the design and the files marked In contract.
+      designs: await contractFiles(ctx, estimate),
       documents,
       ...(acknowledgedAt ? { acknowledgedAt } : {}),
     },

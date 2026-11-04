@@ -66,8 +66,10 @@ export interface Estimate {
   contract_locked_at?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   contract_snapshot?: Record<string, any>;
-  /** The agreed design (image or PDF) attached to the estimate. */
+  /** The agreed design (image or PDF) attached to the estimate, from before files could be marked In contract. */
   design?: { url: string; name: string; type?: string };
+  /** Every file on the contract as it stands: the design and the files marked In contract. */
+  contract_files?: Array<{ url: string; name: string; type?: string }>;
   first_opened_at?: string;
   sent_at?: string;
   last_sent_at?: string;
@@ -158,6 +160,7 @@ function toLegacy(doc: Doc, clients?: Map<string, Doc>, projects?: Map<string, D
     contract_locked_at: doc.contractLockedAt,
     contract_snapshot: doc.contractSnapshot,
     design: doc.design ? { url: doc.design.url, name: doc.design.name, type: doc.design.contentType } : undefined,
+    contract_files: doc.contractFiles?.map((f: Doc) => ({ url: f.url, name: f.name, type: f.contentType })),
     created_at: doc.createdAt,
     updated_at: doc.updatedAt,
     items: (doc.items ?? []).map((item: Doc) => ({

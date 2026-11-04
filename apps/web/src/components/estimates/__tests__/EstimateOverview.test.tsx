@@ -59,6 +59,7 @@ jest.mock('../../../lib/api', () => ({
     setClientDetail: (id: string, detail: string) => setClientDetail(id, detail),
   },
   organizationsAPI: { getById: async () => null },
+  photosAPI: { list: async () => [] },
   clientsAPI: { list: async () => [{ id: 'c2', name: 'Priya Shah' }, { id: 'c1', name: 'Dan Shah' }] },
 }));
 jest.mock('../CreateEstimateDrawer', () => ({ CreateEstimateDrawer: () => null }));
@@ -366,10 +367,10 @@ describe('estimate overview', () => {
     );
     for (let i = 1; i < order.length; i += 1)
       expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // Files holds the job photos and the agreed design.
+    // Files holds the photos and PDFs, with Add files.
     const files = document.body.querySelector('[data-testid="files"]')!;
     expect(files.querySelector('[data-testid="job-photos"]')).not.toBeNull();
-    expect(files.querySelector('[data-testid="agreed-design"]')).not.toBeNull();
+    expect(files.textContent).toContain('Add files');
     // A draft hasn't gone out, so there's nothing to remind about yet.
     expect(document.body.querySelector('[data-testid="reminders"]')).toBeNull();
   });
@@ -389,26 +390,14 @@ describe('estimate overview', () => {
     expect(document.body.querySelector('select[aria-label="Choose client"]')).toBeNull();
   });
 
-  it('uploads the agreed design and shows it', async () => {
-    stored = { ...base };
+  it('shows an agreed design attached before files could be marked, first in Files and on the contract', async () => {
+    stored = { ...base, organization_id: 'org1', design: { url: 'https://files.example/plan.png', name: 'plan.png', type: 'image/png' } };
     await openOverview();
-    const input = document.body.querySelector('[data-testid="design-file"]') as HTMLInputElement;
-    const file = new File(['x'], 'plan.png', { type: 'image/png' });
-    Object.defineProperty(input, 'files', { value: [file] });
-    await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
-    await act(async () => {});
-    expect(uploadDesign).toHaveBeenCalledWith('e1', file);
-    expect((document.body.querySelector('img[alt="plan.png"]') as HTMLImageElement).src).toBe('https://files.example/plan.png');
-  });
-
-  it('refuses files that are not images or PDFs', async () => {
-    stored = { ...base };
-    await openOverview();
-    const input = document.body.querySelector('[data-testid="design-file"]') as HTMLInputElement;
-    Object.defineProperty(input, 'files', { value: [new File(['x'], 'notes.txt', { type: 'text/plain' })] });
-    await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
-    expect(uploadDesign).not.toHaveBeenCalled();
-    expect(document.body.textContent).toContain('Choose an image (PNG, JPG) or a PDF.');
+    const design = document.body.querySelector('[data-testid="legacy-design"]')!;
+    expect(design.querySelector('a')!.getAttribute('href')).toBe('https://files.example/plan.png');
+    const toggle = design.querySelector('[role="switch"]') as HTMLButtonElement;
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    expect(toggle.disabled).toBe(true);
   });
 
   it('Send shares the client link and marks a draft sent', async () => {
