@@ -32,6 +32,7 @@ import { WORK_TYPE_NAMES } from '../../../convex/lib/workTypes';
 import { estimateTotals } from '../../../convex/lib/totals';
 import { DiscountCard } from './DiscountCard';
 import { notify } from '../common/appDialogs';
+import { dialogOnTopOf } from '../common/StructuredNote';
 
 // Header actions share one size so they line up; only the main action is filled.
 const actionBase = 'h-9 flex items-center gap-2 px-4 border rounded-sm transition-colors text-sm font-medium';
@@ -108,6 +109,22 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   
   // Tab state - Default to Line Items for immediate visibility (3-tab structure)
   const [activeTab, setActiveTab] = useState<'items' | 'overview' | 'contract'>('items');
+  // N adds a line on the Line Items tab, unless typing or something is open on top of this estimate.
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (activeTab !== 'items' || showPricingSelector) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== 'n' || e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
+      const panel = (root.current?.closest('[role="dialog"]') as HTMLElement | null) ?? null;
+      if (panel?.getAttribute('aria-hidden') === 'true' || dialogOnTopOf(panel)) return;
+      e.preventDefault();
+      setShowPricingSelector(true);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeTab, showPricingSelector]);
   // The contract tab's inline document preview that's open.
 
   // The client link, loaded when it's first needed (Share or Send).
@@ -473,17 +490,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
 
   const totalBar = estimate.items && estimate.items.length > 0 ? (
           <div className="flex items-center text-[12px] font-medium">
-      {/* Always on screen, however long the list: adding a line never means scrolling to the end. */}
-      <button
-        type="button"
-        onClick={() => setShowPricingSelector(true)}
-        data-testid="add-item-bar"
-        className="self-stretch shrink-0 flex items-center gap-1.5 px-3 text-[13px] font-medium text-white bg-[#336699] hover:bg-[#2a5580] transition-colors"
-      >
-        <Plus className="w-4 h-4" />
-        <span>Add item</span>
-      </button>
-      <div className="flex-1 py-2 px-3 text-right text-gray-500 border-r border-[#333333]">
+      <div className="flex-1 py-2 px-3 text-left text-gray-500 border-r border-[#333333]">
         <span className="whitespace-nowrap">{estimate.items.length} {estimate.items.length === 1 ? 'item' : 'items'}</span>
         <span className="hidden sm:inline"> · Sum</span>
         {(estimate.discount_amount ?? 0) > 0 && (
@@ -528,11 +535,27 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
     </div>
   ) : null;
 
+  // Pinned just above the totals, in the same spot however long the list is.
+  const addItemRow = (
+    <button
+      type="button"
+      onClick={() => setShowPricingSelector(true)}
+      data-testid="add-item-bar"
+      className="w-full flex items-center gap-2 px-3 py-3 text-left text-[13px] font-medium text-[#6aa3d9] hover:text-white hover:bg-[#22272d] bg-[#0A0A0A] border-t border-[#333333] transition-colors"
+    >
+      <Plus className="w-4 h-4" />
+      <span className="flex-1">Add item</span>
+      <kbd className="hidden md:inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 text-[11px] font-medium text-gray-400 border border-[#444] rounded" aria-hidden="true">
+        N
+      </kbd>
+    </button>
+  );
+
   // The contract documents follow the estimate until it's accepted.
   const changeOrder = changesSinceSigned(estimate);
 
   return (
-    <div className={`${inDrawer ? 'h-full' : 'min-h-screen'} bg-[#000000] flex flex-col`}>
+    <div ref={root} className={`${inDrawer ? 'h-full' : 'min-h-screen'} bg-[#000000] flex flex-col`}>
       {/* Fixed Header */}
       <div className="sticky top-0 z-30 bg-[#1a1a1a] border-b border-[#333333] flex-shrink-0">
         {/* Row 1: Navigation + Document Info */}
@@ -963,6 +986,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
           }}
           onAddItem={() => setShowPricingSelector(true)}
           isEditable={true}
+          showAddRow={false}
           subtotal={estimate.subtotal}
           tax={estimate.tax_amount || 0}
           total={estimate.total_amount}
@@ -980,6 +1004,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
         />
               </div>
               {/* In the drawer the total bar sits at the bottom of the table column. */}
+              {inDrawer && <div className="flex-shrink-0">{addItemRow}</div>}
               {inDrawer && totalBar && (
                 <div className="flex-shrink-0 bg-[#1D1F25] border-t border-[#333333]">{totalBar}</div>
               )}
@@ -1189,9 +1214,10 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
 
 
       {/* Fixed Total Bar - Always visible at bottom of screen */}
-      {!inDrawer && activeTab === 'items' && totalBar && totalBarBox && (
-        <div className="fixed bottom-0 bg-[#1D1F25] border-t border-[#333333] z-30" style={{ left: totalBarBox.left, width: totalBarBox.width }}>
-          {totalBar}
+      {!inDrawer && activeTab === 'items' && totalBarBox && (
+        <div className="fixed bottom-0 bg-[#1D1F25] z-30" style={{ left: totalBarBox.left, width: totalBarBox.width }}>
+          {addItemRow}
+          {totalBar && <div className="border-t border-[#333333]">{totalBar}</div>}
         </div>
       )}
     </div>

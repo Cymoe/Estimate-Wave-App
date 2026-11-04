@@ -107,7 +107,7 @@ describe('estimate overview', () => {
 
   const button = (text: string) => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === text) as HTMLButtonElement | undefined;
 
-  it('keeps Add item in the line items bar at the bottom, so it never takes scrolling to find', async () => {
+  it('pins Add item just above the totals, opens the picker from it or with N, and not while typing', async () => {
     stored = { ...base };
     const container = document.createElement('div');
     document.body.appendChild(container);
@@ -120,11 +120,34 @@ describe('estimate overview', () => {
     );
     await act(async () => {});
     const add = document.body.querySelector('[data-testid="add-item-bar"]') as HTMLButtonElement;
-    expect(add.textContent).toBe('Add item');
-    expect(add.parentElement!.textContent).toContain('1 item · Sum');
-    expect(document.body.querySelector('[data-testid="pricing-selector"]')).toBeNull();
+    expect(add.textContent).toContain('Add item');
+    // Its own row, with the totals right under it.
+    expect(add.parentElement!.nextElementSibling!.textContent).toContain('1 item · Sum');
+    const picker = () => document.body.querySelector('[data-testid="pricing-selector"]');
+    expect(picker()).toBeNull();
     await act(async () => add.click());
-    expect(document.body.querySelector('[data-testid="pricing-selector"]')).not.toBeNull();
+    expect(picker()).not.toBeNull();
+  });
+
+  it('N on the Line Items tab opens the item picker, but not from a text field', async () => {
+    stored = { ...base };
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () =>
+      createRoot(container).render(
+        <MemoryRouter>
+          <EstimateDetail estimateId="e1" onClose={() => {}} inDrawer />
+        </MemoryRouter>,
+      ),
+    );
+    await act(async () => {});
+    const picker = () => document.body.querySelector('[data-testid="pricing-selector"]');
+    const field = document.createElement('input');
+    document.body.appendChild(field);
+    await act(async () => field.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', bubbles: true })));
+    expect(picker()).toBeNull();
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n' })));
+    expect(picker()).not.toBeNull();
   });
 
   it('an estimate with no client says Add client under its number, which opens the Overview to pick one', async () => {

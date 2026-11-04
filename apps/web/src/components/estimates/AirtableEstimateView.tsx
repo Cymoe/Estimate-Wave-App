@@ -35,6 +35,8 @@ interface AirtableEstimateViewProps {
   onEditPrice?: (itemId: string) => void;
   /** Fill the parent's height instead of the screen's. */
   fill?: boolean;
+  /** The Add item row after the last line; off when the page pins its own. */
+  showAddRow?: boolean;
 }
 
 interface EditingCell {
@@ -56,7 +58,8 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
   redlineTotal = 0,
   showStickyFooter = true,
   onEditPrice,
-  fill = false
+  fill = false,
+  showAddRow = true
 }) => {
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -235,7 +238,7 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
           ))}
           
             {/* Add Row Button */}
-            {isEditable && (
+            {isEditable && showAddRow && (
               <tr className="border-b border-[#333333] hover:bg-[#22272d]">
                 <td colSpan={6} className="border-r border-[#333333]">
                 <button
@@ -257,18 +260,6 @@ export const AirtableEstimateView: React.FC<AirtableEstimateViewProps> = ({
       {showStickyFooter && (
         <div className="sticky bottom-0 left-0 right-0 bg-[#1D1F25] border-t border-[#333333] z-20 flex-shrink-0">
           <div className="flex items-center text-[12px] font-medium">
-            {/* Always on screen, however long the list: adding an item never means scrolling to the end. */}
-            {isEditable ? (
-              <button
-                type="button"
-                onClick={onAddItem}
-                data-testid="add-item-footer"
-                className="self-stretch shrink-0 flex items-center gap-1.5 px-3 text-[13px] font-medium text-white bg-[#336699] hover:bg-[#2a5580] transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Add item</span>
-              </button>
-            ) : null}
             <div className="flex-1 py-2 px-3 text-right text-gray-500 border-r border-[#333333]">
               {items.length} {items.length === 1 ? 'item' : 'items'} · Sum
             </div>
