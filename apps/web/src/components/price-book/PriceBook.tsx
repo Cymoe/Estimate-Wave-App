@@ -693,7 +693,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
   return (
     <div className="flex h-screen bg-[#121212] overflow-hidden">
       {/* Left column: trades, each with its categories. Styled like the estimate's pricing-options column. */}
-      <div className="w-56 border-r border-[#333333] bg-[#0A0A0A] flex flex-col h-full flex-shrink-0" role="group" aria-label="Categories">
+      <div className="hidden md:flex w-56 border-r border-[#333333] bg-[#0A0A0A] flex-col h-full flex-shrink-0" role="group" aria-label="Categories">
         <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-[#333333] scrollbar-track-transparent py-1">
           {categoryButton('all', 'All items', filteredLineItems.length)}
           {loadingBook && (
@@ -726,9 +726,28 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
       <div className="flex-shrink-0 bg-[#121212] border-b border-[#333333] sticky top-0 z-10">
         {/* Table Controls */}
         <div className="px-4 py-3 border-b border-[#333333]">
-        <div className="flex items-center justify-between gap-4">
+        {/* Wraps onto a second line on narrow screens, so Add Item and the menu never run off the edge. */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* On a phone the category column is hidden: pick a category here instead. */}
+          <select
+            aria-label="Category"
+            className="md:hidden w-full bg-[#0A0A0A] border border-[#333333] px-3 py-2 text-sm text-white max-w-full focus:outline-none focus:border-[#336699]"
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+          >
+            <option value="all">{loadingBook ? 'All items' : `All items (${filteredLineItems.length})`}</option>
+            {sidebarGroups.map(([tradeName, categories]) => (
+              <optgroup key={tradeName} label={tradeName}>
+                {categories.map(([categoryKey, count]) => (
+                  <option key={categoryKey} value={categoryKey}>
+                    {categoryKey} ({count})
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
           {/* Left side - Filters */}
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3 min-w-0">
             {myTrades.size > 0 && (
               <div role="group" aria-label="Which trades" className="inline-flex border border-[#333333]">
                 {(['mine', 'all'] as const).map((scope) => (
@@ -746,7 +765,8 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
               </div>
             )}
             <select
-              className="bg-[#0A0A0A] border border-[#333333] px-3 py-2 text-sm text-white focus:outline-none focus:border-[#336699]"
+              aria-label="Cost code"
+              className="hidden sm:block bg-[#0A0A0A] border border-[#333333] px-3 py-2 text-sm text-white max-w-full min-w-0 focus:outline-none focus:border-[#336699]"
               value={selectedTradeId}
               onChange={(e) => setSelectedTradeId(e.target.value)}
             >
@@ -772,7 +792,7 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
           </div>
 
           {/* Right side - View options */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 ml-auto">
             <button
               onClick={() => setShowNewLineItemModal(true)}
               className="bg-[#336699] hover:bg-[#2a5580] text-white px-4 py-2 text-sm font-medium transition-colors flex items-center gap-2"
@@ -787,8 +807,9 @@ export const PriceBook: React.FC<PriceBookProps> = ({ triggerAddItem }) => {
                 setCondensed(newCondensed);
                 localStorage.setItem('pricebook-condensed', newCondensed.toString());
               }}
-              className="border border-[#333333] p-2 text-gray-300 hover:bg-[#1E1E1E] hover:text-white transition-colors"
+              className="hidden sm:block border border-[#333333] p-2 text-gray-300 hover:bg-[#1E1E1E] hover:text-white transition-colors"
               title="Toggle compact view"
+              aria-label="Toggle compact view"
             >
               <LayoutGrid className="w-4 h-4" />
             </button>

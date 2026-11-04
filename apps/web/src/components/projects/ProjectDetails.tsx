@@ -580,8 +580,9 @@ export const ProjectPanel: React.FC<{
   return (
     <div className="h-full bg-[#000000] flex flex-col">
       <div className="sticky top-0 z-30 bg-[#1a1a1a] border-b border-[#333333] flex-shrink-0">
-        <div className="flex items-center justify-between gap-3 px-3 py-2">
-          <div className="flex items-center gap-3 min-w-0">
+        {/* On a phone the buttons move to a second line when they don't fit, so the name shows and the menu is in reach. */}
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-3 py-2">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button onClick={onClose} aria-label="Close" className="w-11 h-11 -ml-1 flex items-center justify-center hover:bg-[#333333] transition-colors">
               <X className="w-4 h-4 text-gray-400" />
             </button>
@@ -603,7 +604,7 @@ export const ProjectPanel: React.FC<{
               </select>
             </label>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
             {/* The job site in Apple Maps */}
             {place && (
               <AddressLink address={place} className={`${secondaryAction} px-2.5`} aria-label={`Open ${place} in Apple Maps`}>
@@ -618,9 +619,10 @@ export const ProjectPanel: React.FC<{
               title={portal ? `Open ${portal.name}'s portal` : 'Add a client first'}
               className={`${secondaryAction} disabled:opacity-50`}
               data-testid="client-portal-button"
+              aria-label={(portal?.queued ?? 0) > 0 ? `Client portal, ${portal!.queued} waiting to send` : 'Client portal'}
             >
               <Globe className="w-4 h-4" />
-              Client portal
+              <span className="hidden sm:inline">Client portal</span>
               {(portal?.queued ?? 0) > 0 && (
                 <span
                   className="ml-1 rounded-full bg-[#336699] px-1.5 text-[11px] leading-5 text-white"
