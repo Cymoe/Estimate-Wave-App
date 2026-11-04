@@ -36,7 +36,7 @@ import { dialogOnTopOf } from '../common/StructuredNote';
 import { pointTo } from '../../lib/pointTo';
 
 // Header actions share one size so they line up; only the main action is filled.
-const actionBase = 'h-9 flex items-center gap-2 px-4 border rounded-sm transition-colors text-sm font-medium';
+const actionBase = 'h-11 flex items-center gap-2 px-4 border rounded-sm transition-colors text-sm font-medium';
 const primaryAction = `${actionBase} bg-[#336699] border-[#336699] text-white hover:bg-[#2a5580]`;
 const secondaryAction = `${actionBase} bg-transparent border-[#333333] text-gray-200 hover:bg-[#22272d] hover:text-white`;
 
@@ -490,22 +490,22 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
   }
 
   const totalBar = estimate.items && estimate.items.length > 0 ? (
-          <div className="flex items-center text-[12px] font-medium">
-      <div className="flex-1 py-2 px-3 text-left text-gray-500 border-r border-[#333333]">
+          <div className="flex items-center text-[13px] sm:text-[15px] font-medium tabular-nums">
+      <div className="flex-1 py-2.5 px-3 text-left text-gray-400 border-r border-[#333333]">
         <span className="whitespace-nowrap">{estimate.items.length} {estimate.items.length === 1 ? 'item' : 'items'}</span>
         <span className="hidden sm:inline"> · Sum</span>
         {(estimate.discount_amount ?? 0) > 0 && (
-          <span className="block text-[10px] text-green-400">{estimate.discount?.label || 'Discount'} −{formatCurrency(estimate.discount_amount ?? 0)}</span>
+          <span className="block text-[12px] text-green-400">{estimate.discount?.label || 'Discount'} −{formatCurrency(estimate.discount_amount ?? 0)}</span>
         )}
       </div>
-      <div className="w-28 py-2 px-3 text-right text-gray-300 border-r border-[#333333]">
+      <div className="w-24 sm:w-28 py-2.5 px-2 sm:px-3 text-right text-gray-300 whitespace-nowrap border-r border-[#333333]">
         {formatCurrency(estimate.subtotal)}
       </div>
-      <div className="w-16 py-2 px-2 text-center text-gray-300 border-r border-[#333333]">
+      <div className="w-12 sm:w-14 py-2.5 px-2 text-center text-gray-300 border-r border-[#333333]">
         {estimate.items.reduce((sum, item) => sum + (item.quantity || 0), 0)}
       </div>
-      <div className="w-28 py-2 px-3 text-right border-r border-[#333333] flex flex-col items-end">
-        <span className="text-gray-300">{formatCurrency(estimate.total_amount)}</span>
+      <div className="w-28 sm:w-32 py-2.5 px-3 text-right border-r border-[#333333] flex flex-col items-end">
+        <span className="text-white font-bold text-[15px] sm:text-[17px] whitespace-nowrap">{formatCurrency(estimate.total_amount)}</span>
         {salesMode && (() => {
           const redlineTotal = estimate.items.reduce((sum, item) => {
             const redlinePrice = item.red_line_price || (item.original_unit_price || item.unit_price) * 0.7;
@@ -542,7 +542,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
       type="button"
       onClick={() => setShowPricingSelector(true)}
       data-testid="add-item-bar"
-      className="w-full flex items-center gap-2 px-3 py-3 text-left text-[13px] font-medium text-[#6aa3d9] hover:text-white hover:bg-[#22272d] bg-[#0A0A0A] border-t border-[#333333] transition-colors"
+      className="w-full flex items-center gap-2 px-3 py-3 text-left text-[15px] sm:text-[16px] font-medium text-[#6aa3d9] hover:text-white hover:bg-[#22272d] bg-[#0A0A0A] border-t border-[#333333] transition-colors"
     >
       <Plus className="w-4 h-4" />
       <span className="flex-1">Add item</span>
@@ -567,7 +567,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
               aria-label={inDrawer ? 'Close' : 'Back to estimates'}
               className="w-11 h-11 -ml-1 flex items-center justify-center hover:bg-[#333333] rounded-[4px] transition-colors"
             >
-              {inDrawer ? <X className="w-4 h-4 text-gray-400" /> : <ArrowLeft className="w-4 h-4 text-gray-400" />}
+              {inDrawer ? <X className="w-5 h-5 text-gray-400" /> : <ArrowLeft className="w-5 h-5 text-gray-400" />}
             </button>
             
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
@@ -629,9 +629,9 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
               <button
                 onClick={() => setShowMoreMenu((open) => !open)}
                 aria-label="More actions"
-                className={`${secondaryAction} px-2.5`}
+                className={`${secondaryAction} w-11 !px-0 justify-center`}
               >
-                <MoreVertical className="w-4 h-4" />
+                <MoreVertical className="w-5 h-5" />
               </button>
               {showMoreMenu && (
                 <>
@@ -734,7 +734,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 ${
+                className={`px-4 py-3 text-[15px] font-medium transition-colors border-b-2 ${
                   activeTab === tab.id
                     ? 'text-white border-[#336699] bg-[#336699]/10'
                     : 'text-gray-400 border-transparent hover:text-white hover:bg-[#2a2a2a]'
