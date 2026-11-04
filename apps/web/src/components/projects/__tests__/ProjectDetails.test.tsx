@@ -376,6 +376,20 @@ describe('Project drawer', () => {
     await act(async () => new Promise<void>((r) => requestAnimationFrame(() => r())));
     expect(document.body.querySelector('[role="tab"][aria-selected="true"]')!.textContent).toContain('Overview');
     expect(document.activeElement).toBe(document.body.querySelector('select[aria-label="Client"]'));
+    // It lands somewhere you can see: the Details card is outlined for a moment.
+    expect(document.body.querySelector('section[aria-label="Details"]')!.className).toContain('ring-2');
+  });
+
+  it("doesn't offer Add client on a project that has one, even before the client's name has loaded", async () => {
+    const { ClientService } = jest.requireMock('../../../services/ClientService');
+    let finish: (c: unknown) => void = () => {};
+    (ClientService.getById as jest.Mock).mockImplementationOnce(() => new Promise((r) => (finish = r)));
+    const { ProjectService } = jest.requireMock('../../../services/ProjectService');
+    (ProjectService.getById as jest.Mock).mockImplementationOnce(async () => ({ ...project, client: undefined }));
+    await render();
+    expect(Array.from(document.body.querySelectorAll('button')).some((b) => b.textContent === 'Add client')).toBe(false);
+    await act(async () => finish({ id: 'c1', name: 'Ann Miller' }));
+    expect(document.body.querySelector('[data-testid="project-client-link"]')!.textContent).toBe('Ann Miller');
   });
 
   it('closes with the X', async () => {

@@ -33,6 +33,7 @@ import { estimateTotals } from '../../../convex/lib/totals';
 import { DiscountCard } from './DiscountCard';
 import { notify } from '../common/appDialogs';
 import { dialogOnTopOf } from '../common/StructuredNote';
+import { pointTo } from '../../lib/pointTo';
 
 // Header actions share one size so they line up; only the main action is filled.
 const actionBase = 'h-9 flex items-center gap-2 px-4 border rounded-sm transition-colors text-sm font-medium';
@@ -703,13 +704,23 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
 
         {/* Simple Client Info */}
         <div className="text-sm text-gray-400 mt-1 px-3">
-          {estimate.client?.name || (
-            // The client is picked on the Details tab: say so where it's missed.
-            <button type="button" onClick={() => setActiveTab('overview')} className="text-[#6aa3d9] hover:text-white underline underline-offset-2">
-              Add client
-            </button>
-          )}{' '}
-          • Created {formatDate(estimate.issue_date)}
+          {estimate.client?.name ||
+            (estimate.client_id ? null : (
+              // Only with no client at all. It opens the Details tab and brings the client card into view.
+              <button
+                type="button"
+                onClick={(e) => {
+                  const panel = e.currentTarget.closest('[role="dialog"]') ?? document;
+                  setActiveTab('overview');
+                  pointTo(() => panel.querySelector('[data-testid="client-card"]'));
+                }}
+                className="text-[#6aa3d9] hover:text-white underline underline-offset-2"
+              >
+                Add client
+              </button>
+            ))}
+          {estimate.client?.name || !estimate.client_id ? ' • ' : ''}
+          Created {formatDate(estimate.issue_date)}
         </div>
 
         {/* Tab Navigation */}
@@ -778,7 +789,7 @@ export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onCl
             )}
 
             {/* Client: pick one here when there's none, or change it */}
-            <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-4">
+            <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-4 transition-shadow" data-testid="client-card">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wide">Client</h3>
                 {estimate.client && !choosingClient && (

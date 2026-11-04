@@ -150,7 +150,7 @@ describe('estimate overview', () => {
     expect(picker()).not.toBeNull();
   });
 
-  it('an estimate with no client says Add client under its number, which opens the Overview to pick one', async () => {
+  it('an estimate with no client says Add client under its number, which opens the Details tab on the client card', async () => {
     stored = { ...base, client: undefined, client_id: undefined };
     const container = document.createElement('div');
     document.body.appendChild(container);
@@ -166,8 +166,25 @@ describe('estimate overview', () => {
     expect(button('Details')).toBeDefined();
     expect(button('Overview')).toBeUndefined();
     await act(async () => button('Add client')!.click());
+    await act(async () => new Promise<void>((r) => requestAnimationFrame(() => r())));
+    expect(document.body.querySelector('[data-testid="discount"]')).not.toBeNull(); // on the Details tab
+    // It lands somewhere you can see: the client card is outlined for a moment.
+    expect(document.body.querySelector('[data-testid="client-card"]')!.className).toContain('ring-2');
+  });
+
+  it("doesn't offer Add client when the estimate has a client whose details aren't in yet", async () => {
+    stored = { ...base, client_id: 'c1', client: undefined };
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () =>
+      createRoot(container).render(
+        <MemoryRouter>
+          <EstimateDetail estimateId="e1" onClose={() => {}} inDrawer />
+        </MemoryRouter>,
+      ),
+    );
     await act(async () => {});
-    expect(document.body.querySelector('[data-testid="discount"]')).not.toBeNull(); // on the Overview tab
+    expect(button('Add client')).toBeUndefined();
   });
 
   it('adds a discount ($ or %) with a label, shows what it takes off, shows a refusal, and removes it', async () => {

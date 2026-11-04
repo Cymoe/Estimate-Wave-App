@@ -1,6 +1,7 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { fullAddress } from '../../lib/mapsLinks';
 import { AddressLink } from '../common/AddressLink';
+import { pointTo } from '../../lib/pointTo';
 import { usePageTitle } from '../../lib/pageTitle';
 import { estimateStatusLabel } from '../estimates/estimateActions';
 import { createPortal } from 'react-dom';
@@ -684,21 +685,26 @@ export const ProjectPanel: React.FC<{
             </button>
           ) : clientLabel ? (
             clientLabel
-          ) : (
-            // The client is picked in the Overview's Details: say so where it's missed.
+          ) : project.client_id ? null : (
+            // Only with no client at all (not while a client's name loads). It goes to the
+            // Overview's Details, brings it into view and outlines it, with the picker focused.
             <button
               type="button"
               onClick={(e) => {
                 const panel = e.currentTarget.closest('[role="dialog"]') ?? document;
                 setActiveTab('overview');
-                requestAnimationFrame(() => panel.querySelector<HTMLSelectElement>('select[aria-label="Client"]')?.focus());
+                pointTo(
+                  () => panel.querySelector('section[aria-label="Details"]'),
+                  () => panel.querySelector<HTMLSelectElement>('select[aria-label="Client"]'),
+                );
               }}
               className="text-[#6aa3d9] hover:text-white underline underline-offset-2"
             >
               Add client
             </button>
-          )}{' '}
-          • {dates(project)}
+          )}
+          {clientLabel || !project.client_id ? ' • ' : ''}
+          {dates(project)}
         </div>
         {/* On a phone the tabs scroll sideways; a fade at the right edge shows there are more. */}
         <div className="relative border-t border-[#333333]">
