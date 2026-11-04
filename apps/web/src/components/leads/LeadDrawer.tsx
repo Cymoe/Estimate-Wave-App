@@ -307,20 +307,23 @@ export const LeadDrawer: React.FC<{
             className="w-full bg-transparent border-0 p-0 text-[26px] font-semibold tracking-tight text-white placeholder-gray-600 focus:outline-none focus:ring-0"
           />
 
-          {/* The stage: a plain dropdown, the one way to move a lead between columns. */}
-          <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-[#2A2A2A] bg-[#161616] pl-3 pr-2 py-1 focus-within:border-[#444444]">
-            <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} aria-hidden="true" />
-            <select
-              value={status.value}
-              onChange={(e) => changeStatus(e.target.value as LeadStatus)}
-              aria-label="Stage"
-              className={`bg-transparent border-0 p-0 pr-5 text-sm font-medium ${status.color} focus:outline-none focus:ring-0 cursor-pointer`}
-            >
-              {STATUSES.map((s) => (
-                <option key={s.value} value={s.value} className="bg-[#1E1E1E] text-white">{s.label}</option>
-              ))}
-            </select>
-          </div>
+          {/* The stage, labelled so it's easy to find; on the board a card can also be dragged to another stage. */}
+          <label className="mt-3 flex items-center gap-3">
+            <span className="text-xs uppercase tracking-wider text-gray-500">Stage</span>
+            <span className="inline-flex items-center gap-2 border border-[#333333] bg-[#121212] pl-3 pr-2 h-9 focus-within:border-[#336699]">
+              <span className={`w-2 h-2 rounded-full ${status.dot}`} aria-hidden="true" />
+              <select
+                value={status.value}
+                onChange={(e) => changeStatus(e.target.value as LeadStatus)}
+                aria-label="Stage"
+                className={`bg-transparent border-0 p-0 pr-5 text-sm font-medium ${status.color} focus:outline-none focus:ring-0 cursor-pointer`}
+              >
+                {STATUSES.map((s) => (
+                  <option key={s.value} value={s.value} className="bg-[#1E1E1E] text-white">{s.label}</option>
+                ))}
+              </select>
+            </span>
+          </label>
 
           {lead && <LeadCredit lead={lead} onAcknowledged={(at) => onChanged(lead, { acknowledgedAt: at })} />}
 

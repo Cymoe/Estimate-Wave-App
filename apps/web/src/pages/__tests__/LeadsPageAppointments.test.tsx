@@ -155,7 +155,7 @@ describe('Leads board', () => {
     expect((document.body.querySelector('form input[aria-label="Name"]') as HTMLInputElement).value).toBe('Rocky Vansau');
   });
 
-  it('folds empty stages to slim strips, and New lead opens a blank lead', async () => {
+  it('folds empty stages to slim strips, with no New lead button (the + adds leads)', async () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
     await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
@@ -166,10 +166,39 @@ describe('Leads board', () => {
     const strip = container.querySelector('[data-empty-stage="no_answer"]')!;
     expect(strip.textContent).toBe('0No Answer');
     expect(container.querySelectorAll('[data-empty-stage]').length).toBe(6);
+    expect(Array.from(container.querySelectorAll('button')).some((b) => b.textContent?.trim() === 'New lead')).toBe(false);
+  });
 
-    const newLead = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'New lead')!;
-    act(() => click(newLead));
-    expect((document.body.querySelector('form input[aria-label="Name"]') as HTMLInputElement).value).toBe('');
+  it('moves a lead to another stage when its card is dragged there, folded stages included', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
+    await flush();
+    const data: Record<string, string> = {};
+    const transfer = { setData: (k: string, v: string) => (data[k] = v), getData: (k: string) => data[k] ?? '', dropEffect: '', effectAllowed: '' };
+    const drag = (el: Element, type: string) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'dataTransfer', { value: transfer });
+      el.dispatchEvent(event);
+    };
+    const card = container.querySelector('[data-lead-card]')!;
+    expect(card.getAttribute('draggable')).toBe('true');
+    update.mockClear();
+    act(() => drag(card, 'dragstart'));
+    const target = container.querySelector('[data-empty-stage="quoted"]')!;
+    act(() => drag(target, 'dragover'));
+    expect(target.className).toContain('border-[#336699]');
+    await act(async () => drag(target, 'drop'));
+    await flush();
+    expect(update).toHaveBeenCalledWith('l1', { status: 'quoted' });
+    expect(container.querySelector('section[aria-label="Estimate Sent"]')?.textContent).toContain('Rocky Vansau');
+    // Dropping a lead on the stage it's already in changes nothing.
+    update.mockClear();
+    const sent = container.querySelector('section[aria-label="Estimate Sent"]')!;
+    act(() => drag(sent.querySelector('[data-lead-card]')!, 'dragstart'));
+    await act(async () => drag(sent, 'drop'));
+    expect(update).not.toHaveBeenCalled();
+    rows = rows.map((row) => ({ ...row, status: 'scheduled' }));
   });
 
   it('opens the lead from anywhere on a card', async () => {

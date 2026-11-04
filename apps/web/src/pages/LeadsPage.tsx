@@ -104,14 +104,17 @@ const LeadStatusLine: React.FC<{ lead: Lead; now: number; todayIso: string }> = 
 
 const control =
   'h-10 bg-[#121212] border border-[#333333] text-sm text-white focus:outline-none focus:border-[#336699]';
-/** One lead on the board: who, how much, the gist and what's next. Tapping it opens the lead. */
+/** One lead on the board: who, how much, the gist and what's next. Tapping it opens the lead; dragging it moves it to another stage. */
 const LeadCard: React.FC<{
   lead: Lead;
   now: number;
   todayIso: string;
   trade?: string;
   onOpen: () => void;
-}> = ({ lead, now, todayIso, trade, onOpen }) => {
+  dragging?: boolean;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
+}> = ({ lead, now, todayIso, trade, onOpen, dragging, onDragStart, onDragEnd }) => {
   const summary = leadSummary(lead.notes);
   const since = lead.assignedAt ?? lead.createdAt;
   const value = leadValue(lead);
@@ -120,7 +123,14 @@ const LeadCard: React.FC<{
     <div
       data-lead-card
       onClick={onOpen}
-      className="border border-[#333333] bg-[#121212] p-3 cursor-pointer [@media(hover:hover)]:hover:border-[#555555] transition-colors"
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData('text/plain', lead.id);
+        e.dataTransfer.effectAllowed = 'move';
+        onDragStart?.();
+      }}
+      onDragEnd={onDragEnd}
+      className={`border border-[#333333] bg-[#121212] p-3 cursor-pointer [@media(hover:hover)]:hover:border-[#555555] transition-colors ${dragging ? 'opacity-40' : ''}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
@@ -313,6 +323,9 @@ const LeadsPage: React.FC = () => {
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, [menuAt]);
+  // The card being dragged, and the stage it's over.
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [dropOn, setDropOn] = useState<LeadStatus | null>(null);
   const [view, setView] = useState<'board' | 'calendar'>(() => {
     try {
       return localStorage.getItem(VIEW_KEY) === 'calendar' ? 'calendar' : 'board';
@@ -525,13 +538,6 @@ const LeadsPage: React.FC = () => {
                 </div>,
                 document.body,
               )}
-              <button
-                type="button"
-                onClick={() => setEditing('new')}
-                className="h-10 inline-flex items-center gap-2 px-4 bg-[#336699] text-white text-sm font-medium [@media(hover:hover)]:hover:bg-[#2a5580]"
-              >
-                <Plus className="w-4 h-4" /> New lead
-              </button>
             </div>
           </div>
           {/* Every follow-up that has gone by, in one line, with a way to see just those. */}
@@ -563,6 +569,26 @@ const LeadsPage: React.FC = () => {
           <div className="flex gap-3 overflow-x-auto pb-2">
             {STATUSES.map((column) => {
               const cards = visible.filter((lead) => lead.status === column.value);
+              // Drag a card onto any stage, folded ones included, to move it there.
+              const drop = {
+                onDragOver: (e: React.DragEvent) => {
+                  if (!dragging) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  if (dropOn !== column.value) setDropOn(column.value);
+                },
+                onDragLeave: (e: React.DragEvent) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropOn((on) => (on === column.value ? null : on));
+                },
+                onDrop: (e: React.DragEvent) => {
+                  e.preventDefault();
+                  const lead = leads.find((row) => row.id === (e.dataTransfer.getData('text/plain') || dragging));
+                  setDragging(null);
+                  setDropOn(null);
+                  if (lead && lead.status !== column.value) changeStatus(lead, column.value);
+                },
+              };
+              const target = dragging && dropOn === column.value ? ' !border-[#336699] bg-[#336699]/10' : '';
               // An empty stage folds to a slim strip, so the busy ones get the room.
               if (cards.length === 0) {
                 return (
@@ -570,7 +596,8 @@ const LeadsPage: React.FC = () => {
                     key={column.value}
                     data-empty-stage={column.value}
                     title={`${column.label}: no leads`}
-                    className="flex-shrink-0 w-11 border border-[#333333] bg-[#0A0A0A] flex flex-col items-center gap-3 py-3"
+                    {...drop}
+                    className={`flex-shrink-0 w-11 border border-[#333333] bg-[#0A0A0A] flex flex-col items-center gap-3 py-3 transition-colors${target}`}
                   >
                     <Dot tone={column.dot} />
                     <span className="text-xs text-gray-500">0</span>
@@ -580,7 +607,12 @@ const LeadsPage: React.FC = () => {
               }
               const total = cards.reduce((sum, lead) => sum + leadValue(lead), 0);
               return (
-                <section key={column.value} aria-label={column.label} className="flex-shrink-0 w-80 flex flex-col border border-[#333333] bg-[#0A0A0A]">
+                <section
+                  key={column.value}
+                  aria-label={column.label}
+                  {...drop}
+                  className={`flex-shrink-0 w-80 flex flex-col border border-[#333333] bg-[#0A0A0A] transition-colors${target}`}
+                >
                   <div className="flex items-center gap-2 px-3 py-2 border-b border-[#333333]">
                     <span className={`text-sm font-medium ${column.color}`}>{column.label}</span>
                     <span className="text-xs text-gray-500">{cards.length}</span>
@@ -595,6 +627,12 @@ const LeadsPage: React.FC = () => {
                         todayIso={todayIso}
                         trade={lead.jobType ? tradeName.get(lead.jobType) ?? lead.jobType : undefined}
                         onOpen={() => setEditing(lead)}
+                        dragging={dragging === lead.id}
+                        onDragStart={() => setDragging(lead.id)}
+                        onDragEnd={() => {
+                          setDragging(null);
+                          setDropOn(null);
+                        }}
                       />
                     ))}
                   </div>
