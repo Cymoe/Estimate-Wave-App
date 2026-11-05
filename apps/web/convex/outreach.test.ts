@@ -5,7 +5,7 @@ import { setup, signUp } from "./test.setup";
 import { actAs } from "./lib/actor";
 import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
-import { careOf, definitionFromArgs, defaultTitle, displayName, groupOwners, mailKey, ownerKey, shortMoney, type Condensed } from "./lib/outreach";
+import { careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, groupOwners, guessDefinition, mailKey, ownerKey, shortMoney, type Condensed } from "./lib/outreach";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -120,6 +120,28 @@ describe("grouping the roll into owners", () => {
     expect(() => definitionFromArgs({ who: "wealthy", min_value: 5, max_value: 1 })).toThrow(/above/);
     expect(defaultTitle({ county: "Midland", who: "wealthy", minValueCents: 150_000_000 })).toBe("Wealthy homeowners over $1.5M, Midland");
     expect(defaultTitle({ county: "Midland", who: "manager" })).toBe("Property managers, Midland");
+  });
+
+  test("the words alone pick a list while the assistant is away; a stretch is no guess at all", () => {
+    const who = (ask: string) => guessDefinition(ask)?.definition;
+    expect(who("Property managers")).toEqual({ county: "Midland", who: "manager" });
+    expect(who("shopping center owners in Midland")).toEqual({ county: "Midland", who: "commercial" });
+    expect(who("strip malls")).toEqual({ county: "Midland", who: "commercial" });
+    expect(who("warehouses")).toEqual({ county: "Midland", who: "commercial", useCodes: ["F2"] });
+    expect(who("apartment complexes")).toEqual({ county: "Midland", who: "multifamily" });
+    expect(who("landlords")).toEqual({ county: "Midland", who: "investor" });
+    expect(who("RE investors with rentals")).toEqual({ county: "Midland", who: "investor" });
+    expect(who("out of state owners")).toEqual({ county: "Midland", who: "absentee" });
+    expect(who("people who just bought")).toEqual({ county: "Midland", who: "recent_buyer" });
+    expect(who("rich people")).toEqual({ county: "Midland", who: "wealthy" });
+    expect(who("Homes worth over $1.5M")).toEqual({ county: "Midland", who: "wealthy", minValueCents: 150_000_000 });
+    expect(who("$2,000,000 homes")).toEqual({ county: "Midland", who: "wealthy", minValueCents: 200_000_000 });
+    expect(who("commercial buildings over 5 million")).toEqual({ county: "Midland", who: "commercial", minValueCents: 500_000_000 });
+    expect(guessDefinition("Homes worth over $1.5M")!.title).toBe("Wealthy homeowners over $1.5M, Midland");
+    expect(who("oil executives")).toBeUndefined();
+    expect(who("doctors")).toBeUndefined();
+    expect(dollarsIn("about $850k")).toBe(85_000_000);
+    expect(dollarsIn("no money here")).toBeUndefined();
   });
 });
 
@@ -420,12 +442,24 @@ describe("asking in plain words", () => {
       suggestion: { definition: { county: "Midland", who: "wealthy", minValueCents: 150_000_000 }, title: "Homes over $1.5M, Midland" },
     });
     stubClaude("not json");
-    expect(await co.as.action(api.outreach.interpret, { organizationId: co.organizationId, request: "investors" })).toEqual({
+    expect(await co.as.action(api.outreach.interpret, { organizationId: co.organizationId, request: "a list of accountants" })).toEqual({
       ok: false,
-      explanation: "Couldn't read that just now. Try again, or say it another way.",
+      explanation: "The assistant couldn't answer just now. Until it is, say one of: shopping center owners, investors, property managers, apartment owners, homes over $1M, recent buyers, absentee owners.",
     });
+    // No key: the words alone build the common lists, and say so; a stretch names what's missing.
     vi.stubEnv("ANTHROPIC_API_KEY", "");
-    expect((await co.as.action(api.outreach.interpret, { organizationId: co.organizationId, request: "investors" })).explanation).toContain("isn't connected yet");
+    const words = await co.as.action(api.outreach.interpret, { organizationId: co.organizationId, request: "Property managers" });
+    expect(words).toMatchObject({ ok: true, definition: { county: "Midland", who: "manager" }, title: "Property managers, Midland", count: 1 });
+    expect(words.explanation).toBe("Property managers, from the words in your ask: The assistant isn't connected yet (ANTHROPIC_API_KEY isn't set on the Convex deployment). Names and mailing addresses; no phone numbers.");
+    const stretch = await co.as.action(api.outreach.interpret, { organizationId: co.organizationId, request: "oil executives" });
+    expect(stretch).toEqual({
+      ok: false,
+      explanation: "The assistant isn't connected yet (ANTHROPIC_API_KEY isn't set on the Convex deployment). Until it is, say one of: shopping center owners, investors, property managers, apartment owners, homes over $1M, recent buyers, absentee owners.",
+    });
+    // The assistant errors out: the words step in too.
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    stubClaude("not json");
+    expect(await co.as.action(api.outreach.interpret, { organizationId: co.organizationId, request: "landlords" })).toMatchObject({ ok: true, definition: { who: "investor" }, count: 3 });
     // Off the plan: refused before any call.
     const free = await signUp(t, "owner@free.example");
     await expect(free.as.action(api.outreach.interpret, { organizationId: free.organizationId, request: "investors" })).rejects.toThrow(/Pro plan/);

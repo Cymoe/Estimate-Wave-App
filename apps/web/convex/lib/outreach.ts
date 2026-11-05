@@ -480,6 +480,40 @@ export function definitionFromArgs(args: Record<string, unknown>, county = "Midl
   return Object.fromEntries(Object.entries(def).filter(([, v]) => v !== undefined)) as Definition;
 }
 
+/** "$1.5M", "$1,500,000" or "1.5 million" in an ask, in cents. */
+export function dollarsIn(ask: string): number | undefined {
+  const m = ask.match(/\$\s?(\d[\d,]*(?:\.\d+)?)\s?(m|k|million|thousand)?\b/i) ?? ask.match(/\b(\d[\d,]*(?:\.\d+)?)\s?(m|million|k|thousand)\b/i);
+  if (!m) return undefined;
+  const n = Number(m[1].replace(/,/g, ""));
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  const unit = (m[2] ?? "").toLowerCase();
+  const dollars = unit.startsWith("m") ? n * 1_000_000 : unit.startsWith("k") || unit === "thousand" ? n * 1_000 : n;
+  return Math.round(dollars * 100);
+}
+
+/**
+ * The list an ask most likely means, from its words alone: what the page
+ * builds while the assistant isn't connected. Conservative: a wrong guess
+ * is worse than none.
+ */
+export function guessDefinition(ask: string, county = "Midland"): { definition: Definition; title: string } | undefined {
+  const words = ask.toLowerCase();
+  const has = (re: RegExp) => re.test(words);
+  const amount = dollarsIn(ask);
+  let definition: Definition | undefined;
+  if (has(/\bmanag(er|ers|ement)\b/)) definition = { county, who: "manager" };
+  else if (has(/\bwarehouse|industrial\b/)) definition = { county, who: "commercial", useCodes: ["F2"] };
+  else if (has(/shopping|strip (mall|center)|retail|commercial|office building|plaza|\bcenters?\b/)) definition = { county, who: "commercial" };
+  else if (has(/apartment|multi-?family|complex|duplex/)) definition = { county, who: "multifamily" };
+  else if (has(/investor|landlord|flipper|rental/)) definition = { county, who: "investor" };
+  else if (has(/absentee|out[- ]of[- ](state|town)/)) definition = { county, who: "absentee" };
+  else if (has(/\bbought\b|new (home)?owners?|recent|just moved/)) definition = { county, who: "recent_buyer" };
+  else if (has(/wealthy|\brich\b|luxury|high-end|expensive|million|\bover \$|worth/) || amount !== undefined) definition = { county, who: "wealthy" };
+  if (!definition) return undefined;
+  if (amount !== undefined && (definition.who === "wealthy" || definition.who === "commercial")) definition.minValueCents = amount;
+  return { definition, title: defaultTitle(definition) };
+}
+
 /** A list's title when the asker gave none. */
 export function defaultTitle(def: Definition): string {
   const base: Record<Who, string> = {

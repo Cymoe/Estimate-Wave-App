@@ -31,6 +31,7 @@ import {
   defaultTitle,
   definitionFromArgs,
   facetFor,
+  guessDefinition,
   facetValue,
   groupOwners,
   matches,
@@ -448,7 +449,31 @@ export const interpret = action({
     await ctx.runQuery(internal.outreach.assertPro, { organizationId });
     const ask = request.trim().slice(0, 500);
     if (!ask) return { ok: false, explanation: "Say who you want to reach, like shopping center owners or homes over $1M." };
-    if (!process.env.ANTHROPIC_API_KEY) return { ok: false, explanation: "The assistant isn't connected yet. Ask Webb Leads to set it up." };
+    // Without the assistant (no key, or it couldn't answer), the words alone decide, for the common asks.
+    const fromWords = async (why: string): Promise<Interpreted> => {
+      const guess = guessDefinition(ask);
+      if (!guess) {
+        return {
+          ok: false,
+          explanation: `${why} Until it is, say one of: shopping center owners, investors, property managers, apartment owners, homes over $1M, recent buyers, absentee owners.`,
+        };
+      }
+      const built: { count: number; truncated: boolean; limited: boolean; rows: ListRow[] } = await ctx.runQuery(internal.outreach.previewInternal, {
+        organizationId,
+        definition: guess.definition,
+      });
+      return {
+        ok: true,
+        definition: guess.definition,
+        title: guess.title,
+        explanation: `${guess.title.replace(/, Midland$/, "")}, from the words in your ask: ${why.replace(/\.$/, "")}. Names and mailing addresses; no phone numbers.`,
+        count: built.count,
+        truncated: built.truncated,
+        limited: built.limited,
+        preview: built.rows,
+      };
+    };
+    if (!process.env.ANTHROPIC_API_KEY) return await fromWords("The assistant isn't connected yet (ANTHROPIC_API_KEY isn't set on the Convex deployment).");
     let parsed: Record<string, unknown>;
     try {
       const response = await callClaude({
@@ -464,7 +489,7 @@ export const interpret = action({
         .join("");
       parsed = JSON.parse(text) as Record<string, unknown>;
     } catch {
-      return { ok: false, explanation: "Couldn't read that just now. Try again, or say it another way." };
+      return await fromWords("The assistant couldn't answer just now.");
     }
     const toDefinition = (raw: unknown) => definitionFromArgs((raw ?? {}) as Record<string, unknown>);
     const titleOf = (raw: unknown, def: Definition) => (typeof raw === "string" && raw.trim() ? raw.trim().slice(0, 50) : defaultTitle(def));
