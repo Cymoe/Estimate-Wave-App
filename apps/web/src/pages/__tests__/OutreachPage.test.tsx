@@ -44,6 +44,10 @@ const preview = jest.fn(async () => ({ count: 1, truncated: false, limited: fals
 const create = jest.fn(async () => ({ listId: 'l9', rowCount: 2, truncated: false }));
 const setStatus = jest.fn(async () => null);
 const remove = jest.fn(async () => null);
+let ownersState: Record<string, unknown> | null = null;
+const rebuild = jest.fn(async () => ({ fetched: 58_418, added: 44_120, updated: 0 }));
+let authUser: Record<string, unknown> = { id: 'u1', role: 'user' };
+jest.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: authUser }) }));
 jest.mock('../../lib/api', () => ({
   outreachAPI: {
     lists: async () => lists,
@@ -53,6 +57,8 @@ jest.mock('../../lib/api', () => ({
     create: (...args: unknown[]) => create(...(args as [])),
     setStatus: (...args: unknown[]) => setStatus(...(args as [])),
     remove: (...args: unknown[]) => remove(...(args as [])),
+    status: async () => ownersState,
+    rebuild: () => rebuild(),
   },
 }));
 jest.mock('../../components/layouts/DashboardLayout', () => ({
@@ -102,6 +108,8 @@ afterEach(() => {
   document.body.innerHTML = '';
   jest.clearAllMocks();
   lists = [];
+  authUser = { id: 'u1', role: 'user' };
+  ownersState = null;
 });
 
 describe('the Outreach page', () => {
@@ -198,6 +206,23 @@ describe('the Outreach page', () => {
     await act(async () => (document.body.querySelector('button[aria-label="Export CSV"]') as HTMLButtonElement).click());
     expect(made).toEqual(['text/csv']);
     expect(clicks).toEqual(['shopping-center-owners.csv']);
+  });
+
+  it('tells staff when the roll was grouped into owners, or that it failed, with a rebuild; companies see nothing', async () => {
+    await render();
+    expect(document.body.querySelector('[data-testid="owners-line"]')).toBeNull();
+    document.body.innerHTML = '';
+    authUser = { id: 'u2', role: 'staff' };
+    await render();
+    const line = () => document.body.querySelector('[data-testid="owners-line"]')!;
+    expect(line().textContent).toContain("The roll hasn't been grouped into owners yet, so every list is empty.");
+    await click('Rebuild owners');
+    expect(rebuild).toHaveBeenCalled();
+    expect(line().textContent).toContain('Grouped 58,418 parcels into owners (44,120 written).');
+    document.body.innerHTML = '';
+    ownersState = { syncedAt: '2026-11-05T06:40:00Z', parcels: 58_418, owners: 44_120, error: 'JavaScript execution ran out of memory' };
+    await render();
+    expect(line().textContent).toContain('failed: JavaScript execution ran out of memory');
   });
 
   it('deletes a list after asking, and goes back to the lists', async () => {

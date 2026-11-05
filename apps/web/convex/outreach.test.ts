@@ -216,9 +216,18 @@ describe("the owners table", () => {
       expect((await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "midland-owners")).unique())!.fetched).toBe(15);
     });
     expect(await counts()).toEqual([9, 14]);
+    // The deploy's run skips a build that's newer than the roll read, and runs after a new read.
+    expect(await t.action(internal.outreach.rebuild, { ifStale: true })).toEqual({ skipped: true });
+    await t.run(async (ctx) => {
+      const roll = await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "midland-parcels")).unique();
+      if (roll) await ctx.db.patch(roll._id, { syncedAt: new Date(Date.now() + 60_000).toISOString() });
+      else await ctx.db.insert("permitSources", { source: "midland-parcels", syncedAt: new Date(Date.now() + 60_000).toISOString(), fetched: 15, added: 0, updated: 0 });
+    });
+    expect(await t.action(internal.outreach.rebuild, { ifStale: true })).toMatchObject({ fetched: 15, added: 0, updated: 0 });
+    await t.finishAllScheduledFunctions(() => {});
     // Staff can see when it last ran; a company can't.
     const staff = await signUp(t, "ops@webb.example", { role: "staff" });
-    expect(await staff.as.query(api.outreach.status, {})).toMatchObject({ parcels: 15 });
+    expect(await staff.as.query(api.outreach.status, {})).toMatchObject({ parcels: 15, owners: 0 });
     const co = await signUp(t, "owner@roof.example");
     await expect(co.as.query(api.outreach.status, {})).rejects.toThrow(/staff/);
   });

@@ -7,6 +7,8 @@ import { AskListSheet } from '../components/outreach/AskListSheet';
 import { OutreachRows, RowSheet } from '../components/outreach/OutreachRows';
 import { csvName, download, outreachCsv } from '../components/outreach/outreachCsv';
 import { useConfirm } from '../components/common/ConfirmDialog';
+import { useAuth } from '../contexts/AuthContext';
+import { isStaff } from '../lib/roles';
 import { WHO_LABEL } from '../../convex/lib/outreach';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -82,6 +84,47 @@ const ListView: React.FC<{ organizationId: string; listId: string; onGone: () =>
   );
 };
 
+type OwnersState = Awaited<ReturnType<typeof outreachAPI.status>>;
+
+/** Staff only: when the roll was last grouped into owners, and a way to do it again. */
+const OwnersLine: React.FC = () => {
+  const [state, setState] = useState<OwnersState | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => {
+    outreachAPI
+      .status()
+      .then(setState)
+      .catch(() => setState(undefined));
+  }, [busy]);
+  const rebuild = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const r = await outreachAPI.rebuild();
+      setNote(r.error ? `Rebuild failed: ${r.error}` : `Grouped ${r.fetched.toLocaleString()} parcels into owners (${(r.added + r.updated).toLocaleString()} written).`);
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "The rebuild couldn't run");
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (state === undefined) return null;
+  return (
+    <p className="text-xs text-gray-500" data-testid="owners-line">
+      {state === null
+        ? "The roll hasn't been grouped into owners yet, so every list is empty."
+        : state.error
+          ? `The owners rebuild on ${day(state.syncedAt)} failed: ${state.error}`
+          : `Owners grouped ${day(state.syncedAt)} from ${state.parcels.toLocaleString()} parcels.`}{' '}
+      <button type="button" onClick={rebuild} disabled={busy} className="text-[#7fb0e0] hover:text-white disabled:opacity-50">
+        {busy ? 'Rebuilding…' : 'Rebuild owners'}
+      </button>
+      {note && <span className="block text-gray-400">{note}</span>}
+    </p>
+  );
+};
+
 /**
  * Outreach: mailing lists from the county roll, asked for in plain words.
  * The + button's "Outreach list" opens the ask; each saved list opens to
@@ -90,6 +133,7 @@ const ListView: React.FC<{ organizationId: string; listId: string; onGone: () =>
 const OutreachPage: React.FC = () => {
   const { selectedOrg } = useContext(OrganizationContext);
   const organizationId = selectedOrg?.id || undefined;
+  const { user } = useAuth();
   const { listId } = useParams<{ listId: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -124,6 +168,7 @@ const OutreachPage: React.FC = () => {
       <header>
         <h1 className="text-2xl font-semibold text-white">Outreach</h1>
         <p className="text-sm text-gray-400">Mailing lists from the Midland County roll. Names and mailing addresses; no phone numbers.</p>
+        {isStaff(user) && <OwnersLine />}
       </header>
       {error && (
         <p className="text-sm text-red-400" role="alert">

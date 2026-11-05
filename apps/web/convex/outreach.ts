@@ -33,7 +33,7 @@ import {
   facetFor,
   guessDefinition,
   facetValue,
-  groupOwners,
+  OwnerGrouper,
   matches,
   propertyFor,
   why,
@@ -50,7 +50,7 @@ export const OWNERS_SOURCE = "midland-owners";
 /** How many facet rows one list build reads: past this the list is cut and says so. */
 export const SCAN = 3000;
 const PAGE = 2000;
-const UPSERT_BATCH = 300;
+const UPSERT_BATCH = 200;
 const DROP_BATCH = 500;
 
 const title = (s: string) => s.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase());
@@ -180,16 +180,17 @@ async function rebuildOwners(ctx: ActionCtx) {
   let updated = 0;
   let error: string | undefined;
   try {
-    const rows: Condensed[] = [];
+    // A page at a time into the grouper, which keeps totals, not parcels: the roll never sits in memory whole.
+    const grouper = new OwnerGrouper();
     let cursor: string | undefined;
     for (;;) {
       const page: { rows: Condensed[]; continueCursor: string; isDone: boolean } = await ctx.runQuery(internal.outreach.parcelPage, { cursor });
-      rows.push(...page.rows);
+      grouper.addAll(page.rows);
+      fetched += page.rows.length;
       if (page.isDone) break;
       cursor = page.continueCursor;
     }
-    fetched = rows.length;
-    const { owners, facets } = groupOwners(rows, Date.now());
+    const { owners, facets } = grouper.finish(Date.now());
     // Unique even when two builds share a millisecond: stale rows are the ones with any other id.
     const buildId = `${nowIso()}|${Math.random().toString(36).slice(2, 8)}`;
     for (let i = 0; i < owners.length; i += UPSERT_BATCH) {
@@ -206,10 +207,23 @@ async function rebuildOwners(ctx: ActionCtx) {
   return { fetched, added, updated, error };
 }
 
-/** Rebuilds the owners table from the roll. Scheduled after each weekly roll read. */
+/**
+ * Rebuilds the owners table from the roll. Scheduled after each weekly roll
+ * read; the deploy runs it with ifStale, which skips it when a clean build
+ * is newer than the roll: `npx convex run outreach:rebuild '{"ifStale":true}'`.
+ */
 export const rebuild = internalAction({
-  args: {},
-  handler: async (ctx) => await rebuildOwners(ctx),
+  args: { ifStale: v.optional(v.boolean()) },
+  handler: async (ctx, { ifStale }) => {
+    if (ifStale) {
+      const [owners, roll] = await Promise.all([
+        ctx.runQuery(internal.permits.sourceState, { source: OWNERS_SOURCE }),
+        ctx.runQuery(internal.permits.sourceState, { source: MIDLAND_PARCELS.source }),
+      ]);
+      if (owners && !owners.error && (!roll || owners.syncedAt >= roll.syncedAt)) return { skipped: true };
+    }
+    return await rebuildOwners(ctx);
+  },
 });
 
 /** "Rebuild owners" on the Ops sources card, and the first run after deploy: `npx convex run outreach:rebuildNow`. */
@@ -536,6 +550,6 @@ export const status = query({
   handler: async (ctx) => {
     await requireStaff(ctx);
     const sync = await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", OWNERS_SOURCE)).unique();
-    return sync ? { syncedAt: sync.syncedAt, parcels: sync.fetched, error: sync.error } : null;
+    return sync ? { syncedAt: sync.syncedAt, parcels: sync.fetched, owners: sync.added + sync.updated, error: sync.error } : null;
   },
 });

@@ -139,55 +139,103 @@ export function shortMoney(cents: number): string {
 const monthYear = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-type Group = { key: string; kind: "owner" | "office"; parcels: Condensed[]; owners: Set<string> };
-
-const property = (p: Condensed): Property => ({ parcelId: p.id, address: p.siteAddress, useCode: p.useCode, valueCents: p.marketValueCents });
 const value = (p: Condensed) => p.marketValueCents ?? 0;
-const mostValuable = (list: Condensed[]) => (list.length ? list.reduce((a, b) => (value(b) > value(a) ? b : a)) : undefined);
+const property = (p: Condensed): Property => ({ parcelId: p.id, address: p.siteAddress, useCode: p.useCode, valueCents: p.marketValueCents });
+/** How many distinct owners an office remembers; past this the count is what matters and it's already well past OFFICE_OWNERS. */
+const OFFICE_NAMES = 50;
 
-/** One owner row from the parcels in a group. */
-function rowFor(group: Group, mailing: Mailing, name: string, company: boolean): OwnerRow {
-  const ps = group.parcels;
-  const homes = ps.filter((p) => isResidentialUse(p.useCode) && p.ownerOccupied);
-  const rentals = ps.filter((p) => isResidentialUse(p.useCode) && !p.ownerOccupied);
-  const commercial = ps.filter((p) => isCommercialUse(p.useCode));
-  const multifamily = ps.filter((p) => isMultifamilyUse(p.useCode));
-  const tops: Record<string, Property> = {};
-  const top = (k: string, list: Condensed[]) => {
-    const best = mostValuable(list);
-    if (best) tops[k] = property(best);
+/** One owner (or office) as the roll is read: totals and the best of each kind, never the parcels themselves. */
+type Acc = {
+  key: string;
+  kind: "owner" | "office";
+  mailing: Mailing;
+  owner: string;
+  company: boolean;
+  parcels: number;
+  homes: number;
+  rentals: number;
+  commercial: number;
+  multifamily: number;
+  total: number;
+  max: number;
+  homeMax?: number;
+  rentalMax?: number;
+  commercialMax?: number;
+  multifamilyMax?: number;
+  latestDeed?: string;
+  useCodes: Set<string>;
+  streets: Set<string>;
+  tops: Record<string, Property>;
+  /** Office only: the distinct owners billed here, and how often each (the most common names it when there's no c/o line). */
+  names?: Map<string, number>;
+  owners?: number;
+};
+
+function fold(acc: Acc, p: Condensed) {
+  const v = value(p);
+  const top = (k: string) => {
+    const t = acc.tops[k];
+    if (!t || v > (t.valueCents ?? 0)) acc.tops[k] = property(p);
   };
-  top("all", ps);
-  top("home", homes);
-  top("rental", rentals);
-  top("commercial", commercial);
-  top("multifamily", multifamily);
-  const maxOf = (list: Condensed[]) => (list.length ? Math.max(...list.map(value)) : undefined);
-  const deeds = ps.map((p) => p.deedDate).filter((d): d is string => Boolean(d));
-  const streets = [...new Set(ps.map((p) => p.street ?? streetKey(p.siteAddress)).filter((s): s is string => Boolean(s)))].slice(0, MAX_STREETS);
+  acc.parcels++;
+  acc.total += v;
+  if (v > acc.max) acc.max = v;
+  top("all");
+  if (isResidentialUse(p.useCode)) {
+    if (p.ownerOccupied) {
+      acc.homes++;
+      acc.homeMax = Math.max(acc.homeMax ?? 0, v);
+      top("home");
+    } else {
+      acc.rentals++;
+      acc.rentalMax = Math.max(acc.rentalMax ?? 0, v);
+      top("rental");
+    }
+  } else if (isCommercialUse(p.useCode)) {
+    acc.commercial++;
+    acc.commercialMax = Math.max(acc.commercialMax ?? 0, v);
+    top("commercial");
+  } else if (isMultifamilyUse(p.useCode)) {
+    acc.multifamily++;
+    acc.multifamilyMax = Math.max(acc.multifamilyMax ?? 0, v);
+    top("multifamily");
+  }
+  if (p.deedDate && (!acc.latestDeed || p.deedDate > acc.latestDeed)) acc.latestDeed = p.deedDate;
+  acc.useCodes.add(p.useCode);
+  const street = p.street ?? streetKey(p.siteAddress);
+  if (street && acc.streets.size < MAX_STREETS) acc.streets.add(street);
+}
+
+const fresh = (key: string, kind: Acc["kind"], mailing: Mailing, owner: string, company: boolean): Acc => ({
+  key, kind, mailing, owner, company, parcels: 0, homes: 0, rentals: 0, commercial: 0, multifamily: 0, total: 0, max: 0,
+  useCodes: new Set(), streets: new Set(), tops: {},
+});
+
+/** The owner row an accumulator has become. */
+function rowFor(acc: Acc, name: string, company: boolean): OwnerRow {
   return {
-    key: group.key,
-    kind: group.kind,
+    key: acc.key,
+    kind: acc.kind,
     name,
     company,
-    mailing,
-    parcels: ps.length,
-    residential: homes.length + rentals.length,
-    multifamily: multifamily.length,
-    commercial: commercial.length,
-    totalValueCents: ps.reduce((sum, p) => sum + value(p), 0),
-    maxValueCents: maxOf(ps) ?? 0,
-    homeValueCents: maxOf(homes),
-    rentalValueCents: maxOf(rentals),
-    commercialValueCents: maxOf(commercial),
-    multifamilyValueCents: maxOf(multifamily),
-    ownerOccupied: homes.length > 0,
-    outOfState: outOfState(mailing),
-    latestDeed: deeds.length ? deeds.sort().at(-1) : undefined,
-    useCodes: [...new Set(ps.map((p) => p.useCode))].sort(),
-    streets,
-    tops,
-    owners: group.kind === "office" ? group.owners.size : undefined,
+    mailing: acc.mailing,
+    parcels: acc.parcels,
+    residential: acc.homes + acc.rentals,
+    multifamily: acc.multifamily,
+    commercial: acc.commercial,
+    totalValueCents: acc.total,
+    maxValueCents: acc.max,
+    homeValueCents: acc.homeMax,
+    rentalValueCents: acc.rentalMax,
+    commercialValueCents: acc.commercialMax,
+    multifamilyValueCents: acc.multifamilyMax,
+    ownerOccupied: acc.homes > 0,
+    outOfState: outOfState(acc.mailing),
+    latestDeed: acc.latestDeed,
+    useCodes: [...acc.useCodes].sort(),
+    streets: [...acc.streets],
+    tops: acc.tops,
+    owners: acc.kind === "office" ? acc.owners : undefined,
   };
 }
 
@@ -214,54 +262,72 @@ export function facetsOf(row: OwnerRow, now: number): Array<{ facet: Facet; sort
   return out;
 }
 
+export type Grouped = { owners: OwnerRow[]; facets: Map<string, Array<{ facet: Facet; sort: number }>> };
+
 /**
- * The roll grouped into owner rows and office rows, with their facets. An
- * owner row is one owner at one mailing address; an office row is one
- * mailing address that gets the bills for OFFICE_PARCELS or more parcels
- * belonging to OFFICE_OWNERS or more different owners.
+ * Groups the roll into owner rows and office rows as it's read, a parcel at
+ * a time, keeping only each owner's totals (the whole roll never sits in
+ * memory). An owner row is one owner at one mailing address; an office row
+ * is one mailing address that gets the bills for OFFICE_PARCELS or more
+ * parcels belonging to OFFICE_OWNERS or more different owners.
  */
-export function groupOwners(rows: Condensed[], now = Date.now()): { owners: OwnerRow[]; facets: Map<string, Array<{ facet: Facet; sort: number }>> } {
-  const byOwner = new Map<string, Group & { mailing: Mailing; owner: string; company: boolean }>();
-  const byMail = new Map<string, Group & { mailing: Mailing; names: Map<string, number> }>();
-  for (const p of rows) {
+export class OwnerGrouper {
+  private byOwner = new Map<string, Acc>();
+  private byMail = new Map<string, Acc>();
+  seen = 0;
+
+  add(p: Condensed) {
     const ok = ownerKey(p.owner);
-    if (!ok) continue;
+    if (!ok) return;
+    this.seen++;
     const mk = mailKey(p.mailing);
     const key = `${ok}|${mk ?? ""}`;
-    let g = byOwner.get(key);
+    let g = this.byOwner.get(key);
     if (!g) {
-      g = { key, kind: "owner", parcels: [], owners: new Set([ok]), mailing: p.mailing, owner: p.owner, company: p.companyOwned };
-      byOwner.set(key, g);
+      g = fresh(key, "owner", p.mailing, p.owner, p.companyOwned);
+      this.byOwner.set(key, g);
     }
-    g.parcels.push(p);
+    fold(g, p);
     if (mk) {
-      let o = byMail.get(mk);
+      let o = this.byMail.get(mk);
       if (!o) {
-        o = { key: `office:${mk}`, kind: "office", parcels: [], owners: new Set(), mailing: p.mailing, names: new Map() };
-        byMail.set(mk, o);
+        o = fresh(`office:${mk}`, "office", p.mailing, p.owner, true);
+        o.names = new Map();
+        this.byMail.set(mk, o);
       }
-      o.parcels.push(p);
-      o.owners.add(ok);
-      o.names.set(ok, (o.names.get(ok) ?? 0) + 1);
+      fold(o, p);
+      if (o.names!.has(ok) || o.names!.size < OFFICE_NAMES) o.names!.set(ok, (o.names!.get(ok) ?? 0) + 1);
+      else o.owners = (o.owners ?? o.names!.size) + 1;
     }
   }
-  const owners: OwnerRow[] = [];
-  const facets = new Map<string, Array<{ facet: Facet; sort: number }>>();
-  for (const g of byOwner.values()) {
-    const row = rowFor(g, g.mailing, displayName(g.owner), g.company);
-    owners.push(row);
-    facets.set(row.key, facetsOf(row, now));
+
+  addAll(rows: Condensed[]) {
+    for (const p of rows) this.add(p);
+    return this;
   }
-  for (const o of byMail.values()) {
-    if (o.parcels.length < OFFICE_PARCELS || o.owners.size < OFFICE_OWNERS) continue;
-    const most = [...o.names.entries()].sort((a, b) => b[1] - a[1])[0][0];
-    const name = careOf(o.mailing.address) ?? displayName(most);
-    const row = rowFor(o, o.mailing, name, true);
-    owners.push(row);
-    facets.set(row.key, facetsOf(row, now));
+
+  finish(now = Date.now()): Grouped {
+    const owners: OwnerRow[] = [];
+    const facets = new Map<string, Array<{ facet: Facet; sort: number }>>();
+    for (const g of this.byOwner.values()) {
+      const row = rowFor(g, displayName(g.owner), g.company);
+      owners.push(row);
+      facets.set(row.key, facetsOf(row, now));
+    }
+    for (const o of this.byMail.values()) {
+      o.owners = Math.max(o.owners ?? 0, o.names!.size);
+      if (o.parcels < OFFICE_PARCELS || o.owners < OFFICE_OWNERS) continue;
+      const most = [...o.names!.entries()].sort((a, b) => b[1] - a[1])[0][0];
+      const row = rowFor(o, careOf(o.mailing.address) ?? displayName(most), true);
+      owners.push(row);
+      facets.set(row.key, facetsOf(row, now));
+    }
+    return { owners, facets };
   }
-  return { owners, facets };
 }
+
+/** The whole roll at once, for tests and small reads. */
+export const groupOwners = (rows: Condensed[], now = Date.now()): Grouped => new OwnerGrouper().addAll(rows).finish(now);
 
 // ---- Lists ----
 
