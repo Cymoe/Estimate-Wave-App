@@ -1,8 +1,9 @@
-// Who owns each home in Midland: the appraisal district's roll, as the city
-// publishes it on its public ArcGIS (the same org as the permit feed). Owner
-// name, mailing address, value and deed date; no phone numbers. Pure
-// functions: parcels.ts fetches, these decide what each row means. Owner
-// names are only ever shown to Webb Leads staff and callers.
+// Who owns each property in Midland: the appraisal district's roll, as the
+// city publishes it on its public ArcGIS (the same org as the permit feed).
+// Owner name, mailing address, value and deed date; no phone numbers. Pure
+// functions: parcels.ts fetches, these decide what each row means. Callers
+// and staff see homes by address; Pro member companies see owners and
+// mailing addresses through Outreach (public record, never a phone).
 
 export const MIDLAND_PARCELS = {
   source: "midland-parcels",
@@ -12,10 +13,24 @@ export const MIDLAND_PARCELS = {
 } as const;
 
 /** Bumped when what a stored parcel holds changes: the deploy then reads the roll again instead of skipping. */
-export const PARCEL_VERSION = 4;
+export const PARCEL_VERSION = 5;
 
 /** The appraisal district's residential use codes: single-family, mobile home, condo and townhome. */
 export const RESIDENTIAL_USE = ["A1", "A2", "A3", "A4", "A5"] as const;
+/** Apartments, duplexes and the like (the state's B codes; the layer's exact sub-codes vary, so any B is kept). */
+export const MULTIFAMILY_USE = ["B1", "B2", "B3", "B4"] as const;
+/** Commercial (F1: shops, offices, shopping centers) and industrial (F2: warehouses, shops) buildings. */
+export const COMMERCIAL_USE = ["F1", "F2"] as const;
+
+export const isResidentialUse = (code: string | undefined) => (RESIDENTIAL_USE as readonly string[]).includes(code ?? "");
+export const isMultifamilyUse = (code: string | undefined) => /^B\d?$/.test(code ?? "");
+export const isCommercialUse = (code: string | undefined) => (COMMERCIAL_USE as readonly string[]).includes(code ?? "");
+/** A parcel the roll read keeps: a home, an apartment building or a commercial building. Land, minerals and exempt parcels aren't. */
+export const keepsUse = (code: string | undefined) => isResidentialUse(code) || isMultifamilyUse(code) || isCommercialUse(code);
+
+/** The layer query's where clause for every parcel kept. */
+export const parcelWhere = () =>
+  `GOV_USE_CO IN (${[...RESIDENTIAL_USE, ...MULTIFAMILY_USE, ...COMMERCIAL_USE].map((c) => `'${c}'`).join(",")}) OR GOV_USE_CO LIKE 'B%'`;
 
 export const PARCEL_FIELDS = [
   "SU_NUM",
@@ -147,7 +162,7 @@ export function deedIso(value: unknown, now = Date.now()): string | undefined {
   return `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
 }
 
-/** The layer's features as parcel rows: residential, with an id, an owner and a site address. */
+/** The layer's features as parcel rows: homes, apartment and commercial buildings, with an id, an owner and a site address. */
 export function rowsToParcels(features: Array<{ attributes?: Record<string, unknown> }>): ParcelRow[] {
   const rows: ParcelRow[] = [];
   for (const f of features) {
@@ -157,7 +172,7 @@ export function rowsToParcels(features: Array<{ attributes?: Record<string, unkn
     const useCode = text(a.GOV_USE_CO);
     const site = siteAddress(a);
     if (!cadId || !owner || !useCode || !site) continue;
-    if (!(RESIDENTIAL_USE as readonly string[]).includes(useCode)) continue;
+    if (!keepsUse(useCode)) continue;
     const mailing = text(a.ADDRESS_1);
     rows.push({
       cadId,

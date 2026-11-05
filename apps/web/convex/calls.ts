@@ -23,7 +23,7 @@ import {
 } from "./lib/calls";
 import { normalizePhone } from "./lib/intake";
 import { cleanFields, findDuplicate } from "./intake";
-import { MIDLAND_PARCELS, ownerName, streetKey } from "./lib/parcels";
+import { MIDLAND_PARCELS, isResidentialUse, ownerName, streetKey } from "./lib/parcels";
 import { DAY_MS } from "./lib/report";
 import { recentAuctions, saleLabel } from "./lib/foreclosures";
 
@@ -373,7 +373,8 @@ const homeOf = (p: Doc<"parcels">, why: string): Home => ({
   why,
 });
 
-const callable = (p: Doc<"parcels">) => p.ownerOccupied && !p.companyOwned;
+/** A home whose owner lives there, never a company; the roll's apartment and commercial buildings are never called. */
+const callable = (p: Doc<"parcels">) => isResidentialUse(p.useCode) && p.ownerOccupied && !p.companyOwned;
 
 /**
  * Homes to call, up to 50:

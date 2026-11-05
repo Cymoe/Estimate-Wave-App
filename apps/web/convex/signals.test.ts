@@ -190,6 +190,8 @@ describe("the sync and the Sellers lists", () => {
     await addHome(t, "1 A ST", { ownerOccupied: false });
     const settled = await addHome(t, "2 A ST", { ownerOccupied: false });
     await addHome(t, "3 A ST");
+    // An apartment building with an out-of-town owner is on the roll, but never a motivated-seller lead.
+    await addHome(t, "4 A ST", { useCode: "B1", ownerOccupied: false, mailing: { address: "1 MAIN ST", city: "DALLAS", state: "TX", zip: "75201" } });
     await t.mutation(internal.signals.recomputePage, {});
     await t.finishAllScheduledFunctions(() => {});
     expect((await staff.as.query(api.signals.sellers, {})).total).toBe(2);

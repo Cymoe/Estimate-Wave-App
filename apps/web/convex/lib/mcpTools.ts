@@ -13,6 +13,7 @@ import { claimPrice, planIsActive } from "./plan";
 import { centralDay } from "./oauth";
 import { dollars, leadPriceCents } from "./wallet";
 import { ESTIMATING_TOOLS } from "./mcpEstimating";
+import { OUTREACH_TOOLS } from "./mcpOutreach";
 import { searchTools } from "./mcpSearch";
 
 // The connector's tools: what Claude or ChatGPT can do in Webb Leads for
@@ -769,6 +770,7 @@ export const TOOLS: Tool[] = [
     },
   },
   ...ESTIMATING_TOOLS,
+  ...OUTREACH_TOOLS,
 ];
 // search and fetch for ChatGPT, built on the tools above.
 TOOLS.push(...searchTools((name) => TOOLS.find((t) => t.name === name)));

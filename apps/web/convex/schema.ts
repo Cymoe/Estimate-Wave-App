@@ -437,6 +437,46 @@ export const planFields = v.object({
   claimsThisPeriod: v.number(),
 });
 
+// ---- Outreach ----
+
+/** Who a list is of; each maps to a facet of the owners table (lib/outreach.ts). */
+export const outreachWho = v.union(
+  v.literal("investor"),
+  v.literal("manager"),
+  v.literal("commercial"),
+  v.literal("multifamily"),
+  v.literal("wealthy"),
+  v.literal("recent_buyer"),
+  v.literal("absentee"),
+  v.literal("custom"),
+);
+
+/** What a saved list was built from: the facet, then filters over the owner rows. */
+export const outreachDefinition = v.object({
+  county: v.string(),
+  who: outreachWho,
+  useCodes: v.optional(v.array(v.string())),
+  minValueCents: v.optional(v.number()),
+  maxValueCents: v.optional(v.number()),
+  minParcels: v.optional(v.number()),
+  ownerOccupied: v.optional(v.boolean()),
+  companyOwned: v.optional(v.boolean()),
+  outOfState: v.optional(v.boolean()),
+  zips: v.optional(v.array(v.string())),
+  streets: v.optional(v.array(v.string())),
+  deedWithinDays: v.optional(v.number()),
+  limit: v.optional(v.number()),
+});
+
+export const outreachProperty = v.object({
+  parcelId: v.id("parcels"),
+  address: v.string(),
+  useCode: v.string(),
+  valueCents: v.optional(v.number()),
+});
+
+export const outreachRowStatus = v.union(v.literal("new"), v.literal("sent"), v.literal("done"), v.literal("skip"));
+
 export const walletTransactionType = v.union(
   v.literal("top_up"),
   v.literal("bonus"),
@@ -932,6 +972,91 @@ export default defineSchema({
     total: v.number(),
     updatedAt: v.string(),
   }).index("by_county", ["county"]),
+
+  // Outreach (lib/outreach.ts): the roll grouped into who owns what. One row
+  // per owner and mailing address, or per office that gets the tax bills for
+  // several owners' properties. Rebuilt after each weekly roll read; rows
+  // from an older build are dropped.
+  owners: defineTable({
+    county: v.string(),
+    key: v.string(),
+    kind: v.union(v.literal("owner"), v.literal("office")),
+    name: v.string(),
+    company: v.boolean(),
+    mailing: v.object({
+      address: v.optional(v.string()),
+      city: v.optional(v.string()),
+      state: v.optional(v.string()),
+      zip: v.optional(v.string()),
+    }),
+    parcels: v.number(),
+    residential: v.number(),
+    multifamily: v.number(),
+    commercial: v.number(),
+    totalValueCents: v.number(),
+    maxValueCents: v.number(),
+    // The most valuable of each kind they own, for the list row and value filters.
+    homeValueCents: v.optional(v.number()),
+    rentalValueCents: v.optional(v.number()),
+    commercialValueCents: v.optional(v.number()),
+    multifamilyValueCents: v.optional(v.number()),
+    ownerOccupied: v.boolean(),
+    outOfState: v.boolean(),
+    latestDeed: v.optional(v.string()),
+    useCodes: v.array(v.string()),
+    streets: v.array(v.string()),
+    tops: v.record(v.string(), outreachProperty),
+    // An office: how many different owners it gets bills for.
+    owners: v.optional(v.number()),
+    buildId: v.string(),
+  })
+    .index("by_county_and_key", ["county", "key"])
+    .index("by_county_and_build", ["county", "buildId"]),
+
+  // One row per owner and facet (investor, office, commercial…), sorted by
+  // what matters for that facet, so a list reads one index top-down.
+  ownerFacets: defineTable({
+    county: v.string(),
+    facet: v.string(),
+    ownerId: v.id("owners"),
+    sort: v.number(),
+    buildId: v.string(),
+  })
+    .index("by_facet_and_sort", ["county", "facet", "sort"])
+    .index("by_owner", ["ownerId"]),
+
+  // A company's saved outreach lists, and their rows as they were when saved.
+  outreachLists: defineTable({
+    organizationId: v.id("organizations"),
+    title: v.string(),
+    definition: outreachDefinition,
+    rowCount: v.number(),
+    done: v.number(),
+    truncated: v.boolean(),
+    createdBy: v.id("users"),
+    createdAt: v.string(),
+  }).index("by_organization", ["organizationId"]),
+
+  outreachRows: defineTable({
+    listId: v.id("outreachLists"),
+    organizationId: v.id("organizations"),
+    key: v.string(),
+    name: v.string(),
+    company: v.optional(v.string()),
+    mailing: v.object({
+      address: v.optional(v.string()),
+      city: v.optional(v.string()),
+      state: v.optional(v.string()),
+      zip: v.optional(v.string()),
+    }),
+    property: outreachProperty,
+    properties: v.number(),
+    totalValueCents: v.number(),
+    why: v.string(),
+    status: outreachRowStatus,
+    note: v.optional(v.string()),
+    updatedAt: v.optional(v.string()),
+  }).index("by_list", ["listId"]),
 
   // How each permit feed's last sync went.
   permitSources: defineTable({

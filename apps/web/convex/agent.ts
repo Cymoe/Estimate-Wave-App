@@ -5,6 +5,7 @@ import { internalAction, internalMutation, internalQuery, mutation, query, type 
 import { fail, nowIso, requireMember } from "./lib/access";
 import { actAs } from "./lib/actor";
 import { claudeTools, findAgentTool, needsAsk, snapshot } from "./lib/agentTools";
+import { callClaude, type Block } from "./lib/claude";
 import { DEFAULT_DAILY_CAP_CENTS, centralDay } from "./lib/oauth";
 import { prettyPhone, usMobile } from "./lib/phone";
 import { sendSms } from "./lib/sms";
@@ -22,7 +23,6 @@ import { roleIn } from "./oauth";
 // Environment: ANTHROPIC_API_KEY, and Twilio (lib/sms.ts). The Twilio
 // number's "A message comes in" webhook is <convex site>/twilio/sms.
 
-const MODEL = "claude-opus-5-5";
 const ASK_HOURS = 24;
 const MAX_TOOL_CALLS = 8;
 const REPLY_CHARS = 600;
@@ -371,7 +371,6 @@ export function plainText(text: string): string {
     .trim();
 }
 
-type Block = { type: string; [key: string]: unknown };
 type Message = { role: "user" | "assistant"; content: string | Block[] };
 
 /** What a turn needs: who's who, what to remember, what's waiting, and the recent conversation. */
@@ -434,23 +433,6 @@ export const context = internalQuery({
     return { system, dynamic, messages, mobile: user.mobile };
   },
 });
-
-async function callClaude(body: Record<string, unknown>): Promise<{ content: Block[]; stop_reason: string }> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": process.env.ANTHROPIC_API_KEY!,
-      "anthropic-version": "2023-06-01",
-      // If the model declines, the same request is re-run on a fallback model.
-      "anthropic-beta": "server-side-fallback-2026-07-01",
-    },
-    body: JSON.stringify({ model: MODEL, fallbacks: "default", ...body }),
-  });
-  const data = (await res.json().catch(() => ({}))) as { content?: Block[]; stop_reason?: string; error?: { message?: string } };
-  if (!res.ok) throw new Error(data.error?.message ?? `Claude ${res.status}`);
-  return { content: data.content ?? [], stop_reason: data.stop_reason ?? "end_turn" };
-}
 
 /** One agent turn: Claude and the tools, back and forth, until it has its answer. */
 async function converse(

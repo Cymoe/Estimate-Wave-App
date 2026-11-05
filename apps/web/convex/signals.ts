@@ -19,7 +19,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { nowIso, requireStaff } from "./lib/access";
-import { MIDLAND_PARCELS, addressKey, looseKey, ownerName } from "./lib/parcels";
+import { MIDLAND_PARCELS, addressKey, isResidentialUse, looseKey, ownerName } from "./lib/parcels";
 import { MIDLAND } from "./lib/permits";
 import {
   LISTS,
@@ -228,6 +228,13 @@ export const syncNow = action({
 
 /** Works out one home's lists and score and stores them, only writing when something changed. */
 async function restack(ctx: MutationCtx, parcel: Doc<"parcels">, now: number) {
+  // Only homes are motivated-seller leads: an apartment or commercial building on the roll is never stacked.
+  if (!isResidentialUse(parcel.useCode)) {
+    const stale = await ctx.db.query("distress").withIndex("by_parcel", (q) => q.eq("parcelId", parcel._id)).first();
+    if (stale) await ctx.db.delete(stale._id);
+    for (const l of await ctx.db.query("distressLists").withIndex("by_parcel", (q) => q.eq("parcelId", parcel._id)).collect()) await ctx.db.delete(l._id);
+    return;
+  }
   const signals = await ctx.db
     .query("signals")
     .withIndex("by_parcel", (q) => q.eq("parcelId", parcel._id))

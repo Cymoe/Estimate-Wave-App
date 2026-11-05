@@ -63,15 +63,19 @@ describe("Midland owners (the appraisal roll)", () => {
     expect(ownerName("LOZANO ZUNIGA CESAR E")).toBe("Lozano Zuniga Cesar E");
   });
 
-  test("keeps homes with an owner and an address, and reads the money in cents", () => {
+  test("keeps homes, apartment and commercial buildings with an owner and an address, and reads the money in cents", () => {
     const rows = rowsToParcels([
       roll(),
       roll({ SU_NUM: "R2", OWNER: "MATHES JOE &", ADDRESS_1: "6305 E COUNTY RD 62", SITE_NO: 410, STREET_DIR: " ", STREET: "ELM ST" }),
       roll({ SU_NUM: "R3", GOV_USE_CO: "F1" }),
       roll({ SU_NUM: "R4", SITE_NO: 0 }),
       roll({ SU_NUM: "R5", OWNER: " " }),
+      // Vacant land, minerals and exempt parcels aren't kept; any B code (apartments) is.
+      roll({ SU_NUM: "R6", GOV_USE_CO: "C1" }),
+      roll({ SU_NUM: "R7", GOV_USE_CO: "X" }),
+      roll({ SU_NUM: "R8", GOV_USE_CO: "B" }),
     ]);
-    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => [r.cadId, r.useCode])).toEqual([["R000029279", "A1"], ["R2", "A1"], ["R3", "F1"], ["R8", "B"]]);
     expect(rows[0]).toMatchObject({
       cadId: "R000029279",
       siteAddress: "112 W SPRUCE AV",
@@ -110,7 +114,7 @@ describe("Midland owners (the appraisal roll)", () => {
     await t.run(async (ctx) => {
       expect((await ctx.db.query("landlords").collect()).map((l) => [l.owner, l.homes])).toEqual([["NUKA HIVA LLC", 7]]);
     });
-    expect(new URL(urls[0]).searchParams.get("where")).toBe("GOV_USE_CO IN ('A1','A2','A3','A4','A5')");
+    expect(new URL(urls[0]).searchParams.get("where")).toBe("GOV_USE_CO IN ('A1','A2','A3','A4','A5','B1','B2','B3','B4','F1','F2') OR GOV_USE_CO LIKE 'B%'");
     expect(urls[1]).toContain("resultOffset=2");
 
     // Run again with one owner changed: only that row is written.
@@ -297,6 +301,8 @@ describe("calling rules", () => {
     await addHome(t, { siteAddress: "2715 HOWDY DR", addressKey: "2715 HOWDY DR", owner: "AWAY LANDLORD", ownerOccupied: false });
     const elm = await addHome(t, { siteAddress: "902 ELM ST", addressKey: "902 ELM ST", street: "ELM ST", owner: "REYES SAMUEL", deedDate: "2025-11-03" });
     await addHome(t, { siteAddress: "502 OAK AV", addressKey: "502 OAK AV", street: "OAK AV", owner: "HALL JAMES EDWARD" });
+    // A shop on the same street, bought last week: on the roll now, never on a call list.
+    await addHome(t, { cadId: "R-SHOP", useCode: "F1", siteAddress: "500 OAK AV", addressKey: "500 OAK AV", street: "OAK AV", owner: "OAK PLAZA LLC", companyOwned: false, deedDate: "2025-11-10" });
 
     const roofing = await caller.as.query(api.calls.list, { kind: "trade_permits", trade: "roofing" });
     expect(roofing.streets).toEqual([{ street: "Howdy Dr", permits: 2 }, { street: "Elm St", permits: 1 }]);

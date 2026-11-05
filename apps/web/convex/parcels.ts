@@ -1,13 +1,14 @@
-// Midland's homes and who owns them, from the appraisal roll the city
-// publishes (lib/parcels.ts). Read in full once a week: the roll changes a
-// few times a year, so most weeks nothing is written. Callers use it to know
-// whose door they're calling; it never reaches member companies.
+// Midland's homes, apartment and commercial buildings and who owns them, from
+// the appraisal roll the city publishes (lib/parcels.ts). Read in full once a
+// week: the roll changes a few times a year, so most weeks nothing is
+// written. Callers use it to know whose door they're calling; Outreach builds
+// mailing lists from it for Pro companies.
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { action, internalAction, internalMutation, type ActionCtx } from "./_generated/server";
 import { nowIso } from "./lib/access";
-import { MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, ownerOf, rowsToParcels } from "./lib/parcels";
+import { MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, ownerOf, parcelWhere, rowsToParcels } from "./lib/parcels";
 import { LANDLORD_HOMES } from "./lib/signals";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -98,9 +99,10 @@ export const setLandlords = internalMutation({
 });
 
 /**
- * Reads every residential parcel, 2,000 at a time, and records how it went
- * on the permit feed's status table (source "midland-parcels"): fetched is
- * the homes on the roll, lastAppliedAt the newest deed on it.
+ * Reads every home, apartment and commercial parcel, 2,000 at a time, and
+ * records how it went on the permit feed's status table (source
+ * "midland-parcels"): fetched is the parcels on the roll, lastAppliedAt the
+ * newest deed on it.
  */
 async function pullMidlandParcels(ctx: ActionCtx) {
   let offset = 0;
@@ -112,7 +114,7 @@ async function pullMidlandParcels(ctx: ActionCtx) {
   try {
     for (;;) {
       const params = new URLSearchParams({
-        where: `GOV_USE_CO IN (${RESIDENTIAL_USE.map((c) => `'${c}'`).join(",")})`,
+        where: parcelWhere(),
         outFields: PARCEL_FIELDS.join(","),
         orderByFields: "OBJECTID ASC",
         resultOffset: String(offset),
@@ -146,8 +148,11 @@ async function pullMidlandParcels(ctx: ActionCtx) {
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
-  // Every home's motivated-seller lists, now the roll (and who's a landlord) is current.
-  if (!error) await ctx.scheduler.runAfter(0, internal.signals.recomputePage, {});
+  // Every home's motivated-seller lists, and the owners Outreach lists from, now the roll (and who's a landlord) is current.
+  if (!error) {
+    await ctx.scheduler.runAfter(0, internal.signals.recomputePage, {});
+    await ctx.scheduler.runAfter(0, internal.outreach.rebuild, {});
+  }
   await ctx.runMutation(internal.permits.recordSync, {
     source: MIDLAND_PARCELS.source,
     fetched,
