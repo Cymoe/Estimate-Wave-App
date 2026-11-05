@@ -1163,6 +1163,71 @@ export const reportAPI = {
     run('query', api.report.report, defined({ organizationId, county: opts.county, trade: opts.trade })),
 };
 
+// ---- Outreach ----
+
+export type OutreachWho = 'investor' | 'manager' | 'commercial' | 'multifamily' | 'wealthy' | 'recent_buyer' | 'absentee' | 'custom';
+export type OutreachDefinition = {
+  county: string;
+  who: OutreachWho;
+  useCodes?: string[];
+  minValueCents?: number;
+  maxValueCents?: number;
+  minParcels?: number;
+  ownerOccupied?: boolean;
+  companyOwned?: boolean;
+  outOfState?: boolean;
+  zips?: string[];
+  streets?: string[];
+  deedWithinDays?: number;
+  limit?: number;
+};
+export type OutreachMailing = { address?: string; city?: string; state?: string; zip?: string };
+export type OutreachRowStatus = 'new' | 'sent' | 'done' | 'skip';
+export type OutreachRow = {
+  id: string;
+  key: string;
+  name: string;
+  company?: string;
+  mailing: OutreachMailing;
+  property: { parcelId: string; address: string; useCode: string; valueCents?: number };
+  properties: number;
+  totalValueCents: number;
+  why: string;
+  status: OutreachRowStatus;
+  note?: string;
+};
+export type OutreachPreviewRow = Omit<OutreachRow, 'id' | 'status' | 'note'>;
+export type OutreachListSummary = {
+  id: string;
+  title: string;
+  who: OutreachWho;
+  definition: OutreachDefinition;
+  rowCount: number;
+  done: number;
+  truncated: boolean;
+  createdAt: string;
+};
+export type OutreachList = OutreachListSummary & { rows: OutreachRow[] };
+export type OutreachPreview = { count: number; truncated: boolean; limited: boolean; rows: OutreachPreviewRow[] };
+export type OutreachInterpreted =
+  | ({ ok: true; definition: OutreachDefinition; title: string; explanation: string; preview: OutreachPreviewRow[] } & Omit<OutreachPreview, 'rows'>)
+  | { ok: false; explanation: string; suggestion?: { definition: OutreachDefinition; title: string } };
+
+/** Outreach: mailing lists from the county roll, asked for in plain words (Pro). */
+export const outreachAPI = {
+  lists: (organizationId: string): Promise<OutreachListSummary[]> => run('query', api.outreach.lists, { organizationId }),
+  get: (organizationId: string, listId: string): Promise<OutreachList> => run('query', api.outreach.get, { organizationId, listId }),
+  interpret: (organizationId: string, request: string): Promise<OutreachInterpreted> =>
+    run('action', api.outreach.interpret, { organizationId, request }),
+  preview: (organizationId: string, definition: OutreachDefinition): Promise<OutreachPreview> =>
+    run('query', api.outreach.preview, { organizationId, definition }),
+  create: (organizationId: string, definition: OutreachDefinition, title?: string): Promise<{ listId: string; rowCount: number; truncated: boolean }> =>
+    run('mutation', api.outreach.create, defined({ organizationId, definition, title })),
+  setStatus: (organizationId: string, rowId: string, status: OutreachRowStatus, note?: string) =>
+    run('mutation', api.outreach.setStatus, defined({ organizationId, rowId, status, note })),
+  remove: (organizationId: string, listId: string) => run('mutation', api.outreach.remove, { organizationId, listId }),
+};
+
 /** Standing bids by county and service type, and the leads they won or missed. */
 export const bidsAPI = {
   listStanding: (organizationId: string) => run('query', api.bids.listStanding, { organizationId }),

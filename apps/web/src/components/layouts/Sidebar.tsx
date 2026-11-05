@@ -314,6 +314,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               )}
             </NavLink>
+            {/* Outreach: mailing lists from the county roll, asked for in plain words. Pro. */}
+            <NavLink
+              to="/outreach"
+              className={({ isActive }) =>
+                isActive
+                  ? `bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 backdrop-blur-md border border-[#336699]/50 flex flex-col items-center justify-center aspect-square relative overflow-hidden group shadow-[0_0_10px_rgba(51,102,153,0.15)]${dim}`
+                  : `bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col items-center justify-center aspect-square hover:bg-[#2A2A2A] transition-all duration-150 relative overflow-hidden group active:scale-95${dim}`
+              }
+              title={isSidebarCollapsed ? 'Outreach - Mailing lists from the county roll' : undefined}
+            >
+              {({ isActive }) => (
+                <div className="relative z-10 flex flex-col items-center">
+                  <div className={`mb-1 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
+                    <NavShapeMark shape="outreach" />
+                  </div>
+                  {!isSidebarCollapsed && (
+                    <span className={`text-xs font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'} transition-colors`}>
+                      Outreach
+                    </span>
+                  )}
+                </div>
+              )}
+            </NavLink>
             {/* Estimates */}
             <NavLink
               to="/work"

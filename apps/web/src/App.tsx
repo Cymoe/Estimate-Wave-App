@@ -33,6 +33,7 @@ import MarketplacePage from './pages/MarketplacePage';
 import PlanPage from './pages/PlanPage';
 import VaultPage from './pages/VaultPage';
 import ReportPage from './pages/ReportPage';
+import OutreachPage from './pages/OutreachPage';
 import { PlanGate } from './components/market/plan';
 import FundAccountPage from './pages/FundAccountPage';
 import OrganizationSettings from './pages/OrganizationSettings';
@@ -258,6 +259,21 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      {['/outreach', '/outreach/:listId'].map((path) => (
+        <Route
+          key={path}
+          path={path}
+          element={
+            <ProtectedRoute>
+              <DashboardLayout fullWidth={true}>
+                <PlanGate>
+                  <OutreachPage />
+                </PlanGate>
+              </DashboardLayout>
+            </ProtectedRoute>
+          }
+        />
+      ))}
       <Route
         path="/plan"
         element={

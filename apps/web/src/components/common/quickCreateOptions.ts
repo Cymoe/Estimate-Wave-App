@@ -25,6 +25,7 @@ const ICONS = {
   bid: shapeIcon('bids'),
   project: shapeIcon('projects'),
   item: shapeIcon('pricebook'),
+  outreach: shapeIcon('outreach'),
 };
 
 /**
@@ -42,5 +43,6 @@ export function useQuickCreateOptions(): QuickCreateOption[] {
       ? [{ id: 'project', name: 'Project', icon: ICONS.project, action: () => navigate('/projects?new=1') }]
       : []),
     { id: 'item', name: 'Price book item', icon: ICONS.item, action: () => navigate('/price-book/items?new=1') },
+    { id: 'outreach', name: 'Outreach list', icon: ICONS.outreach, action: () => navigate('/outreach?new=1') },
   ];
 }

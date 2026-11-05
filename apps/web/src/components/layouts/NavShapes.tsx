@@ -4,7 +4,7 @@ import React from 'react';
  * Plain geometric marks for the nav tiles: one simple shape per section,
  * drawn in the tile's text color so the active tile goes white with its label.
  */
-export type NavShape = 'profit' | 'leads' | 'bids' | 'marketplace' | 'vault' | 'report' | 'estimates' | 'pricebook' | 'projects';
+export type NavShape = 'profit' | 'leads' | 'bids' | 'marketplace' | 'vault' | 'report' | 'outreach' | 'estimates' | 'pricebook' | 'projects';
 
 const SHAPES: Record<NavShape, React.ReactNode> = {
   // A rising line: money over time.
@@ -33,6 +33,13 @@ const SHAPES: Record<NavShape, React.ReactNode> = {
       <rect x="4" y="13" width="4" height="7" />
       <rect x="10" y="9" width="4" height="11" />
       <rect x="16" y="4" width="4" height="16" />
+    </>
+  ),
+  // An envelope: a letter going out.
+  outreach: (
+    <>
+      <rect x="3" y="6" width="18" height="13" />
+      <polyline points="3,7 12,14 21,7" />
     </>
   ),
   // A tall rectangle: a page.

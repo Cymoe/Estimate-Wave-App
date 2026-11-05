@@ -39,10 +39,10 @@ function mount() {
 }
 
 describe('the blue + button', () => {
-  it('creates leads, estimates, bids, projects and price book items, on desktop and phone', async () => {
+  it('creates leads, estimates, bids, projects, price book items and outreach lists, on desktop and phone', async () => {
     const { container, render } = mount();
     await render(true);
-    expect(Array.from(container.querySelectorAll('[role="menu"] li')).map((li) => li.textContent)).toEqual(['Lead', 'Estimate', 'Bid', 'Project', 'Price book item']);
+    expect(Array.from(container.querySelectorAll('[role="menu"] li')).map((li) => li.textContent)).toEqual(['Lead', 'Estimate', 'Bid', 'Project', 'Price book item', 'Outreach list']);
     expect(container.textContent).toContain('New leadSomeone asking about work');
     expect(container.textContent).toContain('New bidWhat a lead is worth to you');
     expect(container.textContent).toContain('New price book itemAdd to your price book');
@@ -67,7 +67,7 @@ describe('the blue + button', () => {
     const { container, render } = mount();
     await render(true);
     const items = Array.from(container.querySelectorAll('[role="menu"] li')) as HTMLElement[];
-    expect(items.map((li) => li.style.transition.match(/ (\d+)ms,/)![1])).toEqual(['80', '60', '40', '20', '0']);
+    expect(items.map((li) => li.style.transition.match(/ (\d+)ms,/)![1])).toEqual(['100', '80', '60', '40', '20', '0']);
     await render(false);
     expect(items[0].style.transition).toBe('transform 100ms ease-in, opacity 100ms ease-in');
     expect(items[0].style.opacity).toBe('0');
@@ -77,6 +77,6 @@ describe('the blue + button', () => {
     const { container, render } = mount();
     await render(true);
     const shapes = Array.from(container.querySelectorAll('[role="menu"] li svg')).map((svg) => svg.getAttribute('data-shape'));
-    expect(shapes).toEqual(['leads', 'estimates', 'bids', 'projects', 'pricebook']);
+    expect(shapes).toEqual(['leads', 'estimates', 'bids', 'projects', 'pricebook', 'outreach']);
   });
 });
