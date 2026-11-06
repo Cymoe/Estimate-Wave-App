@@ -430,6 +430,7 @@ const OutreachPage: React.FC = () => {
           }
           onSelectAll={(on) => setSelected(on ? new Set(rows.map((r) => r.id)) : new Set())}
           onOpen={setOpen}
+          onRetry={(row, field) => void enrich([row.id], [field]).catch(() => {})}
         />
       )}
       <ContactSheet

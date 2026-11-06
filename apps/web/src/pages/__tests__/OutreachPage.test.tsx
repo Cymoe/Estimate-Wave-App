@@ -224,6 +224,13 @@ describe('the Outreach page', () => {
     expect(steps).toContain('1 of 2 companies1 found1 need a retry');
     expect(steps).toContain('2 of 32 found1 not looked up$2 charged · 1 on Do Not Call only');
     expect(steps).toContain('1 of 31 found1 none1 not looked up1 verified deliverable');
+    // The failed cell says why, and Retry runs that field again without opening the sheet.
+    const failedCell = document.body.querySelectorAll('[data-testid="contact-row"]')[0].querySelectorAll('td')[2];
+    expect(failedCell.textContent?.trim()).toBe('Lookup failedThe state registry timed outRetry');
+    await act(async () => (failedCell.querySelector('button') as HTMLButtonElement).click());
+    await flush();
+    expect(enrich).toHaveBeenCalledWith('o1', ['r1'], ['person'], undefined);
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
     // A DNC-only phone isn't ready to call.
     await click('Ready to call');
     expect(names()).toEqual(['City Of Midland']);
@@ -335,7 +342,11 @@ describe('the Outreach page', () => {
     contacts = {
       rows: [
         contact('r1', {
-          enrichment: { phone: { ...found, chargedCents: 100 }, email: found, person: { ...found, source: 'tx-comptroller' } },
+          enrichment: {
+            phone: { ...found, chargedCents: 100, tries: [{ source: 'batchdata', outcome: 'hit', note: '2 numbers' }, { source: 'tracerfy', outcome: 'skipped', note: 'Not needed, already found' }] },
+            email: { ...found, tries: [{ source: 'batchdata', outcome: 'hit', note: '1 email' }, { source: 'tracerfy', outcome: 'skipped', note: 'Not needed, already found' }] },
+            person: { ...found, source: 'tx-comptroller', tries: [{ source: 'tx-comptroller', outcome: 'hit', note: 'Dana Reyes, Manager' }] },
+          },
           person: { name: 'Dana Reyes', title: 'Manager', address: '1 MAIN ST STE 400, DALLAS, TX, 75201', source: 'tx-comptroller' },
           phones: [
             { number: '4325550100', type: 'mobile', verified: true, score: 95, source: 'batchdata' },
@@ -372,10 +383,17 @@ describe('the Outreach page', () => {
     expect(sheet.querySelector('[data-testid="decision-maker"]')!.textContent).toContain('Dana Reyes · Manager');
     expect(sheet.querySelector('[data-testid="decision-maker"]')!.textContent).toContain('From Texas Comptroller');
     const links = Array.from(sheet.querySelectorAll('[data-testid="contact-details"] a')).map((a) => a.getAttribute('href'));
-    // The DNC landline is shown but never dialled from here.
-    expect(links).toEqual(['tel:4325550100', 'mailto:dana@oakplaza.com']);
+    // The DNC landline is shown but never dialled from here; Call, Text and Email go to the best mobile and the email.
+    expect(links).toEqual(['tel:4325550100', 'mailto:dana@oakplaza.com', 'tel:4325550100', 'sms:4325550100', 'mailto:dana@oakplaza.com']);
+    expect(sheet.querySelector('[data-testid="reach"]')!.textContent?.replace(/\s+/g, '')).toBe('CallTextEmail');
     expect(sheet.querySelector('[data-testid="contact-details"]')!.textContent).toContain('(432) 555-0199landline · DNCon the Do Not Call list');
     expect(sheet.querySelector('[data-testid="contact-details"]')!.textContent).toContain('From BatchData Nov 5 · $1');
+    // The ledger: every source's turn per step, and the owner's cost.
+    const how = sheet.querySelector('[data-testid="how-found"]')!.textContent!;
+    expect(how).toContain('This owner cost $1.');
+    expect(how).toContain('2Person behind the companyFound · freeTexas ComptrollerDana Reyes, Manager');
+    expect(how).toContain('3PhoneFound · $1BatchData2 numbersTracerfyNot needed, already found');
+    expect(how).toContain('4EmailFound · freeBatchData1 emailTracerfyNot needed, already found');
   });
 
   it('research: the sheet asks a question for 25¢, and a found answer shows with its sources', async () => {

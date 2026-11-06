@@ -16,7 +16,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { outreachDefinition, outreachEmail, outreachField, outreachPerson, outreachPhone, outreachResearch, outreachRowStatus } from "./schema";
+import { outreachDefinition, outreachEmail, outreachField, outreachPerson, outreachPhone, outreachResearch, outreachTry, outreachRowStatus } from "./schema";
 import { fail, isStaff, nowIso, requireMember, requireStaff } from "./lib/access";
 import { mutationDef, queryDef } from "./lib/actor";
 import { callClaude } from "./lib/claude";
@@ -660,8 +660,9 @@ export const recordEnrichment = internalMutation({
     person: v.optional(outreachPerson),
     research: v.optional(outreachResearch),
     error: v.optional(v.string()),
+    tries: v.optional(v.array(outreachTry)),
   },
-  handler: async (ctx, { contactId, field, source, phones = [], emails = [], person, research, error }) => {
+  handler: async (ctx, { contactId, field, source, phones = [], emails = [], person, research, error, tries }) => {
     const c = await ctx.db.get(contactId);
     if (!c) return null;
     const cells = { ...cellsOf(c) };
@@ -686,10 +687,10 @@ export const recordEnrichment = internalMutation({
       }
     }
     cells[field] = found
-      ? { status: "found", at: now, requestedBy, source, chargedCents: price > 0 ? chargedCents : undefined }
+      ? { status: "found", at: now, requestedBy, source, chargedCents: price > 0 ? chargedCents : undefined, tries }
       : error
-        ? { status: "failed", at: now, requestedBy, error }
-        : { status: "none", at: now, requestedBy, source };
+        ? { status: "failed", at: now, requestedBy, error, tries }
+        : { status: "none", at: now, requestedBy, source, tries };
     await ctx.db.patch(contactId, {
       enrichment: cells,
       ...(field === "phone" && found ? { phones } : {}),

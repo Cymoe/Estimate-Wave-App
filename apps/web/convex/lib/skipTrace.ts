@@ -286,7 +286,17 @@ export const KEY_FOR: Record<Field, string> = {
   research: "ANTHROPIC_API_KEY",
 };
 
-export type Outcome = { field: Field; found: Found; source?: string; errors: string[] };
+/** One source's turn for a field: what it said, or why it wasn't asked. */
+export type Try = { source: string; outcome: "hit" | "miss" | "error" | "skipped"; note?: string };
+export type Outcome = { field: Field; found: Found; source?: string; errors: string[]; tries: Try[] };
+
+/** What a hit says in the ledger: the person's name and title, or how many numbers or addresses. */
+const hitNote = (field: Field, found: Found) => {
+  if (field === "person") return `${found.person!.name}${found.person!.title ? `, ${found.person!.title}` : ""}`;
+  const n = field === "phone" ? rankPhones(found.phones!).length : dedupeEmails(found.emails!).length;
+  const what = field === "phone" ? "number" : "email";
+  return `${n} ${what}${n === 1 ? "" : "s"}`;
+};
 
 /**
  * Runs the stack for the fields asked for, in the order person → phone →
@@ -312,21 +322,34 @@ export async function waterfall(input: TraceInput, vendors: Vendor[], fields: Fi
   for (const field of order) {
     if (!fields.includes(field)) continue;
     const errors: string[] = [];
+    const tries: Try[] = [];
     let result: Outcome | undefined;
     for (const vendor of vendors) {
-      if (!vendor.connected || !vendor.fields.includes(field)) continue;
+      if (!vendor.fields.includes(field)) continue;
+      if (!vendor.connected) {
+        tries.push({ source: vendor.name, outcome: "skipped", note: "Not connected" });
+        continue;
+      }
+      if (result) {
+        tries.push({ source: vendor.name, outcome: "skipped", note: "Not needed, already found" });
+        continue;
+      }
       try {
         const found = await ask(vendor);
         if (has(field, found)) {
-          result = { field, found, source: vendor.name, errors };
-          break;
+          result = { field, found, source: vendor.name, errors, tries };
+          tries.push({ source: vendor.name, outcome: "hit", note: hitNote(field, found) });
+        } else {
+          tries.push({ source: vendor.name, outcome: "miss", note: "No match" });
         }
       } catch (e) {
-        const message = `${vendor.name}: ${e instanceof Error ? e.message : String(e)}`;
+        const text = e instanceof Error ? e.message : String(e);
+        const message = `${vendor.name}: ${text}`;
         if (!errors.includes(message)) errors.push(message);
+        tries.push({ source: vendor.name, outcome: "error", note: text });
       }
     }
-    result ??= { field, found: {}, errors };
+    result ??= { field, found: {}, errors, tries };
     if (field === "person" && result.found.person) input = { ...input, person: result.found.person };
     out.push(result);
   }

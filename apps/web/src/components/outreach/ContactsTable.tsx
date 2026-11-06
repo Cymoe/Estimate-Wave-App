@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Lock, MapPin, Search, User } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Circle, Lock, Mail, MapPin, MessageSquare, MinusCircle, Phone, Search, User } from 'lucide-react';
 import { AddressLink } from '../common/AddressLink';
 import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { fullAddress } from '../../lib/mapsLinks';
-import type { OutreachCell, OutreachContact, OutreachContacts, OutreachCoverage, OutreachField, OutreachPhone, OutreachRowStatus, OutreachSignal, OutreachWho } from '../../lib/api';
+import type { OutreachCell, OutreachContact, OutreachContacts, OutreachCoverage, OutreachField, OutreachPhone, OutreachRowStatus, OutreachSignal, OutreachTry, OutreachWho } from '../../lib/api';
 import { shortMoney, WHO_LABEL } from '../../../convex/lib/outreach';
 import { phoneText, sourceName } from './format';
 
@@ -49,8 +49,8 @@ export const PhoneBadges: React.FC<{ p: OutreachPhone }> = ({ p }) => (
   </span>
 );
 
-/** A cell that hasn't a value: the lock, the wait, the miss, or the retry. */
-const Empty: React.FC<{ cell: OutreachCell }> = ({ cell }) => {
+/** A cell that hasn't a value: the lock, the wait, the miss, or the failure with its reason and a retry. */
+const Empty: React.FC<{ cell: OutreachCell; onRetry?: () => void }> = ({ cell, onRetry }) => {
   switch (cell.status) {
     case 'running':
       return <span className="text-gray-500">Looking…</span>;
@@ -58,7 +58,32 @@ const Empty: React.FC<{ cell: OutreachCell }> = ({ cell }) => {
     case 'none':
       return <span className="text-gray-600">None found</span>;
     case 'failed':
-      return <span className="text-amber-300">Try again</span>;
+      return (
+        <span className="inline-flex items-start gap-3">
+          <span className="min-w-0">
+            <span className="inline-flex items-center gap-1 text-amber-300">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Lookup failed
+            </span>
+            {cell.error && (
+              <span className="block max-w-[8rem] truncate text-[11px] text-gray-500" title={cell.error}>
+                {cell.error}
+              </span>
+            )}
+          </span>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRetry();
+              }}
+              className="px-2 min-h-[28px] text-xs text-amber-300 border border-amber-400/60 hover:bg-amber-400/10 whitespace-nowrap"
+            >
+              Retry
+            </button>
+          )}
+        </span>
+      );
     default:
       return (
         <span className="inline-flex items-center gap-1 text-gray-600">
@@ -87,7 +112,9 @@ export const ContactsTable: React.FC<{
   onSelect: (id: string, on: boolean) => void;
   onSelectAll: (on: boolean) => void;
   onOpen: (row: OutreachContact) => void;
-}> = ({ rows, coverage, selected, onSelect, onSelectAll, onOpen }) => {
+  /** Run a failed field again, from the cell's Retry. */
+  onRetry: (row: OutreachContact, field: OutreachField) => void;
+}> = ({ rows, coverage, selected, onSelect, onSelectAll, onOpen, onRetry }) => {
   const all = rows.length > 0 && rows.every((r) => selected.has(r.id));
   const [atEnd, setAtEnd] = useState(false);
   // No fade when every column fits, or once the last one is in view.
@@ -143,7 +170,7 @@ export const ContactsTable: React.FC<{
                         {r.person.title ? <span className="block text-[11px] text-gray-500">{r.person.title}</span> : null}
                       </>
                     ) : r.company ? (
-                      <Empty cell={r.enrichment.person} />
+                      <Empty cell={r.enrichment.person} onRetry={() => onRetry(r, 'person')} />
                     ) : (
                       <span className="text-gray-700">—</span>
                     )}
@@ -158,7 +185,7 @@ export const ContactsTable: React.FC<{
                         </span>
                       </>
                     ) : (
-                      <Empty cell={r.enrichment.phone} />
+                      <Empty cell={r.enrichment.phone} onRetry={() => onRetry(r, 'phone')} />
                     )}
                   </td>
                   <td className={`${td} max-w-[14rem] truncate`}>
@@ -168,11 +195,11 @@ export const ContactsTable: React.FC<{
                         {email.verified ? <span className="block text-[11px] text-gray-500">verified</span> : null}
                       </>
                     ) : (
-                      <Empty cell={r.enrichment.email} />
+                      <Empty cell={r.enrichment.email} onRetry={() => onRetry(r, 'email')} />
                     )}
                   </td>
                   <td className={`${td} max-w-[22rem] truncate`} title={r.research?.answer}>
-                    {r.research ? <span className="text-gray-200">{r.research.answer}</span> : <Empty cell={r.enrichment.research ?? { status: 'locked' }} />}
+                    {r.research ? <span className="text-gray-200">{r.research.answer}</span> : <Empty cell={r.enrichment.research ?? { status: 'locked' }} onRetry={() => onRetry(r, 'research')} />}
                   </td>
                   <td className={`${td} ${statusTone(r.status)}`}>{STATUS_LABEL[r.status]}</td>
                   <td className={`${td} max-w-[16rem] truncate text-gray-300`}>
@@ -196,6 +223,75 @@ export const ContactsTable: React.FC<{
       </div>
       {/* More columns wait to the right: a fade says so until the end is reached. */}
       {!atEnd && <div aria-hidden className="table-fade pointer-events-none absolute inset-y-px right-px w-8" data-testid="more-columns" />}
+    </div>
+  );
+};
+
+const dollarsOrFree = (cents?: number) => (cents ? dollars(cents) : 'free');
+/** The ledger's name for a source. */
+const LEDGER_NAME: Record<string, string> = { claude: 'The web, read by Claude' };
+const ledgerName = (s: string) => LEDGER_NAME[s] ?? sourceName(s);
+const TRY_ICON: Record<OutreachTry['outcome'], React.ReactNode> = {
+  hit: <CheckCircle2 className="w-4 h-4 text-[#7fb0e0]" />,
+  miss: <MinusCircle className="w-4 h-4 text-gray-500" />,
+  error: <AlertTriangle className="w-4 h-4 text-amber-300" />,
+  skipped: <Circle className="w-4 h-4 text-gray-700" />,
+};
+const STEP_TITLE: Record<OutreachField, string> = { person: 'Person behind the company', phone: 'Phone', email: 'Email', research: 'Research' };
+
+/** What a step came to, for the badge at its right. */
+const stepBadge = (c: OutreachCell) =>
+  c.status === 'found' ? `Found · ${dollarsOrFree(c.chargedCents)}` : c.status === 'none' ? 'None · free' : c.status === 'failed' ? 'Failed · free' : c.status === 'running' ? 'Looking…' : 'Not looked up';
+
+/**
+ * How we found it: each step that has run, with every source's turn in
+ * order, what it said, and what the owner cost in all. The numbers follow
+ * the strip's: owners are step 1.
+ */
+const HowFound: React.FC<{ row: OutreachContact }> = ({ row }) => {
+  const steps: Array<{ field: OutreachField; cell: OutreachCell }> = [
+    ...(row.company ? [{ field: 'person' as const, cell: row.enrichment.person }] : []),
+    { field: 'phone' as const, cell: row.enrichment.phone },
+    { field: 'email' as const, cell: row.enrichment.email },
+    ...(row.enrichment.research && row.enrichment.research.status !== 'locked' ? [{ field: 'research' as const, cell: row.enrichment.research }] : []),
+  ].filter((s) => s.cell.status !== 'locked');
+  if (steps.length === 0) return null;
+  const cost = steps.reduce((sum, s) => sum + (s.cell.chargedCents ?? 0), 0);
+  const label = 'text-xs font-medium text-gray-400 uppercase tracking-wider';
+  return (
+    <div className="py-3" data-testid="how-found">
+      <div className={label}>How we found it</div>
+      <p className="text-xs text-gray-500">
+        Each step tries its sources in order and stops at the first match. This owner cost {dollars(cost)}.
+      </p>
+      <ol className="mt-2 space-y-3">
+        {steps.map((s, i) => (
+          <li key={s.field}>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="inline-flex w-5 h-5 shrink-0 items-center justify-center border border-[#333333] text-[11px] text-gray-400 tabular-nums">{i + 2}</span>
+              <span className="text-white">{STEP_TITLE[s.field]}</span>
+              <span className={`ml-auto text-xs ${s.cell.status === 'found' ? 'text-[#7fb0e0]' : s.cell.status === 'failed' ? 'text-amber-300' : 'text-gray-500'}`}>{stepBadge(s.cell)}</span>
+            </div>
+            {s.cell.tries && s.cell.tries.length > 0 ? (
+              <ul className="mt-1 ml-2 border-l border-[#333333] pl-4 space-y-1.5">
+                {s.cell.tries.map((t, j) => (
+                  <li key={`${t.source}-${j}`} className="flex items-start gap-2 text-sm">
+                    <span className="mt-0.5 shrink-0">{TRY_ICON[t.outcome]}</span>
+                    <span className="min-w-0">
+                      <span className={t.outcome === 'skipped' ? 'text-gray-500' : 'text-gray-200'}>{ledgerName(t.source)}</span>
+                      {t.note && <span className="block text-xs text-gray-500 break-words">{t.note}</span>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : s.cell.status === 'running' ? (
+              <p className="mt-1 ml-2 border-l border-[#333333] pl-4 text-xs text-gray-500">Asking the sources now…</p>
+            ) : s.cell.source ? (
+              <p className="mt-1 ml-2 border-l border-[#333333] pl-4 text-xs text-gray-500">From {ledgerName(s.cell.source)}, before the ledger was kept.</p>
+            ) : null}
+          </li>
+        ))}
+      </ol>
     </div>
   );
 };
@@ -247,6 +343,10 @@ export const ContactSheet: React.FC<{
   const canPay = balanceCents >= unlockCents;
   const canResearch = balanceCents >= researchCents;
   const when = (c: OutreachCell) => (c.at ? ` ${new Date(c.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : '');
+  // The buttons: the best number not on the Do Not Call list; a text only to a mobile.
+  const callable = row.phones.find((p) => !p.dnc);
+  const textable = row.phones.find((p) => !p.dnc && p.type === 'mobile');
+  const email0 = row.emails[0];
   return (
     <SlideOutDrawer isOpen onClose={onClose} title={row.name} width="md">
       <div className="p-6 space-y-5">
@@ -318,6 +418,25 @@ export const ContactSheet: React.FC<{
                   {when(phone.status === 'found' ? phone : email)}
                   {phone.chargedCents ? ` · ${dollars(phone.chargedCents)}` : ''}
                 </li>
+                {(callable || textable || email0) && (
+                  <li className="flex gap-2 pt-2" data-testid="reach">
+                    {callable && (
+                      <a href={`tel:${callable.number}`} className={`${primary} flex-1 justify-center`}>
+                        <Phone className="w-4 h-4" /> Call
+                      </a>
+                    )}
+                    {textable && (
+                      <a href={`sms:${textable.number}`} className={`${quiet} flex-1 justify-center min-h-[44px]`}>
+                        <MessageSquare className="w-4 h-4" /> Text
+                      </a>
+                    )}
+                    {email0 && (
+                      <a href={`mailto:${email0.email}`} className={`${quiet} flex-1 justify-center min-h-[44px]`}>
+                        <Mail className="w-4 h-4" /> Email
+                      </a>
+                    )}
+                  </li>
+                )}
               </ul>
             ) : phone.status === 'running' || email.status === 'running' ? (
               <p className="text-sm text-gray-400">Looking up the phone and email… this takes a few seconds.</p>
@@ -389,6 +508,7 @@ export const ContactSheet: React.FC<{
               </div>
             )}
           </div>
+          <HowFound row={row} />
           {row.signals.length > 0 && (
             <div className="py-3">
               <div className={label}>Signals</div>

@@ -1189,7 +1189,9 @@ export type OutreachEmail = { email: string; source: string; verified?: boolean 
 export type OutreachPerson = { name: string; title?: string; address?: string; source: string };
 export type OutreachField = 'phone' | 'email' | 'person' | 'research';
 /** One enrichment cell: locked until asked for; running through the stack; found (phone: charged), none (free) or failed (free). */
-export type OutreachCell = { status: 'locked' | 'running' | 'found' | 'none' | 'failed'; at?: string; source?: string; chargedCents?: number; error?: string };
+/** One source's turn in a cell's waterfall, for the sheet's "How we found it". */
+export type OutreachTry = { source: string; outcome: 'hit' | 'miss' | 'error' | 'skipped'; note?: string };
+export type OutreachCell = { status: 'locked' | 'running' | 'found' | 'none' | 'failed'; at?: string; source?: string; chargedCents?: number; error?: string; tries?: OutreachTry[] };
 export type OutreachEnrichment = Record<OutreachField, OutreachCell>;
 /** What the AI found on the web about an owner, with where it read it. */
 export type OutreachResearch = { question: string; answer: string; sources: Array<{ title: string; url: string }>; at: string };

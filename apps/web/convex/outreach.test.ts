@@ -415,7 +415,7 @@ describe("a company's lists", () => {
     vi.stubEnv("BATCHDATA_API_KEY", "");
     await t.finishAllScheduledFunctions(() => {});
     const noKey = (await read()).rows.find((r) => r.id === oak.id)!;
-    expect(noKey.enrichment.person).toMatchObject({ status: "failed", error: expect.stringContaining("TX_COMPTROLLER_API_KEY") });
+    expect(noKey.enrichment.person).toMatchObject({ status: "failed", error: expect.stringContaining("TX_COMPTROLLER_API_KEY"), tries: [{ source: "tx-comptroller", outcome: "skipped", note: "Not connected" }] });
 
     // With keys: the Comptroller names Oak Plaza's manager, BatchData finds her phones and an email; the city gets nothing.
     await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 250 }));
@@ -483,6 +483,16 @@ describe("a company's lists", () => {
       phone: { status: "found", source: "batchdata", chargedCents: 100 },
       email: { status: "found", source: "batchdata" },
     });
+    // The ledger for the sheet: every source's turn, in order; Tracerfy isn't connected in this test.
+    expect(oakNow.enrichment.person.tries).toEqual([{ source: "tx-comptroller", outcome: "hit", note: "Dana Reyes, Manager" }]);
+    expect(oakNow.enrichment.phone.tries).toEqual([
+      { source: "batchdata", outcome: "hit", note: "3 numbers" },
+      { source: "tracerfy", outcome: "skipped", note: "Not connected" },
+    ]);
+    expect(oakNow.enrichment.email.tries).toEqual([
+      { source: "batchdata", outcome: "hit", note: "1 email" },
+      { source: "tracerfy", outcome: "skipped", note: "Not connected" },
+    ]);
     // Ranked: the vendor's score first, then mobile before VoIP before landline; the DNC landline is kept but flagged.
     expect(oakNow.phones).toEqual([
       { number: "4325550100", type: "mobile", verified: true, score: 95, source: "batchdata" },
@@ -493,6 +503,7 @@ describe("a company's lists", () => {
     const cityNow = traced.rows.find((r) => r.id === cityHall.id)!;
     // The state has no entity called City Of Midland, and BatchData has nothing for it: three free misses.
     expect(cityNow.enrichment).toMatchObject({ phone: { status: "none" }, email: { status: "none" }, person: { status: "none" } });
+    expect(cityNow.enrichment.person.tries).toEqual([{ source: "tx-comptroller", outcome: "miss", note: "No match" }]);
     expect(cityNow.phones).toEqual([]);
     expect(traced.balanceCents).toBe(150);
     expect(traced.coverage).toEqual({ phone: { found: 1, total: 2, sources: 1 }, email: { found: 1, total: 2, sources: 1 }, person: { found: 1, total: 2, sources: 1 }, research: { found: 0, total: 2, sources: 0 } });
@@ -583,6 +594,10 @@ describe("a company's lists", () => {
     await t.finishAllScheduledFunctions(() => {});
     let now = (await read()).rows.find((r) => r.id === vance.id)!;
     expect(now.enrichment).toMatchObject({ phone: { status: "found", source: "tracerfy", chargedCents: 100 }, email: { status: "found", source: "tracerfy" } });
+    expect(now.enrichment.phone.tries).toEqual([
+      { source: "batchdata", outcome: "miss", note: "No match" },
+      { source: "tracerfy", outcome: "hit", note: "2 numbers" },
+    ]);
     // Rank 1 first even though it's DNC; the landline follows. Only the Vances' numbers, not the tenant's.
     expect(now.phones).toEqual([
       { number: "4325550301", type: "mobile", dnc: true, score: 99, source: "tracerfy" },
@@ -611,6 +626,11 @@ describe("a company's lists", () => {
     now = (await read()).rows.find((r) => r.id === reyes.id)!;
     expect(now.enrichment.phone).toMatchObject({ status: "found", source: "tracerfy" });
     expect(now.enrichment.phone.error).toBeUndefined();
+    expect(now.enrichment.phone.tries).toEqual([
+      { source: "batchdata", outcome: "error", note: expect.stringContaining("429") },
+      // Nobody at the address shares Reyes's surname, so every number there counts.
+      { source: "tracerfy", outcome: "hit", note: "3 numbers" },
+    ]);
 
     // Tracerfy out of credits and BatchData empty: a free miss whose note names the cause.
     batchDataStatus = 200;
@@ -627,6 +647,10 @@ describe("a company's lists", () => {
     await t.finishAllScheduledFunctions(() => {});
     now = (await read()).rows.find((r) => r.id === ortiz.id)!;
     expect(now.enrichment.phone).toMatchObject({ status: "failed", error: "tracerfy: Tracerfy: HTTP 402 (Insufficient credits. Instant trace requires 5 credits per lookup. You have 0 credits.)" });
+    expect(now.enrichment.phone.tries).toEqual([
+      { source: "batchdata", outcome: "miss", note: "No match" },
+      { source: "tracerfy", outcome: "error", note: "Tracerfy: HTTP 402 (Insufficient credits. Instant trace requires 5 credits per lookup. You have 0 credits.)" },
+    ]);
     expect((await read()).balanceCents).toBe(300);
   });
 
@@ -680,7 +704,7 @@ describe("a company's lists", () => {
     await t.finishAllScheduledFunctions(() => {});
     const after = await read();
     const oakNow = after.rows.find((r) => r.id === oak.id)!;
-    expect(oakNow.enrichment.research).toMatchObject({ status: "found", source: "claude", chargedCents: 25 });
+    expect(oakNow.enrichment.research).toMatchObject({ status: "found", source: "claude", chargedCents: 25, tries: [{ source: "claude", outcome: "hit", note: "2 pages read" }] });
     expect(oakNow.research).toEqual({
       question: "Any renovation planned?",
       answer: "Oak Plaza LLC owns the shopping center at 12 Midkiff Rd, run by manager Dana Reyes. A permit for a facade renovation was filed in September 2026.",
@@ -691,7 +715,7 @@ describe("a company's lists", () => {
       at: new Date(NOW).toISOString(),
     });
     const cityNow = after.rows.find((r) => r.id === cityHall.id)!;
-    expect(cityNow.enrichment.research).toMatchObject({ status: "none", source: "claude" });
+    expect(cityNow.enrichment.research).toMatchObject({ status: "none", source: "claude", tries: [{ source: "claude", outcome: "miss", note: "Nothing specific on this owner" }] });
     expect(cityNow.research).toBeUndefined();
     expect(after.balanceCents).toBe(75);
     expect(after.coverage.research).toEqual({ found: 1, total: 2, sources: 1 });

@@ -492,6 +492,12 @@ export const outreachPerson = v.object({ name: v.string(), title: v.optional(v.s
 /** What a contact can be enriched with. */
 export const outreachField = v.union(v.literal("phone"), v.literal("email"), v.literal("person"), v.literal("research"));
 /** One enrichment cell: locked until asked for; running through the stack; found (phone: charged), none (free) or failed (free). */
+/** One source's turn in a cell's waterfall: what it said, for the sheet's "How we found it". */
+export const outreachTry = v.object({
+  source: v.string(),
+  outcome: v.union(v.literal("hit"), v.literal("miss"), v.literal("error"), v.literal("skipped")),
+  note: v.optional(v.string()),
+});
 export const outreachCell = v.object({
   status: v.union(v.literal("locked"), v.literal("running"), v.literal("found"), v.literal("none"), v.literal("failed")),
   at: v.optional(v.string()),
@@ -499,6 +505,8 @@ export const outreachCell = v.object({
   source: v.optional(v.string()),
   chargedCents: v.optional(v.number()),
   error: v.optional(v.string()),
+  /** Every source in order, once the lookup has run. */
+  tries: v.optional(v.array(outreachTry)),
 });
 export const outreachEnrichment = v.object({ phone: outreachCell, email: outreachCell, person: outreachCell, research: v.optional(outreachCell) });
 /** What the AI found on the web about an owner, with where it read it. */
