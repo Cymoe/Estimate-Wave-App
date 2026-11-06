@@ -543,7 +543,8 @@ describe("a company's lists", () => {
     const co = await proCompany(t);
     const org = co.organizationId;
     await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 500 }));
-    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "wealthy" } });
+    // The Vances (wealthy), Samuel Reyes (a recent buyer) and Maria Ortiz (absentee) in the CRM.
+    for (const who of ["wealthy", "recent_buyer", "absentee"] as const) await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who } });
     const read = async () => await co.as.query(api.outreach.contacts, { organizationId: org });
     const vance = (await read()).rows.find((r) => r.name === "Vance Robert & Linda")!;
     vi.stubEnv("BATCHDATA_API_KEY", "bd-key");
