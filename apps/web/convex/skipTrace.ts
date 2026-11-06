@@ -24,7 +24,7 @@ export const trace = internalAction({
         await ctx.runMutation(internal.outreach.recordEnrichment, {
           contactId,
           field,
-          error: `No source for this is connected yet (${KEY_FOR[field]} isn't set on the Convex deployment).`,
+          error: `No source for this is connected yet (${KEY_FOR[field]} isn't set on the Convex deployment).`.replace("isn't set", field === "person" ? "isn't set" : "aren't set"),
         });
         continue;
       }

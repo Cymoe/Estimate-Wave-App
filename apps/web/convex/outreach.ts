@@ -689,7 +689,7 @@ export const recordEnrichment = internalMutation({
 });
 
 /** "batchdata" → "BatchData", "tx-comptroller" → "Texas Comptroller". */
-export const sourceLabel = (s: string) => ({ batchdata: "BatchData", "tx-comptroller": "Texas Comptroller" })[s] ?? s;
+export const sourceLabel = (s: string) => ({ batchdata: "BatchData", tracerfy: "Tracerfy", "tx-comptroller": "Texas Comptroller" })[s] ?? s;
 
 /**
  * One-off: contacts unlocked before per-field cells existed get their

@@ -523,6 +523,7 @@ describe("a company's lists", () => {
     expect(stack.map((s) => [s.name, s.connected, s.stats.map((x) => [x.field, x.attempts, x.hits, x.chargedCents])])).toEqual([
       ["tx-comptroller", true, [["person", 1, 1, 0]]],
       ["batchdata", true, [["phone", 1, 1, 100], ["email", 1, 1, 0]]],
+      ["tracerfy", false, [["phone", 0, 0, 0], ["email", 0, 0, 0]]],
     ]);
     await expect(co.as.query(api.outreach.sources, { organizationId: org })).rejects.toThrow(/staff/);
     // A found field isn't traced again; a failed one can be. A dropped list keeps a paid contact.
@@ -532,6 +533,100 @@ describe("a company's lists", () => {
     const lists = await co.as.query(api.outreach.lists, { organizationId: org });
     await co.as.mutation(api.outreach.remove, { organizationId: org, listId: lists[0].id });
     expect((await read()).rows.map((r) => [r.name, r.kinds, r.phones.length])).toEqual([["Oak Plaza LLC", [], 3]]);
+  });
+
+  test("what BatchData misses falls through to Tracerfy; a vendor error is skipped free", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 500 }));
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "wealthy" } });
+    const read = async () => await co.as.query(api.outreach.contacts, { organizationId: org });
+    const vance = (await read()).rows.find((r) => r.name === "Vance Robert & Linda")!;
+    vi.stubEnv("BATCHDATA_API_KEY", "bd-key");
+    vi.stubEnv("TRACERFY_API_KEY", "tf-key");
+    vi.stubEnv("TRACERFY_API_BASE", "https://mock.tracerfy.com/v1/api/");
+    const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+    let batchDataStatus = 200;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const body = JSON.parse(init?.body as string) as Record<string, unknown>;
+        calls.push({ url, body });
+        const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
+        if (url.includes("batchdata")) return batchDataStatus === 200 ? json({ results: { persons: [] } }) : json({ message: "Rate limited" }, batchDataStatus);
+        // Tracerfy: two people at the address; the Vances are the ones asked for.
+        return json({
+          hit: true,
+          persons_count: 2,
+          credits_deducted: 1,
+          persons: [
+            { first_name: "Pat", last_name: "Tenant", phones: [{ number: "4325559999", type: "Mobile", rank: 1 }], emails: [] },
+            {
+              first_name: "Robert",
+              last_name: "Vance",
+              phones: [
+                { number: "(432) 555-0300", type: "Landline", dnc: false, tcpa: false, rank: 2 },
+                { number: "432-555-0301", type: "Mobile", dnc: true, rank: 1 },
+              ],
+              emails: [{ email: "Robert@Vance.example", rank: 1 }],
+            },
+          ],
+        });
+      }),
+    );
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [vance.id], fields: ["phone", "email"] });
+    await t.finishAllScheduledFunctions(() => {});
+    let now = (await read()).rows.find((r) => r.id === vance.id)!;
+    expect(now.enrichment).toMatchObject({ phone: { status: "found", source: "tracerfy", chargedCents: 100 }, email: { status: "found", source: "tracerfy" } });
+    // Rank 1 first even though it's DNC; the landline follows. Only the Vances' numbers, not the tenant's.
+    expect(now.phones).toEqual([
+      { number: "4325550301", type: "mobile", dnc: true, score: 99, source: "tracerfy" },
+      { number: "4325550300", type: "landline", score: 98, source: "tracerfy" },
+    ]);
+    expect(now.emails).toEqual([{ email: "robert@vance.example", source: "tracerfy" }]);
+    // Asked by name (the roll's "VANCE ROBERT & LINDA"), at the sandbox, after BatchData came back empty.
+    const tf = calls.filter((c) => c.url.startsWith("https://mock.tracerfy.com/v1/api/trace/lookup/"));
+    expect(tf).toHaveLength(1);
+    expect(tf[0].body).toMatchObject({ address: "1 Spruce Av", city: "Midland", state: "TX", find_owner: false, first_name: "Robert", last_name: "Vance" });
+    expect(calls.filter((c) => c.url.includes("batchdata"))).toHaveLength(1);
+    expect((await read()).balanceCents).toBe(400);
+    await t.run(async (ctx) => {
+      const stats = (await ctx.db.query("dataSourceStats").collect()).map((s) => [s.source, s.field, s.attempts, s.hits, s.chargedCents]).sort();
+      expect(stats).toEqual([
+        ["tracerfy", "email", 1, 1, 0],
+        ["tracerfy", "phone", 1, 1, 100],
+      ]);
+    });
+
+    // BatchData errors out: Tracerfy still answers, and the cell carries no error.
+    batchDataStatus = 429;
+    const reyes = (await read()).rows.find((r) => r.name === "Reyes Samuel")!;
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [reyes.id], fields: ["phone"] });
+    await t.finishAllScheduledFunctions(() => {});
+    now = (await read()).rows.find((r) => r.id === reyes.id)!;
+    expect(now.enrichment.phone).toMatchObject({ status: "found", source: "tracerfy" });
+    expect(now.enrichment.phone.error).toBeUndefined();
+
+    // Tracerfy out of credits and BatchData empty: a free miss whose note names the cause.
+    batchDataStatus = 200;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
+        if (url.includes("batchdata")) return json({ results: { persons: [] } });
+        return json({ error: "Insufficient credits. Instant trace requires 5 credits per lookup. You have 0 credits." }, 402);
+      }),
+    );
+    const ortiz = (await read()).rows.find((r) => r.name === "Ortiz Maria")!;
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [ortiz.id], fields: ["phone"] });
+    await t.finishAllScheduledFunctions(() => {});
+    now = (await read()).rows.find((r) => r.id === ortiz.id)!;
+    expect(now.enrichment.phone).toMatchObject({ status: "failed", error: "tracerfy: Tracerfy: HTTP 402 (Insufficient credits. Instant trace requires 5 credits per lookup. You have 0 credits.)" });
+    expect((await read()).balanceCents).toBe(300);
   });
 
   test("a contact unlocked before per-field cells gets its cells on deploy", async () => {

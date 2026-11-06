@@ -145,6 +145,76 @@ export function batchData(key: string | undefined, fetchFn: Fetch = fetch, base 
   };
 }
 
+/**
+ * Tracerfy's instant lookup: one property, the person to find when we know
+ * one (the Comptroller's officer, or the roll's personal name), else the
+ * owner. Up to 8 phones ranked 1 first, each with a type and DNC/TCPA
+ * flags; 2¢ a hit, a miss free. TRACERFY_API_BASE can point at the
+ * sandbox (mock.tracerfy.com) for a free dry run.
+ */
+export function tracerfy(key: string | undefined, fetchFn: Fetch = fetch, base = "https://tracerfy.com/v1/api"): Vendor {
+  return {
+    name: "tracerfy",
+    fields: ["phone", "email"],
+    connected: Boolean(key),
+    trace: async (input) => {
+      const who = input.person ? splitName(input.person.name, "person") : input.company ? {} : splitName(input.name);
+      const byName = Boolean(who.first && who.last);
+      const response = await fetchFn(`${base.replace(/\/$/, "")}/trace/lookup/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${key}` },
+        body: JSON.stringify({
+          address: input.property.address,
+          city: input.property.city,
+          state: input.property.state,
+          ...(input.property.zip ? { zip: input.property.zip } : {}),
+          find_owner: !byName,
+          ...(byName ? { first_name: who.first, last_name: who.last } : {}),
+        }),
+      });
+      if (!response.ok) {
+        let detail = "";
+        try {
+          const body = (await response.json()) as { error?: unknown; detail?: unknown; retry_after_seconds?: unknown };
+          detail = str(body.error) ?? str(body.detail) ?? (num(body.retry_after_seconds) !== undefined ? `retry after ${num(body.retry_after_seconds)}s` : "");
+        } catch {
+          // No JSON body: the status is the message.
+        }
+        throw new Error(`Tracerfy: HTTP ${response.status}${detail ? ` (${detail})` : ""}`);
+      }
+      const body = (await response.json()) as { hit?: boolean; persons?: unknown[] };
+      if (body.hit === false) return { phones: [], emails: [] };
+      let persons = asArray(body.persons) as Array<Record<string, unknown>>;
+      // Several people at the address: the one with the name we asked for, when any has it.
+      if (who.last) {
+        const same = persons.filter((p) => (str(p.last_name) ?? "").toUpperCase() === who.last!.toUpperCase());
+        if (same.length) persons = same;
+      }
+      const phones: Phone[] = [];
+      const emails: Email[] = [];
+      for (const person of persons) {
+        for (const p of asArray(person.phones) as Array<Record<string, unknown>>) {
+          const number = str(p.number);
+          if (!number) continue;
+          const rank = num(p.rank);
+          phones.push({
+            number,
+            type: phoneType(p.type),
+            dnc: p.dnc === true || p.tcpa === true ? true : undefined,
+            score: rank !== undefined ? Math.max(0, 100 - rank) : undefined,
+            source: "tracerfy",
+          });
+        }
+        for (const e of asArray(person.emails) as Array<Record<string, unknown> | string>) {
+          const email = typeof e === "string" ? str(e) : str(e.email);
+          if (email) emails.push({ email, source: "tracerfy" });
+        }
+      }
+      return { phones, emails };
+    },
+  };
+}
+
 /** The officer titles that run a company, most useful first. */
 const RUNS_IT = [/MANAG/i, /PRESIDENT/i, /\bCEO\b/i, /OWNER/i, /MEMBER/i, /PARTNER/i, /DIRECTOR/i, /PRINCIPAL/i, /SECRETARY|TREASURER/i];
 
@@ -203,11 +273,15 @@ export function comptrollerTexas(key: string | undefined, fetchFn: Fetch = fetch
 
 /** The stack, in the order it's tried: free state records first, then the paid traces. */
 export function vendors(env: Record<string, string | undefined>): Vendor[] {
-  return [comptrollerTexas(env.TX_COMPTROLLER_API_KEY), batchData(env.BATCHDATA_API_KEY)];
+  return [comptrollerTexas(env.TX_COMPTROLLER_API_KEY), batchData(env.BATCHDATA_API_KEY), tracerfy(env.TRACERFY_API_KEY, fetch, env.TRACERFY_API_BASE || undefined)];
 }
 
-/** The key a field's sources need, for the "not connected" note. */
-export const KEY_FOR: Record<Field, string> = { person: "TX_COMPTROLLER_API_KEY", phone: "BATCHDATA_API_KEY", email: "BATCHDATA_API_KEY" };
+/** The keys a field's sources need, for the "not connected" note. */
+export const KEY_FOR: Record<Field, string> = {
+  person: "TX_COMPTROLLER_API_KEY",
+  phone: "BATCHDATA_API_KEY or TRACERFY_API_KEY",
+  email: "BATCHDATA_API_KEY or TRACERFY_API_KEY",
+};
 
 export type Outcome = { field: Field; found: Found; source?: string; errors: string[] };
 
