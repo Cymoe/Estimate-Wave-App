@@ -73,8 +73,8 @@ const pinned = 'sticky bg-[#121212] group-hover:bg-[#1A1A1A]';
 
 /**
  * The CRM: one row per owner. What the row has comes first (the person
- * behind a company, phone, email, signals, status), then the roll's
- * columns; the name stays pinned as the rest scroll, and the right edge
+ * behind a company, phone, email, status), then the roll's columns and
+ * the property's signals; the name stays pinned as the rest scroll, and the right edge
  * fades while more columns wait. Tap a row for the sheet; tick rows to
  * enrich them.
  */
@@ -112,7 +112,6 @@ export const ContactsTable: React.FC<{
                 Email
                 <Coverage c={coverage.email} />
               </th>
-              <th className={th}>Signals</th>
               <th className={th}>Status</th>
               <th className={th}>Mailing address</th>
               <th className={th}>City</th>
@@ -121,6 +120,7 @@ export const ContactsTable: React.FC<{
               <th className={th}>Property</th>
               <th className={`${th} text-right`}>Value</th>
               <th className={th}>Type</th>
+              <th className={th}>Signals</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#333333]">
@@ -168,9 +168,6 @@ export const ContactsTable: React.FC<{
                       <Empty cell={r.enrichment.email} />
                     )}
                   </td>
-                  <td className={`${td} text-amber-300`}>
-                    {r.signals.length === 0 ? <span className="text-gray-700">—</span> : r.signals.map((s) => `${SIGNAL_LABEL[s.kind]} ${monthYear(s.date)}`).join(' · ')}
-                  </td>
                   <td className={`${td} ${statusTone(r.status)}`}>{STATUS_LABEL[r.status]}</td>
                   <td className={`${td} max-w-[14rem] truncate text-gray-300`}>{r.mailing.address ?? ''}</td>
                   <td className={`${td} text-gray-300`}>{r.mailing.city ?? ''}</td>
@@ -182,6 +179,9 @@ export const ContactsTable: React.FC<{
                   </td>
                   <td className={`${td} text-right tabular-nums text-gray-300`}>{r.property.valueCents ? shortMoney(r.property.valueCents) : ''}</td>
                   <td className={`${td} text-gray-400`}>{kindsText(r.kinds)}</td>
+                  <td className={`${td} text-amber-300`}>
+                    {r.signals.length === 0 ? <span className="text-gray-700">—</span> : r.signals.map((s) => `${SIGNAL_LABEL[s.kind]} ${monthYear(s.date)}`).join(' · ')}
+                  </td>
                 </tr>
               );
             })}

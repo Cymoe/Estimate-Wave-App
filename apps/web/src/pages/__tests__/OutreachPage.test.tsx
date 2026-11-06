@@ -165,13 +165,13 @@ describe('the Outreach page', () => {
     expect(rows).toHaveLength(2);
     const cells = (i: number) => Array.from(rows[i].querySelectorAll('td')).map((c) => c.textContent?.trim());
     // What the row has comes first; the roll's columns follow, with the name pinned as they scroll.
-    expect(cells(0)).toEqual(['', 'Oak Plaza LLC', '—', '—', '—', '—', 'New', '1 MAIN ST', 'DALLAS', 'TX', '75201', '12 Midkiff Rd', '$3M', 'Commercial']);
-    expect(cells(1)[11]).toBe('12 Midkiff Rd +3');
-    expect(cells(1)[5]).toBe('Code violation Sep 2026');
+    expect(cells(0)).toEqual(['', 'Oak Plaza LLC', '—', '—', '—', 'New', '1 MAIN ST', 'DALLAS', 'TX', '75201', '12 Midkiff Rd', '$3M', 'Commercial', '—']);
+    expect(cells(1)[10]).toBe('12 Midkiff Rd +3');
+    expect(cells(1)[13]).toBe('Code violation Sep 2026');
     expect(rows[0].querySelectorAll('td')[1].className).toContain('sticky');
     expect(document.body.querySelector('[data-testid="more-columns"]')).not.toBeNull();
     const heads = Array.from(document.body.querySelectorAll('thead th')).map((h) => h.textContent?.replace(/\s+/g, ' ').trim());
-    expect(heads).toEqual(['', 'Name', 'Decision maker0 / 2 companies', 'Phone0 / 2', 'Email0 / 2', 'Signals', 'Status', 'Mailing address', 'City', 'State', 'Zip', 'Property', 'Value', 'Type']);
+    expect(heads).toEqual(['', 'Name', 'Decision maker0 / 2 companies', 'Phone0 / 2', 'Email0 / 2', 'Status', 'Mailing address', 'City', 'State', 'Zip', 'Property', 'Value', 'Type', 'Signals']);
     await click('Shopping center owners');
     expect(path).toBe('/outreach/l1');
     expect(getContacts).toHaveBeenLastCalledWith('o1', 'l1');
