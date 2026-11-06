@@ -68,8 +68,16 @@ const Empty: React.FC<{ cell: OutreachCell }> = ({ cell }) => {
 
 const th = 'font-medium px-3 py-2 whitespace-nowrap align-top';
 const td = 'px-3 py-2 whitespace-nowrap align-top';
+/** The checkbox and the name stay put while the roll columns scroll under them. */
+const pinned = 'sticky bg-[#121212] group-hover:bg-[#1A1A1A]';
 
-/** The CRM: one row per owner, with the columns a mail merge or a call sheet needs and what each lookup found. Tap a row for the sheet; tick rows to enrich them. */
+/**
+ * The CRM: one row per owner. What the row has comes first (the person
+ * behind a company, phone, email, signals, status), then the roll's
+ * columns; the name stays pinned as the rest scroll, and the right edge
+ * fades while more columns wait. Tap a row for the sheet; tick rows to
+ * enrich them.
+ */
 export const ContactsTable: React.FC<{
   rows: OutreachContact[];
   coverage: OutreachContacts['coverage'];
@@ -79,102 +87,109 @@ export const ContactsTable: React.FC<{
   onOpen: (row: OutreachContact) => void;
 }> = ({ rows, coverage, selected, onSelect, onSelectAll, onOpen }) => {
   const all = rows.length > 0 && rows.every((r) => selected.has(r.id));
+  const [atEnd, setAtEnd] = useState(false);
+  // No fade when every column fits, or once the last one is in view.
+  const scrolled = (el: HTMLDivElement) => setAtEnd(el.scrollWidth <= el.clientWidth || el.scrollLeft + el.clientWidth >= el.scrollWidth - 2);
   return (
-    <div className="bg-[#121212] border border-[#333333] overflow-x-auto">
-      <table className="w-full min-w-[88rem] text-sm" aria-label="Contacts">
-        <thead>
-          <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-[#333333]">
-            <th className="px-3 py-2 w-10 align-top">
-              <input type="checkbox" checked={all} onChange={(e) => onSelectAll(e.target.checked)} aria-label="Select all" className="accent-[#336699]" />
-            </th>
-            <th className={th}>Name</th>
-            <th className={th}>
-              Decision maker
-              <Coverage c={coverage.person} of={coverage.person.total === 1 ? 'company' : 'companies'} />
-            </th>
-            <th className={th}>Mailing address</th>
-            <th className={th}>City</th>
-            <th className={th}>State</th>
-            <th className={th}>Zip</th>
-            <th className={th}>Property</th>
-            <th className={`${th} text-right`}>Value</th>
-            <th className={th}>Type</th>
-            <th className={th}>Signals</th>
-            <th className={th}>
-              Phone
-              <Coverage c={coverage.phone} />
-            </th>
-            <th className={th}>
-              Email
-              <Coverage c={coverage.email} />
-            </th>
-            <th className={th}>Status</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-[#333333]">
-          {rows.map((r) => {
-            const phone = r.phones[0];
-            const email = r.emails[0];
-            return (
-              <tr key={r.id} onClick={() => onOpen(r)} className="cursor-pointer hover:bg-[#1A1A1A]" data-testid="contact-row">
-                <td className={td} onClick={(e) => e.stopPropagation()}>
-                  <input type="checkbox" checked={selected.has(r.id)} onChange={(e) => onSelect(r.id, e.target.checked)} aria-label={`Select ${r.name}`} className="accent-[#336699]" />
-                </td>
-                <td className={`${td} max-w-[16rem] truncate ${r.status === 'skip' ? 'text-gray-500 line-through' : 'text-white'}`}>{r.name}</td>
-                <td className={`${td} max-w-[14rem] truncate`}>
-                  {r.person ? (
-                    <>
-                      <span className="text-white">{r.person.name}</span>
-                      {r.person.title ? <span className="block text-[11px] text-gray-500">{r.person.title}</span> : null}
-                    </>
-                  ) : r.company ? (
-                    <Empty cell={r.enrichment.person} />
-                  ) : (
-                    <span className="text-gray-700">—</span>
-                  )}
-                </td>
-                <td className={`${td} max-w-[14rem] truncate text-gray-300`}>{r.mailing.address ?? ''}</td>
-                <td className={`${td} text-gray-300`}>{r.mailing.city ?? ''}</td>
-                <td className={`${td} text-gray-300`}>{r.mailing.state ?? ''}</td>
-                <td className={`${td} text-gray-300`}>{r.mailing.zip?.slice(0, 5) ?? ''}</td>
-                <td className={`${td} max-w-[14rem] truncate text-gray-300`}>
-                  {r.property.address}
-                  {r.properties > 1 ? <span className="text-gray-500"> +{r.properties - 1}</span> : null}
-                </td>
-                <td className={`${td} text-right tabular-nums text-gray-300`}>{r.property.valueCents ? shortMoney(r.property.valueCents) : ''}</td>
-                <td className={`${td} text-gray-400`}>{kindsText(r.kinds)}</td>
-                <td className={`${td} text-amber-300`}>
-                  {r.signals.length === 0 ? <span className="text-gray-700">—</span> : r.signals.map((s) => `${SIGNAL_LABEL[s.kind]} ${monthYear(s.date)}`).join(' · ')}
-                </td>
-                <td className={td}>
-                  {phone ? (
-                    <>
-                      <span className={phone.dnc ? 'text-gray-300' : 'text-white'}>{phoneText(phone.number)}</span>
-                      <span className="block">
-                        <PhoneBadges p={phone} />
-                        {r.phones.length > 1 ? <span className="text-[11px] text-gray-500"> · +{r.phones.length - 1}</span> : null}
-                      </span>
-                    </>
-                  ) : (
-                    <Empty cell={r.enrichment.phone} />
-                  )}
-                </td>
-                <td className={`${td} max-w-[14rem] truncate`}>
-                  {email ? (
-                    <>
-                      <span className="text-white">{email.email}</span>
-                      {email.verified ? <span className="block text-[11px] text-gray-500">verified</span> : null}
-                    </>
-                  ) : (
-                    <Empty cell={r.enrichment.email} />
-                  )}
-                </td>
-                <td className={`${td} ${statusTone(r.status)}`}>{STATUS_LABEL[r.status]}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div className="relative" data-testid="contacts-table">
+      <div className="bg-[#121212] border border-[#333333] overflow-x-auto" onScroll={(e) => scrolled(e.currentTarget)} ref={(el) => el && scrolled(el)}>
+        <table className="w-full min-w-[88rem] text-sm" aria-label="Contacts">
+          <thead>
+            <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-[#333333]">
+              <th className={`${pinned} left-0 z-10 px-3 py-2 w-10 align-top`}>
+                <input type="checkbox" checked={all} onChange={(e) => onSelectAll(e.target.checked)} aria-label="Select all" className="accent-[#336699]" />
+              </th>
+              <th className={`${pinned} left-10 z-10 ${th} border-r border-[#333333]`}>Name</th>
+              <th className={th}>
+                Decision maker
+                <Coverage c={coverage.person} of={coverage.person.total === 1 ? 'company' : 'companies'} />
+              </th>
+              <th className={th}>
+                Phone
+                <Coverage c={coverage.phone} />
+              </th>
+              <th className={th}>
+                Email
+                <Coverage c={coverage.email} />
+              </th>
+              <th className={th}>Signals</th>
+              <th className={th}>Status</th>
+              <th className={th}>Mailing address</th>
+              <th className={th}>City</th>
+              <th className={th}>State</th>
+              <th className={th}>Zip</th>
+              <th className={th}>Property</th>
+              <th className={`${th} text-right`}>Value</th>
+              <th className={th}>Type</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#333333]">
+            {rows.map((r) => {
+              const phone = r.phones[0];
+              const email = r.emails[0];
+              return (
+                <tr key={r.id} onClick={() => onOpen(r)} className="group cursor-pointer hover:bg-[#1A1A1A]" data-testid="contact-row">
+                  <td className={`${pinned} left-0 z-10 ${td}`} onClick={(e) => e.stopPropagation()}>
+                    <input type="checkbox" checked={selected.has(r.id)} onChange={(e) => onSelect(r.id, e.target.checked)} aria-label={`Select ${r.name}`} className="accent-[#336699]" />
+                  </td>
+                  <td className={`${pinned} left-10 z-10 ${td} border-r border-[#333333] max-w-[16rem] truncate ${r.status === 'skip' ? 'text-gray-500 line-through' : 'text-white'}`}>{r.name}</td>
+                  <td className={`${td} max-w-[14rem] truncate`}>
+                    {r.person ? (
+                      <>
+                        <span className="text-white">{r.person.name}</span>
+                        {r.person.title ? <span className="block text-[11px] text-gray-500">{r.person.title}</span> : null}
+                      </>
+                    ) : r.company ? (
+                      <Empty cell={r.enrichment.person} />
+                    ) : (
+                      <span className="text-gray-700">—</span>
+                    )}
+                  </td>
+                  <td className={td}>
+                    {phone ? (
+                      <>
+                        <span className={phone.dnc ? 'text-gray-300' : 'text-white'}>{phoneText(phone.number)}</span>
+                        <span className="block">
+                          <PhoneBadges p={phone} />
+                          {r.phones.length > 1 ? <span className="text-[11px] text-gray-500"> · +{r.phones.length - 1}</span> : null}
+                        </span>
+                      </>
+                    ) : (
+                      <Empty cell={r.enrichment.phone} />
+                    )}
+                  </td>
+                  <td className={`${td} max-w-[14rem] truncate`}>
+                    {email ? (
+                      <>
+                        <span className="text-white">{email.email}</span>
+                        {email.verified ? <span className="block text-[11px] text-gray-500">verified</span> : null}
+                      </>
+                    ) : (
+                      <Empty cell={r.enrichment.email} />
+                    )}
+                  </td>
+                  <td className={`${td} text-amber-300`}>
+                    {r.signals.length === 0 ? <span className="text-gray-700">—</span> : r.signals.map((s) => `${SIGNAL_LABEL[s.kind]} ${monthYear(s.date)}`).join(' · ')}
+                  </td>
+                  <td className={`${td} ${statusTone(r.status)}`}>{STATUS_LABEL[r.status]}</td>
+                  <td className={`${td} max-w-[14rem] truncate text-gray-300`}>{r.mailing.address ?? ''}</td>
+                  <td className={`${td} text-gray-300`}>{r.mailing.city ?? ''}</td>
+                  <td className={`${td} text-gray-300`}>{r.mailing.state ?? ''}</td>
+                  <td className={`${td} text-gray-300`}>{r.mailing.zip?.slice(0, 5) ?? ''}</td>
+                  <td className={`${td} max-w-[14rem] truncate text-gray-300`}>
+                    {r.property.address}
+                    {r.properties > 1 ? <span className="text-gray-500"> +{r.properties - 1}</span> : null}
+                  </td>
+                  <td className={`${td} text-right tabular-nums text-gray-300`}>{r.property.valueCents ? shortMoney(r.property.valueCents) : ''}</td>
+                  <td className={`${td} text-gray-400`}>{kindsText(r.kinds)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {/* More columns wait to the right: a fade says so until the end is reached. */}
+      {!atEnd && <div aria-hidden className="pointer-events-none absolute inset-y-px right-px w-8 bg-gradient-to-l from-[#121212] to-transparent" data-testid="more-columns" />}
     </div>
   );
 };

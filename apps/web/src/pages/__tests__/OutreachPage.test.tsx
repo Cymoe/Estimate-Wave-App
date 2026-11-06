@@ -155,17 +155,23 @@ describe('the Outreach page', () => {
     document.body.innerHTML = '';
     lists = [list];
     contacts = twoContacts();
+    // A table wider than its box, as on a laptop.
+    Object.defineProperty(HTMLDivElement.prototype, 'scrollWidth', { configurable: true, get: () => 1400 });
+    Object.defineProperty(HTMLDivElement.prototype, 'clientWidth', { configurable: true, get: () => 900 });
     await render();
     const chips = Array.from(document.body.querySelectorAll('[aria-label="Lists"] button')).map((b) => b.textContent?.trim());
     expect(chips).toEqual(['All', 'Shopping center owners 2']);
     const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
     expect(rows).toHaveLength(2);
     const cells = (i: number) => Array.from(rows[i].querySelectorAll('td')).map((c) => c.textContent?.trim());
-    expect(cells(0)).toEqual(['', 'Oak Plaza LLC', '—', '1 MAIN ST', 'DALLAS', 'TX', '75201', '12 Midkiff Rd', '$3M', 'Commercial', '—', '—', '—', 'New']);
-    expect(cells(1)[7]).toBe('12 Midkiff Rd +3');
-    expect(cells(1)[10]).toBe('Code violation Sep 2026');
+    // What the row has comes first; the roll's columns follow, with the name pinned as they scroll.
+    expect(cells(0)).toEqual(['', 'Oak Plaza LLC', '—', '—', '—', '—', 'New', '1 MAIN ST', 'DALLAS', 'TX', '75201', '12 Midkiff Rd', '$3M', 'Commercial']);
+    expect(cells(1)[11]).toBe('12 Midkiff Rd +3');
+    expect(cells(1)[5]).toBe('Code violation Sep 2026');
+    expect(rows[0].querySelectorAll('td')[1].className).toContain('sticky');
+    expect(document.body.querySelector('[data-testid="more-columns"]')).not.toBeNull();
     const heads = Array.from(document.body.querySelectorAll('thead th')).map((h) => h.textContent?.replace(/\s+/g, ' ').trim());
-    expect(heads).toEqual(['', 'Name', 'Decision maker0 / 2 companies', 'Mailing address', 'City', 'State', 'Zip', 'Property', 'Value', 'Type', 'Signals', 'Phone0 / 2', 'Email0 / 2', 'Status']);
+    expect(heads).toEqual(['', 'Name', 'Decision maker0 / 2 companies', 'Phone0 / 2', 'Email0 / 2', 'Signals', 'Status', 'Mailing address', 'City', 'State', 'Zip', 'Property', 'Value', 'Type']);
     await click('Shopping center owners');
     expect(path).toBe('/outreach/l1');
     expect(getContacts).toHaveBeenLastCalledWith('o1', 'l1');
@@ -293,8 +299,8 @@ describe('the Outreach page', () => {
     const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
     const cells = (i: number) => Array.from(rows[i].querySelectorAll('td')).map((c) => c.textContent?.replace(/\s+/g, ' ').trim());
     expect(cells(0)[2]).toBe('Dana ReyesManager');
-    expect(cells(0).slice(11, 13)).toEqual(['(432) 555-0100mobile · verified · +1', 'dana@oakplaza.comverified']);
-    expect(cells(1).slice(11, 13)).toEqual(['Looking…', 'Looking…']);
+    expect(cells(0).slice(3, 5)).toEqual(['(432) 555-0100mobile · verified · +1', 'dana@oakplaza.comverified']);
+    expect(cells(1).slice(3, 5)).toEqual(['Looking…', 'Looking…']);
     expect(document.body.querySelector('thead')!.textContent).toContain('1 / 2 · 1 source');
     expect(document.body.querySelector('[data-testid="unlock-bar"]')).toBeNull();
     // Nothing left to look up on the list: the top-right button is gone.
