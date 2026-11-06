@@ -14,6 +14,20 @@ on:
       - 'package-lock.json'
       - '.github/workflows/convex-deploy.yml'
   workflow_dispatch:
+    # Started by hand from the Actions tab, with an optional one-off
+    # function to run right after the push, for the internal functions
+    # the deploy doesn't run on its own (a sample fill, a clear-out).
+    inputs:
+      function:
+        description: 'Also run this function, e.g. outreach:seedSample'
+        required: false
+        default: ''
+        type: string
+      args:
+        description: 'Its arguments as JSON'
+        required: false
+        default: '{}'
+        type: string
 
 concurrency:
   group: convex-deploy
@@ -77,6 +91,13 @@ jobs:
 
       - name: Push functions and schema
         run: npx convex deploy --yes
+
+      - name: Run the function asked for
+        if: github.event_name == 'workflow_dispatch' && inputs.function != ''
+        env:
+          FUNCTION: ${{ inputs.function }}
+          ARGS: ${{ inputs.args }}
+        run: npx convex run "$FUNCTION" "$ARGS"
 
       - name: Set up Convex Auth
         run: node scripts/convex-setup-auth.mjs
