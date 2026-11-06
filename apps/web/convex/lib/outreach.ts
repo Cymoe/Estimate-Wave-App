@@ -151,6 +151,11 @@ export const OWNERS_SOURCE = "midland-owners";
 export const OWNERS_VERSION = 3;
 /** What unlocking a contact's phone and email costs, charged only when the trace finds something. */
 export const UNLOCK_CENTS = 100;
+/** What a research answer costs, charged only when the AI found something worth saying. */
+export const RESEARCH_CENTS = 25;
+/** The question the research column answers unless the company asks another. */
+export const DEFAULT_RESEARCH_QUESTION =
+  "Who is this owner, what do they do, and is there any sign of planned construction, renovation, expansion or a recent sale?";
 
 /**
  * Pass one over the roll: how many parcels each mailing address gets the

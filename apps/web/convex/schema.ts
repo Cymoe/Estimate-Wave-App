@@ -490,7 +490,7 @@ export const outreachEmail = v.object({ email: v.string(), source: v.string(), v
 /** The person behind a company owner: an officer or manager from the state's records. */
 export const outreachPerson = v.object({ name: v.string(), title: v.optional(v.string()), address: v.optional(v.string()), source: v.string() });
 /** What a contact can be enriched with. */
-export const outreachField = v.union(v.literal("phone"), v.literal("email"), v.literal("person"));
+export const outreachField = v.union(v.literal("phone"), v.literal("email"), v.literal("person"), v.literal("research"));
 /** One enrichment cell: locked until asked for; running through the stack; found (phone: charged), none (free) or failed (free). */
 export const outreachCell = v.object({
   status: v.union(v.literal("locked"), v.literal("running"), v.literal("found"), v.literal("none"), v.literal("failed")),
@@ -500,7 +500,14 @@ export const outreachCell = v.object({
   chargedCents: v.optional(v.number()),
   error: v.optional(v.string()),
 });
-export const outreachEnrichment = v.object({ phone: outreachCell, email: outreachCell, person: outreachCell });
+export const outreachEnrichment = v.object({ phone: outreachCell, email: outreachCell, person: outreachCell, research: v.optional(outreachCell) });
+/** What the AI found on the web about an owner, with where it read it. */
+export const outreachResearch = v.object({
+  question: v.string(),
+  answer: v.string(),
+  sources: v.array(v.object({ title: v.string(), url: v.string() })),
+  at: v.string(),
+});
 /** The unlock as it was before per-field cells (outreach:migrateUnlocks moves it over on deploy). */
 export const outreachUnlock = v.object({
   status: v.union(v.literal("pending"), v.literal("found"), v.literal("none"), v.literal("failed")),
@@ -1120,6 +1127,9 @@ export default defineSchema({
     phones: v.optional(v.array(outreachPhone)),
     emails: v.optional(v.array(outreachEmail)),
     person: v.optional(outreachPerson),
+    research: v.optional(outreachResearch),
+    /** The question a running research cell is answering. */
+    researchQuestion: v.optional(v.string()),
     enrichment: v.optional(outreachEnrichment),
     unlock: v.optional(outreachUnlock),
     createdAt: v.string(),

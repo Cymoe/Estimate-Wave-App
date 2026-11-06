@@ -1187,10 +1187,12 @@ export type OutreachPhoneType = 'mobile' | 'landline' | 'voip' | 'unknown';
 export type OutreachPhone = { number: string; type: OutreachPhoneType; dnc?: boolean; verified?: boolean; score?: number; source: string };
 export type OutreachEmail = { email: string; source: string; verified?: boolean };
 export type OutreachPerson = { name: string; title?: string; address?: string; source: string };
-export type OutreachField = 'phone' | 'email' | 'person';
+export type OutreachField = 'phone' | 'email' | 'person' | 'research';
 /** One enrichment cell: locked until asked for; running through the stack; found (phone: charged), none (free) or failed (free). */
 export type OutreachCell = { status: 'locked' | 'running' | 'found' | 'none' | 'failed'; at?: string; source?: string; chargedCents?: number; error?: string };
 export type OutreachEnrichment = Record<OutreachField, OutreachCell>;
+/** What the AI found on the web about an owner, with where it read it. */
+export type OutreachResearch = { question: string; answer: string; sources: Array<{ title: string; url: string }>; at: string };
 export type OutreachSignal = { kind: 'code_violation' | 'dilapidated' | 'demolition' | 'stalled_permit'; date: string; detail: string };
 /** One owner in a company's CRM: pulled by one or more lists, with what the company has paid to learn. */
 export type OutreachContact = {
@@ -1210,6 +1212,7 @@ export type OutreachContact = {
   phones: OutreachPhone[];
   emails: OutreachEmail[];
   person?: OutreachPerson;
+  research?: OutreachResearch;
   enrichment: OutreachEnrichment;
   signals: OutreachSignal[];
   createdAt: string;
@@ -1232,6 +1235,8 @@ export type OutreachContacts = {
   coverage: Record<OutreachField, OutreachCoverage>;
   balanceCents: number;
   unlockCents: number;
+  researchCents: number;
+  researchQuestion: string;
   /** The company's own phone hit rate so far, 0–1; undefined until it has tried. */
   phoneHitRate?: number;
 };
@@ -1262,8 +1267,8 @@ export const outreachAPI = {
     run('mutation', api.outreach.setStatus, defined({ organizationId, contactId, status, note })),
   remove: (organizationId: string, listId: string) => run('mutation', api.outreach.remove, { organizationId, listId }),
   /** Queues the stack for each contact and field (all three unless given); $1 a phone from the balance, charged only when found. */
-  enrich: (organizationId: string, contactIds: string[], fields?: OutreachField[]): Promise<{ queued: number; costCents: number }> =>
-    run('mutation', api.outreach.enrich, defined({ organizationId, contactIds, fields })),
+  enrich: (organizationId: string, contactIds: string[], fields?: OutreachField[], question?: string): Promise<{ queued: number; costCents: number }> =>
+    run('mutation', api.outreach.enrich, defined({ organizationId, contactIds, fields, question })),
   /** Staff: the stack in order, with this company's hit rates and spend. */
   sources: (organizationId: string): Promise<OutreachSource[]> => run('query', api.outreach.sources, { organizationId }),
   /** Staff: when the owners were last grouped, from how many parcels; and a rebuild. */

@@ -19,7 +19,7 @@ const contact = (id: string, over: Record<string, unknown> = {}) => ({
   status: 'new',
   phones: [],
   emails: [],
-  enrichment: { phone: { status: 'locked' }, email: { status: 'locked' }, person: { status: 'locked' } },
+  enrichment: { phone: { status: 'locked' }, email: { status: 'locked' }, person: { status: 'locked' }, research: { status: 'locked' } },
   signals: [],
   createdAt: '2026-11-05T15:00:00Z',
   ...over,
@@ -28,7 +28,9 @@ const coverage = (phone = 0, email = 0, person = 0, total = 2) => ({
   phone: { found: phone, total, sources: phone ? 1 : 0 },
   email: { found: email, total, sources: email ? 1 : 0 },
   person: { found: person, total, sources: person ? 1 : 0 },
+  research: { found: 0, total, sources: 0 },
 });
+const money = { balanceCents: 0, unlockCents: 100, researchCents: 25, researchQuestion: 'Who is this owner, what do they do, and is there any sign of planned construction?' };
 const list = {
   id: 'l1',
   title: 'Shopping center owners',
@@ -40,7 +42,7 @@ const list = {
   createdAt: '2026-11-05T15:00:00Z',
 };
 let lists: Array<Record<string, unknown>> = [];
-let contacts: Record<string, unknown> = { rows: [], coverage: coverage(0, 0, 0, 0), balanceCents: 0, unlockCents: 100 };
+let contacts: Record<string, unknown> = { rows: [], coverage: coverage(0, 0, 0, 0), ...money };
 let interpreted: Record<string, unknown> = {
   ok: true,
   definition: { county: 'Midland', who: 'commercial' },
@@ -134,15 +136,14 @@ const twoContacts = () => ({
     }),
   ],
   coverage: coverage(),
-  balanceCents: 0,
-  unlockCents: 100,
+  ...money,
 });
 
 afterEach(() => {
   document.body.innerHTML = '';
   jest.clearAllMocks();
   lists = [];
-  contacts = { rows: [], coverage: coverage(0, 0, 0, 0), balanceCents: 0, unlockCents: 100 };
+  contacts = { rows: [], coverage: coverage(0, 0, 0, 0), ...money };
   authUser = { id: 'u1', role: 'user' };
   ownersState = null;
 });
@@ -165,13 +166,13 @@ describe('the Outreach page', () => {
     expect(rows).toHaveLength(2);
     const cells = (i: number) => Array.from(rows[i].querySelectorAll('td')).map((c) => c.textContent?.trim());
     // What the row has comes first; the roll's columns follow, with the name pinned as they scroll.
-    expect(cells(0)).toEqual(['', 'Oak Plaza LLC', '—', '—', '—', 'New', '1 MAIN ST', 'DALLAS', 'TX', '75201', '12 Midkiff Rd', '$3M', 'Commercial', '—']);
-    expect(cells(1)[10]).toBe('12 Midkiff Rd +3');
-    expect(cells(1)[13]).toBe('Code violation Sep 2026');
+    expect(cells(0)).toEqual(['', 'Oak Plaza LLC', '—', '—', '—', '—', 'New', '1 MAIN ST', 'DALLAS', 'TX', '75201', '12 Midkiff Rd', '$3M', 'Commercial', '—']);
+    expect(cells(1)[11]).toBe('12 Midkiff Rd +3');
+    expect(cells(1)[14]).toBe('Code violation Sep 2026');
     expect(rows[0].querySelectorAll('td')[1].className).toContain('sticky');
     expect(document.body.querySelector('[data-testid="more-columns"]')).not.toBeNull();
     const heads = Array.from(document.body.querySelectorAll('thead th')).map((h) => h.textContent?.replace(/\s+/g, ' ').trim());
-    expect(heads).toEqual(['', 'Name', 'Decision maker0 / 2 companies', 'Phone0 / 2', 'Email0 / 2', 'Status', 'Mailing address', 'City', 'State', 'Zip', 'Property', 'Value', 'Type', 'Signals']);
+    expect(heads).toEqual(['', 'Name', 'Decision maker0 / 2 companies', 'Phone0 / 2', 'Email0 / 2', 'Research0 / 2', 'Status', 'Mailing address', 'City', 'State', 'Zip', 'Property', 'Value', 'Type', 'Signals']);
     await click('Shopping center owners');
     expect(path).toBe('/outreach/l1');
     expect(getContacts).toHaveBeenLastCalledWith('o1', 'l1');
@@ -237,8 +238,8 @@ describe('the Outreach page', () => {
     expect(unlockButton.disabled).toBe(true);
     expect(sheet.textContent).toContain('Balance $0. Add funds');
     await click('Find the person behind the company · free');
-    expect(enrich).toHaveBeenCalledWith('o1', ['r1'], ['person']);
-    await act(async () => type(sheet.querySelector('textarea') as HTMLTextAreaElement, 'Mailed Nov 5'));
+    expect(enrich).toHaveBeenCalledWith('o1', ['r1'], ['person'], undefined);
+    await act(async () => type(sheet.querySelector('textarea#outreach-note') as HTMLTextAreaElement, 'Mailed Nov 5'));
     await click('Done');
     expect(setStatus).toHaveBeenCalledWith('o1', 'r1', 'done', 'Mailed Nov 5');
     expect(document.body.textContent).toContain('1 done');
@@ -270,6 +271,7 @@ describe('the Outreach page', () => {
     const bar = document.body.querySelector('[data-testid="unlock-bar"]')!;
     expect(bar.textContent).toContain('2 selected');
     expect(bar.textContent).toContain('2 phones to find, up to $2. Balance $5.');
+    expect(button('Research 2 · $0.50')).not.toBeUndefined();
     const found = { status: 'found', at: '2026-11-05T15:01:00Z', source: 'batchdata' };
     contacts = {
       rows: [
@@ -285,15 +287,15 @@ describe('the Outreach page', () => {
         contact('r2', { name: 'City Of Midland', enrichment: { phone: { status: 'running' }, email: { status: 'running' }, person: { status: 'running' } } }),
       ],
       coverage: coverage(1, 1, 1),
+      ...money,
       balanceCents: 400,
-      unlockCents: 100,
       phoneHitRate: 0.5,
     };
     // The top-right button looks up everyone still locked on the list; the bar's button only the ticked rows.
     expect(button('Look up 2').title).toBe('up to $2');
     await act(async () => (bar.querySelector('button') as HTMLButtonElement).click());
     await flush();
-    expect(enrich).toHaveBeenCalledWith('o1', ['r1', 'r2'], undefined);
+    expect(enrich).toHaveBeenCalledWith('o1', ['r1', 'r2'], undefined, undefined);
     expect(document.body.textContent).toContain('Looking up 1 owner; $1 at most, charged only for phones found.');
     expect(document.body.querySelector('[data-testid="looking"]')!.textContent).toBe('Looking up 1 owner…');
     const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
@@ -301,6 +303,7 @@ describe('the Outreach page', () => {
     expect(cells(0)[2]).toBe('Dana ReyesManager');
     expect(cells(0).slice(3, 5)).toEqual(['(432) 555-0100mobile · verified · +1', 'dana@oakplaza.comverified']);
     expect(cells(1).slice(3, 5)).toEqual(['Looking…', 'Looking…']);
+    expect(cells(0)[5]).toBe('—');
     expect(document.body.querySelector('thead')!.textContent).toContain('1 / 2 · 1 source');
     expect(document.body.querySelector('[data-testid="unlock-bar"]')).toBeNull();
     // Nothing left to look up on the list: the top-right button is gone.
@@ -314,6 +317,40 @@ describe('the Outreach page', () => {
     expect(links).toEqual(['tel:4325550100', 'mailto:dana@oakplaza.com']);
     expect(sheet.querySelector('[data-testid="contact-details"]')!.textContent).toContain('(432) 555-0199landline · DNCon the Do Not Call list');
     expect(sheet.querySelector('[data-testid="contact-details"]')!.textContent).toContain('From BatchData Nov 5 · $1');
+  });
+
+  it('research: the sheet asks a question for 25¢, and a found answer shows with its sources', async () => {
+    lists = [list];
+    contacts = {
+      ...twoContacts(),
+      balanceCents: 300,
+      rows: [
+        contact('r1'),
+        contact('r2', {
+          name: 'City Of Midland',
+          enrichment: { phone: { status: 'locked' }, email: { status: 'locked' }, person: { status: 'locked' }, research: { status: 'found', at: '2026-11-05T15:01:00Z', source: 'claude', chargedCents: 25 } },
+          research: { question: 'Who is this owner?', answer: 'The City of Midland owns the lot; a parks bond passed in 2026.', sources: [{ title: 'Midland parks bond', url: 'https://example.com/bond' }], at: '2026-11-05T15:01:00Z' },
+        }),
+      ],
+    };
+    await render();
+    const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
+    expect(Array.from(rows[1].querySelectorAll('td'))[5].textContent).toBe('The City of Midland owns the lot; a parks bond passed in 2026.');
+    await act(async () => (rows[0] as HTMLTableRowElement).click());
+    const sheet = document.body.querySelector('[role="dialog"][aria-label="Oak Plaza LLC"]')!;
+    const box = sheet.querySelector('textarea[aria-label="Research question"]') as HTMLTextAreaElement;
+    expect(box.value).toBe(money.researchQuestion);
+    await act(async () => type(box, 'Any renovation planned?'));
+    await click('Research · $0.25');
+    expect(enrich).toHaveBeenCalledWith('o1', ['r1'], ['research'], 'Any renovation planned?');
+    await act(async () => (document.body.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement | null)?.click());
+    await act(async () => (rows[1] as HTMLTableRowElement).click());
+    const city = document.body.querySelector('[role="dialog"][aria-label="City Of Midland"]')!;
+    const research = city.querySelector('[data-testid="research"]')!;
+    expect(research.textContent).toContain('Who is this owner?');
+    expect(research.textContent).toContain('a parks bond passed in 2026.');
+    expect(research.querySelector('a')!.getAttribute('href')).toBe('https://example.com/bond');
+    expect(research.textContent).toContain('Read Nov 5 · $0.25');
   });
 
   it('tells staff when the roll was grouped into owners, or that it failed, with a rebuild; companies see nothing', async () => {

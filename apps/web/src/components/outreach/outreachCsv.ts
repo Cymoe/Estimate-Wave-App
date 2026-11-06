@@ -5,7 +5,7 @@ import { phoneText } from './format';
 /** The contacts as a CSV: one row per owner, the mailing address split for a mail merge, phones and emails where unlocked. */
 export function outreachCsv(rows: OutreachContact[]): string {
   return toCsv(
-    ['Name', 'Company', 'Decision maker', 'Title', 'Phone', 'Phone type', 'DNC', 'Other phones', 'Email', 'Status', 'Note', 'Mailing address', 'Mailing city', 'Mailing state', 'Mailing zip', 'Property address', 'Property value', 'Properties', 'Total value', 'Type', 'Why', 'Signals'],
+    ['Name', 'Company', 'Decision maker', 'Title', 'Phone', 'Phone type', 'DNC', 'Other phones', 'Email', 'Status', 'Note', 'Mailing address', 'Mailing city', 'Mailing state', 'Mailing zip', 'Property address', 'Property value', 'Properties', 'Total value', 'Type', 'Why', 'Signals', 'Research', 'Research sources'],
     rows.map((r) => [
       r.name,
       r.company ?? '',
@@ -29,6 +29,8 @@ export function outreachCsv(rows: OutreachContact[]): string {
       r.kinds.join(', '),
       r.why,
       r.signals.map((s) => `${s.kind} ${s.date.slice(0, 10)}`).join(' '),
+      r.research?.answer ?? '',
+      r.research?.sources.map((s) => s.url).join(' ') ?? '',
     ]),
   );
 }

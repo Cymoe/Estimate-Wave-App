@@ -4,7 +4,7 @@
 // so it can be tested without the vendor. Nothing here touches the
 // database or the wallet.
 
-export type Field = "phone" | "email" | "person";
+export type Field = "phone" | "email" | "person" | "research";
 export type PhoneType = "mobile" | "landline" | "voip" | "unknown";
 export type Phone = { number: string; type: PhoneType; dnc?: boolean; verified?: boolean; score?: number; source: string };
 export type Email = { email: string; source: string; verified?: boolean };
@@ -12,6 +12,8 @@ export type Person = { name: string; title?: string; address?: string; source: s
 
 export type TraceInput = {
   name: string;
+  /** For research: what to find out. */
+  question?: string;
   /** Set when the owner is a company: vendors match people, so the person found first (or the name's words) is traced. */
   company?: string;
   person?: Person;
@@ -281,6 +283,7 @@ export const KEY_FOR: Record<Field, string> = {
   person: "TX_COMPTROLLER_API_KEY",
   phone: "BATCHDATA_API_KEY or TRACERFY_API_KEY",
   email: "BATCHDATA_API_KEY or TRACERFY_API_KEY",
+  research: "ANTHROPIC_API_KEY",
 };
 
 export type Outcome = { field: Field; found: Found; source?: string; errors: string[] };

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Lock, MapPin, User } from 'lucide-react';
+import { Lock, MapPin, Search, User } from 'lucide-react';
 import { AddressLink } from '../common/AddressLink';
 import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { fullAddress } from '../../lib/mapsLinks';
@@ -93,7 +93,7 @@ export const ContactsTable: React.FC<{
   return (
     <div className="relative" data-testid="contacts-table">
       <div className="bg-[#121212] border border-[#333333] overflow-x-auto" onScroll={(e) => scrolled(e.currentTarget)} ref={(el) => el && scrolled(el)}>
-        <table className="w-full min-w-[88rem] text-sm" aria-label="Contacts">
+        <table className="w-full min-w-[104rem] text-sm" aria-label="Contacts">
           <thead>
             <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-[#333333]">
               <th className={`${pinned} left-0 z-10 px-3 py-2 w-10 align-top`}>
@@ -111,6 +111,10 @@ export const ContactsTable: React.FC<{
               <th className={th}>
                 Email
                 <Coverage c={coverage.email} />
+              </th>
+              <th className={th}>
+                Research
+                <Coverage c={coverage.research} />
               </th>
               <th className={th}>Status</th>
               <th className={th}>Mailing address</th>
@@ -168,6 +172,9 @@ export const ContactsTable: React.FC<{
                       <Empty cell={r.enrichment.email} />
                     )}
                   </td>
+                  <td className={`${td} max-w-[22rem] truncate`} title={r.research?.answer}>
+                    {r.research ? <span className="text-gray-200">{r.research.answer}</span> : <Empty cell={r.enrichment.research ?? { status: 'locked' }} />}
+                  </td>
                   <td className={`${td} ${statusTone(r.status)}`}>{STATUS_LABEL[r.status]}</td>
                   <td className={`${td} max-w-[14rem] truncate text-gray-300`}>{r.mailing.address ?? ''}</td>
                   <td className={`${td} text-gray-300`}>{r.mailing.city ?? ''}</td>
@@ -198,19 +205,23 @@ export const ContactsTable: React.FC<{
 export const ContactSheet: React.FC<{
   row: OutreachContact | null;
   unlockCents: number;
+  researchCents: number;
+  researchQuestion: string;
   balanceCents: number;
   onClose: () => void;
   onStatus: (row: OutreachContact, status: OutreachRowStatus, note: string) => Promise<void>;
-  onEnrich: (row: OutreachContact, fields: OutreachField[]) => Promise<void>;
+  onEnrich: (row: OutreachContact, fields: OutreachField[], question?: string) => Promise<void>;
   onAddFunds: () => void;
-}> = ({ row, unlockCents, balanceCents, onClose, onStatus, onEnrich, onAddFunds }) => {
+}> = ({ row, unlockCents, researchCents, researchQuestion, balanceCents, onClose, onStatus, onEnrich, onAddFunds }) => {
   const [note, setNote] = useState('');
+  const [question, setQuestion] = useState(researchQuestion);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     setNote(row?.note ?? '');
+    setQuestion(row?.research?.question ?? researchQuestion);
     setError(null);
-  }, [row]);
+  }, [row, researchQuestion]);
   if (!row) return null;
   const run = async (work: () => Promise<void>, fallback: string) => {
     setBusy(true);
@@ -224,7 +235,7 @@ export const ContactSheet: React.FC<{
     }
   };
   const set = (status: OutreachRowStatus) => run(() => onStatus(row, status, note), "Couldn't save that");
-  const enrich = (fields: OutreachField[]) => run(() => onEnrich(row, fields), "Couldn't start that");
+  const enrich = (fields: OutreachField[], asked?: string) => run(() => onEnrich(row, fields, asked), "Couldn't start that");
   const property = fullAddress(row.property.address, 'Midland', 'TX');
   const mailing = fullAddress(row.mailing.address, row.mailing.city, row.mailing.state, row.mailing.zip?.slice(0, 5));
   const link = 'inline-flex items-center gap-2 text-[15px] text-[#7fb0e0] min-h-[44px]';
@@ -232,8 +243,10 @@ export const ContactSheet: React.FC<{
   const primary = 'inline-flex items-center gap-2 px-4 min-h-[44px] text-sm font-medium bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50';
   const quiet = 'inline-flex items-center gap-2 px-3 min-h-[40px] text-sm text-gray-300 border border-[#333333] hover:bg-[#2A2A2A] disabled:opacity-50';
   const { phone, email, person } = row.enrichment;
+  const research = row.enrichment.research ?? { status: 'locked' as const };
   const contactOpen = phone.status !== 'found' && phone.status !== 'running' && email.status !== 'running';
   const canPay = balanceCents >= unlockCents;
+  const canResearch = balanceCents >= researchCents;
   const when = (c: OutreachCell) => (c.at ? ` ${new Date(c.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : '');
   return (
     <SlideOutDrawer isOpen onClose={onClose} title={row.name} width="md">
@@ -320,6 +333,55 @@ export const ContactSheet: React.FC<{
                 <p className="text-xs text-gray-500">
                   Charged only when a phone is found. Balance {dollars(balanceCents)}.{' '}
                   {!canPay && (
+                    <button type="button" onClick={onAddFunds} className="text-[#7fb0e0] underline underline-offset-2">
+                      Add funds
+                    </button>
+                  )}
+                </p>
+              </div>
+            )}
+          </div>
+          <div className="py-3" data-testid="research">
+            <div className={label}>Research</div>
+            {row.research ? (
+              <div className="space-y-1 pt-1">
+                <p className="text-xs text-gray-500">{row.research.question}</p>
+                <p className="text-[15px] text-gray-200">{row.research.answer}</p>
+                {row.research.sources.length > 0 && (
+                  <ul className="text-sm">
+                    {row.research.sources.map((s) => (
+                      <li key={s.url}>
+                        <a href={s.url} target="_blank" rel="noreferrer" className="text-[#7fb0e0] hover:text-white">
+                          {s.title}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p className="text-xs text-gray-500">
+                  Read {new Date(row.research.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                  {research.chargedCents ? ` · ${dollars(research.chargedCents)}` : ''}
+                </p>
+              </div>
+            ) : research.status === 'running' ? (
+              <p className="text-sm text-gray-400">Reading the web about this owner… this takes up to a minute.</p>
+            ) : (
+              <div className="space-y-2 pt-1">
+                {research.status === 'none' && <p className="text-sm text-gray-500">The web had nothing specific on this owner. Nothing was charged.</p>}
+                {research.status === 'failed' && <p className="text-sm text-amber-300">{research.error ?? "The research didn't go through."} Nothing was charged.</p>}
+                <textarea
+                  value={question}
+                  onChange={(e) => setQuestion(e.target.value)}
+                  rows={2}
+                  aria-label="Research question"
+                  className="w-full bg-[#1A1A1A] border border-[#333333] px-3 py-2 text-white text-base md:text-sm resize-none focus:outline-none focus:border-[#336699]"
+                />
+                <button type="button" onClick={() => enrich(['research'], question)} disabled={busy || !canResearch} className={primary}>
+                  <Search className="w-4 h-4" /> Research · {dollars(researchCents)}
+                </button>
+                <p className="text-xs text-gray-500">
+                  Charged only when the web has something to say. Balance {dollars(balanceCents)}.{' '}
+                  {!canResearch && (
                     <button type="button" onClick={onAddFunds} className="text-[#7fb0e0] underline underline-offset-2">
                       Add funds
                     </button>

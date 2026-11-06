@@ -16,7 +16,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { outreachDefinition, outreachEmail, outreachField, outreachPerson, outreachPhone, outreachRowStatus } from "./schema";
+import { outreachDefinition, outreachEmail, outreachField, outreachPerson, outreachPhone, outreachResearch, outreachRowStatus } from "./schema";
 import { fail, isStaff, nowIso, requireMember, requireStaff } from "./lib/access";
 import { mutationDef, queryDef } from "./lib/actor";
 import { callClaude } from "./lib/claude";
@@ -25,7 +25,9 @@ import {
   MAX_ROWS,
   OUTREACH_INPUT_SCHEMA,
   OWNERS_SOURCE,
+  RESEARCH_CENTS,
   UNLOCK_CENTS,
+  DEFAULT_RESEARCH_QUESTION,
   WEALTHY_DEFAULT_CENTS,
   WHO_GUIDE,
   defaultTitle,
@@ -358,15 +360,18 @@ const LOCKED: Cell = { status: "locked" };
 export function cellsOf(c: Doc<"outreachContacts">): NonNullable<Doc<"outreachContacts">["enrichment"]> {
   if (c.enrichment) return c.enrichment;
   const u = c.unlock;
-  if (!u) return { phone: LOCKED, email: LOCKED, person: LOCKED };
+  if (!u) return { phone: LOCKED, email: LOCKED, person: LOCKED, research: LOCKED };
   const status: Cell["status"] = u.status === "pending" ? "running" : u.status;
   const cell = { status, at: u.at, requestedBy: u.requestedBy, source: u.vendor, error: u.error };
   return {
     phone: { ...cell, chargedCents: u.chargedCents },
     email: { ...cell, status: u.status === "found" && !(c.emails?.length ?? 0) ? "none" : status },
     person: LOCKED,
+    research: LOCKED,
   };
 }
+/** The cell for a field, with research's absence on older rows read as locked. */
+const cellFor = (cells: NonNullable<Doc<"outreachContacts">["enrichment"]>, field: Doc<"dataSourceStats">["field"]): Cell => cells[field] ?? LOCKED;
 
 const contactView = (c: Doc<"outreachContacts">, signals: SignalBadge[]) => ({
   id: c._id,
@@ -385,7 +390,8 @@ const contactView = (c: Doc<"outreachContacts">, signals: SignalBadge[]) => ({
   phones: c.phones ?? [],
   emails: c.emails ?? [],
   person: c.person,
-  enrichment: cellsOf(c),
+  research: c.research,
+  enrichment: { ...cellsOf(c), research: cellFor(cellsOf(c), "research") },
   signals,
   createdAt: c.createdAt,
 });
@@ -425,6 +431,7 @@ function coverageOf(rows: Doc<"outreachContacts">[]) {
     phone: count((c) => (c.phones?.length ?? 0) > 0, (c) => cellsOf(c).phone.source),
     email: count((c) => (c.emails?.length ?? 0) > 0, (c) => cellsOf(c).email.source),
     person: count((c) => Boolean(c.person), (c) => c.person?.source, (c) => Boolean(c.company)),
+    research: count((c) => Boolean(c.research), (c) => cellFor(cellsOf(c), "research").source),
   };
 }
 
@@ -455,6 +462,8 @@ export const contacts = query({
       coverage: coverageOf(picked),
       balanceCents: organization.walletBalanceCents ?? 0,
       unlockCents: UNLOCK_CENTS,
+      researchCents: RESEARCH_CENTS,
+      researchQuestion: DEFAULT_RESEARCH_QUESTION,
       phoneHitRate: await phoneHitRate(ctx, organizationId),
     };
   },
@@ -571,7 +580,7 @@ export const migrateRows = internalMutation({
 
 // ---- Enriching contacts: the person behind a company, their phone and email ----
 
-const FIELDS: Doc<"dataSourceStats">["field"][] = ["person", "phone", "email"];
+const FIELDS: Doc<"dataSourceStats">["field"][] = ["person", "phone", "email", "research"];
 
 /**
  * Queues the stack for each contact and field, for an admin with the
@@ -581,8 +590,14 @@ const FIELDS: Doc<"dataSourceStats">["field"][] = ["person", "phone", "email"];
  * to company owners.
  */
 export const enrich = mutation({
-  args: { organizationId: v.id("organizations"), contactIds: v.array(v.id("outreachContacts")), fields: v.optional(v.array(outreachField)) },
-  handler: async (ctx, { organizationId, contactIds, fields = ["person", "phone", "email"] }) => {
+  args: {
+    organizationId: v.id("organizations"),
+    contactIds: v.array(v.id("outreachContacts")),
+    fields: v.optional(v.array(outreachField)),
+    /** For research: what to find out; the default question when left out. */
+    question: v.optional(v.string()),
+  },
+  handler: async (ctx, { organizationId, contactIds, fields = ["person", "phone", "email"], question }) => {
     const { user, organization } = await requireMember(ctx, organizationId, "admin");
     if (!organization.plan || !planIsActive(organization.plan, Date.now())) fail("FORBIDDEN", "Outreach is part of the Pro plan");
     const jobs: Array<{ contact: Doc<"outreachContacts">; fields: Doc<"dataSourceStats">["field"][] }> = [];
@@ -590,18 +605,23 @@ export const enrich = mutation({
       const c = await ctx.db.get(id);
       if (!c || c.organizationId !== organizationId) fail("NOT_FOUND", "No such contact");
       const cells = cellsOf(c);
-      const open = FIELDS.filter((f) => fields.includes(f) && (f !== "person" || c.company) && cells[f].status !== "found" && cells[f].status !== "running");
+      const open = FIELDS.filter((f) => fields.includes(f) && (f !== "person" || c.company) && cellFor(cells, f).status !== "found" && cellFor(cells, f).status !== "running");
       if (open.length) jobs.push({ contact: c, fields: open });
     }
     const phones = jobs.filter((j) => j.fields.includes("phone")).length;
+    const answers = jobs.filter((j) => j.fields.includes("research")).length;
     const balance = organization.walletBalanceCents ?? 0;
-    const cost = phones * UNLOCK_CENTS;
-    if (cost > balance) fail("INVALID", `Balance too low: ${dollars(cost)} needed for ${phones} ${phones === 1 ? "phone" : "phones"}, ${dollars(balance)} available`);
+    const cost = phones * UNLOCK_CENTS + answers * RESEARCH_CENTS;
+    if (cost > balance) {
+      const needs = [phones ? `${phones} ${phones === 1 ? "phone" : "phones"}` : "", answers ? `${answers} research ${answers === 1 ? "answer" : "answers"}` : ""].filter(Boolean).join(" and ");
+      fail("INVALID", `Balance too low: ${dollars(cost)} needed for ${needs}, ${dollars(balance)} available`);
+    }
+    const asked = question?.trim().slice(0, 300) || DEFAULT_RESEARCH_QUESTION;
     const now = nowIso();
     for (const { contact, fields: open } of jobs) {
       const cells = { ...cellsOf(contact) };
       for (const f of open) cells[f] = { status: "running", at: now, requestedBy: user._id };
-      await ctx.db.patch(contact._id, { enrichment: cells, unlock: undefined, updatedAt: now });
+      await ctx.db.patch(contact._id, { enrichment: cells, unlock: undefined, ...(open.includes("research") ? { researchQuestion: asked } : {}), updatedAt: now });
       await ctx.scheduler.runAfter(0, internal.skipTrace.trace, { contactId: contact._id, fields: open });
     }
     return { queued: jobs.length, costCents: cost };
@@ -615,7 +635,7 @@ export const contactForTrace = internalQuery({
     const c = await ctx.db.get(contactId);
     if (!c) return null;
     const cells = cellsOf(c);
-    const fields = FIELDS.filter((f) => cells[f].status === "running");
+    const fields = FIELDS.filter((f) => cellFor(cells, f).status === "running");
     if (fields.length === 0) return null;
     return {
       name: c.name,
@@ -624,6 +644,7 @@ export const contactForTrace = internalQuery({
       property: { address: c.property.address, city: title(COUNTY), state: "TX", zip: undefined as string | undefined },
       mailing: c.mailing,
       fields,
+      question: c.researchQuestion ?? DEFAULT_RESEARCH_QUESTION,
     };
   },
 });
@@ -637,33 +658,35 @@ export const recordEnrichment = internalMutation({
     phones: v.optional(v.array(outreachPhone)),
     emails: v.optional(v.array(outreachEmail)),
     person: v.optional(outreachPerson),
+    research: v.optional(outreachResearch),
     error: v.optional(v.string()),
   },
-  handler: async (ctx, { contactId, field, source, phones = [], emails = [], person, error }) => {
+  handler: async (ctx, { contactId, field, source, phones = [], emails = [], person, research, error }) => {
     const c = await ctx.db.get(contactId);
     if (!c) return null;
     const cells = { ...cellsOf(c) };
-    if (cells[field].status !== "running") return null;
+    if (cellFor(cells, field).status !== "running") return null;
     const now = nowIso();
-    const requestedBy = cells[field].requestedBy;
-    const found = field === "phone" ? phones.length > 0 : field === "email" ? emails.length > 0 : Boolean(person);
+    const requestedBy = cellFor(cells, field).requestedBy;
+    const found = field === "phone" ? phones.length > 0 : field === "email" ? emails.length > 0 : field === "person" ? Boolean(person) : Boolean(research);
+    const price = field === "phone" ? UNLOCK_CENTS : field === "research" ? RESEARCH_CENTS : 0;
     let chargedCents = 0;
-    if (found && field === "phone" && requestedBy) {
+    if (found && price > 0 && requestedBy) {
       try {
         await postTransaction(ctx, c.organizationId, {
           type: "unlock",
-          amountCents: -UNLOCK_CENTS,
+          amountCents: -price,
           createdBy: requestedBy,
           contactId,
-          note: `Phone for ${c.name}${source ? ` via ${sourceLabel(source)}` : ""}`,
+          note: field === "research" ? `Research on ${c.name}` : `Phone for ${c.name}${source ? ` via ${sourceLabel(source)}` : ""}`,
         });
-        chargedCents = UNLOCK_CENTS;
+        chargedCents = price;
       } catch {
         // The balance ran out between the request and the hit: the company keeps what was found.
       }
     }
     cells[field] = found
-      ? { status: "found", at: now, requestedBy, source, chargedCents: field === "phone" ? chargedCents : undefined }
+      ? { status: "found", at: now, requestedBy, source, chargedCents: price > 0 ? chargedCents : undefined }
       : error
         ? { status: "failed", at: now, requestedBy, error }
         : { status: "none", at: now, requestedBy, source };
@@ -672,6 +695,7 @@ export const recordEnrichment = internalMutation({
       ...(field === "phone" && found ? { phones } : {}),
       ...(field === "email" && found ? { emails } : {}),
       ...(field === "person" && found ? { person } : {}),
+      ...(field === "research" ? { research: found ? research : c.research, researchQuestion: undefined } : {}),
       updatedAt: now,
     });
     // The stack's own scorecard: an attempt per source asked, a hit for the one that answered.
@@ -689,7 +713,7 @@ export const recordEnrichment = internalMutation({
 });
 
 /** "batchdata" → "BatchData", "tx-comptroller" → "Texas Comptroller". */
-export const sourceLabel = (s: string) => ({ batchdata: "BatchData", tracerfy: "Tracerfy", "tx-comptroller": "Texas Comptroller" })[s] ?? s;
+export const sourceLabel = (s: string) => ({ batchdata: "BatchData", tracerfy: "Tracerfy", "tx-comptroller": "Texas Comptroller", claude: "Claude, from the web" })[s] ?? s;
 
 /**
  * One-off: contacts unlocked before per-field cells existed get their

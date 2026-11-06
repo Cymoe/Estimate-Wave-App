@@ -1,6 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Download, Lock, Trash2 } from 'lucide-react';
+import { Download, Lock, Search, Trash2 } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachField, type OutreachListSummary, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { AskListSheet } from '../components/outreach/AskListSheet';
@@ -79,7 +79,7 @@ const SourcesPanel: React.FC<{ organizationId: string }> = ({ organizationId }) 
       .then(setSources)
       .catch(() => setSources(null));
   }, [organizationId, open]);
-  const FIELD: Record<OutreachField, string> = { person: 'decision maker', phone: 'phone', email: 'email' };
+  const FIELD: Record<OutreachField, string> = { person: 'decision maker', phone: 'phone', email: 'email', research: 'research' };
   return (
     <div className="text-xs text-gray-500" data-testid="sources-panel">
       <button type="button" onClick={() => setOpen((o) => !o)} className="text-[#7fb0e0] hover:text-white">
@@ -185,6 +185,10 @@ const OutreachPage: React.FC = () => {
   const balanceCents = data?.balanceCents ?? 0;
   const cost = unlockable.filter(needsPhone).length * unlockCents;
   const hitRate = data?.phoneHitRate;
+  const researchCents = data?.researchCents ?? 25;
+  const needsResearch = (r: OutreachContact) => r.enrichment.research?.status !== 'found' && r.enrichment.research?.status !== 'running';
+  const researchable = chosen.filter(needsResearch);
+  const researchCost = researchable.length * researchCents;
   /** "up to $200; about $136 at your 68% hit rate so far" */
   const estimate = (phones: number) => {
     const most = phones * unlockCents;
@@ -210,13 +214,14 @@ const OutreachPage: React.FC = () => {
     return Math.max(0, current + (worked(next) ? 1 : 0) - (worked(row.status) ? 1 : 0));
   };
 
-  const enrich = async (ids: string[], fields?: OutreachField[]) => {
+  const enrich = async (ids: string[], fields?: OutreachField[], question?: string) => {
     if (!organizationId || ids.length === 0) return;
     setBusy(true);
     setError(null);
     try {
-      const r = await outreachAPI.enrich(organizationId, ids, fields);
-      setNote(r.queued ? `Looking up ${r.queued} ${r.queued === 1 ? 'owner' : 'owners'}; ${dollars(r.costCents)} at most, charged only for phones found.` : null);
+      const r = await outreachAPI.enrich(organizationId, ids, fields, question);
+      const what = fields?.length === 1 && fields[0] === 'research' ? 'charged only for answers found' : 'charged only for phones found';
+      setNote(r.queued ? `Looking up ${r.queued} ${r.queued === 1 ? 'owner' : 'owners'}; ${dollars(r.costCents)} at most, ${what}.` : null);
       setSelected(new Set());
       await load();
     } catch (err) {
@@ -337,6 +342,15 @@ const OutreachPage: React.FC = () => {
               </button>
             )}
           </span>
+          <button
+            type="button"
+            onClick={() => void enrich(researchable.map((r) => r.id), ['research']).catch(() => {})}
+            disabled={busy || researchable.length === 0 || researchCost > balanceCents}
+            className="inline-flex items-center gap-2 px-4 min-h-[40px] text-sm font-medium text-white border border-[#336699] hover:bg-[#336699]/20 disabled:opacity-50"
+            title={`${dollars(researchCents)} an answer, charged only when the web has something to say`}
+          >
+            <Search className="w-4 h-4" /> Research {researchable.length} · {dollars(researchCost)}
+          </button>
           <button type="button" onClick={() => setSelected(new Set())} className="ml-auto text-sm text-gray-400 hover:text-white">
             Clear
           </button>
@@ -370,10 +384,12 @@ const OutreachPage: React.FC = () => {
       <ContactSheet
         row={open}
         unlockCents={unlockCents}
+        researchCents={researchCents}
+        researchQuestion={data?.researchQuestion ?? ''}
         balanceCents={balanceCents}
         onClose={() => setOpen(null)}
         onStatus={setContactStatus}
-        onEnrich={(row, fields) => enrich([row.id], fields)}
+        onEnrich={(row, fields, question) => enrich([row.id], fields, question)}
         onAddFunds={addFunds}
       />
       <AskListSheet open={asking} organizationId={organizationId} onClose={() => setAsking(false)} onSaved={(id) => navigate(`/outreach/${id}`)} />

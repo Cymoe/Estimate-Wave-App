@@ -403,8 +403,8 @@ describe("a company's lists", () => {
     const rows = (await read()).rows;
     const oak = rows.find((r) => r.name === "Oak Plaza LLC")!;
     const cityHall = rows.find((r) => r.name === "City Of Midland")!;
-    expect(oak.enrichment).toEqual({ phone: { status: "locked" }, email: { status: "locked" }, person: { status: "locked" } });
-    expect((await read()).coverage).toEqual({ phone: { found: 0, total: 2, sources: 0 }, email: { found: 0, total: 2, sources: 0 }, person: { found: 0, total: 2, sources: 0 } });
+    expect(oak.enrichment).toEqual({ phone: { status: "locked" }, email: { status: "locked" }, person: { status: "locked" }, research: { status: "locked" } });
+    expect((await read()).coverage).toEqual({ phone: { found: 0, total: 2, sources: 0 }, email: { found: 0, total: 2, sources: 0 }, person: { found: 0, total: 2, sources: 0 }, research: { found: 0, total: 2, sources: 0 } });
 
     // No balance: refused before anything is queued. The person lookup alone is free.
     await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id] })).rejects.toThrow(/Balance too low: \$1\.00 needed for 1 phone, \$0\.00 available/);
@@ -495,7 +495,7 @@ describe("a company's lists", () => {
     expect(cityNow.enrichment).toMatchObject({ phone: { status: "none" }, email: { status: "none" }, person: { status: "none" } });
     expect(cityNow.phones).toEqual([]);
     expect(traced.balanceCents).toBe(150);
-    expect(traced.coverage).toEqual({ phone: { found: 1, total: 2, sources: 1 }, email: { found: 1, total: 2, sources: 1 }, person: { found: 1, total: 2, sources: 1 } });
+    expect(traced.coverage).toEqual({ phone: { found: 1, total: 2, sources: 1 }, email: { found: 1, total: 2, sources: 1 }, person: { found: 1, total: 2, sources: 1 }, research: { found: 0, total: 2, sources: 0 } });
     expect(traced.phoneHitRate).toBe(0.5);
     // The Comptroller was asked by name with the key; BatchData was asked once per contact, for the manager by name.
     const cpa = calls.filter((c) => c.url.includes("comptroller.texas.gov"));
@@ -628,6 +628,87 @@ describe("a company's lists", () => {
     now = (await read()).rows.find((r) => r.id === ortiz.id)!;
     expect(now.enrichment.phone).toMatchObject({ status: "failed", error: "tracerfy: Tracerfy: HTTP 402 (Insufficient credits. Instant trace requires 5 credits per lookup. You have 0 credits.)" });
     expect((await read()).balanceCents).toBe(300);
+  });
+
+  test("research reads the web about an owner through Claude: an answer with sources for 25¢, nothing found free", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    const read = async () => await co.as.query(api.outreach.contacts, { organizationId: org });
+    const first = await read();
+    expect(first).toMatchObject({ researchCents: 25, researchQuestion: expect.stringContaining("planned construction") });
+    expect(first.coverage.research).toEqual({ found: 0, total: 2, sources: 0 });
+    const oak = first.rows.find((r) => r.name === "Oak Plaza LLC")!;
+    const cityHall = first.rows.find((r) => r.name === "City Of Midland")!;
+    expect(oak.enrichment.research).toEqual({ status: "locked" });
+
+    // No balance: refused, and the note says what the money is for.
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["research"] })).rejects.toThrow(/\$0\.25 needed for 1 research answer/);
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 100 }));
+    // No key: a failed cell that says so, free.
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["research"] });
+    await t.finishAllScheduledFunctions(() => {});
+    expect((await read()).rows.find((r) => r.id === oak.id)!.enrichment.research).toMatchObject({ status: "failed", error: expect.stringContaining("ANTHROPIC_API_KEY") });
+
+    // With the key: Claude searches, answers in a few sentences, and cites two pages; the city gets "nothing found".
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    const asks: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init!.body)) as Record<string, unknown>;
+        asks.push(body);
+        const text = (body.messages as Array<{ content: string }>)[0].content;
+        const content = text.includes("Oak Plaza LLC")
+          ? [
+              { type: "server_tool_use", id: "s1", name: "web_search", input: { query: "Oak Plaza LLC Midland" } },
+              { type: "web_search_tool_result", tool_use_id: "s1", content: [{ type: "web_search_result", url: "https://example.com/oak", title: "Oak Plaza" }] },
+              { type: "text", text: "Oak Plaza LLC owns the shopping center at 12 Midkiff Rd, run by manager Dana Reyes.", citations: [{ type: "web_search_result_location", url: "https://example.com/oak", title: "Oak Plaza Shopping Center", cited_text: "..." }] },
+              { type: "text", text: " A permit for a facade renovation was filed in September 2026.", citations: [{ type: "web_search_result_location", url: "https://permits.example.com/123", title: "Permit 123" }, { type: "web_search_result_location", url: "https://example.com/oak", title: "Oak Plaza Shopping Center" }] },
+            ]
+          : [{ type: "text", text: "NOTHING FOUND. Searched the city's name with the address; only the roll itself came up." }];
+        return new Response(JSON.stringify({ content, stop_reason: "end_turn" }), { status: 200 });
+      }),
+    );
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id, cityHall.id], fields: ["research"], question: "Any renovation planned?" })).resolves.toEqual({ queued: 2, costCents: 50 });
+    expect((await read()).rows.find((r) => r.id === oak.id)!.enrichment.research).toMatchObject({ status: "running" });
+    await t.finishAllScheduledFunctions(() => {});
+    const after = await read();
+    const oakNow = after.rows.find((r) => r.id === oak.id)!;
+    expect(oakNow.enrichment.research).toMatchObject({ status: "found", source: "claude", chargedCents: 25 });
+    expect(oakNow.research).toEqual({
+      question: "Any renovation planned?",
+      answer: "Oak Plaza LLC owns the shopping center at 12 Midkiff Rd, run by manager Dana Reyes. A permit for a facade renovation was filed in September 2026.",
+      sources: [
+        { title: "Oak Plaza Shopping Center", url: "https://example.com/oak" },
+        { title: "Permit 123", url: "https://permits.example.com/123" },
+      ],
+      at: new Date(NOW).toISOString(),
+    });
+    const cityNow = after.rows.find((r) => r.id === cityHall.id)!;
+    expect(cityNow.enrichment.research).toMatchObject({ status: "none", source: "claude" });
+    expect(cityNow.research).toBeUndefined();
+    expect(after.balanceCents).toBe(75);
+    expect(after.coverage.research).toEqual({ found: 1, total: 2, sources: 1 });
+    // Claude was asked with web search, at low effort, the question and the owner's roll facts in the message.
+    expect(asks).toHaveLength(2);
+    expect(asks[0]).toMatchObject({ model: "claude-opus-5-5", output_config: { effort: "low" }, tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 5 }] });
+    const oakAsk = asks.find((a) => (a.messages as Array<{ content: string }>)[0].content.includes("Oak Plaza LLC"))!;
+    expect((oakAsk.messages as Array<{ content: string }>)[0].content).toContain("Property: 12 Midkiff Rd, Midland, TX");
+    expect((oakAsk.messages as Array<{ content: string }>)[0].content).toContain("Question: Any renovation planned?");
+    await t.run(async (ctx) => {
+      const charges = (await ctx.db.query("walletTransactions").collect()).map((c) => [c.type, c.amountCents, c.note]);
+      expect(charges).toEqual([["unlock", -25, "Research on Oak Plaza LLC"]]);
+      const stats = (await ctx.db.query("dataSourceStats").collect()).map((s) => [s.source, s.field, s.attempts, s.hits, s.chargedCents]).sort();
+      expect(stats).toEqual([["claude", "research", 2, 1, 25]]);
+    });
+    // Answered rows aren't asked again.
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["research"] })).resolves.toEqual({ queued: 0, costCents: 0 });
   });
 
   test("a contact unlocked before per-field cells gets its cells on deploy", async () => {
