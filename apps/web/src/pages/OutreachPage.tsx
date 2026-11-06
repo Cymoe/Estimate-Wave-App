@@ -328,7 +328,7 @@ const OutreachPage: React.FC = () => {
 
   return (
     <div className="p-4 md:p-6 space-y-4" data-testid="outreach-page">
-      <header className="flex items-start justify-between gap-3">
+      <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold text-white">Outreach</h1>
           <p className="text-sm text-gray-400">Property owners from the Midland County roll. Names and mailing addresses; the person behind each company, then a phone and email for {dollars(unlockCents)}.</p>

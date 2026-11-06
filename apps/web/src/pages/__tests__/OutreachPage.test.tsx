@@ -191,7 +191,7 @@ describe('the Outreach page', () => {
     expect(document.body.querySelector('[data-testid="steps"]')!.textContent).toBe('2 owners0 of 2 people found0 phones0 emailsShow steps');
     expect(localStorage.getItem('outreach.steps')).toBe('hidden');
     await click('Show steps');
-    expect(localStorage.getItem('outreach.steps')).toBeNull();
+    expect(localStorage.getItem('outreach.steps')).toBe('shown');
   });
 
   it('search and the quick filters narrow the table: ready to call, has email, needs you', async () => {

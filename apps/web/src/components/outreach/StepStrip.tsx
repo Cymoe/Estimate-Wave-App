@@ -63,17 +63,19 @@ function stepsOf(rows: OutreachContact[]): Steps {
 const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: cents % 100 ? 2 : 0 })}`;
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const KEY = 'outreach.steps';
+/** A phone starts with the one-line strip; a wider screen with the steps. The choice, once made, wins. */
 const readHidden = () => {
   try {
-    return localStorage.getItem(KEY) === 'hidden';
+    const saved = localStorage.getItem(KEY);
+    if (saved === 'hidden' || saved === 'shown') return saved === 'hidden';
   } catch {
-    return false;
+    // A private window: the default below.
   }
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 639px)').matches;
 };
 const writeHidden = (hidden: boolean) => {
   try {
-    if (hidden) localStorage.setItem(KEY, 'hidden');
-    else localStorage.removeItem(KEY);
+    localStorage.setItem(KEY, hidden ? 'hidden' : 'shown');
   } catch {
     // A private window: the choice lasts the page.
   }
