@@ -664,7 +664,11 @@ describe("a company's lists", () => {
     await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
     const read = async () => await co.as.query(api.outreach.contacts, { organizationId: org });
     expect(await t.mutation(internal.outreach.seedSample, { email: "nobody@roof.example" })).toEqual({ done: false, reason: "no user" });
-    // The named owner isn't on this list: the first company is filled instead.
+    expect(await t.mutation(internal.outreach.seedSample, { organization: "nobody" })).toEqual({ done: false, reason: "no contact", seen: [] });
+    // The company can be named instead of reached through a user; what was looked at comes back when nothing fits.
+    const other = await signUp(t, "other@roof.example");
+    expect(await t.mutation(internal.outreach.seedSample, { email: "other@roof.example", organization: "other@roof" })).toEqual({ done: false, reason: "no contact", seen: [{ organization: "other@roof.example Co", contacts: 0 }] });
+    void other;
     expect(await t.mutation(internal.outreach.seedSample, { email: "owner@roof.example", name: "Oak Plaza LLC" })).toEqual({ done: true, organization: "owner@roof.example Co", contact: "Oak Plaza LLC" });
     const after = await read();
     const oak = after.rows.find((r) => r.name === "Oak Plaza LLC")!;

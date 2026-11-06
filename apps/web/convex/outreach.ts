@@ -747,13 +747,25 @@ const SAMPLE_NOTE = "Sample data to show the layout, not a real lookup.";
  * `npx convex run outreach:seedSample '{"email":"owner@example.com"}'`
  */
 export const seedSample = internalMutation({
-  args: { email: v.string(), name: v.optional(v.string()), clear: v.optional(v.boolean()) },
-  handler: async (ctx, { email, name = "1788 Development LLC", clear }) => {
-    const user = await ctx.db.query("users").withIndex("email", (q) => q.eq("email", email)).unique();
-    if (!user) return { done: false, reason: "no user" };
-    for (const organizationId of await organizationIdsFor(ctx, user._id)) {
+  args: { email: v.optional(v.string()), organization: v.optional(v.string()), name: v.optional(v.string()), clear: v.optional(v.boolean()) },
+  handler: async (ctx, { email, organization: orgName, name = "1788 Development LLC", clear }) => {
+    // The companies to look in: the user's, then any whose name holds the word given.
+    const candidates: Id<"organizations">[] = [];
+    let user: Doc<"users"> | null = null;
+    if (email) {
+      user = await ctx.db.query("users").withIndex("email", (q) => q.eq("email", email)).unique();
+      if (!user) return { done: false, reason: "no user" };
+      candidates.push(...(await organizationIdsFor(ctx, user._id)));
+    }
+    if (orgName) {
+      const all = await ctx.db.query("organizations").take(2000);
+      for (const o of all) if (o.name.toLowerCase().includes(orgName.toLowerCase()) && !candidates.includes(o._id)) candidates.push(o._id);
+    }
+    const seen: Array<{ organization: string; contacts: number }> = [];
+    for (const organizationId of candidates) {
       const organization = await ctx.db.get(organizationId);
       const rows = await contactsOf(ctx, organizationId);
+      if (organization) seen.push({ organization: organization.name, contacts: rows.length });
       const contact = rows.find((c) => c.name.toLowerCase() === name.toLowerCase()) ?? rows.find((c) => c.company);
       if (!organization || !contact) continue;
       const now = nowIso();
@@ -771,7 +783,7 @@ export const seedSample = internalMutation({
         return { done: true, cleared: true, organization: organization.name, contact: contact.name };
       }
       if (contact.note?.startsWith("Sample")) return { done: true, already: true, organization: organization.name, contact: contact.name };
-      const found = (source: string, extra: Partial<Cell> = {}): Cell => ({ status: "found", at: now, requestedBy: user._id, source, ...extra });
+      const found = (source: string, extra: Partial<Cell> = {}): Cell => ({ status: "found", at: now, requestedBy: user?._id, source, ...extra });
       const person = { name: "Mark Ellison", title: "Managing member", source: "tx-comptroller" };
       await ctx.db.patch(contact._id, {
         person,
@@ -808,7 +820,7 @@ export const seedSample = internalMutation({
       });
       return { done: true, organization: organization.name, contact: contact.name };
     }
-    return { done: false, reason: "no contact" };
+    return { done: false, reason: "no contact", seen };
   },
 });
 
