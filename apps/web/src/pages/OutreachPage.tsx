@@ -1,88 +1,30 @@
-import React, { useCallback, useContext, useEffect, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ChevronLeft, Download, Trash2 } from 'lucide-react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Download, Lock, Trash2 } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
-import { outreachAPI, type OutreachList, type OutreachListSummary, type OutreachRow, type OutreachRowStatus } from '../lib/api';
+import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachListSummary, type OutreachRowStatus } from '../lib/api';
 import { AskListSheet } from '../components/outreach/AskListSheet';
-import { OutreachRows, RowSheet } from '../components/outreach/OutreachRows';
+import { ContactsTable, ContactSheet } from '../components/outreach/ContactsTable';
 import { csvName, download, outreachCsv } from '../components/outreach/outreachCsv';
 import { useConfirm } from '../components/common/ConfirmDialog';
+import { fundErrorText, openFundingPage } from '../components/market/WalletBar';
 import { useAuth } from '../contexts/AuthContext';
 import { isStaff } from '../lib/roles';
 import { WHO_LABEL } from '../../convex/lib/outreach';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 const iconButton = 'w-11 h-11 inline-flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2A2A2A] border border-[#333333]';
-
-/** One saved list: its people, each opening to the addresses and a status. */
-const ListView: React.FC<{ organizationId: string; listId: string; onGone: () => void }> = ({ organizationId, listId, onGone }) => {
-  const [list, setList] = useState<OutreachList | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState<OutreachRow | null>(null);
-  const [confirm, confirmDialog] = useConfirm();
-
-  useEffect(() => {
-    let live = true;
-    outreachAPI
-      .get(organizationId, listId)
-      .then((l) => live && setList(l))
-      .catch((err) => live && setError(err instanceof Error ? err.message : "The list couldn't be loaded"));
-    return () => {
-      live = false;
-    };
-  }, [organizationId, listId]);
-
-  const setStatus = async (row: OutreachRow, status: OutreachRowStatus, note: string) => {
-    await outreachAPI.setStatus(organizationId, row.id, status, note || undefined);
-    setList((l) => {
-      if (!l) return l;
-      const rows = l.rows.map((r) => (r.id === row.id ? { ...r, status, note: note || undefined } : r));
-      return { ...l, rows, done: rows.filter((r) => r.status === 'done' || r.status === 'skip').length };
-    });
-    setOpen((o) => (o && o.id === row.id ? { ...o, status, note: note || undefined } : o));
-  };
-
-  const remove = async () => {
-    if (!list) return;
-    if (!(await confirm({ title: `Delete “${list.title}”?`, message: 'The roll keeps the owners; the list and its notes go.', confirmLabel: 'Delete' }))) return;
-    await outreachAPI.remove(organizationId, listId);
-    onGone();
-  };
-
-  if (error) return <p className="p-6 text-sm text-red-400">{error}</p>;
-  if (!list) return <p className="p-6 text-sm text-gray-500">Loading…</p>;
-  return (
-    <div className="p-4 md:p-6 max-w-3xl space-y-4" data-testid="outreach-list">
-      <header className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <Link to="/outreach" className="inline-flex items-center gap-1 text-sm text-gray-400 hover:text-white -ml-1">
-            <ChevronLeft className="w-4 h-4" /> Lists
-          </Link>
-          <h1 className="text-2xl font-semibold text-white break-words">{list.title}</h1>
-          <p className="text-sm text-gray-400">
-            {WHO_LABEL[list.who]} · {list.rowCount} {list.rowCount === 1 ? 'owner' : 'owners'} · {list.done} done · {day(list.createdAt)}
-          </p>
-          {list.truncated && <p className="text-sm text-amber-300">The top of a longer list; ask for a narrower one to reach the rest.</p>}
-        </div>
-        <div className="flex gap-2 shrink-0">
-          <button type="button" onClick={() => download(csvName(list.title), outreachCsv(list.rows))} aria-label="Export CSV" title="Export CSV" className={iconButton}>
-            <Download className="w-4 h-4" />
-          </button>
-          <button type="button" onClick={remove} aria-label="Delete list" title="Delete list" className={iconButton}>
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
-      </header>
-      {list.rows.length === 0 ? (
-        <p className="text-sm text-gray-500">Nobody matched. Ask for a wider list.</p>
-      ) : (
-        <OutreachRows rows={list.rows} onOpen={setOpen} />
-      )}
-      <RowSheet row={open} onClose={() => setOpen(null)} onStatus={setStatus} />
-      {confirmDialog}
-    </div>
-  );
-};
+const chip = (on: boolean) => `px-3 min-h-[36px] text-sm border whitespace-nowrap ${on ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333333] text-gray-300 hover:bg-[#2A2A2A]'}`;
+const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: cents % 100 ? 2 : 0 })}`;
+/** How often the table re-reads while a lookup is running. */
+const POLL_MS = 3000;
+const STATUS_FILTERS: Array<{ value: OutreachRowStatus | 'all'; label: string }> = [
+  { value: 'all', label: 'All statuses' },
+  { value: 'new', label: 'New' },
+  { value: 'sent', label: 'Sent' },
+  { value: 'done', label: 'Done' },
+  { value: 'skip', label: 'Skipped' },
+];
 
 type OwnersState = Awaited<ReturnType<typeof outreachAPI.status>>;
 
@@ -126,9 +68,9 @@ const OwnersLine: React.FC = () => {
 };
 
 /**
- * Outreach: mailing lists from the county roll, asked for in plain words.
- * The + button's "Outreach list" opens the ask; each saved list opens to
- * its people.
+ * Outreach: the company's CRM of property owners, filled by lists asked for
+ * in plain words. The + button's "Outreach list" opens the ask; each list
+ * is a filter chip over the one table; ticked rows unlock phones and emails.
  */
 const OutreachPage: React.FC = () => {
   const { selectedOrg } = useContext(OrganizationContext);
@@ -138,20 +80,50 @@ const OutreachPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [lists, setLists] = useState<OutreachListSummary[] | null>(null);
+  const [data, setData] = useState<OutreachContacts | null>(null);
+  const [status, setStatus] = useState<OutreachRowStatus | 'all'>('all');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [open, setOpen] = useState<OutreachContact | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
-
-  const load = useCallback(() => {
-    if (!organizationId) return;
-    setError(null);
-    outreachAPI
-      .lists(organizationId)
-      .then(setLists)
-      .catch((err) => setError(err instanceof Error ? err.message : "The lists couldn't be loaded"));
-  }, [organizationId]);
+  const [busy, setBusy] = useState(false);
+  const [confirm, confirmDialog] = useConfirm();
+  const live = useRef(true);
   useEffect(() => {
-    if (!listId) load();
-  }, [load, listId]);
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
+
+  const load = useCallback(async () => {
+    if (!organizationId) return;
+    try {
+      const [l, c] = await Promise.all([outreachAPI.lists(organizationId), outreachAPI.contacts(organizationId, listId)]);
+      if (!live.current) return;
+      setLists(l);
+      setData(c);
+      setError(null);
+    } catch (err) {
+      if (live.current) setError(err instanceof Error ? err.message : "The contacts couldn't be loaded");
+    }
+  }, [organizationId, listId]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  // While any lookup is running, re-read until it lands.
+  const pending = data?.rows.some((r) => r.unlock?.status === 'pending') ?? false;
+  useEffect(() => {
+    if (!pending) return;
+    const id = window.setInterval(() => void load(), POLL_MS);
+    return () => window.clearInterval(id);
+  }, [pending, load]);
+  // The sheet shows the row as the table now has it.
+  useEffect(() => {
+    if (open && data) setOpen(data.rows.find((r) => r.id === open.id) ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
 
   // The blue + button's "Outreach list" opens /outreach?new=1.
   useEffect(() => {
@@ -160,42 +132,166 @@ const OutreachPage: React.FC = () => {
     setSearchParams({}, { replace: true });
   }, [searchParams, setSearchParams]);
 
+  const list = lists?.find((l) => l.id === listId);
+  const rows = useMemo(() => (data?.rows ?? []).filter((r) => status === 'all' || r.status === status), [data, status]);
+  const chosen = rows.filter((r) => selected.has(r.id));
+  const unlockable = chosen.filter((r) => r.unlock?.status !== 'found' && r.unlock?.status !== 'pending');
+  const unlockCents = data?.unlockCents ?? 100;
+  const balanceCents = data?.balanceCents ?? 0;
+  const cost = unlockable.length * unlockCents;
+
+  const addFunds = () => organizationId && openFundingPage(organizationId).catch((err) => setError(fundErrorText(err)));
+
+  const setContactStatus = async (row: OutreachContact, next: OutreachRowStatus, text: string) => {
+    if (!organizationId) return;
+    await outreachAPI.setStatus(organizationId, row.id, next, text || undefined);
+    setData((d) => d && { ...d, rows: d.rows.map((r) => (r.id === row.id ? { ...r, status: next, note: text || undefined } : r)) });
+    setLists((l) => l && l.map((x) => (row.listIds.includes(x.id) ? { ...x, done: doneOn(x.id, row, next) } : x)));
+  };
+  /** The list's done count after this row's status change. */
+  const doneOn = (id: string, row: OutreachContact, next: OutreachRowStatus) => {
+    const worked = (s: OutreachRowStatus) => s === 'done' || s === 'skip';
+    const current = lists?.find((l) => l.id === id)?.done ?? 0;
+    return Math.max(0, current + (worked(next) ? 1 : 0) - (worked(row.status) ? 1 : 0));
+  };
+
+  const unlock = async (ids: string[]) => {
+    if (!organizationId || ids.length === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await outreachAPI.requestUnlock(organizationId, ids);
+      setNote(r.queued ? `Looking up ${r.queued} ${r.queued === 1 ? 'owner' : 'owners'}; ${dollars(r.costCents)} at most, charged only for phones found.` : null);
+      setSelected(new Set());
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't start the lookup");
+      throw err;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeList = async () => {
+    if (!organizationId || !list) return;
+    if (!(await confirm({ title: `Delete “${list.title}”?`, message: 'Contacts on no other list go with it, except any you unlocked.', confirmLabel: 'Delete' }))) return;
+    await outreachAPI.remove(organizationId, list.id);
+    navigate('/outreach');
+  };
+
   if (!organizationId) return <p className="p-6 text-gray-400">Pick a company first.</p>;
-  if (listId) return <ListView organizationId={organizationId} listId={listId} onGone={() => navigate('/outreach')} />;
 
   return (
-    <div className="p-4 md:p-6 max-w-3xl space-y-4" data-testid="outreach-page">
-      <header>
-        <h1 className="text-2xl font-semibold text-white">Outreach</h1>
-        <p className="text-sm text-gray-400">Mailing lists from the Midland County roll. Names and mailing addresses; no phone numbers.</p>
-        {isStaff(user) && <OwnersLine />}
+    <div className="p-4 md:p-6 space-y-4" data-testid="outreach-page">
+      <header className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold text-white">Outreach</h1>
+          <p className="text-sm text-gray-400">Property owners from the Midland County roll. Names and mailing addresses; unlock a phone and email for {dollars(unlockCents)}.</p>
+          {isStaff(user) && <OwnersLine />}
+        </div>
+        {data && rows.length > 0 && (
+          <div className="flex gap-2 shrink-0">
+            <button type="button" onClick={() => download(csvName(list?.title ?? 'contacts'), outreachCsv(rows))} aria-label="Export CSV" title="Export CSV" className={iconButton}>
+              <Download className="w-4 h-4" />
+            </button>
+            {list && (
+              <button type="button" onClick={removeList} aria-label="Delete list" title="Delete list" className={iconButton}>
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        )}
       </header>
       {error && (
         <p className="text-sm text-red-400" role="alert">
           {error}
         </p>
       )}
-      {lists === null ? (
+      {lists && lists.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Lists">
+          <button type="button" onClick={() => navigate('/outreach')} aria-pressed={!listId} className={chip(!listId)}>
+            All
+          </button>
+          {lists.map((l) => (
+            <button key={l.id} type="button" onClick={() => navigate(`/outreach/${l.id}`)} aria-pressed={l.id === listId} className={chip(l.id === listId)} title={`${WHO_LABEL[l.who]} · ${day(l.createdAt)}`}>
+              {l.title} <span className="text-gray-500">{l.rowCount}</span>
+            </button>
+          ))}
+          <select value={status} onChange={(e) => setStatus(e.target.value as OutreachRowStatus | 'all')} aria-label="Status" className="ml-auto bg-[#1A1A1A] border border-[#333333] px-2 min-h-[36px] text-sm text-gray-300">
+            {STATUS_FILTERS.map((f) => (
+              <option key={f.value} value={f.value}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      {list && (
+        <p className="text-sm text-gray-400">
+          {WHO_LABEL[list.who]} · {list.rowCount} {list.rowCount === 1 ? 'owner' : 'owners'} · {list.done} done · {day(list.createdAt)}
+          {list.truncated && <span className="text-amber-300"> · The top of a longer list; ask for a narrower one to reach the rest.</span>}
+        </p>
+      )}
+      {note && <p className="text-sm text-gray-300">{note}</p>}
+      {chosen.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 bg-[#121212] border border-[#333333] px-4 py-2" data-testid="unlock-bar">
+          <span className="text-sm text-gray-300">{chosen.length} selected</span>
+          <button
+            type="button"
+            onClick={() => void unlock(unlockable.map((r) => r.id)).catch(() => {})}
+            disabled={busy || unlockable.length === 0 || cost > balanceCents}
+            className="inline-flex items-center gap-2 px-4 min-h-[40px] text-sm font-medium bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50"
+          >
+            <Lock className="w-4 h-4" /> Unlock {unlockable.length} for {dollars(cost)}
+          </button>
+          <span className="text-xs text-gray-500">
+            Balance {dollars(balanceCents)}.{' '}
+            {cost > balanceCents && (
+              <button type="button" onClick={addFunds} className="text-[#7fb0e0] underline underline-offset-2">
+                Add funds
+              </button>
+            )}
+          </span>
+          <button type="button" onClick={() => setSelected(new Set())} className="ml-auto text-sm text-gray-400 hover:text-white">
+            Clear
+          </button>
+        </div>
+      )}
+      {data === null || lists === null ? (
         <p className="text-sm text-gray-500">Loading…</p>
       ) : lists.length === 0 ? (
         <p className="text-sm text-gray-500" data-testid="outreach-empty">
-          No lists yet. Tap + and say who you want to reach.
+          No contacts yet. Tap + and say who you want to reach.
         </p>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-gray-500">{status === 'all' ? 'Nobody matched. Ask for a wider list.' : 'Nobody with that status.'}</p>
       ) : (
-        <ul className="bg-[#121212] border border-[#333333] divide-y divide-[#333333]" aria-label="Lists">
-          {lists.map((l) => (
-            <li key={l.id}>
-              <button type="button" onClick={() => navigate(`/outreach/${l.id}`)} className="w-full text-left px-4 py-3 hover:bg-[#1A1A1A]">
-                <div className="text-[15px] text-white truncate">{l.title}</div>
-                <div className="text-sm text-gray-400">
-                  {WHO_LABEL[l.who]} · {l.rowCount} {l.rowCount === 1 ? 'owner' : 'owners'} · {l.done} done · {day(l.createdAt)}
-                </div>
-              </button>
-            </li>
-          ))}
-        </ul>
+        <ContactsTable
+          rows={rows}
+          selected={selected}
+          onSelect={(id, on) =>
+            setSelected((s) => {
+              const next = new Set(s);
+              if (on) next.add(id);
+              else next.delete(id);
+              return next;
+            })
+          }
+          onSelectAll={(on) => setSelected(on ? new Set(rows.map((r) => r.id)) : new Set())}
+          onOpen={setOpen}
+        />
       )}
+      <ContactSheet
+        row={open}
+        unlockCents={unlockCents}
+        balanceCents={balanceCents}
+        onClose={() => setOpen(null)}
+        onStatus={setContactStatus}
+        onUnlock={(row) => unlock([row.id])}
+        onAddFunds={addFunds}
+      />
       <AskListSheet open={asking} organizationId={organizationId} onClose={() => setAsking(false)} onSaved={(id) => navigate(`/outreach/${id}`)} />
+      {confirmDialog}
     </div>
   );
 };

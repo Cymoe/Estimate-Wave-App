@@ -104,7 +104,7 @@ describe("grouping the roll into owners", () => {
     expect(on("Smith John")).toEqual(["absentee"]);
     // The city owns four parcels and isn't an investor; its buildings are still commercial.
     expect(on("City Of Midland")).toEqual(["commercial"]);
-    expect(on("Betenbough Homes LLC")).toEqual([]);
+    expect(on("Betenbough Homes LLC")).toEqual(["builder"]);
     expect(owners).toHaveLength(11);
   });
 
@@ -148,6 +148,8 @@ describe("grouping the roll into owners", () => {
     expect(who("warehouses")).toEqual({ county: "Midland", who: "commercial", useCodes: ["F2"] });
     expect(who("apartment complexes")).toEqual({ county: "Midland", who: "multifamily" });
     expect(who("landlords")).toEqual({ county: "Midland", who: "investor" });
+    expect(who("home builders in Midland")).toEqual({ county: "Midland", who: "builder" });
+    expect(guessDefinition("builders")?.title).toBe("Homebuilders, Midland");
     expect(who("RE investors with rentals")).toEqual({ county: "Midland", who: "investor" });
     expect(who("out of state owners")).toEqual({ county: "Midland", who: "absentee" });
     expect(who("people who just bought")).toEqual({ county: "Midland", who: "recent_buyer" });
@@ -214,10 +216,10 @@ describe("the owners table", () => {
     expect(await rebuild(t)).toEqual({ fetched: 19, added: 11, updated: 0, error: undefined });
     const counts = async () =>
       await t.run(async (ctx) => [(await ctx.db.query("owners").collect()).length, (await ctx.db.query("ownerFacets").collect()).length]);
-    expect(await counts()).toEqual([11, 15]);
+    expect(await counts()).toEqual([11, 16]);
     // The same roll again: nothing added, nothing duplicated.
     expect(await rebuild(t)).toMatchObject({ added: 0, updated: 0 });
-    expect(await counts()).toEqual([11, 15]);
+    expect(await counts()).toEqual([11, 16]);
     // The shopping center sells to the Vance family (now investors too), and the city sells one lot.
     await t.run(async (ctx) => {
       await ctx.db.patch(ids["12"], { owner: "VANCE ROBERT & LINDA", companyOwned: false, mailing: { address: "1 SPRUCE AV", city: "MIDLAND", state: "TX", zip: "79705" } });
@@ -233,7 +235,7 @@ describe("the owners table", () => {
       expect(facets).toEqual(["buyer", "commercial", "homeowner"]);
       expect((await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "midland-owners")).unique())!.fetched).toBe(18);
     });
-    expect(await counts()).toEqual([10, 14]);
+    expect(await counts()).toEqual([10, 15]);
     // The deploy's run skips a build that's newer than the roll read, and runs after a new read.
     expect(await t.action(internal.outreachRebuild.rebuild, { ifStale: true })).toEqual({ skipped: true });
     expect(await t.action(internal.outreachRebuild.rebuild, { ifStale: true, background: true })).toEqual({ skipped: true });
@@ -297,6 +299,8 @@ describe("a company's lists", () => {
     const investors = await co.as.query(api.outreach.preview, { organizationId: org, definition: { county: "Midland", who: "investor" } });
     expect(investors.rows.map((r) => r.name)).toEqual(["Nuka Hiva LLC", "Oak Plaza LLC", "Park Holdings LP"]);
     expect(investors.rows[0].why).toBe("Owns 3 Midland properties, $900K on the roll");
+    const builders = await co.as.query(api.outreach.preview, { organizationId: org, definition: { county: "Midland", who: "builder" } });
+    expect(builders.rows.map((r) => [r.name, r.why])).toEqual([["Betenbough Homes LLC", "Homebuilder with 3 Midland properties on the roll, $900K in all"]]);
     // Out-of-state absentee owners, and recent buyers.
     expect((await co.as.query(api.outreach.preview, { organizationId: org, definition: { county: "Midland", who: "absentee" } })).rows.map((r) => r.why)).toEqual([
       "Owns a home here, mail goes to Hobbs, NM",
@@ -308,38 +312,174 @@ describe("a company's lists", () => {
     expect((await co.as.query(api.outreach.preview, { organizationId: org, definition: { county: "Midland", who: "recent_buyer", deedWithinDays: 30 } })).count).toBe(1);
     await expect(co.as.query(api.outreach.preview, { organizationId: org, definition: { county: "Midland", who: "custom" } })).rejects.toThrow(/use code/);
 
-    // Save the commercial list: its rows stay as they were, whatever the roll does next.
+    // Save the commercial list: its contacts stay as they were, whatever the roll does next.
     const saved = await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
-    expect(saved).toMatchObject({ rowCount: 2, truncated: false });
+    expect(saved).toMatchObject({ rowCount: 2, added: 2, truncated: false });
     await t.run(async (ctx) => ctx.db.patch(ids["12"], { marketValueCents: 1_000 }));
     await rebuild(t);
-    const list = await co.as.query(api.outreach.get, { organizationId: org, listId: saved.listId });
-    expect(list.title).toBe("Commercial property owners, Midland");
-    expect(list.rows.map((r) => [r.name, r.property.valueCents, r.status])).toEqual([["Oak Plaza LLC", 300_000_000, "new"], ["City Of Midland", 30_000_000, "new"]]);
+    const onList = async (listId: typeof saved.listId) => (await co.as.query(api.outreach.contacts, { organizationId: org, listId })).rows;
+    const list = await onList(saved.listId);
+    expect(list.map((r) => [r.name, r.property.valueCents, r.status, r.kinds])).toEqual([
+      ["City Of Midland", 30_000_000, "new", ["commercial"]],
+      ["Oak Plaza LLC", 300_000_000, "new", ["commercial"]],
+    ]);
     expect((await co.as.query(api.outreach.lists, { organizationId: org })).map((l) => [l.title, l.who, l.rowCount, l.done])).toEqual([
       ["Commercial property owners, Midland", "commercial", 2, 0],
     ]);
+    // A second list with an owner already in the CRM: one contact, tagged twice, not two rows.
+    const second = await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "investor" } });
+    expect(second).toMatchObject({ rowCount: 3, added: 2 });
+    const all = await co.as.query(api.outreach.contacts, { organizationId: org });
+    expect(all.rows).toHaveLength(4);
+    const oak = all.rows.find((r) => r.name === "Oak Plaza LLC")!;
+    expect(oak.kinds).toEqual(["commercial", "investor"]);
+    expect(oak.listIds).toEqual([saved.listId, second.listId]);
+    expect(all).toMatchObject({ balanceCents: 0, unlockCents: 100 });
 
-    // Working the rows.
-    await co.as.mutation(api.outreach.setStatus, { organizationId: org, rowId: list.rows[0].id, status: "done", note: "Mailed the letter" });
-    await co.as.mutation(api.outreach.setStatus, { organizationId: org, rowId: list.rows[1].id, status: "skip" });
-    await co.as.mutation(api.outreach.setStatus, { organizationId: org, rowId: list.rows[1].id, status: "sent" });
-    const worked = await co.as.query(api.outreach.get, { organizationId: org, listId: saved.listId });
-    expect(worked.rows.map((r) => [r.status, r.note])).toEqual([["done", "Mailed the letter"], ["sent", undefined]]);
-    expect(worked.done).toBe(1);
+    // Working the contacts: a status is the contact's, so it shows on every list it's on.
+    await co.as.mutation(api.outreach.setStatus, { organizationId: org, contactId: oak.id, status: "done", note: "Mailed the letter" });
+    const city = list.find((r) => r.name === "City Of Midland")!;
+    await co.as.mutation(api.outreach.setStatus, { organizationId: org, contactId: city.id, status: "skip" });
+    await co.as.mutation(api.outreach.setStatus, { organizationId: org, contactId: city.id, status: "sent" });
+    expect((await onList(saved.listId)).map((r) => [r.status, r.note])).toEqual([["sent", undefined], ["done", "Mailed the letter"]]);
+    expect((await co.as.query(api.outreach.lists, { organizationId: org })).map((l) => [l.who, l.done]).sort()).toEqual([["commercial", 1], ["investor", 1]]);
 
     // Another company can't see it; a company off the plan can't use Outreach at all.
     const other = await proCompany(t, "owner@paint.example");
-    await expect(other.as.query(api.outreach.get, { organizationId: other.organizationId, listId: saved.listId })).rejects.toThrow(/No such list/);
+    expect((await other.as.query(api.outreach.contacts, { organizationId: other.organizationId, listId: saved.listId })).rows).toEqual([]);
+    await expect(other.as.mutation(api.outreach.setStatus, { organizationId: other.organizationId, contactId: oak.id, status: "done" })).rejects.toThrow(/No such contact/);
     const free = await signUp(t, "owner@free.example");
     await expect(free.as.query(api.outreach.lists, { organizationId: free.organizationId })).rejects.toThrow(/Pro plan/);
     await expect(free.as.query(api.outreach.preview, { organizationId: free.organizationId, definition: { county: "Midland", who: "wealthy" } })).rejects.toThrow(/Pro plan/);
 
+    // Dropping a list untags its contacts; one on no other list goes with it.
     await co.as.mutation(api.outreach.remove, { organizationId: org, listId: saved.listId });
-    expect(await co.as.query(api.outreach.lists, { organizationId: org })).toEqual([]);
+    expect((await co.as.query(api.outreach.lists, { organizationId: org })).map((l) => l.who)).toEqual(["investor"]);
+    const left = await co.as.query(api.outreach.contacts, { organizationId: org });
+    expect(left.rows.map((r) => [r.name, r.kinds, r.status])).toEqual([
+      ["Nuka Hiva LLC", ["investor"], "new"],
+      ["Oak Plaza LLC", ["investor"], "done"],
+      ["Park Holdings LP", ["investor"], "new"],
+    ]);
+    await co.as.mutation(api.outreach.remove, { organizationId: org, listId: second.listId });
+    await t.run(async (ctx) => {
+      expect(await ctx.db.query("outreachContacts").collect()).toEqual([]);
+    });
+  });
+
+  test("rows kept before contacts existed move over on deploy, tagged with their list", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    const { listId, otherId } = await t.run(async (ctx) => {
+      const [user] = await ctx.db.query("users").collect();
+      const base = { organizationId: org, title: "Shopping center owners", definition: { county: "Midland", who: "commercial" as const }, rowCount: 1, done: 0, truncated: false, createdBy: user._id, createdAt: "2026-11-01T00:00:00.000Z" };
+      const listId = await ctx.db.insert("outreachLists", base);
+      const otherId = await ctx.db.insert("outreachLists", { ...base, definition: { county: "Midland", who: "investor" } });
+      const row = { organizationId: org, key: "OAK PLAZA LLC|1 MAIN ST|75201", name: "Oak Plaza LLC", company: "Oak Plaza LLC", mailing: { address: "1 MAIN ST", zip: "75201" }, property: { parcelId: (await ctx.db.insert("parcels", { county: "Midland", cadId: "R-1", useCode: "F1", siteAddress: "12 MIDKIFF RD", addressKey: "12 MIDKIFF RD", looseKey: "12 MIDKIFF", owner: "OAK PLAZA LLC", mailing: {}, ownerOccupied: false, companyOwned: true, importedAt: "2026-11-01T00:00:00.000Z" })), address: "12 Midkiff Rd", useCode: "F1", valueCents: 300_000_000 }, properties: 1, totalValueCents: 300_000_000, why: "Commercial building worth $3M" };
+      await ctx.db.insert("outreachRows", { ...row, listId, status: "done", note: "Mailed" });
+      await ctx.db.insert("outreachRows", { ...row, listId: otherId, status: "new" });
+      return { listId, otherId };
+    });
+    expect(await t.mutation(internal.outreach.migrateRows, {})).toEqual({ moved: 2, more: false });
+    const rows = (await co.as.query(api.outreach.contacts, { organizationId: org })).rows;
+    expect(rows.map((r) => [r.name, r.kinds, r.listIds, r.status, r.note])).toEqual([["Oak Plaza LLC", ["commercial", "investor"], [listId, otherId], "done", "Mailed"]]);
     await t.run(async (ctx) => {
       expect(await ctx.db.query("outreachRows").collect()).toEqual([]);
     });
+    expect(await t.mutation(internal.outreach.migrateRows, {})).toEqual({ moved: 0, more: false });
+  });
+
+  test("unlocking a contact runs the skip-trace waterfall and charges the balance only on a hit", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    const rows = (await co.as.query(api.outreach.contacts, { organizationId: org })).rows;
+    const oak = rows.find((r) => r.name === "Oak Plaza LLC")!;
+    const cityHall = rows.find((r) => r.name === "City Of Midland")!;
+
+    // No balance: refused before anything is queued.
+    await expect(co.as.mutation(api.outreach.requestUnlock, { organizationId: org, contactIds: [oak.id] })).rejects.toThrow(/Balance too low: \$1\.00 needed for 1 unlock, \$0\.00 available/);
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 250 }));
+    await expect(co.as.mutation(api.outreach.requestUnlock, { organizationId: org, contactIds: [oak.id, cityHall.id, oak.id] })).resolves.toEqual({ queued: 2, costCents: 200 });
+    const pending = (await co.as.query(api.outreach.contacts, { organizationId: org })).rows;
+    expect(pending.map((r) => r.unlock?.status)).toEqual(["pending", "pending"]);
+    // Pending ones aren't queued twice.
+    await expect(co.as.mutation(api.outreach.requestUnlock, { organizationId: org, contactIds: [oak.id] })).resolves.toEqual({ queued: 0, costCents: 0 });
+
+    // No vendor key: both traces fail, nobody is charged.
+    vi.stubEnv("BATCHDATA_API_KEY", "");
+    await t.finishAllScheduledFunctions(() => {});
+    const failed = (await co.as.query(api.outreach.contacts, { organizationId: org })).rows;
+    expect(failed.map((r) => r.unlock?.status)).toEqual(["failed", "failed"]);
+    expect(failed[0].unlock?.error).toContain("No skip-trace vendor is connected yet");
+    expect(failed[0].phones).toEqual([]);
+    expect((await co.as.query(api.outreach.contacts, { organizationId: org })).balanceCents).toBe(250);
+
+    // With BatchData: Oak Plaza gets a phone and an email ($1); the city gets nothing (free).
+    vi.stubEnv("BATCHDATA_API_KEY", "bd-key");
+    const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        const body = JSON.parse(init.body as string) as { requests: Array<{ propertyAddress: { street: string } }> };
+        calls.push({ url, body });
+        const hit = body.requests[0].propertyAddress.street.startsWith("12 ");
+        return new Response(
+          JSON.stringify({
+            results: {
+              persons: hit
+                ? [
+                    {
+                      name: { first: "Oak", last: "Plaza" },
+                      phoneNumbers: [
+                        { number: "(432) 555-0100", type: "Mobile", dnc: false, score: 95 },
+                        { number: "+1 432 555 0100", type: "Mobile" },
+                        { number: "432-555-0199", type: "Land Line", tcpa: true },
+                      ],
+                      emails: [{ email: "Owner@OakPlaza.com" }, { email: "owner@oakplaza.com" }],
+                    },
+                  ]
+                : [],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }),
+    );
+    await co.as.mutation(api.outreach.requestUnlock, { organizationId: org, contactIds: [oak.id, cityHall.id] });
+    await t.finishAllScheduledFunctions(() => {});
+    const traced = await co.as.query(api.outreach.contacts, { organizationId: org });
+    const oakNow = traced.rows.find((r) => r.id === oak.id)!;
+    expect(oakNow.unlock).toMatchObject({ status: "found", vendor: "batchdata", chargedCents: 100 });
+    expect(oakNow.phones).toEqual([
+      { number: "4325550100", type: "mobile", source: "batchdata" },
+      { number: "4325550199", type: "land line", dnc: true, source: "batchdata" },
+    ]);
+    expect(oakNow.emails).toEqual([{ email: "owner@oakplaza.com", source: "batchdata" }]);
+    const cityNow = traced.rows.find((r) => r.id === cityHall.id)!;
+    expect(cityNow.unlock).toMatchObject({ status: "none" });
+    expect(cityNow.phones).toEqual([]);
+    expect(traced.balanceCents).toBe(150);
+    expect(calls).toHaveLength(2);
+    expect(calls[0].url).toBe("https://api.batchdata.com/api/v1/property/skip-trace");
+    expect(calls.map((c) => (c.body.requests as Array<{ propertyAddress: { street: string; city: string; state: string } }>)[0].propertyAddress)).toEqual(
+      expect.arrayContaining([{ street: "12 Midkiff Rd", city: "Midland", state: "TX" }]),
+    );
+    await t.run(async (ctx) => {
+      const charges = await ctx.db.query("walletTransactions").collect();
+      expect(charges.map((c) => [c.type, c.amountCents, c.balanceAfterCents, c.contactId, c.note])).toEqual([["unlock", -100, 150, oak.id, "Phone and email for Oak Plaza LLC"]]);
+    });
+    // A found contact isn't traced again, and a dropped list keeps a paid contact.
+    await expect(co.as.mutation(api.outreach.requestUnlock, { organizationId: org, contactIds: [oak.id] })).resolves.toEqual({ queued: 0, costCents: 0 });
+    const lists = await co.as.query(api.outreach.lists, { organizationId: org });
+    await co.as.mutation(api.outreach.remove, { organizationId: org, listId: lists[0].id });
+    expect((await co.as.query(api.outreach.contacts, { organizationId: org })).rows.map((r) => [r.name, r.kinds, r.phones.length])).toEqual([["Oak Plaza LLC", [], 2]]);
   });
 
   test("a long facet is read top-down to the limit, and says so when it's cut", async () => {

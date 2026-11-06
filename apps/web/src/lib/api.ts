@@ -1165,7 +1165,7 @@ export const reportAPI = {
 
 // ---- Outreach ----
 
-export type OutreachWho = 'investor' | 'manager' | 'commercial' | 'multifamily' | 'wealthy' | 'recent_buyer' | 'absentee' | 'custom';
+export type OutreachWho = 'investor' | 'builder' | 'manager' | 'commercial' | 'multifamily' | 'wealthy' | 'recent_buyer' | 'absentee' | 'custom';
 export type OutreachDefinition = {
   county: string;
   who: OutreachWho;
@@ -1183,7 +1183,11 @@ export type OutreachDefinition = {
 };
 export type OutreachMailing = { address?: string; city?: string; state?: string; zip?: string };
 export type OutreachRowStatus = 'new' | 'sent' | 'done' | 'skip';
-export type OutreachRow = {
+export type OutreachPhone = { number: string; type?: string; dnc?: boolean; source: string };
+export type OutreachEmail = { email: string; source: string };
+export type OutreachUnlock = { status: 'pending' | 'found' | 'none' | 'failed'; at: string; vendor?: string; chargedCents?: number; error?: string };
+/** One owner in a company's CRM: pulled by one or more lists, with what the company has paid to learn. */
+export type OutreachContact = {
   id: string;
   key: string;
   name: string;
@@ -1193,10 +1197,16 @@ export type OutreachRow = {
   properties: number;
   totalValueCents: number;
   why: string;
+  kinds: OutreachWho[];
+  listIds: string[];
   status: OutreachRowStatus;
   note?: string;
+  phones: OutreachPhone[];
+  emails: OutreachEmail[];
+  unlock?: OutreachUnlock;
+  createdAt: string;
 };
-export type OutreachPreviewRow = Omit<OutreachRow, 'id' | 'status' | 'note'>;
+export type OutreachPreviewRow = Pick<OutreachContact, 'key' | 'name' | 'company' | 'mailing' | 'property' | 'properties' | 'totalValueCents' | 'why'>;
 export type OutreachListSummary = {
   id: string;
   title: string;
@@ -1207,25 +1217,29 @@ export type OutreachListSummary = {
   truncated: boolean;
   createdAt: string;
 };
-export type OutreachList = OutreachListSummary & { rows: OutreachRow[] };
+export type OutreachContacts = { rows: OutreachContact[]; balanceCents: number; unlockCents: number };
 export type OutreachPreview = { count: number; truncated: boolean; limited: boolean; rows: OutreachPreviewRow[] };
 export type OutreachInterpreted =
   | ({ ok: true; definition: OutreachDefinition; title: string; explanation: string; note?: string; preview: OutreachPreviewRow[] } & Omit<OutreachPreview, 'rows'>)
   | { ok: false; explanation: string; suggestion?: { definition: OutreachDefinition; title: string } };
 
-/** Outreach: mailing lists from the county roll, asked for in plain words (Pro). */
+/** Outreach: a CRM of property owners from the county roll, pulled by lists asked for in plain words (Pro). */
 export const outreachAPI = {
   lists: (organizationId: string): Promise<OutreachListSummary[]> => run('query', api.outreach.lists, { organizationId }),
-  get: (organizationId: string, listId: string): Promise<OutreachList> => run('query', api.outreach.get, { organizationId, listId }),
+  /** Every contact, or those on one list, with the balance for unlocks. */
+  contacts: (organizationId: string, listId?: string): Promise<OutreachContacts> => run('query', api.outreach.contacts, defined({ organizationId, listId })),
   interpret: (organizationId: string, request: string): Promise<OutreachInterpreted> =>
     run('action', api.outreach.interpret, { organizationId, request }),
   preview: (organizationId: string, definition: OutreachDefinition): Promise<OutreachPreview> =>
     run('query', api.outreach.preview, { organizationId, definition }),
-  create: (organizationId: string, definition: OutreachDefinition, title?: string): Promise<{ listId: string; rowCount: number; truncated: boolean }> =>
+  create: (organizationId: string, definition: OutreachDefinition, title?: string): Promise<{ listId: string; rowCount: number; added: number; truncated: boolean }> =>
     run('mutation', api.outreach.create, defined({ organizationId, definition, title })),
-  setStatus: (organizationId: string, rowId: string, status: OutreachRowStatus, note?: string) =>
-    run('mutation', api.outreach.setStatus, defined({ organizationId, rowId, status, note })),
+  setStatus: (organizationId: string, contactId: string, status: OutreachRowStatus, note?: string) =>
+    run('mutation', api.outreach.setStatus, defined({ organizationId, contactId, status, note })),
   remove: (organizationId: string, listId: string) => run('mutation', api.outreach.remove, { organizationId, listId }),
+  /** Queues a skip trace for each contact; $1 each from the balance, charged only when a phone is found. */
+  requestUnlock: (organizationId: string, contactIds: string[]): Promise<{ queued: number; costCents: number }> =>
+    run('mutation', api.outreach.requestUnlock, { organizationId, contactIds }),
   /** Staff: when the owners were last grouped, from how many parcels; and a rebuild. */
   status: (): Promise<{ syncedAt: string; parcels: number; owners: number; error?: string } | null> => run('query', api.outreach.status, {}),
   rebuild: (): Promise<{ fetched: number; added: number; updated: number; error?: string }> => run('action', api.outreachRebuild.rebuildNow, {}),

@@ -16,7 +16,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { outreachDefinition, outreachRowStatus } from "./schema";
+import { outreachDefinition, outreachEmail, outreachPhone, outreachRowStatus } from "./schema";
 import { fail, isStaff, nowIso, requireMember, requireStaff } from "./lib/access";
 import { mutationDef, queryDef } from "./lib/actor";
 import { callClaude } from "./lib/claude";
@@ -25,6 +25,7 @@ import {
   MAX_ROWS,
   OUTREACH_INPUT_SCHEMA,
   OWNERS_SOURCE,
+  UNLOCK_CENTS,
   WEALTHY_DEFAULT_CENTS,
   WHO_GUIDE,
   defaultTitle,
@@ -42,6 +43,7 @@ import {
 } from "./lib/outreach";
 import { MIDLAND_PARCELS } from "./lib/parcels";
 import { planIsActive } from "./lib/plan";
+import { dollars, postTransaction } from "./lib/wallet";
 
 const COUNTY = MIDLAND_PARCELS.county;
 /** How many facet rows one list build reads: past this the list is cut and says so. */
@@ -176,7 +178,7 @@ export type ListRow = {
   name: string;
   company?: string;
   mailing: Doc<"owners">["mailing"];
-  property: Doc<"outreachRows">["property"];
+  property: Doc<"outreachContacts">["property"];
   properties: number;
   totalValueCents: number;
   why: string;
@@ -248,13 +250,13 @@ async function requirePro(ctx: QueryCtx | MutationCtx, organizationId: Id<"organ
   return member;
 }
 
-const listView = (l: Doc<"outreachLists">) => ({
+const listView = (l: Doc<"outreachLists">, done: number) => ({
   id: l._id,
   title: l.title,
   who: l.definition.who,
   definition: l.definition,
   rowCount: l.rowCount,
-  done: l.done,
+  done,
   truncated: l.truncated,
   createdAt: l.createdAt,
 });
@@ -286,12 +288,24 @@ export const assertPro = internalQuery({
   },
 });
 
-/** Builds the list and keeps its rows as they are today. */
+const isWorked = (s: Doc<"outreachContacts">["status"]) => s === "done" || s === "skip";
+
+/** Every contact a company has, newest first. */
+async function contactsOf(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">) {
+  return await ctx.db.query("outreachContacts").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect();
+}
+
+/**
+ * Builds the list and puts its owners in the company's contacts: a new row
+ * for an owner the company hasn't pulled before, a tag on the row for one
+ * it has (status, note and any unlocked phone stay).
+ */
 export const createDef = mutationDef({
   args: { organizationId: v.id("organizations"), title: v.optional(v.string()), definition: outreachDefinition },
   handler: async (ctx, { organizationId, title: wanted, definition }) => {
     const { user } = await requirePro(ctx, organizationId);
     const built = await buildRows(ctx, definition);
+    const now = nowIso();
     const listId = await ctx.db.insert("outreachLists", {
       organizationId,
       title: wanted?.trim() || defaultTitle(definition),
@@ -300,10 +314,26 @@ export const createDef = mutationDef({
       done: 0,
       truncated: built.truncated,
       createdBy: user._id,
-      createdAt: nowIso(),
+      createdAt: now,
     });
-    for (const row of built.rows) await ctx.db.insert("outreachRows", { listId, organizationId, ...row, status: "new" });
-    return { listId, rowCount: built.rows.length, truncated: built.truncated, limited: built.limited, sample: built.rows.slice(0, 3) };
+    let added = 0;
+    for (const row of built.rows) {
+      const existing = await ctx.db
+        .query("outreachContacts")
+        .withIndex("by_organization_and_key", (q) => q.eq("organizationId", organizationId).eq("key", row.key))
+        .unique();
+      if (existing) {
+        await ctx.db.patch(existing._id, {
+          listIds: [...existing.listIds, listId],
+          kinds: existing.kinds.includes(definition.who) ? existing.kinds : [...existing.kinds, definition.who],
+          updatedAt: now,
+        });
+      } else {
+        await ctx.db.insert("outreachContacts", { organizationId, ...row, kinds: [definition.who], listIds: [listId], status: "new", createdAt: now });
+        added++;
+      }
+    }
+    return { listId, rowCount: built.rows.length, added, truncated: built.truncated, limited: built.limited, sample: built.rows.slice(0, 3) };
   },
 });
 export const create = mutation(createDef);
@@ -313,62 +343,221 @@ export const listsDef = queryDef({
   handler: async (ctx, { organizationId }) => {
     await requirePro(ctx, organizationId);
     const lists = await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect();
-    return lists.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(listView);
+    const contacts = await contactsOf(ctx, organizationId);
+    const done = new Map<Id<"outreachLists">, number>();
+    for (const c of contacts) if (isWorked(c.status)) for (const id of c.listIds) done.set(id, (done.get(id) ?? 0) + 1);
+    return lists.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((l) => listView(l, done.get(l._id) ?? 0));
   },
 });
 export const lists = query(listsDef);
 
-/** A list with its rows, as saved. */
-export const get = query({
-  args: { organizationId: v.id("organizations"), listId: v.id("outreachLists") },
+const contactView = (c: Doc<"outreachContacts">) => ({
+  id: c._id,
+  key: c.key,
+  name: c.name,
+  company: c.company,
+  mailing: c.mailing,
+  property: c.property,
+  properties: c.properties,
+  totalValueCents: c.totalValueCents,
+  why: c.why,
+  kinds: c.kinds,
+  listIds: c.listIds,
+  status: c.status,
+  note: c.note,
+  phones: c.phones ?? [],
+  emails: c.emails ?? [],
+  unlock: c.unlock ? { status: c.unlock.status, at: c.unlock.at, vendor: c.unlock.vendor, chargedCents: c.unlock.chargedCents, error: c.unlock.error } : undefined,
+  createdAt: c.createdAt,
+});
+export type ContactView = ReturnType<typeof contactView>;
+
+/** The company's contacts, newest first; on one list only when listId is given. With the balance, for the unlock bar. */
+export const contacts = query({
+  args: { organizationId: v.id("organizations"), listId: v.optional(v.id("outreachLists")) },
   handler: async (ctx, { organizationId, listId }) => {
-    await requirePro(ctx, organizationId);
-    const list = await ctx.db.get(listId);
-    if (!list || list.organizationId !== organizationId) fail("NOT_FOUND", "No such list");
-    const rows = await ctx.db.query("outreachRows").withIndex("by_list", (q) => q.eq("listId", listId)).collect();
+    const { organization } = await requirePro(ctx, organizationId);
+    const all = await contactsOf(ctx, organizationId);
+    const picked = listId ? all.filter((c) => c.listIds.includes(listId)) : all;
     return {
-      ...listView(list),
-      rows: rows.map((r) => ({
-        id: r._id,
-        key: r.key,
-        name: r.name,
-        company: r.company,
-        mailing: r.mailing,
-        property: r.property,
-        properties: r.properties,
-        totalValueCents: r.totalValueCents,
-        why: r.why,
-        status: r.status,
-        note: r.note,
-      })),
+      rows: picked.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.name.localeCompare(b.name)).map(contactView),
+      balanceCents: organization.walletBalanceCents ?? 0,
+      unlockCents: UNLOCK_CENTS,
     };
   },
 });
 
-/** Marks a row sent, done or skipped (or new again), with a note. */
+/** Marks a contact sent, done or skipped (or new again), with a note. */
 export const setStatus = mutation({
-  args: { organizationId: v.id("organizations"), rowId: v.id("outreachRows"), status: outreachRowStatus, note: v.optional(v.string()) },
-  handler: async (ctx, { organizationId, rowId, status, note }) => {
+  args: { organizationId: v.id("organizations"), contactId: v.id("outreachContacts"), status: outreachRowStatus, note: v.optional(v.string()) },
+  handler: async (ctx, { organizationId, contactId, status, note }) => {
     await requirePro(ctx, organizationId);
-    const row = await ctx.db.get(rowId);
-    if (!row || row.organizationId !== organizationId) fail("NOT_FOUND", "No such row");
-    const list = await ctx.db.get(row.listId);
-    const wasDone = row.status === "done" || row.status === "skip";
-    const isDone = status === "done" || status === "skip";
-    await ctx.db.patch(rowId, { status, note: note?.trim() || undefined, updatedAt: nowIso() });
-    if (list && wasDone !== isDone) await ctx.db.patch(list._id, { done: Math.max(0, list.done + (isDone ? 1 : -1)) });
+    const contact = await ctx.db.get(contactId);
+    if (!contact || contact.organizationId !== organizationId) fail("NOT_FOUND", "No such contact");
+    await ctx.db.patch(contactId, { status, note: note?.trim() || undefined, updatedAt: nowIso() });
     return null;
   },
 });
 
+/** Drops a list. Its contacts lose the tag; one on no other list goes too, unless the company paid to unlock it. */
 export const remove = mutation({
   args: { organizationId: v.id("organizations"), listId: v.id("outreachLists") },
   handler: async (ctx, { organizationId, listId }) => {
     await requirePro(ctx, organizationId);
     const list = await ctx.db.get(listId);
     if (!list || list.organizationId !== organizationId) fail("NOT_FOUND", "No such list");
-    for (const r of await ctx.db.query("outreachRows").withIndex("by_list", (q) => q.eq("listId", listId)).collect()) await ctx.db.delete(r._id);
+    const lists = await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect();
+    const whoOf = new Map(lists.map((l) => [l._id, l.definition.who] as const));
+    for (const c of await contactsOf(ctx, organizationId)) {
+      if (!c.listIds.includes(listId)) continue;
+      const listIds = c.listIds.filter((id) => id !== listId);
+      if (listIds.length === 0 && c.unlock?.status !== "found") {
+        await ctx.db.delete(c._id);
+        continue;
+      }
+      const kinds = [...new Set(listIds.map((id) => whoOf.get(id)).filter((w): w is Doc<"outreachLists">["definition"]["who"] => w !== undefined))];
+      await ctx.db.patch(c._id, { listIds, kinds, updatedAt: nowIso() });
+    }
     await ctx.db.delete(listId);
+    return null;
+  },
+});
+
+/**
+ * One-off: the rows lists kept before contacts existed become contacts,
+ * tagged with their list; a row's status and note come along. Safe to run
+ * again; the deploy runs it until the table is empty: `npx convex run outreach:migrateRows`.
+ */
+export const migrateRows = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("outreachRows").take(200);
+    let moved = 0;
+    for (const r of rows) {
+      const list = await ctx.db.get(r.listId);
+      const now = nowIso();
+      if (list) {
+        const existing = await ctx.db
+          .query("outreachContacts")
+          .withIndex("by_organization_and_key", (q) => q.eq("organizationId", r.organizationId).eq("key", r.key))
+          .unique();
+        if (existing) {
+          if (!existing.listIds.includes(r.listId)) {
+            await ctx.db.patch(existing._id, {
+              listIds: [...existing.listIds, r.listId],
+              kinds: existing.kinds.includes(list.definition.who) ? existing.kinds : [...existing.kinds, list.definition.who],
+              updatedAt: now,
+            });
+          }
+        } else {
+          await ctx.db.insert("outreachContacts", {
+            organizationId: r.organizationId,
+            key: r.key,
+            name: r.name,
+            company: r.company,
+            mailing: r.mailing,
+            property: r.property,
+            properties: r.properties,
+            totalValueCents: r.totalValueCents,
+            why: r.why,
+            kinds: [list.definition.who],
+            listIds: [r.listId],
+            status: r.status,
+            note: r.note,
+            createdAt: list.createdAt,
+            updatedAt: r.updatedAt,
+          });
+        }
+        moved++;
+      }
+      await ctx.db.delete(r._id);
+    }
+    if (rows.length === 200) await ctx.scheduler.runAfter(0, internal.outreach.migrateRows, {});
+    return { moved, more: rows.length === 200 };
+  },
+});
+
+// ---- Unlocking a contact's phone and email ----
+
+/**
+ * Queues a skip trace for each contact, for an admin with the balance to
+ * cover them all. The charge (UNLOCK_CENTS) lands only when a trace finds
+ * a phone; a miss or a vendor error is free. One already found or pending
+ * is skipped.
+ */
+export const requestUnlock = mutation({
+  args: { organizationId: v.id("organizations"), contactIds: v.array(v.id("outreachContacts")) },
+  handler: async (ctx, { organizationId, contactIds }) => {
+    const { user, organization } = await requireMember(ctx, organizationId, "admin");
+    if (!organization.plan || !planIsActive(organization.plan, Date.now())) fail("FORBIDDEN", "Outreach is part of the Pro plan");
+    const wanted: Doc<"outreachContacts">[] = [];
+    for (const id of new Set(contactIds)) {
+      const c = await ctx.db.get(id);
+      if (!c || c.organizationId !== organizationId) fail("NOT_FOUND", "No such contact");
+      if (c.unlock?.status === "found" || c.unlock?.status === "pending") continue;
+      wanted.push(c);
+    }
+    const balance = organization.walletBalanceCents ?? 0;
+    const cost = wanted.length * UNLOCK_CENTS;
+    if (cost > balance) fail("INVALID", `Balance too low: ${dollars(cost)} needed for ${wanted.length} ${wanted.length === 1 ? "unlock" : "unlocks"}, ${dollars(balance)} available`);
+    const now = nowIso();
+    for (const c of wanted) {
+      await ctx.db.patch(c._id, { unlock: { status: "pending", at: now, requestedBy: user._id }, updatedAt: now });
+      await ctx.scheduler.runAfter(0, internal.skipTrace.trace, { contactId: c._id });
+    }
+    return { queued: wanted.length, costCents: cost };
+  },
+});
+
+/** What the trace sends the vendors: the owner and both addresses. */
+export const contactForTrace = internalQuery({
+  args: { contactId: v.id("outreachContacts") },
+  handler: async (ctx, { contactId }) => {
+    const c = await ctx.db.get(contactId);
+    if (!c || c.unlock?.status !== "pending") return null;
+    return {
+      name: c.name,
+      company: c.company,
+      property: { address: c.property.address, city: title(COUNTY), state: "TX", zip: undefined as string | undefined },
+      mailing: c.mailing,
+    };
+  },
+});
+
+/** The trace's answer: phones and emails (charged), nothing (free), or an error (free). */
+export const recordUnlock = internalMutation({
+  args: {
+    contactId: v.id("outreachContacts"),
+    phones: v.optional(v.array(outreachPhone)),
+    emails: v.optional(v.array(outreachEmail)),
+    vendor: v.optional(v.string()),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, { contactId, phones = [], emails = [], vendor, error }) => {
+    const c = await ctx.db.get(contactId);
+    if (!c || c.unlock?.status !== "pending") return null;
+    const now = nowIso();
+    const requestedBy = c.unlock.requestedBy;
+    if (phones.length > 0) {
+      let chargedCents = 0;
+      try {
+        await postTransaction(ctx, c.organizationId, {
+          type: "unlock",
+          amountCents: -UNLOCK_CENTS,
+          createdBy: requestedBy,
+          contactId,
+          note: `Phone and email for ${c.name}`,
+        });
+        chargedCents = UNLOCK_CENTS;
+      } catch {
+        // The balance ran out between the request and the hit: the company keeps what was found.
+      }
+      await ctx.db.patch(contactId, { phones, emails, unlock: { status: "found", at: now, requestedBy, vendor, chargedCents }, updatedAt: now });
+    } else if (error && emails.length === 0) {
+      await ctx.db.patch(contactId, { unlock: { status: "failed", at: now, requestedBy, vendor, error }, updatedAt: now });
+    } else {
+      await ctx.db.patch(contactId, { emails: emails.length ? emails : c.emails, unlock: { status: "none", at: now, requestedBy, vendor }, updatedAt: now });
+    }
     return null;
   },
 });

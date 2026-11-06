@@ -81,6 +81,7 @@ export async function postTransaction(
     amountCents: number;
     createdBy: Id<"users">;
     marketplaceLeadId?: Id<"marketplaceLeads">;
+    contactId?: Id<"outreachContacts">;
     method?: string;
     note?: string;
     isSample?: boolean;

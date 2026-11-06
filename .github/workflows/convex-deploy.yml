@@ -111,6 +111,9 @@ jobs:
         # The appraisal roll callers work from. Skipped when a clean pass ran
         # in the last week; the weekly job keeps it current.
         run: npx convex run parcels:syncMidland '{"ifStale":true}'
+      - name: Move Outreach's old list rows into contacts
+        run: npx convex run outreach:migrateRows
+
       - name: Group the roll into owners for Outreach
         # One row per owner and per office that gets several owners' tax
         # bills (lib/outreach.ts). Skipped when a clean build is newer than

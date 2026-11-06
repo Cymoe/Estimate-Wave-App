@@ -442,6 +442,7 @@ export const planFields = v.object({
 /** Who a list is of; each maps to a facet of the owners table (lib/outreach.ts). */
 export const outreachWho = v.union(
   v.literal("investor"),
+  v.literal("builder"),
   v.literal("manager"),
   v.literal("commercial"),
   v.literal("multifamily"),
@@ -476,6 +477,18 @@ export const outreachProperty = v.object({
 });
 
 export const outreachRowStatus = v.union(v.literal("new"), v.literal("sent"), v.literal("done"), v.literal("skip"));
+/** A phone or email a skip trace found for a contact, and which vendor said so. */
+export const outreachPhone = v.object({ number: v.string(), type: v.optional(v.string()), dnc: v.optional(v.boolean()), source: v.string() });
+export const outreachEmail = v.object({ email: v.string(), source: v.string() });
+/** How the paid unlock went: pending while the waterfall runs; found (and charged), none (free), or failed (free). */
+export const outreachUnlock = v.object({
+  status: v.union(v.literal("pending"), v.literal("found"), v.literal("none"), v.literal("failed")),
+  at: v.string(),
+  requestedBy: v.id("users"),
+  vendor: v.optional(v.string()),
+  chargedCents: v.optional(v.number()),
+  error: v.optional(v.string()),
+});
 
 export const walletTransactionType = v.union(
   v.literal("top_up"),
@@ -485,6 +498,8 @@ export const walletTransactionType = v.union(
   v.literal("adjustment"),
   // The monthly plan fee.
   v.literal("plan"),
+  // An Outreach contact's phone and email, found by a skip trace.
+  v.literal("unlock"),
 );
 
 export const expenseStatus = v.union(
@@ -1037,6 +1052,7 @@ export default defineSchema({
     createdAt: v.string(),
   }).index("by_organization", ["organizationId"]),
 
+  // The lists' rows before contacts (outreach:migrateRows moves them over on deploy; drop the table once it has run clean).
   outreachRows: defineTable({
     listId: v.id("outreachLists"),
     organizationId: v.id("organizations"),
@@ -1057,6 +1073,37 @@ export default defineSchema({
     note: v.optional(v.string()),
     updatedAt: v.optional(v.string()),
   }).index("by_list", ["listId"]),
+
+  // A company's CRM: one row per owner it has pulled, whichever lists put
+  // them there. Lists tag a contact; the contact keeps its status, note and
+  // any phone or email the company paid to unlock.
+  outreachContacts: defineTable({
+    organizationId: v.id("organizations"),
+    key: v.string(),
+    name: v.string(),
+    company: v.optional(v.string()),
+    mailing: v.object({
+      address: v.optional(v.string()),
+      city: v.optional(v.string()),
+      state: v.optional(v.string()),
+      zip: v.optional(v.string()),
+    }),
+    property: outreachProperty,
+    properties: v.number(),
+    totalValueCents: v.number(),
+    why: v.string(),
+    kinds: v.array(outreachWho),
+    listIds: v.array(v.id("outreachLists")),
+    status: outreachRowStatus,
+    note: v.optional(v.string()),
+    phones: v.optional(v.array(outreachPhone)),
+    emails: v.optional(v.array(outreachEmail)),
+    unlock: v.optional(outreachUnlock),
+    createdAt: v.string(),
+    updatedAt: v.optional(v.string()),
+  })
+    .index("by_organization", ["organizationId"])
+    .index("by_organization_and_key", ["organizationId", "key"]),
 
   // How each permit feed's last sync went.
   permitSources: defineTable({
@@ -1096,6 +1143,7 @@ export default defineSchema({
     amountCents: v.number(),
     balanceAfterCents: v.number(),
     marketplaceLeadId: v.optional(v.id("marketplaceLeads")),
+    contactId: v.optional(v.id("outreachContacts")),
     method: v.optional(v.string()),
     note: v.optional(v.string()),
     /** Demo funds; reversed when demo data is removed. */

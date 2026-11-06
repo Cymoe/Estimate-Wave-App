@@ -51,10 +51,10 @@ export type OwnerRow = {
   owners?: number;
 };
 
-export const FACETS = ["investor", "office", "commercial", "multifamily", "homeowner", "absentee", "out_of_state", "buyer"] as const;
+export const FACETS = ["investor", "builder", "office", "commercial", "multifamily", "homeowner", "absentee", "out_of_state", "buyer"] as const;
 export type Facet = (typeof FACETS)[number];
 
-export const WHO = ["investor", "manager", "commercial", "multifamily", "wealthy", "recent_buyer", "absentee", "custom"] as const;
+export const WHO = ["investor", "builder", "manager", "commercial", "multifamily", "wealthy", "recent_buyer", "absentee", "custom"] as const;
 export type Who = (typeof WHO)[number];
 
 export type Definition = {
@@ -148,7 +148,9 @@ const OFFICE_NAMES = 50;
 /** Where the owners rebuild records how it went (permitSources). */
 export const OWNERS_SOURCE = "midland-owners";
 /** Bumped when the facets or rows change shape: the deploy rebuilds owners made by an older version. */
-export const OWNERS_VERSION = 2;
+export const OWNERS_VERSION = 3;
+/** What unlocking a contact's phone and email costs, charged only when the trace finds something. */
+export const UNLOCK_CENTS = 100;
 
 /**
  * Pass one over the roll: how many parcels each mailing address gets the
@@ -286,8 +288,9 @@ export function facetsOf(row: OwnerRow, now: number): Array<{ facet: Facet; sort
   } else {
     // Three or more properties, or any company holding property: an LLC with one shopping center is an investor too.
     const upper = row.name.toUpperCase();
-    const investor = (row.parcels >= INVESTOR_PARCELS || row.company) && !NOT_INVESTOR.test(upper) && !BUILDER.test(upper);
-    if (investor) out.push({ facet: "investor", sort: row.parcels * 1e9 + Math.min(row.totalValueCents, 1e9 - 1) });
+    const holder = (row.parcels >= INVESTOR_PARCELS || row.company) && !NOT_INVESTOR.test(upper);
+    // Three or more properties, or any company holding property: an LLC with one shopping center is an investor too. Builders are their own list.
+    if (holder) out.push({ facet: BUILDER.test(upper) ? "builder" : "investor", sort: row.parcels * 1e9 + Math.min(row.totalValueCents, 1e9 - 1) });
     if (row.commercial > 0) out.push({ facet: "commercial", sort: row.commercialValueCents ?? 0 });
     if (row.multifamily > 0) out.push({ facet: "multifamily", sort: row.multifamilyValueCents ?? 0 });
     if (row.homeValueCents !== undefined && !row.company) out.push({ facet: "homeowner", sort: row.homeValueCents });
@@ -395,6 +398,8 @@ export function facetFor(def: Definition): Facet {
   switch (def.who) {
     case "investor":
       return "investor";
+    case "builder":
+      return "builder";
     case "manager":
       return "office";
     case "commercial":
@@ -473,6 +478,8 @@ export function why(row: OwnerRow, facet: Facet): string {
   switch (facet) {
     case "investor":
       return `Owns ${plural(row.parcels, "Midland property", "Midland properties")}${kinds.length ? ` (${kinds.join(", ")})` : ""}, ${shortMoney(row.totalValueCents)} on the roll`;
+    case "builder":
+      return `Homebuilder with ${plural(row.parcels, "Midland property", "Midland properties")} on the roll, ${shortMoney(row.totalValueCents)} in all`;
     case "office":
       return `Gets the tax bills for ${plural(row.parcels, "property", "properties")} from ${plural(row.owners ?? 0, "owner")}`;
     case "commercial":
@@ -496,6 +503,7 @@ export function why(row: OwnerRow, facet: Facet): string {
 /** The `who` guide, as the interpreter's system prompt and the tool's description both state it. */
 export const WHO_GUIDE = `Pick exactly one who:
 - investor: owns 3 or more Midland properties, or a company (LLC, LP, trust company) that owns any; homebuilders are left out. "Investors", "landlords", "flippers", "people who own rentals".
+- builder: a homebuilder (Betenbough, D R Horton, names with Homes, Builders, Construction or Development) holding spec homes and lots. "Builders", "homebuilders", "developers".
 - manager: an office whose mailing address receives the tax bills for 5+ properties from 2+ different owners. "Property managers", "management companies".
 - commercial: owns a commercial (F1: shops, offices, shopping centers, restaurants' buildings) or industrial (F2: warehouses, yards) building. "Shopping center owners", "strip malls", "commercial property owners", "building owners". For warehouses set use_codes ["F2"].
 - multifamily: owns an apartment building or duplex (B codes). "Apartment owners", "complexes".
@@ -627,6 +635,7 @@ export function guessDefinition(ask: string, county = "Midland"): { definition: 
   const amount = dollarsIn(ask);
   let definition: Definition | undefined;
   if (has(/\bmanag(er|ers|ement)\b/)) definition = { county, who: "manager" };
+  else if (has(/\b(home)?builders?\b|\bdevelopers?\b/)) definition = { county, who: "builder" };
   else if (has(/\bwarehouse|industrial\b/)) definition = { county, who: "commercial", useCodes: ["F2"] };
   else if (has(/shopping|strip (mall|center)|retail|commercial|office building|plaza|\bcenters?\b/)) definition = { county, who: "commercial" };
   else if (has(/apartment|multi-?family|complex|duplex/)) definition = { county, who: "multifamily" };
@@ -643,6 +652,7 @@ export function guessDefinition(ask: string, county = "Midland"): { definition: 
 export function defaultTitle(def: Definition): string {
   const base: Record<Who, string> = {
     investor: "Real estate investors",
+    builder: "Homebuilders",
     manager: "Property managers",
     commercial: "Commercial property owners",
     multifamily: "Apartment owners",
@@ -658,6 +668,7 @@ export function defaultTitle(def: Definition): string {
 /** The short label a list shows for its who. */
 export const WHO_LABEL: Record<Who, string> = {
   investor: "Investors",
+  builder: "Homebuilders",
   manager: "Property managers",
   commercial: "Commercial owners",
   multifamily: "Apartment owners",
