@@ -189,7 +189,7 @@ export const ContactsTable: React.FC<{
         </table>
       </div>
       {/* More columns wait to the right: a fade says so until the end is reached. */}
-      {!atEnd && <div aria-hidden className="pointer-events-none absolute inset-y-px right-px w-8 bg-gradient-to-l from-[#121212] to-transparent" data-testid="more-columns" />}
+      {!atEnd && <div aria-hidden className="table-fade pointer-events-none absolute inset-y-px right-px w-8" data-testid="more-columns" />}
     </div>
   );
 };

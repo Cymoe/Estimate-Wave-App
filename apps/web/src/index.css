@@ -383,3 +383,11 @@ input[type="time"]::-webkit-date-and-time-value {
 html.light .tab-fade {
   background: linear-gradient(to left, #ffffff, rgba(255, 255, 255, 0));
 }
+
+/* The same at the right edge of a wide table (its panel is #121212, white in light mode). */
+.table-fade {
+  background: linear-gradient(to left, #121212, rgba(18, 18, 18, 0));
+}
+html.light .table-fade {
+  background: linear-gradient(to left, #ffffff, rgba(255, 255, 255, 0));
+}
