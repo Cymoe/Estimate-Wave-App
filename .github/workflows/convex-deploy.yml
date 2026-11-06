@@ -115,7 +115,7 @@ jobs:
         # One row per owner and per office that gets several owners' tax
         # bills (lib/outreach.ts). Skipped when a clean build is newer than
         # the roll read above.
-        run: npx convex run outreachRebuild:rebuild '{"ifStale":true}'
+        run: npx convex run outreachRebuild:rebuild '{"ifStale":true,"background":true}'
       - name: Pull Midland's distress signals
         # Code violations, dilapidated buildings, demolition orders and stalled
         # permits for the Sellers lists. All of them the first time; skipped

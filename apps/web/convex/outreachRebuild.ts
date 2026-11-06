@@ -11,6 +11,8 @@ import { AddressCounter, OWNERS_SOURCE, OwnerGrouper, type Condensed, type Group
 import { MIDLAND_PARCELS } from "./lib/parcels";
 
 const UPSERT_BATCH = 200;
+/** How many upsert batches are in flight at once: they touch different owners, so they don't conflict. */
+const PARALLEL = 6;
 
 type Page = { rows: Condensed[]; continueCursor: string; isDone: boolean };
 
@@ -46,18 +48,27 @@ async function rebuildOwners(ctx: ActionCtx) {
     // Unique even when two builds share a millisecond: stale rows are the ones with any other id.
     const buildId = `${nowIso()}|${Math.random().toString(36).slice(2, 8)}`;
     let batch: GroupedRow[] = [];
-    const flush = async () => {
-      if (batch.length === 0) return;
-      const result: { added: number; updated: number } = await ctx.runMutation(internal.outreach.upsertOwners, { rows: batch, buildId });
+    let inFlight: Array<Promise<void>> = [];
+    const write = async (rows: GroupedRow[]) => {
+      const result: { added: number; updated: number } = await ctx.runMutation(internal.outreach.upsertOwners, { rows, buildId });
       added += result.added;
       updated += result.updated;
+    };
+    const flush = async () => {
+      if (batch.length === 0) return;
+      inFlight.push(write(batch));
       batch = [];
+      if (inFlight.length >= PARALLEL) {
+        await Promise.all(inFlight);
+        inFlight = [];
+      }
     };
     for (const row of grouper.rows(Date.now())) {
       batch.push(row);
       if (batch.length >= UPSERT_BATCH) await flush();
     }
     await flush();
+    await Promise.all(inFlight);
     await ctx.runMutation(internal.outreach.dropStale, { buildId });
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
@@ -68,18 +79,24 @@ async function rebuildOwners(ctx: ActionCtx) {
 
 /**
  * Rebuilds the owners table from the roll. Scheduled after each weekly roll
- * read; the deploy runs it with ifStale, which skips it when a clean build
- * is newer than the roll: `npx convex run outreachRebuild:rebuild '{"ifStale":true}'`.
+ * read. The deploy runs it with ifStale, which skips it when a clean build
+ * is newer than the roll, and background, which schedules the work and
+ * returns at once (a full build takes minutes; the deploy shouldn't wait):
+ * `npx convex run outreachRebuild:rebuild '{"ifStale":true,"background":true}'`.
  */
 export const rebuild = internalAction({
-  args: { ifStale: v.optional(v.boolean()) },
-  handler: async (ctx, { ifStale }) => {
+  args: { ifStale: v.optional(v.boolean()), background: v.optional(v.boolean()) },
+  handler: async (ctx, { ifStale, background }): Promise<{ skipped?: true; scheduled?: true; fetched?: number; added?: number; updated?: number; error?: string }> => {
     if (ifStale) {
       const [owners, roll] = await Promise.all([
         ctx.runQuery(internal.permits.sourceState, { source: OWNERS_SOURCE }),
         ctx.runQuery(internal.permits.sourceState, { source: MIDLAND_PARCELS.source }),
       ]);
       if (owners && !owners.error && (!roll || owners.syncedAt >= roll.syncedAt)) return { skipped: true };
+    }
+    if (background) {
+      await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
+      return { scheduled: true };
     }
     return await rebuildOwners(ctx);
   },
