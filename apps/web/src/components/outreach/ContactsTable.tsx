@@ -319,9 +319,13 @@ const HowFound: React.FC<{ row: OutreachContact }> = ({ row }) => {
               </ul>
             ) : s.cell.status === 'running' ? (
               <p className="mt-1 ml-2 border-l border-[#333333] pl-4 text-xs text-gray-500">Asking the sources now…</p>
+            ) : s.cell.status === 'failed' ? (
+              <p className="mt-1 ml-2 border-l border-[#333333] pl-4 text-xs text-amber-300">{s.cell.error ?? "The lookup didn't go through."}</p>
             ) : s.cell.source ? (
               <p className="mt-1 ml-2 border-l border-[#333333] pl-4 text-xs text-gray-500">From {ledgerName(s.cell.source)}, before the ledger was kept.</p>
-            ) : null}
+            ) : (
+              <p className="mt-1 ml-2 border-l border-[#333333] pl-4 text-xs text-gray-500">No source had it.</p>
+            )}
           </li>
         ))}
       </ol>
