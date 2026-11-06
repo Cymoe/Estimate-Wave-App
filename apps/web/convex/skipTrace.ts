@@ -8,7 +8,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
 import { outreachField } from "./schema";
-import { KEY_FOR, dedupeEmails, rankPhones, vendors, waterfall, type Field } from "./lib/skipTrace";
+import { KEY_FOR, checkEmails, dedupeEmails, rankPhones, vendors, verifier, waterfall, type Field } from "./lib/skipTrace";
 import { researchOwner } from "./lib/research";
 
 export const trace = internalAction({
@@ -67,15 +67,26 @@ export const trace = internalAction({
         continue;
       }
       const o = outcomes.find((x) => x.field === field)!;
+      let emails = field === "email" ? dedupeEmails(o.found.emails ?? []) : undefined;
+      const tries = [...o.tries];
+      if (field === "email" && emails && emails.length > 0) {
+        // Deliverability: dead addresses are dropped before anyone mails them; the checker's turn joins the ledger.
+        const checked = await checkEmails(emails, verifier(process.env));
+        emails = checked.emails;
+        tries.push(checked.try);
+        if (checked.try.outcome === "hit" || checked.try.outcome === "miss") {
+          await ctx.runMutation(internal.outreach.recordCheck, { contactId, source: checked.try.source, field: "email", hit: checked.try.outcome === "hit" });
+        }
+      }
       await ctx.runMutation(internal.outreach.recordEnrichment, {
         contactId,
         field,
         source: o.source,
         phones: field === "phone" ? rankPhones(o.found.phones ?? []) : undefined,
-        emails: field === "email" ? dedupeEmails(o.found.emails ?? []) : undefined,
+        emails,
         person: field === "person" ? o.found.person : undefined,
         error: !o.source && o.errors.length > 0 ? o.errors.join("; ") : undefined,
-        tries: o.tries,
+        tries,
       });
     }
     return null;

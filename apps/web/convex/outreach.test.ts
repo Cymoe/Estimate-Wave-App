@@ -6,6 +6,7 @@ import { actAs } from "./lib/actor";
 import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
 import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, groupOwners, guessDefinition, mailKey, ownerKey, shortMoney, type Condensed } from "./lib/outreach";
+import { checkEmails, zeroBounce } from "./lib/skipTrace";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -492,6 +493,7 @@ describe("a company's lists", () => {
     expect(oakNow.enrichment.email.tries).toEqual([
       { source: "batchdata", outcome: "hit", note: "1 email" },
       { source: "tracerfy", outcome: "skipped", note: "Not connected" },
+      { source: "zerobounce", outcome: "skipped", note: "Not connected" },
     ]);
     // Ranked: the vendor's score first, then mobile before VoIP before landline; the DNC landline is kept but flagged.
     expect(oakNow.phones).toEqual([
@@ -535,6 +537,7 @@ describe("a company's lists", () => {
       ["tx-comptroller", true, [["person", 1, 1, 0]]],
       ["batchdata", true, [["phone", 1, 1, 100], ["email", 1, 1, 0]]],
       ["tracerfy", false, [["phone", 0, 0, 0], ["email", 0, 0, 0]]],
+      ["zerobounce", false, [["email", 0, 0, 0]]],
     ]);
     await expect(co.as.query(api.outreach.sources, { organizationId: org })).rejects.toThrow(/staff/);
     // A found field isn't traced again; a failed one can be. A dropped list keeps a paid contact.
@@ -561,15 +564,18 @@ describe("a company's lists", () => {
     vi.stubEnv("BATCHDATA_API_KEY", "bd-key");
     vi.stubEnv("TRACERFY_API_KEY", "tf-key");
     vi.stubEnv("TRACERFY_API_BASE", "https://mock.tracerfy.com/v1/api/");
+    vi.stubEnv("ZEROBOUNCE_API_KEY", "zb-key");
     const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
     let batchDataStatus = 200;
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string, init?: RequestInit) => {
-        const body = JSON.parse(init?.body as string) as Record<string, unknown>;
+        const body = init?.body ? (JSON.parse(init.body as string) as Record<string, unknown>) : {};
         calls.push({ url, body });
         const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
         if (url.includes("batchdata")) return batchDataStatus === 200 ? json({ results: { persons: [] } }) : json({ message: "Rate limited" }, batchDataStatus);
+        // ZeroBounce: the Vances' address is live.
+        if (url.includes("zerobounce")) return json({ address: "robert@vance.example", status: "valid", sub_status: "" });
         // Tracerfy: two people at the address; the Vances are the ones asked for.
         return json({
           hit: true,
@@ -603,7 +609,14 @@ describe("a company's lists", () => {
       { number: "4325550301", type: "mobile", dnc: true, score: 99, source: "tracerfy" },
       { number: "4325550300", type: "landline", score: 98, source: "tracerfy" },
     ]);
-    expect(now.emails).toEqual([{ email: "robert@vance.example", source: "tracerfy" }]);
+    // Checked and deliverable: marked verified, and the checker's turn closes the email ledger.
+    expect(now.emails).toEqual([{ email: "robert@vance.example", source: "tracerfy", verified: true }]);
+    expect(now.enrichment.email.tries).toEqual([
+      { source: "batchdata", outcome: "miss", note: "No match" },
+      { source: "tracerfy", outcome: "hit", note: "1 email" },
+      { source: "zerobounce", outcome: "hit", note: "1 of 1 deliverable" },
+    ]);
+    expect(calls.filter((c) => c.url.startsWith("https://api.zerobounce.net/v2/validate?api_key=zb-key&email=robert%40vance.example"))).toHaveLength(1);
     // Asked by name (the roll's "VANCE ROBERT & LINDA"), at the sandbox, after BatchData came back empty.
     const tf = calls.filter((c) => c.url.startsWith("https://mock.tracerfy.com/v1/api/trace/lookup/"));
     expect(tf).toHaveLength(1);
@@ -615,6 +628,7 @@ describe("a company's lists", () => {
       expect(stats).toEqual([
         ["tracerfy", "email", 1, 1, 0],
         ["tracerfy", "phone", 1, 1, 100],
+        ["zerobounce", "email", 1, 1, 0],
       ]);
     });
 
@@ -858,6 +872,39 @@ async function connection(t: ReturnType<typeof setup>, co: { userId: Id<"users">
 /** Runs a connector tool the way /mcp and the office line do: in a mutation, signed in as the connection's person. */
 const runTool = (t: ReturnType<typeof setup>, conn: Awaited<ReturnType<typeof connection>>, name: string, args: Record<string, unknown> = {}) =>
   t.run(async (ctx) => await findTool(name)!.run(actAs(ctx, conn.userId, conn._id), conn, args));
+
+describe("the deliverability check", () => {
+  const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
+  const found = (...emails: string[]) => emails.map((email) => ({ email, source: "batchdata" }));
+
+  test("marks deliverable addresses verified, drops dead ones, keeps catch-all and unknown, and checks at most three", async () => {
+    const asked: string[] = [];
+    const checker = zeroBounce("zb-key", async (url) => {
+      const email = decodeURIComponent(String(url).split("&email=")[1].split("&")[0]);
+      asked.push(email);
+      const status = email.startsWith("dead") ? "invalid" : email.startsWith("trap") ? "spamtrap" : email.startsWith("any") ? "catch-all" : email.startsWith("good") ? "valid" : "unknown";
+      return json({ address: email, status, sub_status: "" });
+    });
+    const r = await checkEmails(found("good@a.example", "dead@a.example", "any@b.example", "good2@c.example"), checker);
+    expect(asked).toEqual(["good@a.example", "dead@a.example", "any@b.example"]);
+    expect(r.emails).toEqual([
+      { email: "good@a.example", source: "batchdata", verified: true },
+      { email: "any@b.example", source: "batchdata" },
+      { email: "good2@c.example", source: "batchdata" },
+    ]);
+    expect(r.try).toEqual({ source: "zerobounce", outcome: "hit", note: "1 of 3 deliverable · 1 dropped" });
+    expect((await checkEmails(found("trap@a.example"), checker)).try).toEqual({ source: "zerobounce", outcome: "miss", note: "0 of 1 deliverable · 1 dropped" });
+  });
+
+  test("no key, nothing to check, or an error from the checker: the emails stay as found and the ledger says why", async () => {
+    expect(await checkEmails(found("x@a.example"), zeroBounce(undefined))).toEqual({ emails: found("x@a.example"), try: { source: "zerobounce", outcome: "skipped", note: "Not connected" } });
+    expect((await checkEmails([], zeroBounce("k"))).try).toEqual({ source: "zerobounce", outcome: "skipped", note: "Nothing to check" });
+    const broke = zeroBounce("k", async () => json({ error: "Invalid API key or your account ran out of credits" }));
+    expect(await checkEmails(found("x@a.example"), broke)).toEqual({ emails: found("x@a.example"), try: { source: "zerobounce", outcome: "error", note: "ZeroBounce: Invalid API key or your account ran out of credits" } });
+    const down = zeroBounce("k", async () => json({}, 503));
+    expect((await checkEmails(found("x@a.example"), down)).try).toEqual({ source: "zerobounce", outcome: "error", note: "ZeroBounce: HTTP 503" });
+  });
+});
 
 describe("pulling a list from Claude or the office line", () => {
   test("saves the list and answers with the count, a sample and the link; Pro only", async () => {

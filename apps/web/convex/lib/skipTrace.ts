@@ -278,6 +278,90 @@ export function vendors(env: Record<string, string | undefined>): Vendor[] {
   return [comptrollerTexas(env.TX_COMPTROLLER_API_KEY), batchData(env.BATCHDATA_API_KEY), tracerfy(env.TRACERFY_API_KEY, fetch, env.TRACERFY_API_BASE || undefined)];
 }
 
+// ---- Email deliverability ----
+
+/** What a checker says about one address. */
+export type Verdict = "valid" | "invalid" | "catch-all" | "unknown";
+export type Verifier = {
+  name: string;
+  /** True when the deployment holds its key. */
+  connected: boolean;
+  verify: (email: string) => Promise<Verdict>;
+};
+
+/**
+ * ZeroBounce: GET /v2/validate?api_key=&email= answers {status, sub_status}.
+ * valid is a mailbox that exists and accepts mail; invalid, spam traps,
+ * abuse reporters and do-not-mail addresses are dropped; catch-all and
+ * unknown are kept, unverified. An error in the body (a bad key, no
+ * credits) throws, so the check is skipped and the emails stay as found.
+ */
+export function zeroBounce(key: string | undefined, fetchFn: Fetch = fetch, base = "https://api.zerobounce.net"): Verifier {
+  return {
+    name: "zerobounce",
+    connected: Boolean(key),
+    verify: async (email) => {
+      const response = await fetchFn(`${base}/v2/validate?api_key=${encodeURIComponent(key ?? "")}&email=${encodeURIComponent(email)}&ip_address=`, { headers: { Accept: "application/json" } });
+      if (!response.ok) throw new Error(`ZeroBounce: HTTP ${response.status}`);
+      const body = (await response.json()) as { status?: string; error?: string };
+      if (body.error) throw new Error(`ZeroBounce: ${body.error}`);
+      switch (body.status) {
+        case "valid":
+          return "valid";
+        case "invalid":
+        case "spamtrap":
+        case "abuse":
+        case "do_not_mail":
+          return "invalid";
+        case "catch-all":
+          return "catch-all";
+        default:
+          return "unknown";
+      }
+    },
+  };
+}
+
+export function verifier(env: Record<string, string | undefined>): Verifier {
+  return zeroBounce(env.ZEROBOUNCE_API_KEY);
+}
+
+/** How many of a contact's emails get checked; the rest stay as found. */
+const CHECK_AT_MOST = 3;
+
+/**
+ * Runs the found emails through the checker: deliverable ones are marked
+ * verified, dead ones dropped, the rest kept as they were. Returns the
+ * emails to keep and the checker's turn for the ledger.
+ */
+export async function checkEmails(emails: Email[], checker: Verifier): Promise<{ emails: Email[]; try: Try }> {
+  if (emails.length === 0) return { emails, try: { source: checker.name, outcome: "skipped", note: "Nothing to check" } };
+  if (!checker.connected) return { emails, try: { source: checker.name, outcome: "skipped", note: "Not connected" } };
+  const kept: Email[] = [];
+  let valid = 0;
+  let dropped = 0;
+  let checked = 0;
+  try {
+    for (const e of emails) {
+      if (checked >= CHECK_AT_MOST) {
+        kept.push(e);
+        continue;
+      }
+      checked++;
+      const verdict = await checker.verify(e.email);
+      if (verdict === "valid") {
+        valid++;
+        kept.push({ ...e, verified: true });
+      } else if (verdict === "invalid") dropped++;
+      else kept.push(e);
+    }
+  } catch (e) {
+    return { emails, try: { source: checker.name, outcome: "error", note: e instanceof Error ? e.message : String(e) } };
+  }
+  const note = [`${valid} of ${checked} deliverable`, dropped ? `${dropped} dropped` : ""].filter(Boolean).join(" · ");
+  return { emails: kept, try: { source: checker.name, outcome: valid > 0 ? "hit" : "miss", note } };
+}
+
 /** The keys a field's sources need, for the "not connected" note. */
 export const KEY_FOR: Record<Field, string> = {
   person: "TX_COMPTROLLER_API_KEY",

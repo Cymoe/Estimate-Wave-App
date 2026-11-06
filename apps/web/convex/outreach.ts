@@ -45,7 +45,7 @@ import {
 } from "./lib/outreach";
 import { MIDLAND_PARCELS } from "./lib/parcels";
 import { planIsActive } from "./lib/plan";
-import { vendors } from "./lib/skipTrace";
+import { vendors, verifier } from "./lib/skipTrace";
 import { dollars, postTransaction } from "./lib/wallet";
 
 const COUNTY = MIDLAND_PARCELS.county;
@@ -475,7 +475,8 @@ export const sources = query({
   handler: async (ctx, { organizationId }) => {
     await requireStaff(ctx);
     const stats = await ctx.db.query("dataSourceStats").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect();
-    return vendors(process.env).map((s) => ({
+    const checker = verifier(process.env);
+    return [...vendors(process.env), { name: checker.name, fields: ["email" as const], connected: checker.connected }].map((s) => ({
       name: s.name,
       fields: s.fields,
       connected: s.connected,
@@ -700,21 +701,33 @@ export const recordEnrichment = internalMutation({
       updatedAt: now,
     });
     // The stack's own scorecard: an attempt per source asked, a hit for the one that answered.
-    if (source || !error) {
-      const name = source ?? "none";
-      const row = await ctx.db
-        .query("dataSourceStats")
-        .withIndex("by_organization", (q) => q.eq("organizationId", c.organizationId).eq("source", name).eq("field", field))
-        .unique();
-      if (row) await ctx.db.patch(row._id, { attempts: row.attempts + 1, hits: row.hits + (found ? 1 : 0), chargedCents: row.chargedCents + chargedCents, lastAt: now });
-      else await ctx.db.insert("dataSourceStats", { organizationId: c.organizationId, source: name, field, attempts: 1, hits: found ? 1 : 0, chargedCents, lastAt: now });
-    }
+    if (source || !error) await bumpStat(ctx, c.organizationId, source ?? "none", field, found, chargedCents, now);
+    return null;
+  },
+});
+
+/** One more attempt (and maybe a hit) on a source's row of the scorecard. */
+async function bumpStat(ctx: MutationCtx, organizationId: Id<"organizations">, source: string, field: Doc<"dataSourceStats">["field"], hit: boolean, chargedCents: number, now: string) {
+  const row = await ctx.db
+    .query("dataSourceStats")
+    .withIndex("by_organization", (q) => q.eq("organizationId", organizationId).eq("source", source).eq("field", field))
+    .unique();
+  if (row) await ctx.db.patch(row._id, { attempts: row.attempts + 1, hits: row.hits + (hit ? 1 : 0), chargedCents: row.chargedCents + chargedCents, lastAt: now });
+  else await ctx.db.insert("dataSourceStats", { organizationId, source, field, attempts: 1, hits: hit ? 1 : 0, chargedCents, lastAt: now });
+}
+
+/** A checker's turn on the scorecard: the deliverability check counts as an attempt, a deliverable address as a hit. */
+export const recordCheck = internalMutation({
+  args: { contactId: v.id("outreachContacts"), source: v.string(), field: outreachField, hit: v.boolean() },
+  handler: async (ctx, { contactId, source, field, hit }) => {
+    const c = await ctx.db.get(contactId);
+    if (c) await bumpStat(ctx, c.organizationId, source, field, hit, 0, nowIso());
     return null;
   },
 });
 
 /** "batchdata" → "BatchData", "tx-comptroller" → "Texas Comptroller". */
-export const sourceLabel = (s: string) => ({ batchdata: "BatchData", tracerfy: "Tracerfy", "tx-comptroller": "Texas Comptroller", claude: "Claude, from the web" })[s] ?? s;
+export const sourceLabel = (s: string) => ({ batchdata: "BatchData", tracerfy: "Tracerfy", "tx-comptroller": "Texas Comptroller", zerobounce: "ZeroBounce", claude: "Claude, from the web" })[s] ?? s;
 
 /**
  * One-off: contacts unlocked before per-field cells existed get their
