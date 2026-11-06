@@ -654,6 +654,45 @@ describe("a company's lists", () => {
     expect((await read()).balanceCents).toBe(300);
   });
 
+  test("seedSample fills one owner with marked sample data for a look at the layout, charges nothing, and clears it again", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    const read = async () => await co.as.query(api.outreach.contacts, { organizationId: org });
+    expect(await t.mutation(internal.outreach.seedSample, { email: "nobody@roof.example" })).toEqual({ done: false, reason: "no user" });
+    // The named owner isn't on this list: the first company is filled instead.
+    expect(await t.mutation(internal.outreach.seedSample, { email: "owner@roof.example", name: "Oak Plaza LLC" })).toEqual({ done: true, organization: "owner@roof.example Co", contact: "Oak Plaza LLC" });
+    const after = await read();
+    const oak = after.rows.find((r) => r.name === "Oak Plaza LLC")!;
+    expect(oak.person).toEqual({ name: "Mark Ellison", title: "Managing member", source: "tx-comptroller" });
+    expect(oak.phones.map((p) => p.number)).toEqual(["4325550142", "4325550199"]);
+    expect(oak.emails).toEqual([{ email: "mark.ellison@example.com", source: "tracerfy", verified: true }]);
+    expect(oak.research?.answer).toMatch(/^Sample: Oak Plaza LLC/);
+    expect(oak.note).toBe("Sample data to show the layout, not a real lookup.");
+    expect(oak.enrichment).toMatchObject({
+      person: { status: "found", source: "tx-comptroller", tries: [{ source: "tx-comptroller", outcome: "hit", note: "Mark Ellison, Managing member" }] },
+      phone: { status: "found", source: "tracerfy", chargedCents: 100, tries: [{ source: "batchdata", outcome: "miss" }, { source: "tracerfy", outcome: "hit", note: "2 numbers" }] },
+      email: { status: "found", source: "tracerfy" },
+      research: { status: "found", source: "claude", chargedCents: 25 },
+    });
+    expect(after.coverage.phone).toEqual({ found: 1, total: 2, sources: 1 });
+    expect(after.balanceCents).toBe(0);
+    // Again: nothing changes.
+    expect(await t.mutation(internal.outreach.seedSample, { email: "owner@roof.example", name: "Oak Plaza LLC" })).toEqual({ done: true, already: true, organization: "owner@roof.example Co", contact: "Oak Plaza LLC" });
+    // Cleared: back to locked cells, nothing left behind.
+    expect(await t.mutation(internal.outreach.seedSample, { email: "owner@roof.example", name: "Oak Plaza LLC", clear: true })).toEqual({ done: true, cleared: true, organization: "owner@roof.example Co", contact: "Oak Plaza LLC" });
+    const cleared = (await read()).rows.find((r) => r.name === "Oak Plaza LLC")!;
+    expect(cleared.enrichment).toEqual({ phone: { status: "locked" }, email: { status: "locked" }, person: { status: "locked" }, research: { status: "locked" } });
+    expect([cleared.person, cleared.research, cleared.note]).toEqual([undefined, undefined, undefined]);
+    expect([cleared.phones, cleared.emails]).toEqual([[], []]);
+    // A real owner is never cleared.
+    expect(await t.mutation(internal.outreach.seedSample, { email: "owner@roof.example", name: "Oak Plaza LLC", clear: true })).toEqual({ done: false, reason: "not a sample", organization: "owner@roof.example Co", contact: "Oak Plaza LLC" });
+  });
+
   test("research reads the web about an owner through Claude: an answer with sources for 25¢, nothing found free", async () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     const t = setup();

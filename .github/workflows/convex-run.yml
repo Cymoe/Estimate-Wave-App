@@ -1,0 +1,76 @@
+name: Run a Convex function
+
+# A one-off `npx convex run` against the deployment named by the
+# CONVEX_DEPLOY_KEY secret, for the internal functions the deploy doesn't
+# run on its own (a sample fill, a clear-out, a check). Started by hand
+# from the Actions tab; the result is printed at the end of the job.
+
+on:
+  workflow_dispatch:
+    inputs:
+      function:
+        description: 'Function, e.g. outreach:seedSample'
+        required: true
+        type: string
+      args:
+        description: 'Arguments as JSON'
+        required: false
+        default: '{}'
+        type: string
+
+concurrency:
+  group: convex-deploy
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - name: Check deploy key
+        # Runs before checkout, so apps/web doesn't exist yet.
+        working-directory: .
+        env:
+          RAW_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          # Accept a key pasted with its "|" URL-encoded as %7C.
+          key="${RAW_KEY//%7C/|}"
+          key="${key//%7c/|}"
+          if [ -z "$key" ]; then
+            echo "::error::Add a CONVEX_DEPLOY_KEY repository secret (Convex dashboard > Settings > Deploy keys)."
+            exit 1
+          fi
+          # Mask every form of the key before anything else can print it.
+          echo "::add-mask::$key"
+          echo "::add-mask::${key#*|}"
+          if ! [[ "$key" =~ ^(dev|prod|preview):([a-z0-9-]+)\|.+$ ]]; then
+            echo "::error::CONVEX_DEPLOY_KEY isn't a Convex deploy key (expected dev:<deployment>|<key>). Copy it again from the Convex dashboard."
+            exit 1
+          fi
+          name="${BASH_REMATCH[2]}"
+          {
+            echo "CONVEX_DEPLOY_KEY=$key"
+            echo "CONVEX_URL=https://${name}.convex.cloud"
+          } >> "$GITHUB_ENV"
+          echo "Running on ${name}"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        working-directory: .
+        run: npm ci --no-audit --no-fund
+
+      - name: Run the function
+        env:
+          FUNCTION: ${{ inputs.function }}
+          ARGS: ${{ inputs.args }}
+        run: npx convex run "$FUNCTION" "$ARGS"

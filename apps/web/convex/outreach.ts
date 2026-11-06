@@ -17,7 +17,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { outreachDefinition, outreachEmail, outreachField, outreachPerson, outreachPhone, outreachResearch, outreachTry, outreachRowStatus } from "./schema";
-import { fail, isStaff, nowIso, requireMember, requireStaff } from "./lib/access";
+import { fail, isStaff, nowIso, organizationIdsFor, requireMember, requireStaff } from "./lib/access";
 import { mutationDef, queryDef } from "./lib/actor";
 import { callClaude } from "./lib/claude";
 import {
@@ -732,6 +732,83 @@ export const migrateUnlocks = internalMutation({
       });
     }
     return { moved: rows.length };
+  },
+});
+
+/** The note a sample owner carries, and what clearSample looks for. */
+const SAMPLE_NOTE = "Sample data to show the layout, not a real lookup.";
+
+/**
+ * One-off, for a look at the finished layout before any source key is
+ * set: fills one of a company's owners with sample data (the person
+ * behind the company, two ranked phones, an email, a research answer and
+ * the ledger), marked by its note. Nothing is charged. `clear` takes it
+ * back out, and only from an owner carrying that note.
+ * `npx convex run outreach:seedSample '{"email":"owner@example.com"}'`
+ */
+export const seedSample = internalMutation({
+  args: { email: v.string(), name: v.optional(v.string()), clear: v.optional(v.boolean()) },
+  handler: async (ctx, { email, name = "1788 Development LLC", clear }) => {
+    const user = await ctx.db.query("users").withIndex("email", (q) => q.eq("email", email)).unique();
+    if (!user) return { done: false, reason: "no user" };
+    for (const organizationId of await organizationIdsFor(ctx, user._id)) {
+      const organization = await ctx.db.get(organizationId);
+      const rows = await contactsOf(ctx, organizationId);
+      const contact = rows.find((c) => c.name.toLowerCase() === name.toLowerCase()) ?? rows.find((c) => c.company);
+      if (!organization || !contact) continue;
+      const now = nowIso();
+      if (clear) {
+        if (!contact.note?.startsWith("Sample")) return { done: false, reason: "not a sample", organization: organization.name, contact: contact.name };
+        await ctx.db.patch(contact._id, {
+          enrichment: { phone: LOCKED, email: LOCKED, person: LOCKED, research: LOCKED },
+          person: undefined,
+          phones: undefined,
+          emails: undefined,
+          research: undefined,
+          note: undefined,
+          updatedAt: now,
+        });
+        return { done: true, cleared: true, organization: organization.name, contact: contact.name };
+      }
+      if (contact.note?.startsWith("Sample")) return { done: true, already: true, organization: organization.name, contact: contact.name };
+      const found = (source: string, extra: Partial<Cell> = {}): Cell => ({ status: "found", at: now, requestedBy: user._id, source, ...extra });
+      const person = { name: "Mark Ellison", title: "Managing member", source: "tx-comptroller" };
+      await ctx.db.patch(contact._id, {
+        person,
+        phones: [
+          { number: "4325550142", type: "mobile", verified: true, score: 95, source: "tracerfy" },
+          { number: "4325550199", type: "landline", dnc: true, score: 60, source: "tracerfy" },
+        ],
+        emails: [{ email: "mark.ellison@example.com", source: "tracerfy", verified: true }],
+        research: {
+          question: DEFAULT_RESEARCH_QUESTION,
+          answer: `Sample: ${contact.name} is a Midland developer building spec homes on the west side, run by ${person.name}. A plat for 12 lots was filed in August 2026, and a site-work permit followed in October.`,
+          sources: [{ title: "Midland P&Z agenda, Aug 2026 (sample)", url: "https://example.com/midland-pz-agenda" }],
+          at: now,
+        },
+        enrichment: {
+          person: found("tx-comptroller", { tries: [{ source: "tx-comptroller", outcome: "hit", note: `${person.name}, ${person.title}` }] }),
+          phone: found("tracerfy", {
+            chargedCents: UNLOCK_CENTS,
+            tries: [
+              { source: "batchdata", outcome: "miss", note: "No match" },
+              { source: "tracerfy", outcome: "hit", note: "2 numbers" },
+            ],
+          }),
+          email: found("tracerfy", {
+            tries: [
+              { source: "batchdata", outcome: "miss", note: "No match" },
+              { source: "tracerfy", outcome: "hit", note: "1 email" },
+            ],
+          }),
+          research: found("claude", { chargedCents: RESEARCH_CENTS, tries: [{ source: "claude", outcome: "hit", note: "2 pages read" }] }),
+        },
+        note: SAMPLE_NOTE,
+        updatedAt: now,
+      });
+      return { done: true, organization: organization.name, contact: contact.name };
+    }
+    return { done: false, reason: "no contact" };
   },
 });
 
