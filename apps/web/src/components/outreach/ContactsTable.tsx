@@ -28,6 +28,8 @@ const statusTone = (s: OutreachRowStatus) => (s === 'done' ? 'text-[#7fb0e0]' : 
 const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: cents % 100 ? 2 : 0 })}`;
 const monthYear = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
 const kindsText = (kinds: OutreachWho[]) => kinds.map((k) => KIND[k]).join(', ');
+/** "DALLAS, TX 75201" under the street. */
+const cityLine = (m: OutreachContact['mailing']) => [m.city, [m.state, m.zip?.slice(0, 5)].filter(Boolean).join(' ')].filter(Boolean).join(', ');
 
 /** "12 / 200 · 2 sources" under a column's name. */
 const Coverage: React.FC<{ c: OutreachCoverage; of?: string }> = ({ c, of }) => (
@@ -93,7 +95,7 @@ export const ContactsTable: React.FC<{
   return (
     <div className="relative" data-testid="contacts-table">
       <div className="bg-[#121212] border border-[#333333] overflow-x-auto" onScroll={(e) => scrolled(e.currentTarget)} ref={(el) => el && scrolled(el)}>
-        <table className="w-full min-w-[104rem] text-sm" aria-label="Contacts">
+        <table className="w-full min-w-[90rem] text-sm" aria-label="Contacts">
           <thead>
             <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-[#333333]">
               <th className={`${pinned} left-0 z-10 px-3 py-2 w-10 align-top`}>
@@ -118,9 +120,6 @@ export const ContactsTable: React.FC<{
               </th>
               <th className={th}>Status</th>
               <th className={th}>Mailing address</th>
-              <th className={th}>City</th>
-              <th className={th}>State</th>
-              <th className={th}>Zip</th>
               <th className={th}>Property</th>
               <th className={`${th} text-right`}>Value</th>
               <th className={th}>Type</th>
@@ -176,10 +175,10 @@ export const ContactsTable: React.FC<{
                     {r.research ? <span className="text-gray-200">{r.research.answer}</span> : <Empty cell={r.enrichment.research ?? { status: 'locked' }} />}
                   </td>
                   <td className={`${td} ${statusTone(r.status)}`}>{STATUS_LABEL[r.status]}</td>
-                  <td className={`${td} max-w-[14rem] truncate text-gray-300`}>{r.mailing.address ?? ''}</td>
-                  <td className={`${td} text-gray-300`}>{r.mailing.city ?? ''}</td>
-                  <td className={`${td} text-gray-300`}>{r.mailing.state ?? ''}</td>
-                  <td className={`${td} text-gray-300`}>{r.mailing.zip?.slice(0, 5) ?? ''}</td>
+                  <td className={`${td} max-w-[16rem] truncate text-gray-300`}>
+                    {r.mailing.address ?? ''}
+                    {cityLine(r.mailing) ? <span className="block text-[11px] text-gray-500">{cityLine(r.mailing)}</span> : null}
+                  </td>
                   <td className={`${td} max-w-[14rem] truncate text-gray-300`}>
                     {r.property.address}
                     {r.properties > 1 ? <span className="text-gray-500"> +{r.properties - 1}</span> : null}

@@ -5,6 +5,7 @@ import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachField, type OutreachListSummary, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { AskListSheet } from '../components/outreach/AskListSheet';
 import { ContactsTable, ContactSheet } from '../components/outreach/ContactsTable';
+import { StepStrip } from '../components/outreach/StepStrip';
 import { csvName, download, outreachCsv } from '../components/outreach/outreachCsv';
 import { useConfirm } from '../components/common/ConfirmDialog';
 import { fundErrorText, openFundingPage } from '../components/market/WalletBar';
@@ -26,6 +27,19 @@ const STATUS_FILTERS: Array<{ value: OutreachRowStatus | 'all'; label: string }>
   { value: 'done', label: 'Done' },
   { value: 'skip', label: 'Skipped' },
 ];
+/** The quick filters over the table: what a row has, or what it needs from you. */
+type Show = 'all' | 'ready' | 'email' | 'needs';
+const SHOWS: Array<{ value: Show; label: string; has: (r: OutreachContact) => boolean }> = [
+  { value: 'all', label: 'All', has: () => true },
+  { value: 'ready', label: 'Ready to call', has: (r) => r.phones.some((p) => !p.dnc) },
+  { value: 'email', label: 'Has email', has: (r) => r.emails.length > 0 },
+  { value: 'needs', label: 'Needs you', has: (r) => Object.values(r.enrichment).some((c) => c.status === 'failed') },
+];
+/** Owner, company, person or either street, any case. */
+const matches = (r: OutreachContact, q: string) => {
+  const hay = [r.name, r.company, r.person?.name, r.mailing.address, r.property.address].filter(Boolean).join('\n').toLowerCase();
+  return hay.includes(q);
+};
 
 type OwnersState = Awaited<ReturnType<typeof outreachAPI.status>>;
 
@@ -124,6 +138,8 @@ const OutreachPage: React.FC = () => {
   const [lists, setLists] = useState<OutreachListSummary[] | null>(null);
   const [data, setData] = useState<OutreachContacts | null>(null);
   const [status, setStatus] = useState<OutreachRowStatus | 'all'>('all');
+  const [show, setShow] = useState<Show>('all');
+  const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState<OutreachContact | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -176,7 +192,12 @@ const OutreachPage: React.FC = () => {
   }, [searchParams, setSearchParams]);
 
   const list = lists?.find((l) => l.id === listId);
-  const rows = useMemo(() => (data?.rows ?? []).filter((r) => status === 'all' || r.status === status), [data, status]);
+  const rows = useMemo(() => {
+    const has = SHOWS.find((s) => s.value === show)?.has ?? (() => true);
+    const q = query.trim().toLowerCase();
+    return (data?.rows ?? []).filter((r) => (status === 'all' || r.status === status) && has(r) && (!q || matches(r, q)));
+  }, [data, status, show, query]);
+  const counts = useMemo(() => Object.fromEntries(SHOWS.map((s) => [s.value, (data?.rows ?? []).filter(s.has).length])) as Record<Show, number>, [data]);
   const chosen = rows.filter((r) => selected.has(r.id));
   const needsPhone = (r: OutreachContact) => r.enrichment.phone.status !== 'found' && r.enrichment.phone.status !== 'running';
   const hasLock = (r: OutreachContact) => needsPhone(r) || (r.company && r.enrichment.person.status !== 'found' && r.enrichment.person.status !== 'running');
@@ -197,7 +218,6 @@ const OutreachPage: React.FC = () => {
   };
   const listOpen = (data?.rows ?? []).filter(hasLock);
   const listPhones = listOpen.filter(needsPhone).length;
-  const looking = (data?.rows ?? []).filter(running).length;
 
   const addFunds = () => organizationId && openFundingPage(organizationId).catch((err) => setError(fundErrorText(err)));
 
@@ -302,27 +322,23 @@ const OutreachPage: React.FC = () => {
               {l.title} <span className="text-gray-500">{l.rowCount}</span>
             </button>
           ))}
-          <select value={status} onChange={(e) => setStatus(e.target.value as OutreachRowStatus | 'all')} aria-label="Status" className="ml-auto bg-[#1A1A1A] border border-[#333333] px-2 min-h-[36px] text-sm text-gray-300">
-            {STATUS_FILTERS.map((f) => (
-              <option key={f.value} value={f.value}>
-                {f.label}
-              </option>
-            ))}
-          </select>
         </div>
       )}
-      {list && (
-        <p className="text-sm text-gray-400">
-          {WHO_LABEL[list.who]} · {list.rowCount} {list.rowCount === 1 ? 'owner' : 'owners'} · {list.done} done · {day(list.createdAt)}
-          {list.truncated && <span className="text-amber-300"> · The top of a longer list; ask for a narrower one to reach the rest.</span>}
-        </p>
+      {data && data.rows.length > 0 && (
+        <StepStrip
+          rows={data.rows}
+          unlockCents={unlockCents}
+          listLine={
+            list && (
+              <>
+                {WHO_LABEL[list.who]} · {list.done} done · asked {day(list.createdAt)}
+                {list.truncated && <span className="text-amber-300"> · The top of a longer list; ask for a narrower one to reach the rest.</span>}
+              </>
+            )
+          }
+        />
       )}
       {note && <p className="text-sm text-gray-300">{note}</p>}
-      {looking > 0 && (
-        <p className="text-sm text-gray-400" data-testid="looking">
-          Looking up {looking} {looking === 1 ? 'owner' : 'owners'}…
-        </p>
-      )}
       {chosen.length > 0 && (
         <div className="flex flex-wrap items-center gap-3 bg-[#121212] border border-[#333333] px-4 py-2" data-testid="unlock-bar">
           <span className="text-sm text-gray-300">{chosen.length} selected</span>
@@ -356,6 +372,41 @@ const OutreachPage: React.FC = () => {
           </button>
         </div>
       )}
+      {data && data.rows.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filters">
+          <label className="relative block">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" aria-hidden />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search owner, person or street"
+              aria-label="Search"
+              className="w-72 max-w-full bg-[#1A1A1A] border border-[#333333] pl-9 pr-3 min-h-[36px] text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
+            />
+          </label>
+          {SHOWS.map((s) =>
+            s.value === 'needs' && counts.needs === 0 ? null : (
+              <button
+                key={s.value}
+                type="button"
+                onClick={() => setShow(s.value)}
+                aria-pressed={show === s.value}
+                className={s.value === 'needs' && show !== 'needs' ? `${chip(false)} border-amber-400/60 text-amber-300` : chip(show === s.value)}
+              >
+                {s.label} {s.value !== 'all' && <span className={s.value === 'needs' && show !== 'needs' ? 'text-amber-300/70' : 'text-gray-500'}>{counts[s.value]}</span>}
+              </button>
+            ),
+          )}
+          <select value={status} onChange={(e) => setStatus(e.target.value as OutreachRowStatus | 'all')} aria-label="Status" className="ml-auto bg-[#1A1A1A] border border-[#333333] px-2 min-h-[36px] text-sm text-gray-300">
+            {STATUS_FILTERS.map((f) => (
+              <option key={f.value} value={f.value}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       {data === null || lists === null ? (
         <p className="text-sm text-gray-500">Loading…</p>
       ) : lists.length === 0 ? (
@@ -363,7 +414,7 @@ const OutreachPage: React.FC = () => {
           No contacts yet. Tap + and say who you want to reach.
         </p>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-gray-500">{status === 'all' ? 'Nobody matched. Ask for a wider list.' : 'Nobody with that status.'}</p>
+        <p className="text-sm text-gray-500">{data.rows.length === 0 ? 'Nobody matched. Ask for a wider list.' : 'Nobody matches those filters.'}</p>
       ) : (
         <ContactsTable
           rows={rows}

@@ -146,6 +146,7 @@ afterEach(() => {
   contacts = { rows: [], coverage: coverage(0, 0, 0, 0), ...money };
   authUser = { id: 'u1', role: 'user' };
   ownersState = null;
+  localStorage.clear();
 });
 
 describe('the Outreach page', () => {
@@ -166,17 +167,75 @@ describe('the Outreach page', () => {
     expect(rows).toHaveLength(2);
     const cells = (i: number) => Array.from(rows[i].querySelectorAll('td')).map((c) => c.textContent?.trim());
     // What the row has comes first; the roll's columns follow, with the name pinned as they scroll.
-    expect(cells(0)).toEqual(['', 'Oak Plaza LLC', '—', '—', '—', '—', 'New', '1 MAIN ST', 'DALLAS', 'TX', '75201', '12 Midkiff Rd', '$3M', 'Commercial', '—']);
-    expect(cells(1)[11]).toBe('12 Midkiff Rd +3');
-    expect(cells(1)[14]).toBe('Code violation Sep 2026');
+    // The mailing address is one column: street, then city, state and zip under it.
+    expect(cells(0)).toEqual(['', 'Oak Plaza LLC', '—', '—', '—', '—', 'New', '1 MAIN STDALLAS, TX 75201', '12 Midkiff Rd', '$3M', 'Commercial', '—']);
+    expect(cells(1)[8]).toBe('12 Midkiff Rd +3');
+    expect(cells(1)[11]).toBe('Code violation Sep 2026');
     expect(rows[0].querySelectorAll('td')[1].className).toContain('sticky');
     expect(document.body.querySelector('[data-testid="more-columns"]')).not.toBeNull();
     const heads = Array.from(document.body.querySelectorAll('thead th')).map((h) => h.textContent?.replace(/\s+/g, ' ').trim());
-    expect(heads).toEqual(['', 'Name', 'Decision maker0 / 2 companies', 'Phone0 / 2', 'Email0 / 2', 'Research0 / 2', 'Status', 'Mailing address', 'City', 'State', 'Zip', 'Property', 'Value', 'Type', 'Signals']);
+    expect(heads).toEqual(['', 'Name', 'Decision maker0 / 2 companies', 'Phone0 / 2', 'Email0 / 2', 'Research0 / 2', 'Status', 'Mailing address', 'Property', 'Value', 'Type', 'Signals']);
     await click('Shopping center owners');
     expect(path).toBe('/outreach/l1');
     expect(getContacts).toHaveBeenLastCalledWith('o1', 'l1');
-    expect(document.body.textContent).toContain('Commercial owners · 2 owners · 0 done');
+    // The steps over the list: nothing looked up yet, so every bar is "not looked up".
+    const steps = document.body.querySelector('[data-testid="steps"]')!;
+    expect(steps.textContent).toContain('1Owners in this list2');
+    expect(steps.textContent).toContain('2 companies go to step 2 for the person');
+    expect(steps.textContent).toContain('Commercial owners · 0 done · asked Nov 5');
+    expect(steps.textContent).toContain('2Person behind the company · free0 of 2 companies2 not looked up');
+    expect(steps.textContent).toContain('3Phone · $1 when found0 of 22 not looked up$0 charged');
+    expect(steps.textContent).toContain('4Email · included0 of 22 not looked up');
+    // Hidden, it's one line, and stays hidden on the next visit.
+    await click('Hide');
+    expect(document.body.querySelector('[data-testid="steps"]')!.textContent).toBe('2 owners0 of 2 people found0 phones0 emailsShow steps');
+    expect(localStorage.getItem('outreach.steps')).toBe('hidden');
+    await click('Show steps');
+    expect(localStorage.getItem('outreach.steps')).toBeNull();
+  });
+
+  it('search and the quick filters narrow the table: ready to call, has email, needs you', async () => {
+    lists = [list];
+    const found = { status: 'found', at: '2026-11-05T15:01:00Z', source: 'tracerfy' };
+    contacts = {
+      ...twoContacts(),
+      rows: [
+        contact('r1', {
+          enrichment: { phone: { ...found, chargedCents: 100 }, email: { status: 'none' }, person: { status: 'failed', error: 'The state registry timed out' } },
+          phones: [{ number: '4325550100', type: 'mobile', dnc: true, source: 'tracerfy' }],
+        }),
+        contact('r2', {
+          name: 'City Of Midland',
+          person: { name: 'Dana Reyes', source: 'tx-comptroller' },
+          enrichment: { phone: { ...found, chargedCents: 100 }, email: found, person: { ...found, source: 'tx-comptroller' } },
+          phones: [{ number: '4325550199', type: 'landline', source: 'tracerfy' }],
+          emails: [{ email: 'dana@midlandtx.gov', source: 'tracerfy', verified: true }],
+        }),
+        contact('r3', { name: 'Vance Robert & Linda', company: undefined, mailing: { address: '9 ELM ST', city: 'ODESSA', state: 'TX', zip: '79761' } }),
+      ],
+    };
+    await render('/outreach/l1');
+    const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(2)')).map((c) => c.textContent);
+    expect(names()).toEqual(['Oak Plaza LLC', 'City Of Midland', 'Vance Robert & Linda']);
+    const filters = document.body.querySelector('[aria-label="Filters"]')!;
+    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Ready to call 1', 'Has email 1', 'Needs you 1']);
+    const steps = document.body.querySelector('[data-testid="steps"]')!.textContent!;
+    expect(steps).toContain('2 companies go to step 2 for the person · 1 person or trust skips to step 3');
+    expect(steps).toContain('1 of 2 companies1 found1 need a retry');
+    expect(steps).toContain('2 of 32 found1 not looked up$2 charged · 1 on Do Not Call only');
+    expect(steps).toContain('1 of 31 found1 none1 not looked up1 verified deliverable');
+    // A DNC-only phone isn't ready to call.
+    await click('Ready to call');
+    expect(names()).toEqual(['City Of Midland']);
+    await click('Needs you');
+    expect(names()).toEqual(['Oak Plaza LLC']);
+    await act(async () => (filters.querySelector('button') as HTMLButtonElement).click());
+    await act(async () => type(document.body.querySelector('input[aria-label="Search"]') as HTMLInputElement, 'elm'));
+    expect(names()).toEqual(['Vance Robert & Linda']);
+    await act(async () => type(document.body.querySelector('input[aria-label="Search"]') as HTMLInputElement, 'reyes'));
+    expect(names()).toEqual(['City Of Midland']);
+    await act(async () => type(document.body.querySelector('input[aria-label="Search"]') as HTMLInputElement, 'zzz'));
+    expect(document.body.textContent).toContain('Nobody matches those filters.');
   });
 
   it("the + button's Outreach list asks in plain words, shows the count and a preview, and Save opens the list", async () => {
@@ -297,7 +356,7 @@ describe('the Outreach page', () => {
     await flush();
     expect(enrich).toHaveBeenCalledWith('o1', ['r1', 'r2'], undefined, undefined);
     expect(document.body.textContent).toContain('Looking up 1 owner; $1 at most, charged only for phones found.');
-    expect(document.body.querySelector('[data-testid="looking"]')!.textContent).toBe('Looking up 1 owner…');
+    expect(document.body.querySelector('[data-testid="looking"]')!.textContent).toBe('Looking up 1 owner… 1 of 2 done');
     const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
     const cells = (i: number) => Array.from(rows[i].querySelectorAll('td')).map((c) => c.textContent?.replace(/\s+/g, ' ').trim());
     expect(cells(0)[2]).toBe('Dana ReyesManager');
