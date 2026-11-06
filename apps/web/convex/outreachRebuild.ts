@@ -7,7 +7,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { nowIso } from "./lib/access";
-import { AddressCounter, OWNERS_SOURCE, OwnerGrouper, type Condensed, type GroupedRow } from "./lib/outreach";
+import { AddressCounter, OWNERS_SOURCE, OWNERS_VERSION, OwnerGrouper, type Condensed, type GroupedRow } from "./lib/outreach";
 import { MIDLAND_PARCELS } from "./lib/parcels";
 
 const UPSERT_BATCH = 200;
@@ -73,14 +73,14 @@ async function rebuildOwners(ctx: ActionCtx) {
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
-  await ctx.runMutation(internal.permits.recordSync, { source: OWNERS_SOURCE, fetched, added, updated, error });
+  await ctx.runMutation(internal.permits.recordSync, { source: OWNERS_SOURCE, fetched, added, updated, error, fieldsVersion: error ? undefined : OWNERS_VERSION });
   return { fetched, added, updated, error };
 }
 
 /**
  * Rebuilds the owners table from the roll. Scheduled after each weekly roll
  * read. The deploy runs it with ifStale, which skips it when a clean build
- * is newer than the roll, and background, which schedules the work and
+ * of this OWNERS_VERSION is newer than the roll, and background, which schedules the work and
  * returns at once (a full build takes minutes; the deploy shouldn't wait):
  * `npx convex run outreachRebuild:rebuild '{"ifStale":true,"background":true}'`.
  */
@@ -92,7 +92,7 @@ export const rebuild = internalAction({
         ctx.runQuery(internal.permits.sourceState, { source: OWNERS_SOURCE }),
         ctx.runQuery(internal.permits.sourceState, { source: MIDLAND_PARCELS.source }),
       ]);
-      if (owners && !owners.error && (!roll || owners.syncedAt >= roll.syncedAt)) return { skipped: true };
+      if (owners && !owners.error && owners.fieldsVersion === OWNERS_VERSION && (!roll || owners.syncedAt >= roll.syncedAt)) return { skipped: true };
     }
     if (background) {
       await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});

@@ -17,7 +17,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { outreachDefinition, outreachRowStatus } from "./schema";
-import { fail, nowIso, requireMember, requireStaff } from "./lib/access";
+import { fail, isStaff, nowIso, requireMember, requireStaff } from "./lib/access";
 import { mutationDef, queryDef } from "./lib/actor";
 import { callClaude } from "./lib/claude";
 import {
@@ -281,8 +281,8 @@ export const previewInternal = internalQuery({
 export const assertPro = internalQuery({
   args: { organizationId: v.id("organizations") },
   handler: async (ctx, { organizationId }) => {
-    await requirePro(ctx, organizationId);
-    return null;
+    const { user } = await requirePro(ctx, organizationId);
+    return { staff: isStaff(user) };
   },
 });
 
@@ -387,23 +387,23 @@ Answer with kind "list" and a definition when the ask maps to one who, even loos
 Answer with kind "cannot" when the ask needs what the roll doesn't hold (a job, an income, an age, a business's customers, another county, a person by name) or isn't about property owners at all. Say in one sentence why, and give closest: the nearest list that can be made (usually wealthy homeowners by value, or commercial owners) with its own title.`;
 
 type Interpreted =
-  | { ok: true; definition: Definition; title: string; explanation: string; count: number; truncated: boolean; limited: boolean; preview: ListRow[] }
+  | { ok: true; definition: Definition; title: string; explanation: string; note?: string; count: number; truncated: boolean; limited: boolean; preview: ListRow[] }
   | { ok: false; explanation: string; suggestion?: { definition: Definition; title: string } };
 
 /** "shopping center owners in Midland" → a definition, with the count and a first look. */
 export const interpret = action({
   args: { organizationId: v.id("organizations"), request: v.string() },
   handler: async (ctx, { organizationId, request }): Promise<Interpreted> => {
-    await ctx.runQuery(internal.outreach.assertPro, { organizationId });
+    const { staff } = await ctx.runQuery(internal.outreach.assertPro, { organizationId });
     const ask = request.trim().slice(0, 500);
     if (!ask) return { ok: false, explanation: "Say who you want to reach, like shopping center owners or homes over $1M." };
-    // Without the assistant (no key, or it couldn't answer), the words alone decide, for the common asks.
+    // Without the assistant (no key, or it couldn't answer), the words alone decide, for the common asks. Staff see why.
     const fromWords = async (why: string): Promise<Interpreted> => {
       const guess = guessDefinition(ask);
       if (!guess) {
         return {
           ok: false,
-          explanation: `${why} Until it is, say one of: shopping center owners, investors, property managers, apartment owners, homes over $1M, recent buyers, absentee owners.`,
+          explanation: `${why.replace(/:.*$/, "").replace(/,$/, "")}. Until it is, say one of: shopping center owners, investors, property managers, apartment owners, homes over $1M, recent buyers, absentee owners.`,
         };
       }
       const built: { count: number; truncated: boolean; limited: boolean; rows: ListRow[] } = await ctx.runQuery(internal.outreach.previewInternal, {
@@ -414,14 +414,15 @@ export const interpret = action({
         ok: true,
         definition: guess.definition,
         title: guess.title,
-        explanation: `${guess.title.replace(/, Midland$/, "")}, from the words in your ask: ${why.replace(/\.$/, "")}. Names and mailing addresses; no phone numbers.`,
+        explanation: `${guess.title.replace(/, Midland$/, "")}. Names and mailing addresses; no phone numbers.`,
+        ...(staff ? { note: `${why} so the words alone picked this list.` } : {}),
         count: built.count,
         truncated: built.truncated,
         limited: built.limited,
         preview: built.rows,
       };
     };
-    if (!process.env.ANTHROPIC_API_KEY) return await fromWords("The assistant isn't connected yet (ANTHROPIC_API_KEY isn't set on the Convex deployment).");
+    if (!process.env.ANTHROPIC_API_KEY) return await fromWords("The assistant isn't connected: the Convex deployment has no Anthropic key,");
     let parsed: Record<string, unknown>;
     try {
       const response = await callClaude({
@@ -437,7 +438,7 @@ export const interpret = action({
         .join("");
       parsed = JSON.parse(text) as Record<string, unknown>;
     } catch {
-      return await fromWords("The assistant couldn't answer just now.");
+      return await fromWords("The assistant couldn't answer just now,");
     }
     const toDefinition = (raw: unknown) => definitionFromArgs((raw ?? {}) as Record<string, unknown>);
     const titleOf = (raw: unknown, def: Definition) => (typeof raw === "string" && raw.trim() ? raw.trim().slice(0, 50) : defaultTitle(def));

@@ -14,6 +14,8 @@ type Built = {
   definition: OutreachDefinition;
   title: string;
   explanation: string;
+  /** Staff only: why the words, not the assistant, picked this list. */
+  note?: string;
   count: number;
   truncated: boolean;
   limited: boolean;
@@ -53,7 +55,7 @@ export const AskListSheet: React.FC<{
     setBuilt(null);
     try {
       const got = await outreachAPI.interpret(organizationId, ask.trim());
-      if (got.ok) setBuilt({ definition: got.definition, title: got.title, explanation: got.explanation, count: got.count, truncated: got.truncated, limited: got.limited, rows: got.preview });
+      if (got.ok) setBuilt({ definition: got.definition, title: got.title, explanation: got.explanation, note: got.note, count: got.count, truncated: got.truncated, limited: got.limited, rows: got.preview });
       else setCannot({ explanation: got.explanation, suggestion: got.suggestion });
     } catch (err) {
       setError(err instanceof Error ? err.message : "The list couldn't be built");
@@ -152,6 +154,7 @@ export const AskListSheet: React.FC<{
                 {built.count} {built.count === 1 ? 'owner' : 'owners'}
               </p>
               <p className="text-sm text-gray-300">{built.explanation}</p>
+              {built.note && <p className="text-sm text-gray-400">{built.note}</p>}
               {built.truncated && <p className="text-sm text-amber-300">That's the top of a longer list. Narrow it down (a value, a street or a zip) to see them all.</p>}
               {!built.truncated && built.limited && <p className="text-sm text-gray-400">That's the cap for one list. Ask for a narrower one for the rest.</p>}
             </div>

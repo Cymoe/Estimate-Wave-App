@@ -57,6 +57,8 @@ const ROLL: Condensed[] = [
   parcel("12", { owner: "OAK PLAZA LLC", companyOwned: true, ownerOccupied: false, useCode: "F1", siteAddress: "12 MIDKIFF RD", street: "MIDKIFF RD", marketValueCents: 300_000_000, deedDate: "2026-09-01", mailing: { address: "1 MAIN ST", city: "DALLAS", state: "TX", zip: "75201" } }),
   // The city, owning four parcels: not an investor.
   ...["13", "14", "15", "16"].map((id) => parcel(id, { owner: "CITY OF MIDLAND", companyOwned: true, ownerOccupied: false, useCode: "F1", mailing: { address: "300 N LORAINE ST", city: "MIDLAND", state: "TX", zip: "79701" } })),
+  // A homebuilder with three spec homes: not an investor either.
+  ...["17", "18", "19"].map((id) => parcel(id, { owner: "BETENBOUGH HOMES LLC", companyOwned: true, ownerOccupied: false, mailing: { address: "6305 82ND ST", city: "LUBBOCK", state: "TX", zip: "79424" } })),
 ];
 
 describe("grouping the roll into owners", () => {
@@ -102,7 +104,8 @@ describe("grouping the roll into owners", () => {
     expect(on("Smith John")).toEqual(["absentee"]);
     // The city owns four parcels and isn't an investor; its buildings are still commercial.
     expect(on("City Of Midland")).toEqual(["commercial"]);
-    expect(owners).toHaveLength(10);
+    expect(on("Betenbough Homes LLC")).toEqual([]);
+    expect(owners).toHaveLength(11);
   });
 
   test("pass one finds only the office; pass two hands its rows out and lets them go", () => {
@@ -110,10 +113,10 @@ describe("grouping the roll into owners", () => {
     // ACME's address: five parcels from three owners. The city's four and the LLC's three are one owner each.
     expect([...counter.candidates()]).toEqual(["C/O ACME MANAGEMENT|79701"]);
     const grouper = new OwnerGrouper(counter.candidates()).addAll(ROLL);
-    expect(grouper.size).toBe(10);
+    expect(grouper.size).toBe(11);
     const rows = [...grouper.rows(NOW)];
     expect(rows.map((r) => r.owner.name).sort()).toContain("ACME MANAGEMENT");
-    expect(rows).toHaveLength(10);
+    expect(rows).toHaveLength(11);
     expect(grouper.size).toBe(0);
     // An address nobody flagged gets no office row, however many parcels it carries.
     const none = new OwnerGrouper(new Set()).addAll(ROLL);
@@ -208,19 +211,19 @@ describe("the owners table", () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     const t = setup();
     const ids = await addParcels(t, ROLL);
-    expect(await rebuild(t)).toEqual({ fetched: 16, added: 10, updated: 0, error: undefined });
+    expect(await rebuild(t)).toEqual({ fetched: 19, added: 11, updated: 0, error: undefined });
     const counts = async () =>
       await t.run(async (ctx) => [(await ctx.db.query("owners").collect()).length, (await ctx.db.query("ownerFacets").collect()).length]);
-    expect(await counts()).toEqual([10, 15]);
+    expect(await counts()).toEqual([11, 15]);
     // The same roll again: nothing added, nothing duplicated.
     expect(await rebuild(t)).toMatchObject({ added: 0, updated: 0 });
-    expect(await counts()).toEqual([10, 15]);
+    expect(await counts()).toEqual([11, 15]);
     // The shopping center sells to the Vance family (now investors too), and the city sells one lot.
     await t.run(async (ctx) => {
       await ctx.db.patch(ids["12"], { owner: "VANCE ROBERT & LINDA", companyOwned: false, mailing: { address: "1 SPRUCE AV", city: "MIDLAND", state: "TX", zip: "79705" } });
       await ctx.db.delete(ids["13"]);
     });
-    expect(await rebuild(t)).toMatchObject({ fetched: 15, added: 0, updated: 2 });
+    expect(await rebuild(t)).toMatchObject({ fetched: 18, added: 0, updated: 2 });
     await t.run(async (ctx) => {
       const owners = await ctx.db.query("owners").collect();
       expect(owners.map((o) => o.name).sort()).not.toContain("Oak Plaza LLC");
@@ -228,12 +231,20 @@ describe("the owners table", () => {
       expect(vance).toMatchObject({ parcels: 2, commercial: 1 });
       const facets = (await ctx.db.query("ownerFacets").withIndex("by_owner", (q) => q.eq("ownerId", vance._id)).collect()).map((f) => f.facet).sort();
       expect(facets).toEqual(["buyer", "commercial", "homeowner"]);
-      expect((await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "midland-owners")).unique())!.fetched).toBe(15);
+      expect((await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "midland-owners")).unique())!.fetched).toBe(18);
     });
-    expect(await counts()).toEqual([9, 14]);
+    expect(await counts()).toEqual([10, 14]);
     // The deploy's run skips a build that's newer than the roll read, and runs after a new read.
     expect(await t.action(internal.outreachRebuild.rebuild, { ifStale: true })).toEqual({ skipped: true });
     expect(await t.action(internal.outreachRebuild.rebuild, { ifStale: true, background: true })).toEqual({ skipped: true });
+    // Owners grouped by an older version of the rules are rebuilt even when newer than the roll.
+    await t.run(async (ctx) => {
+      const owners = (await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "midland-owners")).unique())!;
+      await ctx.db.patch(owners._id, { fieldsVersion: 1 });
+    });
+    expect(await t.action(internal.outreachRebuild.rebuild, { ifStale: true, background: true })).toEqual({ scheduled: true });
+    await t.finishAllScheduledFunctions(() => {});
+    expect(await t.action(internal.outreachRebuild.rebuild, { ifStale: true })).toEqual({ skipped: true });
     await t.run(async (ctx) => {
       const roll = await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "midland-parcels")).unique();
       if (roll) await ctx.db.patch(roll._id, { syncedAt: new Date(Date.now() + 60_000).toISOString() });
@@ -242,11 +253,11 @@ describe("the owners table", () => {
     // In the background (the deploy's way), the work is scheduled and the call returns at once.
     expect(await t.action(internal.outreachRebuild.rebuild, { ifStale: true, background: true })).toEqual({ scheduled: true });
     await t.finishAllScheduledFunctions(() => {});
-    expect(await t.action(internal.outreachRebuild.rebuild, {})).toMatchObject({ fetched: 15, added: 0, updated: 0 });
+    expect(await t.action(internal.outreachRebuild.rebuild, {})).toMatchObject({ fetched: 18, added: 0, updated: 0 });
     await t.finishAllScheduledFunctions(() => {});
     // Staff can see when it last ran; a company can't.
     const staff = await signUp(t, "ops@webb.example", { role: "staff" });
-    expect(await staff.as.query(api.outreach.status, {})).toMatchObject({ parcels: 15, owners: 0 });
+    expect(await staff.as.query(api.outreach.status, {})).toMatchObject({ parcels: 18, owners: 0 });
     const co = await signUp(t, "owner@roof.example");
     await expect(co.as.query(api.outreach.status, {})).rejects.toThrow(/staff/);
   });
@@ -478,12 +489,22 @@ describe("asking in plain words", () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "");
     const words = await co.as.action(api.outreach.interpret, { organizationId: co.organizationId, request: "Property managers" });
     expect(words).toMatchObject({ ok: true, definition: { county: "Midland", who: "manager" }, title: "Property managers, Midland", count: 1 });
-    expect(words.explanation).toBe("Property managers, from the words in your ask: The assistant isn't connected yet (ANTHROPIC_API_KEY isn't set on the Convex deployment). Names and mailing addresses; no phone numbers.");
+    expect(words.explanation).toBe("Property managers. Names and mailing addresses; no phone numbers.");
+    expect(words).not.toHaveProperty("note");
     const stretch = await co.as.action(api.outreach.interpret, { organizationId: co.organizationId, request: "oil executives" });
     expect(stretch).toEqual({
       ok: false,
-      explanation: "The assistant isn't connected yet (ANTHROPIC_API_KEY isn't set on the Convex deployment). Until it is, say one of: shopping center owners, investors, property managers, apartment owners, homes over $1M, recent buyers, absentee owners.",
+      explanation: "The assistant isn't connected. Until it is, say one of: shopping center owners, investors, property managers, apartment owners, homes over $1M, recent buyers, absentee owners.",
     });
+    // Staff see why the words picked the list.
+    const ops = await signUp(t, "ops@webb.example", { role: "staff" });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(ops.organizationId, {
+        plan: { monthlyCents: 9900, claimsIncluded: 10, extraClaimCents: 1500, status: "active", periodStart: "2026-10-01T00:00:00.000Z", nextChargeAt: "2026-12-01T00:00:00.000Z", claimsThisPeriod: 0 },
+      });
+    });
+    const seen = await ops.as.action(api.outreach.interpret, { organizationId: ops.organizationId, request: "Property managers" });
+    expect(seen).toMatchObject({ ok: true, note: "The assistant isn't connected: the Convex deployment has no Anthropic key, so the words alone picked this list." });
     // The assistant errors out: the words step in too.
     vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
     stubClaude("not json");

@@ -87,6 +87,8 @@ const MAX_STREETS = 20;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Governments, schools, churches, HOAs and lenders own a lot of parcels without being investors. */
+/** Homebuilders: dozens of spec homes and lots on the roll, but not investors. */
+const BUILDER = /\b(HOMES|HOMEBUILDERS?|BUILDERS?|BUILDING CO|CONSTRUCTION|DEVELOPMENT|HORTON|LENNAR)\b/;
 const NOT_INVESTOR = /\b(CITY OF|COUNTY OF|STATE OF|ISD|SCHOOL|COLLEGE|UNIVERSITY|CHURCH|MINISTRIES|HOA|HOMEOWNERS|ASSOCIATION|ASSN|AUTHORITY|BANK|MORTGAGE|HOUSING|HABITAT|UNITED STATES|USA)\b/;
 
 const squash = (s: string) => s.replace(/\s+/g, " ").trim();
@@ -145,6 +147,8 @@ const property = (p: Condensed): Property => ({ parcelId: p.id, address: p.siteA
 const OFFICE_NAMES = 50;
 /** Where the owners rebuild records how it went (permitSources). */
 export const OWNERS_SOURCE = "midland-owners";
+/** Bumped when the facets or rows change shape: the deploy rebuilds owners made by an older version. */
+export const OWNERS_VERSION = 2;
 
 /**
  * Pass one over the roll: how many parcels each mailing address gets the
@@ -281,7 +285,8 @@ export function facetsOf(row: OwnerRow, now: number): Array<{ facet: Facet; sort
     out.push({ facet: "office", sort: row.parcels });
   } else {
     // Three or more properties, or any company holding property: an LLC with one shopping center is an investor too.
-    const investor = (row.parcels >= INVESTOR_PARCELS || row.company) && !NOT_INVESTOR.test(row.name.toUpperCase());
+    const upper = row.name.toUpperCase();
+    const investor = (row.parcels >= INVESTOR_PARCELS || row.company) && !NOT_INVESTOR.test(upper) && !BUILDER.test(upper);
     if (investor) out.push({ facet: "investor", sort: row.parcels * 1e9 + Math.min(row.totalValueCents, 1e9 - 1) });
     if (row.commercial > 0) out.push({ facet: "commercial", sort: row.commercialValueCents ?? 0 });
     if (row.multifamily > 0) out.push({ facet: "multifamily", sort: row.multifamilyValueCents ?? 0 });
@@ -490,7 +495,7 @@ export function why(row: OwnerRow, facet: Facet): string {
 
 /** The `who` guide, as the interpreter's system prompt and the tool's description both state it. */
 export const WHO_GUIDE = `Pick exactly one who:
-- investor: owns 3 or more Midland properties, or a company (LLC, LP, trust company) that owns any. "Investors", "landlords", "flippers", "people who own rentals".
+- investor: owns 3 or more Midland properties, or a company (LLC, LP, trust company) that owns any; homebuilders are left out. "Investors", "landlords", "flippers", "people who own rentals".
 - manager: an office whose mailing address receives the tax bills for 5+ properties from 2+ different owners. "Property managers", "management companies".
 - commercial: owns a commercial (F1: shops, offices, shopping centers, restaurants' buildings) or industrial (F2: warehouses, yards) building. "Shopping center owners", "strip malls", "commercial property owners", "building owners". For warehouses set use_codes ["F2"].
 - multifamily: owns an apartment building or duplex (B codes). "Apartment owners", "complexes".

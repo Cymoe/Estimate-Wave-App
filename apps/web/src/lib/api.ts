@@ -1210,7 +1210,7 @@ export type OutreachListSummary = {
 export type OutreachList = OutreachListSummary & { rows: OutreachRow[] };
 export type OutreachPreview = { count: number; truncated: boolean; limited: boolean; rows: OutreachPreviewRow[] };
 export type OutreachInterpreted =
-  | ({ ok: true; definition: OutreachDefinition; title: string; explanation: string; preview: OutreachPreviewRow[] } & Omit<OutreachPreview, 'rows'>)
+  | ({ ok: true; definition: OutreachDefinition; title: string; explanation: string; note?: string; preview: OutreachPreviewRow[] } & Omit<OutreachPreview, 'rows'>)
   | { ok: false; explanation: string; suggestion?: { definition: OutreachDefinition; title: string } };
 
 /** Outreach: mailing lists from the county roll, asked for in plain words (Pro). */
