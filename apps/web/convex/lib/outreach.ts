@@ -141,10 +141,45 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 
 const value = (p: Condensed) => p.marketValueCents ?? 0;
 const property = (p: Condensed): Property => ({ parcelId: p.id, address: p.siteAddress, useCode: p.useCode, valueCents: p.marketValueCents });
-/** How many distinct owners an office remembers; past this the count is what matters and it's already well past OFFICE_OWNERS. */
+/** How many distinct owners an office remembers by name; past this only the count grows, and it's already well past OFFICE_OWNERS. */
 const OFFICE_NAMES = 50;
+/** Where the owners rebuild records how it went (permitSources). */
+export const OWNERS_SOURCE = "midland-owners";
 
-/** One owner (or office) as the roll is read: totals and the best of each kind, never the parcels themselves. */
+/**
+ * Pass one over the roll: how many parcels each mailing address gets the
+ * bills for, and whether from more than one owner. Three small fields per
+ * address, so 50,000 addresses are a few megabytes.
+ */
+export class AddressCounter {
+  private counts = new Map<string, { n: number; first: string; multi: boolean }>();
+
+  add(p: Condensed) {
+    const ok = ownerKey(p.owner);
+    const mk = ok ? mailKey(p.mailing) : undefined;
+    if (!ok || !mk) return;
+    const c = this.counts.get(mk);
+    if (!c) this.counts.set(mk, { n: 1, first: ok, multi: false });
+    else {
+      c.n++;
+      if (!c.multi && c.first !== ok) c.multi = true;
+    }
+  }
+
+  addAll(rows: Condensed[]) {
+    for (const p of rows) this.add(p);
+    return this;
+  }
+
+  /** The mailing addresses that might be offices: OFFICE_PARCELS or more parcels from more than one owner. */
+  candidates(): Set<string> {
+    const out = new Set<string>();
+    for (const [mk, c] of this.counts) if (c.n >= OFFICE_PARCELS && c.multi) out.add(mk);
+    return out;
+  }
+}
+
+/** One owner (or office) as the roll is read: totals and the best of each kind, never the parcels themselves. Arrays, not Sets: smaller. */
 type Acc = {
   key: string;
   kind: "owner" | "office";
@@ -163,12 +198,12 @@ type Acc = {
   commercialMax?: number;
   multifamilyMax?: number;
   latestDeed?: string;
-  useCodes: Set<string>;
-  streets: Set<string>;
+  useCodes: string[];
+  streets: string[];
   tops: Record<string, Property>;
-  /** Office only: the distinct owners billed here, and how often each (the most common names it when there's no c/o line). */
-  names?: Map<string, number>;
-  owners?: number;
+  /** Office only: the distinct owners billed here with how often each (the most common names it when there's no c/o line), and any past OFFICE_NAMES. */
+  names?: Array<[string, number]>;
+  extraOwners?: number;
 };
 
 function fold(acc: Acc, p: Condensed) {
@@ -201,14 +236,14 @@ function fold(acc: Acc, p: Condensed) {
     top("multifamily");
   }
   if (p.deedDate && (!acc.latestDeed || p.deedDate > acc.latestDeed)) acc.latestDeed = p.deedDate;
-  acc.useCodes.add(p.useCode);
+  if (!acc.useCodes.includes(p.useCode)) acc.useCodes.push(p.useCode);
   const street = p.street ?? streetKey(p.siteAddress);
-  if (street && acc.streets.size < MAX_STREETS) acc.streets.add(street);
+  if (street && acc.streets.length < MAX_STREETS && !acc.streets.includes(street)) acc.streets.push(street);
 }
 
 const fresh = (key: string, kind: Acc["kind"], mailing: Mailing, owner: string, company: boolean): Acc => ({
   key, kind, mailing, owner, company, parcels: 0, homes: 0, rentals: 0, commercial: 0, multifamily: 0, total: 0, max: 0,
-  useCodes: new Set(), streets: new Set(), tops: {},
+  useCodes: [], streets: [], tops: {},
 });
 
 /** The owner row an accumulator has become. */
@@ -233,9 +268,9 @@ function rowFor(acc: Acc, name: string, company: boolean): OwnerRow {
     outOfState: outOfState(acc.mailing),
     latestDeed: acc.latestDeed,
     useCodes: [...acc.useCodes].sort(),
-    streets: [...acc.streets],
+    streets: acc.streets,
     tops: acc.tops,
-    owners: acc.kind === "office" ? acc.owners : undefined,
+    owners: acc.kind === "office" ? (acc.names?.length ?? 0) + (acc.extraOwners ?? 0) : undefined,
   };
 }
 
@@ -262,19 +297,23 @@ export function facetsOf(row: OwnerRow, now: number): Array<{ facet: Facet; sort
   return out;
 }
 
+export type GroupedRow = { owner: OwnerRow; facets: Array<{ facet: Facet; sort: number }> };
 export type Grouped = { owners: OwnerRow[]; facets: Map<string, Array<{ facet: Facet; sort: number }>> };
 
 /**
- * Groups the roll into owner rows and office rows as it's read, a parcel at
- * a time, keeping only each owner's totals (the whole roll never sits in
- * memory). An owner row is one owner at one mailing address; an office row
- * is one mailing address that gets the bills for OFFICE_PARCELS or more
- * parcels belonging to OFFICE_OWNERS or more different owners.
+ * Pass two over the roll: owner rows and office rows, folded in a parcel
+ * at a time. An owner row is one owner at one mailing address; an office
+ * row is one mailing address that pass one found getting the bills for
+ * OFFICE_PARCELS or more parcels from OFFICE_OWNERS or more owners. Only
+ * those addresses get an accumulator, so memory is the owners, not the
+ * addresses.
  */
 export class OwnerGrouper {
   private byOwner = new Map<string, Acc>();
   private byMail = new Map<string, Acc>();
   seen = 0;
+
+  constructor(private offices: Set<string>) {}
 
   add(p: Condensed) {
     const ok = ownerKey(p.owner);
@@ -288,16 +327,18 @@ export class OwnerGrouper {
       this.byOwner.set(key, g);
     }
     fold(g, p);
-    if (mk) {
+    if (mk && this.offices.has(mk)) {
       let o = this.byMail.get(mk);
       if (!o) {
         o = fresh(`office:${mk}`, "office", p.mailing, p.owner, true);
-        o.names = new Map();
+        o.names = [];
         this.byMail.set(mk, o);
       }
       fold(o, p);
-      if (o.names!.has(ok) || o.names!.size < OFFICE_NAMES) o.names!.set(ok, (o.names!.get(ok) ?? 0) + 1);
-      else o.owners = (o.owners ?? o.names!.size) + 1;
+      const named = o.names!.find((n) => n[0] === ok);
+      if (named) named[1]++;
+      else if (o.names!.length < OFFICE_NAMES) o.names!.push([ok, 1]);
+      else o.extraOwners = (o.extraOwners ?? 0) + 1;
     }
   }
 
@@ -306,28 +347,41 @@ export class OwnerGrouper {
     return this;
   }
 
+  /** The rows, one at a time, each dropped from memory as it goes out. */
+  *rows(now = Date.now()): Generator<GroupedRow> {
+    for (const [key, g] of this.byOwner) {
+      this.byOwner.delete(key);
+      const owner = rowFor(g, displayName(g.owner), g.company);
+      yield { owner, facets: facetsOf(owner, now) };
+    }
+    for (const [key, o] of this.byMail) {
+      this.byMail.delete(key);
+      const distinct = o.names!.length + (o.extraOwners ?? 0);
+      if (o.parcels < OFFICE_PARCELS || distinct < OFFICE_OWNERS) continue;
+      const most = [...o.names!].sort((a, b) => b[1] - a[1])[0][0];
+      const owner = rowFor(o, careOf(o.mailing.address) ?? displayName(most), true);
+      yield { owner, facets: facetsOf(owner, now) };
+    }
+  }
+
+  get size() {
+    return this.byOwner.size + this.byMail.size;
+  }
+
   finish(now = Date.now()): Grouped {
     const owners: OwnerRow[] = [];
     const facets = new Map<string, Array<{ facet: Facet; sort: number }>>();
-    for (const g of this.byOwner.values()) {
-      const row = rowFor(g, displayName(g.owner), g.company);
-      owners.push(row);
-      facets.set(row.key, facetsOf(row, now));
-    }
-    for (const o of this.byMail.values()) {
-      o.owners = Math.max(o.owners ?? 0, o.names!.size);
-      if (o.parcels < OFFICE_PARCELS || o.owners < OFFICE_OWNERS) continue;
-      const most = [...o.names!.entries()].sort((a, b) => b[1] - a[1])[0][0];
-      const row = rowFor(o, careOf(o.mailing.address) ?? displayName(most), true);
-      owners.push(row);
-      facets.set(row.key, facetsOf(row, now));
+    for (const r of this.rows(now)) {
+      owners.push(r.owner);
+      facets.set(r.owner.key, r.facets);
     }
     return { owners, facets };
   }
 }
 
-/** The whole roll at once, for tests and small reads. */
-export const groupOwners = (rows: Condensed[], now = Date.now()): Grouped => new OwnerGrouper().addAll(rows).finish(now);
+/** The whole roll at once (both passes), for tests and small reads. */
+export const groupOwners = (rows: Condensed[], now = Date.now()): Grouped =>
+  new OwnerGrouper(new AddressCounter().addAll(rows).candidates()).addAll(rows).finish(now);
 
 // ---- Lists ----
 

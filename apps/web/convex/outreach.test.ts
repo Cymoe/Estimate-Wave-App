@@ -5,7 +5,7 @@ import { setup, signUp } from "./test.setup";
 import { actAs } from "./lib/actor";
 import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
-import { careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, groupOwners, guessDefinition, mailKey, ownerKey, shortMoney, type Condensed } from "./lib/outreach";
+import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, groupOwners, guessDefinition, mailKey, ownerKey, shortMoney, type Condensed } from "./lib/outreach";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -105,6 +105,21 @@ describe("grouping the roll into owners", () => {
     expect(owners).toHaveLength(10);
   });
 
+  test("pass one finds only the office; pass two hands its rows out and lets them go", () => {
+    const counter = new AddressCounter().addAll(ROLL);
+    // ACME's address: five parcels from three owners. The city's four and the LLC's three are one owner each.
+    expect([...counter.candidates()]).toEqual(["C/O ACME MANAGEMENT|79701"]);
+    const grouper = new OwnerGrouper(counter.candidates()).addAll(ROLL);
+    expect(grouper.size).toBe(10);
+    const rows = [...grouper.rows(NOW)];
+    expect(rows.map((r) => r.owner.name).sort()).toContain("ACME MANAGEMENT");
+    expect(rows).toHaveLength(10);
+    expect(grouper.size).toBe(0);
+    // An address nobody flagged gets no office row, however many parcels it carries.
+    const none = new OwnerGrouper(new Set()).addAll(ROLL);
+    expect([...none.rows(NOW)].map((r) => r.owner.kind)).not.toContain("office");
+  });
+
   test("a definition from what the assistant or a tool sends, in dollars", () => {
     expect(definitionFromArgs({ who: "wealthy", min_value: 1_500_000, zips: ["79705-1234"], limit: 900 })).toEqual({
       county: "Midland",
@@ -183,7 +198,7 @@ async function proCompany(t: ReturnType<typeof setup>, email = "owner@roof.examp
 }
 
 const rebuild = async (t: ReturnType<typeof setup>) => {
-  const result = await t.action(internal.outreach.rebuild, {});
+  const result = await t.action(internal.outreachRebuild.rebuild, {});
   await t.finishAllScheduledFunctions(() => {});
   return result;
 };
@@ -217,13 +232,13 @@ describe("the owners table", () => {
     });
     expect(await counts()).toEqual([9, 14]);
     // The deploy's run skips a build that's newer than the roll read, and runs after a new read.
-    expect(await t.action(internal.outreach.rebuild, { ifStale: true })).toEqual({ skipped: true });
+    expect(await t.action(internal.outreachRebuild.rebuild, { ifStale: true })).toEqual({ skipped: true });
     await t.run(async (ctx) => {
       const roll = await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "midland-parcels")).unique();
       if (roll) await ctx.db.patch(roll._id, { syncedAt: new Date(Date.now() + 60_000).toISOString() });
       else await ctx.db.insert("permitSources", { source: "midland-parcels", syncedAt: new Date(Date.now() + 60_000).toISOString(), fetched: 15, added: 0, updated: 0 });
     });
-    expect(await t.action(internal.outreach.rebuild, { ifStale: true })).toMatchObject({ fetched: 15, added: 0, updated: 0 });
+    expect(await t.action(internal.outreachRebuild.rebuild, { ifStale: true })).toMatchObject({ fetched: 15, added: 0, updated: 0 });
     await t.finishAllScheduledFunctions(() => {});
     // Staff can see when it last ran; a company can't.
     const staff = await signUp(t, "ops@webb.example", { role: "staff" });

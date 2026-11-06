@@ -151,7 +151,7 @@ async function pullMidlandParcels(ctx: ActionCtx) {
   // Every home's motivated-seller lists, and the owners Outreach lists from, now the roll (and who's a landlord) is current.
   if (!error) {
     await ctx.scheduler.runAfter(0, internal.signals.recomputePage, {});
-    await ctx.scheduler.runAfter(0, internal.outreach.rebuild, {});
+    await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
   }
   await ctx.runMutation(internal.permits.recordSync, {
     source: MIDLAND_PARCELS.source,

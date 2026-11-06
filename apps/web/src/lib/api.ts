@@ -1228,7 +1228,7 @@ export const outreachAPI = {
   remove: (organizationId: string, listId: string) => run('mutation', api.outreach.remove, { organizationId, listId }),
   /** Staff: when the owners were last grouped, from how many parcels; and a rebuild. */
   status: (): Promise<{ syncedAt: string; parcels: number; owners: number; error?: string } | null> => run('query', api.outreach.status, {}),
-  rebuild: (): Promise<{ fetched: number; added: number; updated: number; error?: string }> => run('action', api.outreach.rebuildNow, {}),
+  rebuild: (): Promise<{ fetched: number; added: number; updated: number; error?: string }> => run('action', api.outreachRebuild.rebuildNow, {}),
 };
 
 /** Standing bids by county and service type, and the leads they won or missed. */

@@ -9,12 +9,10 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   action,
-  internalAction,
   internalMutation,
   internalQuery,
   mutation,
   query,
-  type ActionCtx,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
@@ -26,6 +24,7 @@ import {
   DEFAULT_ROWS,
   MAX_ROWS,
   OUTREACH_INPUT_SCHEMA,
+  OWNERS_SOURCE,
   WEALTHY_DEFAULT_CENTS,
   WHO_GUIDE,
   defaultTitle,
@@ -33,7 +32,6 @@ import {
   facetFor,
   guessDefinition,
   facetValue,
-  OwnerGrouper,
   matches,
   propertyFor,
   why,
@@ -46,11 +44,9 @@ import { MIDLAND_PARCELS } from "./lib/parcels";
 import { planIsActive } from "./lib/plan";
 
 const COUNTY = MIDLAND_PARCELS.county;
-export const OWNERS_SOURCE = "midland-owners";
 /** How many facet rows one list build reads: past this the list is cut and says so. */
 export const SCAN = 3000;
 const PAGE = 2000;
-const UPSERT_BATCH = 200;
 const DROP_BATCH = 500;
 
 const title = (s: string) => s.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase());
@@ -170,68 +166,6 @@ export const dropStale = internalMutation({
       await ctx.db.delete(o._id);
     }
     if (stale.length === DROP_BATCH) await ctx.scheduler.runAfter(0, internal.outreach.dropStale, { buildId });
-  },
-});
-
-/** Reads the whole roll, groups it, writes the owners and drops the ones gone. Records how it went under OWNERS_SOURCE. */
-async function rebuildOwners(ctx: ActionCtx) {
-  let fetched = 0;
-  let added = 0;
-  let updated = 0;
-  let error: string | undefined;
-  try {
-    // A page at a time into the grouper, which keeps totals, not parcels: the roll never sits in memory whole.
-    const grouper = new OwnerGrouper();
-    let cursor: string | undefined;
-    for (;;) {
-      const page: { rows: Condensed[]; continueCursor: string; isDone: boolean } = await ctx.runQuery(internal.outreach.parcelPage, { cursor });
-      grouper.addAll(page.rows);
-      fetched += page.rows.length;
-      if (page.isDone) break;
-      cursor = page.continueCursor;
-    }
-    const { owners, facets } = grouper.finish(Date.now());
-    // Unique even when two builds share a millisecond: stale rows are the ones with any other id.
-    const buildId = `${nowIso()}|${Math.random().toString(36).slice(2, 8)}`;
-    for (let i = 0; i < owners.length; i += UPSERT_BATCH) {
-      const batch = owners.slice(i, i + UPSERT_BATCH).map((owner) => ({ owner, facets: facets.get(owner.key) ?? [] }));
-      const result: { added: number; updated: number } = await ctx.runMutation(internal.outreach.upsertOwners, { rows: batch, buildId });
-      added += result.added;
-      updated += result.updated;
-    }
-    await ctx.runMutation(internal.outreach.dropStale, { buildId });
-  } catch (e) {
-    error = e instanceof Error ? e.message : String(e);
-  }
-  await ctx.runMutation(internal.permits.recordSync, { source: OWNERS_SOURCE, fetched, added, updated, error });
-  return { fetched, added, updated, error };
-}
-
-/**
- * Rebuilds the owners table from the roll. Scheduled after each weekly roll
- * read; the deploy runs it with ifStale, which skips it when a clean build
- * is newer than the roll: `npx convex run outreach:rebuild '{"ifStale":true}'`.
- */
-export const rebuild = internalAction({
-  args: { ifStale: v.optional(v.boolean()) },
-  handler: async (ctx, { ifStale }) => {
-    if (ifStale) {
-      const [owners, roll] = await Promise.all([
-        ctx.runQuery(internal.permits.sourceState, { source: OWNERS_SOURCE }),
-        ctx.runQuery(internal.permits.sourceState, { source: MIDLAND_PARCELS.source }),
-      ]);
-      if (owners && !owners.error && (!roll || owners.syncedAt >= roll.syncedAt)) return { skipped: true };
-    }
-    return await rebuildOwners(ctx);
-  },
-});
-
-/** "Rebuild owners" on the Ops sources card, and the first run after deploy: `npx convex run outreach:rebuildNow`. */
-export const rebuildNow = action({
-  args: {},
-  handler: async (ctx) => {
-    await ctx.runQuery(internal.permits.assertStaff, {});
-    return await rebuildOwners(ctx);
   },
 });
 
