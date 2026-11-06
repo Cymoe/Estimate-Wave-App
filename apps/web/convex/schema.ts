@@ -477,10 +477,31 @@ export const outreachProperty = v.object({
 });
 
 export const outreachRowStatus = v.union(v.literal("new"), v.literal("sent"), v.literal("done"), v.literal("skip"));
-/** A phone or email a skip trace found for a contact, and which vendor said so. */
-export const outreachPhone = v.object({ number: v.string(), type: v.optional(v.string()), dnc: v.optional(v.boolean()), source: v.string() });
-export const outreachEmail = v.object({ email: v.string(), source: v.string() });
-/** How the paid unlock went: pending while the waterfall runs; found (and charged), none (free), or failed (free). */
+/** A phone a skip trace found, ranked by the vendor's score then by type; DNC numbers are kept but never dialled from the app. */
+export const outreachPhone = v.object({
+  number: v.string(),
+  type: v.union(v.literal("mobile"), v.literal("landline"), v.literal("voip"), v.literal("unknown")),
+  dnc: v.optional(v.boolean()),
+  verified: v.optional(v.boolean()),
+  score: v.optional(v.number()),
+  source: v.string(),
+});
+export const outreachEmail = v.object({ email: v.string(), source: v.string(), verified: v.optional(v.boolean()) });
+/** The person behind a company owner: an officer or manager from the state's records. */
+export const outreachPerson = v.object({ name: v.string(), title: v.optional(v.string()), address: v.optional(v.string()), source: v.string() });
+/** What a contact can be enriched with. */
+export const outreachField = v.union(v.literal("phone"), v.literal("email"), v.literal("person"));
+/** One enrichment cell: locked until asked for; running through the stack; found (phone: charged), none (free) or failed (free). */
+export const outreachCell = v.object({
+  status: v.union(v.literal("locked"), v.literal("running"), v.literal("found"), v.literal("none"), v.literal("failed")),
+  at: v.optional(v.string()),
+  requestedBy: v.optional(v.id("users")),
+  source: v.optional(v.string()),
+  chargedCents: v.optional(v.number()),
+  error: v.optional(v.string()),
+});
+export const outreachEnrichment = v.object({ phone: outreachCell, email: outreachCell, person: outreachCell });
+/** The unlock as it was before per-field cells (outreach:migrateUnlocks moves it over on deploy). */
 export const outreachUnlock = v.object({
   status: v.union(v.literal("pending"), v.literal("found"), v.literal("none"), v.literal("failed")),
   at: v.string(),
@@ -1098,12 +1119,27 @@ export default defineSchema({
     note: v.optional(v.string()),
     phones: v.optional(v.array(outreachPhone)),
     emails: v.optional(v.array(outreachEmail)),
+    person: v.optional(outreachPerson),
+    enrichment: v.optional(outreachEnrichment),
     unlock: v.optional(outreachUnlock),
     createdAt: v.string(),
     updatedAt: v.optional(v.string()),
   })
     .index("by_organization", ["organizationId"])
     .index("by_organization_and_key", ["organizationId", "key"]),
+
+  // How each data source has done for a company, per field: the hit rate
+  // on the Data sources panel and behind the "about $136" estimate is the
+  // company's own, not the vendor's brochure.
+  dataSourceStats: defineTable({
+    organizationId: v.id("organizations"),
+    source: v.string(),
+    field: outreachField,
+    attempts: v.number(),
+    hits: v.number(),
+    chargedCents: v.number(),
+    lastAt: v.string(),
+  }).index("by_organization", ["organizationId", "source", "field"]),
 
   // How each permit feed's last sync went.
   permitSources: defineTable({

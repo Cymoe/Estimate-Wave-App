@@ -5,10 +5,12 @@ import { phoneText } from './format';
 /** The contacts as a CSV: one row per owner, the mailing address split for a mail merge, phones and emails where unlocked. */
 export function outreachCsv(rows: OutreachContact[]): string {
   return toCsv(
-    ['Name', 'Company', 'Mailing address', 'Mailing city', 'Mailing state', 'Mailing zip', 'Property address', 'Property value', 'Properties', 'Total value', 'Type', 'Phone', 'Other phones', 'Email', 'Why', 'Status', 'Note'],
+    ['Name', 'Company', 'Decision maker', 'Title', 'Mailing address', 'Mailing city', 'Mailing state', 'Mailing zip', 'Property address', 'Property value', 'Properties', 'Total value', 'Type', 'Signals', 'Phone', 'Phone type', 'DNC', 'Other phones', 'Email', 'Why', 'Status', 'Note'],
     rows.map((r) => [
       r.name,
       r.company ?? '',
+      r.person?.name ?? '',
+      r.person?.title ?? '',
       r.mailing.address ?? '',
       r.mailing.city ?? '',
       r.mailing.state ?? '',
@@ -18,8 +20,11 @@ export function outreachCsv(rows: OutreachContact[]): string {
       r.properties,
       Math.round(r.totalValueCents / 100),
       r.kinds.join(', '),
+      r.signals.map((s) => `${s.kind} ${s.date.slice(0, 10)}`).join(' '),
       r.phones[0] ? phoneText(r.phones[0].number) : '',
-      r.phones.slice(1).map((p) => phoneText(p.number)).join(' '),
+      r.phones[0]?.type ?? '',
+      r.phones[0]?.dnc ? 'yes' : '',
+      r.phones.slice(1).map((p) => `${phoneText(p.number)}${p.dnc ? ' (DNC)' : ''}`).join(' '),
       r.emails.map((e) => e.email).join(' '),
       r.why,
       r.status,

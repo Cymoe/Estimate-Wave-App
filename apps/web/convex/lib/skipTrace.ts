@@ -1,29 +1,39 @@
-// Skip tracing: a property owner's name and addresses in, their phones and
-// emails out. Vendors are tried in order (the waterfall) until one finds a
-// phone; each adapter is a plain function over fetch so it can be tested
-// without the vendor. Nothing here touches the database or the wallet.
+// Enrichment: a property owner in, the person behind the company, their
+// phones and emails out. Sources are tried in order (the waterfall) for
+// each field until one has it; each adapter is a plain function over fetch
+// so it can be tested without the vendor. Nothing here touches the
+// database or the wallet.
+
+export type Field = "phone" | "email" | "person";
+export type PhoneType = "mobile" | "landline" | "voip" | "unknown";
+export type Phone = { number: string; type: PhoneType; dnc?: boolean; verified?: boolean; score?: number; source: string };
+export type Email = { email: string; source: string; verified?: boolean };
+export type Person = { name: string; title?: string; address?: string; source: string };
 
 export type TraceInput = {
   name: string;
-  /** Set when the owner is a company: vendors match people, so the c/o or the name's first and last words are tried. */
+  /** Set when the owner is a company: vendors match people, so the person found first (or the name's words) is traced. */
   company?: string;
+  person?: Person;
   property: { address: string; city: string; state: string; zip?: string };
   mailing: { address?: string; city?: string; state?: string; zip?: string };
 };
 
-export type Phone = { number: string; type?: string; dnc?: boolean; source: string };
-export type Email = { email: string; source: string };
-export type TraceResult = { phones: Phone[]; emails: Email[] };
+export type Found = { phones?: Phone[]; emails?: Email[]; person?: Person };
 
 export type Vendor = {
   name: string;
-  trace: (input: TraceInput) => Promise<TraceResult>;
+  /** What this source can answer; it's only called for those. */
+  fields: Field[];
+  /** True when the deployment holds its key. */
+  connected: boolean;
+  trace: (input: TraceInput) => Promise<Found>;
 };
 
 type Fetch = typeof fetch;
 
-/** "SMITH JOHN & MARY" → first "John", last "Smith"; the roll writes last name first. */
-export function splitName(name: string): { first?: string; last?: string } {
+/** "SMITH JOHN & MARY" → first "John", last "Smith"; the roll writes last name first. A person found by name is "First Last". */
+export function splitName(name: string, order: "roll" | "person" = "roll"): { first?: string; last?: string } {
   const clean = name
     .replace(/\b(ET ?AL|ETUX|ET ?VIR|TRUSTEES?|JR|SR|II|III)\b\.?/gi, " ")
     .replace(/[&,]/g, " ")
@@ -32,7 +42,7 @@ export function splitName(name: string): { first?: string; last?: string } {
   const words = clean.split(" ").filter(Boolean);
   if (words.length === 0) return {};
   if (words.length === 1) return { last: words[0] };
-  return { last: words[0], first: words[1] };
+  return order === "person" ? { first: words[0], last: words[words.length - 1] } : { last: words[0], first: words[1] };
 }
 
 const digits = (s: string) => s.replace(/\D/g, "");
@@ -43,34 +53,54 @@ export function normalizePhone(raw: string): string | undefined {
   return n.length === 10 ? n : undefined;
 }
 
-/** Keeps the first of each phone and email, in the order found. */
-export function dedupe(result: TraceResult): TraceResult {
-  const phones = new Map<string, Phone>();
-  for (const p of result.phones) {
+const TYPE_RANK: Record<PhoneType, number> = { mobile: 0, landline: 1, voip: 2, unknown: 3 };
+/** "Mobile", "cell", "wireless" → mobile; "Land Line" → landline; the rest unknown. */
+export function phoneType(raw: unknown): PhoneType {
+  const t = typeof raw === "string" ? raw.toLowerCase() : "";
+  if (/mobile|cell|wireless/.test(t)) return "mobile";
+  if (/land/.test(t)) return "landline";
+  if (/voip/.test(t)) return "voip";
+  return "unknown";
+}
+
+/** One of each number, best first: the vendor's score, then mobile before landline before VoIP. */
+export function rankPhones(phones: Phone[]): Phone[] {
+  const seen = new Map<string, Phone>();
+  for (const p of phones) {
     const n = normalizePhone(p.number);
-    if (n && !phones.has(n)) phones.set(n, { ...p, number: n });
+    if (n && !seen.has(n)) seen.set(n, { ...p, number: n });
   }
-  const emails = new Map<string, Email>();
-  for (const e of result.emails) {
+  return [...seen.values()].sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || TYPE_RANK[a.type] - TYPE_RANK[b.type]);
+}
+
+/** One of each email, lower-cased. */
+export function dedupeEmails(emails: Email[]): Email[] {
+  const seen = new Map<string, Email>();
+  for (const e of emails) {
     const k = e.email.trim().toLowerCase();
-    if (k.includes("@") && !emails.has(k)) emails.set(k, { ...e, email: k });
+    if (k.includes("@") && !seen.has(k)) seen.set(k, { ...e, email: k });
   }
-  return { phones: [...phones.values()], emails: [...emails.values()] };
+  return [...seen.values()];
 }
 
 const asArray = (x: unknown): unknown[] => (Array.isArray(x) ? x : []);
 const str = (x: unknown): string | undefined => (typeof x === "string" && x.trim() ? x.trim() : undefined);
+const num = (x: unknown): number | undefined => (typeof x === "number" && Number.isFinite(x) ? x : undefined);
+const titleCase = (s: string) => s.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase());
 
 /**
  * BatchData's property skip trace (v1): one request per property, the
- * owner's name alongside it. Phones come back under persons[].phoneNumbers
- * (v3 says phones), each with a type, a DNC flag and a score.
+ * person's name alongside it. Phones come back under persons[].phoneNumbers
+ * (v3 says phones), each with a type, a DNC flag, whether the carrier says
+ * it's live, and a score.
  */
-export function batchData(key: string, fetchFn: Fetch = fetch, base = "https://api.batchdata.com/api/v1"): Vendor {
+export function batchData(key: string | undefined, fetchFn: Fetch = fetch, base = "https://api.batchdata.com/api/v1"): Vendor {
   return {
     name: "batchdata",
+    fields: ["phone", "email"],
+    connected: Boolean(key),
     trace: async (input) => {
-      const who = splitName(input.company ?? input.name);
+      const who = input.person ? splitName(input.person.name, "person") : splitName(input.company ?? input.name);
       const response = await fetchFn(`${base}/property/skip-trace`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${key}` },
@@ -88,7 +118,7 @@ export function batchData(key: string, fetchFn: Fetch = fetch, base = "https://a
         }),
       });
       if (!response.ok) throw new Error(`BatchData: HTTP ${response.status}`);
-      const body = (await response.json()) as { results?: { persons?: unknown[] }; status?: { code?: number; text?: string } };
+      const body = (await response.json()) as { results?: { persons?: unknown[] } };
       const persons = asArray(body.results?.persons) as Array<Record<string, unknown>>;
       const phones: Phone[] = [];
       const emails: Email[] = [];
@@ -96,11 +126,18 @@ export function batchData(key: string, fetchFn: Fetch = fetch, base = "https://a
         for (const p of asArray(person.phoneNumbers ?? person.phones) as Array<Record<string, unknown>>) {
           const number = str(p.number) ?? str(p.phone);
           if (!number) continue;
-          phones.push({ number, type: str(p.type)?.toLowerCase(), dnc: p.dnc === true || p.tcpa === true ? true : undefined, source: "batchdata" });
+          phones.push({
+            number,
+            type: phoneType(p.type),
+            dnc: p.dnc === true || p.tcpa === true ? true : undefined,
+            verified: p.reachable === true ? true : undefined,
+            score: num(p.score),
+            source: "batchdata",
+          });
         }
         for (const e of asArray(person.emails) as Array<Record<string, unknown> | string>) {
           const email = typeof e === "string" ? str(e) : str(e.email) ?? str(e.address);
-          if (email) emails.push({ email, source: "batchdata" });
+          if (email) emails.push({ email, source: "batchdata", verified: typeof e === "object" && e.verified === true ? true : undefined });
         }
       }
       return { phones, emails };
@@ -108,22 +145,113 @@ export function batchData(key: string, fetchFn: Fetch = fetch, base = "https://a
   };
 }
 
+/** The officer titles that run a company, most useful first. */
+const RUNS_IT = [/MANAG/i, /PRESIDENT/i, /\bCEO\b/i, /OWNER/i, /MEMBER/i, /PARTNER/i, /DIRECTOR/i, /PRINCIPAL/i, /SECRETARY|TREASURER/i];
+
 /**
- * Tries each vendor in turn; the first one to find a phone wins, and emails
- * from the vendors before it ride along. A vendor that throws is skipped
- * (its message kept), so one outage doesn't fail the unlock.
+ * The Texas Comptroller's public franchise-tax data: an entity by name,
+ * then its officers and managers from the latest Public Information
+ * Report. Free with a registered key, so it runs first and gives the paid
+ * trace a person to find.
  */
-export async function waterfall(input: TraceInput, vendors: Vendor[]): Promise<{ result: TraceResult; vendor?: string; errors: string[] }> {
-  const errors: string[] = [];
-  let emails: Email[] = [];
-  for (const vendor of vendors) {
-    try {
-      const found = dedupe(await vendor.trace(input));
-      emails = dedupe({ phones: [], emails: [...emails, ...found.emails] }).emails;
-      if (found.phones.length > 0) return { result: { phones: found.phones, emails }, vendor: vendor.name, errors };
-    } catch (e) {
-      errors.push(`${vendor.name}: ${e instanceof Error ? e.message : String(e)}`);
+export function comptrollerTexas(key: string | undefined, fetchFn: Fetch = fetch, base = "https://api.comptroller.texas.gov/public-data/v1/public"): Vendor {
+  const headers = { Accept: "application/json", "x-api-key": key ?? "" };
+  return {
+    name: "tx-comptroller",
+    fields: ["person"],
+    connected: Boolean(key),
+    trace: async (input) => {
+      if (!input.company) return {};
+      const name = input.company.toUpperCase().replace(/[<>]/g, "").replace(/\s*&\s*$/, "").trim().slice(0, 50);
+      if (name.length < 2) return {};
+      const list = await fetchFn(`${base}/franchise-tax-list?name=${encodeURIComponent(name)}`, { headers });
+      if (!list.ok) throw new Error(`Texas Comptroller: HTTP ${list.status}`);
+      const found = (await list.json()) as { data?: Array<{ name?: string; taxpayerId?: string; mailingAddressZip?: string }> };
+      const entities = asArray(found.data) as Array<{ name?: string; taxpayerId?: string; mailingAddressZip?: string }>;
+      const wanted = name;
+      const zip = input.mailing.zip?.slice(0, 5);
+      const entity =
+        entities.find((e) => e.name?.toUpperCase() === wanted && (!zip || e.mailingAddressZip?.slice(0, 5) === zip)) ??
+        entities.find((e) => e.name?.toUpperCase() === wanted) ??
+        entities.find((e) => zip && e.mailingAddressZip?.slice(0, 5) === zip) ??
+        entities[0];
+      if (!entity?.taxpayerId) return {};
+      const details = await fetchFn(`${base}/franchise-tax/${encodeURIComponent(entity.taxpayerId)}`, { headers });
+      if (!details.ok) throw new Error(`Texas Comptroller: HTTP ${details.status}`);
+      const body = (await details.json()) as { data?: { officerInfo?: unknown[] } };
+      const officers = (asArray(body.data?.officerInfo) as Array<Record<string, unknown>>)
+        .map((o) => ({ name: str(o.AGNT_NM), title: str(o.AGNT_TITL_TX), street: str(o.AD_STR_POB_TX), city: str(o.CITY_NM), state: str(o.ST_CD), zip: str(o.AD_ZP) }))
+        .filter((o): o is typeof o & { name: string } => Boolean(o.name) && !/\b(LLC|L L C|INC|LTD|LP|CORP|COMPANY|TRUST)\b/i.test(o.name!));
+      if (officers.length === 0) return {};
+      const rank = (title?: string) => {
+        const i = RUNS_IT.findIndex((re) => title && re.test(title));
+        return i === -1 ? RUNS_IT.length : i;
+      };
+      const best = [...officers].sort((a, b) => rank(a.title) - rank(b.title))[0];
+      const address = [best.street, [best.city, best.state].filter(Boolean).join(", "), best.zip?.slice(0, 5)].filter(Boolean).join(", ");
+      return {
+        person: {
+          name: titleCase(best.name),
+          title: best.title ? titleCase(best.title) : undefined,
+          address: address || undefined,
+          source: "tx-comptroller",
+        },
+      };
+    },
+  };
+}
+
+/** The stack, in the order it's tried: free state records first, then the paid traces. */
+export function vendors(env: Record<string, string | undefined>): Vendor[] {
+  return [comptrollerTexas(env.TX_COMPTROLLER_API_KEY), batchData(env.BATCHDATA_API_KEY)];
+}
+
+/** The key a field's sources need, for the "not connected" note. */
+export const KEY_FOR: Record<Field, string> = { person: "TX_COMPTROLLER_API_KEY", phone: "BATCHDATA_API_KEY", email: "BATCHDATA_API_KEY" };
+
+export type Outcome = { field: Field; found: Found; source?: string; errors: string[] };
+
+/**
+ * Runs the stack for the fields asked for, in the order person → phone →
+ * email, so a person found for a company is who the phone vendors look
+ * up. Each source is called at most once per contact; its answer feeds
+ * every field it covers. A source that throws is skipped (its message
+ * kept), so one outage doesn't fail the unlock.
+ */
+export async function waterfall(input: TraceInput, vendors: Vendor[], fields: Field[]): Promise<Outcome[]> {
+  const answers = new Map<string, Promise<Found>>();
+  const ask = (vendor: Vendor) => {
+    let p = answers.get(vendor.name);
+    if (!p) {
+      p = vendor.trace(input);
+      answers.set(vendor.name, p);
     }
+    return p;
+  };
+  const has = (field: Field, found: Found) =>
+    field === "person" ? Boolean(found.person) : field === "phone" ? (found.phones?.length ?? 0) > 0 : (found.emails?.length ?? 0) > 0;
+  const out: Outcome[] = [];
+  const order: Field[] = ["person", "phone", "email"];
+  for (const field of order) {
+    if (!fields.includes(field)) continue;
+    const errors: string[] = [];
+    let result: Outcome | undefined;
+    for (const vendor of vendors) {
+      if (!vendor.connected || !vendor.fields.includes(field)) continue;
+      try {
+        const found = await ask(vendor);
+        if (has(field, found)) {
+          result = { field, found, source: vendor.name, errors };
+          break;
+        }
+      } catch (e) {
+        const message = `${vendor.name}: ${e instanceof Error ? e.message : String(e)}`;
+        if (!errors.includes(message)) errors.push(message);
+      }
+    }
+    result ??= { field, found: {}, errors };
+    if (field === "person" && result.found.person) input = { ...input, person: result.found.person };
+    out.push(result);
   }
-  return { result: { phones: [], emails }, vendor: emails.length ? emails[0].source : undefined, errors };
+  return out;
 }

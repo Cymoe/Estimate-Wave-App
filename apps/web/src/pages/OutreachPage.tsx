@@ -2,7 +2,7 @@ import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } 
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Download, Lock, Trash2 } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
-import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachListSummary, type OutreachRowStatus } from '../lib/api';
+import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachField, type OutreachListSummary, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { AskListSheet } from '../components/outreach/AskListSheet';
 import { ContactsTable, ContactSheet } from '../components/outreach/ContactsTable';
 import { csvName, download, outreachCsv } from '../components/outreach/outreachCsv';
@@ -11,6 +11,7 @@ import { fundErrorText, openFundingPage } from '../components/market/WalletBar';
 import { useAuth } from '../contexts/AuthContext';
 import { isStaff } from '../lib/roles';
 import { WHO_LABEL } from '../../convex/lib/outreach';
+import { sourceName } from '../components/outreach/format';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 const iconButton = 'w-11 h-11 inline-flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2A2A2A] border border-[#333333]';
@@ -67,6 +68,47 @@ const OwnersLine: React.FC = () => {
   );
 };
 
+/** Staff only: the stack in order, whether each source is connected, and how it has done for this company. */
+const SourcesPanel: React.FC<{ organizationId: string }> = ({ organizationId }) => {
+  const [sources, setSources] = useState<OutreachSource[] | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    outreachAPI
+      .sources(organizationId)
+      .then(setSources)
+      .catch(() => setSources(null));
+  }, [organizationId, open]);
+  const FIELD: Record<OutreachField, string> = { person: 'decision maker', phone: 'phone', email: 'email' };
+  return (
+    <div className="text-xs text-gray-500" data-testid="sources-panel">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="text-[#7fb0e0] hover:text-white">
+        {open ? 'Hide data sources' : 'Data sources'}
+      </button>
+      {open && sources && (
+        <ol className="mt-2 bg-[#121212] border border-[#333333] divide-y divide-[#333333]">
+          {sources.map((s, i) => (
+            <li key={s.name} className="px-3 py-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className="text-gray-300">
+                {i + 1}. {sourceName(s.name)}
+              </span>
+              <span className={s.connected ? 'text-[#7fb0e0]' : 'text-amber-300'}>{s.connected ? 'Connected' : 'Not connected'}</span>
+              {s.stats.map((st) => (
+                <span key={st.field} className="tabular-nums">
+                  {FIELD[st.field]}: {st.hits} / {st.attempts}
+                  {st.attempts ? ` (${Math.round((st.hits / st.attempts) * 100)}%)` : ''}
+                  {st.chargedCents ? ` · ${dollars(st.chargedCents)}` : ''}
+                </span>
+              ))}
+            </li>
+          ))}
+        </ol>
+      )}
+      {open && sources === null && <span className="block mt-1">The sources couldn't be read.</span>}
+    </div>
+  );
+};
+
 /**
  * Outreach: the company's CRM of property owners, filled by lists asked for
  * in plain words. The + button's "Outreach list" opens the ask; each list
@@ -113,7 +155,8 @@ const OutreachPage: React.FC = () => {
     void load();
   }, [load]);
   // While any lookup is running, re-read until it lands.
-  const pending = data?.rows.some((r) => r.unlock?.status === 'pending') ?? false;
+  const running = (c: OutreachContact) => Object.values(c.enrichment).some((cell) => cell.status === 'running');
+  const pending = data?.rows.some(running) ?? false;
   useEffect(() => {
     if (!pending) return;
     const id = window.setInterval(() => void load(), POLL_MS);
@@ -135,10 +178,22 @@ const OutreachPage: React.FC = () => {
   const list = lists?.find((l) => l.id === listId);
   const rows = useMemo(() => (data?.rows ?? []).filter((r) => status === 'all' || r.status === status), [data, status]);
   const chosen = rows.filter((r) => selected.has(r.id));
-  const unlockable = chosen.filter((r) => r.unlock?.status !== 'found' && r.unlock?.status !== 'pending');
+  const needsPhone = (r: OutreachContact) => r.enrichment.phone.status !== 'found' && r.enrichment.phone.status !== 'running';
+  const hasLock = (r: OutreachContact) => needsPhone(r) || (r.company && r.enrichment.person.status !== 'found' && r.enrichment.person.status !== 'running');
+  const unlockable = chosen.filter(hasLock);
   const unlockCents = data?.unlockCents ?? 100;
   const balanceCents = data?.balanceCents ?? 0;
-  const cost = unlockable.length * unlockCents;
+  const cost = unlockable.filter(needsPhone).length * unlockCents;
+  const hitRate = data?.phoneHitRate;
+  /** "up to $200; about $136 at your 68% hit rate so far" */
+  const estimate = (phones: number) => {
+    const most = phones * unlockCents;
+    if (hitRate === undefined || phones === 0) return `up to ${dollars(most)}`;
+    return `up to ${dollars(most)}, about ${dollars(Math.round(most * hitRate))} at your ${Math.round(hitRate * 100)}% hit rate so far`;
+  };
+  const listOpen = (data?.rows ?? []).filter(hasLock);
+  const listPhones = listOpen.filter(needsPhone).length;
+  const looking = (data?.rows ?? []).filter(running).length;
 
   const addFunds = () => organizationId && openFundingPage(organizationId).catch((err) => setError(fundErrorText(err)));
 
@@ -155,12 +210,12 @@ const OutreachPage: React.FC = () => {
     return Math.max(0, current + (worked(next) ? 1 : 0) - (worked(row.status) ? 1 : 0));
   };
 
-  const unlock = async (ids: string[]) => {
+  const enrich = async (ids: string[], fields?: OutreachField[]) => {
     if (!organizationId || ids.length === 0) return;
     setBusy(true);
     setError(null);
     try {
-      const r = await outreachAPI.requestUnlock(organizationId, ids);
+      const r = await outreachAPI.enrich(organizationId, ids, fields);
       setNote(r.queued ? `Looking up ${r.queued} ${r.queued === 1 ? 'owner' : 'owners'}; ${dollars(r.costCents)} at most, charged only for phones found.` : null);
       setSelected(new Set());
       await load();
@@ -170,6 +225,19 @@ const OutreachPage: React.FC = () => {
     } finally {
       setBusy(false);
     }
+  };
+
+  /** Everyone on the open list (or every contact) who still has a lock, after a word on the cost. */
+  const enrichAll = async () => {
+    if (listOpen.length === 0) return;
+    const who = list ? `the ${listOpen.length} ${listOpen.length === 1 ? 'owner' : 'owners'} on “${list.title}”` : `all ${listOpen.length} ${listOpen.length === 1 ? 'contact' : 'contacts'}`;
+    const ok = await confirm({
+      title: `Look up ${who}?`,
+      message: `${listPhones} ${listPhones === 1 ? 'phone' : 'phones'} to find: ${estimate(listPhones)}. Charged only for phones found; the person behind each company and emails are free.`,
+      confirmLabel: 'Look them up',
+    });
+    if (!ok) return;
+    await enrich(listOpen.map((r) => r.id)).catch(() => {});
   };
 
   const removeList = async () => {
@@ -186,11 +254,23 @@ const OutreachPage: React.FC = () => {
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold text-white">Outreach</h1>
-          <p className="text-sm text-gray-400">Property owners from the Midland County roll. Names and mailing addresses; unlock a phone and email for {dollars(unlockCents)}.</p>
+          <p className="text-sm text-gray-400">Property owners from the Midland County roll. Names and mailing addresses; the person behind each company, then a phone and email for {dollars(unlockCents)}.</p>
           {isStaff(user) && <OwnersLine />}
+          {isStaff(user) && <SourcesPanel organizationId={organizationId} />}
         </div>
         {data && rows.length > 0 && (
           <div className="flex gap-2 shrink-0">
+            {listOpen.length > 0 && (
+              <button
+                type="button"
+                onClick={() => void enrichAll()}
+                disabled={busy || listPhones * unlockCents > balanceCents}
+                className="inline-flex items-center gap-2 px-3 h-11 text-sm font-medium bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50"
+                title={estimate(listPhones)}
+              >
+                <Lock className="w-4 h-4" /> Look up {listOpen.length}
+              </button>
+            )}
             <button type="button" onClick={() => download(csvName(list?.title ?? 'contacts'), outreachCsv(rows))} aria-label="Export CSV" title="Export CSV" className={iconButton}>
               <Download className="w-4 h-4" />
             </button>
@@ -233,19 +313,24 @@ const OutreachPage: React.FC = () => {
         </p>
       )}
       {note && <p className="text-sm text-gray-300">{note}</p>}
+      {looking > 0 && (
+        <p className="text-sm text-gray-400" data-testid="looking">
+          Looking up {looking} {looking === 1 ? 'owner' : 'owners'}…
+        </p>
+      )}
       {chosen.length > 0 && (
         <div className="flex flex-wrap items-center gap-3 bg-[#121212] border border-[#333333] px-4 py-2" data-testid="unlock-bar">
           <span className="text-sm text-gray-300">{chosen.length} selected</span>
           <button
             type="button"
-            onClick={() => void unlock(unlockable.map((r) => r.id)).catch(() => {})}
+            onClick={() => void enrich(unlockable.map((r) => r.id)).catch(() => {})}
             disabled={busy || unlockable.length === 0 || cost > balanceCents}
             className="inline-flex items-center gap-2 px-4 min-h-[40px] text-sm font-medium bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50"
           >
-            <Lock className="w-4 h-4" /> Unlock {unlockable.length} for {dollars(cost)}
+            <Lock className="w-4 h-4" /> Look up {unlockable.length}
           </button>
           <span className="text-xs text-gray-500">
-            Balance {dollars(balanceCents)}.{' '}
+            {unlockable.filter(needsPhone).length} {unlockable.filter(needsPhone).length === 1 ? 'phone' : 'phones'} to find, {estimate(unlockable.filter(needsPhone).length)}. Balance {dollars(balanceCents)}.{' '}
             {cost > balanceCents && (
               <button type="button" onClick={addFunds} className="text-[#7fb0e0] underline underline-offset-2">
                 Add funds
@@ -268,6 +353,7 @@ const OutreachPage: React.FC = () => {
       ) : (
         <ContactsTable
           rows={rows}
+          coverage={data.coverage}
           selected={selected}
           onSelect={(id, on) =>
             setSelected((s) => {
@@ -287,7 +373,7 @@ const OutreachPage: React.FC = () => {
         balanceCents={balanceCents}
         onClose={() => setOpen(null)}
         onStatus={setContactStatus}
-        onUnlock={(row) => unlock([row.id])}
+        onEnrich={(row, fields) => enrich([row.id], fields)}
         onAddFunds={addFunds}
       />
       <AskListSheet open={asking} organizationId={organizationId} onClose={() => setAsking(false)} onSaved={(id) => navigate(`/outreach/${id}`)} />

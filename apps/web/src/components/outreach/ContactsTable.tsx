@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Lock, MapPin } from 'lucide-react';
+import { Lock, MapPin, User } from 'lucide-react';
 import { AddressLink } from '../common/AddressLink';
 import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { fullAddress } from '../../lib/mapsLinks';
-import type { OutreachContact, OutreachRowStatus, OutreachWho } from '../../lib/api';
+import type { OutreachCell, OutreachContact, OutreachContacts, OutreachCoverage, OutreachField, OutreachPhone, OutreachRowStatus, OutreachSignal, OutreachWho } from '../../lib/api';
 import { shortMoney, WHO_LABEL } from '../../../convex/lib/outreach';
-import { phoneText } from './format';
+import { phoneText, sourceName } from './format';
 
 const STATUS_LABEL: Record<OutreachRowStatus, string> = { new: 'New', sent: 'Sent', done: 'Done', skip: 'Skipped' };
 const STATUSES: OutreachRowStatus[] = ['new', 'sent', 'done', 'skip'];
@@ -21,49 +21,77 @@ const KIND: Record<OutreachWho, string> = {
   absentee: 'Absentee',
   custom: 'Custom',
 };
+const SIGNAL_LABEL: Record<OutreachSignal['kind'], string> = { code_violation: 'Code violation', dilapidated: 'Dilapidated', demolition: 'Demolition order', stalled_permit: 'Stalled permit' };
+const PHONE_TYPE: Record<OutreachPhone['type'], string> = { mobile: 'mobile', landline: 'landline', voip: 'VoIP', unknown: '' };
 
 const statusTone = (s: OutreachRowStatus) => (s === 'done' ? 'text-[#7fb0e0]' : s === 'skip' ? 'text-gray-600' : s === 'sent' ? 'text-amber-300' : 'text-gray-500');
 const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: cents % 100 ? 2 : 0 })}`;
+const monthYear = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
 const kindsText = (kinds: OutreachWho[]) => kinds.map((k) => KIND[k]).join(', ');
 
-/** What the Phone and Email cells say before, during and after an unlock. */
-function contactCell(c: OutreachContact, which: 'phone' | 'email'): { text: string; tone: string } {
-  const found = which === 'phone' ? c.phones[0] && phoneText(c.phones[0].number) : c.emails[0]?.email;
-  if (found) return { text: found, tone: 'text-white' };
-  switch (c.unlock?.status) {
-    case 'pending':
-      return { text: 'Looking…', tone: 'text-gray-500' };
+/** "12 / 200 · 2 sources" under a column's name. */
+const Coverage: React.FC<{ c: OutreachCoverage; of?: string }> = ({ c, of }) => (
+  <span className="block normal-case tracking-normal text-[11px] text-gray-500 tabular-nums">
+    {c.found} / {c.total}
+    {of ? ` ${of}` : ''}
+    {c.sources > 0 ? ` · ${c.sources} ${c.sources === 1 ? 'source' : 'sources'}` : ''}
+  </span>
+);
+
+/** A phone's small print: its type, whether the carrier confirmed it, and the Do Not Call flag. */
+export const PhoneBadges: React.FC<{ p: OutreachPhone }> = ({ p }) => (
+  <span className="text-[11px] text-gray-500">
+    {PHONE_TYPE[p.type]}
+    {p.verified ? (PHONE_TYPE[p.type] ? ' · ' : '') + 'verified' : ''}
+    {p.dnc ? <span className="text-red-400">{PHONE_TYPE[p.type] || p.verified ? ' · ' : ''}DNC</span> : null}
+  </span>
+);
+
+/** A cell that hasn't a value: the lock, the wait, the miss, or the retry. */
+const Empty: React.FC<{ cell: OutreachCell }> = ({ cell }) => {
+  switch (cell.status) {
+    case 'running':
+      return <span className="text-gray-500">Looking…</span>;
     case 'found':
     case 'none':
-      return { text: 'None found', tone: 'text-gray-600' };
+      return <span className="text-gray-600">None found</span>;
     case 'failed':
-      return { text: 'Try again', tone: 'text-amber-300' };
+      return <span className="text-amber-300">Try again</span>;
     default:
-      return { text: 'Locked', tone: 'text-gray-600' };
+      return (
+        <span className="inline-flex items-center gap-1 text-gray-600">
+          <Lock className="w-3 h-3" /> —
+        </span>
+      );
   }
-}
+};
 
-const th = 'font-medium px-3 py-2 whitespace-nowrap';
-const td = 'px-3 py-2 whitespace-nowrap';
+const th = 'font-medium px-3 py-2 whitespace-nowrap align-top';
+const td = 'px-3 py-2 whitespace-nowrap align-top';
 
-/** The CRM: one row per owner, with the columns a mail merge or a call sheet needs. Tap a row for the sheet; tick rows to unlock them. */
+/** The CRM: one row per owner, with the columns a mail merge or a call sheet needs and what each lookup found. Tap a row for the sheet; tick rows to enrich them. */
 export const ContactsTable: React.FC<{
   rows: OutreachContact[];
+  coverage: OutreachContacts['coverage'];
   selected: Set<string>;
   onSelect: (id: string, on: boolean) => void;
   onSelectAll: (on: boolean) => void;
   onOpen: (row: OutreachContact) => void;
-}> = ({ rows, selected, onSelect, onSelectAll, onOpen }) => {
+}> = ({ rows, coverage, selected, onSelect, onSelectAll, onOpen }) => {
   const all = rows.length > 0 && rows.every((r) => selected.has(r.id));
   return (
     <div className="bg-[#121212] border border-[#333333] overflow-x-auto">
-      <table className="w-full min-w-[72rem] text-sm" aria-label="Contacts">
+      <table className="w-full min-w-[88rem] text-sm" aria-label="Contacts">
         <thead>
           <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-[#333333]">
-            <th className="px-3 py-2 w-10">
+            <th className="px-3 py-2 w-10 align-top">
               <input type="checkbox" checked={all} onChange={(e) => onSelectAll(e.target.checked)} aria-label="Select all" className="accent-[#336699]" />
             </th>
             <th className={th}>Name</th>
+            <th className={th}>
+              Decision maker
+              <Coverage c={coverage.person} of={coverage.person.total === 1 ? 'company' : 'companies'} />
+            </th>
             <th className={th}>Mailing address</th>
             <th className={th}>City</th>
             <th className={th}>State</th>
@@ -71,27 +99,40 @@ export const ContactsTable: React.FC<{
             <th className={th}>Property</th>
             <th className={`${th} text-right`}>Value</th>
             <th className={th}>Type</th>
-            <th className={th}>Phone</th>
-            <th className={th}>Email</th>
+            <th className={th}>Signals</th>
+            <th className={th}>
+              Phone
+              <Coverage c={coverage.phone} />
+            </th>
+            <th className={th}>
+              Email
+              <Coverage c={coverage.email} />
+            </th>
             <th className={th}>Status</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-[#333333]">
           {rows.map((r) => {
-            const phone = contactCell(r, 'phone');
-            const email = contactCell(r, 'email');
+            const phone = r.phones[0];
+            const email = r.emails[0];
             return (
               <tr key={r.id} onClick={() => onOpen(r)} className="cursor-pointer hover:bg-[#1A1A1A]" data-testid="contact-row">
                 <td className={td} onClick={(e) => e.stopPropagation()}>
-                  <input
-                    type="checkbox"
-                    checked={selected.has(r.id)}
-                    onChange={(e) => onSelect(r.id, e.target.checked)}
-                    aria-label={`Select ${r.name}`}
-                    className="accent-[#336699]"
-                  />
+                  <input type="checkbox" checked={selected.has(r.id)} onChange={(e) => onSelect(r.id, e.target.checked)} aria-label={`Select ${r.name}`} className="accent-[#336699]" />
                 </td>
                 <td className={`${td} max-w-[16rem] truncate ${r.status === 'skip' ? 'text-gray-500 line-through' : 'text-white'}`}>{r.name}</td>
+                <td className={`${td} max-w-[14rem] truncate`}>
+                  {r.person ? (
+                    <>
+                      <span className="text-white">{r.person.name}</span>
+                      {r.person.title ? <span className="block text-[11px] text-gray-500">{r.person.title}</span> : null}
+                    </>
+                  ) : r.company ? (
+                    <Empty cell={r.enrichment.person} />
+                  ) : (
+                    <span className="text-gray-700">—</span>
+                  )}
+                </td>
                 <td className={`${td} max-w-[14rem] truncate text-gray-300`}>{r.mailing.address ?? ''}</td>
                 <td className={`${td} text-gray-300`}>{r.mailing.city ?? ''}</td>
                 <td className={`${td} text-gray-300`}>{r.mailing.state ?? ''}</td>
@@ -102,8 +143,32 @@ export const ContactsTable: React.FC<{
                 </td>
                 <td className={`${td} text-right tabular-nums text-gray-300`}>{r.property.valueCents ? shortMoney(r.property.valueCents) : ''}</td>
                 <td className={`${td} text-gray-400`}>{kindsText(r.kinds)}</td>
-                <td className={`${td} ${phone.tone}`}>{phone.text}</td>
-                <td className={`${td} max-w-[14rem] truncate ${email.tone}`}>{email.text}</td>
+                <td className={`${td} text-amber-300`}>
+                  {r.signals.length === 0 ? <span className="text-gray-700">—</span> : r.signals.map((s) => `${SIGNAL_LABEL[s.kind]} ${monthYear(s.date)}`).join(' · ')}
+                </td>
+                <td className={td}>
+                  {phone ? (
+                    <>
+                      <span className={phone.dnc ? 'text-gray-300' : 'text-white'}>{phoneText(phone.number)}</span>
+                      <span className="block">
+                        <PhoneBadges p={phone} />
+                        {r.phones.length > 1 ? <span className="text-[11px] text-gray-500"> · +{r.phones.length - 1}</span> : null}
+                      </span>
+                    </>
+                  ) : (
+                    <Empty cell={r.enrichment.phone} />
+                  )}
+                </td>
+                <td className={`${td} max-w-[14rem] truncate`}>
+                  {email ? (
+                    <>
+                      <span className="text-white">{email.email}</span>
+                      {email.verified ? <span className="block text-[11px] text-gray-500">verified</span> : null}
+                    </>
+                  ) : (
+                    <Empty cell={r.enrichment.email} />
+                  )}
+                </td>
                 <td className={`${td} ${statusTone(r.status)}`}>{STATUS_LABEL[r.status]}</td>
               </tr>
             );
@@ -114,16 +179,16 @@ export const ContactsTable: React.FC<{
   );
 };
 
-/** One owner: both addresses in Apple Maps, the phones and emails (or the unlock), the status, a note. */
+/** One owner: the person behind the company, the phones ranked with their flags, the emails, both addresses in Apple Maps, the status, a note. */
 export const ContactSheet: React.FC<{
   row: OutreachContact | null;
   unlockCents: number;
   balanceCents: number;
   onClose: () => void;
   onStatus: (row: OutreachContact, status: OutreachRowStatus, note: string) => Promise<void>;
-  onUnlock: (row: OutreachContact) => Promise<void>;
+  onEnrich: (row: OutreachContact, fields: OutreachField[]) => Promise<void>;
   onAddFunds: () => void;
-}> = ({ row, unlockCents, balanceCents, onClose, onStatus, onUnlock, onAddFunds }) => {
+}> = ({ row, unlockCents, balanceCents, onClose, onStatus, onEnrich, onAddFunds }) => {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -132,34 +197,29 @@ export const ContactSheet: React.FC<{
     setError(null);
   }, [row]);
   if (!row) return null;
-  const set = async (status: OutreachRowStatus) => {
+  const run = async (work: () => Promise<void>, fallback: string) => {
     setBusy(true);
     setError(null);
     try {
-      await onStatus(row, status, note);
+      await work();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't save that");
+      setError(err instanceof Error ? err.message : fallback);
     } finally {
       setBusy(false);
     }
   };
-  const unlock = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await onUnlock(row);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't start that");
-    } finally {
-      setBusy(false);
-    }
-  };
+  const set = (status: OutreachRowStatus) => run(() => onStatus(row, status, note), "Couldn't save that");
+  const enrich = (fields: OutreachField[]) => run(() => onEnrich(row, fields), "Couldn't start that");
   const property = fullAddress(row.property.address, 'Midland', 'TX');
   const mailing = fullAddress(row.mailing.address, row.mailing.city, row.mailing.state, row.mailing.zip?.slice(0, 5));
   const link = 'inline-flex items-center gap-2 text-[15px] text-[#7fb0e0] min-h-[44px]';
   const label = 'text-xs font-medium text-gray-400 uppercase tracking-wider';
-  const unlocked = row.phones.length > 0 || row.emails.length > 0;
+  const primary = 'inline-flex items-center gap-2 px-4 min-h-[44px] text-sm font-medium bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50';
+  const quiet = 'inline-flex items-center gap-2 px-3 min-h-[40px] text-sm text-gray-300 border border-[#333333] hover:bg-[#2A2A2A] disabled:opacity-50';
+  const { phone, email, person } = row.enrichment;
+  const contactOpen = phone.status !== 'found' && phone.status !== 'running' && email.status !== 'running';
   const canPay = balanceCents >= unlockCents;
+  const when = (c: OutreachCell) => (c.at ? ` ${new Date(c.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : '');
   return (
     <SlideOutDrawer isOpen onClose={onClose} title={row.name} width="md">
       <div className="p-6 space-y-5">
@@ -168,19 +228,53 @@ export const ContactSheet: React.FC<{
           {row.kinds.length ? <span className="text-gray-500"> · {row.kinds.map((k) => WHO_LABEL[k]).join(', ')}</span> : null}
         </p>
         <div className="divide-y divide-[#333333] border-y border-[#333333]">
+          {row.company && (
+            <div className="py-3" data-testid="decision-maker">
+              <div className={label}>Decision maker</div>
+              {row.person ? (
+                <div className="flex items-start gap-2 pt-1">
+                  <User className="w-4 h-4 mt-1 text-gray-500 shrink-0" />
+                  <div>
+                    <div className="text-[15px] text-white">
+                      {row.person.name}
+                      {row.person.title ? <span className="text-gray-400"> · {row.person.title}</span> : null}
+                    </div>
+                    {row.person.address && <div className="text-sm text-gray-400">{row.person.address}</div>}
+                    <div className="text-xs text-gray-500">
+                      From {sourceName(row.person.source)}
+                      {when(person)}
+                    </div>
+                  </div>
+                </div>
+              ) : person.status === 'running' ? (
+                <p className="text-sm text-gray-400">Looking up the company's officers…</p>
+              ) : person.status === 'none' ? (
+                <p className="text-sm text-gray-500">The state lists no officer for this company.</p>
+              ) : (
+                <div className="space-y-2 pt-1">
+                  {person.status === 'failed' && <p className="text-sm text-amber-300">{person.error ?? "The lookup didn't go through."}</p>}
+                  <button type="button" onClick={() => enrich(['person'])} disabled={busy} className={quiet}>
+                    <User className="w-4 h-4" /> Find the person behind the company · free
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           <div className="py-3" data-testid="contact-details">
             <div className={label}>Phone & email</div>
-            {unlocked ? (
+            {row.phones.length > 0 || row.emails.length > 0 ? (
               <ul className="space-y-1">
                 {row.phones.map((p) => (
-                  <li key={p.number}>
-                    <a href={`tel:${p.number}`} className={link}>
-                      {phoneText(p.number)}
-                      <span className="text-sm text-gray-500">
-                        {p.type ?? ''}
-                        {p.dnc ? ' · do not call' : ''}
-                      </span>
-                    </a>
+                  <li key={p.number} className="flex items-baseline gap-2">
+                    {p.dnc ? (
+                      <span className="text-[15px] text-gray-300 min-h-[44px] inline-flex items-center">{phoneText(p.number)}</span>
+                    ) : (
+                      <a href={`tel:${p.number}`} className={link}>
+                        {phoneText(p.number)}
+                      </a>
+                    )}
+                    <PhoneBadges p={p} />
+                    {p.dnc && <span className="text-xs text-red-400">on the Do Not Call list</span>}
                   </li>
                 ))}
                 {row.emails.map((e) => (
@@ -188,23 +282,24 @@ export const ContactSheet: React.FC<{
                     <a href={`mailto:${e.email}`} className={link}>
                       {e.email}
                     </a>
+                    {e.verified && <span className="text-[11px] text-gray-500"> verified</span>}
                   </li>
                 ))}
                 {row.phones.length === 0 && <li className="text-sm text-gray-500">No phone found; the email was free.</li>}
+                <li className="text-xs text-gray-500">
+                  From {sourceName(phone.source ?? email.source ?? '')}
+                  {when(phone.status === 'found' ? phone : email)}
+                  {phone.chargedCents ? ` · ${dollars(phone.chargedCents)}` : ''}
+                </li>
               </ul>
-            ) : row.unlock?.status === 'pending' ? (
+            ) : phone.status === 'running' || email.status === 'running' ? (
               <p className="text-sm text-gray-400">Looking up the phone and email… this takes a few seconds.</p>
-            ) : row.unlock?.status === 'none' ? (
+            ) : phone.status === 'none' ? (
               <p className="text-sm text-gray-500">No phone or email found for this owner. Nothing was charged.</p>
             ) : (
-              <div className="space-y-2">
-                {row.unlock?.status === 'failed' && <p className="text-sm text-amber-300">{row.unlock.error ?? "The lookup didn't go through."} Nothing was charged.</p>}
-                <button
-                  type="button"
-                  onClick={unlock}
-                  disabled={busy || !canPay}
-                  className="inline-flex items-center gap-2 px-4 min-h-[44px] text-sm font-medium bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50"
-                >
+              <div className="space-y-2 pt-1">
+                {phone.status === 'failed' && <p className="text-sm text-amber-300">{phone.error ?? "The lookup didn't go through."} Nothing was charged.</p>}
+                <button type="button" onClick={() => enrich(row.company ? ['person', 'phone', 'email'] : ['phone', 'email'])} disabled={busy || !canPay || !contactOpen} className={primary}>
                   <Lock className="w-4 h-4" /> Unlock phone & email · {dollars(unlockCents)}
                 </button>
                 <p className="text-xs text-gray-500">
@@ -218,6 +313,19 @@ export const ContactSheet: React.FC<{
               </div>
             )}
           </div>
+          {row.signals.length > 0 && (
+            <div className="py-3">
+              <div className={label}>Signals</div>
+              <ul className="text-sm text-amber-300">
+                {row.signals.map((s) => (
+                  <li key={s.kind}>
+                    {SIGNAL_LABEL[s.kind]} · {monthYear(s.date)}
+                    <span className="text-gray-400"> · {s.detail}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <div className="py-3">
             <div className={label}>Mail to</div>
             {mailing ? (

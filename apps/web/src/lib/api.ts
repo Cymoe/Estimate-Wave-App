@@ -1183,9 +1183,15 @@ export type OutreachDefinition = {
 };
 export type OutreachMailing = { address?: string; city?: string; state?: string; zip?: string };
 export type OutreachRowStatus = 'new' | 'sent' | 'done' | 'skip';
-export type OutreachPhone = { number: string; type?: string; dnc?: boolean; source: string };
-export type OutreachEmail = { email: string; source: string };
-export type OutreachUnlock = { status: 'pending' | 'found' | 'none' | 'failed'; at: string; vendor?: string; chargedCents?: number; error?: string };
+export type OutreachPhoneType = 'mobile' | 'landline' | 'voip' | 'unknown';
+export type OutreachPhone = { number: string; type: OutreachPhoneType; dnc?: boolean; verified?: boolean; score?: number; source: string };
+export type OutreachEmail = { email: string; source: string; verified?: boolean };
+export type OutreachPerson = { name: string; title?: string; address?: string; source: string };
+export type OutreachField = 'phone' | 'email' | 'person';
+/** One enrichment cell: locked until asked for; running through the stack; found (phone: charged), none (free) or failed (free). */
+export type OutreachCell = { status: 'locked' | 'running' | 'found' | 'none' | 'failed'; at?: string; source?: string; chargedCents?: number; error?: string };
+export type OutreachEnrichment = Record<OutreachField, OutreachCell>;
+export type OutreachSignal = { kind: 'code_violation' | 'dilapidated' | 'demolition' | 'stalled_permit'; date: string; detail: string };
 /** One owner in a company's CRM: pulled by one or more lists, with what the company has paid to learn. */
 export type OutreachContact = {
   id: string;
@@ -1203,7 +1209,9 @@ export type OutreachContact = {
   note?: string;
   phones: OutreachPhone[];
   emails: OutreachEmail[];
-  unlock?: OutreachUnlock;
+  person?: OutreachPerson;
+  enrichment: OutreachEnrichment;
+  signals: OutreachSignal[];
   createdAt: string;
 };
 export type OutreachPreviewRow = Pick<OutreachContact, 'key' | 'name' | 'company' | 'mailing' | 'property' | 'properties' | 'totalValueCents' | 'why'>;
@@ -1217,7 +1225,23 @@ export type OutreachListSummary = {
   truncated: boolean;
   createdAt: string;
 };
-export type OutreachContacts = { rows: OutreachContact[]; balanceCents: number; unlockCents: number };
+/** "12 / 200 · 2 sources" on a column header. */
+export type OutreachCoverage = { found: number; total: number; sources: number };
+export type OutreachContacts = {
+  rows: OutreachContact[];
+  coverage: Record<OutreachField, OutreachCoverage>;
+  balanceCents: number;
+  unlockCents: number;
+  /** The company's own phone hit rate so far, 0–1; undefined until it has tried. */
+  phoneHitRate?: number;
+};
+/** A source in the stack, as staff see it: connected or not, and how it has done for this company. */
+export type OutreachSource = {
+  name: string;
+  fields: OutreachField[];
+  connected: boolean;
+  stats: Array<{ field: OutreachField; attempts: number; hits: number; chargedCents: number; lastAt?: string }>;
+};
 export type OutreachPreview = { count: number; truncated: boolean; limited: boolean; rows: OutreachPreviewRow[] };
 export type OutreachInterpreted =
   | ({ ok: true; definition: OutreachDefinition; title: string; explanation: string; note?: string; preview: OutreachPreviewRow[] } & Omit<OutreachPreview, 'rows'>)
@@ -1237,9 +1261,11 @@ export const outreachAPI = {
   setStatus: (organizationId: string, contactId: string, status: OutreachRowStatus, note?: string) =>
     run('mutation', api.outreach.setStatus, defined({ organizationId, contactId, status, note })),
   remove: (organizationId: string, listId: string) => run('mutation', api.outreach.remove, { organizationId, listId }),
-  /** Queues a skip trace for each contact; $1 each from the balance, charged only when a phone is found. */
-  requestUnlock: (organizationId: string, contactIds: string[]): Promise<{ queued: number; costCents: number }> =>
-    run('mutation', api.outreach.requestUnlock, { organizationId, contactIds }),
+  /** Queues the stack for each contact and field (all three unless given); $1 a phone from the balance, charged only when found. */
+  enrich: (organizationId: string, contactIds: string[], fields?: OutreachField[]): Promise<{ queued: number; costCents: number }> =>
+    run('mutation', api.outreach.enrich, defined({ organizationId, contactIds, fields })),
+  /** Staff: the stack in order, with this company's hit rates and spend. */
+  sources: (organizationId: string): Promise<OutreachSource[]> => run('query', api.outreach.sources, { organizationId }),
   /** Staff: when the owners were last grouped, from how many parcels; and a rebuild. */
   status: (): Promise<{ syncedAt: string; parcels: number; owners: number; error?: string } | null> => run('query', api.outreach.status, {}),
   rebuild: (): Promise<{ fetched: number; added: number; updated: number; error?: string }> => run('action', api.outreachRebuild.rebuildNow, {}),

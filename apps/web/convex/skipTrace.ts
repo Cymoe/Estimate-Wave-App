@@ -1,41 +1,44 @@
 "use node";
-// The unlock's trace, in the Node runtime: reads the contact, runs the
-// vendor waterfall, and records what came back (outreach.ts charges on a
-// hit). Vendors are whatever keys the deployment has; none configured is
-// a failed unlock that says so and costs nothing.
+// A contact's enrichment, in the Node runtime: reads the contact, runs the
+// source waterfall for the fields asked for, and records each field's
+// answer (outreach.ts charges a found phone). Sources are whatever keys
+// the deployment has; none for a field is a failed cell that says so and
+// costs nothing.
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
-import { batchData, waterfall, type Vendor } from "./lib/skipTrace";
-
-/** The vendors this deployment can call, in the order they're tried. */
-export function vendors(env: Record<string, string | undefined> = process.env): Vendor[] {
-  const out: Vendor[] = [];
-  if (env.BATCHDATA_API_KEY) out.push(batchData(env.BATCHDATA_API_KEY));
-  return out;
-}
+import { outreachField } from "./schema";
+import { KEY_FOR, dedupeEmails, rankPhones, vendors, waterfall, type Field } from "./lib/skipTrace";
 
 export const trace = internalAction({
-  args: { contactId: v.id("outreachContacts") },
-  handler: async (ctx, { contactId }) => {
+  args: { contactId: v.id("outreachContacts"), fields: v.array(outreachField) },
+  handler: async (ctx, { contactId, fields }) => {
     const input = await ctx.runQuery(internal.outreach.contactForTrace, { contactId });
     if (!input) return null;
-    const stack = vendors();
-    if (stack.length === 0) {
-      await ctx.runMutation(internal.outreach.recordUnlock, {
+    const stack = vendors(process.env);
+    const wanted = fields.filter((f): f is Field => input.fields.includes(f));
+    const none = (field: Field) => !stack.some((s) => s.connected && s.fields.includes(field));
+    const outcomes = await waterfall(input, stack, wanted.filter((f) => !none(f)));
+    for (const field of wanted) {
+      if (none(field)) {
+        await ctx.runMutation(internal.outreach.recordEnrichment, {
+          contactId,
+          field,
+          error: `No source for this is connected yet (${KEY_FOR[field]} isn't set on the Convex deployment).`,
+        });
+        continue;
+      }
+      const o = outcomes.find((x) => x.field === field)!;
+      await ctx.runMutation(internal.outreach.recordEnrichment, {
         contactId,
-        error: "No skip-trace vendor is connected yet (BATCHDATA_API_KEY isn't set on the Convex deployment).",
+        field,
+        source: o.source,
+        phones: field === "phone" ? rankPhones(o.found.phones ?? []) : undefined,
+        emails: field === "email" ? dedupeEmails(o.found.emails ?? []) : undefined,
+        person: field === "person" ? o.found.person : undefined,
+        error: !o.source && o.errors.length > 0 ? o.errors.join("; ") : undefined,
       });
-      return null;
     }
-    const { result, vendor, errors } = await waterfall(input, stack);
-    await ctx.runMutation(internal.outreach.recordUnlock, {
-      contactId,
-      phones: result.phones,
-      emails: result.emails,
-      vendor,
-      error: result.phones.length === 0 && errors.length > 0 ? errors.join("; ") : undefined,
-    });
     return null;
   },
 });

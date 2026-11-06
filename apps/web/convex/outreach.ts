@@ -16,7 +16,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { outreachDefinition, outreachEmail, outreachPhone, outreachRowStatus } from "./schema";
+import { outreachDefinition, outreachEmail, outreachField, outreachPerson, outreachPhone, outreachRowStatus } from "./schema";
 import { fail, isStaff, nowIso, requireMember, requireStaff } from "./lib/access";
 import { mutationDef, queryDef } from "./lib/actor";
 import { callClaude } from "./lib/claude";
@@ -43,6 +43,7 @@ import {
 } from "./lib/outreach";
 import { MIDLAND_PARCELS } from "./lib/parcels";
 import { planIsActive } from "./lib/plan";
+import { vendors } from "./lib/skipTrace";
 import { dollars, postTransaction } from "./lib/wallet";
 
 const COUNTY = MIDLAND_PARCELS.county;
@@ -351,7 +352,23 @@ export const listsDef = queryDef({
 });
 export const lists = query(listsDef);
 
-const contactView = (c: Doc<"outreachContacts">) => ({
+type Cell = NonNullable<Doc<"outreachContacts">["enrichment"]>["phone"];
+const LOCKED: Cell = { status: "locked" };
+/** A contact's cells, with the old single unlock read as its cells until the migration has run. */
+export function cellsOf(c: Doc<"outreachContacts">): NonNullable<Doc<"outreachContacts">["enrichment"]> {
+  if (c.enrichment) return c.enrichment;
+  const u = c.unlock;
+  if (!u) return { phone: LOCKED, email: LOCKED, person: LOCKED };
+  const status: Cell["status"] = u.status === "pending" ? "running" : u.status;
+  const cell = { status, at: u.at, requestedBy: u.requestedBy, source: u.vendor, error: u.error };
+  return {
+    phone: { ...cell, chargedCents: u.chargedCents },
+    email: { ...cell, status: u.status === "found" && !(c.emails?.length ?? 0) ? "none" : status },
+    person: LOCKED,
+  };
+}
+
+const contactView = (c: Doc<"outreachContacts">, signals: SignalBadge[]) => ({
   id: c._id,
   key: c.key,
   name: c.name,
@@ -367,23 +384,97 @@ const contactView = (c: Doc<"outreachContacts">) => ({
   note: c.note,
   phones: c.phones ?? [],
   emails: c.emails ?? [],
-  unlock: c.unlock ? { status: c.unlock.status, at: c.unlock.at, vendor: c.unlock.vendor, chargedCents: c.unlock.chargedCents, error: c.unlock.error } : undefined,
+  person: c.person,
+  enrichment: cellsOf(c),
+  signals,
   createdAt: c.createdAt,
 });
 export type ContactView = ReturnType<typeof contactView>;
 
-/** The company's contacts, newest first; on one list only when listId is given. With the balance, for the unlock bar. */
+/** What the Signals column says about a contact's property: the newest of each kind of public record. */
+export type SignalBadge = { kind: Doc<"signals">["kind"]; date: string; detail: string };
+async function signalsFor(ctx: QueryCtx | MutationCtx, parcelId: Id<"parcels">): Promise<SignalBadge[]> {
+  const rows = await ctx.db
+    .query("signals")
+    .withIndex("by_parcel", (q) => q.eq("parcelId", parcelId))
+    .order("desc")
+    .take(10);
+  const out: SignalBadge[] = [];
+  for (const r of rows) if (!out.some((o) => o.kind === r.kind)) out.push({ kind: r.kind, date: r.date, detail: r.detail });
+  return out;
+}
+
+/** "Phone 12 / 200 · 2 sources": how many contacts have each field, and from how many sources. */
+function coverageOf(rows: Doc<"outreachContacts">[]) {
+  const count = (has: (c: Doc<"outreachContacts">) => boolean, source: (c: Doc<"outreachContacts">) => string | undefined, of: (c: Doc<"outreachContacts">) => boolean = () => true) => {
+    const sources = new Set<string>();
+    let found = 0;
+    let total = 0;
+    for (const c of rows) {
+      if (!of(c)) continue;
+      total++;
+      if (has(c)) {
+        found++;
+        const s = source(c);
+        if (s) sources.add(s);
+      }
+    }
+    return { found, total, sources: sources.size };
+  };
+  return {
+    phone: count((c) => (c.phones?.length ?? 0) > 0, (c) => cellsOf(c).phone.source),
+    email: count((c) => (c.emails?.length ?? 0) > 0, (c) => cellsOf(c).email.source),
+    person: count((c) => Boolean(c.person), (c) => c.person?.source, (c) => Boolean(c.company)),
+  };
+}
+
+/** The company's own hit rate on phones so far, for the estimate; undefined until it has tried. */
+async function phoneHitRate(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">) {
+  const stats = await ctx.db.query("dataSourceStats").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect();
+  let attempts = 0;
+  let hits = 0;
+  for (const s of stats) {
+    if (s.field !== "phone") continue;
+    attempts += s.attempts;
+    hits += s.hits;
+  }
+  return attempts > 0 ? hits / attempts : undefined;
+}
+
+/** The company's contacts, newest first; on one list only when listId is given. With coverage, the balance and the price, for the headers and the unlock bar. */
 export const contacts = query({
   args: { organizationId: v.id("organizations"), listId: v.optional(v.id("outreachLists")) },
   handler: async (ctx, { organizationId, listId }) => {
     const { organization } = await requirePro(ctx, organizationId);
     const all = await contactsOf(ctx, organizationId);
-    const picked = listId ? all.filter((c) => c.listIds.includes(listId)) : all;
+    const picked = all.filter((c) => !listId || c.listIds.includes(listId)).sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.name.localeCompare(b.name));
+    const rows = [];
+    for (const c of picked) rows.push(contactView(c, await signalsFor(ctx, c.property.parcelId)));
     return {
-      rows: picked.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.name.localeCompare(b.name)).map(contactView),
+      rows,
+      coverage: coverageOf(picked),
       balanceCents: organization.walletBalanceCents ?? 0,
       unlockCents: UNLOCK_CENTS,
+      phoneHitRate: await phoneHitRate(ctx, organizationId),
     };
+  },
+});
+
+/** Staff: the stack in order, whether each source is connected, and how it has done for this company. */
+export const sources = query({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    await requireStaff(ctx);
+    const stats = await ctx.db.query("dataSourceStats").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect();
+    return vendors(process.env).map((s) => ({
+      name: s.name,
+      fields: s.fields,
+      connected: s.connected,
+      stats: s.fields.map((field) => {
+        const row = stats.find((x) => x.source === s.name && x.field === field);
+        return { field, attempts: row?.attempts ?? 0, hits: row?.hits ?? 0, chargedCents: row?.chargedCents ?? 0, lastAt: row?.lastAt };
+      }),
+    }));
   },
 });
 
@@ -411,7 +502,8 @@ export const remove = mutation({
     for (const c of await contactsOf(ctx, organizationId)) {
       if (!c.listIds.includes(listId)) continue;
       const listIds = c.listIds.filter((id) => id !== listId);
-      if (listIds.length === 0 && c.unlock?.status !== "found") {
+      const paid = Object.values(cellsOf(c)).some((cell) => cell.status === "found");
+      if (listIds.length === 0 && !paid) {
         await ctx.db.delete(c._id);
         continue;
       }
@@ -477,88 +569,144 @@ export const migrateRows = internalMutation({
   },
 });
 
-// ---- Unlocking a contact's phone and email ----
+// ---- Enriching contacts: the person behind a company, their phone and email ----
+
+const FIELDS: Doc<"dataSourceStats">["field"][] = ["person", "phone", "email"];
 
 /**
- * Queues a skip trace for each contact, for an admin with the balance to
- * cover them all. The charge (UNLOCK_CENTS) lands only when a trace finds
- * a phone; a miss or a vendor error is free. One already found or pending
- * is skipped.
+ * Queues the stack for each contact and field, for an admin with the
+ * balance to cover the phones. The charge (UNLOCK_CENTS) lands only when
+ * a phone is found; emails, the person, a miss and a vendor error are
+ * free. A field already found or running is skipped; person only applies
+ * to company owners.
  */
-export const requestUnlock = mutation({
-  args: { organizationId: v.id("organizations"), contactIds: v.array(v.id("outreachContacts")) },
-  handler: async (ctx, { organizationId, contactIds }) => {
+export const enrich = mutation({
+  args: { organizationId: v.id("organizations"), contactIds: v.array(v.id("outreachContacts")), fields: v.optional(v.array(outreachField)) },
+  handler: async (ctx, { organizationId, contactIds, fields = ["person", "phone", "email"] }) => {
     const { user, organization } = await requireMember(ctx, organizationId, "admin");
     if (!organization.plan || !planIsActive(organization.plan, Date.now())) fail("FORBIDDEN", "Outreach is part of the Pro plan");
-    const wanted: Doc<"outreachContacts">[] = [];
+    const jobs: Array<{ contact: Doc<"outreachContacts">; fields: Doc<"dataSourceStats">["field"][] }> = [];
     for (const id of new Set(contactIds)) {
       const c = await ctx.db.get(id);
       if (!c || c.organizationId !== organizationId) fail("NOT_FOUND", "No such contact");
-      if (c.unlock?.status === "found" || c.unlock?.status === "pending") continue;
-      wanted.push(c);
+      const cells = cellsOf(c);
+      const open = FIELDS.filter((f) => fields.includes(f) && (f !== "person" || c.company) && cells[f].status !== "found" && cells[f].status !== "running");
+      if (open.length) jobs.push({ contact: c, fields: open });
     }
+    const phones = jobs.filter((j) => j.fields.includes("phone")).length;
     const balance = organization.walletBalanceCents ?? 0;
-    const cost = wanted.length * UNLOCK_CENTS;
-    if (cost > balance) fail("INVALID", `Balance too low: ${dollars(cost)} needed for ${wanted.length} ${wanted.length === 1 ? "unlock" : "unlocks"}, ${dollars(balance)} available`);
+    const cost = phones * UNLOCK_CENTS;
+    if (cost > balance) fail("INVALID", `Balance too low: ${dollars(cost)} needed for ${phones} ${phones === 1 ? "phone" : "phones"}, ${dollars(balance)} available`);
     const now = nowIso();
-    for (const c of wanted) {
-      await ctx.db.patch(c._id, { unlock: { status: "pending", at: now, requestedBy: user._id }, updatedAt: now });
-      await ctx.scheduler.runAfter(0, internal.skipTrace.trace, { contactId: c._id });
+    for (const { contact, fields: open } of jobs) {
+      const cells = { ...cellsOf(contact) };
+      for (const f of open) cells[f] = { status: "running", at: now, requestedBy: user._id };
+      await ctx.db.patch(contact._id, { enrichment: cells, unlock: undefined, updatedAt: now });
+      await ctx.scheduler.runAfter(0, internal.skipTrace.trace, { contactId: contact._id, fields: open });
     }
-    return { queued: wanted.length, costCents: cost };
+    return { queued: jobs.length, costCents: cost };
   },
 });
 
-/** What the trace sends the vendors: the owner and both addresses. */
+/** What the trace sends the sources: the owner, the person already known, both addresses, and which fields are still running. */
 export const contactForTrace = internalQuery({
   args: { contactId: v.id("outreachContacts") },
   handler: async (ctx, { contactId }) => {
     const c = await ctx.db.get(contactId);
-    if (!c || c.unlock?.status !== "pending") return null;
+    if (!c) return null;
+    const cells = cellsOf(c);
+    const fields = FIELDS.filter((f) => cells[f].status === "running");
+    if (fields.length === 0) return null;
     return {
       name: c.name,
       company: c.company,
+      person: c.person,
       property: { address: c.property.address, city: title(COUNTY), state: "TX", zip: undefined as string | undefined },
       mailing: c.mailing,
+      fields,
     };
   },
 });
 
-/** The trace's answer: phones and emails (charged), nothing (free), or an error (free). */
-export const recordUnlock = internalMutation({
+/** One field's answer from the stack: what was found and by whom (a phone is charged), nothing (free), or an error (free). */
+export const recordEnrichment = internalMutation({
   args: {
     contactId: v.id("outreachContacts"),
+    field: outreachField,
+    source: v.optional(v.string()),
     phones: v.optional(v.array(outreachPhone)),
     emails: v.optional(v.array(outreachEmail)),
-    vendor: v.optional(v.string()),
+    person: v.optional(outreachPerson),
     error: v.optional(v.string()),
   },
-  handler: async (ctx, { contactId, phones = [], emails = [], vendor, error }) => {
+  handler: async (ctx, { contactId, field, source, phones = [], emails = [], person, error }) => {
     const c = await ctx.db.get(contactId);
-    if (!c || c.unlock?.status !== "pending") return null;
+    if (!c) return null;
+    const cells = { ...cellsOf(c) };
+    if (cells[field].status !== "running") return null;
     const now = nowIso();
-    const requestedBy = c.unlock.requestedBy;
-    if (phones.length > 0) {
-      let chargedCents = 0;
+    const requestedBy = cells[field].requestedBy;
+    const found = field === "phone" ? phones.length > 0 : field === "email" ? emails.length > 0 : Boolean(person);
+    let chargedCents = 0;
+    if (found && field === "phone" && requestedBy) {
       try {
         await postTransaction(ctx, c.organizationId, {
           type: "unlock",
           amountCents: -UNLOCK_CENTS,
           createdBy: requestedBy,
           contactId,
-          note: `Phone and email for ${c.name}`,
+          note: `Phone for ${c.name}${source ? ` via ${sourceLabel(source)}` : ""}`,
         });
         chargedCents = UNLOCK_CENTS;
       } catch {
         // The balance ran out between the request and the hit: the company keeps what was found.
       }
-      await ctx.db.patch(contactId, { phones, emails, unlock: { status: "found", at: now, requestedBy, vendor, chargedCents }, updatedAt: now });
-    } else if (error && emails.length === 0) {
-      await ctx.db.patch(contactId, { unlock: { status: "failed", at: now, requestedBy, vendor, error }, updatedAt: now });
-    } else {
-      await ctx.db.patch(contactId, { emails: emails.length ? emails : c.emails, unlock: { status: "none", at: now, requestedBy, vendor }, updatedAt: now });
+    }
+    cells[field] = found
+      ? { status: "found", at: now, requestedBy, source, chargedCents: field === "phone" ? chargedCents : undefined }
+      : error
+        ? { status: "failed", at: now, requestedBy, error }
+        : { status: "none", at: now, requestedBy, source };
+    await ctx.db.patch(contactId, {
+      enrichment: cells,
+      ...(field === "phone" && found ? { phones } : {}),
+      ...(field === "email" && found ? { emails } : {}),
+      ...(field === "person" && found ? { person } : {}),
+      updatedAt: now,
+    });
+    // The stack's own scorecard: an attempt per source asked, a hit for the one that answered.
+    if (source || !error) {
+      const name = source ?? "none";
+      const row = await ctx.db
+        .query("dataSourceStats")
+        .withIndex("by_organization", (q) => q.eq("organizationId", c.organizationId).eq("source", name).eq("field", field))
+        .unique();
+      if (row) await ctx.db.patch(row._id, { attempts: row.attempts + 1, hits: row.hits + (found ? 1 : 0), chargedCents: row.chargedCents + chargedCents, lastAt: now });
+      else await ctx.db.insert("dataSourceStats", { organizationId: c.organizationId, source: name, field, attempts: 1, hits: found ? 1 : 0, chargedCents, lastAt: now });
     }
     return null;
+  },
+});
+
+/** "batchdata" → "BatchData", "tx-comptroller" → "Texas Comptroller". */
+export const sourceLabel = (s: string) => ({ batchdata: "BatchData", "tx-comptroller": "Texas Comptroller" })[s] ?? s;
+
+/**
+ * One-off: contacts unlocked before per-field cells existed get their
+ * cells; the deploy runs it until none is left: `npx convex run outreach:migrateUnlocks`.
+ */
+export const migrateUnlocks = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const rows = (await ctx.db.query("outreachContacts").take(500)).filter((c) => c.unlock && !c.enrichment);
+    for (const c of rows) {
+      await ctx.db.patch(c._id, {
+        enrichment: cellsOf(c),
+        phones: (c.phones ?? []).map((p) => ({ ...p, type: p.type ?? "unknown" })),
+        unlock: undefined,
+      });
+    }
+    return { moved: rows.length };
   },
 });
 

@@ -19,8 +19,15 @@ const contact = (id: string, over: Record<string, unknown> = {}) => ({
   status: 'new',
   phones: [],
   emails: [],
+  enrichment: { phone: { status: 'locked' }, email: { status: 'locked' }, person: { status: 'locked' } },
+  signals: [],
   createdAt: '2026-11-05T15:00:00Z',
   ...over,
+});
+const coverage = (phone = 0, email = 0, person = 0, total = 2) => ({
+  phone: { found: phone, total, sources: phone ? 1 : 0 },
+  email: { found: email, total, sources: email ? 1 : 0 },
+  person: { found: person, total, sources: person ? 1 : 0 },
 });
 const list = {
   id: 'l1',
@@ -33,7 +40,7 @@ const list = {
   createdAt: '2026-11-05T15:00:00Z',
 };
 let lists: Array<Record<string, unknown>> = [];
-let contacts: Record<string, unknown> = { rows: [], balanceCents: 0, unlockCents: 100 };
+let contacts: Record<string, unknown> = { rows: [], coverage: coverage(0, 0, 0, 0), balanceCents: 0, unlockCents: 100 };
 let interpreted: Record<string, unknown> = {
   ok: true,
   definition: { county: 'Midland', who: 'commercial' },
@@ -49,7 +56,8 @@ const preview = jest.fn(async () => ({ count: 1, truncated: false, limited: fals
 const create = jest.fn(async () => ({ listId: 'l9', rowCount: 2, added: 2, truncated: false }));
 const setStatus = jest.fn(async () => null);
 const remove = jest.fn(async () => null);
-const requestUnlock = jest.fn(async () => ({ queued: 1, costCents: 100 }));
+const enrich = jest.fn(async () => ({ queued: 1, costCents: 100 }));
+const sources = jest.fn(async () => []);
 const getContacts = jest.fn(async () => contacts);
 let ownersState: Record<string, unknown> | null = null;
 const rebuild = jest.fn(async () => ({ fetched: 58_418, added: 44_120, updated: 0 }));
@@ -65,7 +73,8 @@ jest.mock('../../lib/api', () => ({
     create: (...args: unknown[]) => create(...(args as [])),
     setStatus: (...args: unknown[]) => setStatus(...(args as [])),
     remove: (...args: unknown[]) => remove(...(args as [])),
-    requestUnlock: (...args: unknown[]) => requestUnlock(...(args as [])),
+    enrich: (...args: unknown[]) => enrich(...(args as [])),
+    sources: (...args: unknown[]) => sources(...(args as [])),
     status: async () => ownersState,
     rebuild: () => rebuild(),
   },
@@ -113,7 +122,18 @@ function type(el: HTMLInputElement | HTMLTextAreaElement, value: string) {
   el.dispatchEvent(new Event('input', { bubbles: true }));
 }
 const twoContacts = () => ({
-  rows: [contact('r1'), contact('r2', { name: 'City Of Midland', company: 'City Of Midland', mailing: { address: '300 N LORAINE ST', city: 'MIDLAND', state: 'TX', zip: '79701' }, why: '4 commercial buildings worth $300K', properties: 4 })],
+  rows: [
+    contact('r1'),
+    contact('r2', {
+      name: 'City Of Midland',
+      company: 'City Of Midland',
+      mailing: { address: '300 N LORAINE ST', city: 'MIDLAND', state: 'TX', zip: '79701' },
+      why: '4 commercial buildings worth $300K',
+      properties: 4,
+      signals: [{ kind: 'code_violation', date: '2026-09-14', detail: 'High weeds' }],
+    }),
+  ],
+  coverage: coverage(),
   balanceCents: 0,
   unlockCents: 100,
 });
@@ -122,7 +142,7 @@ afterEach(() => {
   document.body.innerHTML = '';
   jest.clearAllMocks();
   lists = [];
-  contacts = { rows: [], balanceCents: 0, unlockCents: 100 };
+  contacts = { rows: [], coverage: coverage(0, 0, 0, 0), balanceCents: 0, unlockCents: 100 };
   authUser = { id: 'u1', role: 'user' };
   ownersState = null;
 });
@@ -131,7 +151,7 @@ describe('the Outreach page', () => {
   it('shows the contacts table with a chip per list, or says to tap + when there are none', async () => {
     await render();
     expect(document.body.querySelector('[data-testid="outreach-empty"]')!.textContent).toBe('No contacts yet. Tap + and say who you want to reach.');
-    expect(document.body.textContent).toContain('unlock a phone and email for $1.');
+    expect(document.body.textContent).toContain('the person behind each company, then a phone and email for $1.');
     document.body.innerHTML = '';
     lists = [list];
     contacts = twoContacts();
@@ -140,9 +160,12 @@ describe('the Outreach page', () => {
     expect(chips).toEqual(['All', 'Shopping center owners 2']);
     const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
     expect(rows).toHaveLength(2);
-    const cells = Array.from(rows[0].querySelectorAll('td')).map((c) => c.textContent?.trim());
-    expect(cells).toEqual(['', 'Oak Plaza LLC', '1 MAIN ST', 'DALLAS', 'TX', '75201', '12 Midkiff Rd', '$3M', 'Commercial', 'Locked', 'Locked', 'New']);
-    expect(Array.from(rows[1].querySelectorAll('td')).map((c) => c.textContent?.trim())[6]).toBe('12 Midkiff Rd +3');
+    const cells = (i: number) => Array.from(rows[i].querySelectorAll('td')).map((c) => c.textContent?.trim());
+    expect(cells(0)).toEqual(['', 'Oak Plaza LLC', '—', '1 MAIN ST', 'DALLAS', 'TX', '75201', '12 Midkiff Rd', '$3M', 'Commercial', '—', '—', '—', 'New']);
+    expect(cells(1)[7]).toBe('12 Midkiff Rd +3');
+    expect(cells(1)[10]).toBe('Code violation Sep 2026');
+    const heads = Array.from(document.body.querySelectorAll('thead th')).map((h) => h.textContent?.replace(/\s+/g, ' ').trim());
+    expect(heads).toEqual(['', 'Name', 'Decision maker0 / 2 companies', 'Mailing address', 'City', 'State', 'Zip', 'Property', 'Value', 'Type', 'Signals', 'Phone0 / 2', 'Email0 / 2', 'Status']);
     await click('Shopping center owners');
     expect(path).toBe('/outreach/l1');
     expect(getContacts).toHaveBeenLastCalledWith('o1', 'l1');
@@ -191,7 +214,7 @@ describe('the Outreach page', () => {
     interpreted = { ok: true, definition: { county: 'Midland', who: 'commercial' }, title: 'x', explanation: 'y', count: 2, truncated: false, limited: false, preview: [] };
   });
 
-  it('a contact opens to both addresses in Apple Maps, the unlock and a status; CSV exports the table', async () => {
+  it('a contact opens to the decision-maker lookup, both addresses in Apple Maps, the unlock and a status; CSV exports the table', async () => {
     lists = [list];
     contacts = twoContacts();
     await render('/outreach/l1');
@@ -203,10 +226,12 @@ describe('the Outreach page', () => {
       'https://maps.apple.com/?q=1%20MAIN%20ST%2C%20DALLAS%2C%20TX%2075201',
       'https://maps.apple.com/?q=12%20Midkiff%20Rd%2C%20Midland%2C%20TX',
     ]);
-    // No balance: the unlock waits on funds.
+    // No balance: the unlock waits on funds; the free lookup of the person behind the company doesn't.
     const unlockButton = button('Unlock phone & email · $1');
     expect(unlockButton.disabled).toBe(true);
     expect(sheet.textContent).toContain('Balance $0. Add funds');
+    await click('Find the person behind the company · free');
+    expect(enrich).toHaveBeenCalledWith('o1', ['r1'], ['person']);
     await act(async () => type(sheet.querySelector('textarea') as HTMLTextAreaElement, 'Mailed Nov 5'));
     await click('Done');
     expect(setStatus).toHaveBeenCalledWith('o1', 'r1', 'done', 'Mailed Nov 5');
@@ -229,7 +254,7 @@ describe('the Outreach page', () => {
     expect(clicks).toEqual(['shopping-center-owners.csv']);
   });
 
-  it('ticked rows unlock together for $1 each from the balance; a found contact shows its phone and email', async () => {
+  it('ticked rows are looked up together, $1 a phone from the balance with an estimate; found rows show the person, the ranked phone with its flags, and the email', async () => {
     lists = [list];
     contacts = { ...twoContacts(), balanceCents: 500 };
     await render();
@@ -238,27 +263,51 @@ describe('the Outreach page', () => {
     await act(async () => (boxes[1] as HTMLInputElement).click());
     const bar = document.body.querySelector('[data-testid="unlock-bar"]')!;
     expect(bar.textContent).toContain('2 selected');
-    expect(bar.textContent).toContain('Balance $5.');
+    expect(bar.textContent).toContain('2 phones to find, up to $2. Balance $5.');
+    const found = { status: 'found', at: '2026-11-05T15:01:00Z', source: 'batchdata' };
     contacts = {
       rows: [
-        contact('r1', { unlock: { status: 'found', at: '2026-11-05T15:01:00Z', vendor: 'batchdata', chargedCents: 100 }, phones: [{ number: '4325550100', type: 'mobile', source: 'batchdata' }], emails: [{ email: 'owner@oakplaza.com', source: 'batchdata' }] }),
-        contact('r2', { name: 'City Of Midland', unlock: { status: 'pending', at: '2026-11-05T15:01:00Z' } }),
+        contact('r1', {
+          enrichment: { phone: { ...found, chargedCents: 100 }, email: found, person: { ...found, source: 'tx-comptroller' } },
+          person: { name: 'Dana Reyes', title: 'Manager', address: '1 MAIN ST STE 400, DALLAS, TX, 75201', source: 'tx-comptroller' },
+          phones: [
+            { number: '4325550100', type: 'mobile', verified: true, score: 95, source: 'batchdata' },
+            { number: '4325550199', type: 'landline', dnc: true, source: 'batchdata' },
+          ],
+          emails: [{ email: 'dana@oakplaza.com', source: 'batchdata', verified: true }],
+        }),
+        contact('r2', { name: 'City Of Midland', enrichment: { phone: { status: 'running' }, email: { status: 'running' }, person: { status: 'running' } } }),
       ],
+      coverage: coverage(1, 1, 1),
       balanceCents: 400,
       unlockCents: 100,
+      phoneHitRate: 0.5,
     };
-    await click('Unlock 2 for $2');
-    expect(requestUnlock).toHaveBeenCalledWith('o1', ['r1', 'r2']);
+    // The top-right button looks up everyone still locked on the list; the bar's button only the ticked rows.
+    expect(button('Look up 2').title).toBe('up to $2');
+    await act(async () => (bar.querySelector('button') as HTMLButtonElement).click());
+    await flush();
+    expect(enrich).toHaveBeenCalledWith('o1', ['r1', 'r2'], undefined);
     expect(document.body.textContent).toContain('Looking up 1 owner; $1 at most, charged only for phones found.');
+    expect(document.body.querySelector('[data-testid="looking"]')!.textContent).toBe('Looking up 1 owner…');
     const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
-    const cells = (i: number) => Array.from(rows[i].querySelectorAll('td')).map((c) => c.textContent?.trim());
-    expect(cells(0).slice(9, 11)).toEqual(['(432) 555-0100', 'owner@oakplaza.com']);
-    expect(cells(1).slice(9, 11)).toEqual(['Looking…', 'Looking…']);
+    const cells = (i: number) => Array.from(rows[i].querySelectorAll('td')).map((c) => c.textContent?.replace(/\s+/g, ' ').trim());
+    expect(cells(0)[2]).toBe('Dana ReyesManager');
+    expect(cells(0).slice(11, 13)).toEqual(['(432) 555-0100mobile · verified · +1', 'dana@oakplaza.comverified']);
+    expect(cells(1).slice(11, 13)).toEqual(['Looking…', 'Looking…']);
+    expect(document.body.querySelector('thead')!.textContent).toContain('1 / 2 · 1 source');
     expect(document.body.querySelector('[data-testid="unlock-bar"]')).toBeNull();
+    // Nothing left to look up on the list: the top-right button is gone.
+    expect(button('Look up')).toBeUndefined();
     await act(async () => (rows[0] as HTMLTableRowElement).click());
     const sheet = document.body.querySelector('[role="dialog"][aria-label="Oak Plaza LLC"]')!;
+    expect(sheet.querySelector('[data-testid="decision-maker"]')!.textContent).toContain('Dana Reyes · Manager');
+    expect(sheet.querySelector('[data-testid="decision-maker"]')!.textContent).toContain('From Texas Comptroller');
     const links = Array.from(sheet.querySelectorAll('[data-testid="contact-details"] a')).map((a) => a.getAttribute('href'));
-    expect(links).toEqual(['tel:4325550100', 'mailto:owner@oakplaza.com']);
+    // The DNC landline is shown but never dialled from here.
+    expect(links).toEqual(['tel:4325550100', 'mailto:dana@oakplaza.com']);
+    expect(sheet.querySelector('[data-testid="contact-details"]')!.textContent).toContain('(432) 555-0199landline · DNCon the Do Not Call list');
+    expect(sheet.querySelector('[data-testid="contact-details"]')!.textContent).toContain('From BatchData Nov 5 · $1');
   });
 
   it('tells staff when the roll was grouped into owners, or that it failed, with a rebuild; companies see nothing', async () => {
@@ -276,6 +325,15 @@ describe('the Outreach page', () => {
     ownersState = { syncedAt: '2026-11-05T06:40:00Z', parcels: 58_418, owners: 44_120, error: 'JavaScript execution ran out of memory' };
     await render();
     expect(line().textContent).toContain('failed: JavaScript execution ran out of memory');
+    // The stack, with this company's numbers.
+    sources.mockResolvedValueOnce([
+      { name: 'tx-comptroller', fields: ['person'], connected: true, stats: [{ field: 'person', attempts: 4, hits: 3, chargedCents: 0 }] },
+      { name: 'batchdata', fields: ['phone', 'email'], connected: false, stats: [{ field: 'phone', attempts: 0, hits: 0, chargedCents: 0 }, { field: 'email', attempts: 0, hits: 0, chargedCents: 0 }] },
+    ] as never);
+    await click('Data sources');
+    const panel = document.body.querySelector('[data-testid="sources-panel"]')!;
+    expect(panel.textContent).toContain('1. Texas ComptrollerConnecteddecision maker: 3 / 4 (75%)');
+    expect(panel.textContent).toContain('2. BatchDataNot connectedphone: 0 / 0email: 0 / 0');
   });
 
   it('deletes the open list after asking, and goes back to all contacts', async () => {

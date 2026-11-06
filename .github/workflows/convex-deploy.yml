@@ -113,6 +113,8 @@ jobs:
         run: npx convex run parcels:syncMidland '{"ifStale":true}'
       - name: Move Outreach's old list rows into contacts
         run: npx convex run outreach:migrateRows
+      - name: Give contacts unlocked before per-field cells their cells
+        run: npx convex run outreach:migrateUnlocks
 
       - name: Group the roll into owners for Outreach
         # One row per owner and per office that gets several owners' tax

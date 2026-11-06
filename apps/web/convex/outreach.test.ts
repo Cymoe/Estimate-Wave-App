@@ -391,7 +391,7 @@ describe("a company's lists", () => {
     expect(await t.mutation(internal.outreach.migrateRows, {})).toEqual({ moved: 0, more: false });
   });
 
-  test("unlocking a contact runs the skip-trace waterfall and charges the balance only on a hit", async () => {
+  test("enriching a contact runs the stack per field: the person behind an LLC free, a found phone for $1, emails and misses free", async () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     const t = setup();
     await addParcels(t, ROLL);
@@ -399,87 +399,179 @@ describe("a company's lists", () => {
     const co = await proCompany(t);
     const org = co.organizationId;
     await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
-    const rows = (await co.as.query(api.outreach.contacts, { organizationId: org })).rows;
+    const read = async () => await co.as.query(api.outreach.contacts, { organizationId: org });
+    const rows = (await read()).rows;
     const oak = rows.find((r) => r.name === "Oak Plaza LLC")!;
     const cityHall = rows.find((r) => r.name === "City Of Midland")!;
+    expect(oak.enrichment).toEqual({ phone: { status: "locked" }, email: { status: "locked" }, person: { status: "locked" } });
+    expect((await read()).coverage).toEqual({ phone: { found: 0, total: 2, sources: 0 }, email: { found: 0, total: 2, sources: 0 }, person: { found: 0, total: 2, sources: 0 } });
 
-    // No balance: refused before anything is queued.
-    await expect(co.as.mutation(api.outreach.requestUnlock, { organizationId: org, contactIds: [oak.id] })).rejects.toThrow(/Balance too low: \$1\.00 needed for 1 unlock, \$0\.00 available/);
-    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 250 }));
-    await expect(co.as.mutation(api.outreach.requestUnlock, { organizationId: org, contactIds: [oak.id, cityHall.id, oak.id] })).resolves.toEqual({ queued: 2, costCents: 200 });
-    const pending = (await co.as.query(api.outreach.contacts, { organizationId: org })).rows;
-    expect(pending.map((r) => r.unlock?.status)).toEqual(["pending", "pending"]);
-    // Pending ones aren't queued twice.
-    await expect(co.as.mutation(api.outreach.requestUnlock, { organizationId: org, contactIds: [oak.id] })).resolves.toEqual({ queued: 0, costCents: 0 });
-
-    // No vendor key: both traces fail, nobody is charged.
+    // No balance: refused before anything is queued. The person lookup alone is free.
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id] })).rejects.toThrow(/Balance too low: \$1\.00 needed for 1 phone, \$0\.00 available/);
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["person"] })).resolves.toEqual({ queued: 1, costCents: 0 });
+    expect((await read()).rows.find((r) => r.id === oak.id)!.enrichment.person.status).toBe("running");
+    // No key for it: a failed cell that says so, nothing charged, and not counted as a source attempt.
+    vi.stubEnv("TX_COMPTROLLER_API_KEY", "");
     vi.stubEnv("BATCHDATA_API_KEY", "");
     await t.finishAllScheduledFunctions(() => {});
-    const failed = (await co.as.query(api.outreach.contacts, { organizationId: org })).rows;
-    expect(failed.map((r) => r.unlock?.status)).toEqual(["failed", "failed"]);
-    expect(failed[0].unlock?.error).toContain("No skip-trace vendor is connected yet");
-    expect(failed[0].phones).toEqual([]);
-    expect((await co.as.query(api.outreach.contacts, { organizationId: org })).balanceCents).toBe(250);
+    const noKey = (await read()).rows.find((r) => r.id === oak.id)!;
+    expect(noKey.enrichment.person).toMatchObject({ status: "failed", error: expect.stringContaining("TX_COMPTROLLER_API_KEY") });
 
-    // With BatchData: Oak Plaza gets a phone and an email ($1); the city gets nothing (free).
+    // With keys: the Comptroller names Oak Plaza's manager, BatchData finds her phones and an email; the city gets nothing.
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 250 }));
+    vi.stubEnv("TX_COMPTROLLER_API_KEY", "cpa-key");
     vi.stubEnv("BATCHDATA_API_KEY", "bd-key");
-    const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+    const calls: Array<{ url: string; headers: Record<string, string>; body?: Record<string, unknown> }> = [];
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (url: string, init: RequestInit) => {
-        const body = JSON.parse(init.body as string) as { requests: Array<{ propertyAddress: { street: string } }> };
-        calls.push({ url, body });
-        const hit = body.requests[0].propertyAddress.street.startsWith("12 ");
-        return new Response(
-          JSON.stringify({
-            results: {
-              persons: hit
-                ? [
-                    {
-                      name: { first: "Oak", last: "Plaza" },
-                      phoneNumbers: [
-                        { number: "(432) 555-0100", type: "Mobile", dnc: false, score: 95 },
-                        { number: "+1 432 555 0100", type: "Mobile" },
-                        { number: "432-555-0199", type: "Land Line", tcpa: true },
-                      ],
-                      emails: [{ email: "Owner@OakPlaza.com" }, { email: "owner@oakplaza.com" }],
-                    },
-                  ]
-                : [],
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const body = init?.body ? (JSON.parse(init.body as string) as Record<string, unknown>) : undefined;
+        calls.push({ url, headers: (init?.headers ?? {}) as Record<string, string>, body });
+        const json = (data: unknown) => new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" } });
+        if (url.includes("franchise-tax-list")) {
+          const name = decodeURIComponent(url.split("name=")[1]);
+          return json({ success: true, data: name === "OAK PLAZA LLC" ? [{ name: "OAK PLAZA LLC", taxpayerId: "32011111111", mailingAddressZip: "75201" }] : [], count: 1 });
+        }
+        if (url.includes("franchise-tax/32011111111")) {
+          return json({
+            success: true,
+            data: {
+              name: "OAK PLAZA LLC",
+              officerInfo: [
+                { AGNT_NM: "OAK HOLDINGS INC", AGNT_TITL_TX: "MEMBER", CITY_NM: "DALLAS", ST_CD: "TX" },
+                { AGNT_NM: "DANA REYES", AGNT_TITL_TX: "MANAGER", AD_STR_POB_TX: "1 MAIN ST STE 400", CITY_NM: "DALLAS", ST_CD: "TX", AD_ZP: "752011234" },
+                { AGNT_NM: "SAM REYES", AGNT_TITL_TX: "SECRETARY", CITY_NM: "DALLAS", ST_CD: "TX" },
+              ],
             },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+          });
+        }
+        const requests = (body as { requests: Array<{ propertyAddress: { street: string }; name?: { first?: string; last?: string } }> }).requests;
+        const hit = requests[0].propertyAddress.street.startsWith("12 ");
+        return json({
+          results: {
+            persons: hit
+              ? [
+                  {
+                    name: { first: "Dana", last: "Reyes" },
+                    phoneNumbers: [
+                      { number: "432-555-0199", type: "Land Line", tcpa: true, score: 60 },
+                      { number: "(432) 555-0100", type: "Mobile", dnc: false, reachable: true, score: 95 },
+                      { number: "+1 432 555 0100", type: "Mobile" },
+                      { number: "432-555-0177", type: "VoIP", score: 95 },
+                    ],
+                    emails: [{ email: "Dana@OakPlaza.com" }, { email: "dana@oakplaza.com" }],
+                  },
+                ]
+              : [],
+          },
+        });
       }),
     );
-    await co.as.mutation(api.outreach.requestUnlock, { organizationId: org, contactIds: [oak.id, cityHall.id] });
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id, cityHall.id, oak.id] })).resolves.toEqual({ queued: 2, costCents: 200 });
+    const running = (await read()).rows;
+    expect(running.find((r) => r.id === oak.id)!.enrichment).toMatchObject({ person: { status: "running" }, phone: { status: "running" }, email: { status: "running" } });
+    expect(running.find((r) => r.id === cityHall.id)!.enrichment).toMatchObject({ person: { status: "running" }, phone: { status: "running" } });
+    // Running ones aren't queued twice.
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id] })).resolves.toEqual({ queued: 0, costCents: 0 });
     await t.finishAllScheduledFunctions(() => {});
-    const traced = await co.as.query(api.outreach.contacts, { organizationId: org });
+
+    const traced = await read();
     const oakNow = traced.rows.find((r) => r.id === oak.id)!;
-    expect(oakNow.unlock).toMatchObject({ status: "found", vendor: "batchdata", chargedCents: 100 });
+    expect(oakNow.person).toEqual({ name: "Dana Reyes", title: "Manager", address: "1 MAIN ST STE 400, DALLAS, TX, 75201", source: "tx-comptroller" });
+    expect(oakNow.enrichment).toMatchObject({
+      person: { status: "found", source: "tx-comptroller" },
+      phone: { status: "found", source: "batchdata", chargedCents: 100 },
+      email: { status: "found", source: "batchdata" },
+    });
+    // Ranked: the vendor's score first, then mobile before VoIP before landline; the DNC landline is kept but flagged.
     expect(oakNow.phones).toEqual([
-      { number: "4325550100", type: "mobile", source: "batchdata" },
-      { number: "4325550199", type: "land line", dnc: true, source: "batchdata" },
+      { number: "4325550100", type: "mobile", verified: true, score: 95, source: "batchdata" },
+      { number: "4325550177", type: "voip", score: 95, source: "batchdata" },
+      { number: "4325550199", type: "landline", dnc: true, score: 60, source: "batchdata" },
     ]);
-    expect(oakNow.emails).toEqual([{ email: "owner@oakplaza.com", source: "batchdata" }]);
+    expect(oakNow.emails).toEqual([{ email: "dana@oakplaza.com", source: "batchdata" }]);
     const cityNow = traced.rows.find((r) => r.id === cityHall.id)!;
-    expect(cityNow.unlock).toMatchObject({ status: "none" });
+    // The state has no entity called City Of Midland, and BatchData has nothing for it: three free misses.
+    expect(cityNow.enrichment).toMatchObject({ phone: { status: "none" }, email: { status: "none" }, person: { status: "none" } });
     expect(cityNow.phones).toEqual([]);
     expect(traced.balanceCents).toBe(150);
-    expect(calls).toHaveLength(2);
-    expect(calls[0].url).toBe("https://api.batchdata.com/api/v1/property/skip-trace");
-    expect(calls.map((c) => (c.body.requests as Array<{ propertyAddress: { street: string; city: string; state: string } }>)[0].propertyAddress)).toEqual(
-      expect.arrayContaining([{ street: "12 Midkiff Rd", city: "Midland", state: "TX" }]),
-    );
+    expect(traced.coverage).toEqual({ phone: { found: 1, total: 2, sources: 1 }, email: { found: 1, total: 2, sources: 1 }, person: { found: 1, total: 2, sources: 1 } });
+    expect(traced.phoneHitRate).toBe(0.5);
+    // The Comptroller was asked by name with the key; BatchData was asked once per contact, for the manager by name.
+    const cpa = calls.filter((c) => c.url.includes("comptroller.texas.gov"));
+    expect(cpa.map((c) => c.headers["x-api-key"])).toEqual(["cpa-key", "cpa-key", "cpa-key"]);
+    const bd = calls.filter((c) => c.url === "https://api.batchdata.com/api/v1/property/skip-trace");
+    expect(bd).toHaveLength(2);
+    const oakAsk = bd.find((c) => (c.body as { requests: Array<{ propertyAddress: { street: string } }> }).requests[0].propertyAddress.street === "12 Midkiff Rd")!;
+    expect((oakAsk.body as { requests: Array<{ name: unknown }> }).requests[0].name).toEqual({ first: "Dana", last: "Reyes" });
     await t.run(async (ctx) => {
       const charges = await ctx.db.query("walletTransactions").collect();
-      expect(charges.map((c) => [c.type, c.amountCents, c.balanceAfterCents, c.contactId, c.note])).toEqual([["unlock", -100, 150, oak.id, "Phone and email for Oak Plaza LLC"]]);
+      expect(charges.map((c) => [c.type, c.amountCents, c.balanceAfterCents, c.contactId, c.note])).toEqual([["unlock", -100, 150, oak.id, "Phone for Oak Plaza LLC via BatchData"]]);
+      const stats = (await ctx.db.query("dataSourceStats").collect()).map((s) => [s.source, s.field, s.attempts, s.hits, s.chargedCents]).sort();
+      expect(stats).toEqual([
+        ["batchdata", "email", 1, 1, 0],
+        ["batchdata", "phone", 1, 1, 100],
+        ["none", "email", 1, 0, 0],
+        ["none", "person", 1, 0, 0],
+        ["none", "phone", 1, 0, 0],
+        ["tx-comptroller", "person", 1, 1, 0],
+      ]);
     });
-    // A found contact isn't traced again, and a dropped list keeps a paid contact.
-    await expect(co.as.mutation(api.outreach.requestUnlock, { organizationId: org, contactIds: [oak.id] })).resolves.toEqual({ queued: 0, costCents: 0 });
+    // Staff see the stack with this company's numbers.
+    const ops = await signUp(t, "ops@webb.example", { role: "staff" });
+    const stack = await ops.as.query(api.outreach.sources, { organizationId: org });
+    expect(stack.map((s) => [s.name, s.connected, s.stats.map((x) => [x.field, x.attempts, x.hits, x.chargedCents])])).toEqual([
+      ["tx-comptroller", true, [["person", 1, 1, 0]]],
+      ["batchdata", true, [["phone", 1, 1, 100], ["email", 1, 1, 0]]],
+    ]);
+    await expect(co.as.query(api.outreach.sources, { organizationId: org })).rejects.toThrow(/staff/);
+    // A found field isn't traced again; a failed one can be. A dropped list keeps a paid contact.
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id] })).resolves.toEqual({ queued: 0, costCents: 0 });
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [cityHall.id], fields: ["phone"] })).resolves.toEqual({ queued: 1, costCents: 100 });
+    await t.finishAllScheduledFunctions(() => {});
     const lists = await co.as.query(api.outreach.lists, { organizationId: org });
     await co.as.mutation(api.outreach.remove, { organizationId: org, listId: lists[0].id });
-    expect((await co.as.query(api.outreach.contacts, { organizationId: org })).rows.map((r) => [r.name, r.kinds, r.phones.length])).toEqual([["Oak Plaza LLC", [], 2]]);
+    expect((await read()).rows.map((r) => [r.name, r.kinds, r.phones.length])).toEqual([["Oak Plaza LLC", [], 3]]);
+  });
+
+  test("a contact unlocked before per-field cells gets its cells on deploy", async () => {
+    const t = setup();
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    const id = await t.run(async (ctx) => {
+      const [user] = await ctx.db.query("users").collect();
+      const parcelId = await ctx.db.insert("parcels", { county: "Midland", cadId: "R-9", useCode: "F1", siteAddress: "12 MIDKIFF RD", addressKey: "12 MIDKIFF RD", looseKey: "12 MIDKIFF", owner: "OAK PLAZA LLC", mailing: {}, ownerOccupied: false, companyOwned: true, importedAt: "2026-11-01T00:00:00.000Z" });
+      return await ctx.db.insert("outreachContacts", {
+        organizationId: org,
+        key: "OAK PLAZA LLC|1 MAIN ST|75201",
+        name: "Oak Plaza LLC",
+        company: "Oak Plaza LLC",
+        mailing: { address: "1 MAIN ST", zip: "75201" },
+        property: { parcelId, address: "12 Midkiff Rd", useCode: "F1", valueCents: 300_000_000 },
+        properties: 1,
+        totalValueCents: 300_000_000,
+        why: "Commercial building worth $3M",
+        kinds: ["commercial"],
+        listIds: [],
+        status: "new",
+        phones: [{ number: "4325550100", type: "mobile", source: "batchdata" }],
+        emails: [],
+        unlock: { status: "found", at: "2026-11-05T15:01:00.000Z", requestedBy: user._id, vendor: "batchdata", chargedCents: 100 },
+        createdAt: "2026-11-05T15:00:00.000Z",
+      });
+    });
+    // Read as cells before the migration, and the same after it.
+    const before = (await co.as.query(api.outreach.contacts, { organizationId: org })).rows[0];
+    expect(before.enrichment).toMatchObject({ phone: { status: "found", source: "batchdata", chargedCents: 100 }, email: { status: "none" }, person: { status: "locked" } });
+    expect(await t.mutation(internal.outreach.migrateUnlocks, {})).toEqual({ moved: 1 });
+    const after = (await co.as.query(api.outreach.contacts, { organizationId: org })).rows[0];
+    expect(after.enrichment).toEqual(before.enrichment);
+    await t.run(async (ctx) => {
+      const c = (await ctx.db.get(id))!;
+      expect(c.unlock).toBeUndefined();
+      expect(c.enrichment?.phone.status).toBe("found");
+    });
+    expect(await t.mutation(internal.outreach.migrateUnlocks, {})).toEqual({ moved: 0 });
   });
 
   test("a long facet is read top-down to the limit, and says so when it's cut", async () => {
