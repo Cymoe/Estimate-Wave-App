@@ -4,7 +4,7 @@ import { ChevronDown, Download, LayoutList, Lock, Search, Table2, Trash2 } from 
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachField, type OutreachListSummary, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { AskListSheet } from '../components/outreach/AskListSheet';
-import { ContactCards, ContactsTable, ContactSheet } from '../components/outreach/ContactsTable';
+import { ContactCards, ContactsTable, ContactSheet, type OwnerSort } from '../components/outreach/ContactsTable';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { LookupProgress } from '../components/outreach/LookupProgress';
 import { csvName, download, outreachCsv } from '../components/outreach/outreachCsv';
@@ -18,6 +18,7 @@ import { callOk, mailOnly, openToLook, sourceName } from '../components/outreach
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 const iconButton = 'w-11 h-11 inline-flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2A2A2A] border border-[#333333]';
 const VIEW_KEY = 'outreach.view';
+const SORT_KEY = 'outreach.sort';
 const BATCH_KEY = 'outreach.batch';
 const chip = (on: boolean) => `inline-flex items-center gap-1 px-3 h-9 shrink-0 text-sm border whitespace-nowrap ${on ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333333] text-gray-300 hover:bg-[#2A2A2A]'}`;
 const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: cents % 100 ? 2 : 0 })}`;
@@ -258,6 +259,25 @@ const OutreachPage: React.FC = () => {
     }
   });
   const view = picked ?? (narrow ? 'cards' : 'table');
+  // The Name header's sort: the list's own order, most parcels first, or A to Z; remembered on this device.
+  const [sort, setSort] = useState<OwnerSort>(() => {
+    try {
+      const v = localStorage.getItem(SORT_KEY);
+      return v === 'parcels' || v === 'name' ? v : 'list';
+    } catch {
+      return 'list';
+    }
+  });
+  const nextSort = () => {
+    const next: OwnerSort = sort === 'list' ? 'parcels' : sort === 'parcels' ? 'name' : 'list';
+    setSort(next);
+    try {
+      if (next === 'list') localStorage.removeItem(SORT_KEY);
+      else localStorage.setItem(SORT_KEY, next);
+    } catch {
+      // Private browsing: the sort lasts for this visit.
+    }
+  };
   const pickView = (v: 'cards' | 'table') => {
     setPicked(v);
     try {
@@ -359,8 +379,11 @@ const OutreachPage: React.FC = () => {
   const rows = useMemo(() => {
     const has = SHOWS.find((s) => s.value === show)?.has ?? (() => true);
     const q = query.trim().toLowerCase();
-    return (data?.rows ?? []).filter((r) => (status === 'all' || r.status === status) && has(r) && (!q || matches(r, q)));
-  }, [data, status, show, query]);
+    const kept = (data?.rows ?? []).filter((r) => (status === 'all' || r.status === status) && has(r) && (!q || matches(r, q)));
+    if (sort === 'parcels') return [...kept].sort((a, b) => b.properties - a.properties || b.totalValueCents - a.totalValueCents || a.name.localeCompare(b.name));
+    if (sort === 'name') return [...kept].sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base', numeric: true }));
+    return kept;
+  }, [data, status, show, query, sort]);
   const counts = useMemo(() => Object.fromEntries(SHOWS.map((s) => [s.value, (data?.rows ?? []).filter(s.has).length])) as Record<Show, number>, [data]);
   // What a lookup would run: never asked, failed, or a "none found" a month old (the sources refresh monthly).
   const needsPhone = (r: OutreachContact) => openToLook(r.enrichment.phone);
@@ -640,6 +663,8 @@ const OutreachPage: React.FC = () => {
         <ContactsTable
           rows={rows}
           coverage={data.coverage}
+          sort={sort}
+          onSort={nextSort}
           onOpen={setOpen}
           onRetry={(row, field) => void enrich([row.id], [field]).catch(() => {})}
         />

@@ -377,8 +377,24 @@ describe('the Outreach page', () => {
     expect(cells(1)[10]).toBe('Code violation Sep 2026');
     expect(rows[0].querySelectorAll('td')[0].className).toContain('sticky');
     expect(document.body.querySelector('[data-testid="more-columns"]')).not.toBeNull();
+    // A tap on Name sorts: most parcels first, then A to Z, then back to the list's own order, remembered on this device.
+    const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(1)')).map((c) => c.textContent);
+    const sortBy = async () => {
+      await act(async () => (document.body.querySelector('[data-testid="name-sort"]') as HTMLButtonElement).click());
+    };
+    expect(names()).toEqual(['Oak Plaza LLC', 'City Of Midland']);
+    await sortBy();
+    expect(document.body.querySelector('[data-testid="name-sort"]')!.textContent).toBe('NameMost parcels first');
+    expect(names()).toEqual(['City Of Midland', 'Oak Plaza LLC']);
+    expect(localStorage.getItem('outreach.sort')).toBe('parcels');
+    await sortBy();
+    expect(document.body.querySelector('[data-testid="name-sort"]')!.textContent).toBe('NameA–Z');
+    expect(names()).toEqual(['City Of Midland', 'Oak Plaza LLC']);
+    await sortBy();
+    expect(names()).toEqual(['Oak Plaza LLC', 'City Of Midland']);
+    expect(localStorage.getItem('outreach.sort')).toBeNull();
     const heads = Array.from(document.body.querySelectorAll('thead th')).map((h) => h.textContent?.replace(/\s+/g, ' ').trim());
-    expect(heads).toEqual(['Name', 'Decision maker0 / 2 companies', 'Phone0 / 2', 'Email0 / 2', 'Research0 / 2', 'Status', 'Mailing address', 'Property', 'Value', 'Type', 'Signals']);
+    expect(heads).toEqual(['NameList order', 'Decision maker0 / 2 companies', 'Phone0 / 2', 'Email0 / 2', 'Research0 / 2', 'Status', 'Mailing address', 'Property', 'Value', 'Type', 'Signals']);
     await click('Shopping center owners');
     expect(path).toBe('/outreach/l1');
     expect(getContacts).toHaveBeenLastCalledWith('o1', 'l1');

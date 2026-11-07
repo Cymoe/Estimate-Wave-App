@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Circle, FileText, Lock, Mail, MapPin, MessageSquare, MinusCircle, Phone, RotateCw, User } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Circle, FileText, Lock, Mail, MapPin, MessageSquare, MinusCircle, Phone, RotateCw, User, ArrowUpDown } from 'lucide-react';
 import { AddressLink } from '../common/AddressLink';
 import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { fullAddress } from '../../lib/mapsLinks';
@@ -192,13 +192,20 @@ const pinned = 'sticky bg-[#121212] group-hover:bg-[#1A1A1A]';
  * the property's signals; the name stays pinned as the rest scroll, the header stays on top as the rows scroll, and the right edge
  * fades while more columns wait. Tap a row for the sheet.
  */
+/** How the owners are ordered: the list's own order, most parcels first, or A to Z. */
+export type OwnerSort = 'list' | 'parcels' | 'name';
+const SORT_LABEL: Record<OwnerSort, string> = { list: 'List order', parcels: 'Most parcels first', name: 'A–Z' };
+
 export const ContactsTable: React.FC<{
   rows: OutreachContact[];
   coverage: OutreachContacts['coverage'];
   onOpen: (row: OutreachContact) => void;
   /** Run a failed field again, from the cell's Retry. */
   onRetry: (row: OutreachContact, field: OutreachField) => void;
-}> = ({ rows, coverage, onOpen, onRetry }) => {
+  /** The order now, shown under Name; a tap on Name moves to the next. */
+  sort?: OwnerSort;
+  onSort?: () => void;
+}> = ({ rows, coverage, onOpen, onRetry, sort = 'list', onSort }) => {
   const lit = useJustFilled(rows);
   const glow = (id: string, f: OutreachField) => (lit.has(`${id}:${f}`) ? ' cell-filled' : '');
   const tableWidth = WIDTH.name + COLUMN_KEYS.reduce((sum, k) => sum + WIDTH[k], 0);
@@ -228,7 +235,19 @@ export const ContactsTable: React.FC<{
           {cols}
           <thead>
             <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
-              <th className={`${head} left-0 z-30 ${thBase} border-r border-[#333333]`}>Name</th>
+              <th className={`${head} left-0 z-30 ${thBase} border-r border-[#333333]`} aria-sort={sort === 'name' ? 'ascending' : 'none'}>
+                {onSort ? (
+                  <button type="button" onClick={onSort} className="group/sort flex items-center gap-1 text-left uppercase tracking-wide hover:text-white" title="Sort: list order, most parcels first, or A–Z" data-testid="name-sort">
+                    <span>
+                      Name
+                      <span className={`block normal-case tracking-normal text-[11px] ${sort === 'list' ? 'text-gray-500' : 'text-[#7fb0e0]'}`}>{SORT_LABEL[sort]}</span>
+                    </span>
+                    <ArrowUpDown className="w-3.5 h-3.5 shrink-0 self-start text-gray-500 group-hover/sort:text-white" aria-hidden />
+                  </button>
+                ) : (
+                  'Name'
+                )}
+              </th>
               <th className={th}>
                 Decision maker
                 <Coverage c={coverage.person} of={coverage.person.total === 1 ? 'company' : 'companies'} />
