@@ -159,7 +159,7 @@ const ChipRow: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     <div
       ref={row}
       onScroll={measure}
-      className={`flex flex-1 min-w-0 items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${more ? '[mask-image:linear-gradient(to_right,black_calc(100%-32px),transparent)]' : ''}`}
+      className={`flex flex-1 min-w-0 items-stretch self-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${more ? '[mask-image:linear-gradient(to_right,black_calc(100%-32px),transparent)]' : ''}`}
     >
       {children}
     </div>
@@ -532,14 +532,32 @@ const OutreachPage: React.FC = () => {
       )}
       {data && data.rows.length > 0 && (
         <div
-          className={`flex items-center gap-2 ${view === 'cards' ? 'sticky top-[69px] md:top-0 z-30 -mx-4 md:-mx-6 px-4 md:px-6 py-2 bg-black border-b border-[#333333]' : ''}`}
+          className={`flex flex-col-reverse md:flex-row md:items-center md:gap-2 border-b border-[#333333] ${view === 'cards' ? 'sticky top-[69px] md:top-0 z-30 -mx-4 md:-mx-6 px-4 md:px-6 bg-black' : ''}`}
           role="group"
           aria-label="Filters"
           data-testid="filter-bar"
         >
-          {/* Search and the quick filters on one line; when they don't fit, they slide sideways instead of wrapping. */}
+          {/* The quick filters as tabs, underlined in blue like the project and estimate drawers; when they don't fit, they slide sideways instead of wrapping. */}
           <ChipRow>
-            <label className="relative block shrink-0">
+            {SHOWS.map((s) =>
+              (s.value === 'needs' || s.value === 'new' || s.value === 'mail') && counts[s.value] === 0 ? null : (
+                <button
+                  key={s.value}
+                  type="button"
+                  onClick={() => setShow(s.value)}
+                  aria-pressed={show === s.value}
+                  className={`shrink-0 whitespace-nowrap px-4 py-3 text-sm font-medium transition-colors border-b-2 ${
+                    show === s.value ? 'text-white border-[#336699] bg-[#336699]/10' : `border-transparent hover:text-white hover:bg-[#2a2a2a] ${s.value === 'needs' ? 'text-amber-300' : 'text-gray-400'}`
+                  }`}
+                >
+                  {s.label} {s.value !== 'all' && <span className={s.value === 'needs' && show !== 'needs' ? 'text-amber-300/70' : 'text-gray-500'}>{counts[s.value]}</span>}
+                </button>
+              ),
+            )}
+          </ChipRow>
+          {/* Search, status and the view switch stay put on the right; on a phone they get their own line above the tabs. */}
+          <div className="flex w-full md:w-auto shrink-0 items-center gap-2 py-1.5">
+            <label className="relative block flex-1 md:flex-none">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" aria-hidden />
               <input
                 type="search"
@@ -548,25 +566,9 @@ const OutreachPage: React.FC = () => {
                 placeholder="Search"
                 title="Search owner, person or street"
                 aria-label="Search"
-                className="w-40 xl:w-44 2xl:w-64 h-9 bg-[#1A1A1A] border border-[#333333] pl-9 pr-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
+                className="w-full md:w-40 2xl:w-56 h-9 bg-[#1A1A1A] border border-[#333333] pl-9 pr-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
               />
             </label>
-            {SHOWS.map((s) =>
-              (s.value === 'needs' || s.value === 'new' || s.value === 'mail') && counts[s.value] === 0 ? null : (
-                <button
-                  key={s.value}
-                  type="button"
-                  onClick={() => setShow(s.value)}
-                  aria-pressed={show === s.value}
-                  className={s.value === 'needs' && show !== 'needs' ? `${chip(false)} border-amber-400/60 text-amber-300` : chip(show === s.value)}
-                >
-                  {s.label} {s.value !== 'all' && <span className={s.value === 'needs' && show !== 'needs' ? 'text-amber-300/70' : 'text-gray-500'}>{counts[s.value]}</span>}
-                </button>
-              ),
-            )}
-          </ChipRow>
-          {/* How the list is shown stays put on the right, the same height and corners as the chips. */}
-          <div className="flex shrink-0 items-center gap-2">
             <label className="relative block">
               <select
                 value={status}
