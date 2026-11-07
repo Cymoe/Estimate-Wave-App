@@ -57,7 +57,7 @@ const interpret = jest.fn(async () => interpreted);
 const preview = jest.fn(async () => ({ count: 1, truncated: false, limited: false, rows: [contact('r1', { name: 'Vance Robert & Linda' })] }));
 const create = jest.fn(async () => ({ listId: 'l9', rowCount: 2, added: 2, truncated: false }));
 const setStatus = jest.fn(async () => null);
-const makeClient = jest.fn(async () => 'c1');
+const sendToLeads = jest.fn(async () => 'lead1');
 const remove = jest.fn(async () => null);
 const extend = jest.fn(async () => ({ loaded: 500, added: 500, rowCount: 1000, total: 2340, truncated: false }));
 const enrich = jest.fn(async () => ({ queued: 1, costCents: 100, at: '2026-11-05T15:00:00Z' }));
@@ -84,7 +84,7 @@ jest.mock('../../lib/api', () => ({
     preview: (...args: unknown[]) => preview(...(args as [])),
     create: (...args: unknown[]) => create(...(args as [])),
     setStatus: (...args: unknown[]) => setStatus(...(args as [])),
-    makeClient: (...args: unknown[]) => makeClient(...(args as [])),
+    sendToLeads: (...args: unknown[]) => sendToLeads(...(args as [])),
     remove: (...args: unknown[]) => remove(...(args as [])),
     extend: (...args: unknown[]) => extend(...(args as [])),
     enrich: (...args: unknown[]) => enrich(...(args as [])),
@@ -95,15 +95,6 @@ jest.mock('../../lib/api', () => ({
     rebuild: () => rebuild(),
   },
 }));
-// The estimate drawer, as far as Outreach needs it: who it's for, and a way to close it.
-jest.mock('../../components/estimates/CreateEstimateDrawer', () => {
-  const React = jest.requireActual<typeof import('react')>('react');
-  return {
-    CreateEstimateDrawer: (p: { projectContext: { clientId: string; projectName: string }; onClose: () => void }) =>
-      React.createElement('div', { 'data-testid': 'estimate-drawer' }, `${p.projectContext.clientId} · ${p.projectContext.projectName}`, React.createElement('button', { type: 'button', onClick: p.onClose })),
-  };
-});
-jest.mock('../../services/EstimateService', () => ({ EstimateService: { create: jest.fn(async () => ({ id: 'e1' })) } }));
 jest.mock('../../components/layouts/DashboardLayout', () => ({
   OrganizationContext: jest.requireActual<typeof import('react')>('react').createContext({ selectedOrg: { id: 'o1', name: 'Peak Roofing' } }),
 }));
@@ -348,26 +339,22 @@ describe('the Outreach page', () => {
       await flush();
     };
     await tapCard('No answer');
-    expect(setStatus).toHaveBeenLastCalledWith('o1', 'r1', 'no_answer', undefined, localDay(2), true);
+    expect(setStatus).toHaveBeenLastCalledWith('o1', 'r1', 'no_answer', '', localDay(2), true);
     const statusLine = () => document.body.querySelectorAll('[data-testid="contact-card"]')[0].querySelector('[data-testid="card-status"]')!.textContent;
     expect(statusLine()).toBe(`No answer · ${followUpText(localDay(2))}`);
     await tapCard('Call back');
     expect(document.body.querySelector('[data-testid="callback-days"]')).not.toBeNull();
     await tapCard('Tomorrow');
-    expect(setStatus).toHaveBeenLastCalledWith('o1', 'r1', 'callback', undefined, localDay(1), true);
+    expect(setStatus).toHaveBeenLastCalledWith('o1', 'r1', 'callback', '', localDay(1), true);
     expect(statusLine()).toBe('Call back · Tomorrow');
     expect(document.body.querySelector('[data-testid="callback-days"]')).toBeNull();
-    // Interested: Make client makes them one and opens a new estimate for them.
+    // Interested: off to Leads, where the follow-ups and the estimate live; once there, the button opens the lead.
     await tapCard('Interested');
-    expect(setStatus).toHaveBeenLastCalledWith('o1', 'r1', 'interested', undefined, undefined, true);
-    await tapCard('Make client');
-    expect(makeClient).toHaveBeenCalledWith('o1', 'r1');
-    expect(document.body.querySelector('[data-testid="estimate-drawer"]')!.textContent).toBe('c1 · Oak Plaza LLC');
-    expect(statusLine()).toBe('Client');
-    expect(Array.from(document.body.querySelectorAll('[data-testid="contact-card"]')[0].querySelectorAll('button')).some((b) => b.textContent?.trim() === 'Start estimate')).toBe(true);
-    await act(async () => (document.body.querySelector('[data-testid="estimate-drawer"] button') as HTMLButtonElement).click());
-    await flush();
-    expect(document.body.querySelector('[data-testid="estimate-drawer"]')).toBeNull();
+    expect(setStatus).toHaveBeenLastCalledWith('o1', 'r1', 'interested', '', undefined, true);
+    await tapCard('Send to Leads');
+    expect(sendToLeads).toHaveBeenCalledWith('o1', 'r1');
+    expect(statusLine()).toBe('In Leads');
+    expect(Array.from(document.body.querySelectorAll('[data-testid="contact-card"]')[0].querySelectorAll('button')).some((b) => b.textContent?.trim() === 'Open in Leads')).toBe(true);
     // The table, a tap away; the choice sticks on this device.
     // The switch is just an icon, named for screen readers.
     const viewSwitch = async (name: string) => {
@@ -380,6 +367,9 @@ describe('the Outreach page', () => {
     expect(localStorage.getItem('outreach.view')).toBe('table');
     await viewSwitch('Show as cards');
     expect(document.body.querySelector('[data-testid="contact-cards"]')).not.toBeNull();
+    // An owner already in Leads: the button opens their lead.
+    await act(async () => (Array.from(document.body.querySelectorAll('[data-testid="contact-card"]')[0].querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Open in Leads') as HTMLButtonElement).click());
+    expect(path).toBe('/leads?lead=lead1');
   });
 
   it('shows the contacts table with a chip per list, or says to tap + when there are none', async () => {
@@ -549,7 +539,7 @@ describe('the Outreach page', () => {
     expect(followUps()[1]).toEqual([followUpText(localDay(3)), false]);
     // The status picker offers the call outcomes; the earlier Sent, Done and Skipped only while a row has one.
     const options = Array.from(document.body.querySelectorAll('select option')).map((o) => o.textContent);
-    expect(options).toEqual(['All statuses', 'New', 'No answer', 'Call back', 'Interested', 'Not interested', 'Client']);
+    expect(options).toEqual(['All statuses', 'New', 'No answer', 'Call back', 'Interested', 'Not interested', 'In Leads']);
   });
 
   it('says what it cannot make and builds the closest instead; an example chip fills the ask', async () => {

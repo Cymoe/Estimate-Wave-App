@@ -79,6 +79,7 @@ export const STATUS_LABEL: Record<string, string> = {
   callback: 'Call back',
   interested: 'Interested',
   not_interested: 'Not interested',
+  lead: 'In Leads',
   client: 'Client',
   sent: 'Sent',
   done: 'Done',

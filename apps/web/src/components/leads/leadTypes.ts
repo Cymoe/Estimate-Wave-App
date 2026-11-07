@@ -57,6 +57,6 @@ export const STATUSES: { value: LeadStatus; label: string; color: string; dot: s
   { value: 'lost', label: 'Lost', color: 'text-gray-500', dot: 'bg-gray-500' },
 ];
 
-export const SOURCES = ['Referral', 'Google', 'Facebook', 'Website', 'Yard sign', 'Repeat customer', 'Other'];
+export const SOURCES = ['Referral', 'Google', 'Facebook', 'Website', 'Yard sign', 'Repeat customer', 'Outreach', 'Other'];
 
 export const KNOWN_CITIES = ['Midland', 'Odessa', 'Andrews', 'Big Spring', 'Stanton', 'Monahans', 'Kermit', 'Gardendale'];

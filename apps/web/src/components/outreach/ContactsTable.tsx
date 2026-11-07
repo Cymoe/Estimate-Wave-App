@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Circle, FileText, Lock, Mail, MapPin, MessageSquare, MinusCircle, Phone, RotateCw, User, UserPlus, ArrowUpDown } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Circle, FileText, Lock, Mail, MapPin, MessageSquare, MinusCircle, Phone, RotateCw, User, ArrowRight, ArrowUpDown } from 'lucide-react';
 import { AddressLink } from '../common/AddressLink';
 import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { fullAddress } from '../../lib/mapsLinks';
@@ -23,7 +23,7 @@ const SIGNAL_LABEL: Record<OutreachSignal['kind'], string> = { code_violation: '
 const PHONE_TYPE: Record<OutreachPhone['type'], string> = { mobile: 'mobile', landline: 'landline', voip: 'VoIP', unknown: '' };
 
 const statusTone = (s: OutreachRowStatus) =>
-  s === 'interested' || s === 'client' || s === 'done' ? 'text-[#7fb0e0]' : s === 'not_interested' || s === 'skip' ? 'text-gray-600' : s === 'new' ? 'text-gray-500' : 'text-amber-300';
+  s === 'interested' || s === 'lead' || s === 'done' ? 'text-[#7fb0e0]' : s === 'not_interested' || s === 'skip' ? 'text-gray-600' : s === 'new' ? 'text-gray-500' : 'text-amber-300';
 /** Under a status: the day to try again, amber once it's come. */
 const FollowUp: React.FC<{ row: OutreachContact; className?: string }> = ({ row, className = '' }) =>
   row.followUpOn && (row.status === 'no_answer' || row.status === 'callback') ? (
@@ -468,9 +468,9 @@ export const ContactCards: React.FC<{
   /** A call's outcome, with the day to try again for No answer and Call back. */
   onOutcome: (row: OutreachContact, status: OutreachRowStatus, followUpOn?: string) => Promise<void>;
   onRetry: (row: OutreachContact, field: OutreachField) => void;
-  /** Interested: make them a client and start the estimate. */
-  onMakeClient: (row: OutreachContact) => void;
-}> = ({ rows, onOpen, onOutcome, onRetry, onMakeClient }) => {
+  /** Interested: send them to Leads, or open the lead they became. */
+  onLead: (row: OutreachContact) => void;
+}> = ({ rows, onOpen, onOutcome, onRetry, onLead }) => {
   const [saving, setSaving] = useState<string | null>(null);
   const lit = useJustFilled(rows);
   const mark = async (row: OutreachContact, next: OutreachRowStatus, followUpOn?: string) => {
@@ -565,9 +565,9 @@ export const ContactCards: React.FC<{
               </div>
             )}
             <div className="px-4 pb-3 space-y-2">
-              {(r.status === 'interested' || r.status === 'client') && (
-                <button type="button" onClick={() => onMakeClient(r)} className={`${big} w-full bg-[#336699] hover:bg-[#2a5580] text-white`} data-testid="make-client">
-                  <UserPlus className="w-4 h-4" /> {r.status === 'client' ? 'Start estimate' : 'Make client'}
+              {(r.status === 'interested' || r.status === 'lead') && (
+                <button type="button" onClick={() => onLead(r)} className={`${big} w-full bg-[#336699] hover:bg-[#2a5580] text-white`} data-testid="to-leads">
+                  {r.status === 'lead' ? 'Open in Leads' : 'Send to Leads'} <ArrowRight className="w-4 h-4" />
                 </button>
               )}
               <Outcomes row={r} busy={saving === r.id} onOutcome={(st, day) => void mark(r, st, day)} />
@@ -688,8 +688,8 @@ export const ContactSheet: React.FC<{
   onStatus: (row: OutreachContact, status: OutreachRowStatus, note: string, followUpOn?: string, touch?: boolean) => Promise<void>;
   onEnrich: (row: OutreachContact, fields: OutreachField[], question?: string) => Promise<void>;
   onAddFunds: () => void;
-  onMakeClient: (row: OutreachContact) => void;
-}> = ({ row, unlockCents, researchCents, researchQuestion, balanceCents, onClose, onStatus, onEnrich, onAddFunds, onMakeClient }) => {
+  onLead: (row: OutreachContact) => void;
+}> = ({ row, unlockCents, researchCents, researchQuestion, balanceCents, onClose, onStatus, onEnrich, onAddFunds, onLead }) => {
   const [note, setNote] = useState('');
   const [question, setQuestion] = useState(researchQuestion);
   const [busy, setBusy] = useState(false);
@@ -968,12 +968,12 @@ export const ContactSheet: React.FC<{
               {row.status === 'callback' ? 'Call back' : 'Try again'}: <FollowUp row={row} />
             </p>
           )}
-          {(row.status === 'interested' || row.status === 'client') && (
-            <button type="button" onClick={() => onMakeClient(row)} disabled={busy} className={primary} data-testid="make-client">
-              <UserPlus className="w-4 h-4" /> {row.status === 'client' ? 'Start estimate' : 'Make client'}
+          {(row.status === 'interested' || row.status === 'lead') && (
+            <button type="button" onClick={() => onLead(row)} disabled={busy} className={primary} data-testid="to-leads">
+              {row.status === 'lead' ? 'Open in Leads' : 'Send to Leads'} <ArrowRight className="w-4 h-4" />
             </button>
           )}
-          {row.status === 'client' && <p className="text-xs text-gray-500">In your clients. Start estimate opens a new estimate for them.</p>}
+          {row.status === 'interested' && <p className="text-xs text-gray-500">Follow-ups, the visit and the estimate happen in Leads. Their number, email, property and these calls go with them.</p>}
         </div>
         {row.touches && row.touches.length > 0 && (
           <div className="space-y-1" data-testid="history">

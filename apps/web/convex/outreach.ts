@@ -334,8 +334,8 @@ export const assertPro = internalQuery({
   },
 });
 
-/** Settled: an answer one way or the other, or a client. No answer and Call back are still in play. */
-const isWorked = (s: Doc<"outreachContacts">["status"]) => ["interested", "not_interested", "client", "done", "skip"].includes(s);
+/** Settled: an answer one way or the other, or sent to Leads. No answer and Call back are still in play. */
+const isWorked = (s: Doc<"outreachContacts">["status"]) => ["interested", "not_interested", "lead", "client", "done", "skip"].includes(s);
 
 /** Every contact a company has, newest first. */
 async function contactsOf(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">) {
@@ -460,7 +460,7 @@ const contactView = (c: Doc<"outreachContacts">, signals: SignalBadge[], related
   note: c.note,
   followUpOn: c.followUpOn,
   touches: (c.touches ?? []).slice(-20).map(({ at, status, note, followUpOn }) => ({ at, status, note, followUpOn })),
-  clientId: c.clientId,
+  leadId: c.leadId,
   phones: c.phones ?? [],
   emails: c.emails ?? [],
   person: c.person,
@@ -640,7 +640,8 @@ export const setStatus = mutation({
     const changed = touch || status !== contact.status;
     if (changed && status === "callback" && !followUpOn) fail("INVALID", "Pick a day to call back");
     const now = nowIso();
-    const text = note?.trim() || undefined;
+    // No note sent leaves the one there; an empty one clears it.
+    const text = note === undefined ? contact.note : note.trim() || undefined;
     // Only a call or a new status moves the follow-up day; a note on its own leaves it.
     const day = changed ? (DATED.has(status) ? followUpOn : undefined) : contact.followUpOn;
     const touches = changed
@@ -652,29 +653,44 @@ export const setStatus = mutation({
 });
 
 /**
- * Makes an owner a client: the decision maker's name (or the owner's), the
- * company, the best number not on Do Not Call, the email, and the property as
- * the address. Once made, the same client comes back.
+ * Interested: the owner goes to Leads, where follow-ups, the visit and the
+ * estimate already live. The lead gets the decision maker's name (or the
+ * owner's), the best number not on Do Not Call, the email, the property as
+ * its address, and a note with the owner, the mailing address and the calls
+ * so far. Sent once; after that the same lead comes back.
  */
-export const makeClient = mutation({
+export const sendToLeads = mutation({
   args: { organizationId: v.id("organizations"), contactId: v.id("outreachContacts") },
   handler: async (ctx, { organizationId, contactId }) => {
     const { user } = await requirePro(ctx, organizationId);
     const contact = await ctx.db.get(contactId);
     if (!contact || contact.organizationId !== organizationId) fail("NOT_FOUND", "No such contact");
     const now = nowIso();
-    let clientId = contact.clientId && (await ctx.db.get(contact.clientId)) ? contact.clientId : undefined;
-    if (!clientId) {
+    let leadId = contact.leadId && (await ctx.db.get(contact.leadId)) ? contact.leadId : undefined;
+    if (!leadId) {
       const phone = (contact.phones ?? []).find((p) => !p.dnc && !p.litigator);
       const email = (contact.emails ?? []).find((e) => e.nameMatch !== false);
       const mailing = [contact.mailing.address, contact.mailing.city, contact.mailing.state, contact.mailing.zip?.slice(0, 5)].filter(Boolean).join(", ");
-      clientId = await ctx.db.insert("clients", {
-        name: contact.person?.name ?? contact.name,
-        ...(contact.company ? { companyName: contact.name } : {}),
+      const calls = (contact.touches ?? [])
+        .filter((t) => t.status !== "new")
+        .map((t) => `${t.at.slice(0, 10)}: ${STATUS_WORDS[t.status] ?? t.status}${t.note ? ` (${t.note})` : ""}`);
+      const notes = [
+        `From Outreach. ${contact.why}.`,
+        contact.person ? `Owner: ${contact.name}${contact.person.title ? `; ${contact.person.name} is ${contact.person.title}` : ""}.` : "",
+        mailing ? `Mailing address: ${mailing}.` : "",
+        contact.note ?? "",
+        calls.length ? `Calls: ${calls.join("; ")}.` : "",
+      ].filter(Boolean).join("\n");
+      const name = contact.person?.name ?? contact.name;
+      leadId = await ctx.db.insert("leads", {
+        name,
         ...(phone ? { phone: phone.number } : {}),
         ...(email ? { email: email.email } : {}),
-        ...(contact.property.address ? { address: contact.property.address, city: "Midland", state: "TX" } : {}),
-        notes: [`From Outreach: ${contact.why}.`, mailing ? `Mailing address: ${mailing}.` : "", contact.note ?? ""].filter(Boolean).join(" "),
+        ...(contact.property.address ? { address: contact.property.address, city: "Midland" } : {}),
+        source: "Outreach",
+        status: "contacted",
+        notes,
+        lastContactAt: now,
         organizationId,
         userId: user._id,
         createdAt: now,
@@ -684,18 +700,28 @@ export const makeClient = mutation({
         organizationId,
         userId: user._id,
         action: "created",
-        resourceType: "client",
-        resourceId: clientId,
-        details: { name: contact.person?.name ?? contact.name, fromOutreach: contactId },
+        resourceType: "lead",
+        resourceId: leadId,
+        details: { name, fromOutreach: contactId },
       });
     }
-    if (contact.status !== "client" || contact.clientId !== clientId) {
-      const touches = [...(contact.touches ?? []), { at: now, status: "client" as const, userId: user._id }].slice(-TOUCHES_KEPT);
-      await ctx.db.patch(contactId, { clientId, status: "client", followUpOn: undefined, touches, updatedAt: now });
+    if (contact.status !== "lead" || contact.leadId !== leadId) {
+      const touches = [...(contact.touches ?? []), { at: now, status: "lead" as const, userId: user._id }].slice(-TOUCHES_KEPT);
+      await ctx.db.patch(contactId, { leadId, status: "lead", followUpOn: undefined, touches, updatedAt: now });
     }
-    return clientId;
+    return leadId;
   },
 });
+/** A status in the words the lead's note uses. */
+const STATUS_WORDS: Partial<Record<Doc<"outreachContacts">["status"], string>> = {
+  no_answer: "no answer",
+  callback: "call back",
+  interested: "interested",
+  not_interested: "not interested",
+  sent: "sent",
+  done: "done",
+  skip: "skipped",
+};
 
 /** Drops a list. Its contacts lose the tag; one on no other list goes too, unless the company paid to unlock it. */
 export const remove = mutation({

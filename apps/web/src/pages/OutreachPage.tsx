@@ -7,8 +7,6 @@ import { AskListSheet } from '../components/outreach/AskListSheet';
 import { ContactCards, ContactsTable, ContactSheet, type OwnerSort } from '../components/outreach/ContactsTable';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { LookupProgress } from '../components/outreach/LookupProgress';
-import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
-import { EstimateService } from '../services/EstimateService';
 import { csvName, download, outreachCsv } from '../components/outreach/outreachCsv';
 import { useConfirm } from '../components/common/ConfirmDialog';
 import { fundErrorText, openFundingPage } from '../components/market/WalletBar';
@@ -25,8 +23,8 @@ const BATCH_KEY = 'outreach.batch';
 const chip = (on: boolean) => `inline-flex items-center gap-1 px-3 h-9 shrink-0 text-sm border whitespace-nowrap ${on ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333333] text-gray-300 hover:bg-[#2A2A2A]'}`;
 const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: cents % 100 ? 2 : 0 })}`;
 /** The status picker: the call outcomes always; the earlier Sent, Done and Skipped only while some row still has one. */
-const STATUS_FILTERS: OutreachRowStatus[] = ['new', 'no_answer', 'callback', 'interested', 'not_interested', 'client'];
-const OLD_STATUSES: OutreachRowStatus[] = ['sent', 'done', 'skip'];
+const STATUS_FILTERS: OutreachRowStatus[] = ['new', 'no_answer', 'callback', 'interested', 'not_interested', 'lead'];
+const OLD_STATUSES: OutreachRowStatus[] = ['client', 'sent', 'done', 'skip'];
 /** The quick filters over the table: what a row has, or what it needs from you. */
 type Show = 'all' | 'due' | 'new' | 'signal' | 'ready' | 'email' | 'mail' | 'needs';
 const SHOWS: Array<{ value: Show; label: string; has: (r: OutreachContact) => boolean }> = [
@@ -440,7 +438,7 @@ const OutreachPage: React.FC = () => {
     setData((d) => d && { ...d, rows: d.rows.map((r) => (r.id === row.id ? { ...r, status: next, note, followUpOn: day, touches } : r)) });
     setLists((l) => l && l.map((x) => (row.listIds.includes(x.id) ? { ...x, done: doneOn(x.id, row, next) } : x)));
     try {
-      await outreachAPI.setStatus(organizationId, row.id, next, note, followUpOn, touch);
+      await outreachAPI.setStatus(organizationId, row.id, next, text.trim(), followUpOn, touch);
     } catch (err) {
       setData((d) => d && { ...d, rows: d.rows.map((r) => (r.id === row.id ? { ...r, ...was } : r)) });
       setLists((l) => l && l.map((x) => (row.listIds.includes(x.id) ? { ...x, done: doneOn(x.id, { ...row, status: next }, row.status) } : x)));
@@ -449,32 +447,24 @@ const OutreachPage: React.FC = () => {
   };
   /** The list's done count after this row's status change. */
   const doneOn = (id: string, row: OutreachContact, next: OutreachRowStatus) => {
-    const worked = (s: OutreachRowStatus) => ['interested', 'not_interested', 'client', 'done', 'skip'].includes(s);
+    const worked = (s: OutreachRowStatus) => ['interested', 'not_interested', 'lead', 'client', 'done', 'skip'].includes(s);
     const current = lists?.find((l) => l.id === id)?.done ?? 0;
     return Math.max(0, current + (worked(next) ? 1 : 0) - (worked(row.status) ? 1 : 0));
   };
 
-  /** Interested: make them a client (once), then the estimate drawer opens for them, as from a lead. */
-  const [quoting, setQuoting] = useState<{ row: OutreachContact; clientId: string } | null>(null);
-  const makeClient = async (row: OutreachContact) => {
+  /** Interested: off to Leads, where the follow-ups, the visit and the estimate already live; once there, this opens the lead. */
+  const toLeads = async (row: OutreachContact) => {
     if (!organizationId) return;
+    if (row.leadId) return navigate(`/leads?lead=${row.leadId}`);
     setError(null);
     try {
-      const clientId = await outreachAPI.makeClient(organizationId, row.id);
-      if (row.status !== 'client') {
-        setData((d) => d && { ...d, rows: d.rows.map((r) => (r.id === row.id ? { ...r, status: 'client', clientId, followUpOn: undefined, touches: [...(r.touches ?? []), { at: new Date().toISOString(), status: 'client' }] } : r)) });
-        setLists((l) => l && l.map((x) => (row.listIds.includes(x.id) ? { ...x, done: doneOn(x.id, row, 'client') } : x)));
-      }
-      setOpen(null);
-      setQuoting({ row, clientId });
+      const leadId = await outreachAPI.sendToLeads(organizationId, row.id);
+      setData((d) => d && { ...d, rows: d.rows.map((r) => (r.id === row.id ? { ...r, status: 'lead', leadId, followUpOn: undefined, touches: [...(r.touches ?? []), { at: new Date().toISOString(), status: 'lead' }] } : r)) });
+      setLists((l) => l && l.map((x) => (row.listIds.includes(x.id) ? { ...x, done: doneOn(x.id, row, 'lead') } : x)));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't make them a client");
+      setError(err instanceof Error ? err.message : "Couldn't send them to Leads");
     }
   };
-  const quoteContext = useMemo(
-    () => quoting && { projectId: '', clientId: quoting.clientId, projectName: quoting.row.name, projectBudget: 0 },
-    [quoting],
-  );
 
   const enrich = async (ids: string[], fields?: OutreachField[], question?: string) => {
     if (!organizationId || ids.length === 0) return;
@@ -707,7 +697,7 @@ const OutreachPage: React.FC = () => {
           onOpen={setOpen}
           onOutcome={(row, next, day) => setContactStatus(row, next, row.note ?? '', day, true)}
           onRetry={(row, field) => void enrich([row.id], [field]).catch(() => {})}
-          onMakeClient={(row) => void makeClient(row)}
+          onLead={(row) => void toLeads(row)}
         />
       ) : (
         <ContactsTable
@@ -731,48 +721,8 @@ const OutreachPage: React.FC = () => {
         onStatus={setContactStatus}
         onEnrich={(row, fields, question) => enrich([row.id], fields, question)}
         onAddFunds={addFunds}
-        onMakeClient={(row) => void makeClient(row)}
+        onLead={(row) => void toLeads(row)}
       />
-      {quoting && quoteContext && (
-        <CreateEstimateDrawer
-          isOpen
-          onClose={() => setQuoting(null)}
-          projectContext={quoteContext}
-          onSave={async (form) => {
-            if (!organizationId) return;
-            try {
-              await EstimateService.create({
-                user_id: user?.id,
-                organization_id: organizationId,
-                client_id: form.client_id,
-                title: form.title || '',
-                description: form.description,
-                subtotal: form.total_amount,
-                tax_rate: 0,
-                tax_amount: 0,
-                total_amount: form.total_amount,
-                status: form.status as never,
-                issue_date: form.issue_date,
-                expiry_date: form.valid_until,
-                terms: form.terms,
-                notes: form.notes,
-                items: form.items.map((item, index) => ({
-                  description: item.description || item.product_name || '',
-                  quantity: item.quantity,
-                  unit_price: item.price,
-                  red_line_price: item.red_line_price,
-                  cap_price: item.cap_price,
-                  total_price: item.price * item.quantity,
-                  display_order: index,
-                })),
-              });
-              setQuoting(null);
-            } catch (err) {
-              setError(err instanceof Error ? err.message : "Couldn't save the estimate");
-            }
-          }}
-        />
-      )}
       <AskListSheet open={asking} organizationId={organizationId} onClose={() => setAsking(false)} onSaved={(id) => navigate(`/outreach/${id}`)} />
       {confirmDialog}
     </div>

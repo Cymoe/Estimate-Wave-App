@@ -477,9 +477,10 @@ export const outreachProperty = v.object({
 });
 
 /**
- * Where an owner stands. The calls: no answer, call back, interested, not
- * interested; client once they're made one. sent, done and skip are the
- * earlier statuses, kept for the rows that still have them.
+ * Where an owner stands. The cold calls: no answer, call back, interested,
+ * not interested; lead once they're sent to Leads, where the rest happens.
+ * sent, done and skip are the earlier statuses, kept for the rows that still
+ * have them.
  */
 export const outreachRowStatus = v.union(
   v.literal("new"),
@@ -487,6 +488,8 @@ export const outreachRowStatus = v.union(
   v.literal("callback"),
   v.literal("interested"),
   v.literal("not_interested"),
+  v.literal("lead"),
+  // Made a client directly, for a few minutes before Interested went to Leads instead.
   v.literal("client"),
   v.literal("sent"),
   v.literal("done"),
@@ -1189,7 +1192,8 @@ export default defineSchema({
     followUpOn: v.optional(v.string()),
     /** Every call and change of status, newest last, the last 50. */
     touches: v.optional(v.array(outreachTouch)),
-    /** The client they were made into. */
+    /** The lead they became on the Leads page. */
+    leadId: v.optional(v.id("leads")),
     clientId: v.optional(v.id("clients")),
     phones: v.optional(v.array(outreachPhone)),
     emails: v.optional(v.array(outreachEmail)),

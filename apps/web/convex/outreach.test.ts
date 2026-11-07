@@ -427,24 +427,28 @@ describe("a company's lists", () => {
     expect(await cityNow()).toMatchObject({ status: "callback", followUpOn: "2026-11-12" });
     await co.as.mutation(api.outreach.setStatus, { organizationId: org, contactId: city.id, status: "callback", note: "Ask for Dana, mornings" });
     expect(await cityNow()).toMatchObject({ status: "callback", followUpOn: "2026-11-12", note: "Ask for Dana, mornings" });
-    // Interested clears the day; Make client makes one client, with the property as its address, and says so on the row.
+    // Interested clears the day; Send to Leads makes one lead, with the property as its address and the calls in its note.
     await co.as.mutation(api.outreach.setStatus, { organizationId: org, contactId: city.id, status: "interested", touch: true });
     expect((await cityNow()).followUpOn).toBeUndefined();
-    const clientId = await co.as.mutation(api.outreach.makeClient, { organizationId: org, contactId: city.id });
-    expect(await co.as.mutation(api.outreach.makeClient, { organizationId: org, contactId: city.id })).toBe(clientId);
-    const client = await t.run(async (ctx) => ctx.db.get(clientId));
-    expect(client).toMatchObject({ name: "City Of Midland", companyName: "City Of Midland", city: "Midland", state: "TX" });
-    expect(client!.address).toBe(city.property.address);
-    expect(client!.notes).toContain("From Outreach:");
-    expect(await cityNow()).toMatchObject({ status: "client", clientId });
-    expect((await cityNow()).touches.at(-1)!.status).toBe("client");
+    const leadId = await co.as.mutation(api.outreach.sendToLeads, { organizationId: org, contactId: city.id });
+    expect(await co.as.mutation(api.outreach.sendToLeads, { organizationId: org, contactId: city.id })).toBe(leadId);
+    const lead = await t.run(async (ctx) => ctx.db.get(leadId));
+    expect(lead).toMatchObject({ name: "City Of Midland", source: "Outreach", status: "contacted", city: "Midland", organizationId: org });
+    expect(lead!.address).toBe(city.property.address);
+    expect(lead!.notes).toContain("From Outreach.");
+    expect(lead!.notes).toContain("call back (Ask for Dana)");
+    expect(lead!.notes).toContain("Ask for Dana, mornings");
+    // It's on the Leads page like any other lead.
+    expect((await co.as.query(api.leads.list, { organizationId: org })).map((l: { name: string }) => l.name)).toContain("City Of Midland");
+    expect(await cityNow()).toMatchObject({ status: "lead", leadId });
+    expect((await cityNow()).touches.at(-1)!.status).toBe("lead");
     expect((await co.as.query(api.outreach.lists, { organizationId: org })).find((l) => l.who === "commercial")!.done).toBe(2);
 
     // Another company can't see it; a company off the plan can't use Outreach at all.
     const other = await proCompany(t, "owner@paint.example");
     expect((await other.as.query(api.outreach.contacts, { organizationId: other.organizationId, listId: saved.listId })).rows).toEqual([]);
     await expect(other.as.mutation(api.outreach.setStatus, { organizationId: other.organizationId, contactId: oak.id, status: "done" })).rejects.toThrow(/No such contact/);
-    await expect(other.as.mutation(api.outreach.makeClient, { organizationId: other.organizationId, contactId: city.id })).rejects.toThrow(/No such contact/);
+    await expect(other.as.mutation(api.outreach.sendToLeads, { organizationId: other.organizationId, contactId: city.id })).rejects.toThrow(/No such contact/);
     const free = await signUp(t, "owner@free.example");
     await expect(free.as.query(api.outreach.lists, { organizationId: free.organizationId })).rejects.toThrow(/Pro plan/);
     await expect(free.as.query(api.outreach.preview, { organizationId: free.organizationId, definition: { county: "Midland", who: "wealthy" } })).rejects.toThrow(/Pro plan/);
