@@ -564,8 +564,9 @@ export const contacts = query({
       return f ? (families.get(f) ?? []).filter((r) => r.id !== c._id) : [];
     };
     const since = await freshSince(ctx);
-    const rows = [];
-    for (const c of picked) rows.push(contactView(c, await signalsFor(ctx, c.property.parcelId, since), relatedTo(c)));
+    // Every owner's signals read at once, not one after another.
+    const signals = await Promise.all(picked.map((c) => signalsFor(ctx, c.property.parcelId, since)));
+    const rows = picked.map((c, i) => contactView(c, signals[i], relatedTo(c)));
     return {
       rows,
       coverage: coverageOf(picked),

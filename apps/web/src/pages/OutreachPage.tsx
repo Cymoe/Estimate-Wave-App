@@ -23,8 +23,6 @@ const VIEW_KEY = 'outreach.view';
 const BATCH_KEY = 'outreach.batch';
 const chip = (on: boolean) => `px-3 min-h-[36px] text-sm border whitespace-nowrap ${on ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333333] text-gray-300 hover:bg-[#2A2A2A]'}`;
 const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: cents % 100 ? 2 : 0 })}`;
-/** How often the table re-reads while a lookup is running. */
-const POLL_MS = 2000;
 const STATUS_FILTERS: Array<{ value: OutreachRowStatus | 'all'; label: string }> = [
   { value: 'all', label: 'All statuses' },
   { value: 'new', label: 'New' },
@@ -257,18 +255,30 @@ const OutreachPage: React.FC = () => {
     };
   }, []);
 
+  // The last rows seen for each list (and for All), so switching lists shows something at once while fresh rows arrive.
+  const seen = useRef(new Map<string, OutreachContacts>());
+  const viewKey = `${organizationId ?? ''}:${listId ?? 'all'}`;
+  const currentKey = useRef(viewKey);
+  currentKey.current = viewKey;
+  const takeContacts = useCallback((key: string, c: OutreachContacts) => {
+    seen.current.set(key, c);
+    if (live.current && currentKey.current === key) {
+      setData(c);
+      setError(null);
+    }
+  }, []);
   const load = useCallback(async () => {
     if (!organizationId) return;
+    const key = `${organizationId}:${listId ?? 'all'}`;
     try {
       const [l, c] = await Promise.all([outreachAPI.lists(organizationId), outreachAPI.contacts(organizationId, listId)]);
       if (!live.current) return;
       setLists(l);
-      setData(c);
-      setError(null);
+      takeContacts(key, c);
     } catch (err) {
       if (live.current) setError(err instanceof Error ? err.message : "The contacts couldn't be loaded");
     }
-  }, [organizationId, listId]);
+  }, [organizationId, listId, takeContacts]);
   const [extending, setExtending] = useState(false);
   /** The next page of the open list, for one that reached its cap. */
   const extend = async () => {
@@ -276,7 +286,7 @@ const OutreachPage: React.FC = () => {
     setExtending(true);
     try {
       await outreachAPI.extend(organizationId, listId);
-      await load();
+      void load();
     } catch (err) {
       if (live.current) setError(err instanceof Error ? err.message : "The next page couldn't be loaded");
     } finally {
@@ -284,16 +294,28 @@ const OutreachPage: React.FC = () => {
     }
   };
   useEffect(() => {
+    if (!organizationId) return;
+    const key = `${organizationId}:${listId ?? 'all'}`;
+    // At once: this list as last seen, or its owners sliced from All in the list's own order, until the server answers.
+    const cached = seen.current.get(key);
+    const all = seen.current.get(`${organizationId}:all`);
+    const def = lists?.find((l) => l.id === listId)?.definition;
+    if (cached) setData(cached);
+    else if (listId && all && def) {
+      const order = listOrder(def);
+      setData({ ...all, rows: all.rows.filter((r) => r.listIds.includes(listId)).sort((a, b) => order.key(b) - order.key(a) || a.name.localeCompare(b.name)) });
+    }
     void load();
-  }, [load]);
-  // While any lookup is running, re-read until it lands.
-  const running = (c: OutreachContact) => Object.values(c.enrichment).some((cell) => cell.status === 'running');
-  const pending = data?.rows.some(running) ?? false;
-  useEffect(() => {
-    if (!pending) return;
-    const id = window.setInterval(() => void load(), POLL_MS);
-    return () => window.clearInterval(id);
-  }, [pending, load]);
+    // Then live: the server sends every change the moment it happens (a lookup's progress, a status set elsewhere), with no re-asking.
+    const stopContacts = outreachAPI.watchContacts?.(organizationId, listId, (c) => takeContacts(key, c));
+    const stopLists = outreachAPI.watchLists?.(organizationId, (l) => live.current && setLists(l));
+    return () => {
+      stopContacts?.();
+      stopLists?.();
+    };
+    // lists is read only for the first look at a new list; a change to it must not resubscribe.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [organizationId, listId, load, takeContacts]);
   // The sheet shows the row as the table now has it.
   useEffect(() => {
     if (open && data) setOpen(data.rows.find((r) => r.id === open.id) ?? null);
@@ -337,11 +359,19 @@ const OutreachPage: React.FC = () => {
 
   const addFunds = () => organizationId && openFundingPage(organizationId).catch((err) => setError(fundErrorText(err)));
 
+  /** Done, Skip, a note: shown at once, saved behind it, and put back if the save fails. */
   const setContactStatus = async (row: OutreachContact, next: OutreachRowStatus, text: string) => {
     if (!organizationId) return;
-    await outreachAPI.setStatus(organizationId, row.id, next, text || undefined);
+    const was = { status: row.status, note: row.note };
     setData((d) => d && { ...d, rows: d.rows.map((r) => (r.id === row.id ? { ...r, status: next, note: text || undefined } : r)) });
     setLists((l) => l && l.map((x) => (row.listIds.includes(x.id) ? { ...x, done: doneOn(x.id, row, next) } : x)));
+    try {
+      await outreachAPI.setStatus(organizationId, row.id, next, text || undefined);
+    } catch (err) {
+      setData((d) => d && { ...d, rows: d.rows.map((r) => (r.id === row.id ? { ...r, ...was } : r)) });
+      setLists((l) => l && l.map((x) => (row.listIds.includes(x.id) ? { ...x, done: doneOn(x.id, { ...row, status: next }, row.status) } : x)));
+      throw err;
+    }
   };
   /** The list's done count after this row's status change. */
   const doneOn = (id: string, row: OutreachContact, next: OutreachRowStatus) => {
@@ -354,14 +384,37 @@ const OutreachPage: React.FC = () => {
     if (!organizationId || ids.length === 0) return;
     setBusy(true);
     setError(null);
+    // At once: the cells the server will start show as running, so the table answers the tap before the server does.
+    const asked = fields ?? (['person', 'phone', 'email'] as OutreachField[]);
+    const startedAt = new Date().toISOString();
+    const before = data;
+    setData((d) =>
+      d && {
+        ...d,
+        rows: d.rows.map((r) => {
+          if (!ids.includes(r.id)) return r;
+          const cells = { ...r.enrichment };
+          for (const f of asked) {
+            const c = cells[f];
+            if ((f === 'person' && !r.company) || c?.status === 'found' || c?.status === 'running') continue;
+            cells[f] = { status: 'running', at: startedAt };
+          }
+          return { ...r, enrichment: cells };
+        }),
+      },
+    );
+    keepBatch({ at: startedAt });
     try {
       const r = await outreachAPI.enrich(organizationId, ids, fields, question);
-      if (r.queued && r.at) keepBatch({ at: r.at });
+      if (r.queued && r.at) keepBatch({ at: r.at < startedAt ? r.at : startedAt });
       const what = fields?.length === 1 && fields[0] === 'research' ? 'charged only for answers found' : 'charged only for phones found';
       setNote(r.queued ? `Looking up ${r.queued} ${r.queued === 1 ? 'owner' : 'owners'}; ${dollars(r.costCents)} at most, ${what}.` : null);
       setSelected(new Set());
-      await load();
+      void load();
     } catch (err) {
+      // Refused (the balance, the plan): the cells go back to how they were.
+      if (before) setData(before);
+      keepBatch(null);
       setError(err instanceof Error ? err.message : "Couldn't start the lookup");
       throw err;
     } finally {

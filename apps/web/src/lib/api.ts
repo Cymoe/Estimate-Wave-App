@@ -72,6 +72,21 @@ async function run<T = any>(kind: 'query' | 'mutation' | 'action', ref: Function
   }
 }
 
+/** Calls onUpdate with a query's result now (when it's cached) and after every change on the server; returns a stop function. */
+function watchOn<T>(ref: FunctionReference<'query'>, args: Record<string, unknown>, onUpdate: (value: T) => void, onError?: (error: APIError) => void): () => void {
+  const watch = convex.watchQuery(ref, args as never);
+  const emit = () => {
+    try {
+      const result = watch.localQueryResult();
+      if (result !== undefined) onUpdate(withId(result) as T);
+    } catch (error) {
+      onError?.(toAPIError(error));
+    }
+  };
+  emit();
+  return watch.onUpdate(emit);
+}
+
 /** Drops keys whose value is undefined so Convex validators accept them. */
 function defined<T extends Record<string, unknown>>(args: T): T {
   return Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined)) as T;
@@ -1268,6 +1283,12 @@ export const outreachAPI = {
   lists: (organizationId: string): Promise<OutreachListSummary[]> => run('query', api.outreach.lists, { organizationId }),
   /** Every contact, or those on one list, with the balance for unlocks. */
   contacts: (organizationId: string, listId?: string): Promise<OutreachContacts> => run('query', api.outreach.contacts, defined({ organizationId, listId })),
+  /** The contacts, now and on every change: a lookup's progress, a status set elsewhere. Returns a stop function. */
+  watchContacts: (organizationId: string, listId: string | undefined, onUpdate: (c: OutreachContacts) => void, onError?: (e: APIError) => void): (() => void) =>
+    watchOn(api.outreach.contacts, defined({ organizationId, listId }), onUpdate, onError),
+  /** The lists, now and on every change. Returns a stop function. */
+  watchLists: (organizationId: string, onUpdate: (l: OutreachListSummary[]) => void, onError?: (e: APIError) => void): (() => void) =>
+    watchOn(api.outreach.lists, { organizationId }, onUpdate, onError),
   interpret: (organizationId: string, request: string): Promise<OutreachInterpreted> =>
     run('action', api.outreach.interpret, { organizationId, request }),
   preview: (organizationId: string, definition: OutreachDefinition): Promise<OutreachPreview> =>

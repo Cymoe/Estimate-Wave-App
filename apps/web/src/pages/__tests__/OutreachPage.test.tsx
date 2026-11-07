@@ -62,6 +62,14 @@ const extend = jest.fn(async () => ({ loaded: 500, added: 500, rowCount: 1000, t
 const enrich = jest.fn(async () => ({ queued: 1, costCents: 100, at: '2026-11-05T15:00:00Z' }));
 const sources = jest.fn(async () => []);
 const getContacts = jest.fn(async () => contacts);
+// The live feed: a test can push what the server would send.
+let pushContacts: ((c: unknown) => void) | null = null;
+const watchContacts = jest.fn((_o: string, _l: string | undefined, onUpdate: (c: unknown) => void) => {
+  pushContacts = onUpdate;
+  return () => {
+    pushContacts = null;
+  };
+});
 let ownersState: Record<string, unknown> | null = null;
 const rebuild = jest.fn(async () => ({ fetched: 58_418, added: 44_120, updated: 0 }));
 let authUser: Record<string, unknown> = { id: 'u1', role: 'user' };
@@ -78,6 +86,8 @@ jest.mock('../../lib/api', () => ({
     remove: (...args: unknown[]) => remove(...(args as [])),
     extend: (...args: unknown[]) => extend(...(args as [])),
     enrich: (...args: unknown[]) => enrich(...(args as [])),
+    watchContacts: (...args: unknown[]) => watchContacts(...(args as [string, string | undefined, (c: unknown) => void])),
+    watchLists: () => () => {},
     sources: (...args: unknown[]) => sources(...(args as [])),
     status: async () => ownersState,
     rebuild: () => rebuild(),
@@ -162,6 +172,43 @@ afterEach(() => {
 });
 
 describe('the Outreach page', () => {
+  it('answers at once: a change the server sends shows without a re-read, a lookup shows running before the server replies, and a refused status goes back', async () => {
+    lists = [list];
+    contacts = twoContacts();
+    await render('/outreach/l1');
+    expect(watchContacts).toHaveBeenLastCalledWith('o1', 'l1', expect.any(Function));
+    const reads = getContacts.mock.calls.length;
+    // The server's push: City Of Midland's person found elsewhere, shown with no new read.
+    await act(async () => pushContacts!({ ...twoContacts(), rows: [contact('r1'), contact('r2', { name: 'City Of Midland', person: { name: 'Sam Ortiz', source: 'tx-comptroller' } })] }));
+    expect(document.body.textContent).toContain('Sam Ortiz');
+    expect(getContacts.mock.calls.length).toBe(reads);
+
+    // A lookup the server is slow to accept: the cells run the moment it's asked.
+    let accept: (v: unknown) => void = () => {};
+    enrich.mockImplementationOnce(() => new Promise((resolve) => (accept = resolve)) as never);
+    contacts = { ...twoContacts(), balanceCents: 500 };
+    await act(async () => pushContacts!(contacts));
+    const box = document.body.querySelectorAll('[data-testid="contact-row"] input[type="checkbox"]')[0] as HTMLInputElement;
+    await act(async () => box.click());
+    await act(async () => (document.body.querySelector('[data-testid="unlock-bar"] button') as HTMLButtonElement).click());
+    const first = document.body.querySelectorAll('[data-testid="contact-row"]')[0];
+    expect(first.querySelectorAll('[data-testid="live"]').length).toBeGreaterThan(0);
+    expect(document.body.querySelector('[data-testid="lookup-progress"]')!.textContent).toContain('Looking up 1 owner · 0 done');
+    await act(async () => accept({ queued: 1, costCents: 100, at: new Date().toISOString() }));
+    await flush();
+
+    // Done that the server refuses: shown at once, then put back.
+    setStatus.mockImplementationOnce(async () => {
+      throw new Error('offline');
+    });
+    await act(async () => (document.body.querySelectorAll('[data-testid="contact-row"]')[1] as HTMLTableRowElement).click());
+    await flush();
+    await click('Done');
+    await flush();
+    const statusOf = () => document.body.querySelectorAll('[data-testid="contact-row"]')[1].querySelectorAll('td')[6].textContent;
+    expect(statusOf()).toBe('New');
+  });
+
   it('shows a finished lookup as a summary to dismiss, a new signal with a tag and its own chip, and makes a cell glow the moment its answer lands', async () => {
     lists = [list];
     localStorage.setItem('outreach.batch', JSON.stringify({ at: '2026-11-05T15:00:00Z' }));
