@@ -229,7 +229,7 @@ describe('the Outreach page', () => {
     };
     await render('/outreach/l1');
     expect(document.body.querySelector('[data-testid="lookup-progress"]')!.textContent).toBe('Researching 2 owners · 1 done1 answer · $0.25 so far');
-    await act(async () => pushContacts!({ ...contacts, rows: [contacts.rows[0], contact('r2', { name: 'City Of Midland', enrichment: { ...before, research: { status: 'none', at } } })] }));
+    await act(async () => pushContacts!({ ...contacts, rows: [(contacts.rows as unknown[])[0], contact('r2', { name: 'City Of Midland', enrichment: { ...before, research: { status: 'none', at } } })] }));
     expect(document.body.querySelector('[data-testid="lookup-progress"]')!.textContent).toBe('Done: 2 owners researched1 answer · $0.25 charged');
   });
 
@@ -271,7 +271,7 @@ describe('the Outreach page', () => {
     document.body.appendChild(box);
     const root = createRoot(box);
     const table = (rows: ReturnType<typeof contact>[]) => (
-      <ContactsTable rows={rows as never} coverage={coverage() as never} selected={new Set()} onSelect={() => {}} onSelectAll={() => {}} onOpen={() => {}} onRetry={() => {}} />
+      <ContactsTable rows={rows as never} coverage={coverage() as never} onOpen={() => {}} onRetry={() => {}} />
     );
     const runningRow = contact('r1', { enrichment: { phone: { status: 'running', asking: 'batchdata' }, email: { status: 'locked' }, person: { status: 'locked' }, research: { status: 'locked' } } });
     await act(async () => root.render(table([runningRow])));
@@ -394,7 +394,7 @@ describe('the Outreach page', () => {
     expect(names()).toEqual(['Oak Plaza LLC', 'City Of Midland']);
     expect(localStorage.getItem('outreach.sort')).toBeNull();
     const heads = Array.from(document.body.querySelectorAll('thead th')).map((h) => h.textContent?.replace(/\s+/g, ' ').trim());
-    expect(heads).toEqual(['NameList order', 'Decision maker0 / 2 companies', 'Phone0 / 2', 'Email0 / 2', 'Research0 / 2', 'Status', 'Mailing address', 'Property', 'Value', 'Type', 'Signals']);
+    expect(heads).toEqual(['NameNewest first', 'Decision maker0 / 2 companies', 'Phone0 / 2', 'Email0 / 2', 'Research0 / 2', 'Status', 'Mailing address', 'Property', 'Value', 'Type', 'Signals']);
     await click('Shopping center owners');
     expect(path).toBe('/outreach/l1');
     expect(getContacts).toHaveBeenLastCalledWith('o1', 'l1');
@@ -764,6 +764,13 @@ describe('the Outreach page', () => {
     await render('/outreach/l1');
     const total = document.body.querySelector('[data-testid="list-total"]')!;
     expect(total.textContent?.replace(/\s+/g, ' ').trim()).toBe('· 500 of 2,340 loaded Load the next 500');
+    // An investor list is already most parcels first, so a tap on Name goes straight to A to Z and back.
+    const sortLine = () => document.body.querySelector('[data-testid="name-sort"]')!.textContent;
+    expect(sortLine()).toBe('NameMost parcels first');
+    await act(async () => (document.body.querySelector('[data-testid="name-sort"]') as HTMLButtonElement).click());
+    expect(sortLine()).toBe('NameA–Z');
+    await act(async () => (document.body.querySelector('[data-testid="name-sort"]') as HTMLButtonElement).click());
+    expect(sortLine()).toBe('NameMost parcels first');
     await click('Load the next 500');
     expect(extend).toHaveBeenCalledWith('o1', 'l1');
     // The lists and contacts are read again once the page has loaded.

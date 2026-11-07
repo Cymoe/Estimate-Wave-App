@@ -205,7 +205,9 @@ export const ContactsTable: React.FC<{
   /** The order now, shown under Name; a tap on Name moves to the next. */
   sort?: OwnerSort;
   onSort?: () => void;
-}> = ({ rows, coverage, onOpen, onRetry, sort = 'list', onSort }) => {
+  /** What "list order" is for this list, e.g. "Most parcels first". */
+  sortLabel?: string;
+}> = ({ rows, coverage, onOpen, onRetry, sort = 'list', onSort, sortLabel }) => {
   const lit = useJustFilled(rows);
   const glow = (id: string, f: OutreachField) => (lit.has(`${id}:${f}`) ? ' cell-filled' : '');
   const tableWidth = WIDTH.name + COLUMN_KEYS.reduce((sum, k) => sum + WIDTH[k], 0);
@@ -237,10 +239,10 @@ export const ContactsTable: React.FC<{
             <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
               <th className={`${head} left-0 z-30 ${thBase} border-r border-[#333333]`} aria-sort={sort === 'name' ? 'ascending' : 'none'}>
                 {onSort ? (
-                  <button type="button" onClick={onSort} className="group/sort flex items-center gap-1 text-left uppercase tracking-wide hover:text-white" title="Sort: list order, most parcels first, or A–Z" data-testid="name-sort">
+                  <button type="button" onClick={onSort} className="group/sort flex items-center gap-1 text-left uppercase tracking-wide hover:text-white" title="Tap to change the order" data-testid="name-sort">
                     <span>
                       Name
-                      <span className={`block normal-case tracking-normal text-[11px] ${sort === 'list' ? 'text-gray-500' : 'text-[#7fb0e0]'}`}>{SORT_LABEL[sort]}</span>
+                      <span className={`block normal-case tracking-normal text-[11px] ${sort === 'list' ? 'text-gray-500' : 'text-[#7fb0e0]'}`}>{sort === 'list' ? (sortLabel ?? SORT_LABEL.list) : SORT_LABEL[sort]}</span>
                     </span>
                     <ArrowUpDown className="w-3.5 h-3.5 shrink-0 self-start text-gray-500 group-hover/sort:text-white" aria-hidden />
                   </button>

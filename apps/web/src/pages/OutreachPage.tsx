@@ -268,8 +268,14 @@ const OutreachPage: React.FC = () => {
       return 'list';
     }
   });
+  // A list already ordered by parcels skips "most parcels first", so every tap changes the order.
+  const ownOrder = lists?.find((l) => l.id === listId);
+  const parcelsFirst = ownOrder ? listOrder(ownOrder.definition).label === 'most properties first' : false;
+  const sortNow: OwnerSort = sort === 'parcels' && parcelsFirst ? 'list' : sort;
+  const listLabel = ownOrder ? listOrder(ownOrder.definition).label.replace(/^\w/, (c) => c.toUpperCase()).replace('properties', 'parcels') : 'Newest first';
   const nextSort = () => {
-    const next: OwnerSort = sort === 'list' ? 'parcels' : sort === 'parcels' ? 'name' : 'list';
+    const steps: OwnerSort[] = parcelsFirst ? ['list', 'name'] : ['list', 'parcels', 'name'];
+    const next = steps[(steps.indexOf(sortNow) + 1) % steps.length];
     setSort(next);
     try {
       if (next === 'list') localStorage.removeItem(SORT_KEY);
@@ -380,10 +386,10 @@ const OutreachPage: React.FC = () => {
     const has = SHOWS.find((s) => s.value === show)?.has ?? (() => true);
     const q = query.trim().toLowerCase();
     const kept = (data?.rows ?? []).filter((r) => (status === 'all' || r.status === status) && has(r) && (!q || matches(r, q)));
-    if (sort === 'parcels') return [...kept].sort((a, b) => b.properties - a.properties || b.totalValueCents - a.totalValueCents || a.name.localeCompare(b.name));
-    if (sort === 'name') return [...kept].sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base', numeric: true }));
+    if (sortNow === 'parcels') return [...kept].sort((a, b) => b.properties - a.properties || b.totalValueCents - a.totalValueCents || a.name.localeCompare(b.name));
+    if (sortNow === 'name') return [...kept].sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base', numeric: true }));
     return kept;
-  }, [data, status, show, query, sort]);
+  }, [data, status, show, query, sortNow]);
   const counts = useMemo(() => Object.fromEntries(SHOWS.map((s) => [s.value, (data?.rows ?? []).filter(s.has).length])) as Record<Show, number>, [data]);
   // What a lookup would run: never asked, failed, or a "none found" a month old (the sources refresh monthly).
   const needsPhone = (r: OutreachContact) => openToLook(r.enrichment.phone);
@@ -663,7 +669,8 @@ const OutreachPage: React.FC = () => {
         <ContactsTable
           rows={rows}
           coverage={data.coverage}
-          sort={sort}
+          sort={sortNow}
+          sortLabel={listLabel}
           onSort={nextSort}
           onOpen={setOpen}
           onRetry={(row, field) => void enrich([row.id], [field]).catch(() => {})}
