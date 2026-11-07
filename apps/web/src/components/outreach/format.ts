@@ -18,8 +18,19 @@ export const sourceName = (s: string) =>
     cobalt: 'State registry (Cobalt)',
     zerobounce: 'ZeroBounce',
     twilio: 'the carrier (Twilio)',
+    trestle: 'the contact check (Trestle)',
+    'tracerfy-dnc': 'the Do Not Call scrub (Tracerfy)',
     claude: 'the web',
   })[s] ?? s;
+
+/** A number worth calling: not on the Do Not Call list and not a known litigator. */
+export const callOk = (p: { dnc?: boolean; litigator?: boolean }) => !p.dnc && !p.litigator;
+
+/** "the appraisal roll and city permits", for a person two or more sources agree on. */
+export const sourceList = (sources: string[]) => {
+  const names = sources.map(sourceName);
+  return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+};
 
 /** The Midland County Clerk's deed records for an owner, where the deed of trust names who signed for the company. */
 export const deedSearchUrl = (owner: string) =>

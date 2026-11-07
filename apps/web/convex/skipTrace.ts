@@ -9,7 +9,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import { outreachField } from "./schema";
-import { KEY_FOR, checkEmails, checkPhones, dedupeEmails, expectedNames, phoneChecker, rankPhones, vendors, verifier, waterfall, type Field, type Found, type Vendor } from "./lib/skipTrace";
+import { KEY_FOR, checkEmails, checkPhonesWith, dedupeEmails, expectedNames, lineOwner, phoneCheckers, phoneScrub, rankPhones, scrubPhones, vendors, verifier, waterfall, type Field, type Found, type Vendor } from "./lib/skipTrace";
 import { researchOwner } from "./lib/research";
 
 type TraceArgs = { contactId: import("./_generated/dataModel").Id<"outreachContacts">; fields: Field[] };
@@ -41,6 +41,7 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
       name: "roll",
       fields: ["person"],
       connected: true,
+      free: true,
       applies: () => ("why" in home ? home.why : undefined),
       trace: async () => ("person" in home ? { person: home.person } : {}),
     });
@@ -50,6 +51,7 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
       name: "permits",
       fields: ["person", "phone", "email"],
       connected: true,
+      free: true,
       applies: () => (permits.permits === 0 ? "No permits at the property" : permits.matched === 0 ? "No permit names the company" : undefined),
       trace: async () => has,
     });
@@ -109,13 +111,18 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
     let phones = field === "phone" ? rankPhones(o.found.phones ?? []) : undefined;
     const tries = [...o.tries];
     if (field === "phone" && phones && phones.length > 0) {
-      // The carrier's word: dead lines go, live ones carry their type and the name on the account.
+      // The checker's word: dead lines go, live ones carry their type, the name on the account or a name match, and a grade.
       const person = outcomes.find((x) => x.field === "person")?.found.person ?? input.person;
-      const checked = await checkPhones(phones, phoneChecker(process.env), expectedNames({ ...input, person }));
+      const who = { ...input, person };
+      const checked = await checkPhonesWith(phones, phoneCheckers(process.env), expectedNames(who), lineOwner(who));
       phones = checked.phones;
-      tries.push(checked.try);
-      if (checked.try.outcome === "hit" || checked.try.outcome === "miss") {
-        await ctx.runMutation(internal.outreach.recordCheck, { contactId, source: checked.try.source, field: "phone", hit: checked.try.outcome === "hit" });
+      tries.push(...checked.tries);
+      // Then the Do Not Call scrub on what's left: flags, never drops, so the sheet can say why not to call.
+      const scrubbed = await scrubPhones(phones, phoneScrub(process.env));
+      phones = scrubbed.phones;
+      tries.push(scrubbed.try);
+      for (const t of [...checked.tries, scrubbed.try]) {
+        if (t.outcome === "hit" || t.outcome === "miss") await ctx.runMutation(internal.outreach.recordCheck, { contactId, source: t.source, field: "phone", hit: t.outcome === "hit" });
       }
     }
     if (field === "email" && emails && emails.length > 0) {

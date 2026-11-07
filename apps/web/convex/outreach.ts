@@ -45,7 +45,7 @@ import {
 } from "./lib/outreach";
 import { MIDLAND_PARCELS, addressKey } from "./lib/parcels";
 import { planIsActive } from "./lib/plan";
-import { needsAttention, phoneChecker, splitName, vendors, verifier, type Found, type Person } from "./lib/skipTrace";
+import { needsAttention, phoneCheckers, phoneScrub, splitName, vendors, verifier, type Found, type Person } from "./lib/skipTrace";
 import { dollars, postTransaction } from "./lib/wallet";
 
 const COUNTY = MIDLAND_PARCELS.county;
@@ -476,12 +476,17 @@ export const sources = query({
     await requireStaff(ctx);
     const stats = await ctx.db.query("dataSourceStats").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect();
     const checker = verifier(process.env);
-    const lines = phoneChecker(process.env);
+    const scrub = phoneScrub(process.env);
     const own = [
       { name: "roll", fields: ["person" as const], connected: true },
       { name: "permits", fields: ["person" as const, "phone" as const, "email" as const], connected: true },
     ];
-    return [...own, ...vendors(process.env), { name: lines.name, fields: ["phone" as const], connected: lines.connected }, { name: checker.name, fields: ["email" as const], connected: checker.connected }].map((s) => ({
+    const checks = [
+      ...phoneCheckers(process.env).map((c) => ({ name: c.name, fields: ["phone" as const], connected: c.connected })),
+      { name: scrub.name, fields: ["phone" as const], connected: scrub.connected },
+      { name: checker.name, fields: ["email" as const], connected: checker.connected },
+    ];
+    return [...own, ...vendors(process.env), ...checks].map((s) => ({
       name: s.name,
       fields: s.fields,
       connected: s.connected,
@@ -867,6 +872,8 @@ export const sourceLabel = (s: string) =>
     cobalt: "State registry (Cobalt)",
     zerobounce: "ZeroBounce",
     twilio: "Twilio line check",
+    trestle: "Trestle contact check",
+    "tracerfy-dnc": "Tracerfy DNC scrub",
     claude: "Claude, from the web",
   })[s] ?? s;
 

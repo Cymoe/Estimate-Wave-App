@@ -378,10 +378,11 @@ describe('the Outreach page', () => {
             email: { ...found, tries: [{ source: 'batchdata', outcome: 'hit', note: '1 email' }, { source: 'tracerfy', outcome: 'skipped', note: 'Not needed, already found' }] },
             person: { ...found, source: 'tx-comptroller', tries: [{ source: 'tx-comptroller', outcome: 'hit', note: 'Dana Reyes, Manager' }] },
           },
-          person: { name: 'Dana Reyes', title: 'Manager', address: '1 MAIN ST STE 400, DALLAS, TX, 75201', source: 'tx-comptroller' },
+          person: { name: 'Dana Reyes', title: 'Manager', address: '1 MAIN ST STE 400, DALLAS, TX, 75201', source: 'tx-comptroller', confirmedBy: ['permits'] },
           phones: [
             { number: '4325550100', type: 'mobile', verified: true, score: 95, source: 'batchdata', name: 'REYES DANA' },
             { number: '4325550199', type: 'landline', dnc: true, source: 'batchdata' },
+            { number: '4325550177', type: 'mobile', verified: true, grade: 'C', litigator: true, source: 'batchdata' },
           ],
           emails: [{ email: 'dana@oakplaza.com', source: 'batchdata', verified: true }],
         }),
@@ -401,8 +402,8 @@ describe('the Outreach page', () => {
     expect(document.body.querySelector('[data-testid="looking"]')!.textContent).toBe('Looking up 1 owner… 1 of 2 done');
     const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
     const cells = (i: number) => Array.from(rows[i].querySelectorAll('td')).map((c) => c.textContent?.replace(/\s+/g, ' ').trim());
-    expect(cells(0)[2]).toBe('Dana ReyesManager');
-    expect(cells(0).slice(3, 5)).toEqual(['(432) 555-0100mobile · verified · +1', 'dana@oakplaza.comverified']);
+    expect(cells(0)[2]).toBe('Dana ReyesManager · 2 sources agree');
+    expect(cells(0).slice(3, 5)).toEqual(['(432) 555-0100mobile · verified · +2', 'dana@oakplaza.comverified']);
     expect(cells(1).slice(3, 5)).toEqual(['Looking…', 'Looking…']);
     expect(cells(0)[5]).toBe('—');
     expect(document.body.querySelector('thead')!.textContent).toContain('1 / 2 · 1 source');
@@ -412,13 +413,14 @@ describe('the Outreach page', () => {
     await act(async () => (rows[0] as HTMLTableRowElement).click());
     const sheet = document.body.querySelector('[role="dialog"][aria-label="Oak Plaza LLC"]')!;
     expect(sheet.querySelector('[data-testid="decision-maker"]')!.textContent).toContain('Dana Reyes · Manager');
-    expect(sheet.querySelector('[data-testid="decision-maker"]')!.textContent).toContain('From Texas Comptroller');
+    expect(sheet.querySelector('[data-testid="decision-maker"]')!.textContent).toContain('From Texas Comptroller · also named by city permits');
     const links = Array.from(sheet.querySelectorAll('[data-testid="contact-details"] a')).map((a) => a.getAttribute('href'));
-    // The DNC landline is shown but never dialled from here; Call, Text and Email go to the best mobile and the email.
+    // The DNC landline and the litigator's mobile are shown but never dialled from here; Call, Text and Email go to the best clear mobile and the email.
     expect(links).toEqual(['tel:4325550100', 'mailto:dana@oakplaza.com', 'tel:4325550100', 'sms:4325550100', 'mailto:dana@oakplaza.com']);
     expect(sheet.querySelector('[data-testid="reach"]')!.textContent?.replace(/\s+/g, '')).toBe('CallTextEmail');
     expect(sheet.querySelector('[data-testid="contact-details"]')!.textContent).toContain('(432) 555-0100mobile · verifiedline in the name of REYES DANA');
     expect(sheet.querySelector('[data-testid="contact-details"]')!.textContent).toContain('(432) 555-0199landline · DNCon the Do Not Call list');
+    expect(sheet.querySelector('[data-testid="contact-details"]')!.textContent).toContain('(432) 555-0177mobile · verified · litigatorknown TCPA litigator');
     expect(sheet.querySelector('[data-testid="contact-details"]')!.textContent).toContain('From BatchData Nov 5 · $1');
     // The ledger: every source's turn per step, and the owner's cost.
     const how = sheet.querySelector('[data-testid="how-found"]')!.textContent!;

@@ -6,9 +6,28 @@
 
 export type Field = "phone" | "email" | "person" | "research";
 export type PhoneType = "mobile" | "landline" | "voip" | "unknown";
-export type Phone = { number: string; type: PhoneType; dnc?: boolean; verified?: boolean; score?: number; source: string; name?: string };
+export type Phone = {
+  number: string;
+  type: PhoneType;
+  dnc?: boolean;
+  verified?: boolean;
+  score?: number;
+  source: string;
+  name?: string;
+  /** The subscriber is a known TCPA litigator (from the scrub or the line check). */
+  litigator?: boolean;
+  /** The checker's A to F grade for reaching someone on this line. */
+  grade?: string;
+};
 export type Email = { email: string; source: string; verified?: boolean };
-export type Person = { name: string; title?: string; address?: string; source: string };
+export type Person = {
+  name: string;
+  title?: string;
+  address?: string;
+  source: string;
+  /** Other free sources that named the same person. */
+  confirmedBy?: string[];
+};
 
 export type TraceInput = {
   name: string;
@@ -29,6 +48,8 @@ export type Vendor = {
   fields: Field[];
   /** True when the deployment holds its key. */
   connected: boolean;
+  /** Costs nothing per call: still asked for the person after a hit, so two sources naming the same one can be shown. */
+  free?: boolean;
   /** Why this owner can't be asked about here (a reason for the ledger), or nothing when it can. */
   applies?: (input: TraceInput) => string | undefined;
   trace: (input: TraceInput) => Promise<Found>;
@@ -289,6 +310,7 @@ export function comptrollerTexas(key: string | undefined, fetchFn: Fetch = fetch
     name: "tx-comptroller",
     fields: ["person"],
     connected: Boolean(key),
+    free: true,
     trace: async (input) => {
       if (!input.company) return {};
       const name = input.company.toUpperCase().replace(/[<>]/g, "").replace(/\s*&\s*$/, "").trim().slice(0, 50);
@@ -584,14 +606,53 @@ export async function checkEmails(emails: Email[], checker: Verifier): Promise<{
 
 // ---- Phone line check ----
 
-/** What the carrier says about one number. */
-export type LineCheck = { valid: boolean; type?: PhoneType; name?: string; business?: boolean };
+/** What the checker says about one number: live or not, its type, the name on it (or whether ours matches), and how reachable. */
+export type LineCheck = { valid: boolean; type?: PhoneType; name?: string; business?: boolean; nameMatch?: boolean; grade?: string; activity?: number; litigator?: boolean };
+/** Whose number it should be: the person when known, else the owner; the company for the business line. */
+export type LineOwner = { name: string; business?: string };
 export type PhoneChecker = {
   name: string;
   /** True when the deployment holds its keys. */
   connected: boolean;
-  check: (number: string) => Promise<LineCheck>;
+  check: (number: string, who: LineOwner) => Promise<LineCheck>;
 };
+
+/** A to F from the checker, as a score when the vendor gave none. */
+const GRADE_SCORE: Record<string, number> = { A: 95, B: 80, C: 60, D: 40, F: 10 };
+
+/**
+ * Trestle's Real Contact API: GET /2.0/real_contact?name=&phone= with
+ * x-api-key grades the line A to F for reaching this person, says whether
+ * the name matches the subscriber, whether the line is active, its type,
+ * and (an add-on) whether the subscriber is a known TCPA litigator. One
+ * call answers what the carrier lookup and a name match answer separately.
+ */
+export function trestleRealContact(key: string | undefined, fetchFn: Fetch = fetch, base = "https://api.trestleiq.com/2.0"): PhoneChecker {
+  return {
+    name: "trestle",
+    connected: Boolean(key),
+    check: async (number, who) => {
+      const params = new URLSearchParams({ name: who.name, phone: number, add_ons: "litigator_checks" });
+      if (who.business) params.set("business.name", who.business);
+      const response = await fetchFn(`${base}/real_contact?${params.toString()}`, { headers: { Accept: "application/json", "x-api-key": key ?? "" } });
+      if (!response.ok) throw new Error(`Trestle: HTTP ${response.status}`);
+      const body = (await response.json()) as {
+        phone?: { contact_grade?: string | null; is_valid?: boolean | null; activity_score?: number | null; line_type?: string | null; name_match?: boolean | null } | null;
+        add_ons?: { litigator_checks?: { phone_is_litigator_risk?: boolean | null } | null } | null;
+      };
+      const kind = (body.phone?.line_type ?? "").toLowerCase();
+      const type: PhoneType | undefined = kind === "mobile" ? "mobile" : kind === "landline" ? "landline" : /voip/.test(kind) ? "voip" : undefined;
+      return {
+        valid: body.phone?.is_valid !== false,
+        type,
+        nameMatch: typeof body.phone?.name_match === "boolean" ? body.phone.name_match : undefined,
+        grade: str(body.phone?.contact_grade ?? undefined)?.toUpperCase(),
+        activity: num(body.phone?.activity_score),
+        litigator: body.add_ons?.litigator_checks?.phone_is_litigator_risk === true ? true : undefined,
+      };
+    },
+  };
+}
 
 /**
  * Twilio Lookup: GET /v2/PhoneNumbers/+1<number>?Fields=line_type_intelligence,caller_name
@@ -623,8 +684,95 @@ export function twilioLookup(sid: string | undefined, token: string | undefined,
   };
 }
 
-export function phoneChecker(env: Record<string, string | undefined>, fetchFn: Fetch = guarded()): PhoneChecker {
-  return twilioLookup(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN, fetchFn);
+/** The line checkers in order: Trestle first, the carrier lookup as the fallback. */
+export function phoneCheckers(env: Record<string, string | undefined>, fetchFn: Fetch = guarded()): PhoneChecker[] {
+  return [trestleRealContact(env.TRESTLE_API_KEY, fetchFn), twilioLookup(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN, fetchFn)];
+}
+
+// ---- Do Not Call scrub ----
+
+/** One number against the Do Not Call lists: the federal registry, the states' own, and the known litigators. */
+export type Scrub = { national: boolean; states: string[]; litigator: boolean };
+export type PhoneScrub = {
+  name: string;
+  /** True when the deployment holds its key. */
+  connected: boolean;
+  scrub: (numbers: string[]) => Promise<Map<string, Scrub>>;
+};
+
+/**
+ * Tracerfy's DNC lookup: POST /v2/api/dnc/lookup/ with up to 15 phones
+ * answers national_dnc, state_dnc (with the states' codes) and litigator
+ * for each. Same key as the skip trace.
+ */
+export function tracerfyDnc(key: string | undefined, fetchFn: Fetch = fetch, base = "https://www.tracerfy.com/v2/api"): PhoneScrub {
+  return {
+    name: "tracerfy-dnc",
+    connected: Boolean(key),
+    scrub: async (numbers) => {
+      const out = new Map<string, Scrub>();
+      for (let i = 0; i < numbers.length; i += 15) {
+        const batch = numbers.slice(i, i + 15);
+        const response = await fetchFn(`${base.replace(/\/$/, "")}/dnc/lookup/`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${key}` },
+          body: JSON.stringify(batch.map((phone) => ({ phone }))),
+        });
+        if (!response.ok) throw new Error(`Tracerfy DNC: HTTP ${response.status}`);
+        const body = (await response.json()) as { results?: unknown[] };
+        for (const r of asArray(body.results) as Array<Record<string, unknown>>) {
+          const n = typeof r.phone === "string" ? normalizePhone(r.phone) : undefined;
+          if (!n) continue;
+          out.set(n, { national: r.national_dnc === true, states: (asArray(r.state_dnc_list) as unknown[]).filter((s): s is string => typeof s === "string"), litigator: r.litigator === true });
+        }
+      }
+      return out;
+    },
+  };
+}
+
+export function phoneScrub(env: Record<string, string | undefined>, fetchFn: Fetch = guarded()): PhoneScrub {
+  return tracerfyDnc(env.TRACERFY_API_KEY, fetchFn, env.TRACERFY_DNC_API_BASE || undefined);
+}
+
+/**
+ * Runs the kept numbers past the Do Not Call scrub: a number on the federal
+ * or a state list is flagged DNC (kept, so the sheet can say why not to
+ * call), a known litigator is flagged as one. The ledger says how many are
+ * clear. Nothing is dropped: the flags decide what Call and Text offer.
+ */
+export async function scrubPhones(phones: Phone[], scrub: PhoneScrub): Promise<{ phones: Phone[]; try: Try }> {
+  if (phones.length === 0) return { phones, try: { source: scrub.name, outcome: "skipped", note: "Nothing to check" } };
+  if (!scrub.connected) return { phones, try: { source: scrub.name, outcome: "skipped", note: "Not connected" } };
+  let found: Map<string, Scrub>;
+  try {
+    found = await scrub.scrub(phones.map((p) => p.number));
+  } catch (e) {
+    return { phones, try: { source: scrub.name, outcome: "error", note: e instanceof Error ? e.message : String(e) } };
+  }
+  let clear = 0;
+  let listed = 0;
+  let litigators = 0;
+  const states = new Set<string>();
+  const out = phones.map((p) => {
+    const s = found.get(p.number);
+    if (!s) return p;
+    const onList = s.national || s.states.length > 0;
+    if (onList) listed++;
+    if (s.litigator) litigators++;
+    if (!onList && !s.litigator) clear++;
+    for (const st of s.states) states.add(st);
+    return { ...p, dnc: onList ? true : p.dnc, litigator: s.litigator ? true : p.litigator };
+  });
+  const checked = phones.filter((p) => found.has(p.number)).length;
+  const note = [
+    `${clear} of ${checked} clear`,
+    listed ? `${listed} on the Do Not Call list${states.size ? ` (${[...states].sort().join(", ")})` : ""}` : "",
+    litigators ? `${litigators} known ${litigators === 1 ? "litigator" : "litigators"}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return { phones: out, try: { source: scrub.name, outcome: clear > 0 ? "hit" : "miss", note } };
 }
 
 /**
@@ -650,19 +798,29 @@ export function expectedNames(input: Pick<TraceInput, "name" | "company" | "pers
   return [...out];
 }
 
+/** Whose line it should be, for the checker: the person when known, else the owner; the company alongside. */
+export function lineOwner(input: Pick<TraceInput, "name" | "company" | "person">): LineOwner {
+  if (input.person) return { name: input.person.name, business: input.company };
+  if (input.company) return { name: input.company, business: input.company };
+  const who = splitName(input.name);
+  return { name: titleCase([who.first, who.last].filter(Boolean).join(" ") || input.name) };
+}
+
 /**
- * Runs the found numbers (up to three) past the carrier: a dead line is
- * dropped, a live one is marked verified with the carrier's line type and
- * the name on the account; a name that matches the owner's is the nail in
- * the coffin, and the ledger says how many did.
+ * Runs the found numbers (up to three) past the checker: a dead line is
+ * dropped, a live one is marked verified with the line type and the name
+ * on the account or the checker's word that the name matches; a name that
+ * matches the owner's is the nail in the coffin, and the ledger says how
+ * many did. A checker's grade stands in for a score the vendor didn't give.
  */
-export async function checkPhones(phones: Phone[], checker: PhoneChecker, expected: string[]): Promise<{ phones: Phone[]; try: Try }> {
+export async function checkPhones(phones: Phone[], checker: PhoneChecker, expected: string[], who: LineOwner = { name: expected[0] ?? "" }): Promise<{ phones: Phone[]; try: Try }> {
   if (phones.length === 0) return { phones, try: { source: checker.name, outcome: "skipped", note: "Nothing to check" } };
   if (!checker.connected) return { phones, try: { source: checker.name, outcome: "skipped", note: "Not connected" } };
   const kept: Phone[] = [];
   let live = 0;
   let named = 0;
   let checked = 0;
+  let litigators = 0;
   try {
     for (const p of phones) {
       if (checked >= CHECK_AT_MOST) {
@@ -670,18 +828,46 @@ export async function checkPhones(phones: Phone[], checker: PhoneChecker, expect
         continue;
       }
       checked++;
-      const line = await checker.check(p.number);
+      const line = await checker.check(p.number, who);
       if (!line.valid) continue;
       live++;
-      const matches = line.name ? expected.some((n) => line.name!.toUpperCase().includes(n)) : false;
+      const matches = line.nameMatch ?? (line.name ? expected.some((n) => line.name!.toUpperCase().includes(n)) : false);
       if (matches) named++;
-      kept.push({ ...p, type: line.type ?? p.type, verified: true, name: line.name ?? p.name, score: matches ? Math.max(p.score ?? 0, 100) : p.score });
+      if (line.litigator) litigators++;
+      const score = matches ? Math.max(p.score ?? 0, 100) : (p.score ?? (line.grade ? GRADE_SCORE[line.grade] : undefined));
+      kept.push({ ...p, type: line.type ?? p.type, verified: true, name: line.name ?? p.name, score, grade: line.grade ?? p.grade, litigator: line.litigator ? true : p.litigator });
     }
   } catch (e) {
     return { phones, try: { source: checker.name, outcome: "error", note: e instanceof Error ? e.message : String(e) } };
   }
-  const note = [`${live} of ${checked} live`, named ? `${named} in the owner's name` : "", checked - live ? `${checked - live} dropped` : ""].filter(Boolean).join(" · ");
+  const note = [`${live} of ${checked} live`, named ? `${named} in the owner's name` : "", checked - live ? `${checked - live} dropped` : "", litigators ? `${litigators} known ${litigators === 1 ? "litigator" : "litigators"}` : ""]
+    .filter(Boolean)
+    .join(" · ");
   return { phones: rankPhones(kept), try: { source: checker.name, outcome: live > 0 ? "hit" : "miss", note } };
+}
+
+/**
+ * The checkers in order: the first connected one answers; one that errors
+ * hands over to the next, and the ledger shows every turn. The rest are
+ * "not needed" once one has answered.
+ */
+export async function checkPhonesWith(phones: Phone[], checkers: PhoneChecker[], expected: string[], who: LineOwner): Promise<{ phones: Phone[]; tries: Try[] }> {
+  const tries: Try[] = [];
+  let done = false;
+  let out = phones;
+  for (const checker of checkers) {
+    if (done) {
+      tries.push({ source: checker.name, outcome: "skipped", note: "Not needed, already checked" });
+      continue;
+    }
+    const r = await checkPhones(out, checker, expected, who);
+    tries.push(r.try);
+    if (r.try.outcome === "hit" || r.try.outcome === "miss") {
+      out = r.phones;
+      done = true;
+    }
+  }
+  return { phones: out, tries };
 }
 
 /** The keys a field's sources need, for the "not connected" note. */
@@ -695,6 +881,17 @@ export const KEY_FOR: Record<Field, string> = {
 /** One source's turn for a field: what it said, or why it wasn't asked. */
 export type Try = { source: string; outcome: "hit" | "miss" | "error" | "skipped"; note?: string };
 export type Outcome = { field: Field; found: Found; source?: string; errors: string[]; tries: Try[] };
+
+/** "Dana Reyes" and "REYES, DANA M" are one person: same first and last name once the order and the middle are set aside. */
+export function samePerson(a: Pick<Person, "name">, b: Pick<Person, "name">): boolean {
+  const clean = (s: string) => s.toUpperCase().replace(/[^A-Z ]/g, " ").replace(/\s+/g, " ").trim();
+  if (clean(a.name) === clean(b.name)) return true;
+  const x = splitName(a.name, "person");
+  const y = splitName(b.name, "person");
+  const yr = splitName(b.name);
+  const same = (p: { first?: string; last?: string }, q: { first?: string; last?: string }) => Boolean(p.first && p.last && q.first && q.last && p.first.toUpperCase() === q.first.toUpperCase() && p.last.toUpperCase() === q.last.toUpperCase());
+  return same(x, y) || same(x, yr);
+}
 
 /** What a hit says in the ledger: the person's name and title, or how many numbers or addresses. */
 const hitNote = (field: Field, found: Found) => {
@@ -736,7 +933,9 @@ export async function waterfall(input: TraceInput, vendors: Vendor[], fields: Fi
         tries.push({ source: vendor.name, outcome: "skipped", note: "Not connected" });
         continue;
       }
-      if (result) {
+      // A free source is still asked for the person once one is found: two sources naming the same one is the best confidence there is.
+      const corroborating = Boolean(result) && field === "person" && vendor.free === true;
+      if (result && !corroborating) {
         tries.push({ source: vendor.name, outcome: "skipped", note: "Not needed, already found" });
         continue;
       }
@@ -747,7 +946,14 @@ export async function waterfall(input: TraceInput, vendors: Vendor[], fields: Fi
       }
       try {
         const found = await ask(vendor);
-        if (has(field, found)) {
+        if (corroborating) {
+          const first = result!.found.person!;
+          if (!found.person) tries.push({ source: vendor.name, outcome: "miss", note: "No match" });
+          else if (samePerson(first, found.person)) {
+            result!.found = { ...result!.found, person: { ...first, confirmedBy: [...(first.confirmedBy ?? []), vendor.name] } };
+            tries.push({ source: vendor.name, outcome: "hit", note: `Also names ${first.name}` });
+          } else tries.push({ source: vendor.name, outcome: "hit", note: `Names ${found.person.name} instead` });
+        } else if (has(field, found)) {
           result = { field, found, source: vendor.name, errors, tries };
           tries.push({ source: vendor.name, outcome: "hit", note: hitNote(field, found) });
         } else {

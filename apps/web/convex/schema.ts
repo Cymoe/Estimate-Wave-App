@@ -487,10 +487,21 @@ export const outreachPhone = v.object({
   source: v.string(),
   /** The name the carrier has on the line, from the line check. */
   name: v.optional(v.string()),
+  /** The subscriber is a known TCPA litigator, from the scrub or the line check. */
+  litigator: v.optional(v.boolean()),
+  /** The checker's A to F grade for reaching someone on this line. */
+  grade: v.optional(v.string()),
 });
 export const outreachEmail = v.object({ email: v.string(), source: v.string(), verified: v.optional(v.boolean()) });
 /** The person behind a company owner: an officer or manager from the state's records. */
-export const outreachPerson = v.object({ name: v.string(), title: v.optional(v.string()), address: v.optional(v.string()), source: v.string() });
+export const outreachPerson = v.object({
+  name: v.string(),
+  title: v.optional(v.string()),
+  address: v.optional(v.string()),
+  source: v.string(),
+  /** Other free sources that named the same person. */
+  confirmedBy: v.optional(v.array(v.string())),
+});
 /** What a contact can be enriched with. */
 export const outreachField = v.union(v.literal("phone"), v.literal("email"), v.literal("person"), v.literal("research"));
 /** One enrichment cell: locked until asked for; running through the stack; found (phone: charged), none (free) or failed (free). */

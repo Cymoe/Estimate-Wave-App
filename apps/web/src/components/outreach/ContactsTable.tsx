@@ -5,7 +5,7 @@ import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { fullAddress } from '../../lib/mapsLinks';
 import type { OutreachCell, OutreachContact, OutreachContacts, OutreachCoverage, OutreachField, OutreachPhone, OutreachRowStatus, OutreachSignal, OutreachTry, OutreachWho } from '../../lib/api';
 import { shortMoney, WHO_LABEL } from '../../../convex/lib/outreach';
-import { deedSearchUrl, phoneText, sourceName } from './format';
+import { callOk, deedSearchUrl, phoneText, sourceList, sourceName } from './format';
 import type { ColumnKey } from './columns';
 
 const STATUS_LABEL: Record<OutreachRowStatus, string> = { new: 'New', sent: 'Sent', done: 'Done', skip: 'Skipped' };
@@ -41,12 +41,13 @@ const Coverage: React.FC<{ c: OutreachCoverage; of?: string }> = ({ c, of }) => 
   </span>
 );
 
-/** A phone's small print: its type, whether the carrier confirmed it, and the Do Not Call flag. */
+/** A phone's small print: its type, whether the checker confirmed it, and the Do Not Call and litigator flags. */
 export const PhoneBadges: React.FC<{ p: OutreachPhone }> = ({ p }) => (
   <span className="text-[11px] text-gray-500">
     {PHONE_TYPE[p.type]}
     {p.verified ? (PHONE_TYPE[p.type] ? ' · ' : '') + 'verified' : ''}
     {p.dnc ? <span className="text-red-400">{PHONE_TYPE[p.type] || p.verified ? ' · ' : ''}DNC</span> : null}
+    {p.litigator ? <span className="text-red-400">{PHONE_TYPE[p.type] || p.verified || p.dnc ? ' · ' : ''}litigator</span> : null}
   </span>
 );
 
@@ -181,7 +182,12 @@ export const ContactsTable: React.FC<{
                       {r.person ? (
                         <>
                           <span className="text-white">{r.person.name}</span>
-                          {r.person.title ? <span className="block text-[11px] text-gray-500">{r.person.title}</span> : null}
+                          {r.person.title || r.person.confirmedBy?.length ? (
+                            <span className="block text-[11px] text-gray-500">
+                              {r.person.title}
+                              {r.person.confirmedBy?.length ? <span className="text-[#7fb0e0]">{r.person.title ? ' · ' : ''}{r.person.confirmedBy.length + 1} sources agree</span> : null}
+                            </span>
+                          ) : null}
                         </>
                       ) : r.company ? (
                         <Empty cell={r.enrichment.person} onRetry={() => onRetry(r, 'person')} />
@@ -381,8 +387,8 @@ export const ContactSheet: React.FC<{
   const canResearch = balanceCents >= researchCents;
   const when = (c: OutreachCell) => (c.at ? ` ${new Date(c.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : '');
   // The buttons: the best number not on the Do Not Call list; a text only to a mobile.
-  const callable = row.phones.find((p) => !p.dnc);
-  const textable = row.phones.find((p) => !p.dnc && p.type === 'mobile');
+  const callable = row.phones.find(callOk);
+  const textable = row.phones.find((p) => callOk(p) && p.type === 'mobile');
   const email0 = row.emails[0];
   return (
     <SlideOutDrawer isOpen onClose={onClose} title={row.name} width="md">
@@ -406,6 +412,7 @@ export const ContactSheet: React.FC<{
                     {row.person.address && <div className="text-sm text-gray-400">{row.person.address}</div>}
                     <div className="text-xs text-gray-500">
                       From {sourceName(row.person.source)}
+                      {row.person.confirmedBy?.length ? <span className="text-[#7fb0e0]"> · also named by {sourceList(row.person.confirmedBy)}</span> : null}
                       {when(person)}
                     </div>
                   </div>
@@ -430,16 +437,17 @@ export const ContactSheet: React.FC<{
               <ul className="space-y-1">
                 {row.phones.map((p) => (
                   <li key={p.number} className="flex items-baseline gap-2">
-                    {p.dnc ? (
-                      <span className="text-[15px] text-gray-300 min-h-[44px] inline-flex items-center">{phoneText(p.number)}</span>
-                    ) : (
+                    {callOk(p) ? (
                       <a href={`tel:${p.number}`} className={link}>
                         {phoneText(p.number)}
                       </a>
+                    ) : (
+                      <span className="text-[15px] text-gray-300 min-h-[44px] inline-flex items-center">{phoneText(p.number)}</span>
                     )}
                     <PhoneBadges p={p} />
                     {p.name && <span className="text-xs text-gray-500">line in the name of {p.name}</span>}
                     {p.dnc && <span className="text-xs text-red-400">on the Do Not Call list</span>}
+                    {p.litigator && <span className="text-xs text-red-400">known TCPA litigator</span>}
                   </li>
                 ))}
                 {row.emails.map((e) => (

@@ -1184,9 +1184,11 @@ export type OutreachDefinition = {
 export type OutreachMailing = { address?: string; city?: string; state?: string; zip?: string };
 export type OutreachRowStatus = 'new' | 'sent' | 'done' | 'skip';
 export type OutreachPhoneType = 'mobile' | 'landline' | 'voip' | 'unknown';
-export type OutreachPhone = { number: string; type: OutreachPhoneType; dnc?: boolean; verified?: boolean; score?: number; source: string; name?: string };
+/** litigator: the subscriber is a known TCPA litigator; grade: the checker's A to F for reaching someone on the line. */
+export type OutreachPhone = { number: string; type: OutreachPhoneType; dnc?: boolean; verified?: boolean; score?: number; source: string; name?: string; litigator?: boolean; grade?: string };
 export type OutreachEmail = { email: string; source: string; verified?: boolean };
-export type OutreachPerson = { name: string; title?: string; address?: string; source: string };
+/** confirmedBy: other free sources that named the same person. */
+export type OutreachPerson = { name: string; title?: string; address?: string; source: string; confirmedBy?: string[] };
 export type OutreachField = 'phone' | 'email' | 'person' | 'research';
 /** One enrichment cell: locked until asked for; running through the stack; found (phone: charged), none (free) or failed (free). */
 /** One source's turn in a cell's waterfall, for the sheet's "How we found it". */
