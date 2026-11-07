@@ -1,6 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ChevronDown, Download, LayoutList, Lock, Search, Sparkles, Table2, Trash2 } from 'lucide-react';
+import { ChevronDown, Download, LayoutList, Lock, Search, Table2, Trash2 } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachField, type OutreachListSummary, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { AskListSheet } from '../components/outreach/AskListSheet';
@@ -519,7 +519,7 @@ const OutreachPage: React.FC = () => {
                 className="inline-flex items-center gap-2 px-3 h-11 text-sm font-medium text-white border border-[#336699] hover:bg-[#336699]/20 disabled:opacity-50"
                 title={`${dollars(researchCents)} an answer, charged only when the web has something to say`}
               >
-                <Sparkles className="w-4 h-4" /> Research {listResearch.length}
+                Research {listResearch.length}
               </button>
             )}
             <button type="button" onClick={() => download(csvName(list?.title ?? 'contacts'), outreachCsv(rows))} aria-label="Export CSV" title="Export CSV" className={iconButton}>
