@@ -1,244 +1,331 @@
-import React, { useState, useEffect, useContext } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { FEATURES } from '../../config/features';
+import { usePageTitle } from '../../lib/pageTitle';
+import React, { useState, useEffect, useContext, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { useLocation, useMatch, useNavigate, useParams } from 'react-router-dom';
 import { 
-  ArrowLeft, Edit, Send, Download, Share2, Trash2,
+  ArrowLeft, Edit, Send, Share2, Trash2,
   CheckCircle, XCircle, FileText, User,
-  Phone, Mail, MapPin, Copy, Eye, Calendar
+  Phone, Mail, MapPin, Copy, Eye, Calendar, X, MoreVertical, Plus
 } from 'lucide-react';
-import { EstimateService, Estimate } from '../../services/EstimateService';
-import { supabase } from '../../lib/supabase';
-import { formatCurrency } from '../../utils/format';
-import { ProjectSelectionModal } from './ProjectSelectionModal';
-import { ProjectCreationModal } from '../ProjectCreationModal';
+import { EstimateService, Estimate, EstimateItem, type ClientDetail } from '../../services/EstimateService';
+import { priceAt } from '../../utils/priceRange';
+import { formatCurrency, formatDate } from '../../utils/format';
+import { clientsAPI, estimatesAPI } from '../../lib/api';
+import { changesSinceSigned } from '../../services/contract';
 import { CreateEstimateDrawer } from './CreateEstimateDrawer';
-import { MapModal } from '../common/MapModal';
+import { AddressLink } from '../common/AddressLink';
+import { fullAddress } from '../../lib/mapsLinks';
 import { OrganizationContext } from '../layouts/DashboardLayout';
 import { AirtableEstimateView } from './AirtableEstimateView';
 import { AirtableSidebar } from './AirtableSidebar';
+import { ItemPricingDrawer } from './ItemPricingDrawer';
 import { ContextualPricingSelector } from './ContextualPricingSelector';
-import { DesignUpload } from './DesignUpload';
+import { RemindersCard } from './RemindersCard';
+import { JobPhotos } from '../common/JobPhotos';
+import { ContractTab } from './ContractTab';
+import { approvalLine, canApprove, confirmApproval, copyText, duplicateEstimate, estimateStatusLabel, sendEstimateLink } from './estimateActions';
+import { EstimateProject } from './EstimateProject';
+import { ClientNoteCard } from './ClientNoteCard';
+import { WORK_TYPE_NAMES } from '../../../convex/lib/workTypes';
+import { estimateTotals } from '../../../convex/lib/totals';
+import { DiscountCard } from './DiscountCard';
+import { notify } from '../common/appDialogs';
+import { dialogOnTopOf } from '../common/StructuredNote';
 
-export const EstimateDetail: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
+// Header actions share one size so they line up; only the main action is filled.
+const actionBase = 'h-11 flex items-center gap-2 px-4 border rounded-sm transition-colors text-sm font-medium';
+const primaryAction = `${actionBase} bg-[#336699] border-[#336699] text-white hover:bg-[#2a5580]`;
+const secondaryAction = `${actionBase} bg-transparent border-[#333333] text-gray-200 hover:bg-[#22272d] hover:text-white`;
+
+/** The three levels of price detail on the client's link. */
+const CLIENT_DETAIL_CHOICES: Array<{ id: ClientDetail; label: string; help: string }> = [
+  { id: 'full', label: 'Full detail', help: 'The totals by category, and every line with its price when they open the details.' },
+  { id: 'lines', label: 'Lines, no prices', help: 'The totals by category and every line of work, but not what each line costs.' },
+  { id: 'categories', label: 'Category totals', help: 'Only the total for each category: no lines and no line prices.' },
+];
+
+/** The small uppercase label over each section of the Details tab. */
+const sectionLabel = 'text-xs font-medium text-gray-400 uppercase tracking-wider';
+
+/** A tiny picture of each price-detail level: lines on the left, prices on the right. */
+function ClientViewSketch({ kind }: { kind: ClientDetail }) {
+  const rows = kind === 'categories' ? 3 : 4;
+  return (
+    <span className="block h-12 space-y-1.5">
+      {Array.from({ length: rows }, (_, i) => (
+        <span key={i} className="flex items-center justify-between gap-2">
+          <span className="h-1.5 bg-[#4a4f57]" style={{ width: `${[78, 62, 70, 55][i]}%` }} />
+          {(kind !== 'lines' || i === rows - 1) && <span className="h-1.5 w-5 bg-[#5b7fa8]" />}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** Fills in the price-range defaults the pricing tools expect, on a copy. */
+function prepare(estimate: Estimate): Estimate {
+  if (!estimate.items) return estimate;
+  return {
+    ...estimate,
+    items: estimate.items.map((item) => ({
+      ...item,
+      original_unit_price: item.original_unit_price || item.unit_price,
+      cap_price: item.cap_price || item.unit_price,
+      red_line_price: item.red_line_price || item.unit_price * 0.7,
+    })),
+  };
+}
+
+/** Pop-ups centred on the whole screen and above the estimate drawer, not boxed inside it. */
+const OnTop: React.FC<{ children: React.ReactNode }> = ({ children }) =>
+  createPortal(<div className="relative z-[10010]">{children}</div>, document.body);
+
+interface EstimateDetailProps {
+  /** The estimate to show; the route's :id when not given. */
+  estimateId?: string;
+  /** Closes the estimate (the drawer); without it, leaving goes to the list. */
+  onClose?: () => void;
+  /** Shown in the estimate drawer rather than as a page. */
+  inDrawer?: boolean;
+}
+
+export const EstimateDetail: React.FC<EstimateDetailProps> = ({ estimateId, onClose, inDrawer = false }) => {
+  const params = useParams<{ id: string }>();
+  const id = estimateId ?? params.id;
   const navigate = useNavigate();
+  const location = useLocation();
+  // Opened from a project's drawer: the project is right behind this one, so no link to it.
+  const overProject = useMatch('/projects/:id/estimates/:estimateId') !== null;
+  const leave = () => (onClose ? onClose() : navigate('/estimates'));
   const { selectedOrg } = useContext(OrganizationContext);
-  const [estimate, setEstimate] = useState<Estimate | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Sales mode (Settings → General): red line, cap, pricing options and commission. Off for owner-operators.
+  const salesMode = selectedOrg?.sales_mode === true;
+  // An estimate already loaded (from the list) shows at once; the latest copy loads behind it.
+  const [estimate, setEstimate] = useState<Estimate | null>(() => {
+    const known = id ? EstimateService.cached(id) : undefined;
+    return known ? prepare(known) : null;
+  });
+  const [loading, setLoading] = useState(() => !(id && EstimateService.cached(id)));
+  usePageTitle(estimate?.estimate_number);
   const [showShareModal, setShowShareModal] = useState(false);
-  const [showDepositModal, setShowDepositModal] = useState(false);
-  const [showInvoiceDropdown, setShowInvoiceDropdown] = useState(false);
-  const [depositPercentage, setDepositPercentage] = useState(25);
-  const [showProjectSelectionModal, setShowProjectSelectionModal] = useState(false);
-  const [pendingInvoiceType, setPendingInvoiceType] = useState<'full' | 'deposit' | null>(null);
+  // Emailing it from the Share window: idle, sending, or what happened.
+  const [emailNote, setEmailNote] = useState<{ text: string; good: boolean } | 'sending' | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showMapModal, setShowMapModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   // Edit mode removed - cells are always editable
   const [showPricingSelector, setShowPricingSelector] = useState(false);
-  const [currentPricingStrategy, setCurrentPricingStrategy] = useState<string | null>(null);
-  const [showPricingStrategy, setShowPricingStrategy] = useState(false);
+  // Item edits save in the background, one save at a time with the latest items.
+  const pendingItems = useRef<EstimateItem[] | null>(null);
+  const savingItems = useRef(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // The item whose price is being edited in the pricing drawer.
+  const [pricingItemId, setPricingItemId] = useState<string | null>(null);
   
   // Tab state - Default to Line Items for immediate visibility (3-tab structure)
   const [activeTab, setActiveTab] = useState<'items' | 'overview' | 'contract'>('items');
+  // N adds a line on the Line Items tab, unless typing or something is open on top of this estimate.
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (activeTab !== 'items' || showPricingSelector) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== 'n' || e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
+      const panel = (root.current?.closest('[role="dialog"]') as HTMLElement | null) ?? null;
+      if (panel?.getAttribute('aria-hidden') === 'true' || dialogOnTopOf(panel)) return;
+      e.preventDefault();
+      setShowPricingSelector(true);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeTab, showPricingSelector]);
+  // The contract tab's inline document preview that's open.
 
-  // Design image state
-  const [designImageUrl, setDesignImageUrl] = useState<string | null>(null);
-  const [designImageName, setDesignImageName] = useState<string | null>(null);
+  // The client link, loaded when it's first needed (Share or Send).
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+
+  const openShareModal = async () => {
+    setEmailNote(null);
+    setShowShareModal(true);
+    if (shareUrl || !estimate?.id) return;
+    try {
+      setShareUrl(await EstimateService.shareUrl(estimate.id));
+    } catch (error) {
+      console.error('Error creating share link:', error);
+    }
+  };
+
+  // Choosing the estimate's client from the Details tab.
+  const [choosingClient, setChoosingClient] = useState(false);
+  const [clientOptions, setClientOptions] = useState<Array<{ id: string; name: string }> | null>(null);
+  const [savingClient, setSavingClient] = useState(false);
+  const loadClientOptions = async () => {
+    if (clientOptions !== null || !selectedOrg?.id) return;
+    try {
+      const rows = await clientsAPI.list(selectedOrg.id);
+      setClientOptions(
+        rows
+          .map((c: { _id?: string; id?: string; name: string }) => ({ id: (c.id ?? c._id) as string, name: c.name }))
+          .sort((a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name)),
+      );
+    } catch (err) {
+      console.error('Error loading clients:', err);
+      setClientOptions([]);
+    }
+  };
+  // With no client yet, the picker shows straight away on the Details tab.
+  useEffect(() => {
+    if (activeTab === 'overview' && estimate && !estimate.client) loadClientOptions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, estimate?.client]);
+  const startChoosingClient = () => {
+    setChoosingClient(true);
+    loadClientOptions();
+  };
+  const chooseClient = async (clientId: string) => {
+    if (!estimate?.id) return;
+    setSavingClient(true);
+    try {
+      await EstimateService.update(estimate.id, { client_id: clientId });
+      await loadEstimate(true);
+      setChoosingClient(false);
+    } catch (err) {
+      console.error('Error setting client:', err);
+      notify("The client couldn't be saved. Please try again.");
+    } finally {
+      setSavingClient(false);
+    }
+  };
+  // The total bar is fixed to the screen bottom; it follows the table column's position and width.
+  const [tableColumn, setTableColumn] = useState<HTMLDivElement | null>(null);
+  const [totalBarBox, setTotalBarBox] = useState<{ left: number; width: number } | null>(null);
 
   useEffect(() => {
-    // Scroll to top when component mounts
-    window.scrollTo(0, 0);
-    
+    if (!tableColumn) return;
+    const measure = () => {
+      const rect = tableColumn.getBoundingClientRect();
+      setTotalBarBox({ left: rect.left, width: rect.width });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(tableColumn);
+    window.addEventListener('resize', measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [tableColumn]);
+
+  // Loads the estimate; quietly (no loading screen) after a change made here.
+  const loadEstimate = async (quiet = false) => {
     if (!id) return;
-    
-    const fetchEstimate = async () => {
+    if (!quiet) {
       setLoading(true);
       setError(null);
-      
-      try {
-        const result = await EstimateService.getById(id);
-        // Store original prices for pricing strategy calculations
-        if (result && result.items) {
-          result.items = result.items.map(item => ({
-            ...item,
-            original_unit_price: item.original_unit_price || item.unit_price,
-            cap_price: item.cap_price || item.unit_price,
-            red_line_price: item.red_line_price || item.unit_price * 0.7
-          }));
-        }
-        setEstimate(result);
+    }
+    try {
+      const result = await EstimateService.getById(id);
+      setEstimate(result ? prepare(result) : result);
+    } catch (err) {
+      console.error('Error fetching estimate:', err);
+      if (!quiet) setError("Couldn't load this estimate.");
+    } finally {
+      if (!quiet) setLoading(false);
+    }
+  };
 
-        // Fetch design image if project exists
-        if (result?.project_id) {
-          try {
-            const { data: designDocs } = await supabase
-              .from('project_documents')
-              .select('*')
-              .eq('project_id', result.project_id)
-              .eq('type', 'agreed_design')
-              .order('created_at', { ascending: false })
-              .limit(1);
-
-            if (designDocs && designDocs.length > 0) {
-              const designDoc = designDocs[0];
-              setDesignImageUrl(designDoc.content);
-              setDesignImageName(designDoc.name?.replace('Agreed Design - ', '') || 'Project Design');
-            }
-          } catch (error) {
-            console.log('No design document found:', error);
-          }
-        }
-      } catch (err) {
-        console.error('Error fetching estimate:', err);
-        setError('Failed to load estimate');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchEstimate();
+  useEffect(() => {
+    // As a page it opens at the top; in the drawer the list behind stays put.
+    if (!inDrawer) window.scrollTo(0, 0);
+    // Shown from what's already loaded: refresh without the loading screen.
+    loadEstimate(Boolean(id && EstimateService.cached(id)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (showInvoiceDropdown) {
-        const target = event.target as Element;
-        if (!target.closest('.relative')) {
-          setShowInvoiceDropdown(false);
-        }
-      }
-    };
+  /** How much of the price the client's link shows; the choice moves at once and goes back if saving fails. */
+  const setClientDetail = async (detail: ClientDetail) => {
+    if (!estimate?.id) return;
+    const before = estimate.client_detail ?? 'full';
+    if (detail === before) return;
+    setEstimate((current) => (current ? { ...current, client_detail: detail } : current));
+    try {
+      await estimatesAPI.setClientDetail(estimate.id, detail);
+    } catch (err) {
+      console.error('Error saving what the client sees:', err);
+      setEstimate((current) => (current ? { ...current, client_detail: before } : current));
+      setSaveError("Couldn't save that change. Check your connection and try again.");
+    }
+  };
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showInvoiceDropdown]);
+  /** How long the price holds, picked right on the Details tab; it goes back if saving fails. */
+  const setValidUntil = async (day: string) => {
+    if (!estimate?.id || !day) return;
+    const before = estimate.expiry_date;
+    setEstimate((current) => (current ? { ...current, expiry_date: day } : current));
+    try {
+      await EstimateService.update(estimate.id, { expiry_date: day });
+    } catch (err) {
+      console.error('Error saving the valid-until date:', err);
+      setEstimate((current) => (current ? { ...current, expiry_date: before } : current));
+      setSaveError("Couldn't save that change. Check your connection and try again.");
+    }
+  };
+
+  /** Accepts it for the client without their signature, after saying what that does. */
+  const handleApprove = async () => {
+    if (!estimate?.id || !(await confirmApproval(estimate))) return;
+    try {
+      await EstimateService.approve(estimate.id);
+      await loadEstimate(true);
+    } catch (error) {
+      console.error('Error approving estimate:', error);
+      notify(error instanceof Error ? error.message : 'The estimate couldn’t be approved. Please try again.');
+    }
+  };
 
   const handleStatusUpdate = async (status: Estimate['status']) => {
     if (!estimate?.id) return;
-
     try {
-      // If changing to 'sent', actually send the email
-      if (status === 'sent' && estimate.client?.email) {
-        const confirmed = confirm(`Send this estimate to ${estimate.client.email}?`);
-        if (!confirmed) return;
-
-        const result = await EstimateService.sendEstimate(estimate.id, estimate.client.email);
-        
-        if (!result.success) {
-          alert(`Failed to send estimate: ${result.error}`);
-          return;
-        }
-        
-        alert('Estimate sent successfully!');
-      } else {
-        // Just update status without sending email
-        await EstimateService.updateStatus(estimate.id, status);
-      }
-      
-      // Reload estimate data
-      const result = await EstimateService.getById(estimate.id);
-      setEstimate(result);
+      await EstimateService.updateStatus(estimate.id, status);
+      await loadEstimate(true);
     } catch (error) {
       console.error('Error updating status:', error);
-      alert('Failed to update estimate status');
+      notify("Couldn't change the status. Try again.");
     }
   };
 
-  const handleConvertToInvoice = async (useDeposit: boolean = false) => {
+  /**
+   * Sends the client the estimate's link: the iPad share sheet (Messages,
+   * Mail, AirDrop…) where there is one, otherwise the link is copied.
+   * A draft becomes Sent.
+   */
+  const handleSend = async () => {
     if (!estimate?.id) return;
-    
-    // Check if estimate already has a project
-    if (!estimate.project_id) {
-      // Store the pending action and show project selection modal
-      setPendingInvoiceType(useDeposit ? 'deposit' : 'full');
-      setShowProjectSelectionModal(true);
-    } else {
-      // Estimate already has a project, proceed with conversion
-      proceedWithInvoiceCreation(useDeposit);
-    }
-  };
-
-  const proceedWithInvoiceCreation = async (useDeposit: boolean = false) => {
-    if (!estimate?.id) return;
-
-    if (useDeposit) {
-      setShowDepositModal(true);
-    } else {
-      if (!confirm('Convert this estimate to a full invoice? This action cannot be undone.')) return;
-
-      try {
-        const invoiceId = await EstimateService.convertToInvoice(estimate.id);
-        navigate(`/invoices/${invoiceId}`);
-      } catch (error: any) {
-        console.error('Error converting to invoice:', error);
-        console.error('Error details:', error.message, error.details);
-        alert('Failed to convert estimate to invoice: ' + (error.message || 'Unknown error'));
-      }
-    }
-  };
-
-  const handleProjectSelection = async (projectId: string | null) => {
-    setShowProjectSelectionModal(false);
-    
-    if (projectId === 'CREATE_NEW') {
-      // Show create project modal
-      setShowProjectSelectionModal(true);
-      return;
-    }
-
-    // Update estimate with selected project (if any)
-    if (projectId && estimate?.id) {
-      try {
-        await EstimateService.update(estimate.id, { project_id: projectId });
-        // Reload estimate to get updated data
-        const result = await EstimateService.getById(estimate.id);
-        setEstimate(result);
-      } catch (error) {
-        console.error('Error updating estimate with project:', error);
-      }
-    }
-
-    // Continue with the pending invoice action
-    if (pendingInvoiceType) {
-      proceedWithInvoiceCreation(pendingInvoiceType === 'deposit');
-      setPendingInvoiceType(null);
-    }
-  };
-
-  const handleCreateDepositInvoice = async () => {
-    if (!estimate?.id) return;
-
     try {
-      const invoiceId = await EstimateService.convertToInvoice(estimate.id, depositPercentage);
-      setShowDepositModal(false);
-      navigate(`/invoices/${invoiceId}`);
-    } catch (error: any) {
-      console.error('Error creating deposit invoice:', error);
-      console.error('Error details:', error.message, error.details);
-      alert('Failed to create deposit invoice: ' + (error.message || 'Unknown error'));
+      const url = await sendEstimateLink(estimate);
+      if (!url) return;
+      setShareUrl(url);
+      await loadEstimate(true);
+    } catch (error) {
+      console.error('Error sending estimate:', error);
+      notify("The estimate link couldn't be created. Please try again.");
     }
   };
 
-  const handleProjectCreated = async (projectId: string) => {
-    setShowProjectSelectionModal(false);
-    
-    // Update estimate with new project
-    if (estimate?.id) {
-      try {
-        await EstimateService.update(estimate.id, { project_id: projectId });
-        const result = await EstimateService.getById(estimate.id);
-        setEstimate(result);
-      } catch (error) {
-        console.error('Error updating estimate with project:', error);
-      }
-    }
-
-    // Continue with pending invoice action
-    if (pendingInvoiceType) {
-      proceedWithInvoiceCreation(pendingInvoiceType === 'deposit');
-      setPendingInvoiceType(null);
+  /** A new draft with the same client, project and items, opened straight away. */
+  const handleDuplicate = async () => {
+    if (!estimate) return;
+    const orgId = estimate.organization_id || selectedOrg?.id;
+    if (!orgId) return;
+    try {
+      const copy = await duplicateEstimate(estimate, orgId);
+      // In a drawer, the copy takes this estimate's place in the address (over a project, it stays over the project).
+      if (copy.id) navigate(inDrawer ? location.pathname.replace(/[^/]+$/, copy.id) : `/estimates/${copy.id}`, { replace: inDrawer });
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'Could not duplicate the estimate');
     }
   };
 
@@ -251,9 +338,11 @@ export const EstimateDetail: React.FC = () => {
 
     try {
       await EstimateService.delete(estimate.id);
-      navigate('/estimates');
+      leave();
     } catch (error) {
       console.error('Error deleting estimate:', error);
+      setShowDeleteConfirm(false);
+      notify(error instanceof Error && error.message ? error.message : "The estimate couldn't be deleted. Please try again.");
     }
   };
 
@@ -262,24 +351,9 @@ export const EstimateDetail: React.FC = () => {
   };
 
   const handleCopyShareLink = async () => {
-    if (!estimate?.id) return;
-    
-    const shareUrl = `${window.location.origin}/share/estimate/${estimate.id}`;
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      // You could add a toast notification here
-      alert('Share link copied to clipboard!');
-    } catch (err) {
-      console.error('Failed to copy link:', err);
-      // Fallback for older browsers
-      const textArea = document.createElement('textarea');
-      textArea.value = shareUrl;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      alert('Share link copied to clipboard!');
-    }
+    if (!shareUrl) return;
+    await copyText(shareUrl);
+    notify('Link copied. Paste it into a text or email to your client.');
   };
 
   const handleEditSave = async (data: any) => {
@@ -293,57 +367,63 @@ export const EstimateDetail: React.FC = () => {
       setShowEditModal(false);
     } catch (error) {
       console.error('Error updating estimate:', error);
-      alert('Failed to update estimate');
+      notify("Couldn't save the estimate. Try again.");
     }
   };
 
-  const handlePriceUpdate = async (itemId: string, newPrice: number) => {
+  const saveItems = async (estimateId: string) => {
+    if (savingItems.current) return;
+    savingItems.current = true;
+    try {
+      while (pendingItems.current) {
+        const items = pendingItems.current;
+        pendingItems.current = null;
+        await EstimateService.update(estimateId, { items });
+      }
+      setSaveError(null);
+    } catch (error) {
+      console.error('Error saving estimate items:', error);
+      setSaveError("Couldn't save your last change. It will be saved with your next edit.");
+    } finally {
+      savingItems.current = false;
+    }
+  };
+
+  /**
+   * The one way items change on this page: keeps prices at or above each
+   * item's red line, recalculates totals, shows the result and saves it.
+   */
+  const commitItems = (items: EstimateItem[]) => {
     if (!estimate) return;
-    
-    const updatedItems = estimate.items.map(item => 
-      item.id === itemId 
-        ? { ...item, price: newPrice, total: newPrice * (item.quantity || 1) }
-        : item
-    );
-    
-    const newTotal = updatedItems.reduce((sum, item) => sum + item.total, 0);
-    
+    const nextItems = items.map(item => {
+      // In Sales mode the red line is a floor; otherwise an owner prices freely.
+      const unitPrice = Math.max(Number(item.unit_price) || 0, salesMode ? (item.red_line_price ?? 0) : 0);
+      return { ...item, unit_price: unitPrice, total_price: unitPrice * (Number(item.quantity) || 0) };
+    });
+    // The same arithmetic the server saves: the discount comes off before tax.
+    const totals = estimateTotals({
+      items: nextItems.map((item) => ({ totalPrice: item.total_price })),
+      taxRate: estimate.tax_rate,
+      discount: estimate.discount,
+    });
     setEstimate({
       ...estimate,
-      items: updatedItems,
-      total_amount: newTotal
+      items: nextItems,
+      subtotal: totals.subtotal,
+      discount_amount: totals.discountAmount || undefined,
+      tax_amount: totals.taxAmount,
+      total_amount: totals.totalAmount,
     });
+    pendingItems.current = nextItems;
+    saveItems(estimate.id!);
   };
 
   const handleBulkPriceAdjust = (position: number) => {
     if (!estimate) return;
-    
-    const updatedItems = estimate.items.map(item => {
-      // Always use the stored cap and redline prices
-      const capPrice = item.cap_price || item.original_unit_price || item.unit_price;
-      const redlinePrice = item.red_line_price || (item.original_unit_price || item.unit_price) * 0.7;
-      
-      // Calculate new price based on position between redline and cap
-      const newPrice = redlinePrice + (capPrice - redlinePrice) * position;
-      
-      return {
-        ...item,
-        unit_price: newPrice,
-        total_price: newPrice * (item.quantity || 1)
-      };
-    });
-    
-    const newSubtotal = updatedItems.reduce((sum, item) => sum + item.total_price, 0);
-    const newTaxAmount = estimate.tax_rate ? (newSubtotal * estimate.tax_rate / 100) : 0;
-    const newTotal = newSubtotal + newTaxAmount;
-    
-    setEstimate({
-      ...estimate,
-      items: updatedItems,
-      subtotal: newSubtotal,
-      tax_amount: newTaxAmount,
-      total_amount: newTotal
-    });
+    commitItems(estimate.items.map(item => ({
+      ...item,
+      unit_price: priceAt({ redLine: item.red_line_price ?? 0, cap: item.cap_price ?? item.unit_price }, position)
+    })));
   };
 
   // Calculate margin position for indicator
@@ -368,171 +448,56 @@ export const EstimateDetail: React.FC = () => {
   const marginColor = marginPosition > 0.3 ? 'text-green-500' : marginPosition > 0.15 ? 'text-yellow-500' : 'text-red-500';
 
   if (loading) {
+    // Shaped like the estimate itself: header, tabs, pricing options and line items.
+    const bar = (w: string, h = 'h-4') => <div className={`${w} ${h} bg-[#262626] rounded animate-pulse`} />;
     return (
-      <div className="min-h-screen bg-[#000000] text-white">
-        {/* Header Skeleton */}
-        <div className="border-b border-[#333333] px-6 py-4">
-          {/* Row 1: Navigation + Document Info */}
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-4">
-              <div className="w-8 h-8 bg-[#333333] rounded animate-pulse"></div>
-              <div className="flex items-center gap-3">
-                <div className="w-32 h-6 bg-[#333333] rounded animate-pulse"></div>
-                <div className="w-20 h-5 bg-[#333333] rounded animate-pulse"></div>
-              </div>
-            </div>
+      <div className={`${inDrawer ? 'h-full overflow-hidden' : 'min-h-screen'} bg-[#000000] text-white flex flex-col`} aria-busy="true">
+        {/* Header: close, number and status; actions on the right */}
+        <div className="border-b border-[#333333] px-4 pt-3 pb-2">
+          <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="w-28 h-9 bg-[#333333] rounded-lg animate-pulse"></div>
-              <div className="w-20 h-9 bg-[#333333] rounded-lg animate-pulse"></div>
-              <div className="w-16 h-9 bg-[#333333] rounded-lg animate-pulse"></div>
+              {bar('w-6', 'h-6')}
+              {bar('w-44', 'h-7')}
+              {bar('w-14', 'h-6')}
+            </div>
+            <div className="flex items-center gap-2">
+              {bar('w-20', 'h-9')}
+              {bar('w-20', 'h-9')}
+              {bar('w-9', 'h-9')}
             </div>
           </div>
-
-          {/* Row 2: Client Information */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4 min-w-0 flex-1">
-              <div className="w-48 h-5 bg-[#333333] rounded animate-pulse"></div>
-              <div className="w-32 h-4 bg-[#333333] rounded animate-pulse"></div>
-            </div>
-            <div className="w-24 h-5 bg-[#333333] rounded animate-pulse"></div>
-          </div>
+          <div className="mt-3">{bar('w-48')}</div>
         </div>
 
-        {/* Content Skeleton */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
-          {/* Mobile: Total amount card skeleton */}
-          <div className="md:hidden bg-[#1a1a1a] rounded-lg border border-[#333] p-4 mb-6">
-            <div className="flex justify-between items-center">
-              <div className="w-24 h-4 bg-[#333333] rounded animate-pulse"></div>
-              <div className="w-32 h-6 bg-[#333333] rounded animate-pulse"></div>
-            </div>
+        {/* Tabs */}
+        <div className="flex gap-6 px-4 py-3 border-b border-[#333333]">
+          {bar('w-20')}
+          {bar('w-16')}
+          {bar('w-16')}
+        </div>
+
+        {/* Pricing options beside the line items */}
+        <div className="flex flex-1 min-h-0">
+          <div className="w-[168px] flex-shrink-0 border-r border-[#333333] py-2 space-y-4 px-3">
+            {['w-28', 'w-24', 'w-24', 'w-24', 'w-20', 'w-20'].map((w, i) => (
+              <div key={i}>{bar(w)}</div>
+            ))}
           </div>
-
-          {/* Client & Project Info Section - 2 Column Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            {/* Client Information Card */}
-            <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-5 h-5 bg-[#333333] rounded animate-pulse"></div>
-                <div className="w-32 h-5 bg-[#333333] rounded animate-pulse"></div>
-              </div>
-              <div className="space-y-2">
-                <div className="w-40 h-4 bg-[#333333] rounded animate-pulse"></div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 bg-[#333333] rounded animate-pulse"></div>
-                  <div className="w-36 h-4 bg-[#333333] rounded animate-pulse"></div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 bg-[#333333] rounded animate-pulse"></div>
-                  <div className="w-32 h-4 bg-[#333333] rounded animate-pulse"></div>
-                </div>
-                <div className="flex items-start gap-2 p-2 rounded-lg">
-                  <div className="w-4 h-4 bg-[#333333] rounded animate-pulse mt-0.5"></div>
-                  <div className="flex-1">
-                    <div className="w-48 h-4 bg-[#333333] rounded animate-pulse mb-1"></div>
-                    <div className="w-28 h-3 bg-[#333333] rounded animate-pulse"></div>
-                  </div>
-                </div>
-              </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-4 px-3 py-3 border-b border-[#333333]">
+              <div className="flex-1">{bar('w-24')}</div>
+              {bar('w-14')}
+              {bar('w-8')}
+              {bar('w-14')}
             </div>
-
-            {/* Estimate Details Card */}
-            <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-5 h-5 bg-[#333333] rounded animate-pulse"></div>
-                <div className="w-28 h-5 bg-[#333333] rounded animate-pulse"></div>
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex items-center gap-4 px-3 py-3 border-b border-[#333333]">
+                <div className="flex-1">{bar(i % 2 ? 'w-40' : 'w-56')}</div>
+                {bar('w-16')}
+                {bar('w-6')}
+                {bar('w-16')}
               </div>
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <div className="w-20 h-4 bg-[#333333] rounded animate-pulse"></div>
-                  <div className="w-24 h-4 bg-[#333333] rounded animate-pulse"></div>
-                </div>
-                <div className="flex justify-between">
-                  <div className="w-16 h-4 bg-[#333333] rounded animate-pulse"></div>
-                  <div className="w-24 h-4 bg-[#333333] rounded animate-pulse"></div>
-                </div>
-                <div className="flex justify-between">
-                  <div className="w-18 h-4 bg-[#333333] rounded animate-pulse"></div>
-                  <div className="w-20 h-4 bg-[#333333] rounded animate-pulse"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Main Content Area - Single Column */}
-          <div className="space-y-6">
-            {/* Cost Breakdown Card */}
-            <div className="bg-[#1a1a1a] rounded-lg border border-[#333] overflow-hidden">
-              <div className="px-6 py-4 border-b border-[#333]">
-                <div className="w-48 h-5 bg-[#333333] rounded animate-pulse"></div>
-              </div>
-              <div className="p-6 space-y-2">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="flex justify-between items-center py-1.5">
-                    <div className="w-24 h-4 bg-[#333333] rounded animate-pulse"></div>
-                    <div className="w-20 h-4 bg-[#333333] rounded animate-pulse"></div>
-                  </div>
-                ))}
-                <div className="flex justify-between items-center pt-2 mt-2 border-t border-[#555]">
-                  <div className="w-16 h-4 bg-[#333333] rounded animate-pulse"></div>
-                  <div className="w-24 h-4 bg-[#333333] rounded animate-pulse"></div>
-                </div>
-                <div className="flex justify-between items-center py-1">
-                  <div className="w-20 h-4 bg-[#333333] rounded animate-pulse"></div>
-                  <div className="w-20 h-4 bg-[#333333] rounded animate-pulse"></div>
-                </div>
-                <div className="flex justify-between items-center pt-1 border-t border-[#555]">
-                  <div className="w-12 h-4 bg-[#333333] rounded animate-pulse"></div>
-                  <div className="w-24 h-4 bg-[#333333] rounded animate-pulse"></div>
-                </div>
-              </div>
-            </div>
-
-            {/* Line Items Card */}
-            <div className="bg-[#1a1a1a] rounded-lg border border-[#333] overflow-hidden">
-              <div className="px-6 py-4 border-b border-[#333]">
-                <div className="w-20 h-5 bg-[#333333] rounded animate-pulse"></div>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-[#0a0a0a]">
-                    <tr>
-                      <th className="px-4 py-3 text-left">
-                        <div className="w-20 h-3 bg-[#333333] rounded animate-pulse"></div>
-                      </th>
-                      <th className="px-3 py-3 text-center">
-                        <div className="w-8 h-3 bg-[#333333] rounded animate-pulse mx-auto"></div>
-                      </th>
-                      <th className="px-3 py-3 text-right">
-                        <div className="w-16 h-3 bg-[#333333] rounded animate-pulse ml-auto"></div>
-                      </th>
-                      <th className="px-4 py-3 text-right">
-                        <div className="w-12 h-3 bg-[#333333] rounded animate-pulse ml-auto"></div>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#333]">
-                    {[1, 2, 3, 4].map((i) => (
-                      <tr key={i}>
-                        <td className="px-4 py-4">
-                          <div className="w-48 h-4 bg-[#333333] rounded animate-pulse mb-1"></div>
-                          <div className="w-24 h-3 bg-[#333333] rounded animate-pulse"></div>
-                        </td>
-                        <td className="px-3 py-4 text-center">
-                          <div className="w-8 h-4 bg-[#333333] rounded animate-pulse mx-auto"></div>
-                        </td>
-                        <td className="px-3 py-4 text-right">
-                          <div className="w-16 h-4 bg-[#333333] rounded animate-pulse ml-auto"></div>
-                        </td>
-                        <td className="px-4 py-4 text-right">
-                          <div className="w-20 h-4 bg-[#333333] rounded animate-pulse ml-auto"></div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
       </div>
@@ -545,8 +510,8 @@ export const EstimateDetail: React.FC = () => {
         <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
         <h3 className="text-lg font-medium text-white mb-2">Estimate not found</h3>
         <button
-          onClick={() => navigate('/estimates')}
-          className="text-[#F9D71C] hover:text-white transition-colors"
+          onClick={leave}
+          className="text-[#5b8fc7] hover:text-white transition-colors"
         >
           Back to Estimates
         </button>
@@ -554,135 +519,224 @@ export const EstimateDetail: React.FC = () => {
     );
   }
 
+  const totalBar = estimate.items && estimate.items.length > 0 ? (
+          <div className="flex items-center text-[12px] font-medium">
+      <div className="flex-1 py-2 px-3 text-left text-gray-500 border-r border-[#333333]">
+        <span className="whitespace-nowrap">{estimate.items.length} {estimate.items.length === 1 ? 'item' : 'items'}</span>
+        <span className="hidden sm:inline"> · Sum</span>
+        {(estimate.discount_amount ?? 0) > 0 && (
+          <span className="block text-[10px] text-green-400">{estimate.discount?.label || 'Discount'} −{formatCurrency(estimate.discount_amount ?? 0)}</span>
+        )}
+      </div>
+      <div className="w-28 py-2 px-3 text-right text-gray-300 border-r border-[#333333]">
+        {formatCurrency(estimate.subtotal)}
+      </div>
+      <div className="w-16 py-2 px-2 text-center text-gray-300 border-r border-[#333333]">
+        {estimate.items.reduce((sum, item) => sum + (item.quantity || 0), 0)}
+      </div>
+      <div className="w-28 py-2 px-3 text-right border-r border-[#333333] flex flex-col items-end">
+        <span className="text-white font-semibold">{formatCurrency(estimate.total_amount)}</span>
+        {salesMode && (() => {
+          const redlineTotal = estimate.items.reduce((sum, item) => {
+            const redlinePrice = item.red_line_price || (item.original_unit_price || item.unit_price) * 0.7;
+            return sum + (redlinePrice * (item.quantity || 1));
+          }, 0);
+          const capTotal = estimate.items.reduce((sum, item) => {
+            const capPrice = item.cap_price || item.original_unit_price || item.unit_price;
+            return sum + (capPrice * (item.quantity || 1));
+          }, 0);
+          
+          if (redlineTotal > 0) {
+            return (
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="text-[10px] text-gray-500">Comm:</span>
+                <span className={`text-[11px] font-medium ${
+                  estimate.total_amount <= redlineTotal ? 'text-red-400' : 
+                  estimate.total_amount - redlineTotal > (capTotal - redlineTotal) * 0.6 ? 'text-green-400' : 
+                  estimate.total_amount - redlineTotal > (capTotal - redlineTotal) * 0.3 ? 'text-yellow-400' : 'text-orange-400'
+                }`}>
+                  {formatCurrency(Math.max(0, estimate.total_amount - redlineTotal))}
+                </span>
+              </div>
+            );
+          }
+          return null;
+        })()}
+      </div>
+    </div>
+  ) : null;
+
+  // Pinned just above the totals, in the same spot however long the list is.
+  const addItemRow = (
+    <button
+      type="button"
+      onClick={() => setShowPricingSelector(true)}
+      data-testid="add-item-bar"
+      className="w-full flex items-center gap-2 px-3 py-3 text-left text-[13px] font-medium text-[#6aa3d9] hover:text-white hover:bg-[#22272d] bg-[#0A0A0A] border-t border-[#333333] transition-colors"
+    >
+      <Plus className="w-4 h-4" />
+      <span className="flex-1">Add item</span>
+      <kbd className="hidden md:inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 text-[11px] font-medium text-gray-400 border border-[#444] rounded" aria-hidden="true">
+        N
+      </kbd>
+    </button>
+  );
+
+  // The contract documents follow the estimate until it's accepted.
+  const changeOrder = changesSinceSigned(estimate);
+
   return (
-    <div className="min-h-screen bg-[#000000] flex flex-col">
+    <div ref={root} className={`${inDrawer ? 'h-full' : 'min-h-screen'} bg-[#000000] flex flex-col`}>
       {/* Fixed Header */}
-      <div className="sticky top-0 z-10 bg-[#1a1a1a] border-b border-[#333333]">
+      <div className="sticky top-0 z-30 bg-[#1a1a1a] border-b border-[#333333] flex-shrink-0">
         {/* Row 1: Navigation + Document Info */}
-        <div className="flex items-center justify-between mb-2 px-3 py-2">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2 px-3 py-2">
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             <button
-              onClick={() => navigate('/estimates')}
-              className="p-2 hover:bg-[#333333] rounded-[4px] transition-colors"
+              onClick={leave}
+              aria-label={inDrawer ? 'Close' : 'Back to estimates'}
+              className="w-11 h-11 -ml-1 flex items-center justify-center hover:bg-[#333333] rounded-[4px] transition-colors"
             >
-              <ArrowLeft className="w-4 h-4 text-gray-400" />
+              {inDrawer ? <X className="w-5 h-5 text-gray-400" /> : <ArrowLeft className="w-5 h-5 text-gray-400" />}
             </button>
             
-            <div className="flex items-center gap-3">
-              <h1 className="text-xl font-semibold text-white">{estimate.estimate_number}</h1>
-              <span className={`text-xs px-3 py-1 rounded-[4px] font-medium uppercase ${
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <h1 className="text-lg sm:text-xl font-semibold text-white whitespace-nowrap">{estimate.estimate_number}</h1>
+              <span className={`shrink-0 text-xs px-2 sm:px-3 py-1 rounded-[4px] font-medium uppercase ${
                 estimate.status === 'accepted' ? 'bg-green-500/20 text-green-300' :
                 estimate.status === 'rejected' ? 'bg-red-500/20 text-red-300' :
                 estimate.status === 'sent' ? 'bg-blue-500/20 text-blue-300' :
                 'bg-gray-500/20 text-gray-300'
               }`}>
-                {estimate.status}
+                {estimateStatusLabel(estimate.status)}
               </span>
               {estimate.last_sent_at && (
-                <span className="text-xs text-gray-500">
-                  Sent {new Date(estimate.last_sent_at).toLocaleDateString()}
+                <span className="hidden sm:inline text-xs text-gray-500 whitespace-nowrap">
+                  Sent {formatDate(estimate.last_sent_at)}
                 </span>
               )}
             </div>
           </div>
 
-          {/* Cleaner Action Buttons */}
-          <div className="flex items-center gap-3">
-            {/* Invoice Creation - Consolidated */}
-            {estimate.status === 'accepted' && !estimate.converted_to_invoice_id && (
-              <div className="relative">
-                <button
-                  onClick={() => setShowInvoiceDropdown(!showInvoiceDropdown)}
-                  className="flex items-center gap-2 px-4 py-2 bg-[#336699] text-white rounded-lg hover:bg-[#2A5580] transition-colors text-sm font-medium"
-                >
-                  Create Invoice
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                
-                {showInvoiceDropdown && (
-                  <div className="absolute top-full right-0 mt-2 w-48 bg-[#1E1E1E] border border-[#333333] rounded-lg shadow-lg z-50 py-2">
-                    <button
-                      onClick={() => {
-                        handleConvertToInvoice(false);
-                        setShowInvoiceDropdown(false);
-                      }}
-                      className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#333333] transition-colors"
-                    >
-                      Full Invoice
-                    </button>
-                    <button
-                      onClick={() => {
-                        handleConvertToInvoice(true);
-                        setShowInvoiceDropdown(false);
-                      }}
-                      className="w-full text-left px-4 py-2 text-sm text-white hover:bg-[#333333] transition-colors"
-                    >
-                      Deposit Invoice
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-            
-            {/* View Invoice - if already converted */}
-            {estimate.converted_to_invoice_id && (
+          {/* Actions: quiet secondary buttons, then the one primary action on the right.
+              On a phone the quiet ones are icons, so Send and the menu always fit. */}
+          <div className="flex items-center gap-2 shrink-0 ml-auto">
+            <button
+              onClick={openShareModal}
+              aria-label="Share"
+              className={secondaryAction}
+            >
+              <Share2 className="w-4 h-4" />
+              <span className="hidden sm:inline">Share</span>
+            </button>
+
+
+            {/* Resend - for already sent estimates */}
+            {estimate.status === 'sent' && estimate.client?.email && (
               <button
-                onClick={() => navigate(`/invoices/${estimate.converted_to_invoice_id}`)}
-                className="flex items-center gap-2 px-4 py-2 bg-[#336699] text-white rounded-sm hover:bg-[#2A5580] transition-colors text-sm font-medium"
+                onClick={handleSend}
+                aria-label="Resend"
+                className={secondaryAction}
               >
-                View Invoice
+                <Send className="w-4 h-4" />
+                <span className="hidden sm:inline">Resend</span>
               </button>
             )}
-            
+
             {/* Send - for draft status */}
             {estimate.status === 'draft' && (
-              <button 
-                onClick={() => handleStatusUpdate('sent')}
-                className="flex items-center gap-2 px-4 py-2 bg-[#336699] text-white rounded-sm hover:bg-[#2A5580] transition-colors text-sm font-medium"
+              <button
+                onClick={handleSend}
+                className={primaryAction}
               >
                 <Send className="w-4 h-4" />
                 Send
               </button>
             )}
-            
-            {/* Resend - for already sent estimates */}
-            {estimate.status === 'sent' && estimate.client?.email && (
-              <button 
-                onClick={() => handleStatusUpdate('sent')}
-                className="flex items-center gap-2 px-4 py-2 bg-[#2a2a2a] border border-[#404040] text-white rounded-sm hover:bg-[#333333] transition-colors text-sm"
+
+            {/* The rest: the client's answer, duplicate and delete */}
+            <div className="relative">
+              <button
+                onClick={() => setShowMoreMenu((open) => !open)}
+                aria-label="More actions"
+                className={`${secondaryAction} w-11 !px-0 justify-center`}
               >
-                <Send className="w-4 h-4" />
-                Resend
+                <MoreVertical className="w-5 h-5" />
               </button>
-            )}
-            
-            {/* View Contract - Always available for estimates with items */}
-            {estimate.items && estimate.items.length > 0 && (
-              <button 
-                onClick={() => navigate(`/estimates/${estimate.id}/contract`)}
-                className="flex items-center gap-2 px-4 py-2 bg-[#fbbf24] text-black rounded-sm hover:bg-[#f59e0b] transition-colors text-sm font-medium"
-              >
-                <FileText className="w-4 h-4" />
-                View Contract
-              </button>
-            )}
-            
-            {/* Secondary Actions */}
-            <button 
-              onClick={() => setShowShareModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-[#2a2a2a] border border-[#404040] text-white rounded-sm hover:bg-[#333333] transition-colors text-sm"
-            >
-              <Share2 className="w-4 h-4" />
-              Share
-            </button>
+              {showMoreMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowMoreMenu(false)} />
+                  <div className="absolute right-0 top-full mt-1 w-60 bg-[#1E1E1E] border border-[#333333] shadow-lg z-50 py-1">
+                    {canApprove(estimate) && (
+                      <button
+                        onClick={() => {
+                          setShowMoreMenu(false);
+                          handleApprove();
+                        }}
+                        className="w-full flex items-center text-left px-3 py-2.5 text-sm text-white hover:bg-[#333333]"
+                      >
+                        <CheckCircle className="w-4 h-4 mr-3 flex-shrink-0 text-green-400" />
+                        Approve without signature
+                      </button>
+                    )}
+                    {(estimate.status === 'sent' || estimate.status === 'opened') && (
+                      <>
+                        <button
+                          onClick={() => {
+                            setShowMoreMenu(false);
+                            handleStatusUpdate('rejected');
+                          }}
+                          className="w-full flex items-center text-left px-3 py-2.5 text-sm text-white hover:bg-[#333333]"
+                        >
+                          <XCircle className="w-4 h-4 mr-3 flex-shrink-0 text-gray-400" />
+                          Mark as declined
+                        </button>
+                        <div className="border-t border-[#333333] my-1" />
+                      </>
+                    )}
+                    <button
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        setShowEditModal(true);
+                      }}
+                      className="md:hidden w-full flex items-center text-left px-3 py-2.5 text-sm text-white hover:bg-[#333333]"
+                    >
+                      <Edit className="w-4 h-4 mr-3 flex-shrink-0 text-gray-400" />
+                      Edit details
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        handleDuplicate();
+                      }}
+                      className="w-full flex items-center text-left px-3 py-2.5 text-sm text-white hover:bg-[#333333]"
+                    >
+                      <Copy className="w-4 h-4 mr-3 flex-shrink-0 text-gray-400" />
+                      Duplicate
+                    </button>
+                    <div className="border-t border-[#333333] my-1" />
+                    <button
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        handleDeleteClick();
+                      }}
+                      className="w-full flex items-center text-left px-3 py-2.5 text-sm text-red-400 hover:bg-[#333333]"
+                    >
+                      <Trash2 className="w-4 h-4 mr-3 flex-shrink-0" />
+                      Delete estimate
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Simple Client Info */}
-        <div className="text-sm text-gray-400 mt-1 px-3">
-          {estimate.client?.name || 'No client'} • Created {new Date(estimate.issue_date).toLocaleDateString()}
+        {/* Who it's for, when it was made and what it comes to. The client is picked on the Details tab. */}
+        <div className="text-sm text-gray-400 mt-1 px-3" data-testid="estimate-subline">
+          {estimate.client?.name || (estimate.client_id ? null : 'No client yet')}
+          {estimate.client?.name || !estimate.client_id ? ' · ' : ''}
+          Created {formatDate(estimate.issue_date)} · {formatCurrency(estimate.total_amount)}
         </div>
 
         {/* Tab Navigation */}
@@ -690,8 +744,8 @@ export const EstimateDetail: React.FC = () => {
           <div className="flex items-center">
             {[
               { id: 'items', label: 'Line Items' },
-              { id: 'overview', label: 'Overview' },
-              { id: 'contract', label: 'Contract' }
+              { id: 'overview', label: 'Details' },
+              { id: 'contract', label: 'Agreement' },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -710,131 +764,184 @@ export const EstimateDetail: React.FC = () => {
       </div>
 
       {/* Scrollable Content Area */}
-      <div className="flex-1 overflow-y-auto" style={{ paddingBottom: activeTab === 'items' ? '60px' : '0' }}>
-        {/* Overview Tab */}
+      <div
+        className={`flex-1 ${inDrawer ? 'min-h-0' : ''} ${inDrawer && activeTab === 'items' ? 'overflow-hidden' : 'overflow-y-auto'}`}
+        style={{ paddingBottom: activeTab === 'items' && !inDrawer ? '60px' : '0' }}
+      >
+        {/* Details tab (id 'overview') */}
+        {/* Details tab (id 'overview'): flat sections, one under the other */}
         {activeTab === 'overview' && (
-          <div className="p-6 space-y-6">
-            {/* Summary Cards Row */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Total & Status Card */}
-              <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6">
-                <h3 className="text-sm font-medium text-gray-400 mb-3 uppercase tracking-wide">Estimate Summary</h3>
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-400">Total Amount</span>
-                    <span className="text-xl font-bold text-[#F9D71C]">{formatCurrency(estimate.total_amount)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-400">Status</span>
-                    <span className={`text-sm px-2 py-1 rounded-[4px] font-medium uppercase ${
-                      estimate.status === 'accepted' ? 'bg-green-500/20 text-green-300' :
-                      estimate.status === 'rejected' ? 'bg-red-500/20 text-red-300' :
-                      estimate.status === 'sent' ? 'bg-blue-500/20 text-blue-300' :
-                      'bg-gray-500/20 text-gray-300'
-                    }`}>
-                      {estimate.status}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-400">Items</span>
-                    <span className="text-sm text-white">{estimate.items?.length || 0}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Client Information Card */}
-              <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6">
-                <h3 className="text-sm font-medium text-gray-400 mb-3 uppercase tracking-wide">Client</h3>
-                {estimate.client ? (
-                  <div className="space-y-2">
-                    <div className="text-base font-medium text-white">{estimate.client.name}</div>
-                    {estimate.client.email && (
-                      <div className="flex items-center gap-2 text-sm text-gray-400">
-                        <Mail className="w-4 h-4" />
-                        <span>{estimate.client.email}</span>
-                      </div>
-                    )}
-                    {estimate.client.phone && (
-                      <div className="flex items-center gap-2 text-sm text-gray-400">
-                        <Phone className="w-4 h-4" />
-                        <span>{estimate.client.phone}</span>
-                      </div>
-                    )}
-                    {estimate.client.address && (
-                      <button
-                        onClick={() => setShowMapModal(true)}
-                        className="flex items-start gap-2 text-sm text-gray-400 hover:text-white transition-colors cursor-pointer w-full text-left p-2 -m-2 rounded-lg hover:bg-[#2a2a2a]"
-                        title="Click to view on map"
-                      >
-                        <MapPin className="w-4 h-4 mt-0.5" />
-                        <span className="hover:underline">{estimate.client.address}</span>
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-400">No client assigned</p>
-                )}
-              </div>
-
-              {/* Dates & Timeline Card */}
-              <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6">
-                <h3 className="text-sm font-medium text-gray-400 mb-3 uppercase tracking-wide">Timeline</h3>
-                <div className="space-y-3">
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-400">Created</span>
-                    <span className="text-sm text-white">{new Date(estimate.issue_date).toLocaleDateString()}</span>
-                  </div>
-                  {estimate.expiry_date && (
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-400">Expires</span>
-                      <span className="text-sm text-white">{new Date(estimate.expiry_date).toLocaleDateString()}</span>
-                    </div>
-                  )}
-                  {estimate.last_sent_at && (
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-400">Last Sent</span>
-                      <span className="text-sm text-white">{new Date(estimate.last_sent_at).toLocaleDateString()}</span>
-                    </div>
-                  )}
-                  {estimate.project_id && (
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-400">Project</span>
-                      <span className="text-sm text-green-400">Linked</span>
-                    </div>
+          <div className="divide-y divide-[#333333]">
+            {/* Who it's for, and how long the price holds */}
+            <div className="px-4 py-5 grid grid-cols-5 gap-3 sm:gap-4">
+              <div className="col-span-3 min-w-0 transition-shadow" data-testid="client-card">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className={sectionLabel}>Client</h3>
+                  {estimate.client && !choosingClient && (
+                    <button type="button" onClick={startChoosingClient} className="text-xs text-[#7fb0e0] hover:text-white">
+                      Change
+                    </button>
                   )}
                 </div>
+              {estimate.client && !choosingClient ? (
+                <div className="space-y-1.5">
+                  <div className="text-base font-medium text-white">{estimate.client.name}</div>
+                  {estimate.client.email && (
+                    <a href={`mailto:${estimate.client.email}`} className="flex items-center gap-2 text-sm text-gray-400 hover:text-white">
+                      <Mail className="w-4 h-4" />
+                      <span>{estimate.client.email}</span>
+                    </a>
+                  )}
+                  {estimate.client.phone && (
+                    <a href={`tel:${estimate.client.phone}`} className="flex items-center gap-2 text-sm text-gray-400 hover:text-white">
+                      <Phone className="w-4 h-4" />
+                      <span>{estimate.client.phone}</span>
+                    </a>
+                  )}
+                  {estimate.client.address && (
+                    <AddressLink
+                      address={fullAddress(estimate.client.address, estimate.client.city, estimate.client.state, estimate.client.zip)}
+                      className="flex items-start gap-2 text-sm text-gray-400 hover:text-white text-left"
+                    >
+                      <MapPin className="w-4 h-4 mt-0.5" />
+                      <span className="hover:underline">{estimate.client.address}</span>
+                    </AddressLink>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <select
+                    aria-label="Choose client"
+                    value=""
+                    disabled={clientOptions === null || savingClient}
+                    onChange={(e) => e.target.value && chooseClient(e.target.value)}
+                    className="flex-1 min-w-0 h-10 bg-[#121212] border border-[#333333] px-3 text-sm text-white focus:outline-none focus:border-[#336699]"
+                  >
+                    <option value="">
+                      {savingClient ? 'Saving…' : clientOptions === null ? 'Loading clients…' : clientOptions.length ? 'Choose client' : 'No clients yet'}
+                    </option>
+                    {(clientOptions ?? []).map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                  {estimate.client && (
+                    <button type="button" onClick={() => setChoosingClient(false)} className="text-xs text-gray-400 hover:text-white px-2 py-2">
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              )}
+              </div>
+              <div className="col-span-2 min-w-0">
+                <h3 className={`${sectionLabel} mb-2`}>Valid until</h3>
+                <input
+                  type="date"
+                  aria-label="Valid until"
+                  value={estimate.expiry_date?.slice(0, 10) ?? ''}
+                  onChange={(e) => setValidUntil(e.target.value)}
+                  className="w-full min-w-0 h-10 bg-[#121212] border border-[#333333] px-2 sm:px-3 text-sm text-white focus:outline-none focus:border-[#336699]"
+                />
               </div>
             </div>
 
-            {/* Design Upload Section */}
-            <DesignUpload
-              estimateId={id!}
-              projectId={estimate?.project_id}
-              currentImageUrl={designImageUrl || undefined}
-              currentImageName={designImageName || undefined}
-              onUploadComplete={(imageUrl, imageName) => {
-                setDesignImageUrl(imageUrl);
-                setDesignImageName(imageName);
-              }}
-              onRemove={() => {
-                setDesignImageUrl(null);
-                setDesignImageName(null);
-              }}
-            />
+            {/* The note at the top of the client's link */}
+            {estimate.id && (
+              <ClientNoteCard estimateId={estimate.id} note={estimate.client_message} onSaved={(saved) => setEstimate((current) => (current ? { ...current, client_message: saved.client_message } : current))} />
+            )}
+
+            {/* A discount on the whole estimate, before tax */}
+            {estimate.id && (
+              <DiscountCard
+                estimate={estimate}
+                onSaved={(saved) =>
+                  setEstimate((current) =>
+                    current
+                      ? {
+                          ...current,
+                          discount: saved.discount,
+                          discount_amount: saved.discount_amount,
+                          subtotal: saved.subtotal,
+                          tax_amount: saved.tax_amount,
+                          total_amount: saved.total_amount,
+                        }
+                      : current,
+                  )
+                }
+              />
+            )}
+
+            {/* How much of the price the client's link shows */}
+            <div className="px-4 py-5" data-testid="client-view">
+              <h3 className={`${sectionLabel} mb-3`}>What the client sees</h3>
+              <div role="radiogroup" aria-label="What the client sees" className="grid grid-cols-3 gap-3">
+                {CLIENT_DETAIL_CHOICES.map((choice) => {
+                  const on = (estimate.client_detail ?? 'full') === choice.id;
+                  return (
+                    <button
+                      key={choice.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      aria-label={choice.label}
+                      onClick={() => setClientDetail(choice.id)}
+                      className="text-left group"
+                    >
+                      <span
+                        className={`block border p-3 transition-colors ${
+                          on ? 'border-[#336699] bg-[#336699]/15' : 'border-[#333333] bg-[#121212] group-hover:border-[#555555]'
+                        }`}
+                        aria-hidden="true"
+                      >
+                        <ClientViewSketch kind={choice.id} />
+                      </span>
+                      <span className={`block mt-2 text-sm ${on ? 'text-white font-medium' : 'text-gray-400'}`}>{choice.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-sm text-gray-400 mt-2">{CLIENT_DETAIL_CHOICES.find((c) => c.id === (estimate.client_detail ?? 'full'))!.help}</p>
+            </div>
+
+            {/* Files: photos and PDFs; the ones marked In contract go on the agreement */}
+            <div className="px-4 py-5" data-testid="files">
+              {estimate.id && (estimate.organization_id || selectedOrg?.id) && (
+                <JobPhotos
+                  organizationId={(estimate.organization_id || selectedOrg?.id)!}
+                  estimateId={estimate.id}
+                  title="Files"
+                  files
+                  locked={!!estimate.contract_locked_at}
+                  legacyDesign={estimate.design}
+                  onRemoveLegacyDesign={async () => {
+                    await EstimateService.removeDesign(estimate.id!);
+                    await loadEstimate(true);
+                  }}
+                  onContractChange={() => loadEstimate(true)}
+                />
+              )}
+            </div>
+
+            {/* Reminder emails, once it's out with the client */}
+            {estimate.id && estimate.status !== 'draft' && <RemindersCard estimateId={estimate.id} />}
+
+            {/* Approved by the company without the client signing */}
+            {approvalLine(estimate) && (
+              <div className="px-4 py-5 text-sm text-green-400">{approvalLine(estimate)}</div>
+            )}
 
             {/* Notes and Terms */}
             {(estimate.notes || estimate.terms) && (
-              <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6">
+              <div className="px-4 py-5 space-y-5">
                 {estimate.notes && (
-                  <div className="mb-6">
-                    <h3 className="text-sm font-medium text-gray-400 mb-3 uppercase tracking-wider">Notes</h3>
+                  <div>
+                    <h3 className={`${sectionLabel} mb-2`}>Notes</h3>
                     <p className="text-sm text-white whitespace-pre-wrap leading-relaxed">{estimate.notes}</p>
                   </div>
                 )}
                 
                 {estimate.terms && (
                   <div>
-                    <h3 className="text-sm font-medium text-gray-400 mb-3 uppercase tracking-wider">Terms & Conditions</h3>
+                    <h3 className={`${sectionLabel} mb-2`}>Terms & Conditions</h3>
                     <p className="text-sm text-white whitespace-pre-wrap leading-relaxed">{estimate.terms}</p>
                   </div>
                 )}
@@ -843,9 +950,9 @@ export const EstimateDetail: React.FC = () => {
 
             {/* Signature Section */}
             {estimate.status === 'accepted' && estimate.client_signature && (
-              <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6">
-                <h3 className="text-lg font-semibold text-white mb-4">Client Signature</h3>
-                <div className="border border-[#333] rounded-lg p-4 bg-white">
+              <div className="px-4 py-5">
+                <h3 className={`${sectionLabel} mb-2`}>Client signature</h3>
+                <div className="border border-[#333] p-4 bg-white">
                   <img 
                     src={estimate.client_signature} 
                     alt="Client Signature" 
@@ -853,26 +960,33 @@ export const EstimateDetail: React.FC = () => {
                   />
                 </div>
                 <p className="text-sm text-gray-400 mt-2">
-                  Signed on {new Date(estimate.signed_at!).toLocaleDateString()}
+                  Signed on {formatDate(estimate.signed_at!)}
                 </p>
               </div>
             )}
 
+
+            {FEATURES.projects && (
+              <EstimateProject
+                estimate={estimate}
+                organizationId={estimate.organization_id || selectedOrg?.id}
+                onChanged={() => loadEstimate(true)}
+                behind={overProject}
+              />
+            )}
 
           </div>
         )}
 
         {/* Line Items Tab */}
         {activeTab === 'items' && (
-          <div className="w-full flex">
+          <div className={`w-full flex ${inDrawer ? 'h-full' : ''}`}>
             {/* Airtable Sidebar */}
+            {salesMode && (
             <AirtableSidebar
-              selectedView={currentPricingStrategy}
-              onViewChange={(viewId, position) => {
-                setCurrentPricingStrategy(viewId);
-                handleBulkPriceAdjust(position);
-              }}
-              estimateTotal={estimate.total_amount}
+              fill={inDrawer}
+              onViewChange={(_viewId, position) => handleBulkPriceAdjust(position)}
+              itemsTotal={estimate.items?.reduce((sum, item) => sum + (item.total_price || 0), 0) || 0}
               capTotal={estimate.items?.reduce((sum, item) => {
                 const capPrice = item.cap_price || item.original_unit_price || item.unit_price;
                 return sum + (capPrice * (item.quantity || 1));
@@ -882,10 +996,13 @@ export const EstimateDetail: React.FC = () => {
                 return sum + (redlinePrice * (item.quantity || 1));
               }, 0) || 0}
             />
+            )}
             
             {/* Airtable-style Spreadsheet */}
-            <div className="flex-1">
+            <div className={`flex-1 min-w-0 ${inDrawer ? 'flex flex-col min-h-0' : ''}`} ref={inDrawer ? undefined : setTableColumn}>
+              <div className={inDrawer ? 'flex-1 min-h-0' : ''}>
               <AirtableEstimateView
+          fill={inDrawer}
           items={estimate.items?.map(item => ({
             id: item.id,
             name: item.description || 'Unnamed Item',
@@ -893,57 +1010,22 @@ export const EstimateDetail: React.FC = () => {
             price: item.unit_price,
             original_price: item.original_unit_price,
             unit: item.unit || 'ea',
-            total: item.total_price
+            total: item.total_price,
+            category: item.category,
+            allowance: Boolean(item.allowance)
           })) || []}
           onUpdateItem={(itemId, field, value) => {
-            const newItems = estimate.items?.map(item => {
+            commitItems(estimate.items.map(item => {
               if (item.id !== itemId) return item;
-              
-              const updatedItem = { ...item };
-              
-              if (field === 'name') {
-                updatedItem.description = value;
-              } else if (field === 'quantity') {
-                updatedItem.quantity = value;
-                updatedItem.total_price = value * updatedItem.unit_price;
-              } else if (field === 'price') {
-                updatedItem.unit_price = value;
-                updatedItem.total_price = updatedItem.quantity * value;
-              }
-              
-              return updatedItem;
-            }) || [];
-            
-            // Recalculate totals
-            const newSubtotal = newItems.reduce((sum, item) => sum + item.total_price, 0);
-            const newTaxAmount = estimate.tax_rate ? (newSubtotal * estimate.tax_rate / 100) : 0;
-            const newTotal = newSubtotal + newTaxAmount;
-            
-            setEstimate({ 
-              ...estimate, 
-              items: newItems,
-              subtotal: newSubtotal,
-              tax_amount: newTaxAmount,
-              total_amount: newTotal
-            });
+              if (field === 'name') return { ...item, description: value };
+              if (field === 'quantity') return { ...item, quantity: value };
+              if (field === 'price') return { ...item, unit_price: value };
+              return item;
+            }));
           }}
           onAddItem={() => setShowPricingSelector(true)}
-          onRemoveItem={(itemId) => {
-            const newItems = estimate.items?.filter(item => item.id !== itemId) || [];
-            // Recalculate totals
-            const newSubtotal = newItems.reduce((sum, item) => sum + item.total_price, 0);
-            const newTaxAmount = estimate.tax_rate ? (newSubtotal * estimate.tax_rate / 100) : 0;
-            const newTotal = newSubtotal + newTaxAmount;
-            
-            setEstimate({ 
-              ...estimate, 
-              items: newItems,
-              subtotal: newSubtotal,
-              tax_amount: newTaxAmount,
-              total_amount: newTotal
-            });
-          }}
           isEditable={true}
+          showAddRow={false}
           subtotal={estimate.subtotal}
           tax={estimate.tax_amount || 0}
           total={estimate.total_amount}
@@ -957,285 +1039,36 @@ export const EstimateDetail: React.FC = () => {
             return sum + (redlinePrice * (item.quantity || 1));
           }, 0) || 0}
           showStickyFooter={false}
+          onEditPrice={setPricingItemId}
         />
+              </div>
+              {/* In the drawer the total bar sits at the bottom of the table column. */}
+              {inDrawer && <div className="flex-shrink-0">{addItemRow}</div>}
+              {inDrawer && totalBar && (
+                <div className="flex-shrink-0 bg-[#1D1F25] border-t border-[#333333]">{totalBar}</div>
+              )}
             </div>
           </div>
         )}
 
 
          {/* Contract Tab */}
+
          {activeTab === 'contract' && (
-           <div className="p-6 space-y-6">
+           <div className="p-4">
              {estimate.items && estimate.items.length > 0 ? (
-               <>
-                 {/* Contract Header */}
-                 <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6">
-                   <div className="flex justify-between items-center mb-6">
-                     <div>
-                       <h2 className="text-lg font-semibold text-white">Contracts & Agreements - {estimate.estimate_number}</h2>
-                       <p className="text-sm text-gray-400">Complete contract package for {estimate.client?.name || 'No client'}</p>
-                     </div>
-                     <div className="flex items-center gap-3">
-                       <button 
-                         onClick={() => navigate(`/estimates/${estimate.id}/contract`)}
-                         className="flex items-center gap-2 px-4 py-2 bg-[#336699] text-white rounded-lg hover:bg-[#2A5580] transition-colors text-sm font-medium"
-                       >
-                         <FileText className="w-4 h-4" />
-                         Full Contract View
-                       </button>
-                     </div>
-                   </div>
-                 </div>
-
-                 {/* 1. Service Contract Agreement */}
-                 <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6">
-                   <div className="flex justify-between items-center mb-4">
-                     <div>
-                       <h3 className="text-lg font-semibold text-white">1. Service Contract Agreement</h3>
-                       <p className="text-sm text-gray-400">Initial work agreement and terms</p>
-                     </div>
-                     <div className="flex items-center gap-2">
-                       <span className="px-2 py-1 bg-green-500/20 text-green-300 text-xs rounded">Active</span>
-                       <button className="text-[#336699] hover:text-white transition-colors">
-                         <Download className="w-4 h-4" />
-                       </button>
-                     </div>
-                   </div>
-
-                {/* Contract Preview */}
-                <div className="bg-white text-black p-6 rounded-lg">
-                  <div className="text-center mb-6">
-                    <h1 className="text-xl font-bold">SERVICES CONTRACT AGREEMENT</h1>
-                  </div>
-
-                  {/* Contract Summary */}
-                  <div className="space-y-4 text-sm">
-                    <div>
-                      <h3 className="font-semibold mb-2">PARTIES</h3>
-                      <p>
-                        This services contract agreement is entered into between{' '}
-                        <strong>Campos Family Properties, LLC</strong> (Constructor) and{' '}
-                        <strong>{estimate.client?.name || 'Client'}</strong> (Client).
-                      </p>
-                    </div>
-
-                    <div>
-                      <h3 className="font-semibold mb-2">AGREED DESIGN</h3>
-                      {designImageUrl ? (
-                        <div className="space-y-2">
-                          <img
-                            src={designImageUrl}
-                            alt="Agreed Design"
-                            className="max-w-full h-auto max-h-48 object-contain border border-gray-300 rounded"
-                          />
-                          <p className="text-xs text-gray-600">{designImageName}</p>
-                        </div>
-                      ) : (
-                        <p className="text-gray-600 italic">Design to be uploaded in Overview tab</p>
-                      )}
-                    </div>
-
-                    <div>
-                      <h3 className="font-semibold mb-2">CONSTRUCTION PROPERTY</h3>
-                      <p>{estimate.client?.address || 'Property address to be specified'}</p>
-                    </div>
-
-                    <div>
-                      <h3 className="font-semibold mb-2">SCOPE OF WORK</h3>
-                      <p>{estimate.description || 'Work description based on selected services'}</p>
-                    </div>
-
-                    {/* Line Items Summary */}
-                    <div>
-                      <h3 className="font-semibold mb-2">PROJECT ITEMS</h3>
-                      <div className="space-y-2">
-                        {estimate.items.slice(0, 5).map((item, index) => (
-                          <div key={index} className="flex justify-between">
-                            <span>{item.description}</span>
-                            <span>{formatCurrency(item.total_price)}</span>
-                          </div>
-                        ))}
-                        {estimate.items.length > 5 && (
-                          <div className="text-gray-600 text-center">
-                            ... and {estimate.items.length - 5} more items
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="pt-4 border-t border-gray-300">
-                      <div className="flex justify-between text-lg font-bold">
-                        <span>Total Contract Amount</span>
-                        <span>{formatCurrency(estimate.total_amount)}</span>
-                      </div>
-                    </div>
-
-                    <div className="pt-4">
-                      <h3 className="font-semibold mb-2">PAYMENT TERMS</h3>
-                      <div className="space-y-1">
-                        <div className="flex justify-between">
-                          <span>Initial deposit (50%)</span>
-                          <span>{formatCurrency(estimate.total_amount * 0.5)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Stage 2 (40%)</span>
-                          <span>{formatCurrency(estimate.total_amount * 0.4)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Final payment (10%)</span>
-                          <span>{formatCurrency(estimate.total_amount * 0.1)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-6 p-4 bg-gray-100 rounded-lg text-center">
-                    <p className="text-sm text-gray-600">
-                      This is a preview of your service contract. Click "Full Contract View" above to see the complete contract with all terms and conditions.
-                    </p>
-                  </div>
-                </div>
-                 </div>
-
-                 {/* 2. Affidavit of Completion (Lien Release) */}
-                 <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6">
-                   <div className="flex justify-between items-center mb-4">
-                     <div>
-                       <h3 className="text-lg font-semibold text-white">2. Affidavit of Completion</h3>
-                       <p className="text-sm text-gray-400">Lien release and completion certification</p>
-                     </div>
-                     <div className="flex items-center gap-2">
-                       <span className="px-2 py-1 bg-gray-500/20 text-gray-300 text-xs rounded">Pending</span>
-                       <button className="text-[#336699] hover:text-white transition-colors">
-                         <Download className="w-4 h-4" />
-                       </button>
-                     </div>
-                   </div>
-
-                   {/* Affidavit Preview */}
-                   <div className="bg-white text-black p-6 rounded-lg">
-                     <div className="text-center mb-6">
-                       <h1 className="text-xl font-bold">AFFIDAVIT OF COMPLETION</h1>
-                       <p className="text-sm text-gray-600 mt-2">LIEN RELEASE CERTIFICATE</p>
-                     </div>
-
-                     <div className="space-y-4 text-sm">
-                       <div>
-                         <h3 className="font-semibold mb-2">PROJECT COMPLETION</h3>
-                         <p>
-                           I, <strong>Campos Family Properties, LLC</strong>, hereby certify that all work 
-                           described in Contract {estimate.estimate_number} has been completed in accordance 
-                           with the agreed specifications and to the satisfaction of the client.
-                         </p>
-                       </div>
-
-                       <div>
-                         <h3 className="font-semibold mb-2">LIEN RELEASE</h3>
-                         <p>
-                           This affidavit serves as a release of any and all liens, claims, or encumbrances 
-                           against the property located at {estimate.client?.address || 'Property address'} 
-                           arising from the work performed under this contract.
-                         </p>
-                       </div>
-
-                       <div>
-                         <h3 className="font-semibold mb-2">FINAL PAYMENT</h3>
-                         <p>
-                           All payments due under the contract have been received, and no additional 
-                           amounts are owed for the work performed.
-                         </p>
-                       </div>
-
-                       <div className="pt-4 border-t border-gray-300">
-                         <div className="flex justify-between">
-                           <span>Total Contract Amount</span>
-                           <span>{formatCurrency(estimate.total_amount)}</span>
-                         </div>
-                         <div className="flex justify-between">
-                           <span>Final Payment Received</span>
-                           <span>{formatCurrency(estimate.total_amount * 0.1)}</span>
-                         </div>
-                       </div>
-                     </div>
-
-                     <div className="mt-6 p-4 bg-gray-100 rounded-lg text-center">
-                       <p className="text-sm text-gray-600">
-                         This affidavit will be available for download upon project completion and final payment.
-                       </p>
-                     </div>
-                   </div>
-                 </div>
-
-                 {/* 3. Change Order Contract */}
-                 <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6">
-                   <div className="flex justify-between items-center mb-4">
-                     <div>
-                       <h3 className="text-lg font-semibold text-white">3. Change Order Contract</h3>
-                       <p className="text-sm text-gray-400">Modifications and additions to original scope</p>
-                     </div>
-                     <div className="flex items-center gap-2">
-                       <span className="px-2 py-1 bg-gray-500/20 text-gray-300 text-xs rounded">Not Applicable</span>
-                       <button className="text-[#336699] hover:text-white transition-colors">
-                         <Download className="w-4 h-4" />
-                       </button>
-                     </div>
-                   </div>
-
-                   {/* Change Order Preview */}
-                   <div className="bg-white text-black p-6 rounded-lg">
-                     <div className="text-center mb-6">
-                       <h1 className="text-xl font-bold">CHANGE ORDER AGREEMENT</h1>
-                       <p className="text-sm text-gray-600 mt-2">SCOPE MODIFICATION CONTRACT</p>
-                     </div>
-
-                     <div className="space-y-4 text-sm">
-                       <div>
-                         <h3 className="font-semibold mb-2">CHANGE ORDER DETAILS</h3>
-                         <p>
-                           This change order modifies the original Service Contract Agreement 
-                           {estimate.estimate_number} dated {new Date(estimate.issue_date).toLocaleDateString()}.
-                         </p>
-                       </div>
-
-                       <div>
-                         <h3 className="font-semibold mb-2">MODIFICATIONS</h3>
-                         <div className="space-y-2">
-                           <div className="border border-gray-300 rounded p-3">
-                             <p className="text-gray-600 italic">No change orders have been issued for this project.</p>
-                           </div>
-                         </div>
-                       </div>
-
-                       <div>
-                         <h3 className="font-semibold mb-2">COST IMPACT</h3>
-                         <div className="flex justify-between">
-                           <span>Original Contract Amount</span>
-                           <span>{formatCurrency(estimate.total_amount)}</span>
-                         </div>
-                         <div className="flex justify-between">
-                           <span>Change Order Amount</span>
-                           <span>$0.00</span>
-                         </div>
-                         <div className="flex justify-between font-semibold border-t border-gray-300 pt-2">
-                           <span>New Total Contract Amount</span>
-                           <span>{formatCurrency(estimate.total_amount)}</span>
-                         </div>
-                       </div>
-                     </div>
-
-                     <div className="mt-6 p-4 bg-gray-100 rounded-lg text-center">
-                       <p className="text-sm text-gray-600">
-                         Change orders will appear here when modifications are made to the original contract scope.
-                       </p>
-                     </div>
-                   </div>
-                 </div>
-               </>
+               <ContractTab
+                 estimate={estimate}
+                 changeOrder={changeOrder}
+                 organizationId={estimate.organization_id || selectedOrg?.id}
+                 onApprove={canApprove(estimate) ? handleApprove : undefined}
+                 onEstimateChange={(saved) => setEstimate(prepare(saved))}
+               />
              ) : (
                <div className="bg-[#1a1a1a] rounded-lg border border-[#333] p-6 text-center">
                  <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                 <h3 className="text-lg font-medium text-gray-400 mb-2">No Contract Available</h3>
-                 <p className="text-sm text-gray-500">Add line items to your estimate to generate contracts.</p>
+                 <h3 className="text-lg font-medium text-gray-400 mb-2">No agreement yet</h3>
+                 <p className="text-sm text-gray-500">Add line items to the estimate first; the agreement is filled in from them.</p>
                </div>
              )}
            </div>
@@ -1244,18 +1077,48 @@ export const EstimateDetail: React.FC = () => {
 
       {/* Share Modal */}
       {showShareModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <OnTop>
+        <div role="dialog" className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowShareModal(false)} />
           <div className="relative bg-[#1E1E1E] rounded-lg border border-[#333333] p-6 max-w-md w-full">
             <h3 className="text-lg font-semibold text-white mb-4">Share Estimate</h3>
             <p className="text-gray-400 mb-4">
-              Generate a shareable link for this estimate. Clients can view and accept/reject the estimate without needing to log in.
+              Anyone with this link can view the estimate and accept or decline it, without logging in.
             </p>
+
+            {estimate.client?.email && ['draft', 'sent', 'opened'].includes(estimate.status) && (
+              <div className="mb-4">
+                <button
+                  type="button"
+                  disabled={emailNote === 'sending'}
+                  onClick={async () => {
+                    setEmailNote('sending');
+                    try {
+                      const sent = await estimatesAPI.emailToClient(estimate.id!);
+                      setEmailNote({ text: `Emailed to ${sent.to}. Replies come to you.`, good: true });
+                      // Shows it as sent; a failed refresh doesn't undo the email.
+                      loadEstimate(true).catch(() => {});
+                    } catch (err) {
+                      setEmailNote({ text: err instanceof Error && err.message ? err.message : 'That didn’t send', good: false });
+                    }
+                  }}
+                  className="w-full px-4 py-2.5 bg-[#336699] hover:bg-[#2A5580] text-white transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+                >
+                  <Send className="w-4 h-4" />
+                  {emailNote === 'sending' ? 'Sending…' : `Email it to ${estimate.client.email}`}
+                </button>
+                {emailNote && emailNote !== 'sending' && (
+                  <p role="status" className={`mt-2 text-sm ${emailNote.good ? 'text-green-400' : 'text-red-400'}`}>
+                    {emailNote.text}
+                  </p>
+                )}
+              </div>
+            )}
             
             <div className="bg-[#121212] border border-[#333333] rounded-lg p-3 mb-4">
               <div className="text-xs text-gray-400 mb-1">Shareable Link</div>
               <div className="text-sm text-white break-all">
-                {`${window.location.origin}/share/estimate/${estimate.id}`}
+                {shareUrl ?? 'Creating link…'}
               </div>
             </div>
 
@@ -1267,6 +1130,7 @@ export const EstimateDetail: React.FC = () => {
                 Cancel
               </button>
               <button
+                disabled={!shareUrl}
                 onClick={() => {
                   handleCopyShareLink();
                   setShowShareModal(false);
@@ -1277,11 +1141,12 @@ export const EstimateDetail: React.FC = () => {
                 Copy Link
               </button>
               <button
+                disabled={!shareUrl}
                 onClick={() => {
-                  window.open(`/share/estimate/${estimate.id}`, '_blank');
+                  if (shareUrl) window.open(shareUrl, '_blank');
                   setShowShareModal(false);
                 }}
-                className="px-4 py-2 bg-[#F9D71C] hover:bg-[#F9D71C]/90 text-black rounded-lg transition-colors flex items-center gap-2"
+                className="px-4 py-2 bg-[#336699] hover:bg-[#336699]/90 text-white rounded-lg transition-colors flex items-center gap-2"
               >
                 <Eye className="w-4 h-4" />
                 Preview
@@ -1289,146 +1154,9 @@ export const EstimateDetail: React.FC = () => {
             </div>
           </div>
         </div>
+        </OnTop>
       )}
 
-      {/* Deposit Invoice Modal */}
-      {showDepositModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowDepositModal(false)} />
-          <div className="relative bg-[#1E1E1E] rounded-lg border border-[#333333] p-6 max-w-md w-full">
-            <h3 className="text-lg font-semibold text-white mb-4">Create Deposit Invoice</h3>
-            <p className="text-gray-400 mb-6">
-              Create a partial invoice for a deposit payment. The remaining balance can be invoiced later.
-            </p>
-            
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Deposit Percentage
-              </label>
-              <div className="flex items-center gap-4">
-                <input
-                  type="range"
-                  min="10"
-                  max="90"
-                  step="5"
-                  value={depositPercentage}
-                  onChange={(e) => setDepositPercentage(Number(e.target.value))}
-                  className="flex-1"
-                />
-                <div className="w-20 text-center">
-                  <input
-                    type="number"
-                    min="10"
-                    max="90"
-                    value={depositPercentage}
-                    onChange={(e) => setDepositPercentage(Number(e.target.value))}
-                    className="w-full bg-[#333] border border-[#555] rounded px-2 py-1 text-white text-center"
-                  />
-                  <span className="text-sm text-gray-400">%</span>
-                </div>
-              </div>
-              
-              <div className="mt-4 p-4 bg-[#2a2a2a] rounded-lg">
-                <div className="flex justify-between text-sm mb-2">
-                  <span className="text-gray-400">Estimate Total:</span>
-                  <span className="text-white">{formatCurrency(estimate.total_amount)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">Deposit Amount:</span>
-                  <span className="text-[#F9D71C] font-semibold">
-                    {formatCurrency(estimate.total_amount * (depositPercentage / 100))}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setShowDepositModal(false)}
-                className="px-4 py-2 text-gray-300 hover:text-white transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreateDepositInvoice}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-              >
-                Create Deposit Invoice
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Project Selection Modal */}
-      {showProjectSelectionModal && (
-        <ProjectSelectionModal
-          isOpen={showProjectSelectionModal}
-          onClose={() => {
-            setShowProjectSelectionModal(false);
-            setPendingInvoiceType(null);
-          }}
-          onSelect={handleProjectSelection}
-          clientId={estimate?.client_id}
-          estimateTitle={estimate?.title || estimate?.estimate_number}
-        />
-      )}
-
-      {/* Project Creation Modal */}
-      {showProjectSelectionModal && estimate && (
-        <ProjectCreationModal
-          isOpen={showProjectSelectionModal}
-          onClose={() => {
-            setShowProjectSelectionModal(false);
-            setPendingInvoiceType(null);
-          }}
-          onSuccess={handleProjectCreated}
-          workPack={{
-            id: estimate.id || '',
-            name: estimate.title || estimate.estimate_number || 'Project',
-            description: estimate.description || '',
-            base_price: estimate.total_amount,
-            items: estimate.items || []
-          }}
-        />
-      )}
-
-      {/* Mobile Sticky Action Bar */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#1a1a1a] border-t border-[#333] p-4 z-40">
-        <div className="flex items-center justify-around gap-2">
-          {estimate.status === 'draft' && (
-            <button 
-              onClick={() => handleStatusUpdate('sent')}
-              className="flex-1 bg-[#336699] text-white px-3 py-3 rounded-lg text-sm font-medium"
-            >
-              Send
-            </button>
-          )}
-          
-          {estimate.status === 'accepted' && !estimate.converted_to_invoice_id && (
-            <button
-              onClick={() => handleConvertToInvoice(false)}
-              className="flex-1 bg-green-600 text-white px-3 py-3 rounded-lg text-sm font-medium"
-            >
-              Invoice
-            </button>
-          )}
-          
-          <button 
-            onClick={() => setShowEditModal(true)}
-            className="flex-1 bg-[#F9D71C] text-black px-3 py-3 rounded-lg text-sm font-medium"
-          >
-            Edit
-          </button>
-          
-          <button 
-            onClick={() => setShowShareModal(true)}
-            className="flex-1 bg-[#2a2a2a] text-white px-3 py-3 rounded-lg text-sm font-medium"
-          >
-            Share
-          </button>
-        </div>
-      </div>
 
       {/* Edit Estimate Modal */}
       {showEditModal && (
@@ -1440,19 +1168,11 @@ export const EstimateDetail: React.FC = () => {
         />
       )}
 
-      {/* Map Modal */}
-      {showMapModal && estimate?.client?.address && (
-        <MapModal
-          isOpen={showMapModal}
-          onClose={() => setShowMapModal(false)}
-          address={estimate.client.address}
-          clientName={estimate.client.name}
-        />
-      )}
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+        <OnTop>
+        <div role="dialog" className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-[#0a0a0a] rounded-xl max-w-md w-full border border-white/10 shadow-2xl">
             <div className="p-6">
               <h3 className="text-lg font-semibold text-white mb-2">Delete Estimate</h3>
@@ -1477,29 +1197,48 @@ export const EstimateDetail: React.FC = () => {
             </div>
           </div>
         </div>
+        </OnTop>
+      )}
+
+      <ItemPricingDrawer
+        item={estimate.items?.find(item => item.id === pricingItemId) ?? null}
+        categories={[...new Set([...(estimate.items ?? []).map((i) => i.category).filter((c): c is string => Boolean(c)), ...WORK_TYPE_NAMES])]}
+        salesMode={salesMode}
+        onClose={() => setPricingItemId(null)}
+        onSave={(changes) => {
+          commitItems(estimate.items.map(item => item.id === pricingItemId ? { ...item, ...changes } : item));
+        }}
+        onRemove={() => {
+          commitItems(estimate.items.filter(item => item.id !== pricingItemId));
+        }}
+      />
+
+      {/* Save problems float over the page so nothing shifts */}
+      {saveError && (
+        <div role="alert" className="fixed top-4 left-1/2 -translate-x-1/2 z-[120] bg-[#1D1F25] border border-red-500/60 px-4 py-2 text-sm text-red-300 shadow-lg">
+          {saveError}
+        </div>
       )}
 
       {/* Contextual Pricing Selector for adding items in edit mode */}
       {showPricingSelector && selectedOrg && (
+        <OnTop>
         <ContextualPricingSelector
+          salesMode={salesMode}
           isOpen={showPricingSelector}
           onClose={() => setShowPricingSelector(false)}
           onAddItems={(items) => {
-            // Add new items to estimate
-            const newEstimateItems = items.map(item => ({
+            const newEstimateItems: EstimateItem[] = items.map(item => ({
               id: `new-${Date.now()}-${Math.random()}`,
               product_id: item.lineItemId,
               description: item.name,
               quantity: item.quantity,
               unit_price: item.price,
               total_price: item.price * item.quantity,
-              unit: item.unit
+              red_line_price: item.red_line_price,
+              cap_price: item.cap_price
             }));
-            
-            setEstimate({
-              ...estimate,
-              items: [...(estimate?.items || []), ...newEstimateItems]
-            });
+            commitItems([...(estimate?.items || []), ...newEstimateItems]);
             setShowPricingSelector(false);
           }}
           organizationId={selectedOrg.id}
@@ -1509,76 +1248,15 @@ export const EstimateDetail: React.FC = () => {
             packageId: estimate?.package_id
           }}
         />
+        </OnTop>
       )}
 
-      {/* Pricing Strategy Modal */}
-      {showPricingStrategy && estimate && (
-        <PricingStrategyModal
-          isOpen={showPricingStrategy}
-          onClose={() => setShowPricingStrategy(false)}
-          items={estimate.items.map(item => ({
-            id: item.id,
-            name: item.name,
-            capPrice: item.cap_price || item.price,
-            currentPrice: item.price,
-            redlinePrice: item.red_line_price || item.price * 0.7,
-            quantity: item.quantity || 1,
-            currentTotal: item.total,
-            capTotal: (item.cap_price || item.price) * (item.quantity || 1),
-            redlineTotal: (item.red_line_price || item.price * 0.7) * (item.quantity || 1)
-          }))}
-          onUpdatePrice={handlePriceUpdate}
-          onBulkAdjust={handleBulkPriceAdjust}
-        />
-      )}
 
       {/* Fixed Total Bar - Always visible at bottom of screen */}
-      {activeTab === 'items' && estimate.items && estimate.items.length > 0 && (
-        <div className="fixed bottom-0 bg-[#15161f] border-t border-[#3c3d51] z-30" style={{ left: '480px', right: '320px' }}>
-          <div className="flex items-center text-[12px] font-medium">
-            <div className="w-20 py-2 px-3 text-gray-500 border-r border-[#3c3d51] text-center">
-              {estimate.items.length} items
-            </div>
-            <div className="flex-1 py-2 px-3 text-right text-gray-500 border-r border-[#3c3d51]">
-              Sum
-            </div>
-            <div className="w-32 py-2 px-3 text-right text-gray-300 border-r border-[#3c3d51]">
-              {formatCurrency(estimate.subtotal)}
-            </div>
-            <div className="w-28 py-2 px-3 text-center text-gray-300 border-r border-[#3c3d51]">
-              {estimate.items.reduce((sum, item) => sum + (item.quantity || 0), 0)}
-            </div>
-            <div className="w-32 py-2 px-3 text-right border-r border-[#3c3d51] flex flex-col items-end">
-              <span className="text-gray-300">{formatCurrency(estimate.total_amount)}</span>
-              {(() => {
-                const redlineTotal = estimate.items.reduce((sum, item) => {
-                  const redlinePrice = item.red_line_price || (item.original_unit_price || item.unit_price) * 0.7;
-                  return sum + (redlinePrice * (item.quantity || 1));
-                }, 0);
-                const capTotal = estimate.items.reduce((sum, item) => {
-                  const capPrice = item.cap_price || item.original_unit_price || item.unit_price;
-                  return sum + (capPrice * (item.quantity || 1));
-                }, 0);
-                
-                if (redlineTotal > 0) {
-                  return (
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-[10px] text-gray-500">Comm:</span>
-                      <span className={`text-[11px] font-medium ${
-                        estimate.total_amount <= redlineTotal ? 'text-red-400' : 
-                        estimate.total_amount - redlineTotal > (capTotal - redlineTotal) * 0.6 ? 'text-green-400' : 
-                        estimate.total_amount - redlineTotal > (capTotal - redlineTotal) * 0.3 ? 'text-yellow-400' : 'text-orange-400'
-                      }`}>
-                        {formatCurrency(Math.max(0, estimate.total_amount - redlineTotal))}
-                      </span>
-                    </div>
-                  );
-                }
-                return null;
-              })()}
-            </div>
-            <div className="w-10"></div>
-          </div>
+      {!inDrawer && activeTab === 'items' && totalBarBox && (
+        <div className="fixed bottom-0 bg-[#1D1F25] z-30" style={{ left: totalBarBox.left, width: totalBarBox.width }}>
+          {addItemRow}
+          {totalBar && <div className="border-t border-[#333333]">{totalBar}</div>}
         </div>
       )}
     </div>

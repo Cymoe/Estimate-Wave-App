@@ -1,0 +1,62 @@
+export type LeadStatus = 'new' | 'no_answer' | 'contacted' | 'scheduled' | 'quoted' | 'won' | 'lost';
+
+export interface Lead {
+  id: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  city?: string;
+  /** The county the job is in, from the town when the lead has no county of its own. */
+  county?: string;
+  /** Last call, text or card note, and how many calls and texts so far. */
+  lastContactAt?: string;
+  contacts?: number;
+  texts?: number;
+  jobType?: string;
+  source?: string;
+  estimatedValue?: number;
+  followUpDate?: string;
+  appointmentAt?: string;
+  notes?: string;
+  status: LeadStatus;
+  lostReason?: string;
+  /** The language their texts and emails come in. */
+  language?: 'en' | 'es';
+  clientId?: string;
+  isSample?: boolean;
+  createdAt?: string;
+  estimate: { id: string; estimateNumber: string; status: string; totalAmount: number } | null;
+  /** Bought from the Webb Leads market. */
+  marketplaceLeadId?: string;
+  pricePaidCents?: number;
+  assignedAt?: string;
+  /** How it got here: a standing bid won it, a buy order filled, bought in the Marketplace, or sent by Webb Leads. */
+  wonVia?: 'bid' | 'order' | 'buy' | 'sent' | 'claim';
+  /** When someone here tapped "Got it" on the alert. */
+  acknowledgedAt?: string;
+  /** When Webb Leads confirmed the lead with the homeowner, and what they said. */
+  verified?: { at: string; note?: string };
+  creditRequest?: { reason: string; note?: string; requestedAt: string; status: 'pending' | 'approved' | 'denied' };
+}
+
+export interface Trade {
+  id: string;
+  name: string;
+}
+
+/** The stages, in board order. `dot` colours the stage pill in the lead drawer. */
+export const STATUSES: { value: LeadStatus; label: string; color: string; dot: string }[] = [
+  { value: 'new', label: 'New', color: 'text-sky-300', dot: 'bg-sky-300' },
+  { value: 'no_answer', label: 'No Answer', color: 'text-rose-300', dot: 'bg-rose-300' },
+  { value: 'contacted', label: 'Contacted', color: 'text-amber-300', dot: 'bg-amber-300' },
+  { value: 'scheduled', label: 'Estimate Scheduled', color: 'text-orange-300', dot: 'bg-orange-300' },
+  { value: 'quoted', label: 'Estimate Sent', color: 'text-violet-300', dot: 'bg-violet-300' },
+  // "Job sold": the company sold the job to the homeowner. Never confused with how Webb Leads sold them the lead.
+  { value: 'won', label: 'Job sold', color: 'text-emerald-300', dot: 'bg-emerald-300' },
+  { value: 'lost', label: 'Lost', color: 'text-gray-500', dot: 'bg-gray-500' },
+];
+
+export const SOURCES = ['Referral', 'Google', 'Facebook', 'Website', 'Yard sign', 'Repeat customer', 'Other'];
+
+export const KNOWN_CITIES = ['Midland', 'Odessa', 'Andrews', 'Big Spring', 'Stanton', 'Monahans', 'Kermit', 'Gardendale'];

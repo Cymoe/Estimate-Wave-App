@@ -50,7 +50,7 @@ export const LineItemModal: React.FC<LineItemModalProps> = ({ onClose, onSave })
       <div className="fixed w-full md:w-1/2 lg:w-2/5 bg-[#121212] shadow-xl overflow-hidden top-0 bottom-0 right-0 h-full z-[10001] flex flex-col">
         <div className="flex justify-between items-center p-4 border-b border-[#333333] bg-[#121212] flex-shrink-0">
           <h2 className="text-xl font-bold text-white font-['Roboto_Condensed'] uppercase">New Line Item</h2>
-          <button onClick={onClose} className="p-2 text-gray-400 hover:text-[#F9D71C]">
+          <button onClick={onClose} className="p-2 text-gray-400 hover:text-[#5b8fc7]">
             <X className="w-6 h-6" />
           </button>
         </div>
@@ -147,7 +147,7 @@ export const LineItemModal: React.FC<LineItemModalProps> = ({ onClose, onSave })
               type="submit"
               form="line-item-form"
               disabled={isLoading}
-              className="w-full px-4 py-2 bg-[#F9D71C] text-[#121212] rounded-[4px] hover:bg-opacity-90 disabled:opacity-50 font-['Roboto'] font-medium uppercase tracking-wider h-10"
+              className="w-full px-4 py-2 bg-[#336699] text-white rounded-[4px] hover:bg-opacity-90 disabled:opacity-50 font-['Roboto'] font-medium uppercase tracking-wider h-10"
             >
               {isLoading ? 'Saving...' : 'Save'}
             </button>

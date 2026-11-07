@@ -1,0 +1,41 @@
+name: UI smoke test
+
+# Opens a deployed site in a real browser, signs up with a throwaway email
+# account and prints console errors / failed requests to the log.
+
+# Run it manually from the Actions tab (it isn't a merge check).
+on:
+  workflow_dispatch:
+    inputs:
+      site:
+        description: Site URL to test
+        required: true
+        default: https://estimate-wave-app-git-fieldquote-convex-cymoes-projects.vercel.app
+
+jobs:
+  ui-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: apps/web/scripts/ui-smoke-test.mjs
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Playwright
+        run: |
+          cp apps/web/scripts/ui-smoke-test.mjs "$RUNNER_TEMP/"
+          cd "$RUNNER_TEMP"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund playwright@1.56.1
+          npx playwright install --with-deps chromium
+
+      - name: Sign up through the UI
+        env:
+          SITE: ${{ inputs.site || 'https://estimate-wave-app-git-fieldquote-convex-cymoes-projects.vercel.app' }}
+          VERCEL_BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node "$RUNNER_TEMP/ui-smoke-test.mjs"

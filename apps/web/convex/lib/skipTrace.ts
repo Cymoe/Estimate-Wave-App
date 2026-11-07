@@ -1,0 +1,1121 @@
+// Enrichment: a property owner in, the person behind the company, their
+// phones and emails out. Sources are tried in order (the waterfall) for
+// each field until one has it; each adapter is a plain function over fetch
+// so it can be tested without the vendor. Nothing here touches the
+// database or the wallet.
+
+export type Field = "phone" | "email" | "person" | "research";
+export type PhoneType = "mobile" | "landline" | "voip" | "unknown";
+export type Phone = {
+  number: string;
+  type: PhoneType;
+  dnc?: boolean;
+  verified?: boolean;
+  score?: number;
+  source: string;
+  name?: string;
+  /** The subscriber is a known TCPA litigator (from the scrub or the line check). */
+  litigator?: boolean;
+  /** The checker's A to F grade for reaching someone on this line. */
+  grade?: string;
+};
+export type Email = {
+  email: string;
+  source: string;
+  verified?: boolean;
+  /** Whether the address belongs to the named person, by the contact check. */
+  nameMatch?: boolean;
+  /** The contact check's A to F grade for reaching someone at this address. */
+  grade?: string;
+};
+export type Person = {
+  name: string;
+  title?: string;
+  address?: string;
+  source: string;
+  /** Other free sources that named the same person. */
+  confirmedBy?: string[];
+};
+
+export type TraceInput = {
+  name: string;
+  /** For research: what to find out. */
+  question?: string;
+  /** Set when the owner is a company: vendors match people, so the person found first (or the name's words) is traced. */
+  company?: string;
+  person?: Person;
+  property: { address: string; city: string; state: string; zip?: string };
+  mailing: { address?: string; city?: string; state?: string; zip?: string };
+};
+
+export type Found = { phones?: Phone[]; emails?: Email[]; person?: Person };
+
+export type Vendor = {
+  name: string;
+  /** What this source can answer; it's only called for those. */
+  fields: Field[];
+  /** True when the deployment holds its key. */
+  connected: boolean;
+  /** Costs nothing per call: still asked for the person after a hit, so two sources naming the same one can be shown. */
+  free?: boolean;
+  /** How much a free source's word on the person counts: a filed record (3) outranks a permit's applicant (2), which outranks a guess from the roll (1). A higher one that disagrees takes over. */
+  authority?: number;
+  /** Why this owner can't be asked about here (a reason for the ledger), or nothing when it can. */
+  applies?: (input: TraceInput) => string | undefined;
+  trace: (input: TraceInput) => Promise<Found>;
+};
+
+type Fetch = typeof fetch;
+const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** How long one call to a source may take before it counts as an error and the next source gets its turn. */
+export const CALL_TIMEOUT_MS = 20_000;
+/** The longest a source's "retry after" is honored. */
+const RETRY_WAIT_AT_MOST_MS = 5_000;
+/** Answers worth one more try: rate limits and the server's own trouble. */
+const RETRY_STATUS = new Set([429, 500, 502, 503, 504]);
+
+/** A call that ran out of time, headers or body. */
+export class TimeoutError extends Error {
+  constructor(ms: number) {
+    super(`No answer after ${Math.round(ms / 1000)} seconds`);
+    this.name = "TimeoutError";
+  }
+}
+
+/**
+ * A fetch with one clock over the whole answer: the headers and the body
+ * both have to arrive within `timeoutMs`, or the call fails with a
+ * TimeoutError. The body is read here, so a vendor that sends headers and
+ * then stalls can't hold the caller's `.json()` open.
+ */
+export function timedFetch(fetchFn: Fetch = fetch, timeoutMs = CALL_TIMEOUT_MS): Fetch {
+  return async (url, init) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetchFn(url, { ...init, signal: controller.signal });
+      const text = await response.text();
+      return new Response(text, { status: response.status, statusText: response.statusText, headers: response.headers });
+    } catch (e) {
+      if (controller.signal.aborted) throw new TimeoutError(timeoutMs);
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+}
+
+/**
+ * A fetch that gives up on a call after CALL_TIMEOUT_MS and tries once more
+ * after a rate limit, waiting as long as the source asks (capped). A read
+ * (GET) is also tried again after a server error or a dropped connection;
+ * a POST is not, because a paid trace the vendor already ran and billed
+ * would be run and billed twice. A hung vendor becomes an ordinary error
+ * instead of holding the whole lookup.
+ */
+export function guarded(fetchFn: Fetch = fetch, timeoutMs = CALL_TIMEOUT_MS, wait: (ms: number) => Promise<void> = pause): Fetch {
+  const once = timedFetch(fetchFn, timeoutMs);
+  const retryAfter = async (response: Response): Promise<number> => {
+    const header = Number(response.headers.get("retry-after"));
+    let seconds = Number.isFinite(header) && header > 0 ? header : undefined;
+    if (seconds === undefined && response.status === 429) {
+      try {
+        const body = (await response.clone().json()) as { retry_after_seconds?: unknown };
+        seconds = num(body.retry_after_seconds);
+      } catch {
+        // No JSON body: the default wait.
+      }
+    }
+    return Math.min(RETRY_WAIT_AT_MOST_MS, (seconds ?? 1) * 1000);
+  };
+  return async (url, init) => {
+    // Only a read is safe to repeat after the vendor may have done the work.
+    const read = !init?.method || /^(GET|HEAD)$/i.test(init.method);
+    try {
+      const response = await once(url, init);
+      if (response.status === 429 || (read && RETRY_STATUS.has(response.status))) {
+        await wait(await retryAfter(response));
+      } else return response;
+    } catch (e) {
+      // A timeout isn't retried: a vendor that hung once would hold the lookup twice as long.
+      if (e instanceof TimeoutError || !read) throw e;
+      await wait(1000);
+    }
+    return once(url, init);
+  };
+}
+
+/** "SMITH JOHN & MARY" → first "John", last "Smith"; the roll writes last name first. A person found by name is "First Last". */
+export function splitName(name: string, order: "roll" | "person" = "roll"): { first?: string; last?: string } {
+  const clean = name
+    .replace(/\b(ET ?AL|ETUX|ET ?VIR|TRUSTEES?|JR|SR|II|III)\b\.?/gi, " ")
+    .replace(/[&,]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const words = clean.split(" ").filter(Boolean);
+  if (words.length === 0) return {};
+  if (words.length === 1) return { last: words[0] };
+  return order === "person" ? { first: words[0], last: words[words.length - 1] } : { last: words[0], first: words[1] };
+}
+
+const digits = (s: string) => s.replace(/\D/g, "");
+/** "(432) 555-0100" and "+1 432 555 0100" are one number. */
+export function normalizePhone(raw: string): string | undefined {
+  const d = digits(raw);
+  const n = d.length === 11 && d.startsWith("1") ? d.slice(1) : d;
+  return n.length === 10 ? n : undefined;
+}
+
+const TYPE_RANK: Record<PhoneType, number> = { mobile: 0, landline: 1, voip: 2, unknown: 3 };
+/** "Mobile", "cell", "wireless" → mobile; "Land Line" → landline; the rest unknown. */
+export function phoneType(raw: unknown): PhoneType {
+  const t = typeof raw === "string" ? raw.toLowerCase() : "";
+  if (/mobile|cell|wireless/.test(t)) return "mobile";
+  if (/land/.test(t)) return "landline";
+  if (/voip/.test(t)) return "voip";
+  return "unknown";
+}
+
+/** One of each number, best first: the vendor's score, then mobile before landline before VoIP. */
+export function rankPhones(phones: Phone[]): Phone[] {
+  const seen = new Map<string, Phone>();
+  for (const p of phones) {
+    const n = normalizePhone(p.number);
+    if (n && !seen.has(n)) seen.set(n, { ...p, number: n });
+  }
+  return [...seen.values()].sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || TYPE_RANK[a.type] - TYPE_RANK[b.type]);
+}
+
+/** One of each email, lower-cased. */
+export function dedupeEmails(emails: Email[]): Email[] {
+  const seen = new Map<string, Email>();
+  for (const e of emails) {
+    const k = e.email.trim().toLowerCase();
+    if (k.includes("@") && !seen.has(k)) seen.set(k, { ...e, email: k });
+  }
+  return [...seen.values()];
+}
+
+const asArray = (x: unknown): unknown[] => (Array.isArray(x) ? x : []);
+const str = (x: unknown): string | undefined => (typeof x === "string" && x.trim() ? x.trim() : undefined);
+const num = (x: unknown): number | undefined => (typeof x === "number" && Number.isFinite(x) ? x : undefined);
+const titleCase = (s: string) => s.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase());
+
+/**
+ * BatchData's property skip trace (v1): one request per property, the
+ * person's name alongside it. Phones come back under persons[].phoneNumbers
+ * (v3 says phones), each with a type, a DNC flag, whether the carrier says
+ * it's live, and a score.
+ */
+export function batchData(key: string | undefined, fetchFn: Fetch = fetch, base = "https://api.batchdata.com/api/v1"): Vendor {
+  return {
+    name: "batchdata",
+    fields: ["phone", "email"],
+    connected: Boolean(key),
+    trace: async (input) => {
+      const who = input.person ? splitName(input.person.name, "person") : splitName(input.company ?? input.name);
+      const response = await fetchFn(`${base}/property/skip-trace`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${key}` },
+        body: JSON.stringify({
+          requests: [
+            {
+              propertyAddress: { street: input.property.address, city: input.property.city, state: input.property.state, zip: input.property.zip },
+              ...(input.mailing.address && input.mailing.city && input.mailing.state
+                ? { mailingAddress: { street: input.mailing.address, city: input.mailing.city, state: input.mailing.state, zip: input.mailing.zip } }
+                : {}),
+              ...(who.first || who.last ? { name: { first: who.first, last: who.last } } : {}),
+            },
+          ],
+          options: { skipTrace: true },
+        }),
+      });
+      if (!response.ok) throw new Error(`BatchData: HTTP ${response.status}`);
+      const body = (await response.json()) as { results?: { persons?: unknown[] } };
+      const persons = asArray(body.results?.persons) as Array<Record<string, unknown>>;
+      const phones: Phone[] = [];
+      const emails: Email[] = [];
+      for (const person of persons) {
+        for (const p of asArray(person.phoneNumbers ?? person.phones) as Array<Record<string, unknown>>) {
+          const number = str(p.number) ?? str(p.phone);
+          if (!number) continue;
+          phones.push({
+            number,
+            type: phoneType(p.type),
+            dnc: p.dnc === true || p.tcpa === true ? true : undefined,
+            verified: p.reachable === true ? true : undefined,
+            score: num(p.score),
+            source: "batchdata",
+          });
+        }
+        for (const e of asArray(person.emails) as Array<Record<string, unknown> | string>) {
+          const email = typeof e === "string" ? str(e) : str(e.email) ?? str(e.address);
+          if (email) emails.push({ email, source: "batchdata", verified: typeof e === "object" && e.verified === true ? true : undefined });
+        }
+      }
+      return { phones, emails };
+    },
+  };
+}
+
+/**
+ * Tracerfy's instant lookup: one property, the person to find when we know
+ * one (the Comptroller's officer, or the roll's personal name), else the
+ * owner. Up to 8 phones ranked 1 first, each with a type and DNC/TCPA
+ * flags; 2¢ a hit, a miss free. TRACERFY_API_BASE can point at the
+ * sandbox (mock.tracerfy.com) for a free dry run.
+ */
+export function tracerfy(key: string | undefined, fetchFn: Fetch = fetch, base = "https://tracerfy.com/v1/api"): Vendor {
+  return {
+    name: "tracerfy",
+    fields: ["phone", "email"],
+    connected: Boolean(key),
+    trace: async (input) => {
+      const who = input.person ? splitName(input.person.name, "person") : input.company ? {} : splitName(input.name);
+      const byName = Boolean(who.first && who.last);
+      const response = await fetchFn(`${base.replace(/\/$/, "")}/trace/lookup/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${key}` },
+        body: JSON.stringify({
+          address: input.property.address,
+          city: input.property.city,
+          state: input.property.state,
+          ...(input.property.zip ? { zip: input.property.zip } : {}),
+          find_owner: !byName,
+          ...(byName ? { first_name: who.first, last_name: who.last } : {}),
+        }),
+      });
+      if (!response.ok) {
+        let detail = "";
+        try {
+          const body = (await response.json()) as { error?: unknown; detail?: unknown; retry_after_seconds?: unknown };
+          detail = str(body.error) ?? str(body.detail) ?? (num(body.retry_after_seconds) !== undefined ? `retry after ${num(body.retry_after_seconds)}s` : "");
+        } catch {
+          // No JSON body: the status is the message.
+        }
+        throw new Error(`Tracerfy: HTTP ${response.status}${detail ? ` (${detail})` : ""}`);
+      }
+      const body = (await response.json()) as { hit?: boolean; persons?: unknown[] };
+      if (body.hit === false) return { phones: [], emails: [] };
+      let persons = asArray(body.persons) as Array<Record<string, unknown>>;
+      // Several people at the address: the one with the name we asked for, when any has it.
+      if (who.last) {
+        const same = persons.filter((p) => (str(p.last_name) ?? "").toUpperCase() === who.last!.toUpperCase());
+        if (same.length) persons = same;
+      }
+      const phones: Phone[] = [];
+      const emails: Email[] = [];
+      for (const person of persons) {
+        for (const p of asArray(person.phones) as Array<Record<string, unknown>>) {
+          const number = str(p.number);
+          if (!number) continue;
+          const rank = num(p.rank);
+          phones.push({
+            number,
+            type: phoneType(p.type),
+            dnc: p.dnc === true || p.tcpa === true ? true : undefined,
+            score: rank !== undefined ? Math.max(0, 100 - rank) : undefined,
+            source: "tracerfy",
+          });
+        }
+        for (const e of asArray(person.emails) as Array<Record<string, unknown> | string>) {
+          const email = typeof e === "string" ? str(e) : str(e.email);
+          if (email) emails.push({ email, source: "tracerfy" });
+        }
+      }
+      return { phones, emails };
+    },
+  };
+}
+
+/** The officer titles that run a company, most useful first. */
+const RUNS_IT = [/MANAG/i, /PRESIDENT/i, /\bCEO\b/i, /OWNER/i, /MEMBER/i, /PARTNER/i, /DIRECTOR/i, /PRINCIPAL/i, /SECRETARY|TREASURER/i];
+
+/**
+ * The Texas Comptroller's public franchise-tax data: an entity by name,
+ * then its officers and managers from the latest Public Information
+ * Report. Free with a registered key, so it runs first and gives the paid
+ * trace a person to find.
+ */
+export function comptrollerTexas(key: string | undefined, fetchFn: Fetch = fetch, base = "https://api.comptroller.texas.gov/public-data/v1/public"): Vendor {
+  const headers = { Accept: "application/json", "x-api-key": key ?? "" };
+  return {
+    name: "tx-comptroller",
+    fields: ["person"],
+    connected: Boolean(key),
+    free: true,
+    authority: 3,
+    trace: async (input) => {
+      if (!input.company) return {};
+      const name = input.company.toUpperCase().replace(/[<>]/g, "").replace(/\s*&\s*$/, "").trim().slice(0, 50);
+      if (name.length < 2) return {};
+      const list = await fetchFn(`${base}/franchise-tax-list?name=${encodeURIComponent(name)}`, { headers });
+      if (!list.ok) throw new Error(`Texas Comptroller: HTTP ${list.status}`);
+      const found = (await list.json()) as { data?: Array<{ name?: string; taxpayerId?: string; mailingAddressZip?: string }> };
+      const entities = asArray(found.data) as Array<{ name?: string; taxpayerId?: string; mailingAddressZip?: string }>;
+      const wanted = name;
+      const zip = input.mailing.zip?.slice(0, 5);
+      const entity =
+        entities.find((e) => e.name?.toUpperCase() === wanted && (!zip || e.mailingAddressZip?.slice(0, 5) === zip)) ??
+        entities.find((e) => e.name?.toUpperCase() === wanted) ??
+        entities.find((e) => zip && e.mailingAddressZip?.slice(0, 5) === zip) ??
+        entities[0];
+      if (!entity?.taxpayerId) return {};
+      const details = await fetchFn(`${base}/franchise-tax/${encodeURIComponent(entity.taxpayerId)}`, { headers });
+      if (!details.ok) throw new Error(`Texas Comptroller: HTTP ${details.status}`);
+      const body = (await details.json()) as { data?: { officerInfo?: unknown[] } };
+      const officers = (asArray(body.data?.officerInfo) as Array<Record<string, unknown>>)
+        .map((o) => ({ name: str(o.AGNT_NM), title: str(o.AGNT_TITL_TX), street: str(o.AD_STR_POB_TX), city: str(o.CITY_NM), state: str(o.ST_CD), zip: str(o.AD_ZP) }))
+        .filter((o): o is typeof o & { name: string } => Boolean(o.name) && !/\b(LLC|L L C|INC|LTD|LP|CORP|COMPANY|TRUST)\b/i.test(o.name!));
+      if (officers.length === 0) return {};
+      const rank = (title?: string) => {
+        const i = RUNS_IT.findIndex((re) => title && re.test(title));
+        return i === -1 ? RUNS_IT.length : i;
+      };
+      const best = [...officers].sort((a, b) => rank(a.title) - rank(b.title))[0];
+      const address = [best.street, [best.city, best.state].filter(Boolean).join(", "), best.zip?.slice(0, 5)].filter(Boolean).join(", ");
+      return {
+        person: {
+          name: titleCase(best.name),
+          title: best.title ? titleCase(best.title) : undefined,
+          address: address || undefined,
+          source: "tx-comptroller",
+        },
+      };
+    },
+  };
+}
+
+const STATE_NAMES: Record<string, string> = {
+  AL: "alabama", AK: "alaska", AZ: "arizona", AR: "arkansas", CA: "california", CO: "colorado", CT: "connecticut", DE: "delaware", DC: "district of columbia", FL: "florida",
+  GA: "georgia", HI: "hawaii", ID: "idaho", IL: "illinois", IN: "indiana", IA: "iowa", KS: "kansas", KY: "kentucky", LA: "louisiana", ME: "maine",
+  MD: "maryland", MA: "massachusetts", MI: "michigan", MN: "minnesota", MS: "mississippi", MO: "missouri", MT: "montana", NE: "nebraska", NV: "nevada", NH: "new hampshire",
+  NJ: "new jersey", NM: "new mexico", NY: "new york", NC: "north carolina", ND: "north dakota", OH: "ohio", OK: "oklahoma", OR: "oregon", PA: "pennsylvania", RI: "rhode island",
+  SC: "south carolina", SD: "south dakota", TN: "tennessee", TX: "texas", UT: "utah", VT: "vermont", VA: "virginia", WA: "washington", WV: "west virginia", WI: "wisconsin", WY: "wyoming",
+};
+const ENTITY = /\b(LLC|L L C|INC|LTD|LP|LLP|CORP|CORPORATION|COMPANY|CO|TRUST|SYSTEM|SERVICES?)\b/i;
+/** How many times a slow state's registry is polled, 5 seconds apart, before Cobalt counts as an error. */
+const COBALT_POLLS = 4;
+
+/**
+ * Cobalt Intelligence's Secretary of State search: one call reaches every
+ * state's registry, for the companies the Texas Comptroller doesn't list
+ * (registered elsewhere, or newer than the last report). GET
+ * /v1/search?searchQuery=&state= with x-api-key; the state is where the
+ * company gets its mail, else where the property is. A slow state hands
+ * back a retryId, polled a few times. Officers come back as {name, title,
+ * address}; with none, a registered agent who is a person stands in.
+ */
+export function cobaltSos(key: string | undefined, fetchFn: Fetch = fetch, base = "https://apigateway.cobaltintelligence.com", wait: (ms: number) => Promise<void> = pause): Vendor {
+  const headers = { Accept: "application/json", "x-api-key": key ?? "" };
+  type Result = { title?: string; officers?: Array<{ name?: string; title?: string; address?: string }>; registeredAgent?: { name?: string; address?: string } };
+  type Body = { status?: string; results?: Result[]; retryId?: string | null; message?: string };
+  return {
+    name: "cobalt",
+    fields: ["person"],
+    connected: Boolean(key),
+    trace: async (input) => {
+      if (!input.company) return {};
+      const query = input.company.replace(/[<>]/g, "").trim();
+      const code = (input.mailing.state ?? input.property.state ?? "TX").toUpperCase().slice(0, 2);
+      const state = STATE_NAMES[code] ?? code.toLowerCase();
+      const get = async (params: string) => {
+        const response = await fetchFn(`${base}/v1/search?${params}`, { headers });
+        if (!response.ok) throw new Error(`Cobalt: HTTP ${response.status}`);
+        return (await response.json()) as Body;
+      };
+      let body = await get(`searchQuery=${encodeURIComponent(query)}&state=${encodeURIComponent(state)}`);
+      for (let tries = 0; body.retryId && !(body.results?.length) && tries < COBALT_POLLS; tries++) {
+        await wait(5000);
+        body = await get(`retryId=${encodeURIComponent(body.retryId)}&state=${encodeURIComponent(state)}`);
+      }
+      // Still searching when we stop asking: an error (not a miss), so a retry asks again.
+      if (body.retryId && !(body.results?.length)) throw new Error(`Cobalt: the ${titleCase(state)} registry was still searching after ${COBALT_POLLS * 5} seconds`);
+      const results = asArray(body.results) as Result[];
+      if (results.length === 0) return {};
+      const wanted = query.toUpperCase().replace(/[^A-Z0-9 ]/g, "").replace(/\s+/g, " ");
+      const clean = (t?: string) => (t ?? "").toUpperCase().replace(/[^A-Z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+      const result = results.find((r) => clean(r.title) === wanted) ?? results[0];
+      const officers = (asArray(result.officers) as Array<{ name?: string; title?: string; address?: string }>).filter((o) => o.name && !ENTITY.test(o.name));
+      const rank = (title?: string) => {
+        const i = RUNS_IT.findIndex((re) => title && re.test(title));
+        return i === -1 ? RUNS_IT.length : i;
+      };
+      const best = [...officers].sort((a, b) => rank(a.title) - rank(b.title))[0];
+      const agent = result.registeredAgent;
+      const pick = best ?? (agent?.name && !ENTITY.test(agent.name) ? { name: agent.name, title: "Registered agent", address: agent.address } : undefined);
+      if (!pick?.name) return {};
+      return { person: { name: titleCase(pick.name), title: pick.title ? titleCase(pick.title) : undefined, address: pick.address || undefined, source: "cobalt" } };
+    },
+  };
+}
+
+/**
+ * EnformionGO (Endato): POST /Contact/Enrich with a name and an address
+ * answers with the best-matching person's phones (typed, with whether the
+ * line is connected) and emails. It needs a person's name, so a company
+ * waits for the state records to name one.
+ */
+export function enformion(apName: string | undefined, apPassword: string | undefined, fetchFn: Fetch = fetch, base = "https://devapi.enformion.com"): Vendor {
+  const who = (input: TraceInput) => (input.person ? splitName(input.person.name, "person") : input.company ? {} : splitName(input.name));
+  return {
+    name: "enformion",
+    fields: ["phone", "email"],
+    connected: Boolean(apName && apPassword),
+    applies: (input) => (who(input).first && who(input).last ? undefined : "Needs a person's name"),
+    trace: async (input) => {
+      const name = who(input);
+      if (!name.first || !name.last) return {};
+      const at = input.mailing.address && input.mailing.city && input.mailing.state ? input.mailing : input.property;
+      const response = await fetchFn(`${base}/Contact/Enrich`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "galaxy-ap-name": apName ?? "",
+          "galaxy-ap-password": apPassword ?? "",
+          "galaxy-search-type": "DevAPIContactEnrich",
+        },
+        body: JSON.stringify({
+          FirstName: titleCase(name.first),
+          LastName: titleCase(name.last),
+          Address: { addressLine1: at.address, addressLine2: [at.city, at.state].filter(Boolean).join(", ") + (at.zip ? ` ${at.zip.slice(0, 5)}` : "") },
+        }),
+      });
+      if (!response.ok) throw new Error(`EnformionGO: HTTP ${response.status}`);
+      const body = (await response.json()) as {
+        isError?: boolean;
+        error?: { warnings?: string[]; inputErrors?: string[] };
+        message?: string;
+        person?: { phones?: unknown[]; emails?: unknown[] };
+      };
+      if (body.isError) throw new Error(`EnformionGO: ${[...(body.error?.inputErrors ?? []), ...(body.error?.warnings ?? []), body.message].filter(Boolean).join("; ") || "error"}`);
+      const phones: Phone[] = [];
+      const emails: Email[] = [];
+      for (const p of asArray(body.person?.phones) as Array<Record<string, unknown>>) {
+        const number = str(p.number);
+        if (!number) continue;
+        phones.push({ number, type: phoneType(p.type), verified: p.isConnected === true ? true : undefined, score: p.isConnected === true ? 80 : p.isConnected === false ? 20 : undefined, source: "enformion" });
+      }
+      for (const e of asArray(body.person?.emails) as Array<Record<string, unknown>>) {
+        const email = str(e.email);
+        if (email) emails.push({ email, source: "enformion" });
+      }
+      return { phones, emails };
+    },
+  };
+}
+
+/**
+ * Hunter's email finder: a work address for the person behind a company,
+ * from the company's name alone (Hunter finds the domain). Last in the
+ * email chain, so it runs when the skip traces found nothing; nothing is
+ * charged when it finds nothing.
+ */
+export function hunter(key: string | undefined, fetchFn: Fetch = fetch, base = "https://api.hunter.io/v2"): Vendor {
+  return {
+    name: "hunter",
+    fields: ["email"],
+    connected: Boolean(key),
+    applies: (input) => {
+      const who = input.person ? splitName(input.person.name, "person") : {};
+      return input.company && who.first && who.last ? undefined : "Needs a named person at a company";
+    },
+    trace: async (input) => {
+      const who = input.person ? splitName(input.person.name, "person") : {};
+      if (!input.company || !who.first || !who.last) return {};
+      const params = `company=${encodeURIComponent(input.company)}&first_name=${encodeURIComponent(who.first)}&last_name=${encodeURIComponent(who.last)}&api_key=${encodeURIComponent(key ?? "")}`;
+      const response = await fetchFn(`${base}/email-finder?${params}`, { headers: { Accept: "application/json" } });
+      if (response.status === 404 || response.status === 451) return {};
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { errors?: Array<{ details?: string }> };
+        throw new Error(`Hunter: HTTP ${response.status}${body.errors?.[0]?.details ? ` (${body.errors[0].details})` : ""}`);
+      }
+      const body = (await response.json()) as { data?: { email?: string | null; verification?: { status?: string } } };
+      const email = str(body.data?.email);
+      if (!email) return {};
+      return { emails: [{ email, source: "hunter", verified: body.data?.verification?.status === "valid" ? true : undefined }] };
+    },
+  };
+}
+
+/**
+ * LeadMagic's email finder: POST /v1/people/email-finder with X-API-Key,
+ * the person's name and the company's name (it finds the domain). The
+ * same job as Hunter at a fraction of the price, and the provider that
+ * wins most business-data waterfalls; a miss costs nothing. Last in the
+ * email chain, after Hunter.
+ */
+export function leadMagic(key: string | undefined, fetchFn: Fetch = fetch, base = "https://api.leadmagic.io/v1"): Vendor {
+  return {
+    name: "leadmagic",
+    fields: ["email"],
+    connected: Boolean(key),
+    applies: (input) => {
+      const who = input.person ? splitName(input.person.name, "person") : {};
+      return input.company && who.first && who.last ? undefined : "Needs a named person at a company";
+    },
+    trace: async (input) => {
+      const who = input.person ? splitName(input.person.name, "person") : {};
+      if (!input.company || !who.first || !who.last) return {};
+      const response = await fetchFn(`${base}/people/email-finder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json", "X-API-Key": key ?? "" },
+        body: JSON.stringify({ first_name: titleCase(who.first), last_name: titleCase(who.last), company_name: input.company }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { message?: unknown; error?: unknown };
+        const detail = str(body.message) ?? str(body.error);
+        throw new Error(`LeadMagic: HTTP ${response.status}${detail ? ` (${detail})` : ""}`);
+      }
+      const body = (await response.json()) as { email?: string | null; status?: string | null; domain_mismatch?: boolean };
+      const email = str(body.email ?? undefined);
+      // Nothing found, or only an address on some other company's domain: no email.
+      if (!email || body.status !== "valid" || body.domain_mismatch === true) return {};
+      return { emails: [{ email, source: "leadmagic", verified: true }] };
+    },
+  };
+}
+
+/**
+ * The stack, in the order it's tried: free state records first, then the
+ * paid registry; the skip traces by price; a work-email finder last.
+ */
+export function vendors(env: Record<string, string | undefined>, fetchFn: Fetch = guarded()): Vendor[] {
+  return [
+    comptrollerTexas(env.TX_COMPTROLLER_API_KEY, fetchFn),
+    cobaltSos(env.COBALT_API_KEY, fetchFn, env.COBALT_API_BASE || undefined),
+    batchData(env.BATCHDATA_API_KEY, fetchFn),
+    tracerfy(env.TRACERFY_API_KEY, fetchFn, env.TRACERFY_API_BASE || undefined),
+    enformion(env.ENFORMION_AP_NAME, env.ENFORMION_AP_PASSWORD, fetchFn, env.ENFORMION_API_BASE || undefined),
+    hunter(env.HUNTER_API_KEY, fetchFn),
+    leadMagic(env.LEADMAGIC_API_KEY, fetchFn),
+  ];
+}
+
+// ---- Email deliverability ----
+
+/** What a checker says about one address. */
+export type Verdict = "valid" | "invalid" | "catch-all" | "unknown";
+export type Verifier = {
+  name: string;
+  /** True when the deployment holds its key. */
+  connected: boolean;
+  verify: (email: string) => Promise<Verdict>;
+};
+
+/**
+ * ZeroBounce: GET /v2/validate?api_key=&email= answers {status, sub_status}.
+ * valid is a mailbox that exists and accepts mail; invalid, spam traps,
+ * abuse reporters and do-not-mail addresses are dropped; catch-all and
+ * unknown are kept, unverified. An error in the body (a bad key, no
+ * credits) throws, so the check is skipped and the emails stay as found.
+ */
+export function zeroBounce(key: string | undefined, fetchFn: Fetch = fetch, base = "https://api.zerobounce.net"): Verifier {
+  return {
+    name: "zerobounce",
+    connected: Boolean(key),
+    verify: async (email) => {
+      const response = await fetchFn(`${base}/v2/validate?api_key=${encodeURIComponent(key ?? "")}&email=${encodeURIComponent(email)}&ip_address=`, { headers: { Accept: "application/json" } });
+      if (!response.ok) throw new Error(`ZeroBounce: HTTP ${response.status}`);
+      const body = (await response.json()) as { status?: string; error?: string };
+      if (body.error) throw new Error(`ZeroBounce: ${body.error}`);
+      switch (body.status) {
+        case "valid":
+          return "valid";
+        case "invalid":
+        case "spamtrap":
+        case "abuse":
+        case "do_not_mail":
+          return "invalid";
+        case "catch-all":
+          return "catch-all";
+        default:
+          return "unknown";
+      }
+    },
+  };
+}
+
+export function verifier(env: Record<string, string | undefined>, fetchFn: Fetch = guarded()): Verifier {
+  return zeroBounce(env.ZEROBOUNCE_API_KEY, fetchFn);
+}
+
+/** How many of a contact's emails get checked; the rest stay as found. */
+const CHECK_AT_MOST = 3;
+
+/**
+ * Runs the found emails through the checker: deliverable ones are marked
+ * verified, dead ones dropped, the rest kept as they were. Returns the
+ * emails to keep and the checker's turn for the ledger.
+ */
+export async function checkEmails(emails: Email[], checker: Verifier): Promise<{ emails: Email[]; try: Try }> {
+  if (emails.length === 0) return { emails, try: { source: checker.name, outcome: "skipped", note: "Nothing to check" } };
+  if (!checker.connected) return { emails, try: { source: checker.name, outcome: "skipped", note: "Not connected" } };
+  const kept: Email[] = [];
+  let valid = 0;
+  let dropped = 0;
+  let checked = 0;
+  try {
+    for (const e of emails) {
+      if (checked >= CHECK_AT_MOST) {
+        kept.push(e);
+        continue;
+      }
+      checked++;
+      const verdict = await checker.verify(e.email);
+      if (verdict === "valid") {
+        valid++;
+        kept.push({ ...e, verified: true });
+      } else if (verdict === "invalid") dropped++;
+      else kept.push(e);
+    }
+  } catch (e) {
+    return { emails, try: { source: checker.name, outcome: "error", note: e instanceof Error ? e.message : String(e) } };
+  }
+  const note = [`${valid} of ${checked} deliverable`, dropped ? `${dropped} dropped` : ""].filter(Boolean).join(" · ");
+  return { emails: kept, try: { source: checker.name, outcome: valid > 0 ? "hit" : "miss", note } };
+}
+
+// ---- Phone line check ----
+
+/** What the checker says about one number: live or not, its type, the name on it (or whether ours matches), and how reachable. */
+export type LineCheck = {
+  valid: boolean;
+  /** The checker had nothing on this number: it is left as it was, neither live nor dropped. */
+  unknown?: boolean;
+  type?: PhoneType;
+  name?: string;
+  business?: boolean;
+  nameMatch?: boolean;
+  grade?: string;
+  activity?: number;
+  litigator?: boolean;
+  email?: EmailCheck;
+};
+/** What the contact check says about an email sent along with the phone: whose it is, and how reachable. */
+export type EmailCheck = { valid?: boolean; nameMatch?: boolean; grade?: string };
+/** Whose number it should be: the person when known, else the owner; the company for the business line. */
+export type LineOwner = { name: string; business?: string };
+export type PhoneChecker = {
+  name: string;
+  /** True when the deployment holds its keys. */
+  connected: boolean;
+  /** An email sent along rides on the same call, for checkers that can say whose it is. */
+  check: (number: string, who: LineOwner, email?: string) => Promise<LineCheck>;
+};
+
+/** A to F from the checker, as a score when the vendor gave none. */
+const GRADE_SCORE: Record<string, number> = { A: 95, B: 80, C: 60, D: 40, F: 10 };
+
+/**
+ * Trestle's Real Contact API: GET /2.0/real_contact?name=&phone= with
+ * x-api-key grades the line A to F for reaching this person, says whether
+ * the name matches the subscriber, whether the line is active, its type,
+ * and (an add-on) whether the subscriber is a known TCPA litigator. One
+ * call answers what the carrier lookup and a name match answer separately.
+ */
+export function trestleRealContact(key: string | undefined, fetchFn: Fetch = fetch, base = "https://api.trestleiq.com/2.0"): PhoneChecker {
+  return {
+    name: "trestle",
+    connected: Boolean(key),
+    check: async (number, who, email) => {
+      const params = new URLSearchParams({ name: who.name, phone: number, add_ons: "litigator_checks" });
+      if (who.business) params.set("business.name", who.business);
+      if (email) params.set("email", email);
+      const response = await fetchFn(`${base}/real_contact?${params.toString()}`, { headers: { Accept: "application/json", "x-api-key": key ?? "" } });
+      if (!response.ok) throw new Error(`Trestle: HTTP ${response.status}`);
+      const body = (await response.json()) as {
+        phone?: { contact_grade?: string | null; is_valid?: boolean | null; activity_score?: number | null; line_type?: string | null; name_match?: boolean | null } | null;
+        email?: { contact_grade?: string | null; is_valid?: boolean | null; name_match?: boolean | null } | null;
+        add_ons?: { litigator_checks?: { phone_is_litigator_risk?: boolean | null } | null } | null;
+      };
+      const kind = (body.phone?.line_type ?? "").toLowerCase();
+      const type: PhoneType | undefined = kind === "mobile" ? "mobile" : kind === "landline" ? "landline" : /voip/.test(kind) ? "voip" : undefined;
+      const bool = (x: unknown) => (typeof x === "boolean" ? x : undefined);
+      const emailCheck = email && body.email ? { valid: bool(body.email.is_valid), nameMatch: bool(body.email.name_match), grade: str(body.email.contact_grade ?? undefined)?.toUpperCase() } : undefined;
+      // Nothing said about the line: not a live one, not a dead one.
+      if (!body.phone || typeof body.phone.is_valid !== "boolean") return { valid: true, unknown: true, email: emailCheck };
+      return {
+        valid: body.phone.is_valid,
+        type,
+        nameMatch: bool(body.phone?.name_match),
+        grade: str(body.phone?.contact_grade ?? undefined)?.toUpperCase(),
+        activity: num(body.phone?.activity_score),
+        litigator: body.add_ons?.litigator_checks?.phone_is_litigator_risk === true ? true : undefined,
+        email: emailCheck,
+      };
+    },
+  };
+}
+
+/**
+ * Twilio Lookup: GET /v2/PhoneNumbers/+1<number>?Fields=line_type_intelligence,caller_name
+ * with the account's basic auth. The carrier's line type (mobile, landline,
+ * VoIP) and, for US numbers, the name on the account. A number Twilio
+ * doesn't know is a 404: not a live line.
+ */
+export function twilioLookup(sid: string | undefined, token: string | undefined, fetchFn: Fetch = fetch, base = "https://lookups.twilio.com/v2"): PhoneChecker {
+  const auth = typeof btoa === "function" ? btoa(`${sid ?? ""}:${token ?? ""}`) : Buffer.from(`${sid ?? ""}:${token ?? ""}`).toString("base64");
+  return {
+    name: "twilio",
+    connected: Boolean(sid && token),
+    check: async (number) => {
+      const response = await fetchFn(`${base}/PhoneNumbers/${encodeURIComponent(`+1${number}`)}?Fields=line_type_intelligence,caller_name`, {
+        headers: { Accept: "application/json", Authorization: `Basic ${auth}` },
+      });
+      if (response.status === 404) return { valid: false };
+      if (!response.ok) throw new Error(`Twilio: HTTP ${response.status}`);
+      const body = (await response.json()) as {
+        valid?: boolean;
+        line_type_intelligence?: { type?: string | null } | null;
+        caller_name?: { caller_name?: string | null; caller_type?: string | null } | null;
+      };
+      const kind = (body.line_type_intelligence?.type ?? "").toLowerCase();
+      const type: PhoneType | undefined = kind === "mobile" ? "mobile" : kind === "landline" ? "landline" : /voip/.test(kind) ? "voip" : undefined;
+      const name = str(body.caller_name?.caller_name ?? undefined);
+      return { valid: body.valid !== false, type, name, business: body.caller_name?.caller_type === "BUSINESS" };
+    },
+  };
+}
+
+/** The line checkers in order: Trestle first, the carrier lookup as the fallback. */
+export function phoneCheckers(env: Record<string, string | undefined>, fetchFn: Fetch = guarded()): PhoneChecker[] {
+  return [trestleRealContact(env.TRESTLE_API_KEY, fetchFn), twilioLookup(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN, fetchFn)];
+}
+
+// ---- Do Not Call scrub ----
+
+/** One number against the Do Not Call lists: the federal registry, the states' own, and the known litigators. */
+export type Scrub = { national: boolean; states: string[]; litigator: boolean };
+export type PhoneScrub = {
+  name: string;
+  /** True when the deployment holds its key. */
+  connected: boolean;
+  scrub: (numbers: string[]) => Promise<Map<string, Scrub>>;
+};
+
+/**
+ * Tracerfy's DNC lookup: POST /v2/api/dnc/lookup/ with up to 15 phones
+ * answers national_dnc, state_dnc (with the states' codes) and litigator
+ * for each. Same key as the skip trace.
+ */
+export function tracerfyDnc(key: string | undefined, fetchFn: Fetch = fetch, base = "https://www.tracerfy.com/v2/api"): PhoneScrub {
+  return {
+    name: "tracerfy-dnc",
+    connected: Boolean(key),
+    scrub: async (numbers) => {
+      const out = new Map<string, Scrub>();
+      for (let i = 0; i < numbers.length; i += 15) {
+        const batch = numbers.slice(i, i + 15);
+        const response = await fetchFn(`${base.replace(/\/$/, "")}/dnc/lookup/`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${key}` },
+          body: JSON.stringify(batch.map((phone) => ({ phone }))),
+        });
+        if (!response.ok) throw new Error(`Tracerfy DNC: HTTP ${response.status}`);
+        const body = (await response.json()) as { results?: unknown[] };
+        for (const r of asArray(body.results) as Array<Record<string, unknown>>) {
+          const n = typeof r.phone === "string" ? normalizePhone(r.phone) : undefined;
+          if (!n) continue;
+          out.set(n, { national: r.national_dnc === true, states: (asArray(r.state_dnc_list) as unknown[]).filter((s): s is string => typeof s === "string"), litigator: r.litigator === true });
+        }
+      }
+      return out;
+    },
+  };
+}
+
+export function phoneScrub(env: Record<string, string | undefined>, fetchFn: Fetch = guarded()): PhoneScrub {
+  return tracerfyDnc(env.TRACERFY_API_KEY, fetchFn, env.TRACERFY_DNC_API_BASE || undefined);
+}
+
+/**
+ * Runs the kept numbers past the Do Not Call scrub: a number on the federal
+ * or a state list is flagged DNC (kept, so the sheet can say why not to
+ * call), a known litigator is flagged as one. The ledger says how many are
+ * clear. Nothing is dropped: the flags decide what Call and Text offer.
+ */
+export async function scrubPhones(phones: Phone[], scrub: PhoneScrub): Promise<{ phones: Phone[]; try: Try }> {
+  if (phones.length === 0) return { phones, try: { source: scrub.name, outcome: "skipped", note: "Nothing to check" } };
+  if (!scrub.connected) return { phones, try: { source: scrub.name, outcome: "skipped", note: "Not connected" } };
+  let found: Map<string, Scrub>;
+  try {
+    // The best few only (the same ones the line check saw): the scrub is paid per number, and the rest aren't the ones anyone calls.
+    found = await scrub.scrub(phones.slice(0, CHECK_AT_MOST).map((p) => p.number));
+  } catch (e) {
+    return { phones, try: { source: scrub.name, outcome: "error", note: e instanceof Error ? e.message : String(e) } };
+  }
+  let clear = 0;
+  let listed = 0;
+  let litigators = 0;
+  const states = new Set<string>();
+  const out = phones.map((p) => {
+    const s = found.get(p.number);
+    if (!s) return p;
+    const onList = s.national || s.states.length > 0;
+    if (onList) listed++;
+    if (s.litigator) litigators++;
+    if (!onList && !s.litigator) clear++;
+    for (const st of s.states) states.add(st);
+    return { ...p, dnc: onList ? true : p.dnc, litigator: s.litigator ? true : p.litigator };
+  });
+  const checked = phones.filter((p) => found.has(p.number)).length;
+  const note = [
+    `${clear} of ${checked} clear`,
+    listed ? `${listed} on the Do Not Call list${states.size ? ` (${[...states].sort().join(", ")})` : ""}` : "",
+    litigators ? `${litigators} known ${litigators === 1 ? "litigator" : "litigators"}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return { phones: out, try: { source: scrub.name, outcome: clear > 0 ? "hit" : "miss", note } };
+}
+
+/**
+ * A source's answer that means its account needs a hand, not a retry: the
+ * key was refused, or the account is out of credits. The Sources page shows
+ * it so one bad key doesn't go unnoticed across a whole list.
+ */
+export const needsAttention = (note: string | undefined): boolean => Boolean(note && /HTTP 40[123]\b|credits|api[ _-]?key|unauthori[sz]ed|forbidden/i.test(note));
+
+/** The surnames and company words a line's registered name can be matched against. */
+export function expectedNames(input: Pick<TraceInput, "name" | "company" | "person">): string[] {
+  const out = new Set<string>();
+  if (input.person) {
+    const who = splitName(input.person.name, "person");
+    if (who.last) out.add(who.last.toUpperCase());
+  }
+  if (!input.company) {
+    const who = splitName(input.name);
+    if (who.last) out.add(who.last.toUpperCase());
+  } else {
+    for (const w of input.company.toUpperCase().split(/[^A-Z0-9]+/)) if (w.length >= 4 && !ENTITY.test(w)) out.add(w);
+  }
+  return [...out];
+}
+
+/** Whose line it should be, for the checker: the person when known, else the owner; the company alongside. */
+export function lineOwner(input: Pick<TraceInput, "name" | "company" | "person">): LineOwner {
+  if (input.person) return { name: input.person.name, business: input.company };
+  if (input.company) return { name: input.company, business: input.company };
+  const who = splitName(input.name);
+  return { name: titleCase([who.first, who.last].filter(Boolean).join(" ") || input.name) };
+}
+
+/**
+ * Runs the found numbers (up to three) past the checker: a dead line is
+ * dropped, a live one is marked verified with the line type and the name
+ * on the account or the checker's word that the name matches; a name that
+ * matches the owner's is the nail in the coffin, and the ledger says how
+ * many did. A checker's grade stands in for a score the vendor didn't give.
+ */
+export async function checkPhones(phones: Phone[], checker: PhoneChecker, expected: string[], who: LineOwner = { name: expected[0] ?? "" }, email?: string): Promise<{ phones: Phone[]; try: Try; email?: EmailCheck }> {
+  if (phones.length === 0) return { phones, try: { source: checker.name, outcome: "skipped", note: "Nothing to check" } };
+  if (!checker.connected) return { phones, try: { source: checker.name, outcome: "skipped", note: "Not connected" } };
+  const kept: Phone[] = [];
+  let live = 0;
+  let named = 0;
+  let checked = 0;
+  let litigators = 0;
+  let unknown = 0;
+  let emailCheck: EmailCheck | undefined;
+  try {
+    for (const p of phones) {
+      if (checked >= CHECK_AT_MOST) {
+        kept.push(p);
+        continue;
+      }
+      checked++;
+      // The email rides on the first call only; one answer is all that's needed.
+      const line = await checker.check(p.number, who, checked === 1 ? email : undefined);
+      emailCheck ??= line.email;
+      if (line.unknown) {
+        unknown++;
+        kept.push(p);
+        continue;
+      }
+      if (!line.valid) continue;
+      live++;
+      const matches = line.nameMatch ?? (line.name ? expected.some((n) => line.name!.toUpperCase().includes(n)) : false);
+      if (matches) named++;
+      if (line.litigator) litigators++;
+      const score = matches ? Math.max(p.score ?? 0, 100) : (p.score ?? (line.grade ? GRADE_SCORE[line.grade] : undefined));
+      kept.push({ ...p, type: line.type ?? p.type, verified: true, name: line.name ?? p.name, score, grade: line.grade ?? p.grade, litigator: line.litigator ? true : p.litigator });
+    }
+  } catch (e) {
+    return { phones, try: { source: checker.name, outcome: "error", note: e instanceof Error ? e.message : String(e) } };
+  }
+  // Nothing said about any number: an error, so the next checker gets its turn.
+  if (unknown === checked) return { phones, try: { source: checker.name, outcome: "error", note: `Nothing on ${checked === 1 ? "the number" : "any of the numbers"}` }, email: emailCheck };
+  const known = checked - unknown;
+  const note = [
+    `${live} of ${known} live`,
+    named ? `${named} in the owner's name` : "",
+    known - live ? `${known - live} dropped` : "",
+    litigators ? `${litigators} known ${litigators === 1 ? "litigator" : "litigators"}` : "",
+    unknown ? `${unknown} unchecked` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return { phones: rankPhones(kept), try: { source: checker.name, outcome: live > 0 ? "hit" : "miss", note }, email: emailCheck };
+}
+
+/**
+ * The checkers in order: the first connected one answers; one that errors
+ * hands over to the next, and the ledger shows every turn. The rest are
+ * "not needed" once one has answered. An email sent along comes back with
+ * the checker's word on it, and which checker said so.
+ */
+export async function checkPhonesWith(phones: Phone[], checkers: PhoneChecker[], expected: string[], who: LineOwner, email?: string): Promise<{ phones: Phone[]; tries: Try[]; email?: EmailCheck & { source: string } }> {
+  const tries: Try[] = [];
+  let done = false;
+  let out = phones;
+  let emailCheck: (EmailCheck & { source: string }) | undefined;
+  for (const checker of checkers) {
+    if (done) {
+      tries.push({ source: checker.name, outcome: "skipped", note: "Not needed, already checked" });
+      continue;
+    }
+    const r = await checkPhones(out, checker, expected, who, email);
+    tries.push(r.try);
+    if (r.try.outcome === "hit" || r.try.outcome === "miss") {
+      out = r.phones;
+      done = true;
+      if (r.email) emailCheck = { ...r.email, source: checker.name };
+    }
+  }
+  return { phones: out, tries, email: emailCheck };
+}
+
+/**
+ * Puts the contact check's word on the email it was about: whose it is and
+ * its grade. Kept either way (ZeroBounce decides what's dead); the ledger
+ * says whether it's in the owner's name.
+ */
+export function applyEmailCheck(emails: Email[], address: string, check: EmailCheck & { source: string }): { emails: Email[]; try: Try } {
+  const key = address.trim().toLowerCase();
+  const out = emails.map((e) => (e.email === key ? { ...e, nameMatch: check.nameMatch ?? e.nameMatch, grade: check.grade ?? e.grade } : e));
+  const note = check.nameMatch === true ? "In the owner's name" : check.nameMatch === false ? "Not in the owner's name" : "Couldn't say whose it is";
+  return { emails: out, try: { source: check.source, outcome: check.nameMatch === true ? "hit" : "miss", note: check.grade ? `${note} · grade ${check.grade}` : note } };
+}
+
+/** The keys a field's sources need, for the "not connected" note. */
+export const KEY_FOR: Record<Field, string> = {
+  person: "TX_COMPTROLLER_API_KEY or COBALT_API_KEY",
+  phone: "BATCHDATA_API_KEY, TRACERFY_API_KEY or ENFORMION_AP_NAME with ENFORMION_AP_PASSWORD",
+  email: "BATCHDATA_API_KEY, TRACERFY_API_KEY, ENFORMION_AP_NAME with ENFORMION_AP_PASSWORD, HUNTER_API_KEY or LEADMAGIC_API_KEY",
+  research: "ANTHROPIC_API_KEY",
+};
+
+/** One source's turn for a field: what it said, or why it wasn't asked. */
+export type Try = { source: string; outcome: "hit" | "miss" | "error" | "skipped"; note?: string };
+export type Outcome = { field: Field; found: Found; source?: string; errors: string[]; tries: Try[] };
+
+/** "Dana Reyes" and "REYES, DANA M" are one person: same first and last name once the order and the middle are set aside. */
+export function samePerson(a: Pick<Person, "name">, b: Pick<Person, "name">): boolean {
+  const clean = (s: string) => s.toUpperCase().replace(/[^A-Z ]/g, " ").replace(/\s+/g, " ").trim();
+  if (clean(a.name) === clean(b.name)) return true;
+  const x = splitName(a.name, "person");
+  const y = splitName(b.name, "person");
+  const yr = splitName(b.name);
+  const same = (p: { first?: string; last?: string }, q: { first?: string; last?: string }) => Boolean(p.first && p.last && q.first && q.last && p.first.toUpperCase() === q.first.toUpperCase() && p.last.toUpperCase() === q.last.toUpperCase());
+  return same(x, y) || same(x, yr);
+}
+
+/** What a hit says in the ledger: the person's name and title, or how many numbers or addresses. */
+const hitNote = (field: Field, found: Found) => {
+  if (field === "person") return `${found.person!.name}${found.person!.title ? `, ${found.person!.title}` : ""}`;
+  const n = field === "phone" ? rankPhones(found.phones!).length : dedupeEmails(found.emails!).length;
+  const what = field === "phone" ? "number" : "email";
+  return `${n} ${what}${n === 1 ? "" : "s"}`;
+};
+
+/**
+ * Runs the stack for the fields asked for, in the order person → phone →
+ * email, so a person found for a company is who the phone vendors look
+ * up. Each source is called at most once per contact; its answer feeds
+ * every field it covers. A source that throws is skipped (its message
+ * kept), so one outage doesn't fail the unlock.
+ */
+/** A phone or email already paid for on a related owner with the same decision maker: copied, so no source is asked. */
+export type Reuse = (field: "phone" | "email", input: TraceInput) => Promise<{ found: Found; note: string } | undefined>;
+
+export async function waterfall(input: TraceInput, vendors: Vendor[], fields: Field[], reuse?: Reuse): Promise<Outcome[]> {
+  const answers = new Map<string, Promise<Found>>();
+  const ask = (vendor: Vendor) => {
+    let p = answers.get(vendor.name);
+    if (!p) {
+      p = vendor.trace(input);
+      answers.set(vendor.name, p);
+    }
+    return p;
+  };
+  const has = (field: Field, found: Found) =>
+    field === "person" ? Boolean(found.person) : field === "phone" ? (found.phones?.length ?? 0) > 0 : (found.emails?.length ?? 0) > 0;
+  const out: Outcome[] = [];
+  const order: Field[] = ["person", "phone", "email"];
+  for (const field of order) {
+    if (!fields.includes(field)) continue;
+    const errors: string[] = [];
+    const tries: Try[] = [];
+    let result: Outcome | undefined;
+    let authority = 0;
+    const copied = (field === "phone" || field === "email") && reuse && input.person ? await reuse(field, input) : undefined;
+    if (copied && has(field, copied.found)) {
+      tries.push({ source: "shared", outcome: "hit", note: copied.note });
+      for (const vendor of vendors) if (vendor.fields.includes(field)) tries.push({ source: vendor.name, outcome: "skipped", note: "Not needed, already found" });
+      out.push({ field, found: copied.found, source: "shared", errors, tries });
+      continue;
+    }
+    for (const vendor of vendors) {
+      if (!vendor.fields.includes(field)) continue;
+      if (!vendor.connected) {
+        tries.push({ source: vendor.name, outcome: "skipped", note: "Not connected" });
+        continue;
+      }
+      // A free source is still asked for the person once one is found: two sources naming the same one is the best confidence there is.
+      const corroborating = Boolean(result) && field === "person" && vendor.free === true;
+      if (result && !corroborating) {
+        tries.push({ source: vendor.name, outcome: "skipped", note: "Not needed, already found" });
+        continue;
+      }
+      const why = vendor.applies?.(input);
+      if (why) {
+        tries.push({ source: vendor.name, outcome: "skipped", note: why });
+        continue;
+      }
+      try {
+        const found = await ask(vendor);
+        if (corroborating) {
+          const first = result!.found.person!;
+          if (!found.person) tries.push({ source: vendor.name, outcome: "miss", note: "No match" });
+          else if (samePerson(first, found.person)) {
+            result!.found = { ...result!.found, person: { ...first, confirmedBy: [...(first.confirmedBy ?? []), vendor.name] } };
+            tries.push({ source: vendor.name, outcome: "hit", note: `Also names ${first.name}` });
+          } else if ((vendor.authority ?? 0) > authority) {
+            // A filed record outranks a guess: the stronger source's person takes over.
+            result = { field, found, source: vendor.name, errors, tries };
+            authority = vendor.authority ?? 0;
+            tries.push({ source: vendor.name, outcome: "hit", note: `Names ${found.person.name} instead, and outranks the earlier source` });
+          } else tries.push({ source: vendor.name, outcome: "hit", note: `Names ${found.person.name} instead` });
+        } else if (has(field, found)) {
+          result = { field, found, source: vendor.name, errors, tries };
+          authority = vendor.authority ?? 0;
+          tries.push({ source: vendor.name, outcome: "hit", note: hitNote(field, found) });
+        } else {
+          tries.push({ source: vendor.name, outcome: "miss", note: "No match" });
+        }
+      } catch (e) {
+        const text = e instanceof Error ? e.message : String(e);
+        const message = `${vendor.name}: ${text}`;
+        if (!errors.includes(message)) errors.push(message);
+        tries.push({ source: vendor.name, outcome: "error", note: text });
+      }
+    }
+    result ??= { field, found: {}, errors, tries };
+    if (field === "person" && result.found.person) input = { ...input, person: result.found.person };
+    out.push(result);
+  }
+  return out;
+}
