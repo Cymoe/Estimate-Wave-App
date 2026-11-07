@@ -1197,7 +1197,10 @@ export type OutreachDefinition = {
   limit?: number;
 };
 export type OutreachMailing = { address?: string; city?: string; state?: string; zip?: string };
-export type OutreachRowStatus = 'new' | 'sent' | 'done' | 'skip';
+/** Where an owner stands after the calls; sent, done and skip are the earlier statuses some rows still have. */
+export type OutreachRowStatus = 'new' | 'no_answer' | 'callback' | 'interested' | 'not_interested' | 'client' | 'sent' | 'done' | 'skip';
+/** One call or change of status, newest last. */
+export type OutreachTouch = { at: string; status: OutreachRowStatus; note?: string; followUpOn?: string };
 export type OutreachPhoneType = 'mobile' | 'landline' | 'voip' | 'unknown';
 /** litigator: the subscriber is a known TCPA litigator; grade: the checker's A to F for reaching someone on the line. */
 export type OutreachPhone = { number: string; type: OutreachPhoneType; dnc?: boolean; verified?: boolean; score?: number; source: string; name?: string; litigator?: boolean; grade?: string };
@@ -1229,6 +1232,11 @@ export type OutreachContact = {
   listIds: string[];
   status: OutreachRowStatus;
   note?: string;
+  /** The day to reach them again (YYYY-MM-DD). */
+  followUpOn?: string;
+  touches?: OutreachTouch[];
+  /** The client they were made into. */
+  clientId?: string;
   phones: OutreachPhone[];
   emails: OutreachEmail[];
   person?: OutreachPerson;
@@ -1295,8 +1303,11 @@ export const outreachAPI = {
     run('query', api.outreach.preview, { organizationId, definition }),
   create: (organizationId: string, definition: OutreachDefinition, title?: string): Promise<{ listId: string; rowCount: number; added: number; truncated: boolean }> =>
     run('mutation', api.outreach.create, defined({ organizationId, definition, title })),
-  setStatus: (organizationId: string, contactId: string, status: OutreachRowStatus, note?: string) =>
-    run('mutation', api.outreach.setStatus, defined({ organizationId, contactId, status, note })),
+  /** A status, with the day to try again for No answer and Call back; `touch` logs it as a call. */
+  setStatus: (organizationId: string, contactId: string, status: OutreachRowStatus, note?: string, followUpOn?: string, touch?: boolean) =>
+    run('mutation', api.outreach.setStatus, defined({ organizationId, contactId, status, note, followUpOn, touch })),
+  /** Makes the owner a client (once); returns the client's id. */
+  makeClient: (organizationId: string, contactId: string): Promise<string> => run('mutation', api.outreach.makeClient, { organizationId, contactId }),
   remove: (organizationId: string, listId: string) => run('mutation', api.outreach.remove, { organizationId, listId }),
   /** Loads the next page of a list that reached its cap. */
   extend: (organizationId: string, listId: string): Promise<{ loaded: number; added: number; rowCount: number; total: number; truncated: boolean }> =>

@@ -414,10 +414,37 @@ describe("a company's lists", () => {
     ]);
     expect((await co.as.query(api.outreach.lists, { organizationId: org })).map((l) => [l.who, l.done]).sort()).toEqual([["commercial", 1], ["investor", 1]]);
 
+    // A call's outcome: No answer and Call back keep a day to try again; a note on its own leaves the day alone.
+    const cityNow = async () => (await co.as.query(api.outreach.contacts, { organizationId: org })).rows.find((r) => r.id === city.id)!;
+    await co.as.mutation(api.outreach.setStatus, { organizationId: org, contactId: city.id, status: "no_answer", followUpOn: "2026-11-09", touch: true });
+    await co.as.mutation(api.outreach.setStatus, { organizationId: org, contactId: city.id, status: "no_answer", followUpOn: "2026-11-11", touch: true });
+    await co.as.mutation(api.outreach.setStatus, { organizationId: org, contactId: city.id, status: "no_answer", note: "Voicemail full" });
+    expect(await cityNow()).toMatchObject({ status: "no_answer", followUpOn: "2026-11-11", note: "Voicemail full" });
+    expect((await cityNow()).touches.map((x) => [x.status, x.followUpOn])).toEqual([["skip", undefined], ["sent", undefined], ["no_answer", "2026-11-09"], ["no_answer", "2026-11-11"]]);
+    await expect(co.as.mutation(api.outreach.setStatus, { organizationId: org, contactId: city.id, status: "callback", touch: true })).rejects.toThrow(/Pick a day/);
+    await expect(co.as.mutation(api.outreach.setStatus, { organizationId: org, contactId: city.id, status: "callback", followUpOn: "Tuesday", touch: true })).rejects.toThrow(/Pick a day/);
+    await co.as.mutation(api.outreach.setStatus, { organizationId: org, contactId: city.id, status: "callback", followUpOn: "2026-11-12", note: "Ask for Dana", touch: true });
+    expect(await cityNow()).toMatchObject({ status: "callback", followUpOn: "2026-11-12" });
+    await co.as.mutation(api.outreach.setStatus, { organizationId: org, contactId: city.id, status: "callback", note: "Ask for Dana, mornings" });
+    expect(await cityNow()).toMatchObject({ status: "callback", followUpOn: "2026-11-12", note: "Ask for Dana, mornings" });
+    // Interested clears the day; Make client makes one client, with the property as its address, and says so on the row.
+    await co.as.mutation(api.outreach.setStatus, { organizationId: org, contactId: city.id, status: "interested", touch: true });
+    expect((await cityNow()).followUpOn).toBeUndefined();
+    const clientId = await co.as.mutation(api.outreach.makeClient, { organizationId: org, contactId: city.id });
+    expect(await co.as.mutation(api.outreach.makeClient, { organizationId: org, contactId: city.id })).toBe(clientId);
+    const client = await t.run(async (ctx) => ctx.db.get(clientId));
+    expect(client).toMatchObject({ name: "City Of Midland", companyName: "City Of Midland", city: "Midland", state: "TX" });
+    expect(client!.address).toBe(city.property.address);
+    expect(client!.notes).toContain("From Outreach:");
+    expect(await cityNow()).toMatchObject({ status: "client", clientId });
+    expect((await cityNow()).touches.at(-1)!.status).toBe("client");
+    expect((await co.as.query(api.outreach.lists, { organizationId: org })).find((l) => l.who === "commercial")!.done).toBe(2);
+
     // Another company can't see it; a company off the plan can't use Outreach at all.
     const other = await proCompany(t, "owner@paint.example");
     expect((await other.as.query(api.outreach.contacts, { organizationId: other.organizationId, listId: saved.listId })).rows).toEqual([]);
     await expect(other.as.mutation(api.outreach.setStatus, { organizationId: other.organizationId, contactId: oak.id, status: "done" })).rejects.toThrow(/No such contact/);
+    await expect(other.as.mutation(api.outreach.makeClient, { organizationId: other.organizationId, contactId: city.id })).rejects.toThrow(/No such contact/);
     const free = await signUp(t, "owner@free.example");
     await expect(free.as.query(api.outreach.lists, { organizationId: free.organizationId })).rejects.toThrow(/Pro plan/);
     await expect(free.as.query(api.outreach.preview, { organizationId: free.organizationId, definition: { county: "Midland", who: "wealthy" } })).rejects.toThrow(/Pro plan/);

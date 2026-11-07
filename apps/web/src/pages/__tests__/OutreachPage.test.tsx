@@ -57,6 +57,7 @@ const interpret = jest.fn(async () => interpreted);
 const preview = jest.fn(async () => ({ count: 1, truncated: false, limited: false, rows: [contact('r1', { name: 'Vance Robert & Linda' })] }));
 const create = jest.fn(async () => ({ listId: 'l9', rowCount: 2, added: 2, truncated: false }));
 const setStatus = jest.fn(async () => null);
+const makeClient = jest.fn(async () => 'c1');
 const remove = jest.fn(async () => null);
 const extend = jest.fn(async () => ({ loaded: 500, added: 500, rowCount: 1000, total: 2340, truncated: false }));
 const enrich = jest.fn(async () => ({ queued: 1, costCents: 100, at: '2026-11-05T15:00:00Z' }));
@@ -83,6 +84,7 @@ jest.mock('../../lib/api', () => ({
     preview: (...args: unknown[]) => preview(...(args as [])),
     create: (...args: unknown[]) => create(...(args as [])),
     setStatus: (...args: unknown[]) => setStatus(...(args as [])),
+    makeClient: (...args: unknown[]) => makeClient(...(args as [])),
     remove: (...args: unknown[]) => remove(...(args as [])),
     extend: (...args: unknown[]) => extend(...(args as [])),
     enrich: (...args: unknown[]) => enrich(...(args as [])),
@@ -93,12 +95,22 @@ jest.mock('../../lib/api', () => ({
     rebuild: () => rebuild(),
   },
 }));
+// The estimate drawer, as far as Outreach needs it: who it's for, and a way to close it.
+jest.mock('../../components/estimates/CreateEstimateDrawer', () => {
+  const React = jest.requireActual<typeof import('react')>('react');
+  return {
+    CreateEstimateDrawer: (p: { projectContext: { clientId: string; projectName: string }; onClose: () => void }) =>
+      React.createElement('div', { 'data-testid': 'estimate-drawer' }, `${p.projectContext.clientId} · ${p.projectContext.projectName}`, React.createElement('button', { type: 'button', onClick: p.onClose })),
+  };
+});
+jest.mock('../../services/EstimateService', () => ({ EstimateService: { create: jest.fn(async () => ({ id: 'e1' })) } }));
 jest.mock('../../components/layouts/DashboardLayout', () => ({
   OrganizationContext: jest.requireActual<typeof import('react')>('react').createContext({ selectedOrg: { id: 'o1', name: 'Peak Roofing' } }),
 }));
 
 import OutreachPage from '../OutreachPage';
 import { ContactsTable } from '../../components/outreach/ContactsTable';
+import { followUpText, localDay } from '../../components/outreach/format';
 
 // The screen width the page asks about: a laptop unless a test says it's a phone.
 let narrowScreen = false;
@@ -201,13 +213,13 @@ describe('the Outreach page', () => {
     await act(async () => accept({ queued: 2, costCents: 200, at: new Date().toISOString() }));
     await flush();
 
-    // Done that the server refuses: shown at once, then put back.
+    // An outcome the server refuses: shown at once, then put back.
     setStatus.mockImplementationOnce(async () => {
       throw new Error('offline');
     });
     await act(async () => (document.body.querySelectorAll('[data-testid="contact-row"]')[1] as HTMLTableRowElement).click());
     await flush();
-    await click('Done');
+    await click('Interested');
     await flush();
     const statusOf = () => document.body.querySelectorAll('[data-testid="contact-row"]')[1].querySelectorAll('td')[5].textContent;
     expect(statusOf()).toBe('New');
@@ -284,7 +296,7 @@ describe('the Outreach page', () => {
     await act(async () => root.unmount());
   });
 
-  it('shows cards on a phone: the decision maker, the best number with Call and Text, the signal, Done and Skip; the table is a tap away and remembered', async () => {
+  it('shows cards on a phone: the decision maker, the best number with Call and Text, the signal, what happened on the call; the table is a tap away and remembered', async () => {
     narrowScreen = true;
     lists = [list];
     contacts = {
@@ -329,14 +341,33 @@ describe('the Outreach page', () => {
     expect(city).toContain('Decision maker: not looked up');
     expect(city).toContain('Phone: not looked up');
     expect(cards[1].querySelector('[data-testid="card-reach"]')).toBeNull();
-    // Done saves the status, keeping the note; tapping it again puts the owner back to New.
-    await act(async () => (Array.from(cards[0].querySelectorAll('button')).find((b) => b.textContent === 'Mark done') as HTMLButtonElement).click());
+    // What happened on the call: No answer comes back in two days; Call back asks which day.
+    const tapCard = async (text: string) => {
+      const card = document.body.querySelectorAll('[data-testid="contact-card"]')[0];
+      await act(async () => (Array.from(card.querySelectorAll('button')).find((b) => b.textContent?.trim() === text) as HTMLButtonElement).click());
+      await flush();
+    };
+    await tapCard('No answer');
+    expect(setStatus).toHaveBeenLastCalledWith('o1', 'r1', 'no_answer', undefined, localDay(2), true);
+    const statusLine = () => document.body.querySelectorAll('[data-testid="contact-card"]')[0].querySelector('[data-testid="card-status"]')!.textContent;
+    expect(statusLine()).toBe(`No answer · ${followUpText(localDay(2))}`);
+    await tapCard('Call back');
+    expect(document.body.querySelector('[data-testid="callback-days"]')).not.toBeNull();
+    await tapCard('Tomorrow');
+    expect(setStatus).toHaveBeenLastCalledWith('o1', 'r1', 'callback', undefined, localDay(1), true);
+    expect(statusLine()).toBe('Call back · Tomorrow');
+    expect(document.body.querySelector('[data-testid="callback-days"]')).toBeNull();
+    // Interested: Make client makes them one and opens a new estimate for them.
+    await tapCard('Interested');
+    expect(setStatus).toHaveBeenLastCalledWith('o1', 'r1', 'interested', undefined, undefined, true);
+    await tapCard('Make client');
+    expect(makeClient).toHaveBeenCalledWith('o1', 'r1');
+    expect(document.body.querySelector('[data-testid="estimate-drawer"]')!.textContent).toBe('c1 · Oak Plaza LLC');
+    expect(statusLine()).toBe('Client');
+    expect(Array.from(document.body.querySelectorAll('[data-testid="contact-card"]')[0].querySelectorAll('button')).some((b) => b.textContent?.trim() === 'Start estimate')).toBe(true);
+    await act(async () => (document.body.querySelector('[data-testid="estimate-drawer"] button') as HTMLButtonElement).click());
     await flush();
-    expect(setStatus).toHaveBeenLastCalledWith('o1', 'r1', 'done', undefined);
-    const doneCard = document.body.querySelectorAll('[data-testid="contact-card"]')[0];
-    await act(async () => (Array.from(doneCard.querySelectorAll('button')).find((b) => b.textContent === 'Done ✓') as HTMLButtonElement).click());
-    await flush();
-    expect(setStatus).toHaveBeenLastCalledWith('o1', 'r1', 'new', undefined);
+    expect(document.body.querySelector('[data-testid="estimate-drawer"]')).toBeNull();
     // The table, a tap away; the choice sticks on this device.
     // The switch is just an icon, named for screen readers.
     const viewSwitch = async (name: string) => {
@@ -430,7 +461,7 @@ describe('the Outreach page', () => {
     const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(1)')).map((c) => c.textContent);
     expect(names()).toEqual(['Oak Plaza LLC', 'City Of Midland', 'Vance Robert & Linda']);
     const filters = document.body.querySelector('[aria-label="Filters"]')!;
-    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Mail only 1', 'Needs you 1', '', '']);
+    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Due today 0', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Mail only 1', 'Needs you 1', '', '']);
     // The failed cell says why, and Retry runs that field again without opening the sheet.
     const failedCell = document.body.querySelectorAll('[data-testid="contact-row"]')[0].querySelectorAll('td')[1];
     expect(failedCell.textContent?.trim()).toBe('Lookup failedThe state registry timed outRetry');
@@ -495,6 +526,32 @@ describe('the Outreach page', () => {
     expect(path).toBe('/outreach/l9');
   });
 
+  it('Due today: who to call back, or try again, today or before; the table says when', async () => {
+    lists = [list];
+    contacts = {
+      ...twoContacts(),
+      rows: [
+        contact('r1', { status: 'no_answer', followUpOn: localDay(-1), touches: [{ at: '2026-11-05T15:00:00Z', status: 'no_answer', followUpOn: localDay(-1) }] }),
+        contact('r2', { name: 'City Of Midland', status: 'callback', followUpOn: localDay(3) }),
+      ],
+    };
+    await render('/outreach/l1');
+    const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(1)')).map((c) => c.textContent);
+    expect(button('Due today').textContent?.trim()).toBe('Due today 1');
+    await click('Due today');
+    expect(names()).toEqual(['Oak Plaza LLC']);
+    const followUps = () => Array.from(document.body.querySelectorAll('[data-testid="follow-up"]')).map((f) => [f.textContent, f.className.includes('amber')]);
+    expect(followUps()).toEqual([[followUpText(localDay(-1)), true]]);
+    expect(followUpText(localDay(-1))).toMatch(/^Overdue · /);
+    await act(async () => (document.body.querySelector('[data-testid="filter-bar"] button') as HTMLButtonElement).click());
+    await flush();
+    expect(names()).toEqual(['Oak Plaza LLC', 'City Of Midland']);
+    expect(followUps()[1]).toEqual([followUpText(localDay(3)), false]);
+    // The status picker offers the call outcomes; the earlier Sent, Done and Skipped only while a row has one.
+    const options = Array.from(document.body.querySelectorAll('select option')).map((o) => o.textContent);
+    expect(options).toEqual(['All statuses', 'New', 'No answer', 'Call back', 'Interested', 'Not interested', 'Client']);
+  });
+
   it('says what it cannot make and builds the closest instead; an example chip fills the ask', async () => {
     interpreted = {
       ok: false,
@@ -538,10 +595,12 @@ describe('the Outreach page', () => {
     await click('Find the person behind the company · free');
     expect(enrich).toHaveBeenCalledWith('o1', ['r1'], ['person'], undefined);
     await act(async () => type(sheet.querySelector('textarea#outreach-note') as HTMLTextAreaElement, 'Mailed Nov 5'));
-    await click('Done');
-    expect(setStatus).toHaveBeenCalledWith('o1', 'r1', 'done', 'Mailed Nov 5');
+    await click('Not interested');
+    expect(setStatus).toHaveBeenCalledWith('o1', 'r1', 'not_interested', 'Mailed Nov 5', undefined, true);
     expect(document.body.textContent).toContain('1 done');
-    expect(document.body.querySelector('[data-testid="contact-row"]')!.textContent).toContain('Done');
+    expect(document.body.querySelector('[data-testid="contact-row"]')!.textContent).toContain('Not interested');
+    // The call is in the history, with its note.
+    expect(document.body.querySelector('[data-testid="history"]')!.textContent).toContain('Not interestedMailed Nov 5');
 
     // The CSV, for a mail merge.
     const made: string[] = [];

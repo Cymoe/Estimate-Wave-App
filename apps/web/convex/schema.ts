@@ -476,7 +476,30 @@ export const outreachProperty = v.object({
   valueCents: v.optional(v.number()),
 });
 
-export const outreachRowStatus = v.union(v.literal("new"), v.literal("sent"), v.literal("done"), v.literal("skip"));
+/**
+ * Where an owner stands. The calls: no answer, call back, interested, not
+ * interested; client once they're made one. sent, done and skip are the
+ * earlier statuses, kept for the rows that still have them.
+ */
+export const outreachRowStatus = v.union(
+  v.literal("new"),
+  v.literal("no_answer"),
+  v.literal("callback"),
+  v.literal("interested"),
+  v.literal("not_interested"),
+  v.literal("client"),
+  v.literal("sent"),
+  v.literal("done"),
+  v.literal("skip"),
+);
+/** One call or change of status, newest last: what happened, the note, and the follow-up it set. */
+export const outreachTouch = v.object({
+  at: v.string(),
+  status: outreachRowStatus,
+  note: v.optional(v.string()),
+  followUpOn: v.optional(v.string()),
+  userId: v.optional(v.id("users")),
+});
 /** A phone a skip trace found, ranked by the vendor's score then by type; DNC numbers are kept but never dialled from the app. */
 export const outreachPhone = v.object({
   number: v.string(),
@@ -1162,6 +1185,12 @@ export default defineSchema({
     listIds: v.array(v.id("outreachLists")),
     status: outreachRowStatus,
     note: v.optional(v.string()),
+    /** The day to reach them again (YYYY-MM-DD, the company's own day); on the Due today tab from then on. */
+    followUpOn: v.optional(v.string()),
+    /** Every call and change of status, newest last, the last 50. */
+    touches: v.optional(v.array(outreachTouch)),
+    /** The client they were made into. */
+    clientId: v.optional(v.id("clients")),
     phones: v.optional(v.array(outreachPhone)),
     emails: v.optional(v.array(outreachEmail)),
     person: v.optional(outreachPerson),

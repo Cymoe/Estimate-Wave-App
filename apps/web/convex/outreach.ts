@@ -17,7 +17,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { outreachDefinition, outreachEmail, outreachField, outreachPerson, outreachPhone, outreachResearch, outreachTry, outreachRowStatus } from "./schema";
-import { fail, isStaff, nowIso, organizationIdsFor, requireMember, requireStaff } from "./lib/access";
+import { fail, isStaff, logActivity, nowIso, organizationIdsFor, requireMember, requireStaff } from "./lib/access";
 import { mutationDef, queryDef } from "./lib/actor";
 import { callClaude } from "./lib/claude";
 import {
@@ -334,7 +334,8 @@ export const assertPro = internalQuery({
   },
 });
 
-const isWorked = (s: Doc<"outreachContacts">["status"]) => s === "done" || s === "skip";
+/** Settled: an answer one way or the other, or a client. No answer and Call back are still in play. */
+const isWorked = (s: Doc<"outreachContacts">["status"]) => ["interested", "not_interested", "client", "done", "skip"].includes(s);
 
 /** Every contact a company has, newest first. */
 async function contactsOf(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">) {
@@ -457,6 +458,9 @@ const contactView = (c: Doc<"outreachContacts">, signals: SignalBadge[], related
   listIds: c.listIds,
   status: c.status,
   note: c.note,
+  followUpOn: c.followUpOn,
+  touches: (c.touches ?? []).slice(-20).map(({ at, status, note, followUpOn }) => ({ at, status, note, followUpOn })),
+  clientId: c.clientId,
   phones: c.phones ?? [],
   emails: c.emails ?? [],
   person: c.person,
@@ -609,14 +613,87 @@ export const sources = query({
 });
 
 /** Marks a contact sent, done or skipped (or new again), with a note. */
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const TOUCHES_KEPT = 50;
+/** The statuses that wait on a day: the rest clear it. */
+const DATED = new Set(["no_answer", "callback"]);
+
+/**
+ * Where an owner stands, and the day to try them again. A call's outcome
+ * (`touch`) goes in their history; saving just the note doesn't. No answer
+ * and Call back keep a follow-up day; any other status clears it.
+ */
 export const setStatus = mutation({
-  args: { organizationId: v.id("organizations"), contactId: v.id("outreachContacts"), status: outreachRowStatus, note: v.optional(v.string()) },
-  handler: async (ctx, { organizationId, contactId, status, note }) => {
-    await requirePro(ctx, organizationId);
+  args: {
+    organizationId: v.id("organizations"),
+    contactId: v.id("outreachContacts"),
+    status: outreachRowStatus,
+    note: v.optional(v.string()),
+    followUpOn: v.optional(v.string()),
+    touch: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { organizationId, contactId, status, note, followUpOn, touch }) => {
+    const { user } = await requirePro(ctx, organizationId);
     const contact = await ctx.db.get(contactId);
     if (!contact || contact.organizationId !== organizationId) fail("NOT_FOUND", "No such contact");
-    await ctx.db.patch(contactId, { status, note: note?.trim() || undefined, updatedAt: nowIso() });
+    if (followUpOn !== undefined && !DAY.test(followUpOn)) fail("INVALID", "Pick a day to call back");
+    const changed = touch || status !== contact.status;
+    if (changed && status === "callback" && !followUpOn) fail("INVALID", "Pick a day to call back");
+    const now = nowIso();
+    const text = note?.trim() || undefined;
+    // Only a call or a new status moves the follow-up day; a note on its own leaves it.
+    const day = changed ? (DATED.has(status) ? followUpOn : undefined) : contact.followUpOn;
+    const touches = changed
+      ? [...(contact.touches ?? []), { at: now, status, ...(text ? { note: text } : {}), ...(day ? { followUpOn: day } : {}), userId: user._id }].slice(-TOUCHES_KEPT)
+      : contact.touches;
+    await ctx.db.patch(contactId, { status, note: text, followUpOn: day, touches, updatedAt: now });
     return null;
+  },
+});
+
+/**
+ * Makes an owner a client: the decision maker's name (or the owner's), the
+ * company, the best number not on Do Not Call, the email, and the property as
+ * the address. Once made, the same client comes back.
+ */
+export const makeClient = mutation({
+  args: { organizationId: v.id("organizations"), contactId: v.id("outreachContacts") },
+  handler: async (ctx, { organizationId, contactId }) => {
+    const { user } = await requirePro(ctx, organizationId);
+    const contact = await ctx.db.get(contactId);
+    if (!contact || contact.organizationId !== organizationId) fail("NOT_FOUND", "No such contact");
+    const now = nowIso();
+    let clientId = contact.clientId && (await ctx.db.get(contact.clientId)) ? contact.clientId : undefined;
+    if (!clientId) {
+      const phone = (contact.phones ?? []).find((p) => !p.dnc && !p.litigator);
+      const email = (contact.emails ?? []).find((e) => e.nameMatch !== false);
+      const mailing = [contact.mailing.address, contact.mailing.city, contact.mailing.state, contact.mailing.zip?.slice(0, 5)].filter(Boolean).join(", ");
+      clientId = await ctx.db.insert("clients", {
+        name: contact.person?.name ?? contact.name,
+        ...(contact.company ? { companyName: contact.name } : {}),
+        ...(phone ? { phone: phone.number } : {}),
+        ...(email ? { email: email.email } : {}),
+        ...(contact.property.address ? { address: contact.property.address, city: "Midland", state: "TX" } : {}),
+        notes: [`From Outreach: ${contact.why}.`, mailing ? `Mailing address: ${mailing}.` : "", contact.note ?? ""].filter(Boolean).join(" "),
+        organizationId,
+        userId: user._id,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await logActivity(ctx, {
+        organizationId,
+        userId: user._id,
+        action: "created",
+        resourceType: "client",
+        resourceId: clientId,
+        details: { name: contact.person?.name ?? contact.name, fromOutreach: contactId },
+      });
+    }
+    if (contact.status !== "client" || contact.clientId !== clientId) {
+      const touches = [...(contact.touches ?? []), { at: now, status: "client" as const, userId: user._id }].slice(-TOUCHES_KEPT);
+      await ctx.db.patch(contactId, { clientId, status: "client", followUpOn: undefined, touches, updatedAt: now });
+    }
+    return clientId;
   },
 });
 

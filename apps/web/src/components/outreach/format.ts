@@ -71,3 +71,43 @@ export const askingText = (s?: string) =>
         claude: 'Reading the web',
       }[s] ?? `Asking ${s}`)
     : 'Starting';
+
+/** Each status in words. The last three are the earlier statuses some rows still have. */
+export const STATUS_LABEL: Record<string, string> = {
+  new: 'New',
+  no_answer: 'No answer',
+  callback: 'Call back',
+  interested: 'Interested',
+  not_interested: 'Not interested',
+  client: 'Client',
+  sent: 'Sent',
+  done: 'Done',
+  skip: 'Skipped',
+};
+/** The outcomes of a call, in the order they're offered. */
+export const OUTCOMES = ['no_answer', 'callback', 'interested', 'not_interested'] as const;
+/** After no answer, they come back on Due today this many days later. */
+export const NO_ANSWER_DAYS = 2;
+
+/** A day as YYYY-MM-DD where you are (the UTC date is already tomorrow on US evenings), `plus` days on. */
+export const localDay = (plus = 0, from = new Date()) => {
+  const d = new Date(from.getFullYear(), from.getMonth(), from.getDate() + plus);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+/** Waiting on a call back or a retry whose day has come. */
+export const isDue = (r: { status: string; followUpOn?: string }, today = localDay()) =>
+  (r.status === 'no_answer' || r.status === 'callback') && !!r.followUpOn && r.followUpOn <= today;
+/** "Today", "Tomorrow", "Overdue · Nov 5", "Tue, Nov 10". */
+export const followUpText = (day: string, today = localDay()) => {
+  if (day === today) return 'Today';
+  if (day === localDay(1)) return 'Tomorrow';
+  const [y, m, d] = day.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  const short = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return day < today ? `Overdue · ${short}` : date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+};
+/** "2026-11-06" → "Nov 6", as written. */
+export const dayText = (day: string) => {
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
