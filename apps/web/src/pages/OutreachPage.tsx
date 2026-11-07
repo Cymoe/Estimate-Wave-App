@@ -74,7 +74,7 @@ const OwnersLine: React.FC = () => {
   };
   if (state === undefined) return null;
   return (
-    <p className="text-xs text-gray-500" data-testid="owners-line">
+    <span data-testid="owners-line">
       {state === null
         ? "The roll hasn't been grouped into owners yet, so every list is empty."
         : state.error
@@ -84,7 +84,7 @@ const OwnersLine: React.FC = () => {
         {busy ? 'Rebuilding…' : 'Rebuild owners'}
       </button>
       {note && <span className="block text-gray-400">{note}</span>}
-    </p>
+    </span>
   );
 };
 
@@ -101,12 +101,12 @@ const SourcesPanel: React.FC<{ organizationId: string }> = ({ organizationId }) 
   }, [organizationId, open]);
   const FIELD: Record<OutreachField, string> = { person: 'decision maker', phone: 'phone', email: 'email', research: 'research' };
   return (
-    <div className="text-xs text-gray-500" data-testid="sources-panel">
+    <div className="contents" data-testid="sources-panel">
       <button type="button" onClick={() => setOpen((o) => !o)} className="text-[#7fb0e0] hover:text-white">
         {open ? 'Hide data sources' : 'Data sources'}
       </button>
       {open && sources && (
-        <ol className="mt-2 bg-[#121212] border border-[#333333] divide-y divide-[#333333]">
+        <ol className="basis-full mt-1 bg-[#121212] border border-[#333333] divide-y divide-[#333333]">
           {sources.map((s, i) => (
             <li key={s.name} className="px-3 py-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <span className="text-gray-300">
@@ -129,7 +129,7 @@ const SourcesPanel: React.FC<{ organizationId: string }> = ({ organizationId }) 
           ))}
         </ol>
       )}
-      {open && sources === null && <span className="block mt-1">The sources couldn't be read.</span>}
+      {open && sources === null && <span className="basis-full">The sources couldn't be read.</span>}
     </div>
   );
 };
@@ -480,9 +480,12 @@ const OutreachPage: React.FC = () => {
       <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold text-white">Outreach</h1>
-          <p className="text-sm text-gray-400">Property owners from the Midland County roll. Names and mailing addresses; the person behind each company, then a phone and email for {dollars(unlockCents)}.</p>
-          {isStaff(user) && <OwnersLine />}
-          {isStaff(user) && <SourcesPanel organizationId={organizationId} />}
+          {isStaff(user) && (
+            <div className="mt-1 flex flex-wrap items-baseline gap-x-3 text-xs text-gray-500">
+              <OwnersLine />
+              <SourcesPanel organizationId={organizationId} />
+            </div>
+          )}
         </div>
         {data && rows.length > 0 && (
           <div className="flex gap-2 shrink-0">

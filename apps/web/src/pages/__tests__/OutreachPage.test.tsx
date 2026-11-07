@@ -324,7 +324,8 @@ describe('the Outreach page', () => {
   it('shows the contacts table with a chip per list, or says to tap + when there are none', async () => {
     await render();
     expect(document.body.querySelector('[data-testid="outreach-empty"]')!.textContent).toBe('No contacts yet. Tap + and say who you want to reach.');
-    expect(document.body.textContent).toContain('the person behind each company, then a phone and email for $1.');
+    // Just the title: no paragraph of explanation under it.
+    expect(document.body.querySelector('header')!.textContent).toBe('Outreach');
     document.body.innerHTML = '';
     lists = [list];
     contacts = twoContacts();
