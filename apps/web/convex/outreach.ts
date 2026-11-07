@@ -1144,8 +1144,10 @@ export const seedSampleList = internalMutation({
       candidates.push(...(await organizationIdsFor(ctx, user._id)));
     }
     if (orgName) {
-      for (const o of await ctx.db.query("organizations").take(2000)) if (o.name.toLowerCase().includes(orgName.toLowerCase()) && !candidates.includes(o._id)) candidates.push(o._id);
+      for await (const o of ctx.db.query("organizations")) if (o.name.toLowerCase().includes(orgName.toLowerCase()) && !candidates.includes(o._id)) candidates.push(o._id);
     }
+    // What was looked at, so a miss says where it looked.
+    const seen: Array<{ organization: string; lists: string[]; contacts: number }> = [];
     for (const organizationId of candidates) {
       const organization = await ctx.db.get(organizationId);
       if (!organization) continue;
@@ -1170,6 +1172,7 @@ export const seedSampleList = internalMutation({
       }
       const lists = (await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       const list = lists.find((l) => l.title.toLowerCase().includes(wanted.toLowerCase())) ?? lists[0];
+      seen.push({ organization: organization.name, lists: lists.map((l) => l.title), contacts: contacts.length });
       if (!list) continue;
       const order = listOrder(list.definition);
       const members = contacts.filter((c) => c.listIds.includes(list._id)).sort((a, b) => order.key(b) - order.key(a) || a.name.localeCompare(b.name));
@@ -1220,7 +1223,7 @@ export const seedSampleList = internalMutation({
       }
       return { done: true, organization: organization.name, list: list.title, filled, shared };
     }
-    return { done: false, reason: "no list" };
+    return { done: false, reason: clear ? "nothing to clear" : "no list", seen };
   },
 });
 
