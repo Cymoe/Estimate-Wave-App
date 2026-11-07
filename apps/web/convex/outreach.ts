@@ -204,10 +204,13 @@ const rowOf = (o: Doc<"owners">, facet: Facet): ListRow | null => {
 
 /**
  * The rows a definition picks: its facet read top-down by what it's sorted
- * on, filtered in memory, until the limit. `truncated` means the scan cap
- * was hit with rows unread: narrow the list to see everyone.
+ * on, filtered in memory. The first `offset` matches are skipped (a list
+ * loading its next page), then up to the limit are returned; the rest are
+ * only counted, so `total` is how many owners the definition reaches.
+ * `truncated` means the scan cap was hit with rows unread, so the total is
+ * a floor: narrow the list to see everyone.
  */
-export async function buildRows(ctx: QueryCtx | MutationCtx, def: Definition) {
+export async function buildRows(ctx: QueryCtx | MutationCtx, def: Definition, offset = 0) {
   let facet: Facet;
   try {
     facet = facetFor(def);
@@ -224,24 +227,23 @@ export async function buildRows(ctx: QueryCtx | MutationCtx, def: Definition) {
   const valueSorted = facet !== "investor" && facet !== "office" && facet !== "buyer";
   const minValue = def.minValueCents ?? (def.who === "wealthy" ? WEALTHY_DEFAULT_CENTS : undefined);
   const rows: ListRow[] = [];
-  let stopped = false;
+  let total = 0;
+  let floored = false;
   for (const f of facetRows) {
-    if (rows.length >= limit) {
-      stopped = true;
-      break;
-    }
     const owner = await ctx.db.get(f.ownerId);
     if (!owner) continue;
     // Sorted by value, so once a row is under the floor every row after it is too.
     if (valueSorted && minValue !== undefined && facetValue(owner as unknown as OwnerRow, facet) < minValue) {
-      stopped = true;
+      floored = true;
       break;
     }
     if (!matches(owner as unknown as OwnerRow, def, facet, now)) continue;
+    total++;
+    if (total <= offset || rows.length >= limit) continue;
     const row = rowOf(owner, facet);
     if (row) rows.push(row);
   }
-  return { rows, truncated: !stopped && facetRows.length === SCAN, limited: rows.length >= limit };
+  return { rows, total, truncated: !floored && facetRows.length === SCAN, limited: rows.length >= limit };
 }
 
 // ---- A company's lists ----
@@ -261,16 +263,18 @@ const listView = (l: Doc<"outreachLists">, done: number) => ({
   rowCount: l.rowCount,
   done,
   truncated: l.truncated,
+  /** How many owners the definition reaches (a floor when truncated); missing on lists saved before it was counted. */
+  total: l.total,
   createdAt: l.createdAt,
 });
 
-/** The count and a first look, before saving. */
+/** The count and a first look, before saving. `count` is what one list holds; `total` is how many owners the ask reaches. */
 export const preview = query({
   args: { organizationId: v.id("organizations"), definition: outreachDefinition },
   handler: async (ctx, { organizationId, definition }) => {
     await requirePro(ctx, organizationId);
     const built = await buildRows(ctx, definition);
-    return { count: built.rows.length, truncated: built.truncated, limited: built.limited, rows: built.rows.slice(0, 25) };
+    return { count: built.rows.length, total: built.total, truncated: built.truncated, limited: built.limited, rows: built.rows.slice(0, 25) };
   },
 });
 
@@ -279,7 +283,7 @@ export const previewInternal = internalQuery({
   handler: async (ctx, { organizationId, definition }) => {
     await requirePro(ctx, organizationId);
     const built = await buildRows(ctx, definition);
-    return { count: built.rows.length, truncated: built.truncated, limited: built.limited, rows: built.rows.slice(0, 25) };
+    return { count: built.rows.length, total: built.total, truncated: built.truncated, limited: built.limited, rows: built.rows.slice(0, 25) };
   },
 });
 
@@ -314,32 +318,59 @@ export const createDef = mutationDef({
       title: wanted?.trim() || defaultTitle(definition),
       definition,
       rowCount: built.rows.length,
+      total: built.total,
       done: 0,
       truncated: built.truncated,
       createdBy: user._id,
       createdAt: now,
     });
-    let added = 0;
-    for (const row of built.rows) {
-      const existing = await ctx.db
-        .query("outreachContacts")
-        .withIndex("by_organization_and_key", (q) => q.eq("organizationId", organizationId).eq("key", row.key))
-        .unique();
-      if (existing) {
-        await ctx.db.patch(existing._id, {
-          listIds: [...existing.listIds, listId],
-          kinds: existing.kinds.includes(definition.who) ? existing.kinds : [...existing.kinds, definition.who],
-          updatedAt: now,
-        });
-      } else {
-        await ctx.db.insert("outreachContacts", { organizationId, ...row, kinds: [definition.who], listIds: [listId], status: "new", createdAt: now });
-        added++;
-      }
-    }
-    return { listId, rowCount: built.rows.length, added, truncated: built.truncated, limited: built.limited, sample: built.rows.slice(0, 3) };
+    const added = await addRows(ctx, organizationId, listId, definition.who, built.rows, now);
+    return { listId, rowCount: built.rows.length, total: built.total, added, truncated: built.truncated, limited: built.limited, sample: built.rows.slice(0, 3) };
   },
 });
 export const create = mutation(createDef);
+
+/** Puts a list's rows in the company's contacts: a new row for an owner it hasn't pulled before, a tag on the row for one it has. Returns how many were new. */
+async function addRows(ctx: MutationCtx, organizationId: Id<"organizations">, listId: Id<"outreachLists">, who: Definition["who"], rows: ListRow[], now: string) {
+  let added = 0;
+  for (const row of rows) {
+    const existing = await ctx.db
+      .query("outreachContacts")
+      .withIndex("by_organization_and_key", (q) => q.eq("organizationId", organizationId).eq("key", row.key))
+      .unique();
+    if (existing) {
+      if (existing.listIds.includes(listId)) continue;
+      await ctx.db.patch(existing._id, {
+        listIds: [...existing.listIds, listId],
+        kinds: existing.kinds.includes(who) ? existing.kinds : [...existing.kinds, who],
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.insert("outreachContacts", { organizationId, ...row, kinds: [who], listIds: [listId], status: "new", createdAt: now });
+      added++;
+    }
+  }
+  return added;
+}
+
+/**
+ * Loads the next page of a list that reached its cap: the owners after the
+ * ones it already holds, in the same order, up to the list's limit again.
+ */
+export const extend = mutation({
+  args: { organizationId: v.id("organizations"), listId: v.id("outreachLists") },
+  handler: async (ctx, { organizationId, listId }) => {
+    await requirePro(ctx, organizationId);
+    const list = await ctx.db.get(listId);
+    if (!list || list.organizationId !== organizationId) fail("NOT_FOUND", "No such list");
+    const built = await buildRows(ctx, list.definition, list.rowCount);
+    const now = nowIso();
+    const added = await addRows(ctx, organizationId, listId, list.definition.who, built.rows, now);
+    const rowCount = list.rowCount + built.rows.length;
+    await ctx.db.patch(listId, { rowCount, total: built.total, truncated: built.truncated });
+    return { loaded: built.rows.length, added, rowCount, total: built.total, truncated: built.truncated };
+  },
+});
 
 export const listsDef = queryDef({
   args: { organizationId: v.id("organizations") },
@@ -1004,7 +1035,7 @@ Answer with kind "list" and a definition when the ask maps to one who, even loos
 Answer with kind "cannot" when the ask needs what the roll doesn't hold (a job, an income, an age, a business's customers, another county, a person by name) or isn't about property owners at all. Say in one sentence why, and give closest: the nearest list that can be made (usually wealthy homeowners by value, or commercial owners) with its own title.`;
 
 type Interpreted =
-  | { ok: true; definition: Definition; title: string; explanation: string; note?: string; count: number; truncated: boolean; limited: boolean; preview: ListRow[] }
+  | { ok: true; definition: Definition; title: string; explanation: string; note?: string; count: number; total: number; truncated: boolean; limited: boolean; preview: ListRow[] }
   | { ok: false; explanation: string; suggestion?: { definition: Definition; title: string } };
 
 /** "shopping center owners in Midland" → a definition, with the count and a first look. */
@@ -1023,7 +1054,7 @@ export const interpret = action({
           explanation: `${why.replace(/:.*$/, "").replace(/,$/, "")}. Until it is, say one of: shopping center owners, investors, property managers, apartment owners, homes over $1M, recent buyers, absentee owners.`,
         };
       }
-      const built: { count: number; truncated: boolean; limited: boolean; rows: ListRow[] } = await ctx.runQuery(internal.outreach.previewInternal, {
+      const built: { count: number; total: number; truncated: boolean; limited: boolean; rows: ListRow[] } = await ctx.runQuery(internal.outreach.previewInternal, {
         organizationId,
         definition: guess.definition,
       });
@@ -1034,6 +1065,7 @@ export const interpret = action({
         explanation: `${guess.title.replace(/, Midland$/, "")}. Names and mailing addresses; no phone numbers.`,
         ...(staff ? { note: `${why} so the words alone picked this list.` } : {}),
         count: built.count,
+        total: built.total,
         truncated: built.truncated,
         limited: built.limited,
         preview: built.rows,
@@ -1079,7 +1111,7 @@ export const interpret = action({
     } catch (e) {
       return { ok: false, explanation: e instanceof Error ? e.message : "That didn't make a list." };
     }
-    const built: { count: number; truncated: boolean; limited: boolean; rows: ListRow[] } = await ctx.runQuery(internal.outreach.previewInternal, {
+    const built: { count: number; total: number; truncated: boolean; limited: boolean; rows: ListRow[] } = await ctx.runQuery(internal.outreach.previewInternal, {
       organizationId,
       definition,
     });
@@ -1089,6 +1121,7 @@ export const interpret = action({
       title: titleOf(parsed.title, definition),
       explanation: explanation || `${built.count} on the roll.`,
       count: built.count,
+      total: built.total,
       truncated: built.truncated,
       limited: built.limited,
       preview: built.rows,

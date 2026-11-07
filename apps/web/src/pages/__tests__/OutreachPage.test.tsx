@@ -58,6 +58,7 @@ const preview = jest.fn(async () => ({ count: 1, truncated: false, limited: fals
 const create = jest.fn(async () => ({ listId: 'l9', rowCount: 2, added: 2, truncated: false }));
 const setStatus = jest.fn(async () => null);
 const remove = jest.fn(async () => null);
+const extend = jest.fn(async () => ({ loaded: 500, added: 500, rowCount: 1000, total: 2340, truncated: false }));
 const enrich = jest.fn(async () => ({ queued: 1, costCents: 100 }));
 const sources = jest.fn(async () => []);
 const getContacts = jest.fn(async () => contacts);
@@ -75,6 +76,7 @@ jest.mock('../../lib/api', () => ({
     create: (...args: unknown[]) => create(...(args as [])),
     setStatus: (...args: unknown[]) => setStatus(...(args as [])),
     remove: (...args: unknown[]) => remove(...(args as [])),
+    extend: (...args: unknown[]) => extend(...(args as [])),
     enrich: (...args: unknown[]) => enrich(...(args as [])),
     sources: (...args: unknown[]) => sources(...(args as [])),
     status: async () => ownersState,
@@ -183,6 +185,8 @@ describe('the Outreach page', () => {
     expect(steps.textContent).toContain('1Owners in this list2');
     expect(steps.textContent).toContain('2 companies go to step 2 for the person');
     expect(steps.textContent).toContain('Commercial owners · 0 done · asked Nov 5');
+    // Two owners and no total: nothing about a cap.
+    expect(document.body.querySelector('[data-testid="list-total"]')).toBeNull();
     expect(steps.textContent).toContain('2Person behind the company · free0 of 2 companies2 not looked up');
     expect(steps.textContent).toContain('3Phone · $1 when found0 of 22 not looked up$0 charged');
     expect(steps.textContent).toContain('4Email · included0 of 22 not looked up');
@@ -502,6 +506,23 @@ describe('the Outreach page', () => {
     const problems = panel.querySelectorAll('[data-testid="source-problem"]');
     expect(problems).toHaveLength(1);
     expect(problems[0].textContent).toBe('Needs attention: Tracerfy: HTTP 402 (Insufficient credits)');
+  });
+
+  it('a capped list says how many it reaches and loads the next page on request', async () => {
+    lists = [{ ...list, title: 'Real estate investors', who: 'investor', definition: { county: 'Midland', who: 'investor' }, rowCount: 500, total: 2340 }];
+    contacts = twoContacts();
+    await render('/outreach/l1');
+    const total = document.body.querySelector('[data-testid="list-total"]')!;
+    expect(total.textContent?.replace(/\s+/g, ' ').trim()).toBe('· 500 of 2,340 loaded Load the next 500');
+    await click('Load the next 500');
+    expect(extend).toHaveBeenCalledWith('o1', 'l1');
+    // The lists and contacts are read again once the page has loaded.
+    expect(getContacts).toHaveBeenLastCalledWith('o1', 'l1');
+    // A list that already holds everyone it reaches says nothing about a cap.
+    document.body.innerHTML = '';
+    lists = [{ ...list, rowCount: 2, total: 2 }];
+    await render('/outreach/l1');
+    expect(document.body.querySelector('[data-testid="list-total"]')).toBeNull();
   });
 
   it('deletes the open list after asking, and goes back to all contacts', async () => {

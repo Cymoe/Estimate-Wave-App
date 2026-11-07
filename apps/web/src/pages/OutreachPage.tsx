@@ -12,7 +12,7 @@ import { useConfirm } from '../components/common/ConfirmDialog';
 import { fundErrorText, openFundingPage } from '../components/market/WalletBar';
 import { useAuth } from '../contexts/AuthContext';
 import { isStaff } from '../lib/roles';
-import { WHO_LABEL } from '../../convex/lib/outreach';
+import { DEFAULT_ROWS, WHO_LABEL } from '../../convex/lib/outreach';
 import { callOk, sourceName } from '../components/outreach/format';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -224,6 +224,20 @@ const OutreachPage: React.FC = () => {
       if (live.current) setError(err instanceof Error ? err.message : "The contacts couldn't be loaded");
     }
   }, [organizationId, listId]);
+  const [extending, setExtending] = useState(false);
+  /** The next page of the open list, for one that reached its cap. */
+  const extend = async () => {
+    if (!organizationId || !listId) return;
+    setExtending(true);
+    try {
+      await outreachAPI.extend(organizationId, listId);
+      await load();
+    } catch (err) {
+      if (live.current) setError(err instanceof Error ? err.message : "The next page couldn't be loaded");
+    } finally {
+      if (live.current) setExtending(false);
+    }
+  };
   useEffect(() => {
     void load();
   }, [load]);
@@ -389,7 +403,17 @@ const OutreachPage: React.FC = () => {
             list && (
               <>
                 {WHO_LABEL[list.who]} · {list.done} done · asked {day(list.createdAt)}
-                {list.truncated && <span className="text-amber-300"> · The top of a longer list; ask for a narrower one to reach the rest.</span>}
+                {list.total !== undefined && list.total > list.rowCount && (
+                  <span data-testid="list-total">
+                    {' '}
+                    · {list.rowCount.toLocaleString('en-US')} of {list.total.toLocaleString('en-US')}
+                    {list.truncated ? '+' : ''} loaded{' '}
+                    <button type="button" onClick={() => void extend()} disabled={extending} className="text-[#7fb0e0] hover:text-white disabled:text-gray-500">
+                      {extending ? 'Loading…' : `Load the next ${Math.min(list.total - list.rowCount, list.definition.limit ?? DEFAULT_ROWS).toLocaleString('en-US')}`}
+                    </button>
+                  </span>
+                )}
+                {list.truncated && (list.total === undefined || list.total <= list.rowCount) && <span className="text-amber-300"> · The top of a longer list; ask for a narrower one to reach the rest.</span>}
               </>
             )
           }

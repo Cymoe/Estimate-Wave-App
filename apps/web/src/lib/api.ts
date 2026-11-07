@@ -1231,6 +1231,8 @@ export type OutreachListSummary = {
   rowCount: number;
   done: number;
   truncated: boolean;
+  /** How many owners the list's ask reaches (a floor when truncated); missing on lists saved before it was counted. */
+  total?: number;
   createdAt: string;
 };
 /** "12 / 200 · 2 sources" on a column header. */
@@ -1253,7 +1255,8 @@ export type OutreachSource = {
   /** problem: the source's last answer that needs a hand (a refused key, no credits), until it answers properly again. */
   stats: Array<{ field: OutreachField; attempts: number; hits: number; chargedCents: number; lastAt?: string; problem?: string; problemAt?: string }>;
 };
-export type OutreachPreview = { count: number; truncated: boolean; limited: boolean; rows: OutreachPreviewRow[] };
+/** count: what one list holds; total: how many owners the ask reaches (a floor when truncated). */
+export type OutreachPreview = { count: number; total: number; truncated: boolean; limited: boolean; rows: OutreachPreviewRow[] };
 export type OutreachInterpreted =
   | ({ ok: true; definition: OutreachDefinition; title: string; explanation: string; note?: string; preview: OutreachPreviewRow[] } & Omit<OutreachPreview, 'rows'>)
   | { ok: false; explanation: string; suggestion?: { definition: OutreachDefinition; title: string } };
@@ -1272,6 +1275,9 @@ export const outreachAPI = {
   setStatus: (organizationId: string, contactId: string, status: OutreachRowStatus, note?: string) =>
     run('mutation', api.outreach.setStatus, defined({ organizationId, contactId, status, note })),
   remove: (organizationId: string, listId: string) => run('mutation', api.outreach.remove, { organizationId, listId }),
+  /** Loads the next page of a list that reached its cap. */
+  extend: (organizationId: string, listId: string): Promise<{ loaded: number; added: number; rowCount: number; total: number; truncated: boolean }> =>
+    run('mutation', api.outreach.extend, { organizationId, listId }),
   /** Queues the stack for each contact and field (all three unless given); $1 a phone from the balance, charged only when found. */
   enrich: (organizationId: string, contactIds: string[], fields?: OutreachField[], question?: string): Promise<{ queued: number; costCents: number }> =>
     run('mutation', api.outreach.enrich, defined({ organizationId, contactIds, fields, question })),

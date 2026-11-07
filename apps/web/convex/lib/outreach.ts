@@ -82,7 +82,8 @@ export const BUYER_DEFAULT_DAYS = 90;
 /** Deeds older than this don't make the buyer facet at all. */
 export const BUYER_FACET_DAYS = 730;
 export const MAX_ROWS = 500;
-export const DEFAULT_ROWS = 200;
+/** A list holds up to this many at once; the rest load page by page. */
+export const DEFAULT_ROWS = 500;
 const MAX_STREETS = 20;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -516,7 +517,7 @@ export const WHO_GUIDE = `Pick exactly one who:
 - recent_buyer: deed within deed_within_days (default 90). "Just bought", "new homeowners", "recently moved".
 - absentee: a home whose owner's mail goes elsewhere; out of state unless out_of_state is false. "Absentee owners", "out-of-town owners".
 - custom: only with explicit use_codes (A homes, B apartments, F1 commercial, F2 industrial).
-Filters: min_value and max_value are dollars of the property the list is about; min_parcels is how many properties they own; zips filter the owner's MAILING zip (where letters go); streets filter the PROPERTY's street; limit caps the rows (default 200, max 500).`;
+Filters: min_value and max_value are dollars of the property the list is about; min_parcels is how many properties they own; zips filter the owner's MAILING zip (where letters go); streets filter the PROPERTY's street; limit caps the rows a list holds at once (up to 500, the default; the rest load page by page).`;
 
 /** The definition as JSON schema, in the words the assistant and the tool use (dollars, snake_case). */
 export const DEFINITION_SCHEMA = {

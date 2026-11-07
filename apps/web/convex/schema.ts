@@ -1106,6 +1106,8 @@ export default defineSchema({
     title: v.string(),
     definition: outreachDefinition,
     rowCount: v.number(),
+    /** How many owners the definition reaches, so the cap is never mistaken for the count; a floor when truncated. */
+    total: v.optional(v.number()),
     done: v.number(),
     truncated: v.boolean(),
     createdBy: v.id("users"),

@@ -1050,10 +1050,31 @@ describe("a company's lists", () => {
     await rebuild(t);
     const co = await proCompany(t);
     const top = await co.as.query(api.outreach.preview, { organizationId: co.organizationId, definition: { county: "Midland", who: "wealthy", minValueCents: 0, limit: 5 } });
-    expect(top).toMatchObject({ count: 5, limited: true, truncated: false });
+    // The cap is never mistaken for the count: 5 load, 30 are reached.
+    expect(top).toMatchObject({ count: 5, total: 30, limited: true, truncated: false });
     expect(top.rows.map((r) => r.property.valueCents)).toEqual([300_000_000, 290_000_000, 280_000_000, 270_000_000, 260_000_000]);
     // A floor stops the read early rather than scanning on.
-    expect((await co.as.query(api.outreach.preview, { organizationId: co.organizationId, definition: { county: "Midland", who: "wealthy", minValueCents: 285_000_000 } })).count).toBe(2);
+    expect(await co.as.query(api.outreach.preview, { organizationId: co.organizationId, definition: { county: "Midland", who: "wealthy", minValueCents: 285_000_000 } })).toMatchObject({ count: 2, total: 2 });
+    // Saved, the list holds the first page and knows the total; each Load the next adds the following page in the same order, until there are none left.
+    const org = co.organizationId;
+    const def = { county: "Midland", who: "wealthy" as const, minValueCents: 0, limit: 5 };
+    const saved = await co.as.mutation(api.outreach.create, { organizationId: org, definition: def });
+    expect(saved).toMatchObject({ rowCount: 5, total: 30, added: 5, limited: true });
+    const read = async () => await co.as.query(api.outreach.contacts, { organizationId: org, listId: saved.listId });
+    expect((await read()).rows.map((r) => r.property.valueCents).sort((a, b) => b - a)).toEqual([300_000_000, 290_000_000, 280_000_000, 270_000_000, 260_000_000]);
+    expect(await co.as.mutation(api.outreach.extend, { organizationId: org, listId: saved.listId })).toEqual({ loaded: 5, added: 5, rowCount: 10, total: 30, truncated: false });
+    const ten = (await read()).rows.map((r) => r.property.valueCents).sort((a, b) => b - a);
+    expect(ten).toHaveLength(10);
+    expect(ten[9]).toBe(210_000_000);
+    const lists = await co.as.query(api.outreach.lists, { organizationId: org });
+    expect(lists.find((l) => l.id === saved.listId)).toMatchObject({ rowCount: 10, total: 30, truncated: false });
+    for (let i = 0; i < 4; i++) await co.as.mutation(api.outreach.extend, { organizationId: org, listId: saved.listId });
+    expect((await read()).rows).toHaveLength(30);
+    expect(await co.as.mutation(api.outreach.extend, { organizationId: org, listId: saved.listId })).toEqual({ loaded: 0, added: 0, rowCount: 30, total: 30, truncated: false });
+    // An owner already on another list is tagged, not duplicated.
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { ...def, limit: 3 } });
+    expect((await co.as.query(api.outreach.contacts, { organizationId: org })).rows).toHaveLength(30);
+    await expect(co.as.mutation(api.outreach.extend, { organizationId: org, listId: "k17abcdefghijklmnopqrstuvwxyz0" as never })).rejects.toThrow();
   });
 });
 

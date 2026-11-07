@@ -17,6 +17,8 @@ type Built = {
   /** Staff only: why the words, not the assistant, picked this list. */
   note?: string;
   count: number;
+  /** How many owners the ask reaches; the list holds `count` of them at once. */
+  total?: number;
   truncated: boolean;
   limited: boolean;
   rows: OutreachPreviewRow[];
@@ -55,7 +57,7 @@ export const AskListSheet: React.FC<{
     setBuilt(null);
     try {
       const got = await outreachAPI.interpret(organizationId, ask.trim());
-      if (got.ok) setBuilt({ definition: got.definition, title: got.title, explanation: got.explanation, note: got.note, count: got.count, truncated: got.truncated, limited: got.limited, rows: got.preview });
+      if (got.ok) setBuilt({ definition: got.definition, title: got.title, explanation: got.explanation, note: got.note, count: got.count, total: got.total, truncated: got.truncated, limited: got.limited, rows: got.preview });
       else setCannot({ explanation: got.explanation, suggestion: got.suggestion });
     } catch (err) {
       setError(err instanceof Error ? err.message : "The list couldn't be built");
@@ -72,7 +74,7 @@ export const AskListSheet: React.FC<{
     setError(null);
     try {
       const got = await outreachAPI.preview(organizationId, definition);
-      setBuilt({ definition, title, explanation: cannot.explanation, count: got.count, truncated: got.truncated, limited: got.limited, rows: got.rows });
+      setBuilt({ definition, title, explanation: cannot.explanation, count: got.count, total: got.total, truncated: got.truncated, limited: got.limited, rows: got.rows });
       setCannot(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "The list couldn't be built");
@@ -151,12 +153,21 @@ export const AskListSheet: React.FC<{
           <div className="space-y-4" data-testid="built">
             <div className="border border-[#333333] bg-[#1A1A1A] p-4 space-y-1">
               <p className="text-lg font-semibold text-white">
-                {built.count} {built.count === 1 ? 'owner' : 'owners'}
+                {built.total !== undefined && built.total > built.count ? (
+                  <>
+                    {built.total.toLocaleString('en-US')}
+                    {built.truncated ? '+' : ''} owners
+                    <span className="text-sm font-normal text-gray-400"> · the first {built.count.toLocaleString('en-US')} load now, the rest from the saved list</span>
+                  </>
+                ) : (
+                  <>
+                    {built.count} {built.count === 1 ? 'owner' : 'owners'}
+                  </>
+                )}
               </p>
               <p className="text-sm text-gray-300">{built.explanation}</p>
               {built.note && <p className="text-sm text-gray-400">{built.note}</p>}
-              {built.truncated && <p className="text-sm text-amber-300">That's the top of a longer list. Narrow it down (a value, a street or a zip) to see them all.</p>}
-              {!built.truncated && built.limited && <p className="text-sm text-gray-400">That's the cap for one list. Ask for a narrower one for the rest.</p>}
+              {built.truncated && <p className="text-sm text-amber-300">That's at least how many: the roll was read as far as one ask reaches. Narrow it down (a value, a street or a zip) to count them all.</p>}
             </div>
             {built.rows.length > 0 && (
               <ul className="border border-[#333333] divide-y divide-[#333333]" aria-label="Preview">
