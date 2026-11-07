@@ -8,7 +8,7 @@ import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, ownerKey, parcelsIn, shortMoney, underFloor, type Condensed, type OwnerRow } from "./lib/outreach";
 import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, lineOwner, samePerson, scrubPhones, tracerfyDnc, trestleRealContact, twilioLookup, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
-import { GIVE_UP_ERROR, UNPAID_ERROR } from "./outreach";
+import { GIVE_UP_ERROR, SAMPLE_LEFT_OUT, UNPAID_ERROR } from "./outreach";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -1178,6 +1178,14 @@ describe("a company's lists", () => {
     // Free, and the sources' scorecard is left alone.
     expect(after.balanceCents).toBe(500);
     expect((await t.run(async (ctx) => ctx.db.query("dataSourceStats").collect())).filter((x) => x.hits > 0)).toEqual([]);
+    // Sent to Leads, the made-up phone, email and decision maker stay behind, and the lead says so.
+    const leadId = await co.as.mutation(api.outreach.sendToLeads, { organizationId: org, contactId: real.id });
+    const lead = (await t.run(async (ctx) => ctx.db.get(leadId)))!;
+    expect(lead).toMatchObject({ name: real.name, company: real.name });
+    expect(lead.phone).toBeUndefined();
+    expect(lead.email).toBeUndefined();
+    expect(lead.notes).toContain(SAMPLE_LEFT_OUT);
+    await t.run(async (ctx) => ctx.db.delete(leadId));
     // The sample clear-out takes simulated results too.
     expect(await t.mutation(internal.outreach.seedSampleList, { email: "owner@roof.example", clear: true })).toMatchObject({ done: true, cleared: 1 });
     expect((await read()).rows.find((r) => r.id === real.id)!.enrichment).toEqual({ phone: { status: "locked" }, email: { status: "locked" }, person: { status: "locked" }, research: { status: "locked" } });
@@ -1247,6 +1255,13 @@ describe("a company's lists", () => {
     });
     expect(after.coverage.phone).toEqual({ found: 1, total: 2, sources: 1 });
     expect(after.balanceCents).toBe(0);
+    // Sent to Leads: the sample person, phone, email and note stay behind.
+    const leadId = await co.as.mutation(api.outreach.sendToLeads, { organizationId: org, contactId: oak.id });
+    const lead = (await t.run(async (ctx) => ctx.db.get(leadId)))!;
+    expect([lead.name, lead.phone, lead.email]).toEqual(["Oak Plaza LLC", undefined, undefined]);
+    expect(lead.notes).toContain(SAMPLE_LEFT_OUT);
+    expect(lead.notes).not.toContain("Sample data to show the layout");
+    await t.run(async (ctx) => ctx.db.delete(leadId));
     // Again: nothing changes.
     expect(await t.mutation(internal.outreach.seedSample, { email: "owner@roof.example", name: "Oak Plaza LLC" })).toEqual({ done: true, already: true, organization: "owner@roof.example Co", contact: "Oak Plaza LLC" });
     // Cleared: back to locked cells, nothing left behind.

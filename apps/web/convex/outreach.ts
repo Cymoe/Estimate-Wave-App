@@ -645,6 +645,9 @@ function sameOperator(a: Doc<"outreachContacts">, b: Doc<"outreachContacts">): b
   return !!a.person && !!b.person && samePerson(a.person, b.person) && mail !== undefined && mailKey(b.mailing) === mail;
 }
 
+/** On a lead whose owner had sample or simulated results, in place of them. */
+export const SAMPLE_LEFT_OUT = "Sample contact details were left out; look this owner up for real ones.";
+
 /**
  * One owner to Leads, where the calls, follow-ups and the estimate already
  * live. The lead (new, source Outreach) gets the decision maker's name (the
@@ -664,8 +667,13 @@ async function sendOne(
   now: string,
 ): Promise<{ leadId: Id<"leads">; made: boolean }> {
   const have = async (id?: Id<"leads">) => (id ? await ctx.db.get(id) : null);
-  const phone = (contact.phones ?? []).find((p) => !p.dnc && !p.litigator);
-  const email = (contact.emails ?? []).find((e) => e.nameMatch !== false);
+  // Sample and simulated results are made up: they show the layout here, but a lead is called for real.
+  const cells = cellsOf(contact);
+  const madeUp = (field: "phone" | "email" | "person") => isSampleRun(contact) || Boolean(cellFor(cells, field).simulated);
+  const phone = madeUp("phone") ? undefined : (contact.phones ?? []).find((p) => !p.dnc && !p.litigator);
+  const email = madeUp("email") ? undefined : (contact.emails ?? []).find((e) => e.nameMatch !== false);
+  const person = madeUp("person") ? undefined : contact.person;
+  const leftOut = (madeUp("phone") && (contact.phones?.length ?? 0) > 0) || (madeUp("email") && (contact.emails?.length ?? 0) > 0) || (madeUp("person") && Boolean(contact.person));
   let lead = await have(contact.leadId);
   let made = false;
   if (!lead) {
@@ -684,8 +692,15 @@ async function sendOne(
       });
     } else {
       const mailing = [contact.mailing.address, contact.mailing.city, contact.mailing.state, contact.mailing.zip?.slice(0, 5)].filter(Boolean).join(", ");
-      const notes = [`From Outreach. ${contact.why}.`, mailing ? `Mailing address: ${mailing}.` : "", contact.note ?? ""].filter(Boolean).join("\n");
-      const name = contact.person?.name ?? contact.name;
+      const notes = [
+        `From Outreach. ${contact.why}.`,
+        mailing ? `Mailing address: ${mailing}.` : "",
+        leftOut ? SAMPLE_LEFT_OUT : "",
+        isSampleRun(contact) ? "" : (contact.note ?? ""),
+      ]
+        .filter(Boolean)
+        .join("\n");
+      const name = person?.name ?? contact.name;
       const leadId = await ctx.db.insert("leads", {
         name,
         ...(contact.company ? { company: contact.name } : {}),
