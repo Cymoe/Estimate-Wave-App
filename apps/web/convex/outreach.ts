@@ -435,13 +435,17 @@ function coverageOf(rows: Doc<"outreachContacts">[]) {
   };
 }
 
-/** The company's own hit rate on phones so far, for the estimate; undefined until it has tried. */
+/** The checkers' names: their scorecard rows say how numbers held up, not how often one was found. */
+const checkerNames = () => new Set([...phoneCheckers(process.env).map((c) => c.name), phoneScrub(process.env).name, verifier(process.env).name]);
+
+/** The company's own hit rate on phones so far, for the estimate; undefined until it has tried. Over the finding sources only. */
 async function phoneHitRate(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">) {
   const stats = await ctx.db.query("dataSourceStats").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect();
+  const checkers = checkerNames();
   let attempts = 0;
   let hits = 0;
   for (const s of stats) {
-    if (s.field !== "phone") continue;
+    if (s.field !== "phone" || checkers.has(s.source)) continue;
     attempts += s.attempts;
     hits += s.hits;
   }
@@ -482,7 +486,7 @@ export const sources = query({
       { name: "permits", fields: ["person" as const, "phone" as const, "email" as const], connected: true },
     ];
     const checks = [
-      ...phoneCheckers(process.env).map((c) => ({ name: c.name, fields: ["phone" as const], connected: c.connected })),
+      ...phoneCheckers(process.env).map((c) => ({ name: c.name, fields: c.name === "trestle" ? ["phone" as const, "email" as const] : ["phone" as const], connected: c.connected })),
       { name: scrub.name, fields: ["phone" as const], connected: scrub.connected },
       { name: checker.name, fields: ["email" as const], connected: checker.connected },
     ];

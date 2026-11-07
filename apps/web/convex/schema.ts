@@ -492,7 +492,15 @@ export const outreachPhone = v.object({
   /** The checker's A to F grade for reaching someone on this line. */
   grade: v.optional(v.string()),
 });
-export const outreachEmail = v.object({ email: v.string(), source: v.string(), verified: v.optional(v.boolean()) });
+export const outreachEmail = v.object({
+  email: v.string(),
+  source: v.string(),
+  verified: v.optional(v.boolean()),
+  /** Whether the address belongs to the named person, by the contact check. */
+  nameMatch: v.optional(v.boolean()),
+  /** The contact check's A to F grade for reaching someone at this address. */
+  grade: v.optional(v.string()),
+});
 /** The person behind a company owner: an officer or manager from the state's records. */
 export const outreachPerson = v.object({
   name: v.string(),

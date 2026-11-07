@@ -456,6 +456,8 @@ export const ContactSheet: React.FC<{
                       {e.email}
                     </a>
                     {e.verified && <span className="text-[11px] text-gray-500"> verified</span>}
+                    {e.nameMatch === true && <span className="text-[11px] text-gray-500"> · in the owner's name</span>}
+                    {e.nameMatch === false && <span className="text-[11px] text-amber-300"> · not in the owner's name</span>}
                   </li>
                 ))}
                 {row.phones.length === 0 && <li className="text-sm text-gray-500">No phone found; the email was free.</li>}

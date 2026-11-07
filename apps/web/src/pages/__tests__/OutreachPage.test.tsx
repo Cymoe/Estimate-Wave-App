@@ -384,7 +384,7 @@ describe('the Outreach page', () => {
             { number: '4325550199', type: 'landline', dnc: true, source: 'batchdata' },
             { number: '4325550177', type: 'mobile', verified: true, grade: 'C', litigator: true, source: 'batchdata' },
           ],
-          emails: [{ email: 'dana@oakplaza.com', source: 'batchdata', verified: true }],
+          emails: [{ email: 'dana@oakplaza.com', source: 'batchdata', verified: true, nameMatch: true, grade: 'B' }],
         }),
         contact('r2', { name: 'City Of Midland', enrichment: { phone: { status: 'running' }, email: { status: 'running' }, person: { status: 'running' } } }),
       ],
@@ -421,6 +421,7 @@ describe('the Outreach page', () => {
     expect(sheet.querySelector('[data-testid="contact-details"]')!.textContent).toContain('(432) 555-0100mobile · verifiedline in the name of REYES DANA');
     expect(sheet.querySelector('[data-testid="contact-details"]')!.textContent).toContain('(432) 555-0199landline · DNCon the Do Not Call list');
     expect(sheet.querySelector('[data-testid="contact-details"]')!.textContent).toContain('(432) 555-0177mobile · verified · litigatorknown TCPA litigator');
+    expect(sheet.querySelector('[data-testid="contact-details"]')!.textContent).toContain("dana@oakplaza.com verified · in the owner's name");
     expect(sheet.querySelector('[data-testid="contact-details"]')!.textContent).toContain('From BatchData Nov 5 · $1');
     // The ledger: every source's turn per step, and the owner's cost.
     const how = sheet.querySelector('[data-testid="how-found"]')!.textContent!;

@@ -19,7 +19,15 @@ export type Phone = {
   /** The checker's A to F grade for reaching someone on this line. */
   grade?: string;
 };
-export type Email = { email: string; source: string; verified?: boolean };
+export type Email = {
+  email: string;
+  source: string;
+  verified?: boolean;
+  /** Whether the address belongs to the named person, by the contact check. */
+  nameMatch?: boolean;
+  /** The contact check's A to F grade for reaching someone at this address. */
+  grade?: string;
+};
 export type Person = {
   name: string;
   title?: string;
@@ -607,14 +615,17 @@ export async function checkEmails(emails: Email[], checker: Verifier): Promise<{
 // ---- Phone line check ----
 
 /** What the checker says about one number: live or not, its type, the name on it (or whether ours matches), and how reachable. */
-export type LineCheck = { valid: boolean; type?: PhoneType; name?: string; business?: boolean; nameMatch?: boolean; grade?: string; activity?: number; litigator?: boolean };
+export type LineCheck = { valid: boolean; type?: PhoneType; name?: string; business?: boolean; nameMatch?: boolean; grade?: string; activity?: number; litigator?: boolean; email?: EmailCheck };
+/** What the contact check says about an email sent along with the phone: whose it is, and how reachable. */
+export type EmailCheck = { valid?: boolean; nameMatch?: boolean; grade?: string };
 /** Whose number it should be: the person when known, else the owner; the company for the business line. */
 export type LineOwner = { name: string; business?: string };
 export type PhoneChecker = {
   name: string;
   /** True when the deployment holds its keys. */
   connected: boolean;
-  check: (number: string, who: LineOwner) => Promise<LineCheck>;
+  /** An email sent along rides on the same call, for checkers that can say whose it is. */
+  check: (number: string, who: LineOwner, email?: string) => Promise<LineCheck>;
 };
 
 /** A to F from the checker, as a score when the vendor gave none. */
@@ -631,24 +642,28 @@ export function trestleRealContact(key: string | undefined, fetchFn: Fetch = fet
   return {
     name: "trestle",
     connected: Boolean(key),
-    check: async (number, who) => {
+    check: async (number, who, email) => {
       const params = new URLSearchParams({ name: who.name, phone: number, add_ons: "litigator_checks" });
       if (who.business) params.set("business.name", who.business);
+      if (email) params.set("email", email);
       const response = await fetchFn(`${base}/real_contact?${params.toString()}`, { headers: { Accept: "application/json", "x-api-key": key ?? "" } });
       if (!response.ok) throw new Error(`Trestle: HTTP ${response.status}`);
       const body = (await response.json()) as {
         phone?: { contact_grade?: string | null; is_valid?: boolean | null; activity_score?: number | null; line_type?: string | null; name_match?: boolean | null } | null;
+        email?: { contact_grade?: string | null; is_valid?: boolean | null; name_match?: boolean | null } | null;
         add_ons?: { litigator_checks?: { phone_is_litigator_risk?: boolean | null } | null } | null;
       };
       const kind = (body.phone?.line_type ?? "").toLowerCase();
       const type: PhoneType | undefined = kind === "mobile" ? "mobile" : kind === "landline" ? "landline" : /voip/.test(kind) ? "voip" : undefined;
+      const bool = (x: unknown) => (typeof x === "boolean" ? x : undefined);
       return {
         valid: body.phone?.is_valid !== false,
         type,
-        nameMatch: typeof body.phone?.name_match === "boolean" ? body.phone.name_match : undefined,
+        nameMatch: bool(body.phone?.name_match),
         grade: str(body.phone?.contact_grade ?? undefined)?.toUpperCase(),
         activity: num(body.phone?.activity_score),
         litigator: body.add_ons?.litigator_checks?.phone_is_litigator_risk === true ? true : undefined,
+        email: email && body.email ? { valid: bool(body.email.is_valid), nameMatch: bool(body.email.name_match), grade: str(body.email.contact_grade ?? undefined)?.toUpperCase() } : undefined,
       };
     },
   };
@@ -813,7 +828,7 @@ export function lineOwner(input: Pick<TraceInput, "name" | "company" | "person">
  * matches the owner's is the nail in the coffin, and the ledger says how
  * many did. A checker's grade stands in for a score the vendor didn't give.
  */
-export async function checkPhones(phones: Phone[], checker: PhoneChecker, expected: string[], who: LineOwner = { name: expected[0] ?? "" }): Promise<{ phones: Phone[]; try: Try }> {
+export async function checkPhones(phones: Phone[], checker: PhoneChecker, expected: string[], who: LineOwner = { name: expected[0] ?? "" }, email?: string): Promise<{ phones: Phone[]; try: Try; email?: EmailCheck }> {
   if (phones.length === 0) return { phones, try: { source: checker.name, outcome: "skipped", note: "Nothing to check" } };
   if (!checker.connected) return { phones, try: { source: checker.name, outcome: "skipped", note: "Not connected" } };
   const kept: Phone[] = [];
@@ -821,6 +836,7 @@ export async function checkPhones(phones: Phone[], checker: PhoneChecker, expect
   let named = 0;
   let checked = 0;
   let litigators = 0;
+  let emailCheck: EmailCheck | undefined;
   try {
     for (const p of phones) {
       if (checked >= CHECK_AT_MOST) {
@@ -828,7 +844,9 @@ export async function checkPhones(phones: Phone[], checker: PhoneChecker, expect
         continue;
       }
       checked++;
-      const line = await checker.check(p.number, who);
+      // The email rides on the first call only; one answer is all that's needed.
+      const line = await checker.check(p.number, who, checked === 1 ? email : undefined);
+      emailCheck ??= line.email;
       if (!line.valid) continue;
       live++;
       const matches = line.nameMatch ?? (line.name ? expected.some((n) => line.name!.toUpperCase().includes(n)) : false);
@@ -843,31 +861,46 @@ export async function checkPhones(phones: Phone[], checker: PhoneChecker, expect
   const note = [`${live} of ${checked} live`, named ? `${named} in the owner's name` : "", checked - live ? `${checked - live} dropped` : "", litigators ? `${litigators} known ${litigators === 1 ? "litigator" : "litigators"}` : ""]
     .filter(Boolean)
     .join(" · ");
-  return { phones: rankPhones(kept), try: { source: checker.name, outcome: live > 0 ? "hit" : "miss", note } };
+  return { phones: rankPhones(kept), try: { source: checker.name, outcome: live > 0 ? "hit" : "miss", note }, email: emailCheck };
 }
 
 /**
  * The checkers in order: the first connected one answers; one that errors
  * hands over to the next, and the ledger shows every turn. The rest are
- * "not needed" once one has answered.
+ * "not needed" once one has answered. An email sent along comes back with
+ * the checker's word on it, and which checker said so.
  */
-export async function checkPhonesWith(phones: Phone[], checkers: PhoneChecker[], expected: string[], who: LineOwner): Promise<{ phones: Phone[]; tries: Try[] }> {
+export async function checkPhonesWith(phones: Phone[], checkers: PhoneChecker[], expected: string[], who: LineOwner, email?: string): Promise<{ phones: Phone[]; tries: Try[]; email?: EmailCheck & { source: string } }> {
   const tries: Try[] = [];
   let done = false;
   let out = phones;
+  let emailCheck: (EmailCheck & { source: string }) | undefined;
   for (const checker of checkers) {
     if (done) {
       tries.push({ source: checker.name, outcome: "skipped", note: "Not needed, already checked" });
       continue;
     }
-    const r = await checkPhones(out, checker, expected, who);
+    const r = await checkPhones(out, checker, expected, who, email);
     tries.push(r.try);
     if (r.try.outcome === "hit" || r.try.outcome === "miss") {
       out = r.phones;
       done = true;
+      if (r.email) emailCheck = { ...r.email, source: checker.name };
     }
   }
-  return { phones: out, tries };
+  return { phones: out, tries, email: emailCheck };
+}
+
+/**
+ * Puts the contact check's word on the email it was about: whose it is and
+ * its grade. Kept either way (ZeroBounce decides what's dead); the ledger
+ * says whether it's in the owner's name.
+ */
+export function applyEmailCheck(emails: Email[], address: string, check: EmailCheck & { source: string }): { emails: Email[]; try: Try } {
+  const key = address.trim().toLowerCase();
+  const out = emails.map((e) => (e.email === key ? { ...e, nameMatch: check.nameMatch ?? e.nameMatch, grade: check.grade ?? e.grade } : e));
+  const note = check.nameMatch === true ? "In the owner's name" : check.nameMatch === false ? "Not in the owner's name" : "Couldn't say whose it is";
+  return { emails: out, try: { source: check.source, outcome: check.nameMatch === true ? "hit" : "miss", note: check.grade ? `${note} · grade ${check.grade}` : note } };
 }
 
 /** The keys a field's sources need, for the "not connected" note. */

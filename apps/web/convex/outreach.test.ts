@@ -6,7 +6,7 @@ import { actAs } from "./lib/actor";
 import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
 import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, groupOwners, guessDefinition, mailKey, ownerKey, shortMoney, type Condensed } from "./lib/outreach";
-import { checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, lineOwner, samePerson, scrubPhones, tracerfyDnc, trestleRealContact, twilioLookup, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
+import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, lineOwner, samePerson, scrubPhones, tracerfyDnc, trestleRealContact, twilioLookup, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { GIVE_UP_ERROR } from "./outreach";
 
 afterEach(() => {
@@ -423,6 +423,7 @@ describe("a company's lists", () => {
     await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 250 }));
     vi.stubEnv("TX_COMPTROLLER_API_KEY", "cpa-key");
     vi.stubEnv("BATCHDATA_API_KEY", "bd-key");
+    vi.stubEnv("TRESTLE_API_KEY", "tr-key");
     const calls: Array<{ url: string; headers: Record<string, string>; body?: Record<string, unknown> }> = [];
     vi.stubGlobal(
       "fetch",
@@ -430,6 +431,15 @@ describe("a company's lists", () => {
         const body = init?.body ? (JSON.parse(init.body as string) as Record<string, unknown>) : undefined;
         calls.push({ url, headers: (init?.headers ?? {}) as Record<string, string>, body });
         const json = (data: unknown) => new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" } });
+        // The contact check: the mobile is hers (and so is the email sent along); the VoIP and the landline aren't.
+        if (url.includes("trestleiq")) {
+          const q = new URL(url).searchParams;
+          const phone = q.get("phone");
+          const email = q.get("email") ? { contact_grade: "B", is_valid: true, name_match: true } : null;
+          if (phone === "4325550199") return json({ phone: { contact_grade: "C", is_valid: true, activity_score: 60, line_type: "Landline", name_match: false }, email, add_ons: { litigator_checks: { phone_is_litigator_risk: false } } });
+          if (phone === "4325550177") return json({ phone: { contact_grade: "D", is_valid: true, activity_score: 40, line_type: "NonFixedVOIP", name_match: false }, email, add_ons: { litigator_checks: { phone_is_litigator_risk: false } } });
+          return json({ phone: { contact_grade: "A", is_valid: true, activity_score: 95, line_type: "Mobile", name_match: true }, email, add_ons: { litigator_checks: { phone_is_litigator_risk: false } } });
+        }
         if (url.includes("franchise-tax-list")) {
           const name = decodeURIComponent(url.split("name=")[1]);
           return json({ success: true, data: name === "OAK PLAZA LLC" ? [{ name: "OAK PLAZA LLC", taxpayerId: "32011111111", mailingAddressZip: "75201" }] : [], count: 1 });
@@ -492,8 +502,8 @@ describe("a company's lists", () => {
       { source: "batchdata", outcome: "hit", note: "3 numbers" },
       { source: "tracerfy", outcome: "skipped", note: "Not connected" },
       { source: "enformion", outcome: "skipped", note: "Not connected" },
-      { source: "trestle", outcome: "skipped", note: "Not connected" },
-      { source: "twilio", outcome: "skipped", note: "Not connected" },
+      { source: "trestle", outcome: "hit", note: "3 of 3 live · 1 in the owner's name" },
+      { source: "twilio", outcome: "skipped", note: "Not needed, already checked" },
       { source: "tracerfy-dnc", outcome: "skipped", note: "Not connected" },
     ]);
     expect(oakNow.enrichment.email.tries).toEqual([
@@ -502,15 +512,24 @@ describe("a company's lists", () => {
       { source: "tracerfy", outcome: "skipped", note: "Not connected" },
       { source: "enformion", outcome: "skipped", note: "Not connected" },
       { source: "hunter", outcome: "skipped", note: "Not connected" },
+      // The contact check's word on the email, from the call made for her mobile.
+      { source: "trestle", outcome: "hit", note: "In the owner's name · grade B" },
       { source: "zerobounce", outcome: "skipped", note: "Not connected" },
     ]);
-    // Ranked: the vendor's score first, then mobile before VoIP before landline; the DNC landline is kept but flagged.
+    // Ranked: the name match first at 100, then the vendor's score, then mobile before VoIP before landline; the DNC landline is kept but flagged. Each carries the checker's grade.
     expect(oakNow.phones).toEqual([
-      { number: "4325550100", type: "mobile", verified: true, score: 95, source: "batchdata" },
-      { number: "4325550177", type: "voip", score: 95, source: "batchdata" },
-      { number: "4325550199", type: "landline", dnc: true, score: 60, source: "batchdata" },
+      { number: "4325550100", type: "mobile", verified: true, score: 100, grade: "A", source: "batchdata" },
+      { number: "4325550177", type: "voip", verified: true, score: 95, grade: "D", source: "batchdata" },
+      { number: "4325550199", type: "landline", dnc: true, verified: true, score: 60, grade: "C", source: "batchdata" },
     ]);
-    expect(oakNow.emails).toEqual([{ email: "dana@oakplaza.com", source: "batchdata" }]);
+    expect(oakNow.emails).toEqual([{ email: "dana@oakplaza.com", source: "batchdata", nameMatch: true, grade: "B" }]);
+    // One contact-check call per number; the email rode on the first only.
+    const tr = calls.filter((c) => c.url.includes("trestleiq")).map((c) => new URL(c.url).searchParams);
+    expect(tr.map((q) => [q.get("phone"), q.get("email"), q.get("name"), q.get("business.name")])).toEqual([
+      ["4325550100", "dana@oakplaza.com", "Dana Reyes", "Oak Plaza LLC"],
+      ["4325550177", null, "Dana Reyes", "Oak Plaza LLC"],
+      ["4325550199", null, "Dana Reyes", "Oak Plaza LLC"],
+    ]);
     const cityNow = traced.rows.find((r) => r.id === cityHall.id)!;
     // The state has no entity called City Of Midland, and BatchData has nothing for it: three free misses.
     expect(cityNow.enrichment).toMatchObject({ phone: { status: "none" }, email: { status: "none" }, person: { status: "none" } });
@@ -536,6 +555,8 @@ describe("a company's lists", () => {
         ["none", "email", 1, 0, 0],
         ["none", "person", 1, 0, 0],
         ["none", "phone", 1, 0, 0],
+        ["trestle", "email", 1, 1, 0],
+        ["trestle", "phone", 1, 1, 0],
         ["tx-comptroller", "person", 1, 1, 0],
       ]);
     });
@@ -551,7 +572,7 @@ describe("a company's lists", () => {
       ["tracerfy", false, [["phone", 0, 0, 0], ["email", 0, 0, 0]]],
       ["enformion", false, [["phone", 0, 0, 0], ["email", 0, 0, 0]]],
       ["hunter", false, [["email", 0, 0, 0]]],
-      ["trestle", false, [["phone", 0, 0, 0]]],
+      ["trestle", true, [["phone", 1, 1, 0], ["email", 1, 1, 0]]],
       ["twilio", false, [["phone", 0, 0, 0]]],
       ["tracerfy-dnc", false, [["phone", 0, 0, 0]]],
       ["zerobounce", false, [["email", 0, 0, 0]]],
@@ -648,6 +669,7 @@ describe("a company's lists", () => {
       { source: "tracerfy", outcome: "hit", note: "1 email" },
       { source: "enformion", outcome: "skipped", note: "Not connected" },
       { source: "hunter", outcome: "skipped", note: "Not connected" },
+      { source: "trestle", outcome: "skipped", note: "Not connected" },
       { source: "zerobounce", outcome: "hit", note: "1 of 1 deliverable" },
     ]);
     expect(calls.filter((c) => c.url.startsWith("https://api.zerobounce.net/v2/validate?api_key=zb-key&email=robert%40vance.example"))).toHaveLength(1);
@@ -1315,6 +1337,21 @@ describe("the wider stack", () => {
     ]);
     // A refused key reads as one that needs attention.
     await expect(trestleRealContact("bad", async () => json({ errorCode: "AUTHENTICATION_FAILED" }, 403)).check("4325550142", who)).rejects.toThrow("Trestle: HTTP 403");
+    // An email sent along rides on the first call only, and comes back with whose it is; it's kept either way, with the ledger saying.
+    const emailed: Array<string | null> = [];
+    const withEmail = trestleRealContact("tr-key", async (url) => {
+      emailed.push(new URL(String(url)).searchParams.get("email"));
+      return json({ phone: { contact_grade: "A", is_valid: true, line_type: "Mobile", name_match: true }, email: emailed.length === 1 ? { contact_grade: "F", is_valid: true, name_match: false } : null });
+    });
+    const ride = await checkPhonesWith(phones, [withEmail], ["REYES"], who, "dana@oakplaza.com");
+    expect(emailed).toEqual(["dana@oakplaza.com", null, null]);
+    expect(ride.email).toEqual({ valid: true, nameMatch: false, grade: "F", source: "trestle" });
+    const marked = applyEmailCheck([{ email: "dana@oakplaza.com", source: "batchdata" }, { email: "other@x.example", source: "batchdata" }], "Dana@OakPlaza.com", ride.email!);
+    expect(marked.emails).toEqual([{ email: "dana@oakplaza.com", source: "batchdata", nameMatch: false, grade: "F" }, { email: "other@x.example", source: "batchdata" }]);
+    expect(marked.try).toEqual({ source: "trestle", outcome: "miss", note: "Not in the owner's name · grade F" });
+    expect(applyEmailCheck([{ email: "a@b.example", source: "x" }], "a@b.example", { source: "trestle" }).try).toEqual({ source: "trestle", outcome: "miss", note: "Couldn't say whose it is" });
+    // No email sent: nothing comes back about one.
+    expect((await checkPhonesWith(phones, [withEmail], ["REYES"], who)).email).toBeUndefined();
   });
 
   test("the Do Not Call scrub flags listed numbers and known litigators, drops nothing, and says how many are clear", async () => {

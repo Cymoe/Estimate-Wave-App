@@ -9,7 +9,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import { outreachField } from "./schema";
-import { KEY_FOR, checkEmails, checkPhonesWith, dedupeEmails, expectedNames, lineOwner, phoneCheckers, phoneScrub, rankPhones, scrubPhones, vendors, verifier, waterfall, type Field, type Found, type Vendor } from "./lib/skipTrace";
+import { KEY_FOR, applyEmailCheck, checkEmails, checkPhonesWith, dedupeEmails, expectedNames, lineOwner, phoneCheckers, phoneScrub, rankPhones, scrubPhones, vendors, verifier, waterfall, type EmailCheck, type Field, type Found, type Vendor } from "./lib/skipTrace";
 import { researchOwner } from "./lib/research";
 
 type TraceArgs = { contactId: import("./_generated/dataModel").Id<"outreachContacts">; fields: Field[] };
@@ -95,7 +95,13 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
       }
     }
   }
-  for (const field of wanted) {
+  // The phone step runs before the email step: the contact check's word on the first email rides on the first phone call.
+  const checkers = phoneCheckers(process.env);
+  const firstEmail = wanted.includes("email") ? dedupeEmails(outcomes.find((x) => x.field === "email")?.found.emails ?? [])[0]?.email : undefined;
+  let emailCheck: (EmailCheck & { source: string }) | undefined;
+  let phonesChecked = false;
+  const order: Field[] = ["person", "phone", "email"];
+  for (const field of [...wanted].sort((a, b) => order.indexOf(a) - order.indexOf(b))) {
     if (field === "research") continue;
     const o = outcomes.find((x) => x.field === field)!;
     if (!o.source && none(field)) {
@@ -114,8 +120,10 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
       // The checker's word: dead lines go, live ones carry their type, the name on the account or a name match, and a grade.
       const person = outcomes.find((x) => x.field === "person")?.found.person ?? input.person;
       const who = { ...input, person };
-      const checked = await checkPhonesWith(phones, phoneCheckers(process.env), expectedNames(who), lineOwner(who));
+      const checked = await checkPhonesWith(phones, checkers, expectedNames(who), lineOwner(who), firstEmail);
       phones = checked.phones;
+      emailCheck = checked.email;
+      phonesChecked = checked.tries.some((t) => t.outcome === "hit" || t.outcome === "miss");
       tries.push(...checked.tries);
       // Then the Do Not Call scrub on what's left: flags, never drops, so the sheet can say why not to call.
       const scrubbed = await scrubPhones(phones, phoneScrub(process.env));
@@ -126,6 +134,16 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
       }
     }
     if (field === "email" && emails && emails.length > 0) {
+      // Whose it is, from the contact check that rode on the phone call; or why it couldn't say.
+      const trestle = checkers.find((c) => c.name === "trestle");
+      if (emailCheck && firstEmail) {
+        const named = applyEmailCheck(emails, firstEmail, emailCheck);
+        emails = named.emails;
+        tries.push(named.try);
+        await ctx.runMutation(internal.outreach.recordCheck, { contactId, source: named.try.source, field: "email", hit: named.try.outcome === "hit" });
+      } else if (trestle) {
+        tries.push({ source: trestle.name, outcome: "skipped", note: !trestle.connected ? "Not connected" : phonesChecked ? "Nothing said about the email" : "Needs a live phone to check alongside" });
+      }
       // Deliverability: dead addresses are dropped before anyone mails them; the checker's turn joins the ledger.
       const checked = await checkEmails(emails, verifier(process.env));
       emails = checked.emails;
