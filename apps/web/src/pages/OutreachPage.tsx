@@ -1,10 +1,11 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Download, Lock, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { Download, LayoutList, Lock, Search, SlidersHorizontal, Table2, Trash2 } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachField, type OutreachListSummary, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { AskListSheet } from '../components/outreach/AskListSheet';
-import { ContactsTable, ContactSheet } from '../components/outreach/ContactsTable';
+import { ContactCards, ContactsTable, ContactSheet } from '../components/outreach/ContactsTable';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import { StepStrip } from '../components/outreach/StepStrip';
 import { COLUMNS, readHiddenColumns, writeHiddenColumns, type ColumnKey } from '../components/outreach/columns';
 import { csvName, download, outreachCsv } from '../components/outreach/outreachCsv';
@@ -17,6 +18,7 @@ import { callOk, sourceName } from '../components/outreach/format';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 const iconButton = 'w-11 h-11 inline-flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2A2A2A] border border-[#333333]';
+const VIEW_KEY = 'outreach.view';
 const chip = (on: boolean) => `px-3 min-h-[36px] text-sm border whitespace-nowrap ${on ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333333] text-gray-300 hover:bg-[#2A2A2A]'}`;
 const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: cents % 100 ? 2 : 0 })}`;
 /** How often the table re-reads while a lookup is running. */
@@ -192,6 +194,25 @@ const OutreachPage: React.FC = () => {
   const [lists, setLists] = useState<OutreachListSummary[] | null>(null);
   const [data, setData] = useState<OutreachContacts | null>(null);
   const [status, setStatus] = useState<OutreachRowStatus | 'all'>('all');
+  // Cards on a phone, the table on anything wider, unless they picked one; the pick is remembered on this device.
+  const narrow = useMediaQuery('(max-width: 767px)');
+  const [picked, setPicked] = useState<'cards' | 'table' | null>(() => {
+    try {
+      const v = localStorage.getItem(VIEW_KEY);
+      return v === 'cards' || v === 'table' ? v : null;
+    } catch {
+      return null;
+    }
+  });
+  const view = picked ?? (narrow ? 'cards' : 'table');
+  const pickView = (v: 'cards' | 'table') => {
+    setPicked(v);
+    try {
+      localStorage.setItem(VIEW_KEY, v);
+    } catch {
+      // Private browsing: the pick lasts for this visit.
+    }
+  };
   const [show, setShow] = useState<Show>('all');
   const [query, setQuery] = useState('');
   const [hiddenColumns, setHiddenColumns] = useState<Set<ColumnKey>>(readHiddenColumns);
@@ -488,7 +509,16 @@ const OutreachPage: React.FC = () => {
               </option>
             ))}
           </select>
-          <ColumnsPicker hidden={hiddenColumns} onChange={pickColumns} />
+          <button
+            type="button"
+            onClick={() => pickView(view === 'cards' ? 'table' : 'cards')}
+            aria-label={view === 'cards' ? 'Show as a table' : 'Show as cards'}
+            title={view === 'cards' ? 'Show as a table' : 'Show as cards'}
+            className="inline-flex items-center gap-2 px-3 min-h-[36px] text-sm text-gray-300 border border-[#333333] hover:bg-[#2A2A2A]"
+          >
+            {view === 'cards' ? <Table2 className="w-4 h-4" /> : <LayoutList className="w-4 h-4" />} {view === 'cards' ? 'Table' : 'Cards'}
+          </button>
+          {view === 'table' && <ColumnsPicker hidden={hiddenColumns} onChange={pickColumns} />}
         </div>
       )}
       {data === null || lists === null ? (
@@ -499,6 +529,13 @@ const OutreachPage: React.FC = () => {
         </p>
       ) : rows.length === 0 ? (
         <p className="text-sm text-gray-500">{data.rows.length === 0 ? 'Nobody matched. Ask for a wider list.' : 'Nobody matches those filters.'}</p>
+      ) : view === 'cards' ? (
+        <ContactCards
+          rows={rows}
+          onOpen={setOpen}
+          onStatus={(row, next) => setContactStatus(row, next, row.note ?? '')}
+          onRetry={(row, field) => void enrich([row.id], [field]).catch(() => {})}
+        />
       ) : (
         <ContactsTable
           rows={rows}

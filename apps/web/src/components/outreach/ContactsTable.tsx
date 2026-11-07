@@ -275,6 +275,117 @@ export const ContactsTable: React.FC<{
   );
 };
 
+/**
+ * The list for calling from a phone: one card per owner, stacked. The
+ * decision maker, the best number with Call and Text, a signal if the
+ * property has one, and Done or Skip. Tap the card for the full sheet.
+ */
+export const ContactCards: React.FC<{
+  rows: OutreachContact[];
+  onOpen: (row: OutreachContact) => void;
+  onStatus: (row: OutreachContact, status: OutreachRowStatus) => Promise<void>;
+  onRetry: (row: OutreachContact, field: OutreachField) => void;
+}> = ({ rows, onOpen, onStatus, onRetry }) => {
+  const [saving, setSaving] = useState<string | null>(null);
+  const mark = async (row: OutreachContact, next: OutreachRowStatus) => {
+    setSaving(row.id);
+    try {
+      // Tapping the status it already has puts it back to New.
+      await onStatus(row, row.status === next ? 'new' : next);
+    } catch {
+      // The sheet shows errors; a card just stays as it was.
+    } finally {
+      setSaving(null);
+    }
+  };
+  const big = 'flex-1 inline-flex items-center justify-center gap-2 min-h-[44px] text-sm font-medium';
+  return (
+    <ul className="space-y-2" data-testid="contact-cards">
+      {rows.map((r) => {
+        const call = r.phones.find(callOk);
+        const text = r.phones.find((p) => callOk(p) && p.type === 'mobile');
+        const email = r.emails.find((e) => e.nameMatch !== false) ?? r.emails[0];
+        const signal = r.signals[0];
+        return (
+          <li key={r.id} className="bg-[#121212] border border-[#333333]" data-testid="contact-card">
+            <button type="button" onClick={() => onOpen(r)} className="block w-full text-left px-4 pt-3 pb-2">
+              <span className={`block text-[15px] font-medium ${r.status === 'skip' ? 'text-gray-500 line-through' : 'text-white'}`}>{r.name}</span>
+              <span className="block text-xs text-gray-500">
+                {r.properties > 1 ? `${r.properties} properties · ${shortMoney(r.totalValueCents)}` : r.property.valueCents ? shortMoney(r.property.valueCents) : r.property.address}
+                {r.related?.length ? ` · +${r.related.length} related` : ''}
+              </span>
+              {signal && (
+                <span className="mt-1 inline-flex items-center gap-1 text-xs text-amber-300">
+                  <AlertTriangle className="w-3.5 h-3.5" /> {SIGNAL_LABEL[signal.kind]} {monthYear(signal.date)}
+                </span>
+              )}
+              {r.company && (
+                <span className="block mt-2 text-sm">
+                  {r.person ? (
+                    <>
+                      <span className="text-gray-200">{r.person.name}</span>
+                      {r.person.title ? <span className="text-gray-500"> · {r.person.title}</span> : null}
+                    </>
+                  ) : (
+                    <span className="text-gray-500">Decision maker: {r.enrichment.person.status === 'running' ? 'looking…' : r.enrichment.person.status === 'none' ? 'none found' : 'not looked up'}</span>
+                  )}
+                </span>
+              )}
+              <span className="block mt-1 text-sm">
+                {r.phones[0] ? (
+                  <>
+                    <span className={callOk(r.phones[0]) ? 'text-white' : 'text-gray-400'}>{phoneText((call ?? r.phones[0]).number)}</span> <PhoneBadges p={call ?? r.phones[0]} />
+                  </>
+                ) : r.enrichment.phone.status === 'failed' ? null : (
+                  <span className="text-gray-500">Phone: {r.enrichment.phone.status === 'running' ? 'looking…' : r.enrichment.phone.status === 'none' ? 'none found' : 'not looked up'}</span>
+                )}
+              </span>
+            </button>
+            {!r.phones[0] && r.enrichment.phone.status === 'failed' && (
+              <div className="px-4 pb-2 text-sm">
+                <Empty cell={r.enrichment.phone} onRetry={() => onRetry(r, 'phone')} />
+              </div>
+            )}
+            {(call || text || email) && (
+              <div className="flex gap-2 px-4 pb-2" data-testid="card-reach">
+                {call && (
+                  <a href={`tel:${call.number}`} className={`${big} bg-[#336699] hover:bg-[#2a5580] text-white`}>
+                    <Phone className="w-4 h-4" /> Call
+                  </a>
+                )}
+                {text && (
+                  <a href={`sms:${text.number}`} className={`${big} border border-[#333333] text-gray-200 hover:bg-[#2A2A2A]`}>
+                    <MessageSquare className="w-4 h-4" /> Text
+                  </a>
+                )}
+                {email && !text && (
+                  <a href={`mailto:${email.email}`} className={`${big} border border-[#333333] text-gray-200 hover:bg-[#2A2A2A]`}>
+                    <Mail className="w-4 h-4" /> Email
+                  </a>
+                )}
+              </div>
+            )}
+            <div className="flex border-t border-[#333333]">
+              {(['done', 'skip'] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => void mark(r, s)}
+                  disabled={saving === r.id}
+                  aria-pressed={r.status === s}
+                  className={`flex-1 min-h-[44px] text-sm disabled:opacity-50 ${s === 'skip' ? 'border-l border-[#333333]' : ''} ${r.status === s ? (s === 'done' ? 'text-[#7fb0e0] bg-[#336699]/15' : 'text-gray-300 bg-[#1A1A1A]') : 'text-gray-500 hover:bg-[#1A1A1A]'}`}
+                >
+                  {r.status === s ? (s === 'done' ? 'Done ✓' : 'Skipped') : s === 'done' ? 'Mark done' : 'Skip'}
+                </button>
+              ))}
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+};
+
 const dollarsOrFree = (cents?: number) => (cents ? dollars(cents) : 'free');
 /** The ledger's name for a source. */
 const LEDGER_NAME: Record<string, string> = { claude: 'The web, read by Claude' };

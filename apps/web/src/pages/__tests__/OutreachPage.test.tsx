@@ -89,6 +89,13 @@ jest.mock('../../components/layouts/DashboardLayout', () => ({
 
 import OutreachPage from '../OutreachPage';
 
+// The screen width the page asks about: a laptop unless a test says it's a phone.
+let narrowScreen = false;
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: (query: string) => ({ matches: narrowScreen, media: query, addEventListener: () => {}, removeEventListener: () => {} }),
+});
+
 const flush = () => act(async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); });
 let path = '';
 const Where = () => {
@@ -149,10 +156,72 @@ afterEach(() => {
   contacts = { rows: [], coverage: coverage(0, 0, 0, 0), ...money };
   authUser = { id: 'u1', role: 'user' };
   ownersState = null;
+  narrowScreen = false;
   localStorage.clear();
 });
 
 describe('the Outreach page', () => {
+  it('shows cards on a phone: the decision maker, the best number with Call and Text, the signal, Done and Skip; the table is a tap away and remembered', async () => {
+    narrowScreen = true;
+    lists = [list];
+    contacts = {
+      ...twoContacts(),
+      rows: [
+        contact('r1', {
+          person: { name: 'Dana Reyes', title: 'Manager', source: 'tx-comptroller' },
+          phones: [
+            { number: '4325550199', type: 'landline', dnc: true, source: 'batchdata' },
+            { number: '4325550100', type: 'mobile', verified: true, source: 'batchdata' },
+          ],
+          emails: [{ email: 'dana@oakplaza.com', source: 'batchdata' }],
+          enrichment: { phone: { status: 'found', source: 'batchdata', chargedCents: 100 }, email: { status: 'found', source: 'batchdata' }, person: { status: 'found', source: 'tx-comptroller' }, research: { status: 'locked' } },
+          related: [{ id: 'r9', name: 'Oak Plaza II LP' }],
+        }),
+        contact('r2', {
+          name: 'City Of Midland',
+          properties: 4,
+          totalValueCents: 120_000_000,
+          signals: [{ kind: 'code_violation', date: '2026-09-14', detail: 'High weeds' }],
+        }),
+      ],
+    };
+    await render('/outreach/l1');
+    expect(document.body.querySelector('[data-testid="contacts-table"]')).toBeNull();
+    const cards = Array.from(document.body.querySelectorAll('[data-testid="contact-card"]'));
+    expect(cards).toHaveLength(2);
+    const oak = cards[0].textContent!;
+    expect(oak).toContain('Oak Plaza LLC');
+    expect(oak).toContain('+1 related');
+    expect(oak).toContain('Dana Reyes · Manager');
+    // The best number to call is the one not on the Do Not Call list.
+    expect(oak).toContain('(432) 555-0100');
+    const reach = cards[0].querySelector('[data-testid="card-reach"]')!;
+    expect(Array.from(reach.querySelectorAll('a')).map((a) => [a.textContent?.trim(), a.getAttribute('href')])).toEqual([
+      ['Call', 'tel:4325550100'],
+      ['Text', 'sms:4325550100'],
+    ]);
+    const city = cards[1].textContent!;
+    expect(city).toContain('4 properties · $1.2M');
+    expect(city).toContain('Code violation Sep 2026');
+    expect(city).toContain('Decision maker: not looked up');
+    expect(city).toContain('Phone: not looked up');
+    expect(cards[1].querySelector('[data-testid="card-reach"]')).toBeNull();
+    // Done saves the status, keeping the note; tapping it again puts the owner back to New.
+    await act(async () => (Array.from(cards[0].querySelectorAll('button')).find((b) => b.textContent === 'Mark done') as HTMLButtonElement).click());
+    await flush();
+    expect(setStatus).toHaveBeenLastCalledWith('o1', 'r1', 'done', undefined);
+    const doneCard = document.body.querySelectorAll('[data-testid="contact-card"]')[0];
+    await act(async () => (Array.from(doneCard.querySelectorAll('button')).find((b) => b.textContent === 'Done ✓') as HTMLButtonElement).click());
+    await flush();
+    expect(setStatus).toHaveBeenLastCalledWith('o1', 'r1', 'new', undefined);
+    // The table, a tap away; the choice sticks on this device.
+    await click('Table');
+    expect(document.body.querySelector('[data-testid="contacts-table"]')).not.toBeNull();
+    expect(localStorage.getItem('outreach.view')).toBe('table');
+    await click('Cards');
+    expect(document.body.querySelector('[data-testid="contact-cards"]')).not.toBeNull();
+  });
+
   it('shows the contacts table with a chip per list, or says to tap + when there are none', async () => {
     await render();
     expect(document.body.querySelector('[data-testid="outreach-empty"]')!.textContent).toBe('No contacts yet. Tap + and say who you want to reach.');
@@ -226,7 +295,7 @@ describe('the Outreach page', () => {
     const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(2)')).map((c) => c.textContent);
     expect(names()).toEqual(['Oak Plaza LLC', 'City Of Midland', 'Vance Robert & Linda']);
     const filters = document.body.querySelector('[aria-label="Filters"]')!;
-    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Needs you 1', 'Columns']);
+    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Needs you 1', 'Cards', 'Columns']);
     const steps = document.body.querySelector('[data-testid="steps"]')!.textContent!;
     expect(steps).toContain('2 companies go to step 2 for the person · 1 person or trust skips to step 3');
     expect(steps).toContain('1 of 2 companies1 found1 need a retry');
