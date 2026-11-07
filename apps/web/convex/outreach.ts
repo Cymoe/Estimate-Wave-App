@@ -640,6 +640,26 @@ export const setStatus = mutation({
  * address, and a note with what they own, the mailing address and the
  * company's own note. Sent once; after that the same lead comes back.
  */
+/**
+ * One-off: leads sent from Outreach before Company was always filled get
+ * their owning company. Safe to run again. Run from the deploy workflow:
+ * function `outreach:fillLeadCompanies`.
+ */
+export const fillLeadCompanies = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    let filled = 0;
+    for (const lead of await ctx.db.query("leads").filter((q) => q.eq(q.field("source"), "Outreach")).collect()) {
+      if (lead.company) continue;
+      const contact = await ctx.db.query("outreachContacts").withIndex("by_lead", (q) => q.eq("leadId", lead._id)).first();
+      if (!contact?.company) continue;
+      await ctx.db.patch(lead._id, { company: contact.name, updatedAt: nowIso() });
+      filled++;
+    }
+    return filled;
+  },
+});
+
 export const sendToLeads = mutation({
   args: { organizationId: v.id("organizations"), contactId: v.id("outreachContacts") },
   handler: async (ctx, { organizationId, contactId }) => {
@@ -653,9 +673,9 @@ export const sendToLeads = mutation({
       const email = (contact.emails ?? []).find((e) => e.nameMatch !== false);
       const mailing = [contact.mailing.address, contact.mailing.city, contact.mailing.state, contact.mailing.zip?.slice(0, 5)].filter(Boolean).join(", ");
       const notes = [`From Outreach. ${contact.why}.`, mailing ? `Mailing address: ${mailing}.` : "", contact.note ?? ""].filter(Boolean).join("\n");
-      // The person to call, and the company they're with when it's a company's.
+      // The person to call (the company itself until one is found), and always the company when a company owns it.
       const name = contact.person?.name ?? contact.name;
-      const company = contact.company && name !== contact.name ? contact.name : undefined;
+      const company = contact.company ? contact.name : undefined;
       leadId = await ctx.db.insert("leads", {
         name,
         ...(company ? { company } : {}),

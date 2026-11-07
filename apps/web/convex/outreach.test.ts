@@ -445,6 +445,16 @@ describe("a company's lists", () => {
     // A lead gone some other way (deleted before this was in place) shows the owner as New too.
     await t.run(async (ctx) => ctx.db.delete(again));
     expect(await cityNow()).toMatchObject({ status: "new" });
+    // With no decision maker found yet, the lead is the company itself, and Company still says so.
+    await t.run(async (ctx) => ctx.db.patch(city.id as never, { person: undefined }));
+    const bare = await co.as.mutation(api.outreach.sendToLeads, { organizationId: org, contactId: city.id });
+    expect(await t.run(async (ctx) => ctx.db.get(bare))).toMatchObject({ name: "City Of Midland", company: "City Of Midland" });
+    // A lead sent before Company was always filled gets it from the one-off fill; a lead from elsewhere is left alone.
+    await t.run(async (ctx) => ctx.db.patch(bare, { company: undefined }));
+    const walkIn = await co.as.mutation(api.leads.create, { organizationId: org, data: { name: "Walk-in", source: "Outreach" } });
+    expect(await t.mutation(internal.outreach.fillLeadCompanies, {})).toBe(1);
+    expect(await t.run(async (ctx) => ctx.db.get(bare))).toMatchObject({ company: "City Of Midland" });
+    expect(await t.run(async (ctx) => ctx.db.get(walkIn!._id))).not.toHaveProperty("company");
     expect((await co.as.query(api.outreach.lists, { organizationId: org })).find((l) => l.who === "commercial")!.done).toBe(2);
 
     // Another company can't see it; a company off the plan can't use Outreach at all.

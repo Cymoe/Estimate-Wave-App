@@ -141,7 +141,7 @@ const LeadCard: React.FC<{
         </div>
         {value > 0 && <span className="text-sm font-medium whitespace-nowrap">{dollars(value)}</span>}
       </div>
-      {lead.company && <p className="mt-0.5 text-xs text-gray-500 truncate">{lead.company}</p>}
+      {lead.company && lead.company !== lead.name && <p className="mt-0.5 text-xs text-gray-500 truncate">{lead.company}</p>}
       {summary && (
         <p className="mt-1 text-xs text-gray-400 truncate" title={summary}>
           {summary}
