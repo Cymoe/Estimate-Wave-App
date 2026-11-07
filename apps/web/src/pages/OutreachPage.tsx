@@ -253,10 +253,8 @@ const OutreachPage: React.FC = () => {
   };
   const [show, setShow] = useState<Show>('all');
   const [query, setQuery] = useState('');
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState<OutreachContact | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [note, setNote] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirm, confirmDialog] = useConfirm();
@@ -349,27 +347,26 @@ const OutreachPage: React.FC = () => {
     return (data?.rows ?? []).filter((r) => (status === 'all' || r.status === status) && has(r) && (!q || matches(r, q)));
   }, [data, status, show, query]);
   const counts = useMemo(() => Object.fromEntries(SHOWS.map((s) => [s.value, (data?.rows ?? []).filter(s.has).length])) as Record<Show, number>, [data]);
-  const chosen = rows.filter((r) => selected.has(r.id));
   // What a lookup would run: never asked, failed, or a "none found" a month old (the sources refresh monthly).
   const needsPhone = (r: OutreachContact) => openToLook(r.enrichment.phone);
   const hasLock = (r: OutreachContact) => needsPhone(r) || Boolean(r.company && openToLook(r.enrichment.person));
-  const unlockable = chosen.filter(hasLock);
   const unlockCents = data?.unlockCents ?? 100;
   const balanceCents = data?.balanceCents ?? 0;
-  const cost = unlockable.filter(needsPhone).length * unlockCents;
   const hitRate = data?.phoneHitRate;
   const researchCents = data?.researchCents ?? 25;
   const needsResearch = (r: OutreachContact) => r.enrichment.research?.status !== 'found' && r.enrichment.research?.status !== 'running';
-  const researchable = chosen.filter(needsResearch);
-  const researchCost = researchable.length * researchCents;
   /** "up to $200; about $136 at your 68% hit rate so far" */
   const estimate = (phones: number) => {
     const most = phones * unlockCents;
     if (hitRate === undefined || phones === 0) return `up to ${dollars(most)}`;
     return `up to ${dollars(most)}, about ${dollars(Math.round(most * hitRate))} at your ${Math.round(hitRate * 100)}% hit rate so far`;
   };
+  // The header's buttons act on the whole list (or every contact): everyone a lookup would run on, and everyone with no research yet.
   const listOpen = (data?.rows ?? []).filter(hasLock);
   const listPhones = listOpen.filter(needsPhone).length;
+  const listResearch = (data?.rows ?? []).filter(needsResearch);
+  const researchCost = listResearch.length * researchCents;
+  const short = listPhones * unlockCents > balanceCents;
 
   const addFunds = () => organizationId && openFundingPage(organizationId).catch((err) => setError(fundErrorText(err)));
 
@@ -421,9 +418,6 @@ const OutreachPage: React.FC = () => {
     try {
       const r = await outreachAPI.enrich(organizationId, ids, fields, question);
       if (r.queued && r.at) keepBatch({ at: r.at < startedAt ? r.at : startedAt });
-      const what = fields?.length === 1 && fields[0] === 'research' ? 'charged only for answers found' : 'charged only for phones found';
-      setNote(r.queued ? `Looking up ${r.queued} ${r.queued === 1 ? 'owner' : 'owners'}; ${dollars(r.costCents)} at most, ${what}.` : null);
-      setSelected(new Set());
       void load();
     } catch (err) {
       // Refused (the balance, the plan): the cells go back to how they were.
@@ -447,6 +441,18 @@ const OutreachPage: React.FC = () => {
     });
     if (!ok) return;
     await enrich(listOpen.map((r) => r.id)).catch(() => {});
+  };
+
+  /** A research answer for everyone on the list without one, after a word on the cost. */
+  const researchAll = async () => {
+    if (listResearch.length === 0) return;
+    const ok = await confirm({
+      title: `Research ${listResearch.length} ${listResearch.length === 1 ? 'owner' : 'owners'}?`,
+      message: `${dollars(researchCents)} an answer, ${dollars(researchCost)} at most. Charged only when the web has something to say.`,
+      confirmLabel: 'Research them',
+    });
+    if (!ok) return;
+    await enrich(listResearch.map((r) => r.id), ['research']).catch(() => {});
   };
 
   const removeList = async () => {
@@ -478,11 +484,27 @@ const OutreachPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => void enrichAll()}
-                disabled={busy || listPhones * unlockCents > balanceCents}
+                disabled={busy || short}
                 className="inline-flex items-center gap-2 px-3 h-11 text-sm font-medium bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50"
                 title={estimate(listPhones)}
               >
                 <Lock className="w-4 h-4" /> Look up {listOpen.length}
+              </button>
+            )}
+            {listOpen.length > 0 && short && (
+              <button type="button" onClick={addFunds} className="self-center text-sm text-[#7fb0e0] hover:text-white">
+                Add funds
+              </button>
+            )}
+            {listResearch.length > 0 && (
+              <button
+                type="button"
+                onClick={() => void researchAll()}
+                disabled={busy || researchCost > balanceCents}
+                className="inline-flex items-center gap-2 px-3 h-11 text-sm font-medium text-white border border-[#336699] hover:bg-[#336699]/20 disabled:opacity-50"
+                title={`${dollars(researchCents)} an answer, charged only when the web has something to say`}
+              >
+                <Search className="w-4 h-4" /> Research {listResearch.length}
               </button>
             )}
             <button type="button" onClick={() => download(csvName(list?.title ?? 'contacts'), outreachCsv(rows))} aria-label="Export CSV" title="Export CSV" className={iconButton}>
@@ -528,40 +550,6 @@ const OutreachPage: React.FC = () => {
           )}
           {list.truncated && (list.total === undefined || list.total <= list.rowCount) && <span className="text-amber-300"> · The top of a longer list; ask for a narrower one to reach the rest.</span>}
         </p>
-      )}
-      {note && <p className="text-sm text-gray-300">{note}</p>}
-      {chosen.length > 0 && (
-        <div className="flex flex-wrap items-center gap-3 bg-[#121212] border border-[#333333] px-4 py-2" data-testid="unlock-bar">
-          <span className="text-sm text-gray-300">{chosen.length} selected</span>
-          <button
-            type="button"
-            onClick={() => void enrich(unlockable.map((r) => r.id)).catch(() => {})}
-            disabled={busy || unlockable.length === 0 || cost > balanceCents}
-            className="inline-flex items-center gap-2 px-4 min-h-[40px] text-sm font-medium bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50"
-          >
-            <Lock className="w-4 h-4" /> Look up {unlockable.length}
-          </button>
-          <span className="text-xs text-gray-500">
-            {unlockable.filter(needsPhone).length} {unlockable.filter(needsPhone).length === 1 ? 'phone' : 'phones'} to find, {estimate(unlockable.filter(needsPhone).length)}. Balance {dollars(balanceCents)}.{' '}
-            {cost > balanceCents && (
-              <button type="button" onClick={addFunds} className="text-[#7fb0e0] underline underline-offset-2">
-                Add funds
-              </button>
-            )}
-          </span>
-          <button
-            type="button"
-            onClick={() => void enrich(researchable.map((r) => r.id), ['research']).catch(() => {})}
-            disabled={busy || researchable.length === 0 || researchCost > balanceCents}
-            className="inline-flex items-center gap-2 px-4 min-h-[40px] text-sm font-medium text-white border border-[#336699] hover:bg-[#336699]/20 disabled:opacity-50"
-            title={`${dollars(researchCents)} an answer, charged only when the web has something to say`}
-          >
-            <Search className="w-4 h-4" /> Research {researchable.length} · {dollars(researchCost)}
-          </button>
-          <button type="button" onClick={() => setSelected(new Set())} className="ml-auto text-sm text-gray-400 hover:text-white">
-            Clear
-          </button>
-        </div>
       )}
       {data && data.rows.length > 0 && (
         <div
@@ -637,16 +625,6 @@ const OutreachPage: React.FC = () => {
         <ContactsTable
           rows={rows}
           coverage={data.coverage}
-          selected={selected}
-          onSelect={(id, on) =>
-            setSelected((s) => {
-              const next = new Set(s);
-              if (on) next.add(id);
-              else next.delete(id);
-              return next;
-            })
-          }
-          onSelectAll={(on) => setSelected(on ? new Set(rows.map((r) => r.id)) : new Set())}
           onOpen={setOpen}
           onRetry={(row, field) => void enrich([row.id], [field]).catch(() => {})}
         />

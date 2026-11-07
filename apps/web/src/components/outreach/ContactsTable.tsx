@@ -170,8 +170,7 @@ const td = 'px-3 py-2 whitespace-nowrap align-top overflow-hidden text-ellipsis'
 /** The table's columns after the checkbox and the name, in order. */
 const COLUMN_KEYS = ['person', 'phone', 'email', 'research', 'status', 'mailing', 'property', 'value', 'type', 'signals'] as const;
 type ColumnKey = (typeof COLUMN_KEYS)[number];
-const WIDTH: Record<'select' | 'name' | ColumnKey, number> = {
-  select: 2.5,
+const WIDTH: Record<'name' | ColumnKey, number> = {
   name: 16,
   person: 13,
   phone: 12.5,
@@ -191,23 +190,18 @@ const pinned = 'sticky bg-[#121212] group-hover:bg-[#1A1A1A]';
  * The CRM: one row per owner. What the row has comes first (the person
  * behind a company, phone, email, status), then the roll's columns and
  * the property's signals; the name stays pinned as the rest scroll, the header stays on top as the rows scroll, and the right edge
- * fades while more columns wait. Tap a row for the sheet; tick rows to
- * enrich them.
+ * fades while more columns wait. Tap a row for the sheet.
  */
 export const ContactsTable: React.FC<{
   rows: OutreachContact[];
   coverage: OutreachContacts['coverage'];
-  selected: Set<string>;
-  onSelect: (id: string, on: boolean) => void;
-  onSelectAll: (on: boolean) => void;
   onOpen: (row: OutreachContact) => void;
   /** Run a failed field again, from the cell's Retry. */
   onRetry: (row: OutreachContact, field: OutreachField) => void;
-}> = ({ rows, coverage, selected, onSelect, onSelectAll, onOpen, onRetry }) => {
-  const all = rows.length > 0 && rows.every((r) => selected.has(r.id));
+}> = ({ rows, coverage, onOpen, onRetry }) => {
   const lit = useJustFilled(rows);
   const glow = (id: string, f: OutreachField) => (lit.has(`${id}:${f}`) ? ' cell-filled' : '');
-  const tableWidth = WIDTH.select + WIDTH.name + COLUMN_KEYS.reduce((sum, k) => sum + WIDTH[k], 0);
+  const tableWidth = WIDTH.name + COLUMN_KEYS.reduce((sum, k) => sum + WIDTH[k], 0);
   const [atEnd, setAtEnd] = useState(false);
   // No fade when every column fits, or once the last one is in view.
   // The header follows the rows sideways.
@@ -219,7 +213,6 @@ export const ContactsTable: React.FC<{
   const tableStyle = { width: `${tableWidth}rem`, minWidth: '100%' };
   const cols = (
     <colgroup>
-      <col style={{ width: `${WIDTH.select}rem` }} />
       <col style={{ width: `${WIDTH.name}rem` }} />
       {COLUMN_KEYS.map((k) => (
         <col key={k} style={{ width: `${WIDTH[k]}rem` }} />
@@ -235,10 +228,7 @@ export const ContactsTable: React.FC<{
           {cols}
           <thead>
             <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
-              <th className={`${head} left-0 z-30 px-3 py-2 w-10 align-top`}>
-                <input type="checkbox" checked={all} onChange={(e) => onSelectAll(e.target.checked)} aria-label="Select all" className="accent-[#336699]" />
-              </th>
-              <th className={`${head} left-10 z-30 ${thBase} border-r border-[#333333]`}>Name</th>
+              <th className={`${head} left-0 z-30 ${thBase} border-r border-[#333333]`}>Name</th>
               <th className={th}>
                 Decision maker
                 <Coverage c={coverage.person} of={coverage.person.total === 1 ? 'company' : 'companies'} />
@@ -274,10 +264,7 @@ export const ContactsTable: React.FC<{
               const email = r.emails[0];
               return (
                 <tr key={r.id} onClick={() => onOpen(r)} className="group cursor-pointer hover:bg-[#1A1A1A]" data-testid="contact-row">
-                  <td className={`${pinned} left-0 z-10 ${td}`} onClick={(e) => e.stopPropagation()}>
-                    <input type="checkbox" checked={selected.has(r.id)} onChange={(e) => onSelect(r.id, e.target.checked)} aria-label={`Select ${r.name}`} className="accent-[#336699]" />
-                  </td>
-                  <td className={`${pinned} left-10 z-10 ${td} border-r border-[#333333] max-w-[16rem] truncate ${r.status === 'skip' ? 'text-gray-500 line-through' : 'text-white'}`}>
+                  <td className={`${pinned} left-0 z-10 ${td} border-r border-[#333333] max-w-[16rem] truncate ${r.status === 'skip' ? 'text-gray-500 line-through' : 'text-white'}`}>
                     {r.name}
                     {r.related?.length ? (
                       <span className="block text-[11px] text-gray-500 no-underline" title={`Related: ${r.related.map((x) => x.name).join(', ')}`} data-testid="related">

@@ -193,13 +193,12 @@ describe('the Outreach page', () => {
     enrich.mockImplementationOnce(() => new Promise((resolve) => (accept = resolve)) as never);
     contacts = { ...twoContacts(), balanceCents: 500 };
     await act(async () => pushContacts!(contacts));
-    const box = document.body.querySelectorAll('[data-testid="contact-row"] input[type="checkbox"]')[0] as HTMLInputElement;
-    await act(async () => box.click());
-    await act(async () => (document.body.querySelector('[data-testid="unlock-bar"] button') as HTMLButtonElement).click());
+    await click('Look up 2');
+    await click('Look them up');
     const first = document.body.querySelectorAll('[data-testid="contact-row"]')[0];
     expect(first.querySelectorAll('[data-testid="live"]').length).toBeGreaterThan(0);
-    expect(document.body.querySelector('[data-testid="lookup-progress"]')!.textContent).toContain('Looking up 1 owner · 0 done');
-    await act(async () => accept({ queued: 1, costCents: 100, at: new Date().toISOString() }));
+    expect(document.body.querySelector('[data-testid="lookup-progress"]')!.textContent).toContain('Looking up 2 owners · 0 done');
+    await act(async () => accept({ queued: 2, costCents: 200, at: new Date().toISOString() }));
     await flush();
 
     // Done that the server refuses: shown at once, then put back.
@@ -210,7 +209,7 @@ describe('the Outreach page', () => {
     await flush();
     await click('Done');
     await flush();
-    const statusOf = () => document.body.querySelectorAll('[data-testid="contact-row"]')[1].querySelectorAll('td')[6].textContent;
+    const statusOf = () => document.body.querySelectorAll('[data-testid="contact-row"]')[1].querySelectorAll('td')[5].textContent;
     expect(statusOf()).toBe('New');
   });
 
@@ -351,15 +350,15 @@ describe('the Outreach page', () => {
     const cells = (i: number) => Array.from(rows[i].querySelectorAll('td')).map((c) => c.textContent?.trim());
     // What the row has comes first; the roll's columns follow, with the name pinned as they scroll.
     // The mailing address is one column: street, then city, state and zip under it.
-    expect(cells(0)).toEqual(['', 'Oak Plaza LLC', '—', '—', '—', '—', 'New', '1 MAIN STDALLAS, TX 75201', '12 Midkiff Rd', '$3M', 'Commercial', '—']);
-    expect(cells(1)[8]).toBe('12 Midkiff Rd +3');
+    expect(cells(0)).toEqual(['Oak Plaza LLC', '—', '—', '—', '—', 'New', '1 MAIN STDALLAS, TX 75201', '12 Midkiff Rd', '$3M', 'Commercial', '—']);
+    expect(cells(1)[7]).toBe('12 Midkiff Rd +3');
     // An owner with several properties shows what they hold in all, the number the list is sorted on.
-    expect(cells(1)[9]).toBe('$1.2M');
-    expect(cells(1)[11]).toBe('Code violation Sep 2026');
-    expect(rows[0].querySelectorAll('td')[1].className).toContain('sticky');
+    expect(cells(1)[8]).toBe('$1.2M');
+    expect(cells(1)[10]).toBe('Code violation Sep 2026');
+    expect(rows[0].querySelectorAll('td')[0].className).toContain('sticky');
     expect(document.body.querySelector('[data-testid="more-columns"]')).not.toBeNull();
     const heads = Array.from(document.body.querySelectorAll('thead th')).map((h) => h.textContent?.replace(/\s+/g, ' ').trim());
-    expect(heads).toEqual(['', 'Name', 'Decision maker0 / 2 companies', 'Phone0 / 2', 'Email0 / 2', 'Research0 / 2', 'Status', 'Mailing address', 'Property', 'Value', 'Type', 'Signals']);
+    expect(heads).toEqual(['Name', 'Decision maker0 / 2 companies', 'Phone0 / 2', 'Email0 / 2', 'Research0 / 2', 'Status', 'Mailing address', 'Property', 'Value', 'Type', 'Signals']);
     await click('Shopping center owners');
     expect(path).toBe('/outreach/l1');
     expect(getContacts).toHaveBeenLastCalledWith('o1', 'l1');
@@ -392,12 +391,12 @@ describe('the Outreach page', () => {
       ],
     };
     await render('/outreach/l1');
-    const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(2)')).map((c) => c.textContent);
+    const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(1)')).map((c) => c.textContent);
     expect(names()).toEqual(['Oak Plaza LLC', 'City Of Midland', 'Vance Robert & Linda']);
     const filters = document.body.querySelector('[aria-label="Filters"]')!;
     expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Mail only 1', 'Needs you 1', '']);
     // The failed cell says why, and Retry runs that field again without opening the sheet.
-    const failedCell = document.body.querySelectorAll('[data-testid="contact-row"]')[0].querySelectorAll('td')[2];
+    const failedCell = document.body.querySelectorAll('[data-testid="contact-row"]')[0].querySelectorAll('td')[1];
     expect(failedCell.textContent?.trim()).toBe('Lookup failedThe state registry timed outRetry');
     await act(async () => (failedCell.querySelector('button') as HTMLButtonElement).click());
     await flush();
@@ -521,17 +520,14 @@ describe('the Outreach page', () => {
     expect(clicks).toEqual(['shopping-center-owners.csv']);
   });
 
-  it('ticked rows are looked up together, $1 a phone from the balance with an estimate; found rows show the person, the ranked phone with its flags, and the email', async () => {
+  it('one Look up runs the whole list, $1 a phone from the balance with an estimate; found rows show the person, the ranked phone with its flags, and the email', async () => {
     lists = [list];
     contacts = { ...twoContacts(), balanceCents: 500 };
     await render();
-    const boxes = document.body.querySelectorAll('[data-testid="contact-row"] input[type="checkbox"]');
-    await act(async () => (boxes[0] as HTMLInputElement).click());
-    await act(async () => (boxes[1] as HTMLInputElement).click());
-    const bar = document.body.querySelector('[data-testid="unlock-bar"]')!;
-    expect(bar.textContent).toContain('2 selected');
-    expect(bar.textContent).toContain('2 phones to find, up to $2. Balance $5.');
-    expect(button('Research 2 · $0.50')).not.toBeUndefined();
+    // No checkboxes: the buttons up top act on everyone the list still needs.
+    expect(document.body.querySelector('[data-testid="contact-row"] input[type="checkbox"]')).toBeNull();
+    expect(button('Look up 2').title).toBe('up to $2');
+    expect(button('Research 2').title).toBe('$0.25 an answer, charged only when the web has something to say');
     const found = { status: 'found', at: '2026-11-05T15:01:00Z', source: 'batchdata' };
     contacts = {
       rows: [
@@ -564,24 +560,22 @@ describe('the Outreach page', () => {
       balanceCents: 400,
       phoneHitRate: 0.5,
     };
-    // The top-right button looks up everyone still locked on the list; the bar's button only the ticked rows.
-    expect(button('Look up 2').title).toBe('up to $2');
-    await act(async () => (bar.querySelector('button') as HTMLButtonElement).click());
-    await flush();
+    // After a word on the cost, everyone still locked on the list.
+    await click('Look up 2');
+    expect(document.body.textContent).toContain('2 phones to find: up to $2.');
+    await click('Look them up');
     expect(enrich).toHaveBeenCalledWith('o1', ['r1', 'r2'], undefined, undefined);
-    expect(document.body.textContent).toContain('Looking up 1 owner; $1 at most, charged only for phones found.');
     // The bar along the bottom: the lookup started here, owners done, what's been found, what it has cost.
     expect(document.body.querySelector('[data-testid="lookup-progress"]')!.textContent).toBe('Looking up 2 owners · 1 done1 phone · 1 email · 1 person · $1 so far');
     expect(localStorage.getItem('outreach.batch')).toBe('{"at":"2026-11-05T15:00:00Z"}');
     const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
     const cells = (i: number) => Array.from(rows[i].querySelectorAll('td')).map((c) => c.textContent?.replace(/\s+/g, ' ').trim());
-    expect(cells(0)[2]).toBe('Dana ReyesManager · 2 sources agree');
-    expect(cells(0).slice(3, 5)).toEqual(['(432) 555-0100mobile · verified · +2', 'dana@oakplaza.comverified']);
+    expect(cells(0)[1]).toBe('Dana ReyesManager · 2 sources agree');
+    expect(cells(0).slice(2, 4)).toEqual(['(432) 555-0100mobile · verified · +2', 'dana@oakplaza.comverified']);
     // A running cell says what it's doing, and the last thing it found.
-    expect(cells(1).slice(2, 5)).toEqual(['Asking the Texas Comptroller…1 source checked', 'Checking the lines…2 numbers', 'Starting…']);
-    expect(cells(0)[5]).toBe('—');
+    expect(cells(1).slice(1, 4)).toEqual(['Asking the Texas Comptroller…1 source checked', 'Checking the lines…2 numbers', 'Starting…']);
+    expect(cells(0)[4]).toBe('—');
     expect(document.body.querySelector('thead')!.textContent).toContain('1 / 2 · 1 source');
-    expect(document.body.querySelector('[data-testid="unlock-bar"]')).toBeNull();
     // Nothing left to look up on the list: the top-right button is gone.
     expect(button('Look up')).toBeUndefined();
     await act(async () => (rows[0] as HTMLTableRowElement).click());
@@ -621,7 +615,7 @@ describe('the Outreach page', () => {
     };
     await render();
     const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
-    expect(Array.from(rows[1].querySelectorAll('td'))[5].textContent).toBe('The City of Midland owns the lot; a parks bond passed in 2026.');
+    expect(Array.from(rows[1].querySelectorAll('td'))[4].textContent).toBe('The City of Midland owns the lot; a parks bond passed in 2026.');
     await act(async () => (rows[0] as HTMLTableRowElement).click());
     const sheet = document.body.querySelector('[role="dialog"][aria-label="Oak Plaza LLC"]')!;
     const box = sheet.querySelector('textarea[aria-label="Research question"]') as HTMLTextAreaElement;
@@ -667,7 +661,7 @@ describe('the Outreach page', () => {
     contacts = { ...twoContacts(), balanceCents: 500, rows: [contact('r1', { enrichment: looked(old) }), contact('r2', { name: 'City Of Midland', enrichment: looked(recent) })] };
     await render('/outreach/l1');
     const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
-    const phoneCell = (i: number) => rows[i].querySelectorAll('td')[3];
+    const phoneCell = (i: number) => rows[i].querySelectorAll('td')[2];
     expect(phoneCell(0).textContent).toBe('None foundTry again');
     expect(phoneCell(1).textContent).toBe('None found');
     // Only the month-old one is still open to the list's Look up; the fresh "none" isn't asked again.
