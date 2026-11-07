@@ -58,6 +58,7 @@ const preview = jest.fn(async () => ({ count: 1, truncated: false, limited: fals
 const create = jest.fn(async () => ({ listId: 'l9', rowCount: 2, added: 2, truncated: false }));
 const setStatus = jest.fn(async () => null);
 const sendToLeads = jest.fn(async () => 'lead1');
+const sendManyToLeads = jest.fn(async () => ({ sent: 2, leads: 1, joined: 1 }));
 const remove = jest.fn(async () => null);
 const extend = jest.fn(async () => ({ loaded: 500, added: 500, rowCount: 1000, total: 2340, truncated: false }));
 const enrich = jest.fn(async () => ({ queued: 1, costCents: 100, at: '2026-11-05T15:00:00Z' }));
@@ -85,6 +86,7 @@ jest.mock('../../lib/api', () => ({
     create: (...args: unknown[]) => create(...(args as [])),
     setStatus: (...args: unknown[]) => setStatus(...(args as [])),
     sendToLeads: (...args: unknown[]) => sendToLeads(...(args as [])),
+    sendManyToLeads: (...args: unknown[]) => sendManyToLeads(...(args as [])),
     remove: (...args: unknown[]) => remove(...(args as [])),
     extend: (...args: unknown[]) => extend(...(args as [])),
     enrich: (...args: unknown[]) => enrich(...(args as [])),
@@ -506,6 +508,25 @@ describe('the Outreach page', () => {
     await click('Save list');
     expect(create).toHaveBeenCalledWith('o1', { county: 'Midland', who: 'commercial' }, 'Strip centers');
     expect(path).toBe('/outreach/l9');
+  });
+
+  it('sends everyone showing to Leads at once, after asking; skipped owners and ones already in Leads stay out', async () => {
+    lists = [list];
+    contacts = {
+      ...twoContacts(),
+      rows: [contact('r1'), contact('r2', { name: 'City Of Midland' }), contact('r3', { name: 'Skipped Co', status: 'skip' }), contact('r4', { name: 'Sent Co', status: 'lead', leadId: 'lead9' })],
+    };
+    await render('/outreach/l1');
+    const send = document.body.querySelector('[data-testid="send-all"]') as HTMLButtonElement;
+    expect(send.textContent).toBe('Send 2 to Leads');
+    await act(async () => send.click());
+    await flush();
+    expect(document.body.textContent).toContain('Send 2 owners to Leads?');
+    await click('Send to Leads');
+    expect(sendManyToLeads).toHaveBeenCalledWith('o1', ['r1', 'r2']);
+    expect(document.body.querySelector('[data-testid="sent-note"]')!.textContent).toContain("1 new lead in Leads; 1 joined a related company's lead.");
+    await click('Open Leads');
+    expect(path).toBe('/leads');
   });
 
   it('says what it cannot make and builds the closest instead; an example chip fills the ask', async () => {

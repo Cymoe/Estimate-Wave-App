@@ -1301,6 +1301,9 @@ export const outreachAPI = {
   /** Skip or un-skip, and the note; no note sent keeps the one there. */
   setStatus: (organizationId: string, contactId: string, status: OutreachRowStatus, note?: string) =>
     run('mutation', api.outreach.setStatus, defined({ organizationId, contactId, status, note })),
+  /** Sends many owners to Leads at once (up to 500); owners run by the same people share one lead. */
+  sendManyToLeads: (organizationId: string, contactIds: string[]): Promise<{ sent: number; leads: number; joined: number }> =>
+    run('mutation', api.outreach.sendManyToLeads, { organizationId, contactIds }),
   /** Sends an owner to Leads (once); returns the lead's id. */
   sendToLeads: (organizationId: string, contactId: string): Promise<string> => run('mutation', api.outreach.sendToLeads, { organizationId, contactId }),
   remove: (organizationId: string, listId: string) => run('mutation', api.outreach.remove, { organizationId, listId }),

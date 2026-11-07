@@ -961,6 +961,23 @@ describe("a company's lists", () => {
     expect(after.balanceCents).toBe(800);
     const stats = await t.run(async (ctx) => ctx.db.query("dataSourceStats").collect());
     expect(stats.some((s) => s.source === "shared")).toBe(false);
+
+    // Send all three to Leads at once: the two Nuka Hiva entities become one lead for Kai Moana; Brazos gets its own.
+    const sent = await co.as.mutation(api.outreach.sendManyToLeads, { organizationId: org, contactIds: [first.id, second.id, brazos.id] as never });
+    expect(sent).toEqual({ sent: 3, leads: 2, joined: 1 });
+    const one = await byName("Nuka Hiva Alpha 1-54");
+    const two = await byName("Nuka Hiva Alpha 55-106");
+    expect(one.leadId).toBeDefined();
+    expect(two.leadId).toBe(one.leadId);
+    expect((await byName("Brazos")).leadId).not.toBe(one.leadId);
+    const shared = await t.run(async (ctx) => ctx.db.get(one.leadId as never));
+    expect(shared).toMatchObject({ name: "Kai Moana", company: first.name, source: "Outreach", status: "new" });
+    expect((shared as { notes: string }).notes).toContain(`Also owns as ${second.name}:`);
+    expect((await co.as.query(api.leads.list, { organizationId: org })).filter((l: { source?: string }) => l.source === "Outreach")).toHaveLength(2);
+    // Sending again sends nobody; deleting the shared lead puts both entities back to New.
+    expect(await co.as.mutation(api.outreach.sendManyToLeads, { organizationId: org, contactIds: [first.id, second.id] as never })).toEqual({ sent: 0, leads: 0, joined: 0 });
+    await co.as.mutation(api.leads.remove, { id: one.leadId as never });
+    expect([(await byName("Nuka Hiva Alpha 1-54")).status, (await byName("Nuka Hiva Alpha 55-106")).status]).toEqual(["new", "new"]);
   });
 
   test("a running lookup's progress shows on its cell, only while it runs; a signal first seen this week is new, but not the first import", async () => {

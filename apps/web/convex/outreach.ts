@@ -633,13 +633,84 @@ export const setStatus = mutation({
 });
 
 /**
- * The owner goes to Leads, where the calls, follow-ups and the estimate
- * already live. The lead (new, source Outreach) gets the decision maker's
- * name with the owning company as its company (or just the owner's name),
- * the best number not on Do Not Call, the email, the property as its
- * address, and a note with what they own, the mailing address and the
- * company's own note. Sent once; after that the same lead comes back.
+ * Another owner run by the same people: one family of LLCs ("Nuka Hiva Alpha
+ * 1-54 LLC" and "Nuka Hiva Alpha LLC"), or the same decision maker at the same
+ * mailing address. Their calls go to one lead, not one each.
  */
+function sameOperator(a: Doc<"outreachContacts">, b: Doc<"outreachContacts">): boolean {
+  const family = a.company ? familyKey(a.name) : undefined;
+  if (family !== undefined && b.company && familyKey(b.name) === family) return true;
+  const mail = mailKey(a.mailing);
+  return !!a.person && !!b.person && samePerson(a.person, b.person) && mail !== undefined && mailKey(b.mailing) === mail;
+}
+
+/**
+ * One owner to Leads, where the calls, follow-ups and the estimate already
+ * live. The lead (new, source Outreach) gets the decision maker's name (the
+ * company's until one is found), always the owning company, the best number
+ * not on Do Not Call, the email, the property as its address, and a note with
+ * what they own, the mailing address and the company's own note. An owner run
+ * by the same people as one already sent joins that lead instead: a line on
+ * its note, and the number or email it was missing. `all` is the company's
+ * contacts, kept current as owners are sent.
+ */
+async function sendOne(
+  ctx: MutationCtx,
+  organizationId: Id<"organizations">,
+  userId: Id<"users">,
+  contact: Doc<"outreachContacts">,
+  all: Doc<"outreachContacts">[],
+  now: string,
+): Promise<{ leadId: Id<"leads">; made: boolean }> {
+  const have = async (id?: Id<"leads">) => (id ? await ctx.db.get(id) : null);
+  const phone = (contact.phones ?? []).find((p) => !p.dnc && !p.litigator);
+  const email = (contact.emails ?? []).find((e) => e.nameMatch !== false);
+  let lead = await have(contact.leadId);
+  let made = false;
+  if (!lead) {
+    for (const other of all) {
+      if (other._id === contact._id || !other.leadId || !sameOperator(contact, other)) continue;
+      lead = await have(other.leadId);
+      if (lead) break;
+    }
+    if (lead) {
+      // Joins the lead of the same operator: what this one owns, and anything the lead was missing.
+      await ctx.db.patch(lead._id, {
+        notes: [lead.notes, `Also owns as ${contact.name}: ${contact.why}.`].filter(Boolean).join("\n"),
+        ...(!lead.phone && phone ? { phone: phone.number } : {}),
+        ...(!lead.email && email ? { email: email.email } : {}),
+        updatedAt: now,
+      });
+    } else {
+      const mailing = [contact.mailing.address, contact.mailing.city, contact.mailing.state, contact.mailing.zip?.slice(0, 5)].filter(Boolean).join(", ");
+      const notes = [`From Outreach. ${contact.why}.`, mailing ? `Mailing address: ${mailing}.` : "", contact.note ?? ""].filter(Boolean).join("\n");
+      const name = contact.person?.name ?? contact.name;
+      const leadId = await ctx.db.insert("leads", {
+        name,
+        ...(contact.company ? { company: contact.name } : {}),
+        ...(phone ? { phone: phone.number } : {}),
+        ...(email ? { email: email.email } : {}),
+        ...(contact.property.address ? { address: contact.property.address, city: "Midland" } : {}),
+        source: "Outreach",
+        status: "new",
+        notes,
+        organizationId,
+        userId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await logActivity(ctx, { organizationId, userId, action: "created", resourceType: "lead", resourceId: leadId, details: { name, fromOutreach: contact._id } });
+      lead = (await ctx.db.get(leadId))!;
+      made = true;
+    }
+  }
+  if (contact.status !== "lead" || contact.leadId !== lead._id) await ctx.db.patch(contact._id, { leadId: lead._id, status: "lead", updatedAt: now });
+  // Later owners in the same send see this one's lead.
+  const mine = all.find((c) => c._id === contact._id);
+  if (mine) mine.leadId = lead._id;
+  return { leadId: lead._id, made };
+}
+
 /**
  * One-off: leads sent from Outreach before Company was always filled get
  * their owning company. Safe to run again. Run from the deploy workflow:
@@ -660,47 +731,45 @@ export const fillLeadCompanies = internalMutation({
   },
 });
 
+/** One owner to Leads (see sendOne). Sent once; after that the same lead comes back. */
 export const sendToLeads = mutation({
   args: { organizationId: v.id("organizations"), contactId: v.id("outreachContacts") },
   handler: async (ctx, { organizationId, contactId }) => {
     const { user } = await requirePro(ctx, organizationId);
     const contact = await ctx.db.get(contactId);
     if (!contact || contact.organizationId !== organizationId) fail("NOT_FOUND", "No such contact");
+    return (await sendOne(ctx, organizationId, user._id, contact, await contactsOf(ctx, organizationId), nowIso())).leadId;
+  },
+});
+
+/** The most owners one Send to Leads takes. */
+export const SEND_MAX = 500;
+
+/**
+ * Many owners to Leads at once (the ones showing on the page). Owners run by
+ * the same people share one lead. Says how many owners went, how many leads
+ * that made, and how many joined a lead of the same operator.
+ */
+export const sendManyToLeads = mutation({
+  args: { organizationId: v.id("organizations"), contactIds: v.array(v.id("outreachContacts")) },
+  handler: async (ctx, { organizationId, contactIds }) => {
+    const { user } = await requirePro(ctx, organizationId);
+    if (contactIds.length > SEND_MAX) fail("INVALID", `Send up to ${SEND_MAX} at a time`);
+    const all = await contactsOf(ctx, organizationId);
+    const byId = new Map(all.map((c) => [c._id, c] as const));
     const now = nowIso();
-    let leadId = contact.leadId && (await ctx.db.get(contact.leadId)) ? contact.leadId : undefined;
-    if (!leadId) {
-      const phone = (contact.phones ?? []).find((p) => !p.dnc && !p.litigator);
-      const email = (contact.emails ?? []).find((e) => e.nameMatch !== false);
-      const mailing = [contact.mailing.address, contact.mailing.city, contact.mailing.state, contact.mailing.zip?.slice(0, 5)].filter(Boolean).join(", ");
-      const notes = [`From Outreach. ${contact.why}.`, mailing ? `Mailing address: ${mailing}.` : "", contact.note ?? ""].filter(Boolean).join("\n");
-      // The person to call (the company itself until one is found), and always the company when a company owns it.
-      const name = contact.person?.name ?? contact.name;
-      const company = contact.company ? contact.name : undefined;
-      leadId = await ctx.db.insert("leads", {
-        name,
-        ...(company ? { company } : {}),
-        ...(phone ? { phone: phone.number } : {}),
-        ...(email ? { email: email.email } : {}),
-        ...(contact.property.address ? { address: contact.property.address, city: "Midland" } : {}),
-        source: "Outreach",
-        status: "new",
-        notes,
-        organizationId,
-        userId: user._id,
-        createdAt: now,
-        updatedAt: now,
-      });
-      await logActivity(ctx, {
-        organizationId,
-        userId: user._id,
-        action: "created",
-        resourceType: "lead",
-        resourceId: leadId,
-        details: { name, fromOutreach: contactId },
-      });
+    let sent = 0;
+    let made = 0;
+    for (const id of new Set(contactIds)) {
+      const contact = byId.get(id);
+      if (!contact) continue;
+      const before = contact.leadId && (await ctx.db.get(contact.leadId));
+      if (before) continue;
+      const r = await sendOne(ctx, organizationId, user._id, contact, all, now);
+      sent++;
+      if (r.made) made++;
     }
-    if (contact.status !== "lead" || contact.leadId !== leadId) await ctx.db.patch(contactId, { leadId, status: "lead", updatedAt: now });
-    return leadId;
+    return { sent, leads: made, joined: sent - made };
   },
 });
 

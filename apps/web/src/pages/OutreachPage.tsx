@@ -523,6 +523,32 @@ const OutreachPage: React.FC = () => {
     await enrich(listResearch.map((r) => r.id), ['research']).catch(() => {});
   };
 
+  /** The owners showing (this list, filter and search) not yet in Leads or skipped; 500 at a time. */
+  const toSend = rows.filter((r) => !r.leadId && r.status !== 'skip').slice(0, 500);
+  const [sentNote, setSentNote] = useState<string | null>(null);
+  /** Everyone showing to Leads at once, after a word on what happens. */
+  const sendAll = async () => {
+    if (!organizationId || toSend.length === 0) return;
+    const n = toSend.length;
+    const ok = await confirm({
+      title: `Send ${n} ${n === 1 ? 'owner' : 'owners'} to Leads?`,
+      message: 'The owners showing go to Leads as New, where you call and follow up. Companies run by the same people become one lead.',
+      confirmLabel: 'Send to Leads',
+    });
+    if (!ok) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await outreachAPI.sendManyToLeads(organizationId, toSend.map((x) => x.id));
+      setSentNote(`${r.leads} new ${r.leads === 1 ? 'lead' : 'leads'} in Leads${r.joined ? `; ${r.joined} joined a related company's lead` : ''}.`);
+      void load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't send them to Leads");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const removeList = async () => {
     if (!organizationId || !list) return;
     if (!(await confirm({ title: `Delete “${list.title}”?`, message: 'Contacts on no other list go with it, except any you unlocked.', confirmLabel: 'Delete' }))) return;
@@ -547,7 +573,7 @@ const OutreachPage: React.FC = () => {
           )}
         </div>
         {data && rows.length > 0 && (
-          <div className="flex gap-2 shrink-0">
+          <div className="flex flex-wrap gap-2 shrink-0">
             {listOpen.length > 0 && (
               <button
                 type="button"
@@ -575,6 +601,17 @@ const OutreachPage: React.FC = () => {
                 Research {listResearch.length}
               </button>
             )}
+            {toSend.length > 0 && (
+              <button
+                type="button"
+                onClick={() => void sendAll()}
+                disabled={busy}
+                className="inline-flex items-center gap-2 px-3 h-11 text-sm font-medium text-white border border-[#333333] hover:bg-[#2A2A2A] disabled:opacity-50"
+                data-testid="send-all"
+              >
+                Send {toSend.length} to Leads
+              </button>
+            )}
             <button type="button" onClick={() => download(csvName(list?.title ?? 'contacts'), outreachCsv(rows))} aria-label="Export CSV" title="Export CSV" className={iconButton}>
               <Download className="w-4 h-4" />
             </button>
@@ -589,6 +626,17 @@ const OutreachPage: React.FC = () => {
       {error && (
         <p className="text-sm text-red-400" role="alert">
           {error}
+        </p>
+      )}
+      {sentNote && (
+        <p className="text-sm text-gray-300" data-testid="sent-note">
+          {sentNote}{' '}
+          <button type="button" onClick={() => navigate('/leads')} className="text-[#7fb0e0] hover:text-white">
+            Open Leads
+          </button>{' '}
+          <button type="button" onClick={() => setSentNote(null)} className="text-gray-500 hover:text-white">
+            Dismiss
+          </button>
         </p>
       )}
       {lists && lists.length > 0 && (
