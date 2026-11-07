@@ -1162,6 +1162,9 @@ export default defineSchema({
     hits: v.number(),
     chargedCents: v.number(),
     lastAt: v.string(),
+    /** The source's last answer that needs a hand (a refused key, no credits), until it answers properly again. */
+    problem: v.optional(v.string()),
+    problemAt: v.optional(v.string()),
   }).index("by_organization", ["organizationId", "source", "field"]),
 
   // How each permit feed's last sync went.

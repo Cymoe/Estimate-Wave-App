@@ -6,7 +6,8 @@ import { actAs } from "./lib/actor";
 import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
 import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, groupOwners, guessDefinition, mailKey, ownerKey, shortMoney, type Condensed } from "./lib/outreach";
-import { checkEmails, checkPhones, cobaltSos, enformion, expectedNames, hunter, twilioLookup, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
+import { checkEmails, checkPhones, cobaltSos, enformion, expectedNames, guarded, hunter, twilioLookup, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
+import { GIVE_UP_ERROR } from "./outreach";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -685,6 +686,58 @@ describe("a company's lists", () => {
       { source: "enformion", outcome: "skipped", note: "Not connected" },
     ]);
     expect((await read()).balanceCents).toBe(300);
+    // An empty account is flagged on the Sources page until Tracerfy answers properly again; the earlier 429 was not (a retry handles that).
+    const ops = await signUp(t, "ops@webb.example", { role: "staff" });
+    const flagged = (await ops.as.query(api.outreach.sources, { organizationId: org })).find((s) => s.name === "tracerfy")!;
+    expect(flagged.stats.map((s) => [s.field, s.problem])).toEqual([
+      ["phone", "Tracerfy: HTTP 402 (Insufficient credits. Instant trace requires 5 credits per lookup. You have 0 credits.)"],
+      ["email", undefined],
+    ]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const json = (data: unknown) => new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" } });
+        return url.includes("batchdata") ? json({ results: { persons: [] } }) : json({ hit: false });
+      }),
+    );
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [ortiz.id], fields: ["phone"] });
+    await t.finishAllScheduledFunctions(() => {});
+    expect((await read()).rows.find((r) => r.id === ortiz.id)!.enrichment.phone.status).toBe("none");
+    const cleared = (await ops.as.query(api.outreach.sources, { organizationId: org })).find((s) => s.name === "tracerfy")!;
+    expect(cleared.stats.map((s) => [s.field, s.problem])).toEqual([["phone", undefined], ["email", undefined]]);
+  });
+
+  test("the watchdog fails a lookup that never wrote back, free and with Retry; a newer request on the field is left to its own", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 500 }));
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    const read = async () => await co.as.query(api.outreach.contacts, { organizationId: org });
+    const oak = (await read()).rows.find((r) => r.name === "Oak Plaza LLC")!;
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["person", "phone"] });
+    const running = (await read()).rows.find((r) => r.id === oak.id)!;
+    expect(running.enrichment).toMatchObject({ person: { status: "running" }, phone: { status: "running" } });
+    const at = running.enrichment.phone.at!;
+    // Another request's watchdog: not these cells.
+    expect(await t.mutation(internal.outreach.giveUp, { contactId: oak.id, fields: ["person", "phone"], at: "2026-01-01T00:00:00.000Z" })).toEqual({ failed: 0 });
+    // The lookup never wrote back: ten minutes on, both cells are failed, nothing charged, and the phone can be asked for again.
+    expect(await t.mutation(internal.outreach.giveUp, { contactId: oak.id, fields: ["person", "phone"], at })).toEqual({ failed: 2 });
+    const gaveUp = (await read()).rows.find((r) => r.id === oak.id)!;
+    expect(gaveUp.enrichment.phone).toMatchObject({ status: "failed", error: GIVE_UP_ERROR });
+    expect(gaveUp.enrichment.person).toMatchObject({ status: "failed", error: GIVE_UP_ERROR });
+    expect(GIVE_UP_ERROR).toBe("Took longer than 10 minutes and was stopped.");
+    expect((await read()).balanceCents).toBe(500);
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["phone"] })).resolves.toEqual({ queued: 1, costCents: 100 });
+    // The lookup runs and writes its answer (no keys: a failed cell that says so); the watchdog then finds nothing left to fail.
+    for (const k of ["BATCHDATA_API_KEY", "TRACERFY_API_KEY", "ENFORMION_AP_NAME"]) vi.stubEnv(k, "");
+    const again = (await read()).rows.find((r) => r.id === oak.id)!.enrichment.phone.at!;
+    await t.finishAllScheduledFunctions(() => {});
+    expect((await read()).rows.find((r) => r.id === oak.id)!.enrichment.phone).toMatchObject({ status: "failed", error: expect.stringContaining("BATCHDATA_API_KEY") });
+    expect(await t.mutation(internal.outreach.giveUp, { contactId: oak.id, fields: ["phone"], at: again })).toEqual({ failed: 0 });
   });
 
   test("seedSample fills one owner with marked sample data for a look at the layout, charges nothing, and clears it again", async () => {
@@ -1061,6 +1114,51 @@ describe("the wider stack", () => {
     expect(await cobaltSos("cb-key", async () => json({ status: "complete", results: [] })).trace(company)).toEqual({});
     await expect(cobaltSos("cb-key", async () => json({}, 429)).trace(company)).rejects.toThrow("Cobalt: HTTP 429");
     expect(await cobaltSos("cb-key").trace({ ...company, company: undefined })).toEqual({});
+    // A registry still searching when we stop asking is an error that says so, not a miss: a retry asks again.
+    const stuckWaits: number[] = [];
+    const stuck = cobaltSos("cb-key", async () => json({ status: "pending", results: [], retryId: "retry_9" }), "https://cobalt.example", async (ms) => void stuckWaits.push(ms));
+    await expect(stuck.trace(outOfState)).rejects.toThrow("Cobalt: the Colorado registry was still searching after 20 seconds");
+    expect(stuckWaits).toEqual([5000, 5000, 5000, 5000]);
+  });
+
+  test("a guarded fetch gives up on a call that hangs, tries once more after a rate limit, a server error or a dropped connection, and honors a short retry-after", async () => {
+    const waits: number[] = [];
+    const wait = async (ms: number) => void waits.push(ms);
+    // A vendor that never answers: an error after the time limit, and no second try (it would hold the lookup twice as long).
+    const hung = guarded(((_url: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_, reject) => init!.signal!.addEventListener("abort", () => reject(new Error("aborted"))))) as typeof fetch, 50, wait);
+    await expect(hung("https://slow.example")).rejects.toThrow(/No answer after \d+ seconds/);
+    expect(waits).toEqual([]);
+    // Rate limited with a Retry-After: one wait of that long, then the answer.
+    let calls = 0;
+    const limited = guarded(async () => (++calls === 1 ? new Response("{}", { status: 429, headers: { "retry-after": "2" } }) : json({ ok: true })), 50, wait);
+    expect((await limited("https://x.example")).status).toBe(200);
+    expect([calls, waits]).toEqual([2, [2000]]);
+    // Tracerfy's way of saying it (in the body), capped at five seconds.
+    calls = 0;
+    waits.length = 0;
+    const bodyWait = guarded(async () => (++calls === 1 ? json({ error: "Rate limited", retry_after_seconds: 60 }, 429) : json({ ok: true })), 50, wait);
+    expect((await bodyWait("https://x.example")).status).toBe(200);
+    expect(waits).toEqual([5000]);
+    // A server error with no hint: a second's wait. A second failure stands.
+    waits.length = 0;
+    const down = guarded(async () => json({}, 503), 50, wait);
+    expect((await down("https://x.example")).status).toBe(503);
+    expect(waits).toEqual([1000]);
+    // A dropped connection: one more try.
+    calls = 0;
+    waits.length = 0;
+    const flaky = guarded(async () => {
+      if (++calls === 1) throw new TypeError("fetch failed");
+      return json({ ok: true });
+    }, 50, wait);
+    expect((await flaky("https://x.example")).status).toBe(200);
+    expect([calls, waits]).toEqual([2, [1000]]);
+    // A refused key isn't retried: it won't change in a second.
+    calls = 0;
+    waits.length = 0;
+    const refused = guarded(async () => (calls++, json({}, 401)), 50, wait);
+    expect((await refused("https://x.example")).status).toBe(401);
+    expect([calls, waits]).toEqual([1, []]);
   });
 
   test("EnformionGO traces a named person at their mailing address: connected lines score higher; a company with nobody named is skipped", async () => {

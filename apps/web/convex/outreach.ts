@@ -45,7 +45,7 @@ import {
 } from "./lib/outreach";
 import { MIDLAND_PARCELS, addressKey } from "./lib/parcels";
 import { planIsActive } from "./lib/plan";
-import { phoneChecker, splitName, vendors, verifier, type Found, type Person } from "./lib/skipTrace";
+import { needsAttention, phoneChecker, splitName, vendors, verifier, type Found, type Person } from "./lib/skipTrace";
 import { dollars, postTransaction } from "./lib/wallet";
 
 const COUNTY = MIDLAND_PARCELS.county;
@@ -487,7 +487,7 @@ export const sources = query({
       connected: s.connected,
       stats: s.fields.map((field) => {
         const row = stats.find((x) => x.source === s.name && x.field === field);
-        return { field, attempts: row?.attempts ?? 0, hits: row?.hits ?? 0, chargedCents: row?.chargedCents ?? 0, lastAt: row?.lastAt };
+        return { field, attempts: row?.attempts ?? 0, hits: row?.hits ?? 0, chargedCents: row?.chargedCents ?? 0, lastAt: row?.lastAt, problem: row?.problem, problemAt: row?.problemAt };
       }),
     }));
   },
@@ -629,8 +629,37 @@ export const enrich = mutation({
       for (const f of open) cells[f] = { status: "running", at: now, requestedBy: user._id };
       await ctx.db.patch(contact._id, { enrichment: cells, unlock: undefined, ...(open.includes("research") ? { researchQuestion: asked } : {}), updatedAt: now });
       await ctx.scheduler.runAfter(0, internal.skipTrace.trace, { contactId: contact._id, fields: open });
+      // The watchdog: should the lookup be killed before it writes anything, these cells still end up failed, with Retry.
+      await ctx.scheduler.runAfter(GIVE_UP_AFTER_MS, internal.outreach.giveUp, { contactId: contact._id, fields: open, at: now });
     }
     return { queued: jobs.length, costCents: cost };
+  },
+});
+
+/** How long a lookup may run before its cells are failed as taking too long (Convex stops the action itself at ten). */
+export const GIVE_UP_AFTER_MS = 10 * 60 * 1000;
+export const GIVE_UP_ERROR = `Took longer than ${GIVE_UP_AFTER_MS / 60_000} minutes and was stopped.`;
+
+/**
+ * Fails the cells of one request that are still running when the watchdog
+ * fires. Only that request's cells (same start time): a newer request on
+ * the same field is left to its own watchdog. Nothing is charged.
+ */
+export const giveUp = internalMutation({
+  args: { contactId: v.id("outreachContacts"), fields: v.array(outreachField), at: v.string() },
+  handler: async (ctx, { contactId, fields, at }) => {
+    const c = await ctx.db.get(contactId);
+    if (!c) return { failed: 0 };
+    const cells = { ...cellsOf(c) };
+    let failed = 0;
+    for (const field of fields) {
+      const cell = cellFor(cells, field);
+      if (cell.status !== "running" || cell.at !== at) continue;
+      cells[field] = { status: "failed", at: nowIso(), requestedBy: cell.requestedBy, error: GIVE_UP_ERROR };
+      failed++;
+    }
+    if (failed) await ctx.db.patch(contactId, { enrichment: cells, ...(fields.includes("research") && cells.research?.status === "failed" ? { researchQuestion: undefined } : {}), updatedAt: nowIso() });
+    return { failed };
   },
 });
 
@@ -777,9 +806,33 @@ export const recordEnrichment = internalMutation({
     });
     // The stack's own scorecard: an attempt per source asked, a hit for the one that answered.
     if (source || !error) await bumpStat(ctx, c.organizationId, source ?? "none", field, found, chargedCents, now);
+    if (tries) await noteProblems(ctx, c.organizationId, field, tries, now);
     return null;
   },
 });
+
+/**
+ * A source whose answer was a refused key or an empty account is flagged on
+ * its scorecard row for the Sources page; a proper answer later (a hit or
+ * a miss) clears the flag.
+ */
+async function noteProblems(ctx: MutationCtx, organizationId: Id<"organizations">, field: Doc<"dataSourceStats">["field"], tries: Array<{ source: string; outcome: string; note?: string }>, now: string) {
+  for (const t of tries) {
+    const trouble = t.outcome === "error" && needsAttention(t.note);
+    const fine = t.outcome === "hit" || t.outcome === "miss";
+    if (!trouble && !fine) continue;
+    const row = await ctx.db
+      .query("dataSourceStats")
+      .withIndex("by_organization", (q) => q.eq("organizationId", organizationId).eq("source", t.source).eq("field", field))
+      .unique();
+    if (trouble) {
+      if (row) await ctx.db.patch(row._id, { problem: t.note, problemAt: now });
+      else await ctx.db.insert("dataSourceStats", { organizationId, source: t.source, field, attempts: 0, hits: 0, chargedCents: 0, lastAt: now, problem: t.note, problemAt: now });
+    } else if (row?.problem) {
+      await ctx.db.patch(row._id, { problem: undefined, problemAt: undefined });
+    }
+  }
+}
 
 /** One more attempt (and maybe a hit) on a source's row of the scorecard. */
 async function bumpStat(ctx: MutationCtx, organizationId: Id<"organizations">, source: string, field: Doc<"dataSourceStats">["field"], hit: boolean, chargedCents: number, now: string) {

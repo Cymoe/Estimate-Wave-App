@@ -35,6 +35,61 @@ export type Vendor = {
 };
 
 type Fetch = typeof fetch;
+const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** How long one call to a source may take before it counts as an error and the next source gets its turn. */
+export const CALL_TIMEOUT_MS = 20_000;
+/** The longest a source's "retry after" is honored. */
+const RETRY_WAIT_AT_MOST_MS = 5_000;
+/** Answers worth one more try: rate limits and the server's own trouble. */
+const RETRY_STATUS = new Set([429, 500, 502, 503, 504]);
+
+/**
+ * A fetch that gives up on a call after CALL_TIMEOUT_MS and tries once more
+ * after a rate limit, a server error or a dropped connection, waiting as
+ * long as the source asks (capped). A hung vendor becomes an ordinary error
+ * instead of holding the whole lookup; a bad minute at a vendor costs one
+ * short wait instead of a miss.
+ */
+export function guarded(fetchFn: Fetch = fetch, timeoutMs = CALL_TIMEOUT_MS, wait: (ms: number) => Promise<void> = pause): Fetch {
+  const once = async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetchFn(url, { ...init, signal: controller.signal });
+    } catch (e) {
+      if (controller.signal.aborted) throw new Error(`No answer after ${Math.round(timeoutMs / 1000)} seconds`);
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  const retryAfter = async (response: Response): Promise<number> => {
+    const header = Number(response.headers.get("retry-after"));
+    let seconds = Number.isFinite(header) && header > 0 ? header : undefined;
+    if (seconds === undefined && response.status === 429) {
+      try {
+        const body = (await response.clone().json()) as { retry_after_seconds?: unknown };
+        seconds = num(body.retry_after_seconds);
+      } catch {
+        // No JSON body: the default wait.
+      }
+    }
+    return Math.min(RETRY_WAIT_AT_MOST_MS, (seconds ?? 1) * 1000);
+  };
+  return async (url, init) => {
+    try {
+      const response = await once(url, init);
+      if (!RETRY_STATUS.has(response.status)) return response;
+      await wait(await retryAfter(response));
+    } catch (e) {
+      // A timeout isn't retried: a vendor that hung once would hold the lookup twice as long.
+      if (e instanceof Error && e.message.startsWith("No answer after")) throw e;
+      await wait(1000);
+    }
+    return once(url, init);
+  };
+}
 
 /** "SMITH JOHN & MARY" → first "John", last "Smith"; the roll writes last name first. A person found by name is "First Last". */
 export function splitName(name: string, order: "roll" | "person" = "roll"): { first?: string; last?: string } {
@@ -283,7 +338,8 @@ const STATE_NAMES: Record<string, string> = {
   SC: "south carolina", SD: "south dakota", TN: "tennessee", TX: "texas", UT: "utah", VT: "vermont", VA: "virginia", WA: "washington", WV: "west virginia", WI: "wisconsin", WY: "wyoming",
 };
 const ENTITY = /\b(LLC|L L C|INC|LTD|LP|LLP|CORP|CORPORATION|COMPANY|CO|TRUST|SYSTEM|SERVICES?)\b/i;
-const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+/** How many times a slow state's registry is polled, 5 seconds apart, before Cobalt counts as an error. */
+const COBALT_POLLS = 4;
 
 /**
  * Cobalt Intelligence's Secretary of State search: one call reaches every
@@ -313,10 +369,12 @@ export function cobaltSos(key: string | undefined, fetchFn: Fetch = fetch, base 
         return (await response.json()) as Body;
       };
       let body = await get(`searchQuery=${encodeURIComponent(query)}&state=${encodeURIComponent(state)}`);
-      for (let tries = 0; body.retryId && !(body.results?.length) && tries < 4; tries++) {
+      for (let tries = 0; body.retryId && !(body.results?.length) && tries < COBALT_POLLS; tries++) {
         await wait(5000);
         body = await get(`retryId=${encodeURIComponent(body.retryId)}&state=${encodeURIComponent(state)}`);
       }
+      // Still searching when we stop asking: an error (not a miss), so a retry asks again.
+      if (body.retryId && !(body.results?.length)) throw new Error(`Cobalt: the ${titleCase(state)} registry was still searching after ${COBALT_POLLS * 5} seconds`);
       const results = asArray(body.results) as Result[];
       if (results.length === 0) return {};
       const wanted = query.toUpperCase().replace(/[^A-Z0-9 ]/g, "").replace(/\s+/g, " ");
@@ -429,14 +487,14 @@ export function hunter(key: string | undefined, fetchFn: Fetch = fetch, base = "
  * The stack, in the order it's tried: free state records first, then the
  * paid registry; the skip traces by price; a work-email finder last.
  */
-export function vendors(env: Record<string, string | undefined>): Vendor[] {
+export function vendors(env: Record<string, string | undefined>, fetchFn: Fetch = guarded()): Vendor[] {
   return [
-    comptrollerTexas(env.TX_COMPTROLLER_API_KEY),
-    cobaltSos(env.COBALT_API_KEY, fetch, env.COBALT_API_BASE || undefined),
-    batchData(env.BATCHDATA_API_KEY),
-    tracerfy(env.TRACERFY_API_KEY, fetch, env.TRACERFY_API_BASE || undefined),
-    enformion(env.ENFORMION_AP_NAME, env.ENFORMION_AP_PASSWORD, fetch, env.ENFORMION_API_BASE || undefined),
-    hunter(env.HUNTER_API_KEY),
+    comptrollerTexas(env.TX_COMPTROLLER_API_KEY, fetchFn),
+    cobaltSos(env.COBALT_API_KEY, fetchFn, env.COBALT_API_BASE || undefined),
+    batchData(env.BATCHDATA_API_KEY, fetchFn),
+    tracerfy(env.TRACERFY_API_KEY, fetchFn, env.TRACERFY_API_BASE || undefined),
+    enformion(env.ENFORMION_AP_NAME, env.ENFORMION_AP_PASSWORD, fetchFn, env.ENFORMION_API_BASE || undefined),
+    hunter(env.HUNTER_API_KEY, fetchFn),
   ];
 }
 
@@ -484,8 +542,8 @@ export function zeroBounce(key: string | undefined, fetchFn: Fetch = fetch, base
   };
 }
 
-export function verifier(env: Record<string, string | undefined>): Verifier {
-  return zeroBounce(env.ZEROBOUNCE_API_KEY);
+export function verifier(env: Record<string, string | undefined>, fetchFn: Fetch = guarded()): Verifier {
+  return zeroBounce(env.ZEROBOUNCE_API_KEY, fetchFn);
 }
 
 /** How many of a contact's emails get checked; the rest stay as found. */
@@ -565,9 +623,16 @@ export function twilioLookup(sid: string | undefined, token: string | undefined,
   };
 }
 
-export function phoneChecker(env: Record<string, string | undefined>): PhoneChecker {
-  return twilioLookup(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
+export function phoneChecker(env: Record<string, string | undefined>, fetchFn: Fetch = guarded()): PhoneChecker {
+  return twilioLookup(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN, fetchFn);
 }
+
+/**
+ * A source's answer that means its account needs a hand, not a retry: the
+ * key was refused, or the account is out of credits. The Sources page shows
+ * it so one bad key doesn't go unnoticed across a whole list.
+ */
+export const needsAttention = (note: string | undefined): boolean => Boolean(note && /HTTP 40[123]\b|credits|api[ _-]?key|unauthori[sz]ed|forbidden/i.test(note));
 
 /** The surnames and company words a line's registered name can be matched against. */
 export function expectedNames(input: Pick<TraceInput, "name" | "company" | "person">): string[] {

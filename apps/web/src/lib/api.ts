@@ -1247,7 +1247,8 @@ export type OutreachSource = {
   name: string;
   fields: OutreachField[];
   connected: boolean;
-  stats: Array<{ field: OutreachField; attempts: number; hits: number; chargedCents: number; lastAt?: string }>;
+  /** problem: the source's last answer that needs a hand (a refused key, no credits), until it answers properly again. */
+  stats: Array<{ field: OutreachField; attempts: number; hits: number; chargedCents: number; lastAt?: string; problem?: string; problemAt?: string }>;
 };
 export type OutreachPreview = { count: number; truncated: boolean; limited: boolean; rows: OutreachPreviewRow[] };
 export type OutreachInterpreted =

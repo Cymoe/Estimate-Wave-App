@@ -115,6 +115,11 @@ const SourcesPanel: React.FC<{ organizationId: string }> = ({ organizationId }) 
                   {st.chargedCents ? ` · ${dollars(st.chargedCents)}` : ''}
                 </span>
               ))}
+              {s.stats.some((st) => st.problem) && (
+                <span className="basis-full text-amber-300" data-testid="source-problem">
+                  Needs attention: {s.stats.find((st) => st.problem)!.problem}
+                </span>
+              )}
             </li>
           ))}
         </ol>

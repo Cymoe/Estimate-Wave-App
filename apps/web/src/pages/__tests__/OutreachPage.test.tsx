@@ -481,11 +481,24 @@ describe('the Outreach page', () => {
     sources.mockResolvedValueOnce([
       { name: 'tx-comptroller', fields: ['person'], connected: true, stats: [{ field: 'person', attempts: 4, hits: 3, chargedCents: 0 }] },
       { name: 'batchdata', fields: ['phone', 'email'], connected: false, stats: [{ field: 'phone', attempts: 0, hits: 0, chargedCents: 0 }, { field: 'email', attempts: 0, hits: 0, chargedCents: 0 }] },
+      {
+        name: 'tracerfy',
+        fields: ['phone', 'email'],
+        connected: true,
+        stats: [
+          { field: 'phone', attempts: 2, hits: 1, chargedCents: 100, problem: 'Tracerfy: HTTP 402 (Insufficient credits)', problemAt: '2026-11-05T15:00:00Z' },
+          { field: 'email', attempts: 2, hits: 0, chargedCents: 0 },
+        ],
+      },
     ] as never);
     await click('Data sources');
     const panel = document.body.querySelector('[data-testid="sources-panel"]')!;
     expect(panel.textContent).toContain('1. Texas ComptrollerConnecteddecision maker: 3 / 4 (75%)');
     expect(panel.textContent).toContain('2. BatchDataNot connectedphone: 0 / 0email: 0 / 0');
+    // A source whose account needs a hand says so, once, under its numbers.
+    const problems = panel.querySelectorAll('[data-testid="source-problem"]');
+    expect(problems).toHaveLength(1);
+    expect(problems[0].textContent).toBe('Needs attention: Tracerfy: HTTP 402 (Insufficient credits)');
   });
 
   it('deletes the open list after asking, and goes back to all contacts', async () => {
