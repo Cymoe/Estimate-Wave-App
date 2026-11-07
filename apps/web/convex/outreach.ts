@@ -470,15 +470,28 @@ const contactView = (c: Doc<"outreachContacts">, signals: SignalBadge[], related
 export type ContactView = ReturnType<typeof contactView>;
 
 /** What the Signals column says about a contact's property: the newest of each kind of public record. */
-export type SignalBadge = { kind: Doc<"signals">["kind"]; date: string; detail: string };
-async function signalsFor(ctx: QueryCtx | MutationCtx, parcelId: Id<"parcels">): Promise<SignalBadge[]> {
+export type SignalBadge = { kind: Doc<"signals">["kind"]; date: string; detail: string; fresh?: boolean };
+
+/**
+ * When a signal counts as new: first seen in the last week, and not in the
+ * first import (a day's grace after it), so the first load of the city's
+ * records doesn't call everything new.
+ */
+async function freshSince(ctx: QueryCtx | MutationCtx, now = Date.now()): Promise<string> {
+  const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const first = await ctx.db.query("signals").order("asc").first();
+  const afterFirst = first ? new Date(Date.parse(first.importedAt) + 24 * 60 * 60 * 1000).toISOString() : weekAgo;
+  return afterFirst > weekAgo ? afterFirst : weekAgo;
+}
+
+async function signalsFor(ctx: QueryCtx | MutationCtx, parcelId: Id<"parcels">, since?: string): Promise<SignalBadge[]> {
   const rows = await ctx.db
     .query("signals")
     .withIndex("by_parcel", (q) => q.eq("parcelId", parcelId))
     .order("desc")
     .take(10);
   const out: SignalBadge[] = [];
-  for (const r of rows) if (!out.some((o) => o.kind === r.kind)) out.push({ kind: r.kind, date: r.date, detail: r.detail });
+  for (const r of rows) if (!out.some((o) => o.kind === r.kind)) out.push({ kind: r.kind, date: r.date, detail: r.detail, ...(since && r.importedAt > since ? { fresh: true } : {}) });
   return out;
 }
 
@@ -550,8 +563,9 @@ export const contacts = query({
       const f = c.company ? familyKey(c.name) : undefined;
       return f ? (families.get(f) ?? []).filter((r) => r.id !== c._id) : [];
     };
+    const since = await freshSince(ctx);
     const rows = [];
-    for (const c of picked) rows.push(contactView(c, await signalsFor(ctx, c.property.parcelId), relatedTo(c)));
+    for (const c of picked) rows.push(contactView(c, await signalsFor(ctx, c.property.parcelId, since), relatedTo(c)));
     return {
       rows,
       coverage: coverageOf(picked),
@@ -738,7 +752,7 @@ export const enrich = mutation({
       // The watchdog: should the lookup be killed before it writes anything, these cells still end up failed, with Retry.
       await ctx.scheduler.runAfter(delay + GIVE_UP_AFTER_MS, internal.outreach.giveUp, { contactId: contact._id, fields: open, at: now });
     }
-    return { queued: jobs.length, costCents: cost };
+    return { queued: jobs.length, costCents: cost, at: now };
   },
 });
 
@@ -790,6 +804,25 @@ export const contactForTrace = internalQuery({
       fields,
       question: c.researchQuestion ?? DEFAULT_RESEARCH_QUESTION,
     };
+  },
+});
+
+/**
+ * A running lookup's progress: the source it's asking now and the turns so
+ * far, for the page to narrate. Only while that cell is still running; the
+ * final answer replaces it.
+ */
+export const noteProgress = internalMutation({
+  args: { contactId: v.id("outreachContacts"), field: outreachField, asking: v.optional(v.string()), tries: v.array(outreachTry) },
+  handler: async (ctx, { contactId, field, asking, tries }) => {
+    const c = await ctx.db.get(contactId);
+    if (!c) return null;
+    const cells = { ...cellsOf(c) };
+    const cell = cellFor(cells, field);
+    if (cell.status !== "running") return null;
+    cells[field] = { ...cell, asking, tries };
+    await ctx.db.patch(contactId, { enrichment: cells });
+    return null;
   },
 });
 

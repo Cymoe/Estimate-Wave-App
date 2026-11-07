@@ -1194,11 +1194,11 @@ export type OutreachField = 'phone' | 'email' | 'person' | 'research';
 /** One enrichment cell: locked until asked for; running through the stack; found (phone: charged), none (free) or failed (free). */
 /** One source's turn in a cell's waterfall, for the sheet's "How we found it". */
 export type OutreachTry = { source: string; outcome: 'hit' | 'miss' | 'error' | 'skipped'; note?: string };
-export type OutreachCell = { status: 'locked' | 'running' | 'found' | 'none' | 'failed'; at?: string; source?: string; chargedCents?: number; error?: string; tries?: OutreachTry[] };
+export type OutreachCell = { status: 'locked' | 'running' | 'found' | 'none' | 'failed'; at?: string; source?: string; chargedCents?: number; error?: string; tries?: OutreachTry[]; /** While running: the source being asked now. */ asking?: string };
 export type OutreachEnrichment = Record<OutreachField, OutreachCell>;
 /** What the AI found on the web about an owner, with where it read it. */
 export type OutreachResearch = { question: string; answer: string; sources: Array<{ title: string; url: string }>; at: string };
-export type OutreachSignal = { kind: 'code_violation' | 'dilapidated' | 'demolition' | 'stalled_permit'; date: string; detail: string };
+export type OutreachSignal = { kind: 'code_violation' | 'dilapidated' | 'demolition' | 'stalled_permit'; date: string; detail: string; /** First seen in the last week. */ fresh?: boolean };
 /** One owner in a company's CRM: pulled by one or more lists, with what the company has paid to learn. */
 export type OutreachContact = {
   id: string;
@@ -1281,7 +1281,7 @@ export const outreachAPI = {
   extend: (organizationId: string, listId: string): Promise<{ loaded: number; added: number; rowCount: number; total: number; truncated: boolean }> =>
     run('mutation', api.outreach.extend, { organizationId, listId }),
   /** Queues the stack for each contact and field (all three unless given); $1 a phone from the balance, charged only when found. */
-  enrich: (organizationId: string, contactIds: string[], fields?: OutreachField[], question?: string): Promise<{ queued: number; costCents: number }> =>
+  enrich: (organizationId: string, contactIds: string[], fields?: OutreachField[], question?: string): Promise<{ queued: number; costCents: number; at?: string }> =>
     run('mutation', api.outreach.enrich, defined({ organizationId, contactIds, fields, question })),
   /** Staff: the stack in order, with this company's hit rates and spend. */
   sources: (organizationId: string): Promise<OutreachSource[]> => run('query', api.outreach.sources, { organizationId }),

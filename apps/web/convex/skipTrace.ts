@@ -9,7 +9,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import { outreachField } from "./schema";
-import { KEY_FOR, applyEmailCheck, checkEmails, checkPhonesWith, dedupeEmails, expectedNames, lineOwner, phoneCheckers, phoneScrub, rankPhones, scrubPhones, vendors, verifier, waterfall, type EmailCheck, type Field, type Found, type Reuse, type Try, type Vendor } from "./lib/skipTrace";
+import { KEY_FOR, applyEmailCheck, checkEmails, checkPhonesWith, dedupeEmails, expectedNames, lineOwner, phoneCheckers, phoneScrub, rankPhones, scrubPhones, vendors, verifier, waterfall, type EmailCheck, type Field, type Found, type Progress, type Reuse, type Try, type Vendor } from "./lib/skipTrace";
 import { researchOwner } from "./lib/research";
 
 type TraceArgs = { contactId: import("./_generated/dataModel").Id<"outreachContacts">; fields: Field[] };
@@ -70,7 +70,12 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
     const note = `Same decision maker as ${hit.from}; copied, no charge`;
     return field === "phone" ? { found: { phones: hit.phones as Found["phones"] }, note } : { found: { emails: hit.emails as Found["emails"] }, note };
   };
-  const outcomes = await waterfall(input, stack, wanted.filter((f) => f !== "research"), reuse);
+  // Each source's turn as it happens, so the page can say what the lookup is doing.
+  const progress: Progress = async (field, tries, asking) => {
+    await ctx.runMutation(internal.outreach.noteProgress, { contactId, field, asking, tries });
+  };
+  const say = (field: Field, tries: Try[], asking: string) => progress(field, tries, asking).catch(() => {});
+  const outcomes = await waterfall(input, stack, wanted.filter((f) => f !== "research"), reuse, progress);
   const isShared = (field: Field) => outcomes.find((x) => x.field === field)?.source === "shared";
   // Deliverability first, so the one name check rides on a live address, not one about to be dropped.
   const emailOutcome = outcomes.find((x) => x.field === "email");
@@ -78,6 +83,7 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
   let deliverability: Try | undefined;
   // Copied addresses were checked on the owner they came from.
   if (emailsKept.length > 0 && !isShared("email")) {
+    await say("email", emailOutcome?.tries ?? [], "zerobounce");
     const checked = await checkEmails(emailsKept, verifier(process.env));
     emailsKept = checked.emails;
     deliverability = checked.try;
@@ -108,12 +114,14 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
       // The checker's word: dead lines go, live ones carry their type, the name on the account or a name match, and a grade.
       const person = outcomes.find((x) => x.field === "person")?.found.person ?? input.person;
       const who = { ...input, person };
+      await say("phone", tries, checkers.find((c) => c.connected)?.name ?? "trestle");
       const checked = await checkPhonesWith(phones, checkers, expectedNames(who), lineOwner(who), firstEmail);
       phones = checked.phones;
       emailCheck = checked.email;
       phonesChecked = checked.tries.some((t) => t.outcome === "hit" || t.outcome === "miss");
       tries.push(...checked.tries);
       // Then the Do Not Call scrub on what's left: flags, never drops, so the sheet can say why not to call.
+      await say("phone", [...tries, ...checked.tries], "tracerfy-dnc");
       const scrubbed = await scrubPhones(phones, phoneScrub(process.env));
       phones = scrubbed.phones;
       tries.push(scrubbed.try);
@@ -162,6 +170,7 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
       });
     } else {
       try {
+        await say("research", [], "claude");
         const r = await researchOwner({ ...input, person }, input.question);
         await ctx.runMutation(internal.outreach.recordEnrichment, {
           contactId,

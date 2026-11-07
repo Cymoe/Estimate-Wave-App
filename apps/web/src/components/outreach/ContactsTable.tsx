@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Circle, FileText, Lock, Mail, MapPin, MessageSquare, MinusCircle, Phone, Search, User } from 'lucide-react';
 import { AddressLink } from '../common/AddressLink';
 import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { fullAddress } from '../../lib/mapsLinks';
 import type { OutreachCell, OutreachContact, OutreachContacts, OutreachCoverage, OutreachField, OutreachPhone, OutreachRowStatus, OutreachSignal, OutreachTry, OutreachWho } from '../../lib/api';
 import { shortMoney, WHO_LABEL } from '../../../convex/lib/outreach';
-import { callOk, deedSearchUrl, phoneText, sourceList, sourceName } from './format';
+import { askingText, callOk, deedSearchUrl, phoneText, sourceList, sourceName } from './format';
 import type { ColumnKey } from './columns';
 
 const STATUS_LABEL: Record<OutreachRowStatus, string> = { new: 'New', sent: 'Sent', done: 'Done', skip: 'Skipped' };
@@ -51,11 +51,52 @@ export const PhoneBadges: React.FC<{ p: OutreachPhone }> = ({ p }) => (
   </span>
 );
 
+/** A lookup at work: the source it's asking now, under it the last thing found. */
+export const Live: React.FC<{ cell: OutreachCell }> = ({ cell }) => {
+  const last = [...(cell.tries ?? [])].reverse().find((t) => t.outcome === 'hit');
+  const asked = (cell.tries ?? []).filter((t) => t.outcome !== 'skipped').length;
+  return (
+    <span className="inline-flex flex-col" data-testid="live">
+      <span className="inline-flex items-center gap-1.5 text-[#7fb0e0]">
+        <span className="live-dot" aria-hidden /> {askingText(cell.asking)}…
+      </span>
+      {last?.note ? (
+        <span className="block max-w-[11rem] truncate text-[11px] text-gray-400">{last.note}</span>
+      ) : asked > 0 ? (
+        <span className="block text-[11px] text-gray-500">
+          {asked} {asked === 1 ? 'source' : 'sources'} checked
+        </span>
+      ) : null}
+    </span>
+  );
+};
+
+/** The cells that just got their answer, for a moment: "id:field" while they glow. */
+function useJustFilled(rows: OutreachContact[]): Set<string> {
+  const before = useRef(new Map<string, OutreachCell['status']>());
+  const [lit, setLit] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    const landed: string[] = [];
+    for (const r of rows) {
+      for (const f of ['person', 'phone', 'email', 'research'] as OutreachField[]) {
+        const key = `${r.id}:${f}`;
+        const now = r.enrichment[f]?.status;
+        if (before.current.get(key) === 'running' && now === 'found') landed.push(key);
+        if (now) before.current.set(key, now);
+      }
+    }
+    if (landed.length === 0) return;
+    setLit((s) => new Set([...s, ...landed]));
+    window.setTimeout(() => setLit((s) => new Set([...s].filter((k) => !landed.includes(k)))), 1600);
+  }, [rows]);
+  return lit;
+}
+
 /** A cell that hasn't a value: the lock, the wait, the miss, or the failure with its reason and a retry. */
 const Empty: React.FC<{ cell: OutreachCell; onRetry?: () => void }> = ({ cell, onRetry }) => {
   switch (cell.status) {
     case 'running':
-      return <span className="text-gray-500">Looking…</span>;
+      return <Live cell={cell} />;
     case 'found':
     case 'none':
       return <span className="text-gray-600">None found</span>;
@@ -120,6 +161,8 @@ export const ContactsTable: React.FC<{
   hidden?: Set<ColumnKey>;
 }> = ({ rows, coverage, selected, onSelect, onSelectAll, onOpen, onRetry, hidden }) => {
   const all = rows.length > 0 && rows.every((r) => selected.has(r.id));
+  const lit = useJustFilled(rows);
+  const glow = (id: string, f: OutreachField) => (lit.has(`${id}:${f}`) ? ' cell-filled' : '');
   const show = (k: ColumnKey) => !hidden?.has(k);
   const shown = (['person', 'phone', 'email', 'research', 'status', 'mailing', 'property', 'value', 'type', 'signals'] as ColumnKey[]).filter(show).length;
   const [atEnd, setAtEnd] = useState(false);
@@ -185,7 +228,7 @@ export const ContactsTable: React.FC<{
                     ) : null}
                   </td>
                   {show('person') && (
-                    <td className={`${td} max-w-[14rem] truncate`}>
+                    <td className={`${td} max-w-[14rem] truncate${glow(r.id, 'person')}`}>
                       {r.person ? (
                         <>
                           <span className="text-white">{r.person.name}</span>
@@ -204,7 +247,7 @@ export const ContactsTable: React.FC<{
                     </td>
                   )}
                   {show('phone') && (
-                    <td className={td}>
+                    <td className={`${td}${glow(r.id, 'phone')}`}>
                       {phone ? (
                         <>
                           <span className={phone.dnc ? 'text-gray-300' : 'text-white'}>{phoneText(phone.number)}</span>
@@ -219,7 +262,7 @@ export const ContactsTable: React.FC<{
                     </td>
                   )}
                   {show('email') && (
-                    <td className={`${td} max-w-[14rem] truncate`}>
+                    <td className={`${td} max-w-[14rem] truncate${glow(r.id, 'email')}`}>
                       {email ? (
                         <>
                           <span className="text-white">{email.email}</span>
@@ -231,7 +274,7 @@ export const ContactsTable: React.FC<{
                     </td>
                   )}
                   {show('research') && (
-                    <td className={`${td} max-w-[22rem] truncate`} title={r.research?.answer}>
+                    <td className={`${td} max-w-[22rem] truncate${glow(r.id, 'research')}`} title={r.research?.answer}>
                       {r.research ? <span className="text-gray-200">{r.research.answer}</span> : <Empty cell={r.enrichment.research ?? { status: 'locked' }} onRetry={() => onRetry(r, 'research')} />}
                     </td>
                   )}
@@ -260,7 +303,17 @@ export const ContactsTable: React.FC<{
                   )}
                   {show('signals') && (
                     <td className={`${td} text-amber-300`}>
-                      {r.signals.length === 0 ? <span className="text-gray-700">—</span> : r.signals.map((s) => `${SIGNAL_LABEL[s.kind]} ${monthYear(s.date)}`).join(' · ')}
+                      {r.signals.length === 0 ? (
+                        <span className="text-gray-700">—</span>
+                      ) : (
+                        r.signals.map((s, i) => (
+                          <span key={s.kind}>
+                            {i > 0 ? ' · ' : ''}
+                            {s.fresh ? <span className="mr-1 px-1 text-[10px] font-medium uppercase tracking-wide text-[#121212] bg-amber-300">New</span> : null}
+                            {SIGNAL_LABEL[s.kind]} {monthYear(s.date)}
+                          </span>
+                        ))
+                      )}
                     </td>
                   )}
                 </tr>
@@ -287,6 +340,7 @@ export const ContactCards: React.FC<{
   onRetry: (row: OutreachContact, field: OutreachField) => void;
 }> = ({ rows, onOpen, onStatus, onRetry }) => {
   const [saving, setSaving] = useState<string | null>(null);
+  const lit = useJustFilled(rows);
   const mark = async (row: OutreachContact, next: OutreachRowStatus) => {
     setSaving(row.id);
     try {
@@ -307,7 +361,7 @@ export const ContactCards: React.FC<{
         const email = r.emails.find((e) => e.nameMatch !== false) ?? r.emails[0];
         const signal = r.signals[0];
         return (
-          <li key={r.id} className="bg-[#121212] border border-[#333333]" data-testid="contact-card">
+          <li key={r.id} className={`bg-[#121212] border border-[#333333]${['person', 'phone', 'email'].some((f) => lit.has(`${r.id}:${f}`)) ? ' cell-filled' : ''}`} data-testid="contact-card">
             <button type="button" onClick={() => onOpen(r)} className="block w-full text-left px-4 pt-3 pb-2">
               <span className={`block text-[15px] font-medium ${r.status === 'skip' ? 'text-gray-500 line-through' : 'text-white'}`}>{r.name}</span>
               <span className="block text-xs text-gray-500">
@@ -316,7 +370,7 @@ export const ContactCards: React.FC<{
               </span>
               {signal && (
                 <span className="mt-1 inline-flex items-center gap-1 text-xs text-amber-300">
-                  <AlertTriangle className="w-3.5 h-3.5" /> {SIGNAL_LABEL[signal.kind]} {monthYear(signal.date)}
+                  <AlertTriangle className="w-3.5 h-3.5" /> {signal.fresh ? <span className="px-1 text-[10px] font-medium uppercase tracking-wide text-[#121212] bg-amber-300">New</span> : null} {SIGNAL_LABEL[signal.kind]} {monthYear(signal.date)}
                 </span>
               )}
               {r.company && (
@@ -327,7 +381,11 @@ export const ContactCards: React.FC<{
                       {r.person.title ? <span className="text-gray-500"> · {r.person.title}</span> : null}
                     </>
                   ) : (
-                    <span className="text-gray-500">Decision maker: {r.enrichment.person.status === 'running' ? 'looking…' : r.enrichment.person.status === 'none' ? 'none found' : 'not looked up'}</span>
+                    r.enrichment.person.status === 'running' ? (
+                      <Live cell={r.enrichment.person} />
+                    ) : (
+                      <span className="text-gray-500">Decision maker: {r.enrichment.person.status === 'none' ? 'none found' : 'not looked up'}</span>
+                    )
                   )}
                 </span>
               )}
@@ -336,8 +394,10 @@ export const ContactCards: React.FC<{
                   <>
                     <span className={callOk(r.phones[0]) ? 'text-white' : 'text-gray-400'}>{phoneText((call ?? r.phones[0]).number)}</span> <PhoneBadges p={call ?? r.phones[0]} />
                   </>
-                ) : r.enrichment.phone.status === 'failed' ? null : (
-                  <span className="text-gray-500">Phone: {r.enrichment.phone.status === 'running' ? 'looking…' : r.enrichment.phone.status === 'none' ? 'none found' : 'not looked up'}</span>
+                ) : r.enrichment.phone.status === 'failed' ? null : r.enrichment.phone.status === 'running' ? (
+                  <Live cell={r.enrichment.phone} />
+                ) : (
+                  <span className="text-gray-500">Phone: {r.enrichment.phone.status === 'none' ? 'none found' : 'not looked up'}</span>
                 )}
               </span>
             </button>

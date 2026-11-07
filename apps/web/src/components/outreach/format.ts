@@ -37,3 +37,24 @@ export const sourceList = (sources: string[]) => {
 /** The Midland County Clerk's deed records for an owner, where the deed of trust names who signed for the company. */
 export const deedSearchUrl = (owner: string) =>
   `https://midland.tx.publicsearch.us/results?department=RP&limit=50&offset=0&searchOcrText=false&searchType=quickSearch&searchValue=${encodeURIComponent(owner)}`;
+
+/** What a running lookup is doing, for its cell: "Asking the Texas Comptroller". */
+export const askingText = (s?: string) =>
+  s
+    ? ({
+        roll: 'Reading the appraisal roll',
+        permits: 'Reading city permits',
+        'tx-comptroller': 'Asking the Texas Comptroller',
+        cobalt: 'Asking the state registry',
+        batchdata: 'Asking BatchData',
+        tracerfy: 'Asking Tracerfy',
+        enformion: 'Asking EnformionGO',
+        hunter: 'Asking Hunter',
+        leadmagic: 'Asking LeadMagic',
+        trestle: 'Checking the lines',
+        twilio: 'Checking the lines',
+        'tracerfy-dnc': 'Do Not Call scrub',
+        zerobounce: 'Checking the email',
+        claude: 'Reading the web',
+      }[s] ?? `Asking ${s}`)
+    : 'Starting';

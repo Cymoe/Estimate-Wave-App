@@ -1041,7 +1041,10 @@ const hitNote = (field: Field, found: Found) => {
 /** A phone or email already paid for on a related owner with the same decision maker: copied, so no source is asked. */
 export type Reuse = (field: "phone" | "email", input: TraceInput) => Promise<{ found: Found; note: string } | undefined>;
 
-export async function waterfall(input: TraceInput, vendors: Vendor[], fields: Field[], reuse?: Reuse): Promise<Outcome[]> {
+/** Told before each source is asked, with the field's turns so far, so the page can say what the lookup is doing. */
+export type Progress = (field: Field, tries: Try[], asking?: string) => Promise<void>;
+
+export async function waterfall(input: TraceInput, vendors: Vendor[], fields: Field[], reuse?: Reuse, progress?: Progress): Promise<Outcome[]> {
   const answers = new Map<string, Promise<Found>>();
   const ask = (vendor: Vendor) => {
     let p = answers.get(vendor.name);
@@ -1085,6 +1088,7 @@ export async function waterfall(input: TraceInput, vendors: Vendor[], fields: Fi
         tries.push({ source: vendor.name, outcome: "skipped", note: why });
         continue;
       }
+      if (progress) await progress(field, [...tries], vendor.name).catch(() => {});
       try {
         const found = await ask(vendor);
         if (corroborating) {

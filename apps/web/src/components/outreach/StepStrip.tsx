@@ -151,16 +151,6 @@ export const StepStrip: React.FC<{ rows: OutreachContact[]; unlockCents: number;
       {hidden ? 'Show steps' : 'Hide'}
     </button>
   );
-  const progress = s.looking > 0 && (
-    <div className="flex items-center gap-3 text-sm text-gray-300" data-testid="looking">
-      <span className="whitespace-nowrap">
-        Looking up {plural(s.looking, 'owner')}… {s.owners - s.looking} of {s.owners} done
-      </span>
-      <div className="flex-1 h-1 bg-[#333333] min-w-[4rem]" aria-hidden>
-        <div className="h-full bg-[#336699]" style={{ width: `${Math.round(((s.owners - s.looking) / s.owners) * 100)}%` }} />
-      </div>
-    </div>
-  );
   if (hidden) {
     return (
       <div className="bg-[#121212] border border-[#333333] px-4 py-2 space-y-1" data-testid="steps">
@@ -176,13 +166,11 @@ export const StepStrip: React.FC<{ rows: OutreachContact[]; unlockCents: number;
           {s.chargedCents > 0 && <span>{dollars(s.chargedCents)} charged</span>}
           <span className="ml-auto">{toggleButton}</span>
         </p>
-        {progress}
       </div>
     );
   }
   return (
     <div className="relative bg-[#121212] border border-[#333333]" data-testid="steps">
-      {progress && <div className="pl-4 pr-20 py-2 border-b border-[#333333]">{progress}</div>}
       <div className="absolute top-2 right-3 z-10">{toggleButton}</div>
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-px bg-[#333333]">
         <Step n={1} title="Owners in this list">

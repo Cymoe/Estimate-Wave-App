@@ -7,6 +7,7 @@ import { AskListSheet } from '../components/outreach/AskListSheet';
 import { ContactCards, ContactsTable, ContactSheet } from '../components/outreach/ContactsTable';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { StepStrip } from '../components/outreach/StepStrip';
+import { LookupProgress } from '../components/outreach/LookupProgress';
 import { COLUMNS, readHiddenColumns, writeHiddenColumns, type ColumnKey } from '../components/outreach/columns';
 import { csvName, download, outreachCsv } from '../components/outreach/outreachCsv';
 import { useConfirm } from '../components/common/ConfirmDialog';
@@ -19,10 +20,11 @@ import { callOk, sourceName } from '../components/outreach/format';
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 const iconButton = 'w-11 h-11 inline-flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2A2A2A] border border-[#333333]';
 const VIEW_KEY = 'outreach.view';
+const BATCH_KEY = 'outreach.batch';
 const chip = (on: boolean) => `px-3 min-h-[36px] text-sm border whitespace-nowrap ${on ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333333] text-gray-300 hover:bg-[#2A2A2A]'}`;
 const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: cents % 100 ? 2 : 0 })}`;
 /** How often the table re-reads while a lookup is running. */
-const POLL_MS = 3000;
+const POLL_MS = 2000;
 const STATUS_FILTERS: Array<{ value: OutreachRowStatus | 'all'; label: string }> = [
   { value: 'all', label: 'All statuses' },
   { value: 'new', label: 'New' },
@@ -31,9 +33,11 @@ const STATUS_FILTERS: Array<{ value: OutreachRowStatus | 'all'; label: string }>
   { value: 'skip', label: 'Skipped' },
 ];
 /** The quick filters over the table: what a row has, or what it needs from you. */
-type Show = 'all' | 'signal' | 'ready' | 'email' | 'needs';
+type Show = 'all' | 'new' | 'signal' | 'ready' | 'email' | 'needs';
 const SHOWS: Array<{ value: Show; label: string; has: (r: OutreachContact) => boolean }> = [
   { value: 'all', label: 'All', has: () => true },
+  /** A signal first seen this week: the lists are watched, and this is what changed. Shown only when there is one. */
+  { value: 'new', label: 'New this week', has: (r) => r.signals.some((x) => x.fresh) },
   /** A code violation, a demolition order or a stalled permit on the property: the warmest calls on any list. */
   { value: 'signal', label: 'Has a signal', has: (r) => r.signals.length > 0 },
   { value: 'ready', label: 'Ready to call', has: (r) => r.phones.some(callOk) },
@@ -194,6 +198,24 @@ const OutreachPage: React.FC = () => {
   const [lists, setLists] = useState<OutreachListSummary[] | null>(null);
   const [data, setData] = useState<OutreachContacts | null>(null);
   const [status, setStatus] = useState<OutreachRowStatus | 'all'>('all');
+  // The lookup last started on this device, for the progress bar; kept across a reload until dismissed.
+  const [batch, setBatch] = useState<{ at: string } | null>(() => {
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem(BATCH_KEY) ?? 'null');
+      return saved && typeof (saved as { at?: unknown }).at === 'string' ? (saved as { at: string }) : null;
+    } catch {
+      return null;
+    }
+  });
+  const keepBatch = (next: { at: string } | null) => {
+    setBatch(next);
+    try {
+      if (next) localStorage.setItem(BATCH_KEY, JSON.stringify(next));
+      else localStorage.removeItem(BATCH_KEY);
+    } catch {
+      // Private browsing: the bar lasts for this visit.
+    }
+  };
   // Cards on a phone, the table on anything wider, unless they picked one; the pick is remembered on this device.
   const narrow = useMediaQuery('(max-width: 767px)');
   const [picked, setPicked] = useState<'cards' | 'table' | null>(() => {
@@ -334,6 +356,7 @@ const OutreachPage: React.FC = () => {
     setError(null);
     try {
       const r = await outreachAPI.enrich(organizationId, ids, fields, question);
+      if (r.queued && r.at) keepBatch({ at: r.at });
       const what = fields?.length === 1 && fields[0] === 'research' ? 'charged only for answers found' : 'charged only for phones found';
       setNote(r.queued ? `Looking up ${r.queued} ${r.queued === 1 ? 'owner' : 'owners'}; ${dollars(r.costCents)} at most, ${what}.` : null);
       setSelected(new Set());
@@ -490,7 +513,7 @@ const OutreachPage: React.FC = () => {
             />
           </label>
           {SHOWS.map((s) =>
-            s.value === 'needs' && counts.needs === 0 ? null : (
+            (s.value === 'needs' || s.value === 'new') && counts[s.value] === 0 ? null : (
               <button
                 key={s.value}
                 type="button"
@@ -555,6 +578,7 @@ const OutreachPage: React.FC = () => {
           hidden={hiddenColumns}
         />
       )}
+      {data && <LookupProgress rows={data.rows} since={batch?.at} onDismiss={() => keepBatch(null)} />}
       <ContactSheet
         row={open}
         unlockCents={unlockCents}

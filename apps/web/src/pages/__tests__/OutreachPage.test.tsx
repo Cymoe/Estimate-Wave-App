@@ -59,7 +59,7 @@ const create = jest.fn(async () => ({ listId: 'l9', rowCount: 2, added: 2, trunc
 const setStatus = jest.fn(async () => null);
 const remove = jest.fn(async () => null);
 const extend = jest.fn(async () => ({ loaded: 500, added: 500, rowCount: 1000, total: 2340, truncated: false }));
-const enrich = jest.fn(async () => ({ queued: 1, costCents: 100 }));
+const enrich = jest.fn(async () => ({ queued: 1, costCents: 100, at: '2026-11-05T15:00:00Z' }));
 const sources = jest.fn(async () => []);
 const getContacts = jest.fn(async () => contacts);
 let ownersState: Record<string, unknown> | null = null;
@@ -88,6 +88,7 @@ jest.mock('../../components/layouts/DashboardLayout', () => ({
 }));
 
 import OutreachPage from '../OutreachPage';
+import { ContactsTable } from '../../components/outreach/ContactsTable';
 
 // The screen width the page asks about: a laptop unless a test says it's a phone.
 let narrowScreen = false;
@@ -161,6 +162,57 @@ afterEach(() => {
 });
 
 describe('the Outreach page', () => {
+  it('shows a finished lookup as a summary to dismiss, a new signal with a tag and its own chip, and makes a cell glow the moment its answer lands', async () => {
+    lists = [list];
+    localStorage.setItem('outreach.batch', JSON.stringify({ at: '2026-11-05T15:00:00Z' }));
+    const at = '2026-11-05T15:02:00Z';
+    contacts = {
+      ...twoContacts(),
+      rows: [
+        contact('r1', {
+          enrichment: { phone: { status: 'found', at, source: 'batchdata', chargedCents: 100 }, email: { status: 'found', at, source: 'batchdata' }, person: { status: 'found', at, source: 'tx-comptroller' }, research: { status: 'locked' } },
+          person: { name: 'Dana Reyes', source: 'tx-comptroller' },
+          phones: [{ number: '4325550100', type: 'mobile', source: 'batchdata' }],
+          emails: [{ email: 'dana@oakplaza.com', source: 'batchdata' }],
+        }),
+        contact('r2', {
+          name: 'City Of Midland',
+          enrichment: { phone: { status: 'none', at }, email: { status: 'none', at }, person: { status: 'none', at }, research: { status: 'locked' } },
+          signals: [{ kind: 'stalled_permit', date: '2026-10-30', detail: 'Expired', fresh: true }],
+        }),
+      ],
+    };
+    await render('/outreach/l1');
+    const bar = document.body.querySelector('[data-testid="lookup-progress"]')!;
+    expect(bar.textContent).toBe('Done: 2 owners looked up1 phone · 1 email · 1 person · $1 charged');
+    await act(async () => (bar.querySelector('button[aria-label="Dismiss"]') as HTMLButtonElement).click());
+    expect(document.body.querySelector('[data-testid="lookup-progress"]')).toBeNull();
+    expect(localStorage.getItem('outreach.batch')).toBeNull();
+    // What changed this week has its own chip, and its tag in the Signals column.
+    await click('New this week');
+    const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toContain('NewStalled permit Oct 2026');
+
+    // The glow: a cell that was running and now has its answer lights up for a moment.
+    document.body.innerHTML = '';
+    const box = document.createElement('div');
+    document.body.appendChild(box);
+    const root = createRoot(box);
+    const table = (rows: ReturnType<typeof contact>[]) => (
+      <ContactsTable rows={rows as never} coverage={coverage() as never} selected={new Set()} onSelect={() => {}} onSelectAll={() => {}} onOpen={() => {}} onRetry={() => {}} />
+    );
+    const runningRow = contact('r1', { enrichment: { phone: { status: 'running', asking: 'batchdata' }, email: { status: 'locked' }, person: { status: 'locked' }, research: { status: 'locked' } } });
+    await act(async () => root.render(table([runningRow])));
+    expect(box.querySelector('td.cell-filled')).toBeNull();
+    expect(box.querySelector('[data-testid="live"]')!.textContent).toContain('Asking BatchData…');
+    const landed = contact('r1', { phones: [{ number: '4325550100', type: 'mobile', source: 'batchdata' }], enrichment: { phone: { status: 'found', at, source: 'batchdata' }, email: { status: 'locked' }, person: { status: 'locked' }, research: { status: 'locked' } } });
+    await act(async () => root.render(table([landed])));
+    expect(box.querySelectorAll('td.cell-filled')).toHaveLength(1);
+    expect(box.querySelector('td.cell-filled')!.textContent).toContain('(432) 555-0100');
+    await act(async () => root.unmount());
+  });
+
   it('shows cards on a phone: the decision maker, the best number with Call and Text, the signal, Done and Skip; the table is a tap away and remembered', async () => {
     narrowScreen = true;
     lists = [list];
@@ -473,7 +525,15 @@ describe('the Outreach page', () => {
           ],
           emails: [{ email: 'dana@oakplaza.com', source: 'batchdata', verified: true, nameMatch: true, grade: 'B' }],
         }),
-        contact('r2', { name: 'City Of Midland', enrichment: { phone: { status: 'running' }, email: { status: 'running' }, person: { status: 'running' } } }),
+        contact('r2', {
+          name: 'City Of Midland',
+          enrichment: {
+            // Mid-lookup: the person step is asking the Comptroller; the phone step already has a hit and is checking the lines.
+            phone: { status: 'running', at: '2026-11-05T15:00:00Z', asking: 'trestle', tries: [{ source: 'permits', outcome: 'skipped', note: 'No permits' }, { source: 'batchdata', outcome: 'hit', note: '2 numbers' }] },
+            email: { status: 'running', at: '2026-11-05T15:00:00Z' },
+            person: { status: 'running', at: '2026-11-05T15:00:00Z', asking: 'tx-comptroller', tries: [{ source: 'roll', outcome: 'miss', note: 'No match' }] },
+          },
+        }),
       ],
       coverage: coverage(1, 1, 1),
       ...money,
@@ -486,12 +546,15 @@ describe('the Outreach page', () => {
     await flush();
     expect(enrich).toHaveBeenCalledWith('o1', ['r1', 'r2'], undefined, undefined);
     expect(document.body.textContent).toContain('Looking up 1 owner; $1 at most, charged only for phones found.');
-    expect(document.body.querySelector('[data-testid="looking"]')!.textContent).toBe('Looking up 1 owner… 1 of 2 done');
+    // The bar along the bottom: the lookup started here, owners done, what's been found, what it has cost.
+    expect(document.body.querySelector('[data-testid="lookup-progress"]')!.textContent).toBe('Looking up 2 owners · 1 done1 phone · 1 email · 1 person · $1 so far');
+    expect(localStorage.getItem('outreach.batch')).toBe('{"at":"2026-11-05T15:00:00Z"}');
     const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
     const cells = (i: number) => Array.from(rows[i].querySelectorAll('td')).map((c) => c.textContent?.replace(/\s+/g, ' ').trim());
     expect(cells(0)[2]).toBe('Dana ReyesManager · 2 sources agree');
     expect(cells(0).slice(3, 5)).toEqual(['(432) 555-0100mobile · verified · +2', 'dana@oakplaza.comverified']);
-    expect(cells(1).slice(3, 5)).toEqual(['Looking…', 'Looking…']);
+    // A running cell says what it's doing, and the last thing it found.
+    expect(cells(1).slice(2, 5)).toEqual(['Asking the Texas Comptroller…1 source checked', 'Checking the lines…2 numbers', 'Starting…']);
     expect(cells(0)[5]).toBe('—');
     expect(document.body.querySelector('thead')!.textContent).toContain('1 / 2 · 1 source');
     expect(document.body.querySelector('[data-testid="unlock-bar"]')).toBeNull();

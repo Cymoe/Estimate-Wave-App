@@ -526,8 +526,10 @@ export const outreachCell = v.object({
   source: v.optional(v.string()),
   chargedCents: v.optional(v.number()),
   error: v.optional(v.string()),
-  /** Every source in order, once the lookup has run. */
+  /** Every source in order, once the lookup has run; while it runs, the turns so far. */
   tries: v.optional(v.array(outreachTry)),
+  /** While running: the source being asked right now, for the page to say so. */
+  asking: v.optional(v.string()),
 });
 export const outreachEnrichment = v.object({ phone: outreachCell, email: outreachCell, person: outreachCell, research: v.optional(outreachCell) });
 /** What the AI found on the web about an owner, with where it read it. */

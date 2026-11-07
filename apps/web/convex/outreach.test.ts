@@ -478,7 +478,7 @@ describe("a company's lists", () => {
 
     // No balance: refused before anything is queued. The person lookup alone is free.
     await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id] })).rejects.toThrow(/Balance too low: \$1\.00 needed for 1 phone, \$0\.00 available/);
-    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["person"] })).resolves.toEqual({ queued: 1, costCents: 0 });
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["person"] })).resolves.toMatchObject({ queued: 1, costCents: 0 });
     expect((await read()).rows.find((r) => r.id === oak.id)!.enrichment.person.status).toBe("running");
     // No key for it: a failed cell that says so, nothing charged, and not counted as a source attempt.
     vi.stubEnv("TX_COMPTROLLER_API_KEY", "");
@@ -547,12 +547,12 @@ describe("a company's lists", () => {
         });
       }),
     );
-    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id, cityHall.id, oak.id] })).resolves.toEqual({ queued: 2, costCents: 200 });
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id, cityHall.id, oak.id] })).resolves.toMatchObject({ queued: 2, costCents: 200 });
     const running = (await read()).rows;
     expect(running.find((r) => r.id === oak.id)!.enrichment).toMatchObject({ person: { status: "running" }, phone: { status: "running" }, email: { status: "running" } });
     expect(running.find((r) => r.id === cityHall.id)!.enrichment).toMatchObject({ person: { status: "running" }, phone: { status: "running" } });
     // Running ones aren't queued twice.
-    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id] })).resolves.toEqual({ queued: 0, costCents: 0 });
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id] })).resolves.toMatchObject({ queued: 0, costCents: 0 });
     await t.finishAllScheduledFunctions(() => {});
 
     const traced = await read();
@@ -649,8 +649,8 @@ describe("a company's lists", () => {
     ]);
     await expect(co.as.query(api.outreach.sources, { organizationId: org })).rejects.toThrow(/staff/);
     // A found field isn't traced again; a failed one can be. A dropped list keeps a paid contact.
-    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id] })).resolves.toEqual({ queued: 0, costCents: 0 });
-    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [cityHall.id], fields: ["phone"] })).resolves.toEqual({ queued: 1, costCents: 100 });
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id] })).resolves.toMatchObject({ queued: 0, costCents: 0 });
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [cityHall.id], fields: ["phone"] })).resolves.toMatchObject({ queued: 1, costCents: 100 });
     await t.finishAllScheduledFunctions(() => {});
     const lists = await co.as.query(api.outreach.lists, { organizationId: org });
     await co.as.mutation(api.outreach.remove, { organizationId: org, listId: lists[0].id });
@@ -892,7 +892,7 @@ describe("a company's lists", () => {
         });
       }),
     );
-    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [first.id, second.id, brazos.id] })).resolves.toEqual({ queued: 3, costCents: 300 });
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [first.id, second.id, brazos.id] })).resolves.toMatchObject({ queued: 3, costCents: 300 });
     // The first of the family and the unrelated company run now; the sister waits its turn.
     await t.finishAllScheduledFunctions(() => {});
     expect((await byName("Nuka Hiva Alpha 1-54")).enrichment.phone).toMatchObject({ status: "found", source: "batchdata", chargedCents: 100 });
@@ -919,6 +919,40 @@ describe("a company's lists", () => {
     expect(stats.some((s) => s.source === "shared")).toBe(false);
   });
 
+  test("a running lookup's progress shows on its cell, only while it runs; a signal first seen this week is new, but not the first import", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 500 }));
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    const read = async () => (await co.as.query(api.outreach.contacts, { organizationId: org })).rows;
+    const oak = (await read()).find((r) => r.name === "Oak Plaza LLC")!;
+    const started = await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["phone"] });
+    expect(started.at).toEqual(expect.any(String));
+    const tries = [{ source: "permits", outcome: "skipped" as const, note: "No permits at the property" }];
+    await t.mutation(internal.outreach.noteProgress, { contactId: oak.id, field: "phone", asking: "batchdata", tries });
+    expect((await read()).find((r) => r.id === oak.id)!.enrichment.phone).toMatchObject({ status: "running", asking: "batchdata", tries });
+    // Not running: nothing to narrate, and a locked cell stays locked.
+    await t.mutation(internal.outreach.noteProgress, { contactId: oak.id, field: "email", asking: "hunter", tries: [] });
+    expect((await read()).find((r) => r.id === oak.id)!.enrichment.email).toEqual({ status: "locked" });
+
+    // Signals: the first import is not news; one seen days later, within the week, is.
+    const parcelOf = async (id: string) => await t.run(async (ctx) => (await ctx.db.get(id as Id<"outreachContacts">))!.property.parcelId);
+    const parcelId = await parcelOf(oak.id);
+    const day = 24 * 60 * 60 * 1000;
+    await t.run(async (ctx) => {
+      const base = { county: "Midland", parcelId, address: "12 MIDKIFF RD", detail: "High weeds" };
+      await ctx.db.insert("signals", { ...base, kind: "code_violation", date: "2026-08-01", sourceId: "code:1", importedAt: new Date(Date.now() - 6 * day).toISOString() });
+      await ctx.db.insert("signals", { ...base, kind: "stalled_permit", date: "2026-10-30", sourceId: "permit:2", importedAt: new Date(Date.now() - 2 * day).toISOString() });
+    });
+    const signals = (await read()).find((r) => r.id === oak.id)!.signals;
+    expect(signals.find((x) => x.kind === "code_violation")!.fresh).toBeUndefined();
+    expect(signals.find((x) => x.kind === "stalled_permit")!.fresh).toBe(true);
+  });
+
   test("the watchdog fails a lookup that never wrote back, free and with Retry; a newer request on the field is left to its own", async () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     const t = setup();
@@ -943,7 +977,7 @@ describe("a company's lists", () => {
     expect(gaveUp.enrichment.person).toMatchObject({ status: "failed", error: GIVE_UP_ERROR });
     expect(GIVE_UP_ERROR).toBe("Took longer than 10 minutes and was stopped.");
     expect((await read()).balanceCents).toBe(500);
-    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["phone"] })).resolves.toEqual({ queued: 1, costCents: 100 });
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["phone"] })).resolves.toMatchObject({ queued: 1, costCents: 100 });
     // The lookup runs and writes its answer (no keys: a failed cell that says so); the watchdog then finds nothing left to fail.
     for (const k of ["BATCHDATA_API_KEY", "TRACERFY_API_KEY", "ENFORMION_AP_NAME"]) vi.stubEnv(k, "");
     const again = (await read()).rows.find((r) => r.id === oak.id)!.enrichment.phone.at!;
@@ -1186,7 +1220,7 @@ describe("a company's lists", () => {
         return new Response(JSON.stringify({ content, stop_reason: "end_turn" }), { status: 200 });
       }),
     );
-    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id, cityHall.id], fields: ["research"], question: "Any renovation planned?" })).resolves.toEqual({ queued: 2, costCents: 50 });
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id, cityHall.id], fields: ["research"], question: "Any renovation planned?" })).resolves.toMatchObject({ queued: 2, costCents: 50 });
     expect((await read()).rows.find((r) => r.id === oak.id)!.enrichment.research).toMatchObject({ status: "running" });
     await t.finishAllScheduledFunctions(() => {});
     const after = await read();
@@ -1219,7 +1253,7 @@ describe("a company's lists", () => {
       expect(stats).toEqual([["claude", "research", 2, 1, 25]]);
     });
     // Answered rows aren't asked again.
-    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["research"] })).resolves.toEqual({ queued: 0, costCents: 0 });
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["research"] })).resolves.toMatchObject({ queued: 0, costCents: 0 });
   });
 
   test("a contact unlocked before per-field cells gets its cells on deploy", async () => {
@@ -1772,6 +1806,25 @@ describe("the wider stack", () => {
       { source: "other", outcome: "hit", note: "1 email" },
     ]);
     expect(email.source).toBe("other");
+  });
+
+  test("the waterfall says which source it is asking before each turn, with the turns so far, so the page can narrate", async () => {
+    const said: Array<[string, string | undefined, number]> = [];
+    const miss = { name: "first", fields: ["email" as const], connected: true, trace: async () => ({}) };
+    const off = { name: "off", fields: ["email" as const], connected: false, trace: async () => ({}) };
+    const hit = { name: "second", fields: ["email" as const], connected: true, trace: async () => ({ emails: [{ email: "o@o.example", source: "second" }] }) };
+    const after = { name: "third", fields: ["email" as const], connected: true, trace: async () => ({}) };
+    await waterfall(company, [miss, off, hit, after], ["email"], undefined, async (field, tries, asking) => void said.push([field, asking, tries.length]));
+    // Only the sources actually asked are announced: not the one without a key, not the one after a hit.
+    expect(said).toEqual([
+      ["email", "first", 0],
+      ["email", "second", 2],
+    ]);
+    // A narration that fails never stops the lookup.
+    const [email] = await waterfall(company, [hit], ["email"], undefined, async () => {
+      throw new Error("offline");
+    });
+    expect(email.source).toBe("second");
   });
 });
 
