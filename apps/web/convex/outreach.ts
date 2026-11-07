@@ -46,6 +46,7 @@ import {
   type OwnerRow,
 } from "./lib/outreach";
 import { MIDLAND_PARCELS, addressKey } from "./lib/parcels";
+import { SAMPLE_MAX, SAMPLE_NOTE, isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { planIsActive } from "./lib/plan";
 import { needsAttention, phoneCheckers, phoneScrub, samePerson, splitName, vendors, verifier, type Found, type Person } from "./lib/skipTrace";
 import { dollars, postTransaction } from "./lib/wallet";
@@ -1032,7 +1033,6 @@ export const migrateUnlocks = internalMutation({
 });
 
 /** The note a sample owner carries, and what clearSample looks for. */
-const SAMPLE_NOTE = "Sample data to show the layout, not a real lookup.";
 
 /**
  * One-off, for a look at the finished layout before any source key is
@@ -1117,6 +1117,110 @@ export const seedSample = internalMutation({
       return { done: true, organization: organization.name, contact: contact.name };
     }
     return { done: false, reason: "no contact", seen };
+  },
+});
+
+/** An owner filled by the sample filler: its note, or its 555-01xx numbers or example.com addresses, say so. */
+const isSample = (c: Doc<"outreachContacts">) =>
+  Boolean(c.note?.startsWith("Sample")) || (c.phones ?? []).some((p) => isSampleNumber(p.number)) || (c.emails ?? []).some((e) => e.email.endsWith("example.com"));
+
+/**
+ * Fills a list's first owners (in the list's own order) with sample results,
+ * as a run with every key set would leave them, to see and use the page
+ * before the keys are in. Owners with real results are left alone; sister
+ * entities copy the first one's phone, as the shared lookup does. Nothing is
+ * charged. `clear` resets every sample-marked owner of the company to locked.
+ * Run it from the deploy workflow:
+ * `outreach:seedSampleList {"email":"…","list":"company investors","count":40}`.
+ */
+export const seedSampleList = internalMutation({
+  args: { email: v.optional(v.string()), organization: v.optional(v.string()), list: v.optional(v.string()), count: v.optional(v.number()), clear: v.optional(v.boolean()) },
+  handler: async (ctx, { email, organization: orgName, list: wanted = "company investors", count = 40, clear }) => {
+    const candidates: Id<"organizations">[] = [];
+    let user: Doc<"users"> | null = null;
+    if (email) {
+      user = await ctx.db.query("users").withIndex("email", (q) => q.eq("email", email)).unique();
+      if (!user) return { done: false, reason: "no user" };
+      candidates.push(...(await organizationIdsFor(ctx, user._id)));
+    }
+    if (orgName) {
+      for (const o of await ctx.db.query("organizations").take(2000)) if (o.name.toLowerCase().includes(orgName.toLowerCase()) && !candidates.includes(o._id)) candidates.push(o._id);
+    }
+    for (const organizationId of candidates) {
+      const organization = await ctx.db.get(organizationId);
+      if (!organization) continue;
+      const contacts = await contactsOf(ctx, organizationId);
+      const now = nowIso();
+      if (clear) {
+        let cleared = 0;
+        for (const c of contacts.filter(isSample)) {
+          await ctx.db.patch(c._id, {
+            enrichment: { phone: LOCKED, email: LOCKED, person: LOCKED, research: LOCKED },
+            person: undefined,
+            phones: undefined,
+            emails: undefined,
+            research: undefined,
+            note: c.note?.startsWith("Sample") ? undefined : c.note,
+            updatedAt: now,
+          });
+          cleared++;
+        }
+        if (cleared) return { done: true, cleared, organization: organization.name };
+        continue;
+      }
+      const lists = (await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      const list = lists.find((l) => l.title.toLowerCase().includes(wanted.toLowerCase())) ?? lists[0];
+      if (!list) continue;
+      const order = listOrder(list.definition);
+      const members = contacts.filter((c) => c.listIds.includes(list._id)).sort((a, b) => order.key(b) - order.key(a) || a.name.localeCompare(b.name));
+      const untouched = (c: Doc<"outreachContacts">) => isSample(c) || Object.values(cellsOf(c)).every((cell) => cell.status === "locked");
+      const families = new Map<string, Doc<"outreachContacts">>();
+      let filled = 0;
+      let shared = 0;
+      for (const c of members) {
+        if (filled >= Math.min(SAMPLE_MAX, Math.max(1, count))) break;
+        if (!untouched(c)) continue;
+        const at = new Date(Date.now() - filled * 7 * 60_000).toISOString();
+        const family = c.company ? familyKey(c.name) : undefined;
+        const sister = family ? families.get(family) : undefined;
+        const s = sampleFor(filled, { name: c.name, company: Boolean(c.company), properties: c.properties }, at);
+        const cell = (x: (typeof s.cells)["phone"]): Cell => (x.status === "locked" ? LOCKED : { ...x, requestedBy: user?._id });
+        if (sister?.person && sister.phones?.length) {
+          // The same manager as a sister entity: the phone and email copied free, as the shared lookup does.
+          const note = `Same decision maker as ${sister.name}; copied, no charge`;
+          const copied = (field: "phone" | "email"): Cell => ({ status: "found", at, requestedBy: user?._id, source: "shared", chargedCents: field === "phone" ? 0 : undefined, tries: [{ source: "shared", outcome: "hit", note }] });
+          await ctx.db.patch(c._id, {
+            person: sister.person,
+            phones: sister.phones,
+            emails: sister.emails,
+            research: undefined,
+            enrichment: {
+              person: { status: "found", at, requestedBy: user?._id, source: sister.person.source, tries: [{ source: sister.person.source, outcome: "hit", note: `${sister.person.name}, ${sister.person.title ?? "Officer"}` }] },
+              phone: copied("phone"),
+              email: sister.emails?.length ? copied("email") : { status: "none", at, requestedBy: user?._id, tries: [{ source: "shared", outcome: "miss", note: "None on the sister entity" }] },
+              research: LOCKED,
+            },
+            note: SAMPLE_NOTE,
+            updatedAt: now,
+          });
+          shared++;
+        } else {
+          await ctx.db.patch(c._id, {
+            person: s.person,
+            phones: s.phones,
+            emails: s.emails,
+            research: s.research,
+            enrichment: { person: cell(s.cells.person), phone: cell(s.cells.phone), email: cell(s.cells.email), research: cell(s.cells.research) },
+            note: SAMPLE_NOTE,
+            updatedAt: now,
+          });
+          if (family && s.person && s.phones?.length) families.set(family, { ...c, person: s.person, phones: s.phones, emails: s.emails });
+        }
+        filled++;
+      }
+      return { done: true, organization: organization.name, list: list.title, filled, shared };
+    }
+    return { done: false, reason: "no list" };
   },
 });
 

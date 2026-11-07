@@ -5,6 +5,7 @@ import { setup, signUp } from "./test.setup";
 import { actAs } from "./lib/actor";
 import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
+import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, ownerKey, parcelsIn, shortMoney, underFloor, type Condensed, type OwnerRow } from "./lib/outreach";
 import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, lineOwner, samePerson, scrubPhones, tracerfyDnc, trestleRealContact, twilioLookup, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { GIVE_UP_ERROR } from "./outreach";
@@ -949,6 +950,60 @@ describe("a company's lists", () => {
     await t.finishAllScheduledFunctions(() => {});
     expect((await read()).rows.find((r) => r.id === oak.id)!.enrichment.phone).toMatchObject({ status: "failed", error: expect.stringContaining("BATCHDATA_API_KEY") });
     expect(await t.mutation(internal.outreach.giveUp, { contactId: oak.id, fields: ["phone"], at: again })).toEqual({ failed: 0 });
+  });
+
+  test("seedSampleList fills a list's first owners with a run's worth of sample results, skips real ones, charges nothing, and clears them all", async () => {
+    // The mix, one owner at a time: found, found the hard way, found with a mismatch, a person but no phone, DNC only, found, not looked up, nothing, a litigator, failed.
+    const s = (i: number) => sampleFor(i, { name: "Oak Plaza LLC", company: true, properties: 3 }, "2026-11-07T12:00:00.000Z");
+    expect(s(0)).toMatchObject({ person: { name: "Mark Ellison", source: "tx-comptroller" }, cells: { phone: { status: "found", source: "batchdata", chargedCents: 100 }, research: { status: "found", chargedCents: 25 } } });
+    expect(s(0).phones!.every((p) => isSampleNumber(p.number))).toBe(true);
+    expect(s(0).emails![0].email).toBe("mark.ellison@example.com");
+    expect(s(1).cells.phone).toMatchObject({ status: "found", source: "tracerfy" });
+    expect(s(1).cells.email.status).toBe("none");
+    expect(s(2).person!.confirmedBy).toEqual(["roll"]);
+    expect(s(2).emails![0].nameMatch).toBe(false);
+    expect(s(3).cells.phone.status).toBe("none");
+    expect(s(4).phones!.every((p) => p.dnc)).toBe(true);
+    expect(s(6).cells).toEqual({ person: { status: "locked" }, phone: { status: "locked" }, email: { status: "locked" }, research: { status: "locked" } });
+    expect(s(7).person).toBeUndefined();
+    expect(s(8).phones![0].litigator).toBe(true);
+    expect(s(9).cells.phone).toMatchObject({ status: "failed", error: "batchdata: HTTP 503 Service Unavailable" });
+    // A person owning in their own name has no person step.
+    expect(sampleFor(0, { name: "Vance Robert & Linda", company: false, properties: 1 }, "2026-11-07T12:00:00.000Z").cells.person).toEqual({ status: "locked" });
+
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 500 }));
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "investor" } });
+    const read = async () => (await co.as.query(api.outreach.contacts, { organizationId: org })).rows;
+    // An owner with a real result is left as it is.
+    const park = (await read()).find((r) => r.name === "Park Holdings LP")!;
+    await t.run(async (ctx) => ctx.db.patch(park.id, { person: { name: "Real Person", source: "tx-comptroller" }, enrichment: { person: { status: "found", at: "2026-11-01T00:00:00.000Z", source: "tx-comptroller" }, phone: { status: "locked" }, email: { status: "locked" }, research: { status: "locked" } } }));
+    expect(await t.mutation(internal.outreach.seedSampleList, { email: "nobody@roof.example" })).toEqual({ done: false, reason: "no user" });
+    // No list named so: the newest list is filled, in its own order.
+    expect(await t.mutation(internal.outreach.seedSampleList, { email: "owner@roof.example", count: 5 })).toEqual({ done: true, organization: expect.any(String), list: "Real estate investors, Midland", filled: 2, shared: 0 });
+    const rows = await read();
+    const nuka = rows.find((r) => r.name === "Nuka Hiva LLC")!;
+    expect(nuka).toMatchObject({ person: { name: "Mark Ellison" }, note: "Sample data to show the layout, not a real lookup.", enrichment: { phone: { status: "found", chargedCents: 100 } } });
+    expect(nuka.phones.length).toBe(2);
+    expect(rows.find((r) => r.name === "Oak Plaza LLC")!.enrichment.phone).toMatchObject({ status: "found", source: "tracerfy" });
+    expect(rows.find((r) => r.name === "Park Holdings LP")!.person).toEqual({ name: "Real Person", source: "tx-comptroller" });
+    // Nothing charged: the balance is as it was.
+    expect((await co.as.query(api.outreach.contacts, { organizationId: org })).balanceCents).toBe(500);
+    // Cleared: every sample owner back to locked with no note; the real one untouched.
+    expect(await t.mutation(internal.outreach.seedSampleList, { email: "owner@roof.example", clear: true })).toEqual({ done: true, cleared: 2, organization: expect.any(String) });
+    const after = await read();
+    for (const name of ["Nuka Hiva LLC", "Oak Plaza LLC"]) {
+      const r = after.find((x) => x.name === name)!;
+      expect(r).toMatchObject({ phones: [], emails: [], enrichment: { phone: { status: "locked" }, person: { status: "locked" } } });
+      expect(r.person).toBeUndefined();
+      expect(r.note).toBeUndefined();
+    }
+    expect(after.find((r) => r.name === "Park Holdings LP")!.person).toEqual({ name: "Real Person", source: "tx-comptroller" });
   });
 
   test("seedSample fills one owner with marked sample data for a look at the layout, charges nothing, and clears it again", async () => {
