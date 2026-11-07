@@ -136,10 +136,10 @@ const Empty: React.FC<{ cell: OutreachCell; onRetry?: () => void }> = ({ cell, o
   }
 };
 
-/** Header cells stay at the top while the rows scroll under them; the line under them is a shadow so it sticks too. */
-const head = 'sticky top-0 bg-[#121212] shadow-[inset_0_-1px_0_#333333]';
 const thBase = 'font-medium px-3 py-2 whitespace-nowrap align-top overflow-hidden';
-const th = `${head} z-20 ${thBase}`;
+const th = thBase;
+/** The checkbox and name headers stay put as the rest of the header slides with the rows. */
+const head = 'sticky bg-[#121212]';
 const td = 'px-3 py-2 whitespace-nowrap align-top overflow-hidden text-ellipsis';
 /**
  * Each column's width, in rem, fixed so the table never shifts as answers
@@ -190,18 +190,29 @@ export const ContactsTable: React.FC<{
   const widthOf = (keys: ColumnKey[]) => WIDTH.select + WIDTH.name + keys.reduce((sum, k) => sum + WIDTH[k], 0);
   const [atEnd, setAtEnd] = useState(false);
   // No fade when every column fits, or once the last one is in view.
-  const scrolled = (el: HTMLDivElement) => setAtEnd(el.scrollWidth <= el.clientWidth || el.scrollLeft + el.clientWidth >= el.scrollWidth - 2);
+  // The header follows the rows sideways.
+  const headBox = useRef<HTMLDivElement>(null);
+  const scrolled = (el: HTMLDivElement) => {
+    setAtEnd(el.scrollWidth <= el.clientWidth || el.scrollLeft + el.clientWidth >= el.scrollWidth - 2);
+    if (headBox.current) headBox.current.scrollLeft = el.scrollLeft;
+  };
+  const tableStyle = { width: `${widthOf(shownKeys)}rem`, minWidth: '100%' };
+  const cols = (
+    <colgroup>
+      <col style={{ width: `${WIDTH.select}rem` }} />
+      <col style={{ width: `${WIDTH.name}rem` }} />
+      {shownKeys.map((k) => (
+        <col key={k} style={{ width: `${WIDTH[k]}rem` }} />
+      ))}
+    </colgroup>
+  );
+  // Up and down is the page's scroll and sideways is the table's, so a slanted swipe moves one way, not both.
+  // The header is its own strip: it sticks under the top bar as the page scrolls and is moved sideways with the rows.
   return (
-    <div className="relative" data-testid="contacts-table">
-      <div className="bg-[#121212] border border-[#333333] overflow-auto max-h-[calc(100dvh-8rem)]" onScroll={(e) => scrolled(e.currentTarget)} ref={(el) => el && scrolled(el)}>
-        <table className="text-sm table-fixed" style={{ width: `${widthOf(shownKeys)}rem`, minWidth: '100%' }} aria-label="Contacts">
-          <colgroup>
-            <col style={{ width: `${WIDTH.select}rem` }} />
-            <col style={{ width: `${WIDTH.name}rem` }} />
-            {shownKeys.map((k) => (
-              <col key={k} style={{ width: `${WIDTH[k]}rem` }} />
-            ))}
-          </colgroup>
+    <div className="relative bg-[#121212] border border-[#333333]" data-testid="contacts-table">
+      <div ref={headBox} className="sticky top-[69px] md:top-0 z-20 overflow-hidden bg-[#121212] border-b border-[#333333]">
+        <table className="text-sm table-fixed" style={tableStyle} aria-label="Contacts columns">
+          {cols}
           <thead>
             <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
               <th className={`${head} left-0 z-30 px-3 py-2 w-10 align-top`}>
@@ -240,6 +251,11 @@ export const ContactsTable: React.FC<{
               {show('signals') && <th className={th}>Signals</th>}
             </tr>
           </thead>
+        </table>
+      </div>
+      <div className="overflow-x-auto overscroll-x-contain" onScroll={(e) => scrolled(e.currentTarget)} ref={(el) => el && scrolled(el)}>
+        <table className="text-sm table-fixed" style={tableStyle} aria-label="Contacts">
+          {cols}
           <tbody className="divide-y divide-[#333333]">
             {rows.map((r) => {
               const phone = r.phones[0];
