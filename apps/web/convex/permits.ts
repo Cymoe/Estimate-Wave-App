@@ -84,9 +84,10 @@ export const upsert = internalMutation({
 export const backfillAddressKeys = internalMutation({
   args: {},
   handler: async (ctx): Promise<{ keyed: number; more: boolean }> => {
+    // By index, so a deploy that has nothing left to key reads nothing (a filter would scan the whole table every time).
     const rows = await ctx.db
       .query("permits")
-      .filter((q) => q.eq(q.field("addressKey"), undefined))
+      .withIndex("by_county_and_address_key", (q) => q.eq("county", MIDLAND.county).eq("addressKey", undefined))
       .take(500);
     let keyed = 0;
     for (const p of rows) {

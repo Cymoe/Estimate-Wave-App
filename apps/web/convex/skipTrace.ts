@@ -9,7 +9,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import { outreachField } from "./schema";
-import { KEY_FOR, applyEmailCheck, checkEmails, checkPhonesWith, dedupeEmails, expectedNames, lineOwner, phoneCheckers, phoneScrub, rankPhones, scrubPhones, vendors, verifier, waterfall, type EmailCheck, type Field, type Found, type Vendor } from "./lib/skipTrace";
+import { KEY_FOR, applyEmailCheck, checkEmails, checkPhonesWith, dedupeEmails, expectedNames, lineOwner, phoneCheckers, phoneScrub, rankPhones, scrubPhones, vendors, verifier, waterfall, type EmailCheck, type Field, type Found, type Try, type Vendor } from "./lib/skipTrace";
 import { researchOwner } from "./lib/research";
 
 type TraceArgs = { contactId: import("./_generated/dataModel").Id<"outreachContacts">; fields: Field[] };
@@ -33,15 +33,17 @@ export const trace = internalAction({
 async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
   const input = await ctx.runQuery(internal.outreach.contactForTrace, { contactId });
   if (!input) return;
-  // Our own records come first and cost nothing: the home the company's mail goes to, and the permits it pulled.
+  const wanted = fields.filter((f): f is Field => input.fields.includes(f));
+  // Our own records come first and cost nothing: the home the company's mail goes to, and the permits it pulled. Only read when a field they can answer is wanted.
   const own: Vendor[] = [];
-  if (input.company) {
+  if (input.company && wanted.some((f) => f !== "research")) {
     const home = await ctx.runQuery(internal.outreach.homeAt, { address: input.mailing.address, city: input.mailing.city, zip: input.mailing.zip });
     own.push({
       name: "roll",
       fields: ["person"],
       connected: true,
       free: true,
+      authority: 1,
       applies: () => ("why" in home ? home.why : undefined),
       trace: async () => ("person" in home ? { person: home.person } : {}),
     });
@@ -52,19 +54,28 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
       fields: ["person", "phone", "email"],
       connected: true,
       free: true,
+      authority: 2,
       applies: () => (permits.permits === 0 ? "No permits at the property" : permits.matched === 0 ? "No permit names the company" : undefined),
       trace: async () => has,
     });
   }
   const external = vendors(process.env);
   const stack = [...own, ...external];
-  const wanted = fields.filter((f): f is Field => input.fields.includes(f));
   // Our own records always get their turn; "not connected" is about the outside sources.
   const none = (field: Field) => !external.some((s) => s.connected && s.fields.includes(field));
   const outcomes = await waterfall(input, stack, wanted.filter((f) => f !== "research"));
-  // The phone step runs before the email step: the contact check's word on the first email rides on the first phone call.
+  // Deliverability first, so the one name check rides on a live address, not one about to be dropped.
+  const emailOutcome = outcomes.find((x) => x.field === "email");
+  let emailsKept = wanted.includes("email") ? dedupeEmails(emailOutcome?.found.emails ?? []) : [];
+  let deliverability: Try | undefined;
+  if (emailsKept.length > 0) {
+    const checked = await checkEmails(emailsKept, verifier(process.env));
+    emailsKept = checked.emails;
+    deliverability = checked.try;
+  }
+  // The phone step runs before the email step: the contact check's word on the first live email rides on the first phone call.
   const checkers = phoneCheckers(process.env);
-  const firstEmail = wanted.includes("email") ? dedupeEmails(outcomes.find((x) => x.field === "email")?.found.emails ?? [])[0]?.email : undefined;
+  const firstEmail = emailsKept[0]?.email;
   let emailCheck: (EmailCheck & { source: string }) | undefined;
   let phonesChecked = false;
   const order: Field[] = ["person", "phone", "email"];
@@ -80,7 +91,7 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
       });
       continue;
     }
-    let emails = field === "email" ? dedupeEmails(o.found.emails ?? []) : undefined;
+    let emails = field === "email" ? emailsKept : undefined;
     let phones = field === "phone" ? rankPhones(o.found.phones ?? []) : undefined;
     const tries = [...o.tries];
     if (field === "phone" && phones && phones.length > 0) {
@@ -100,23 +111,21 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
         if (t.outcome === "hit" || t.outcome === "miss") await ctx.runMutation(internal.outreach.recordCheck, { contactId, source: t.source, field: "phone", hit: t.outcome === "hit" });
       }
     }
-    if (field === "email" && emails && emails.length > 0) {
+    if (field === "email" && deliverability) {
+      // Deliverability (already run, above): dead addresses were dropped before anyone mails them; the checker's turn joins the ledger.
+      tries.push(deliverability);
+      if (deliverability.outcome === "hit" || deliverability.outcome === "miss") {
+        await ctx.runMutation(internal.outreach.recordCheck, { contactId, source: deliverability.source, field: "email", hit: deliverability.outcome === "hit" });
+      }
       // Whose it is, from the contact check that rode on the phone call; or why it couldn't say.
       const trestle = checkers.find((c) => c.name === "trestle");
-      if (emailCheck && firstEmail) {
+      if (emailCheck && firstEmail && emails) {
         const named = applyEmailCheck(emails, firstEmail, emailCheck);
         emails = named.emails;
         tries.push(named.try);
         await ctx.runMutation(internal.outreach.recordCheck, { contactId, source: named.try.source, field: "email", hit: named.try.outcome === "hit" });
-      } else if (trestle) {
+      } else if (trestle && emails && emails.length > 0) {
         tries.push({ source: trestle.name, outcome: "skipped", note: !trestle.connected ? "Not connected" : phonesChecked ? "Nothing said about the email" : "Needs a live phone to check alongside" });
-      }
-      // Deliverability: dead addresses are dropped before anyone mails them; the checker's turn joins the ledger.
-      const checked = await checkEmails(emails, verifier(process.env));
-      emails = checked.emails;
-      tries.push(checked.try);
-      if (checked.try.outcome === "hit" || checked.try.outcome === "miss") {
-        await ctx.runMutation(internal.outreach.recordCheck, { contactId, source: checked.try.source, field: "email", hit: checked.try.outcome === "hit" });
       }
     }
     await ctx.runMutation(internal.outreach.recordEnrichment, {

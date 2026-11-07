@@ -513,9 +513,9 @@ describe("a company's lists", () => {
       { source: "enformion", outcome: "skipped", note: "Not connected" },
       { source: "hunter", outcome: "skipped", note: "Not connected" },
       { source: "leadmagic", outcome: "skipped", note: "Not connected" },
+      { source: "zerobounce", outcome: "skipped", note: "Not connected" },
       // The contact check's word on the email, from the call made for her mobile.
       { source: "trestle", outcome: "hit", note: "In the owner's name · grade B" },
-      { source: "zerobounce", outcome: "skipped", note: "Not connected" },
     ]);
     // Ranked: the name match first at 100, then the vendor's score, then mobile before VoIP before landline; the DNC landline is kept but flagged. Each carries the checker's grade.
     expect(oakNow.phones).toEqual([
@@ -672,8 +672,8 @@ describe("a company's lists", () => {
       { source: "enformion", outcome: "skipped", note: "Not connected" },
       { source: "hunter", outcome: "skipped", note: "Not connected" },
       { source: "leadmagic", outcome: "skipped", note: "Not connected" },
-      { source: "trestle", outcome: "skipped", note: "Not connected" },
       { source: "zerobounce", outcome: "hit", note: "1 of 1 deliverable" },
+      { source: "trestle", outcome: "skipped", note: "Not connected" },
     ]);
     expect(calls.filter((c) => c.url.startsWith("https://api.zerobounce.net/v2/validate?api_key=zb-key&email=robert%40vance.example"))).toHaveLength(1);
     // Asked by name (the roll's "VANCE ROBERT & LINDA"), at the sandbox, after BatchData came back empty.
@@ -1202,6 +1202,40 @@ describe("the wider stack", () => {
     }, 50, wait);
     expect((await flaky("https://x.example")).status).toBe(200);
     expect([calls, waits]).toEqual([2, [1000]]);
+    // A POST is a paid trace the vendor may already have run: never sent twice after a server error or a dropped connection, only after a rate limit.
+    calls = 0;
+    waits.length = 0;
+    const paidDown = guarded(async () => (calls++, json({}, 503)), 50, wait);
+    expect((await paidDown("https://x.example", { method: "POST", body: "{}" })).status).toBe(503);
+    expect([calls, waits]).toEqual([1, []]);
+    calls = 0;
+    const paidDropped = guarded(async () => {
+      calls++;
+      throw new TypeError("fetch failed");
+    }, 50, wait);
+    await expect(paidDropped("https://x.example", { method: "POST", body: "{}" })).rejects.toThrow("fetch failed");
+    expect([calls, waits]).toEqual([1, []]);
+    calls = 0;
+    const paidLimited = guarded(async () => (++calls === 1 ? json({}, 429) : json({ ok: true })), 50, wait);
+    expect((await paidLimited("https://x.example", { method: "POST", body: "{}" })).status).toBe(200);
+    expect([calls, waits]).toEqual([2, [1000]]);
+    // Headers arrive and the body stalls: the same clock covers both, so the call still ends with no answer.
+    waits.length = 0;
+    const stalled = guarded(
+      (async (_url: RequestInfo | URL, init?: RequestInit) =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              init!.signal!.addEventListener("abort", () => controller.error(new Error("aborted")));
+            },
+          }),
+          { status: 200 },
+        )) as typeof fetch,
+      50,
+      wait,
+    );
+    await expect(stalled("https://slow.example")).rejects.toThrow(/No answer after \d+ seconds/);
+    expect(waits).toEqual([]);
     // A refused key isn't retried: it won't change in a second.
     calls = 0;
     waits.length = 0;
@@ -1340,6 +1374,22 @@ describe("the wider stack", () => {
     ]);
     // A refused key reads as one that needs attention.
     await expect(trestleRealContact("bad", async () => json({ errorCode: "AUTHENTICATION_FAILED" }, 403)).check("4325550142", who)).rejects.toThrow("Trestle: HTTP 403");
+    // Nothing said about a number: it is left as it was, neither live nor dropped, and the ledger counts it unchecked.
+    const quiet = trestleRealContact("tr-key", async (url) => (new URL(String(url)).searchParams.get("phone") === "4325550000" ? json({ phone: null, add_ons: null }) : json({ phone: { contact_grade: "B", is_valid: true, line_type: "Mobile", name_match: false } })));
+    const partly = await checkPhones(phones, quiet, ["REYES"], who);
+    expect(partly.phones).toEqual([
+      { number: "4325550142", type: "mobile", verified: true, score: 80, grade: "B", source: "batchdata" },
+      { number: "4325550199", type: "mobile", verified: true, score: 80, grade: "B", source: "batchdata" },
+      { number: "4325550000", type: "mobile", source: "batchdata" },
+    ]);
+    expect(partly.try).toEqual({ source: "trestle", outcome: "hit", note: "2 of 2 live · 1 unchecked" });
+    // Nothing on any of them: an error, so the carrier gets its turn.
+    const mute = trestleRealContact("tr-key", async () => json({ phone: null }));
+    const handed = await checkPhonesWith(phones, [mute, twilio], ["REYES"], who);
+    expect(handed.tries.map((t) => [t.source, t.outcome, t.note])).toEqual([
+      ["trestle", "error", "Nothing on any of the numbers"],
+      ["twilio", "hit", "3 of 3 live · 3 in the owner's name"],
+    ]);
     // An email sent along rides on the first call only, and comes back with whose it is; it's kept either way, with the ledger saying.
     const emailed: Array<string | null> = [];
     const withEmail = trestleRealContact("tr-key", async (url) => {
@@ -1428,14 +1478,15 @@ describe("the wider stack", () => {
     expect(samePerson({ name: "Dana Reyes" }, { name: "Sam Reyes" })).toBe(false);
     expect(samePerson({ name: "Dana Reyes" }, { name: "Dana" })).toBe(false);
     const asked: string[] = [];
-    const source = (name: string, person: string | undefined, free?: boolean) => ({
+    const source = (name: string, person: string | undefined, free?: boolean, authority?: number) => ({
       name,
       fields: ["person" as const],
       connected: true,
       free,
+      authority,
       trace: async () => (asked.push(name), person ? { person: { name: person, source: name } } : {}),
     });
-    const [agree] = await waterfall(company, [source("roll", "Dana Reyes", true), source("tx-comptroller", "REYES DANA", true), source("other-free", "Bob Smith", true), source("cobalt", "Dana Reyes")], ["person"]);
+    const [agree] = await waterfall(company, [source("roll", "Dana Reyes", true, 1), source("tx-comptroller", "REYES DANA", true, 3), source("other-free", "Bob Smith", true), source("cobalt", "Dana Reyes")], ["person"]);
     expect(agree.source).toBe("roll");
     expect(agree.found.person).toEqual({ name: "Dana Reyes", source: "roll", confirmedBy: ["tx-comptroller"] });
     expect(agree.tries).toEqual([
@@ -1445,6 +1496,15 @@ describe("the wider stack", () => {
       { source: "cobalt", outcome: "skipped", note: "Not needed, already found" },
     ]);
     expect(asked).toEqual(["roll", "tx-comptroller", "other-free"]);
+    // The roll's guess (the LLC's mail goes to the accountant's house) loses to the state's filed record naming the manager; a weaker source disagreeing changes nothing.
+    const [outranked] = await waterfall(company, [source("roll", "Pat Accountant", true, 1), source("tx-comptroller", "Dana Reyes", true, 3), source("permits", "Sam Other", true, 2)], ["person"]);
+    expect(outranked.source).toBe("tx-comptroller");
+    expect(outranked.found.person).toEqual({ name: "Dana Reyes", source: "tx-comptroller" });
+    expect(outranked.tries).toEqual([
+      { source: "roll", outcome: "hit", note: "Pat Accountant" },
+      { source: "tx-comptroller", outcome: "hit", note: "Names Dana Reyes instead, and outranks the earlier source" },
+      { source: "permits", outcome: "hit", note: "Names Sam Other instead" },
+    ]);
     // A free source with nothing: a miss in the ledger, no confirmation.
     const [alone] = await waterfall(company, [source("roll", "Dana Reyes", true), source("tx-comptroller", undefined, true)], ["person"]);
     expect(alone.found.person!.confirmedBy).toBeUndefined();

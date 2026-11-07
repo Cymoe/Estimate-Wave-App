@@ -58,6 +58,8 @@ export type Vendor = {
   connected: boolean;
   /** Costs nothing per call: still asked for the person after a hit, so two sources naming the same one can be shown. */
   free?: boolean;
+  /** How much a free source's word on the person counts: a filed record (3) outranks a permit's applicant (2), which outranks a guess from the roll (1). A higher one that disagrees takes over. */
+  authority?: number;
   /** Why this owner can't be asked about here (a reason for the ledger), or nothing when it can. */
   applies?: (input: TraceInput) => string | undefined;
   trace: (input: TraceInput) => Promise<Found>;
@@ -73,26 +75,47 @@ const RETRY_WAIT_AT_MOST_MS = 5_000;
 /** Answers worth one more try: rate limits and the server's own trouble. */
 const RETRY_STATUS = new Set([429, 500, 502, 503, 504]);
 
+/** A call that ran out of time, headers or body. */
+export class TimeoutError extends Error {
+  constructor(ms: number) {
+    super(`No answer after ${Math.round(ms / 1000)} seconds`);
+    this.name = "TimeoutError";
+  }
+}
+
 /**
- * A fetch that gives up on a call after CALL_TIMEOUT_MS and tries once more
- * after a rate limit, a server error or a dropped connection, waiting as
- * long as the source asks (capped). A hung vendor becomes an ordinary error
- * instead of holding the whole lookup; a bad minute at a vendor costs one
- * short wait instead of a miss.
+ * A fetch with one clock over the whole answer: the headers and the body
+ * both have to arrive within `timeoutMs`, or the call fails with a
+ * TimeoutError. The body is read here, so a vendor that sends headers and
+ * then stalls can't hold the caller's `.json()` open.
  */
-export function guarded(fetchFn: Fetch = fetch, timeoutMs = CALL_TIMEOUT_MS, wait: (ms: number) => Promise<void> = pause): Fetch {
-  const once = async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+export function timedFetch(fetchFn: Fetch = fetch, timeoutMs = CALL_TIMEOUT_MS): Fetch {
+  return async (url, init) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      return await fetchFn(url, { ...init, signal: controller.signal });
+      const response = await fetchFn(url, { ...init, signal: controller.signal });
+      const text = await response.text();
+      return new Response(text, { status: response.status, statusText: response.statusText, headers: response.headers });
     } catch (e) {
-      if (controller.signal.aborted) throw new Error(`No answer after ${Math.round(timeoutMs / 1000)} seconds`);
+      if (controller.signal.aborted) throw new TimeoutError(timeoutMs);
       throw e;
     } finally {
       clearTimeout(timer);
     }
   };
+}
+
+/**
+ * A fetch that gives up on a call after CALL_TIMEOUT_MS and tries once more
+ * after a rate limit, waiting as long as the source asks (capped). A read
+ * (GET) is also tried again after a server error or a dropped connection;
+ * a POST is not, because a paid trace the vendor already ran and billed
+ * would be run and billed twice. A hung vendor becomes an ordinary error
+ * instead of holding the whole lookup.
+ */
+export function guarded(fetchFn: Fetch = fetch, timeoutMs = CALL_TIMEOUT_MS, wait: (ms: number) => Promise<void> = pause): Fetch {
+  const once = timedFetch(fetchFn, timeoutMs);
   const retryAfter = async (response: Response): Promise<number> => {
     const header = Number(response.headers.get("retry-after"));
     let seconds = Number.isFinite(header) && header > 0 ? header : undefined;
@@ -107,13 +130,16 @@ export function guarded(fetchFn: Fetch = fetch, timeoutMs = CALL_TIMEOUT_MS, wai
     return Math.min(RETRY_WAIT_AT_MOST_MS, (seconds ?? 1) * 1000);
   };
   return async (url, init) => {
+    // Only a read is safe to repeat after the vendor may have done the work.
+    const read = !init?.method || /^(GET|HEAD)$/i.test(init.method);
     try {
       const response = await once(url, init);
-      if (!RETRY_STATUS.has(response.status)) return response;
-      await wait(await retryAfter(response));
+      if (response.status === 429 || (read && RETRY_STATUS.has(response.status))) {
+        await wait(await retryAfter(response));
+      } else return response;
     } catch (e) {
       // A timeout isn't retried: a vendor that hung once would hold the lookup twice as long.
-      if (e instanceof Error && e.message.startsWith("No answer after")) throw e;
+      if (e instanceof TimeoutError || !read) throw e;
       await wait(1000);
     }
     return once(url, init);
@@ -319,6 +345,7 @@ export function comptrollerTexas(key: string | undefined, fetchFn: Fetch = fetch
     fields: ["person"],
     connected: Boolean(key),
     free: true,
+    authority: 3,
     trace: async (input) => {
       if (!input.company) return {};
       const name = input.company.toUpperCase().replace(/[<>]/g, "").replace(/\s*&\s*$/, "").trim().slice(0, 50);
@@ -654,7 +681,19 @@ export async function checkEmails(emails: Email[], checker: Verifier): Promise<{
 // ---- Phone line check ----
 
 /** What the checker says about one number: live or not, its type, the name on it (or whether ours matches), and how reachable. */
-export type LineCheck = { valid: boolean; type?: PhoneType; name?: string; business?: boolean; nameMatch?: boolean; grade?: string; activity?: number; litigator?: boolean; email?: EmailCheck };
+export type LineCheck = {
+  valid: boolean;
+  /** The checker had nothing on this number: it is left as it was, neither live nor dropped. */
+  unknown?: boolean;
+  type?: PhoneType;
+  name?: string;
+  business?: boolean;
+  nameMatch?: boolean;
+  grade?: string;
+  activity?: number;
+  litigator?: boolean;
+  email?: EmailCheck;
+};
 /** What the contact check says about an email sent along with the phone: whose it is, and how reachable. */
 export type EmailCheck = { valid?: boolean; nameMatch?: boolean; grade?: string };
 /** Whose number it should be: the person when known, else the owner; the company for the business line. */
@@ -695,14 +734,17 @@ export function trestleRealContact(key: string | undefined, fetchFn: Fetch = fet
       const kind = (body.phone?.line_type ?? "").toLowerCase();
       const type: PhoneType | undefined = kind === "mobile" ? "mobile" : kind === "landline" ? "landline" : /voip/.test(kind) ? "voip" : undefined;
       const bool = (x: unknown) => (typeof x === "boolean" ? x : undefined);
+      const emailCheck = email && body.email ? { valid: bool(body.email.is_valid), nameMatch: bool(body.email.name_match), grade: str(body.email.contact_grade ?? undefined)?.toUpperCase() } : undefined;
+      // Nothing said about the line: not a live one, not a dead one.
+      if (!body.phone || typeof body.phone.is_valid !== "boolean") return { valid: true, unknown: true, email: emailCheck };
       return {
-        valid: body.phone?.is_valid !== false,
+        valid: body.phone.is_valid,
         type,
         nameMatch: bool(body.phone?.name_match),
         grade: str(body.phone?.contact_grade ?? undefined)?.toUpperCase(),
         activity: num(body.phone?.activity_score),
         litigator: body.add_ons?.litigator_checks?.phone_is_litigator_risk === true ? true : undefined,
-        email: email && body.email ? { valid: bool(body.email.is_valid), nameMatch: bool(body.email.name_match), grade: str(body.email.contact_grade ?? undefined)?.toUpperCase() } : undefined,
+        email: emailCheck,
       };
     },
   };
@@ -876,6 +918,7 @@ export async function checkPhones(phones: Phone[], checker: PhoneChecker, expect
   let named = 0;
   let checked = 0;
   let litigators = 0;
+  let unknown = 0;
   let emailCheck: EmailCheck | undefined;
   try {
     for (const p of phones) {
@@ -887,6 +930,11 @@ export async function checkPhones(phones: Phone[], checker: PhoneChecker, expect
       // The email rides on the first call only; one answer is all that's needed.
       const line = await checker.check(p.number, who, checked === 1 ? email : undefined);
       emailCheck ??= line.email;
+      if (line.unknown) {
+        unknown++;
+        kept.push(p);
+        continue;
+      }
       if (!line.valid) continue;
       live++;
       const matches = line.nameMatch ?? (line.name ? expected.some((n) => line.name!.toUpperCase().includes(n)) : false);
@@ -898,7 +946,16 @@ export async function checkPhones(phones: Phone[], checker: PhoneChecker, expect
   } catch (e) {
     return { phones, try: { source: checker.name, outcome: "error", note: e instanceof Error ? e.message : String(e) } };
   }
-  const note = [`${live} of ${checked} live`, named ? `${named} in the owner's name` : "", checked - live ? `${checked - live} dropped` : "", litigators ? `${litigators} known ${litigators === 1 ? "litigator" : "litigators"}` : ""]
+  // Nothing said about any number: an error, so the next checker gets its turn.
+  if (unknown === checked) return { phones, try: { source: checker.name, outcome: "error", note: `Nothing on ${checked === 1 ? "the number" : "any of the numbers"}` }, email: emailCheck };
+  const known = checked - unknown;
+  const note = [
+    `${live} of ${known} live`,
+    named ? `${named} in the owner's name` : "",
+    known - live ? `${known - live} dropped` : "",
+    litigators ? `${litigators} known ${litigators === 1 ? "litigator" : "litigators"}` : "",
+    unknown ? `${unknown} unchecked` : "",
+  ]
     .filter(Boolean)
     .join(" · ");
   return { phones: rankPhones(kept), try: { source: checker.name, outcome: live > 0 ? "hit" : "miss", note }, email: emailCheck };
@@ -1000,6 +1057,7 @@ export async function waterfall(input: TraceInput, vendors: Vendor[], fields: Fi
     const errors: string[] = [];
     const tries: Try[] = [];
     let result: Outcome | undefined;
+    let authority = 0;
     for (const vendor of vendors) {
       if (!vendor.fields.includes(field)) continue;
       if (!vendor.connected) {
@@ -1025,9 +1083,15 @@ export async function waterfall(input: TraceInput, vendors: Vendor[], fields: Fi
           else if (samePerson(first, found.person)) {
             result!.found = { ...result!.found, person: { ...first, confirmedBy: [...(first.confirmedBy ?? []), vendor.name] } };
             tries.push({ source: vendor.name, outcome: "hit", note: `Also names ${first.name}` });
+          } else if ((vendor.authority ?? 0) > authority) {
+            // A filed record outranks a guess: the stronger source's person takes over.
+            result = { field, found, source: vendor.name, errors, tries };
+            authority = vendor.authority ?? 0;
+            tries.push({ source: vendor.name, outcome: "hit", note: `Names ${found.person.name} instead, and outranks the earlier source` });
           } else tries.push({ source: vendor.name, outcome: "hit", note: `Names ${found.person.name} instead` });
         } else if (has(field, found)) {
           result = { field, found, source: vendor.name, errors, tries };
+          authority = vendor.authority ?? 0;
           tries.push({ source: vendor.name, outcome: "hit", note: hitNote(field, found) });
         } else {
           tries.push({ source: vendor.name, outcome: "miss", note: "No match" });
