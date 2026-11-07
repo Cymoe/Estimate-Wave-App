@@ -7,4 +7,20 @@ export const phoneText = (n: string) => (n.length === 10 ? `(${n.slice(0, 3)}) $
 
 /** "batchdata" → "BatchData", "tx-comptroller" → "Texas Comptroller". */
 export const sourceName = (s: string) =>
-  ({ batchdata: 'BatchData', tracerfy: 'Tracerfy', enformion: 'EnformionGO', hunter: 'Hunter', 'tx-comptroller': 'Texas Comptroller', cobalt: 'State registry (Cobalt)', zerobounce: 'ZeroBounce', claude: 'the web' })[s] ?? s;
+  ({
+    roll: 'the appraisal roll',
+    permits: 'city permits',
+    batchdata: 'BatchData',
+    tracerfy: 'Tracerfy',
+    enformion: 'EnformionGO',
+    hunter: 'Hunter',
+    'tx-comptroller': 'Texas Comptroller',
+    cobalt: 'State registry (Cobalt)',
+    zerobounce: 'ZeroBounce',
+    twilio: 'the carrier (Twilio)',
+    claude: 'the web',
+  })[s] ?? s;
+
+/** The Midland County Clerk's deed records for an owner, where the deed of trust names who signed for the company. */
+export const deedSearchUrl = (owner: string) =>
+  `https://midland.tx.publicsearch.us/results?department=RP&limit=50&offset=0&searchOcrText=false&searchType=quickSearch&searchValue=${encodeURIComponent(owner)}`;

@@ -485,6 +485,8 @@ export const outreachPhone = v.object({
   verified: v.optional(v.boolean()),
   score: v.optional(v.number()),
   source: v.string(),
+  /** The name the carrier has on the line, from the line check. */
+  name: v.optional(v.string()),
 });
 export const outreachEmail = v.object({ email: v.string(), source: v.string(), verified: v.optional(v.boolean()) });
 /** The person behind a company owner: an officer or manager from the state's records. */
@@ -798,6 +800,8 @@ export default defineSchema({
     detail: v.optional(v.string()),
     status: v.optional(v.string()),
     address: v.optional(v.string()),
+    // lib/parcels.ts addressKey of `address`, so an owner's property finds its permits. Optional until the backfill has run.
+    addressKey: v.optional(v.string()),
     county: v.string(),
     city: v.string(),
     appliedAt: v.string(),
@@ -834,6 +838,7 @@ export default defineSchema({
   })
     .index("by_permit_number", ["permitNumber"])
     .index("by_county_and_applied", ["county", "appliedAt"])
+    .index("by_county_and_address_key", ["county", "addressKey"])
     .index("by_source_and_details", ["source", "detailsAt"]),
 
   // Who owns each Midland home: the appraisal roll from the city's public

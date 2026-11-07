@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Circle, Lock, Mail, MapPin, MessageSquare, MinusCircle, Phone, Search, User } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Circle, FileText, Lock, Mail, MapPin, MessageSquare, MinusCircle, Phone, Search, User } from 'lucide-react';
 import { AddressLink } from '../common/AddressLink';
 import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { fullAddress } from '../../lib/mapsLinks';
 import type { OutreachCell, OutreachContact, OutreachContacts, OutreachCoverage, OutreachField, OutreachPhone, OutreachRowStatus, OutreachSignal, OutreachTry, OutreachWho } from '../../lib/api';
 import { shortMoney, WHO_LABEL } from '../../../convex/lib/outreach';
-import { phoneText, sourceName } from './format';
+import { deedSearchUrl, phoneText, sourceName } from './format';
 import type { ColumnKey } from './columns';
 
 const STATUS_LABEL: Record<OutreachRowStatus, string> = { new: 'New', sent: 'Sent', done: 'Done', skip: 'Skipped' };
@@ -438,6 +438,7 @@ export const ContactSheet: React.FC<{
                       </a>
                     )}
                     <PhoneBadges p={p} />
+                    {p.name && <span className="text-xs text-gray-500">line in the name of {p.name}</span>}
                     {p.dnc && <span className="text-xs text-red-400">on the Do Not Call list</span>}
                   </li>
                 ))}
@@ -578,6 +579,9 @@ export const ContactSheet: React.FC<{
               {row.property.valueCents ? `Worth ${shortMoney(row.property.valueCents)}` : ''}
               {row.properties > 1 ? `${row.property.valueCents ? ' · ' : ''}${row.properties} properties, ${shortMoney(row.totalValueCents)} in all` : ''}
             </div>
+            <a href={deedSearchUrl(row.name)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm text-[#7fb0e0] hover:text-white min-h-[44px]" data-testid="deeds">
+              <FileText className="w-4 h-4 shrink-0" /> Deeds at the county clerk
+            </a>
           </div>
         </div>
         <div className="space-y-2">

@@ -17,7 +17,7 @@ import { nowIso, requireMember, requireStaff, requireUser } from "./lib/access";
 import { planSummary } from "./marketplace";
 import { FIELDS_VERSION, MIDLAND, PERMIT_FIELDS, monthOf, rowsToPermits } from "./lib/permits";
 import { MIDLAND_ENERGOV, detailsFrom, permitGuid } from "./lib/energov";
-import { MIDLAND_PARCELS } from "./lib/parcels";
+import { MIDLAND_PARCELS, addressKey } from "./lib/parcels";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** How far back the first sync reaches. */
@@ -57,21 +57,45 @@ export const upsert = internalMutation({
         .query("permits")
         .withIndex("by_permit_number", (q) => q.eq("permitNumber", row.permitNumber))
         .unique();
+      const keyed = { ...row, addressKey: row.address ? addressKey(row.address) : undefined };
       if (!existing) {
         await ctx.db.insert("permits", {
           source,
           county: MIDLAND.county,
           city: MIDLAND.city,
-          ...row,
+          ...keyed,
           importedAt: now,
         });
         added++;
-      } else if (!sameRow(existing, row)) {
-        await ctx.db.patch(existing._id, { ...row, importedAt: now });
+      } else if (!sameRow(existing, row) || (row.address && !existing.addressKey)) {
+        await ctx.db.patch(existing._id, { ...keyed, importedAt: now });
         updated++;
       }
     }
     return { added, updated };
+  },
+});
+
+/**
+ * One-off: permits imported before addressKey existed get theirs, 500 at a
+ * time, so an owner's property can find its permits. The deploy runs it:
+ * `npx convex run permits:backfillAddressKeys`.
+ */
+export const backfillAddressKeys = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<{ keyed: number; more: boolean }> => {
+    const rows = await ctx.db
+      .query("permits")
+      .filter((q) => q.eq(q.field("addressKey"), undefined))
+      .take(500);
+    let keyed = 0;
+    for (const p of rows) {
+      await ctx.db.patch(p._id, { addressKey: addressKey(p.address ?? "") });
+      keyed++;
+    }
+    const more = rows.length === 500;
+    if (more) await ctx.scheduler.runAfter(0, internal.permits.backfillAddressKeys, {});
+    return { keyed, more };
   },
 });
 

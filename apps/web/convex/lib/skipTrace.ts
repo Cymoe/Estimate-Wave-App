@@ -6,7 +6,7 @@
 
 export type Field = "phone" | "email" | "person" | "research";
 export type PhoneType = "mobile" | "landline" | "voip" | "unknown";
-export type Phone = { number: string; type: PhoneType; dnc?: boolean; verified?: boolean; score?: number; source: string };
+export type Phone = { number: string; type: PhoneType; dnc?: boolean; verified?: boolean; score?: number; source: string; name?: string };
 export type Email = { email: string; source: string; verified?: boolean };
 export type Person = { name: string; title?: string; address?: string; source: string };
 
@@ -522,6 +522,101 @@ export async function checkEmails(emails: Email[], checker: Verifier): Promise<{
   }
   const note = [`${valid} of ${checked} deliverable`, dropped ? `${dropped} dropped` : ""].filter(Boolean).join(" · ");
   return { emails: kept, try: { source: checker.name, outcome: valid > 0 ? "hit" : "miss", note } };
+}
+
+// ---- Phone line check ----
+
+/** What the carrier says about one number. */
+export type LineCheck = { valid: boolean; type?: PhoneType; name?: string; business?: boolean };
+export type PhoneChecker = {
+  name: string;
+  /** True when the deployment holds its keys. */
+  connected: boolean;
+  check: (number: string) => Promise<LineCheck>;
+};
+
+/**
+ * Twilio Lookup: GET /v2/PhoneNumbers/+1<number>?Fields=line_type_intelligence,caller_name
+ * with the account's basic auth. The carrier's line type (mobile, landline,
+ * VoIP) and, for US numbers, the name on the account. A number Twilio
+ * doesn't know is a 404: not a live line.
+ */
+export function twilioLookup(sid: string | undefined, token: string | undefined, fetchFn: Fetch = fetch, base = "https://lookups.twilio.com/v2"): PhoneChecker {
+  const auth = typeof btoa === "function" ? btoa(`${sid ?? ""}:${token ?? ""}`) : Buffer.from(`${sid ?? ""}:${token ?? ""}`).toString("base64");
+  return {
+    name: "twilio",
+    connected: Boolean(sid && token),
+    check: async (number) => {
+      const response = await fetchFn(`${base}/PhoneNumbers/${encodeURIComponent(`+1${number}`)}?Fields=line_type_intelligence,caller_name`, {
+        headers: { Accept: "application/json", Authorization: `Basic ${auth}` },
+      });
+      if (response.status === 404) return { valid: false };
+      if (!response.ok) throw new Error(`Twilio: HTTP ${response.status}`);
+      const body = (await response.json()) as {
+        valid?: boolean;
+        line_type_intelligence?: { type?: string | null } | null;
+        caller_name?: { caller_name?: string | null; caller_type?: string | null } | null;
+      };
+      const kind = (body.line_type_intelligence?.type ?? "").toLowerCase();
+      const type: PhoneType | undefined = kind === "mobile" ? "mobile" : kind === "landline" ? "landline" : /voip/.test(kind) ? "voip" : undefined;
+      const name = str(body.caller_name?.caller_name ?? undefined);
+      return { valid: body.valid !== false, type, name, business: body.caller_name?.caller_type === "BUSINESS" };
+    },
+  };
+}
+
+export function phoneChecker(env: Record<string, string | undefined>): PhoneChecker {
+  return twilioLookup(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
+}
+
+/** The surnames and company words a line's registered name can be matched against. */
+export function expectedNames(input: Pick<TraceInput, "name" | "company" | "person">): string[] {
+  const out = new Set<string>();
+  if (input.person) {
+    const who = splitName(input.person.name, "person");
+    if (who.last) out.add(who.last.toUpperCase());
+  }
+  if (!input.company) {
+    const who = splitName(input.name);
+    if (who.last) out.add(who.last.toUpperCase());
+  } else {
+    for (const w of input.company.toUpperCase().split(/[^A-Z0-9]+/)) if (w.length >= 4 && !ENTITY.test(w)) out.add(w);
+  }
+  return [...out];
+}
+
+/**
+ * Runs the found numbers (up to three) past the carrier: a dead line is
+ * dropped, a live one is marked verified with the carrier's line type and
+ * the name on the account; a name that matches the owner's is the nail in
+ * the coffin, and the ledger says how many did.
+ */
+export async function checkPhones(phones: Phone[], checker: PhoneChecker, expected: string[]): Promise<{ phones: Phone[]; try: Try }> {
+  if (phones.length === 0) return { phones, try: { source: checker.name, outcome: "skipped", note: "Nothing to check" } };
+  if (!checker.connected) return { phones, try: { source: checker.name, outcome: "skipped", note: "Not connected" } };
+  const kept: Phone[] = [];
+  let live = 0;
+  let named = 0;
+  let checked = 0;
+  try {
+    for (const p of phones) {
+      if (checked >= CHECK_AT_MOST) {
+        kept.push(p);
+        continue;
+      }
+      checked++;
+      const line = await checker.check(p.number);
+      if (!line.valid) continue;
+      live++;
+      const matches = line.name ? expected.some((n) => line.name!.toUpperCase().includes(n)) : false;
+      if (matches) named++;
+      kept.push({ ...p, type: line.type ?? p.type, verified: true, name: line.name ?? p.name, score: matches ? Math.max(p.score ?? 0, 100) : p.score });
+    }
+  } catch (e) {
+    return { phones, try: { source: checker.name, outcome: "error", note: e instanceof Error ? e.message : String(e) } };
+  }
+  const note = [`${live} of ${checked} live`, named ? `${named} in the owner's name` : "", checked - live ? `${checked - live} dropped` : ""].filter(Boolean).join(" · ");
+  return { phones: rankPhones(kept), try: { source: checker.name, outcome: live > 0 ? "hit" : "miss", note } };
 }
 
 /** The keys a field's sources need, for the "not connected" note. */

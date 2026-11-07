@@ -43,9 +43,9 @@ import {
   type Facet,
   type OwnerRow,
 } from "./lib/outreach";
-import { MIDLAND_PARCELS } from "./lib/parcels";
+import { MIDLAND_PARCELS, addressKey } from "./lib/parcels";
 import { planIsActive } from "./lib/plan";
-import { vendors, verifier } from "./lib/skipTrace";
+import { phoneChecker, splitName, vendors, verifier, type Found, type Person } from "./lib/skipTrace";
 import { dollars, postTransaction } from "./lib/wallet";
 
 const COUNTY = MIDLAND_PARCELS.county;
@@ -476,7 +476,12 @@ export const sources = query({
     await requireStaff(ctx);
     const stats = await ctx.db.query("dataSourceStats").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect();
     const checker = verifier(process.env);
-    return [...vendors(process.env), { name: checker.name, fields: ["email" as const], connected: checker.connected }].map((s) => ({
+    const lines = phoneChecker(process.env);
+    const own = [
+      { name: "roll", fields: ["person" as const], connected: true },
+      { name: "permits", fields: ["person" as const, "phone" as const, "email" as const], connected: true },
+    ];
+    return [...own, ...vendors(process.env), { name: lines.name, fields: ["phone" as const], connected: lines.connected }, { name: checker.name, fields: ["email" as const], connected: checker.connected }].map((s) => ({
       name: s.name,
       fields: s.fields,
       connected: s.connected,
@@ -650,6 +655,76 @@ export const contactForTrace = internalQuery({
   },
 });
 
+const ENTITY_WORDS = /\b(LLC|L L C|INC|LTD|LP|LLP|CORP|CORPORATION|COMPANY|CO|TRUST|HOLDINGS?|PROPERTIES|INVESTMENTS?|PARTNERS?|GROUP|ESTATE|CHURCH|CITY|COUNTY|BANK)\b/i;
+const PO_BOX = /\b(P\.?\s?O\.?\s?BOX|BOX)\b/i;
+const titleWords = (s: string) => s.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase());
+
+/**
+ * The person who owns the home a company's mail goes to, from the roll
+ * itself: when an LLC gets its tax bill at a Midland street address and
+ * that address is a home on the roll owned by a person, that person is
+ * almost always who runs the LLC. Free, and the first thing tried.
+ */
+export const homeAt = internalQuery({
+  args: { address: v.optional(v.string()), city: v.optional(v.string()), zip: v.optional(v.string()) },
+  handler: async (ctx, { address, city }): Promise<{ person: Person; home: string } | { why: string }> => {
+    if (!address || !/^\d/.test(address.trim()) || PO_BOX.test(address)) return { why: "The mail doesn't go to a street address" };
+    if (city && city.trim().toUpperCase() !== COUNTY.toUpperCase()) return { why: `The mail goes to ${titleWords(city.trim())}, off the roll` };
+    const key = addressKey(address);
+    const homes = (await ctx.db.query("parcels").withIndex("by_county_and_address_key", (q) => q.eq("county", COUNTY).eq("addressKey", key)).take(10)).filter(
+      (p) => !p.companyOwned && !ENTITY_WORDS.test(p.owner),
+    );
+    if (homes.length === 0) return { why: "No home owned by a person at the mailing address" };
+    const home = homes.find((p) => p.ownerOccupied) ?? homes[0];
+    const who = splitName(home.owner);
+    if (!who.first || !who.last) return { why: "No home owned by a person at the mailing address" };
+    return {
+      person: { name: titleWords(`${who.first} ${who.last}`), title: "Owns the home the mail goes to", address: `${titleWords(home.siteAddress)}, ${titleWords(COUNTY)}, TX`, source: "roll" },
+      home: home.siteAddress,
+    };
+  },
+});
+
+/** "OAK PLAZA LLC" and "Oak Plaza, L.L.C." are one company. */
+const companyKey = (name: string) =>
+  name
+    .toUpperCase()
+    .replace(/[^A-Z0-9 ]/g, " ")
+    .replace(/\b(LLC|L L C|INC|LTD|LP|LLP|CORP|CORPORATION|CO|COMPANY|THE)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/**
+ * What the city's permits at a company's property say about the company
+ * itself: the applicant or owner contact on a permit the company pulled
+ * names a person, often with a phone and email. Contractors on the same
+ * permit are other companies and are left out.
+ */
+export const permitContactsAt = internalQuery({
+  args: { address: v.string(), company: v.string() },
+  handler: async (ctx, { address, company }): Promise<{ found: Found; permits: number; matched: number }> => {
+    const permits = await ctx.db.query("permits").withIndex("by_county_and_address_key", (q) => q.eq("county", COUNTY).eq("addressKey", addressKey(address))).take(50);
+    const wanted = companyKey(company);
+    const found: Found = { phones: [], emails: [] };
+    let matched = 0;
+    for (const permit of permits) {
+      for (const c of permit.contacts ?? []) {
+        if (!wanted || companyKey(c.company) !== wanted) continue;
+        matched++;
+        if (c.person && !found.person) {
+          const who = splitName(c.person, "person");
+          if (who.first && who.last) found.person = { name: titleWords(`${who.first} ${who.last}`), title: c.role ? `${titleWords(c.role)} on permit ${permit.permitNumber}` : undefined, source: "permits" };
+        }
+        const digits = (c.phone ?? "").replace(/\D/g, "");
+        const number = digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+        if (number.length === 10) found.phones!.push({ number, type: "unknown", source: "permits" });
+        if (c.email && c.email.includes("@")) found.emails!.push({ email: c.email.trim().toLowerCase(), source: "permits" });
+      }
+    }
+    return { found, permits: permits.length, matched };
+  },
+});
+
 /** One field's answer from the stack: what was found and by whom (a phone is charged), nothing (free), or an error (free). */
 export const recordEnrichment = internalMutation({
   args: {
@@ -728,7 +803,19 @@ export const recordCheck = internalMutation({
 
 /** "batchdata" → "BatchData", "tx-comptroller" → "Texas Comptroller". */
 export const sourceLabel = (s: string) =>
-  ({ batchdata: "BatchData", tracerfy: "Tracerfy", enformion: "EnformionGO", hunter: "Hunter", "tx-comptroller": "Texas Comptroller", cobalt: "State registry (Cobalt)", zerobounce: "ZeroBounce", claude: "Claude, from the web" })[s] ?? s;
+  ({
+    roll: "Appraisal roll",
+    permits: "City permits",
+    batchdata: "BatchData",
+    tracerfy: "Tracerfy",
+    enformion: "EnformionGO",
+    hunter: "Hunter",
+    "tx-comptroller": "Texas Comptroller",
+    cobalt: "State registry (Cobalt)",
+    zerobounce: "ZeroBounce",
+    twilio: "Twilio line check",
+    claude: "Claude, from the web",
+  })[s] ?? s;
 
 /**
  * One-off: contacts unlocked before per-field cells existed get their

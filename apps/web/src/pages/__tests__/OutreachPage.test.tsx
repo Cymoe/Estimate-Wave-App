@@ -327,7 +327,9 @@ describe('the Outreach page', () => {
     expect(links).toEqual([
       'https://maps.apple.com/?q=1%20MAIN%20ST%2C%20DALLAS%2C%20TX%2075201',
       'https://maps.apple.com/?q=12%20Midkiff%20Rd%2C%20Midland%2C%20TX',
+      'https://midland.tx.publicsearch.us/results?department=RP&limit=50&offset=0&searchOcrText=false&searchType=quickSearch&searchValue=Oak%20Plaza%20LLC',
     ]);
+    expect(sheet.querySelector('[data-testid="deeds"]')!.textContent?.trim()).toBe('Deeds at the county clerk');
     // No balance: the unlock waits on funds; the free lookup of the person behind the company doesn't.
     const unlockButton = button('Unlock phone & email · $1');
     expect(unlockButton.disabled).toBe(true);
@@ -378,7 +380,7 @@ describe('the Outreach page', () => {
           },
           person: { name: 'Dana Reyes', title: 'Manager', address: '1 MAIN ST STE 400, DALLAS, TX, 75201', source: 'tx-comptroller' },
           phones: [
-            { number: '4325550100', type: 'mobile', verified: true, score: 95, source: 'batchdata' },
+            { number: '4325550100', type: 'mobile', verified: true, score: 95, source: 'batchdata', name: 'REYES DANA' },
             { number: '4325550199', type: 'landline', dnc: true, source: 'batchdata' },
           ],
           emails: [{ email: 'dana@oakplaza.com', source: 'batchdata', verified: true }],
@@ -415,6 +417,7 @@ describe('the Outreach page', () => {
     // The DNC landline is shown but never dialled from here; Call, Text and Email go to the best mobile and the email.
     expect(links).toEqual(['tel:4325550100', 'mailto:dana@oakplaza.com', 'tel:4325550100', 'sms:4325550100', 'mailto:dana@oakplaza.com']);
     expect(sheet.querySelector('[data-testid="reach"]')!.textContent?.replace(/\s+/g, '')).toBe('CallTextEmail');
+    expect(sheet.querySelector('[data-testid="contact-details"]')!.textContent).toContain('(432) 555-0100mobile · verifiedline in the name of REYES DANA');
     expect(sheet.querySelector('[data-testid="contact-details"]')!.textContent).toContain('(432) 555-0199landline · DNCon the Do Not Call list');
     expect(sheet.querySelector('[data-testid="contact-details"]')!.textContent).toContain('From BatchData Nov 5 · $1');
     // The ledger: every source's turn per step, and the owner's cost.

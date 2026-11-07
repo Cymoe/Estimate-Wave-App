@@ -136,6 +136,9 @@ jobs:
         run: npx convex run outreach:migrateRows
       - name: Give contacts unlocked before per-field cells their cells
         run: npx convex run outreach:migrateUnlocks
+      - name: Key permits by address for Outreach
+        # Permits imported before the key existed get theirs; finishes in the background. Safe to re-run.
+        run: npx convex run permits:backfillAddressKeys
 
       - name: Group the roll into owners for Outreach
         # One row per owner and per office that gets several owners' tax

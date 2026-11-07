@@ -6,7 +6,7 @@ import { actAs } from "./lib/actor";
 import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
 import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, groupOwners, guessDefinition, mailKey, ownerKey, shortMoney, type Condensed } from "./lib/outreach";
-import { checkEmails, cobaltSos, enformion, hunter, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
+import { checkEmails, checkPhones, cobaltSos, enformion, expectedNames, hunter, twilioLookup, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -416,7 +416,7 @@ describe("a company's lists", () => {
     vi.stubEnv("BATCHDATA_API_KEY", "");
     await t.finishAllScheduledFunctions(() => {});
     const noKey = (await read()).rows.find((r) => r.id === oak.id)!;
-    expect(noKey.enrichment.person).toMatchObject({ status: "failed", error: expect.stringContaining("TX_COMPTROLLER_API_KEY"), tries: [{ source: "tx-comptroller", outcome: "skipped", note: "Not connected" }, { source: "cobalt", outcome: "skipped", note: "Not connected" }] });
+    expect(noKey.enrichment.person).toMatchObject({ status: "failed", error: expect.stringContaining("TX_COMPTROLLER_API_KEY"), tries: [{ source: "roll", outcome: "skipped", note: "The mail goes to Dallas, off the roll" }, { source: "permits", outcome: "skipped", note: "No permits at the property" }, { source: "tx-comptroller", outcome: "skipped", note: "Not connected" }, { source: "cobalt", outcome: "skipped", note: "Not connected" }] });
 
     // With keys: the Comptroller names Oak Plaza's manager, BatchData finds her phones and an email; the city gets nothing.
     await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 250 }));
@@ -485,13 +485,16 @@ describe("a company's lists", () => {
       email: { status: "found", source: "batchdata" },
     });
     // The ledger for the sheet: every source's turn, in order; Tracerfy isn't connected in this test.
-    expect(oakNow.enrichment.person.tries).toEqual([{ source: "tx-comptroller", outcome: "hit", note: "Dana Reyes, Manager" }, { source: "cobalt", outcome: "skipped", note: "Not connected" }]);
+    expect(oakNow.enrichment.person.tries).toEqual([{ source: "roll", outcome: "skipped", note: "The mail goes to Dallas, off the roll" }, { source: "permits", outcome: "skipped", note: "No permits at the property" }, { source: "tx-comptroller", outcome: "hit", note: "Dana Reyes, Manager" }, { source: "cobalt", outcome: "skipped", note: "Not connected" }]);
     expect(oakNow.enrichment.phone.tries).toEqual([
+      { source: "permits", outcome: "skipped", note: "No permits at the property" },
       { source: "batchdata", outcome: "hit", note: "3 numbers" },
       { source: "tracerfy", outcome: "skipped", note: "Not connected" },
       { source: "enformion", outcome: "skipped", note: "Not connected" },
+      { source: "twilio", outcome: "skipped", note: "Not connected" },
     ]);
     expect(oakNow.enrichment.email.tries).toEqual([
+      { source: "permits", outcome: "skipped", note: "No permits at the property" },
       { source: "batchdata", outcome: "hit", note: "1 email" },
       { source: "tracerfy", outcome: "skipped", note: "Not connected" },
       { source: "enformion", outcome: "skipped", note: "Not connected" },
@@ -508,7 +511,7 @@ describe("a company's lists", () => {
     const cityNow = traced.rows.find((r) => r.id === cityHall.id)!;
     // The state has no entity called City Of Midland, and BatchData has nothing for it: three free misses.
     expect(cityNow.enrichment).toMatchObject({ phone: { status: "none" }, email: { status: "none" }, person: { status: "none" } });
-    expect(cityNow.enrichment.person.tries).toEqual([{ source: "tx-comptroller", outcome: "miss", note: "No match" }, { source: "cobalt", outcome: "skipped", note: "Not connected" }]);
+    expect(cityNow.enrichment.person.tries).toEqual([{ source: "roll", outcome: "skipped", note: "No home owned by a person at the mailing address" }, { source: "permits", outcome: "skipped", note: "No permits at the property" }, { source: "tx-comptroller", outcome: "miss", note: "No match" }, { source: "cobalt", outcome: "skipped", note: "Not connected" }]);
     expect(cityNow.phones).toEqual([]);
     expect(traced.balanceCents).toBe(150);
     expect(traced.coverage).toEqual({ phone: { found: 1, total: 2, sources: 1 }, email: { found: 1, total: 2, sources: 1 }, person: { found: 1, total: 2, sources: 1 }, research: { found: 0, total: 2, sources: 0 } });
@@ -537,12 +540,15 @@ describe("a company's lists", () => {
     const ops = await signUp(t, "ops@webb.example", { role: "staff" });
     const stack = await ops.as.query(api.outreach.sources, { organizationId: org });
     expect(stack.map((s) => [s.name, s.connected, s.stats.map((x) => [x.field, x.attempts, x.hits, x.chargedCents])])).toEqual([
+      ["roll", true, [["person", 0, 0, 0]]],
+      ["permits", true, [["person", 0, 0, 0], ["phone", 0, 0, 0], ["email", 0, 0, 0]]],
       ["tx-comptroller", true, [["person", 1, 1, 0]]],
       ["cobalt", false, [["person", 0, 0, 0]]],
       ["batchdata", true, [["phone", 1, 1, 100], ["email", 1, 1, 0]]],
       ["tracerfy", false, [["phone", 0, 0, 0], ["email", 0, 0, 0]]],
       ["enformion", false, [["phone", 0, 0, 0], ["email", 0, 0, 0]]],
       ["hunter", false, [["email", 0, 0, 0]]],
+      ["twilio", false, [["phone", 0, 0, 0]]],
       ["zerobounce", false, [["email", 0, 0, 0]]],
     ]);
     await expect(co.as.query(api.outreach.sources, { organizationId: org })).rejects.toThrow(/staff/);
@@ -610,6 +616,7 @@ describe("a company's lists", () => {
       { source: "batchdata", outcome: "miss", note: "No match" },
       { source: "tracerfy", outcome: "hit", note: "2 numbers" },
       { source: "enformion", outcome: "skipped", note: "Not connected" },
+      { source: "twilio", outcome: "skipped", note: "Not connected" },
     ]);
     // Rank 1 first even though it's DNC; the landline follows. Only the Vances' numbers, not the tenant's.
     expect(now.phones).toEqual([
@@ -654,6 +661,7 @@ describe("a company's lists", () => {
       // Nobody at the address shares Reyes's surname, so every number there counts.
       { source: "tracerfy", outcome: "hit", note: "3 numbers" },
       { source: "enformion", outcome: "skipped", note: "Not connected" },
+      { source: "twilio", outcome: "skipped", note: "Not connected" },
     ]);
 
     // Tracerfy out of credits and BatchData empty: a free miss whose note names the cause.
@@ -720,6 +728,95 @@ describe("a company's lists", () => {
     expect([cleared.phones, cleared.emails]).toEqual([[], []]);
     // A real owner is never cleared.
     expect(await t.mutation(internal.outreach.seedSample, { email: "owner@roof.example", name: "Oak Plaza LLC", clear: true })).toEqual({ done: false, reason: "not a sample", organization: "owner@roof.example Co", contact: "Oak Plaza LLC" });
+  });
+
+  test("our own records come first: the home the mail goes to names the owner, the company's permits name a person with a phone, and the carrier confirms the line", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    await addParcels(t, [
+      ...ROLL,
+      // An LLC billed at a Midland home that a couple owns and lives in: they run it.
+      parcel("20", { owner: "BENT TREE DEVELOPMENT LLC", companyOwned: true, ownerOccupied: false, useCode: "F1", siteAddress: "10008 W COUNTY RD 157", street: "COUNTY RD 157", marketValueCents: 96_800_000, mailing: { address: "4516 Bent Tree Trail", city: "Midland", state: "TX", zip: "79707" } }),
+      parcel("21", { owner: "ELLISON MARK & SUE", siteAddress: "4516 BENT TREE TRL", street: "BENT TREE TRL", marketValueCents: 60_000_000, mailing: { address: "4516 BENT TREE TRL", city: "MIDLAND", state: "TX", zip: "79707" } }),
+    ]);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    const read = async () => await co.as.query(api.outreach.contacts, { organizationId: org });
+    const bentTree = (await read()).rows.find((r) => r.name === "Bent Tree Development LLC")!;
+    const oak = (await read()).rows.find((r) => r.name === "Oak Plaza LLC")!;
+    // A permit Oak Plaza pulled at its shopping center, with the applicant's details; the roofer on it is someone else's company.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("permits", {
+        source: "midland",
+        permitNumber: "P-1",
+        name: "Reroof",
+        county: "Midland",
+        city: "Midland",
+        address: "12 Midkiff Rd",
+        addressKey: addressKey("12 Midkiff Rd"),
+        appliedAt: "2026-08-01",
+        trades: ["roofing"],
+        importedAt: "2026-08-02T00:00:00.000Z",
+        contacts: [
+          { role: "Applicant", company: "Oak Plaza, L.L.C.", person: "Dana Reyes", phone: "(432) 555-0100", email: "Dana@OakPlaza.com" },
+          { role: "Contractor", company: "ACME ROOFING LLC", person: "Bob Roofer", phone: "432-555-9999" },
+        ],
+      });
+      await ctx.db.patch(org, { walletBalanceCents: 500 });
+    });
+    for (const k of ["TX_COMPTROLLER_API_KEY", "COBALT_API_KEY", "BATCHDATA_API_KEY", "TRACERFY_API_KEY", "ENFORMION_AP_NAME", "HUNTER_API_KEY", "ZEROBOUNCE_API_KEY"]) vi.stubEnv(k, "");
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "AC123");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "tok");
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        urls.push(url);
+        expect((init?.headers as Record<string, string>).Authorization).toBe(`Basic ${Buffer.from("AC123:tok").toString("base64")}`);
+        return new Response(JSON.stringify({ valid: true, line_type_intelligence: { type: "mobile" }, caller_name: { caller_name: "REYES DANA", caller_type: "CONSUMER" } }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }),
+    );
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [bentTree.id], fields: ["person"] });
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["person", "phone", "email"] });
+    await t.finishAllScheduledFunctions(() => {});
+    const after = await read();
+    const bt = after.rows.find((r) => r.id === bentTree.id)!;
+    expect(bt.person).toEqual({ name: "Mark Ellison", title: "Owns the home the mail goes to", address: "4516 Bent Tree Trl, Midland, TX", source: "roll" });
+    expect(bt.enrichment.person.tries).toEqual([
+      { source: "roll", outcome: "hit", note: "Mark Ellison, Owns the home the mail goes to" },
+      { source: "permits", outcome: "skipped", note: "Not needed, already found" },
+      { source: "tx-comptroller", outcome: "skipped", note: "Not connected" },
+      { source: "cobalt", outcome: "skipped", note: "Not connected" },
+    ]);
+    const oakNow = after.rows.find((r) => r.id === oak.id)!;
+    expect(oakNow.person).toEqual({ name: "Dana Reyes", title: "Applicant on permit P-1", source: "permits" });
+    // The applicant's number, confirmed live, mobile and in her name by the carrier; the roofer's number never appears.
+    expect(oakNow.phones).toEqual([{ number: "4325550100", type: "mobile", verified: true, score: 100, source: "permits", name: "REYES DANA" }]);
+    expect(oakNow.emails).toEqual([{ email: "dana@oakplaza.com", source: "permits" }]);
+    expect(oakNow.enrichment.phone).toMatchObject({ status: "found", source: "permits", chargedCents: 100 });
+    expect(oakNow.enrichment.phone.tries).toEqual([
+      { source: "permits", outcome: "hit", note: "1 number" },
+      { source: "batchdata", outcome: "skipped", note: "Not connected" },
+      { source: "tracerfy", outcome: "skipped", note: "Not connected" },
+      { source: "enformion", outcome: "skipped", note: "Not connected" },
+      { source: "twilio", outcome: "hit", note: "1 of 1 live · 1 in the owner's name" },
+    ]);
+    expect(oakNow.enrichment.person.tries[0]).toEqual({ source: "roll", outcome: "skipped", note: "The mail goes to Dallas, off the roll" });
+    expect(oakNow.enrichment.person.tries[1]).toEqual({ source: "permits", outcome: "hit", note: "Dana Reyes, Applicant on permit P-1" });
+    expect(urls).toEqual(["https://lookups.twilio.com/v2/PhoneNumbers/%2B14325550100?Fields=line_type_intelligence,caller_name"]);
+    expect(after.balanceCents).toBe(400);
+    await t.run(async (ctx) => {
+      const stats = (await ctx.db.query("dataSourceStats").collect()).map((s) => [s.source, s.field, s.attempts, s.hits]).sort();
+      expect(stats).toEqual([
+        ["permits", "email", 1, 1],
+        ["permits", "person", 1, 1],
+        ["permits", "phone", 1, 1],
+        ["roll", "person", 1, 1],
+        ["twilio", "phone", 1, 1],
+      ]);
+    });
   });
 
   test("research reads the web about an owner through Claude: an answer with sources for 25¢, nothing found free", async () => {
@@ -1019,6 +1116,32 @@ describe("the wider stack", () => {
     expect(await hunter("h-key", async () => json({ data: { email: null, score: null } })).trace(named)).toEqual({});
     expect(await hunter("h-key", async () => json({ errors: [{ id: "not_found" }] }, 404)).trace(named)).toEqual({});
     await expect(hunter("h-key", async () => json({ errors: [{ id: "usage_limit", details: "You have reached your usage limit." }] }, 429)).trace(named)).rejects.toThrow("Hunter: HTTP 429 (You have reached your usage limit.)");
+  });
+
+  test("the line check drops dead numbers, takes the carrier's line type and name, and says how many are in the owner's name", async () => {
+    const checker = twilioLookup("AC1", "tok", async (url) => {
+      const number = decodeURIComponent(String(url).split("/PhoneNumbers/")[1].split("?")[0]);
+      if (number === "+14325550000") return json({ code: 20404 }, 404);
+      if (number === "+14325550199") return json({ valid: true, line_type_intelligence: { type: "landline" }, caller_name: { caller_name: "OAK PLAZA LLC", caller_type: "BUSINESS" } });
+      return json({ valid: true, line_type_intelligence: { type: "nonFixedVoip" }, caller_name: { caller_name: null } });
+    });
+    const phones = [
+      { number: "4325550142", type: "unknown" as const, source: "batchdata" },
+      { number: "4325550000", type: "mobile" as const, source: "batchdata" },
+      { number: "4325550199", type: "unknown" as const, score: 60, source: "batchdata" },
+    ];
+    const expected = expectedNames({ name: "OAK PLAZA LLC", company: "Oak Plaza LLC", person: { name: "Dana Reyes", source: "x" } });
+    expect(expected).toEqual(["REYES", "PLAZA"]);
+    const r = await checkPhones(phones, checker, expected);
+    expect(r.phones).toEqual([
+      { number: "4325550199", type: "landline", score: 100, verified: true, source: "batchdata", name: "OAK PLAZA LLC" },
+      { number: "4325550142", type: "voip", verified: true, source: "batchdata" },
+    ]);
+    expect(r.try).toEqual({ source: "twilio", outcome: "hit", note: "2 of 3 live · 1 in the owner's name · 1 dropped" });
+    expect((await checkPhones(phones, twilioLookup(undefined, undefined), expected)).try).toEqual({ source: "twilio", outcome: "skipped", note: "Not connected" });
+    const down = twilioLookup("AC1", "tok", async () => json({}, 503));
+    expect(await checkPhones(phones, down, expected)).toEqual({ phones, try: { source: "twilio", outcome: "error", note: "Twilio: HTTP 503" } });
+    expect(expectedNames({ name: "VANCE ROBERT & LINDA" })).toEqual(["VANCE"]);
   });
 
   test("the waterfall skips a source that can't take this owner, with the reason in the ledger, and still asks the next one", async () => {
