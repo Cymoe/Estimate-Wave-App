@@ -452,7 +452,7 @@ describe("a company's lists", () => {
     // A lead sent before Company was always filled gets it from the one-off fill; a lead from elsewhere is left alone.
     await t.run(async (ctx) => ctx.db.patch(bare, { company: undefined }));
     const walkIn = await co.as.mutation(api.leads.create, { organizationId: org, data: { name: "Walk-in", source: "Outreach" } });
-    expect(await t.mutation(internal.outreach.fillLeadCompanies, {})).toBe(1);
+    expect(await t.mutation(internal.outreach.fillLeadCompanies, {})).toMatchObject({ missing: 2, filled: 1 });
     expect(await t.run(async (ctx) => ctx.db.get(bare))).toMatchObject({ company: "City Of Midland" });
     expect(await t.run(async (ctx) => ctx.db.get(walkIn!._id))).not.toHaveProperty("company");
     expect((await co.as.query(api.outreach.lists, { organizationId: org })).find((l) => l.who === "commercial")!.done).toBe(2);

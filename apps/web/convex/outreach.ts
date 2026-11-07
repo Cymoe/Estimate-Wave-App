@@ -719,15 +719,26 @@ async function sendOne(
 export const fillLeadCompanies = internalMutation({
   args: {},
   handler: async (ctx) => {
-    let filled = 0;
+    const tally = { outreachLeads: 0, missing: 0, filled: 0 };
     for (const lead of await ctx.db.query("leads").filter((q) => q.eq(q.field("source"), "Outreach")).collect()) {
+      tally.outreachLeads++;
       if (lead.company) continue;
-      const contact = await ctx.db.query("outreachContacts").withIndex("by_lead", (q) => q.eq("leadId", lead._id)).first();
+      tally.missing++;
+      // The owner it was sent from: linked by the send, else the owner of the same name in the same company.
+      const linked = await ctx.db.query("outreachContacts").withIndex("by_lead", (q) => q.eq("leadId", lead._id)).first();
+      const contact =
+        linked ??
+        (await ctx.db
+          .query("outreachContacts")
+          .withIndex("by_organization", (q) => q.eq("organizationId", lead.organizationId))
+          .filter((q) => q.eq(q.field("name"), lead.name))
+          .first());
       if (!contact?.company) continue;
       await ctx.db.patch(lead._id, { company: contact.name, updatedAt: nowIso() });
-      filled++;
+      if (!linked && !contact.leadId) await ctx.db.patch(contact._id, { leadId: lead._id, status: "lead", updatedAt: nowIso() });
+      tally.filled++;
     }
-    return filled;
+    return tally;
   },
 });
 
