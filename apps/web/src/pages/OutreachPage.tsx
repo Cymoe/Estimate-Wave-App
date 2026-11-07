@@ -1,6 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ChevronDown, Download, LayoutList, Lock, Search, Table2, Trash2 } from 'lucide-react';
+import { ChevronDown, Download, LayoutList, Lock, Search, Table2, Trash2, Undo2, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachField, type OutreachListSummary, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { AskListSheet } from '../components/outreach/AskListSheet';
@@ -554,7 +554,7 @@ const OutreachPage: React.FC = () => {
     const ok = await confirm({
       title: `Take back the ${lastSend.leads} ${lastSend.leads === 1 ? 'lead' : 'leads'} from this send?`,
       message: 'They come out of Leads and their owners are New here again. Any you have already moved past New or quoted stay in Leads.',
-      confirmLabel: 'Undo send',
+      confirmLabel: 'Take them back',
     });
     if (!ok) return;
     setBusy(true);
@@ -674,28 +674,31 @@ const OutreachPage: React.FC = () => {
         </p>
       )}
       {(undoNote || sentNote || (lastSend && lastSend.at !== seenSend)) && (
-        <p className="text-sm text-gray-300" data-testid="sent-note">
-          {undoNote ??
-            sentNote ??
-            `${lastSend!.leads} leads sent to Leads at ${new Date(lastSend!.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`}{' '}
-          {!undoNote && (
-            <>
-              <button type="button" onClick={() => navigate('/leads')} className="text-[#7fb0e0] hover:text-white">
-                Open Leads
-              </button>{' '}
-              {lastSend && (
-                <>
-                  <button type="button" onClick={() => void undoLastSend()} disabled={busy} className="text-[#7fb0e0] hover:text-white disabled:opacity-50">
-                    Undo
-                  </button>{' '}
-                </>
-              )}
-            </>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 bg-[#121212] border border-[#333333] px-3 py-2 text-sm text-gray-300" data-testid="sent-note">
+          <span className="flex-1 min-w-[12rem]">
+            {undoNote ??
+              sentNote ??
+              `${lastSend!.leads} leads sent to Leads at ${new Date(lastSend!.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`}
+          </span>
+          {!undoNote && lastSend && (
+            <button
+              type="button"
+              onClick={() => void undoLastSend()}
+              disabled={busy}
+              className="inline-flex items-center gap-2 px-3 min-h-[40px] text-sm font-medium text-white border border-[#336699] hover:bg-[#336699]/20 disabled:opacity-50"
+            >
+              <Undo2 className="w-4 h-4" /> Undo send
+            </button>
           )}
-          <button type="button" onClick={dismissSend} className="text-gray-500 hover:text-white">
-            Dismiss
+          {!undoNote && (
+            <button type="button" onClick={() => navigate('/leads')} className="min-h-[40px] text-[#7fb0e0] hover:text-white">
+              Open Leads
+            </button>
+          )}
+          <button type="button" onClick={dismissSend} aria-label="Dismiss" title="Dismiss" className="w-10 h-10 inline-flex items-center justify-center text-gray-500 hover:text-white">
+            <X className="w-4 h-4" />
           </button>
-        </p>
+        </div>
       )}
       {lists && lists.length > 0 && (
         <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Lists">

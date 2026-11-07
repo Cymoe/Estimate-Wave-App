@@ -537,13 +537,13 @@ describe('the Outreach page', () => {
     await render('/outreach/l1');
     const line = () => document.body.querySelector('[data-testid="sent-note"]')!.textContent!;
     expect(line()).toContain('125 leads sent to Leads at');
-    await click('Undo');
-    expect(document.body.textContent).toContain('Take back the 125 leads from this send?');
     await click('Undo send');
+    expect(document.body.textContent).toContain('Take back the 125 leads from this send?');
+    await click('Take them back');
     expect(undoSend).toHaveBeenCalledWith('o1', '2026-11-07T22:58:00.000Z');
-    expect(line()).toBe("Took back 120 leads; kept 5 you've already started on. Dismiss");
+    expect(line()).toBe("Took back 120 leads; kept 5 you've already started on.");
     // Dismissed, it stays dismissed on this device.
-    await click('Dismiss');
+    await act(async () => (document.body.querySelector('[data-testid="sent-note"] button[aria-label="Dismiss"]') as HTMLButtonElement).click());
     expect(document.body.querySelector('[data-testid="sent-note"]')).toBeNull();
     expect(localStorage.getItem('outreach.sendSeen')).toBe('2026-11-07T22:58:00.000Z');
   });
