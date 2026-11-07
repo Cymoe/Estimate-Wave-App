@@ -6,7 +6,6 @@ import { fullAddress } from '../../lib/mapsLinks';
 import type { OutreachCell, OutreachContact, OutreachContacts, OutreachCoverage, OutreachField, OutreachPhone, OutreachRowStatus, OutreachSignal, OutreachTry, OutreachWho } from '../../lib/api';
 import { shortMoney, WHO_LABEL } from '../../../convex/lib/outreach';
 import { askingText, callOk, deedSearchUrl, dueAgain, phoneText, sourceList, sourceName, tryAgainFrom } from './format';
-import type { ColumnKey } from './columns';
 
 const STATUS_LABEL: Record<OutreachRowStatus, string> = { new: 'New', sent: 'Sent', done: 'Done', skip: 'Skipped' };
 const STATUSES: OutreachRowStatus[] = ['new', 'sent', 'done', 'skip'];
@@ -168,6 +167,9 @@ const td = 'px-3 py-2 whitespace-nowrap align-top overflow-hidden text-ellipsis'
  * arrive (a lookup's narration, a phone landing): what doesn't fit is cut
  * with an ellipsis instead of widening its column.
  */
+/** The table's columns after the checkbox and the name, in order. */
+const COLUMN_KEYS = ['person', 'phone', 'email', 'research', 'status', 'mailing', 'property', 'value', 'type', 'signals'] as const;
+type ColumnKey = (typeof COLUMN_KEYS)[number];
 const WIDTH: Record<'select' | 'name' | ColumnKey, number> = {
   select: 2.5,
   name: 16,
@@ -201,15 +203,11 @@ export const ContactsTable: React.FC<{
   onOpen: (row: OutreachContact) => void;
   /** Run a failed field again, from the cell's Retry. */
   onRetry: (row: OutreachContact, field: OutreachField) => void;
-  /** Columns the Columns picker has hidden. */
-  hidden?: Set<ColumnKey>;
-}> = ({ rows, coverage, selected, onSelect, onSelectAll, onOpen, onRetry, hidden }) => {
+}> = ({ rows, coverage, selected, onSelect, onSelectAll, onOpen, onRetry }) => {
   const all = rows.length > 0 && rows.every((r) => selected.has(r.id));
   const lit = useJustFilled(rows);
   const glow = (id: string, f: OutreachField) => (lit.has(`${id}:${f}`) ? ' cell-filled' : '');
-  const show = (k: ColumnKey) => !hidden?.has(k);
-  const shownKeys = (['person', 'phone', 'email', 'research', 'status', 'mailing', 'property', 'value', 'type', 'signals'] as ColumnKey[]).filter(show);
-  const widthOf = (keys: ColumnKey[]) => WIDTH.select + WIDTH.name + keys.reduce((sum, k) => sum + WIDTH[k], 0);
+  const tableWidth = WIDTH.select + WIDTH.name + COLUMN_KEYS.reduce((sum, k) => sum + WIDTH[k], 0);
   const [atEnd, setAtEnd] = useState(false);
   // No fade when every column fits, or once the last one is in view.
   // The header follows the rows sideways.
@@ -218,12 +216,12 @@ export const ContactsTable: React.FC<{
     setAtEnd(el.scrollWidth <= el.clientWidth || el.scrollLeft + el.clientWidth >= el.scrollWidth - 2);
     if (headBox.current) headBox.current.scrollLeft = el.scrollLeft;
   };
-  const tableStyle = { width: `${widthOf(shownKeys)}rem`, minWidth: '100%' };
+  const tableStyle = { width: `${tableWidth}rem`, minWidth: '100%' };
   const cols = (
     <colgroup>
       <col style={{ width: `${WIDTH.select}rem` }} />
       <col style={{ width: `${WIDTH.name}rem` }} />
-      {shownKeys.map((k) => (
+      {COLUMN_KEYS.map((k) => (
         <col key={k} style={{ width: `${WIDTH[k]}rem` }} />
       ))}
     </colgroup>
@@ -241,36 +239,28 @@ export const ContactsTable: React.FC<{
                 <input type="checkbox" checked={all} onChange={(e) => onSelectAll(e.target.checked)} aria-label="Select all" className="accent-[#336699]" />
               </th>
               <th className={`${head} left-10 z-30 ${thBase} border-r border-[#333333]`}>Name</th>
-              {show('person') && (
-                <th className={th}>
-                  Decision maker
-                  <Coverage c={coverage.person} of={coverage.person.total === 1 ? 'company' : 'companies'} />
-                </th>
-              )}
-              {show('phone') && (
-                <th className={th}>
-                  Phone
-                  <Coverage c={coverage.phone} />
-                </th>
-              )}
-              {show('email') && (
-                <th className={th}>
-                  Email
-                  <Coverage c={coverage.email} />
-                </th>
-              )}
-              {show('research') && (
-                <th className={th}>
-                  Research
-                  <Coverage c={coverage.research} />
-                </th>
-              )}
-              {show('status') && <th className={th}>Status</th>}
-              {show('mailing') && <th className={th}>Mailing address</th>}
-              {show('property') && <th className={th}>Property</th>}
-              {show('value') && <th className={`${th} text-right`}>Value</th>}
-              {show('type') && <th className={th}>Type</th>}
-              {show('signals') && <th className={th}>Signals</th>}
+              <th className={th}>
+                Decision maker
+                <Coverage c={coverage.person} of={coverage.person.total === 1 ? 'company' : 'companies'} />
+              </th>
+              <th className={th}>
+                Phone
+                <Coverage c={coverage.phone} />
+              </th>
+              <th className={th}>
+                Email
+                <Coverage c={coverage.email} />
+              </th>
+              <th className={th}>
+                Research
+                <Coverage c={coverage.research} />
+              </th>
+              <th className={th}>Status</th>
+              <th className={th}>Mailing address</th>
+              <th className={th}>Property</th>
+              <th className={`${th} text-right`}>Value</th>
+              <th className={th}>Type</th>
+              <th className={th}>Signals</th>
             </tr>
           </thead>
         </table>
@@ -300,95 +290,75 @@ export const ContactsTable: React.FC<{
                       </span>
                     )}
                   </td>
-                  {show('person') && (
-                    <td className={`${td} max-w-[14rem] truncate${glow(r.id, 'person')}`}>
-                      {r.person ? (
-                        <>
-                          <span className="text-white">{r.person.name}</span>
-                          {r.person.title || r.person.confirmedBy?.length ? (
-                            <span className="block text-[11px] text-gray-500">
-                              {r.person.title}
-                              {r.person.confirmedBy?.length ? <span className="text-[#7fb0e0]">{r.person.title ? ' · ' : ''}{r.person.confirmedBy.length + 1} sources agree</span> : null}
-                            </span>
-                          ) : null}
-                        </>
-                      ) : r.company ? (
-                        <Empty cell={r.enrichment.person} onRetry={() => onRetry(r, 'person')} />
-                      ) : (
-                        <span className="text-gray-700">—</span>
-                      )}
-                    </td>
-                  )}
-                  {show('phone') && (
-                    <td className={`${td}${glow(r.id, 'phone')}`}>
-                      {phone ? (
-                        <>
-                          <span className={phone.dnc ? 'text-gray-300' : 'text-white'}>{phoneText(phone.number)}</span>
-                          <span className="block">
-                            <PhoneBadges p={phone} />
-                            {r.phones.length > 1 ? <span className="text-[11px] text-gray-500"> · +{r.phones.length - 1}</span> : null}
+                  <td className={`${td} max-w-[14rem] truncate${glow(r.id, 'person')}`}>
+                    {r.person ? (
+                      <>
+                        <span className="text-white">{r.person.name}</span>
+                        {r.person.title || r.person.confirmedBy?.length ? (
+                          <span className="block text-[11px] text-gray-500">
+                            {r.person.title}
+                            {r.person.confirmedBy?.length ? <span className="text-[#7fb0e0]">{r.person.title ? ' · ' : ''}{r.person.confirmedBy.length + 1} sources agree</span> : null}
                           </span>
-                        </>
-                      ) : (
-                        <Empty cell={r.enrichment.phone} onRetry={() => onRetry(r, 'phone')} />
-                      )}
-                    </td>
-                  )}
-                  {show('email') && (
-                    <td className={`${td} max-w-[14rem] truncate${glow(r.id, 'email')}`}>
-                      {email ? (
-                        <>
-                          <span className="text-white">{email.email}</span>
-                          {email.verified ? <span className="block text-[11px] text-gray-500">verified</span> : null}
-                        </>
-                      ) : (
-                        <Empty cell={r.enrichment.email} onRetry={() => onRetry(r, 'email')} />
-                      )}
-                    </td>
-                  )}
-                  {show('research') && (
-                    <td className={`${td} max-w-[22rem] truncate${glow(r.id, 'research')}`} title={r.research?.answer}>
-                      {r.research ? <span className="text-gray-200">{r.research.answer}</span> : <Empty cell={r.enrichment.research ?? { status: 'locked' }} onRetry={() => onRetry(r, 'research')} />}
-                    </td>
-                  )}
-                  {show('status') && (
-                    <td className={`${td} ${statusTone(r.status)}`}>{STATUS_LABEL[r.status]}</td>
-                  )}
-                  {show('mailing') && (
-                    <td className={`${td} max-w-[16rem] truncate text-gray-300`}>
-                      {r.mailing.address ?? ''}
-                      {cityLine(r.mailing) ? <span className="block text-[11px] text-gray-500">{cityLine(r.mailing)}</span> : null}
-                    </td>
-                  )}
-                  {show('property') && (
-                    <td className={`${td} max-w-[14rem] truncate text-gray-300`}>
-                      {r.property.address}
-                      {r.properties > 1 ? <span className="text-gray-500"> +{r.properties - 1}</span> : null}
-                    </td>
-                  )}
-                  {show('value') && (
-                    <td className={`${td} text-right tabular-nums text-gray-300`} title={r.properties > 1 ? `${r.properties} properties in all` : undefined}>
-                      {r.properties > 1 ? shortMoney(r.totalValueCents) : r.property.valueCents ? shortMoney(r.property.valueCents) : ''}
-                    </td>
-                  )}
-                  {show('type') && (
-                    <td className={`${td} text-gray-400`}>{kindsText(r.kinds)}</td>
-                  )}
-                  {show('signals') && (
-                    <td className={`${td} text-amber-300`}>
-                      {r.signals.length === 0 ? (
-                        <span className="text-gray-700">—</span>
-                      ) : (
-                        r.signals.map((s, i) => (
-                          <span key={s.kind}>
-                            {i > 0 ? ' · ' : ''}
-                            {s.fresh ? <span className="mr-1 px-1 text-[10px] font-medium uppercase tracking-wide text-[#121212] bg-amber-300">New</span> : null}
-                            {SIGNAL_LABEL[s.kind]} {monthYear(s.date)}
-                          </span>
-                        ))
-                      )}
-                    </td>
-                  )}
+                        ) : null}
+                      </>
+                    ) : r.company ? (
+                      <Empty cell={r.enrichment.person} onRetry={() => onRetry(r, 'person')} />
+                    ) : (
+                      <span className="text-gray-700">—</span>
+                    )}
+                  </td>
+                  <td className={`${td}${glow(r.id, 'phone')}`}>
+                    {phone ? (
+                      <>
+                        <span className={phone.dnc ? 'text-gray-300' : 'text-white'}>{phoneText(phone.number)}</span>
+                        <span className="block">
+                          <PhoneBadges p={phone} />
+                          {r.phones.length > 1 ? <span className="text-[11px] text-gray-500"> · +{r.phones.length - 1}</span> : null}
+                        </span>
+                      </>
+                    ) : (
+                      <Empty cell={r.enrichment.phone} onRetry={() => onRetry(r, 'phone')} />
+                    )}
+                  </td>
+                  <td className={`${td} max-w-[14rem] truncate${glow(r.id, 'email')}`}>
+                    {email ? (
+                      <>
+                        <span className="text-white">{email.email}</span>
+                        {email.verified ? <span className="block text-[11px] text-gray-500">verified</span> : null}
+                      </>
+                    ) : (
+                      <Empty cell={r.enrichment.email} onRetry={() => onRetry(r, 'email')} />
+                    )}
+                  </td>
+                  <td className={`${td} max-w-[22rem] truncate${glow(r.id, 'research')}`} title={r.research?.answer}>
+                    {r.research ? <span className="text-gray-200">{r.research.answer}</span> : <Empty cell={r.enrichment.research ?? { status: 'locked' }} onRetry={() => onRetry(r, 'research')} />}
+                  </td>
+                  <td className={`${td} ${statusTone(r.status)}`}>{STATUS_LABEL[r.status]}</td>
+                  <td className={`${td} max-w-[16rem] truncate text-gray-300`}>
+                    {r.mailing.address ?? ''}
+                    {cityLine(r.mailing) ? <span className="block text-[11px] text-gray-500">{cityLine(r.mailing)}</span> : null}
+                  </td>
+                  <td className={`${td} max-w-[14rem] truncate text-gray-300`}>
+                    {r.property.address}
+                    {r.properties > 1 ? <span className="text-gray-500"> +{r.properties - 1}</span> : null}
+                  </td>
+                  <td className={`${td} text-right tabular-nums text-gray-300`} title={r.properties > 1 ? `${r.properties} properties in all` : undefined}>
+                    {r.properties > 1 ? shortMoney(r.totalValueCents) : r.property.valueCents ? shortMoney(r.property.valueCents) : ''}
+                  </td>
+                  <td className={`${td} text-gray-400`}>{kindsText(r.kinds)}</td>
+                  <td className={`${td} text-amber-300`}>
+                    {r.signals.length === 0 ? (
+                      <span className="text-gray-700">—</span>
+                    ) : (
+                      r.signals.map((s, i) => (
+                        <span key={s.kind}>
+                          {i > 0 ? ' · ' : ''}
+                          {s.fresh ? <span className="mr-1 px-1 text-[10px] font-medium uppercase tracking-wide text-[#121212] bg-amber-300">New</span> : null}
+                          {SIGNAL_LABEL[s.kind]} {monthYear(s.date)}
+                        </span>
+                      ))
+                    )}
+                  </td>
                 </tr>
               );
             })}

@@ -389,7 +389,7 @@ describe('the Outreach page', () => {
     const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(2)')).map((c) => c.textContent);
     expect(names()).toEqual(['Oak Plaza LLC', 'City Of Midland', 'Vance Robert & Linda']);
     const filters = document.body.querySelector('[aria-label="Filters"]')!;
-    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Mail only 1', 'Needs you 1', 'Cards', 'Columns']);
+    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Mail only 1', 'Needs you 1', 'Cards']);
     // The failed cell says why, and Retry runs that field again without opening the sheet.
     const failedCell = document.body.querySelectorAll('[data-testid="contact-row"]')[0].querySelectorAll('td')[2];
     expect(failedCell.textContent?.trim()).toBe('Lookup failedThe state registry timed outRetry');
@@ -415,35 +415,6 @@ describe('the Outreach page', () => {
     expect(names()).toEqual(['City Of Midland']);
     await act(async () => type(document.body.querySelector('input[aria-label="Search"]') as HTMLInputElement, 'zzz'));
     expect(document.body.textContent).toContain('Nobody matches those filters.');
-  });
-
-  it('the Columns picker hides columns, says how many are left, remembers the choice, and Show all brings them back', async () => {
-    lists = [list];
-    contacts = twoContacts();
-    await render('/outreach/l1');
-    const heads = () => Array.from(document.body.querySelectorAll('thead th')).map((h) => h.textContent?.replace(/\s+/g, ' ').trim().split(/\d/)[0].trim());
-    expect(document.body.querySelector('[aria-label="Columns"]')).toBeNull();
-    await click('Columns');
-    const panel = document.body.querySelector('[aria-label="Columns"]')!;
-    expect(Array.from(panel.querySelectorAll('label')).map((l) => l.textContent)).toEqual(['Decision maker', 'Phone', 'Email', 'Research', 'Status', 'Mailing address', 'Property', 'Value', 'Type', 'Signals']);
-    const box = (label: string) => Array.from(panel.querySelectorAll('label')).find((l) => l.textContent === label)!.querySelector('input') as HTMLInputElement;
-    await act(async () => box('Value').click());
-    await act(async () => box('Signals').click());
-    expect(heads()).toEqual(['', 'Name', 'Decision maker', 'Phone', 'Email', 'Research', 'Status', 'Mailing address', 'Property', 'Type']);
-    expect(button('Columns').textContent).toContain('8 of 10');
-    expect(localStorage.getItem('outreach.columns')).toBe('["value","signals"]');
-    expect(document.body.querySelectorAll('[data-testid="contact-row"]')[0].querySelectorAll('td')).toHaveLength(10);
-    await click('Show all');
-    expect(heads()).toHaveLength(12);
-    expect(localStorage.getItem('outreach.columns')).toBeNull();
-    // Escape closes the panel.
-    await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
-    expect(document.body.querySelector('[aria-label="Columns"]')).toBeNull();
-    // Next visit: the browser's choice applies before anything is clicked.
-    document.body.innerHTML = '';
-    localStorage.setItem('outreach.columns', '["research","type","bogus"]');
-    await render('/outreach/l1');
-    expect(heads()).toEqual(['', 'Name', 'Decision maker', 'Phone', 'Email', 'Status', 'Mailing address', 'Property', 'Value', 'Signals']);
   });
 
   it("the + button's Outreach list asks in plain words, shows the count and a preview, and Save opens the list", async () => {

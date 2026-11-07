@@ -1,13 +1,12 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ChevronDown, Download, LayoutList, Lock, Search, SlidersHorizontal, Table2, Trash2 } from 'lucide-react';
+import { ChevronDown, Download, LayoutList, Lock, Search, Table2, Trash2 } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachField, type OutreachListSummary, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { AskListSheet } from '../components/outreach/AskListSheet';
 import { ContactCards, ContactsTable, ContactSheet } from '../components/outreach/ContactsTable';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { LookupProgress } from '../components/outreach/LookupProgress';
-import { COLUMNS, readHiddenColumns, writeHiddenColumns, type ColumnKey } from '../components/outreach/columns';
 import { csvName, download, outreachCsv } from '../components/outreach/outreachCsv';
 import { useConfirm } from '../components/common/ConfirmDialog';
 import { fundErrorText, openFundingPage } from '../components/market/WalletBar';
@@ -136,7 +135,6 @@ const SourcesPanel: React.FC<{ organizationId: string }> = ({ organizationId }) 
   );
 };
 
-/** The Columns button and its panel: a checkbox per column the table can do without. */
 /**
  * One line of filters that never wraps: when they don't fit, the row slides
  * sideways and its right edge fades, and only then.
@@ -164,52 +162,6 @@ const ChipRow: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       className={`flex flex-1 min-w-0 items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${more ? '[mask-image:linear-gradient(to_right,black_calc(100%-32px),transparent)]' : ''}`}
     >
       {children}
-    </div>
-  );
-};
-
-const ColumnsPicker: React.FC<{ hidden: Set<ColumnKey>; onChange: (hidden: Set<ColumnKey>) => void }> = ({ hidden, onChange }) => {
-  const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: MouseEvent) => box.current && !box.current.contains(e.target as Node) && setOpen(false);
-    const key = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
-    document.addEventListener('mousedown', away);
-    document.addEventListener('keydown', key);
-    return () => {
-      document.removeEventListener('mousedown', away);
-      document.removeEventListener('keydown', key);
-    };
-  }, [open]);
-  const toggle = (k: ColumnKey) => {
-    const next = new Set(hidden);
-    if (next.has(k)) next.delete(k);
-    else next.add(k);
-    onChange(next);
-  };
-  return (
-    <div className="relative" ref={box}>
-      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-haspopup="true" className={`${chip(false)} gap-2`} title="Columns">
-        <SlidersHorizontal className="w-4 h-4" />
-        <span className="hidden xl:inline">Columns</span>
-        {hidden.size > 0 && <span className="text-gray-500">{COLUMNS.length - hidden.size} of {COLUMNS.length}</span>}
-      </button>
-      {open && (
-        <div className="absolute right-0 top-full mt-1 z-20 w-56 bg-[#121212] border border-[#333333] py-1" role="group" aria-label="Columns">
-          {COLUMNS.map((c) => (
-            <label key={c.key} className="flex items-center gap-3 px-3 min-h-[36px] text-sm text-gray-300 hover:bg-[#2A2A2A] cursor-pointer">
-              <input type="checkbox" checked={!hidden.has(c.key)} onChange={() => toggle(c.key)} className="accent-[#336699]" />
-              {c.label}
-            </label>
-          ))}
-          {hidden.size > 0 && (
-            <button type="button" onClick={() => onChange(new Set())} className="w-full text-left px-3 min-h-[36px] text-sm text-[#7fb0e0] hover:text-white border-t border-[#333333]">
-              Show all
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 };
@@ -268,11 +220,6 @@ const OutreachPage: React.FC = () => {
   };
   const [show, setShow] = useState<Show>('all');
   const [query, setQuery] = useState('');
-  const [hiddenColumns, setHiddenColumns] = useState<Set<ColumnKey>>(readHiddenColumns);
-  const pickColumns = (next: Set<ColumnKey>) => {
-    writeHiddenColumns(next);
-    setHiddenColumns(next);
-  };
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState<OutreachContact | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -645,7 +592,6 @@ const OutreachPage: React.FC = () => {
               {view === 'cards' ? <Table2 className="w-4 h-4" /> : <LayoutList className="w-4 h-4" />}
               <span className="hidden xl:inline">{view === 'cards' ? 'Table' : 'Cards'}</span>
             </button>
-            {view === 'table' && <ColumnsPicker hidden={hiddenColumns} onChange={pickColumns} />}
           </div>
         </div>
       )}
@@ -680,7 +626,6 @@ const OutreachPage: React.FC = () => {
           onSelectAll={(on) => setSelected(on ? new Set(rows.map((r) => r.id)) : new Set())}
           onOpen={setOpen}
           onRetry={(row, field) => void enrich([row.id], [field]).catch(() => {})}
-          hidden={hiddenColumns}
         />
       )}
       <ContactSheet
