@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Circle, FileText, Lock, Mail, MapPin, MessageSquare, MinusCircle, Phone, Search, User } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Circle, FileText, Lock, Mail, MapPin, MessageSquare, MinusCircle, Phone, RotateCw, Sparkles, User } from 'lucide-react';
 import { AddressLink } from '../common/AddressLink';
 import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { fullAddress } from '../../lib/mapsLinks';
@@ -568,7 +568,7 @@ const TryAgain: React.FC<{ cell: OutreachCell; onClick: () => void; disabled: bo
   return (
     <div className="space-y-1">
       <button type="button" onClick={onClick} disabled={disabled} className={className} data-testid="try-again">
-        <Search className="w-4 h-4" /> Try again · {note}
+        <RotateCw className="w-4 h-4" /> Try again · {note}
       </button>
       {from && !dueAgain(cell) && <p className="text-xs text-gray-500">The sources refresh monthly, so a new try is most likely to turn something up after {day(from)}.</p>}
     </div>
@@ -791,7 +791,7 @@ export const ContactSheet: React.FC<{
                   className="w-full bg-[#1A1A1A] border border-[#333333] px-3 py-2 text-white text-base md:text-sm resize-none focus:outline-none focus:border-[#336699]"
                 />
                 <button type="button" onClick={() => enrich(['research'], question)} disabled={busy || !canResearch} className={primary}>
-                  <Search className="w-4 h-4" /> Research · {dollars(researchCents)}
+                  <Sparkles className="w-4 h-4" /> Research · {dollars(researchCents)}
                 </button>
                 <p className="text-xs text-gray-500">
                   Charged only when the web has something to say. Balance {dollars(balanceCents)}.{' '}
