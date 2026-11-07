@@ -292,6 +292,20 @@ const OutreachPage: React.FC = () => {
       // Private browsing: the pick lasts for this visit.
     }
   };
+  // The filters stay at the top in both views; the table's column header sticks just under them.
+  const filterBar = useRef<HTMLDivElement>(null);
+  const [barHeight, setBarHeight] = useState(0);
+  const hasBar = Boolean(data && data.rows.length > 0);
+  useEffect(() => {
+    const el = filterBar.current;
+    if (!el) return;
+    const measure = () => setBarHeight(el.offsetHeight);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const watch = new ResizeObserver(measure);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [hasBar]);
   const [show, setShow] = useState<Show>('all');
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<OutreachContact | null>(null);
@@ -597,7 +611,8 @@ const OutreachPage: React.FC = () => {
       )}
       {data && data.rows.length > 0 && (
         <div
-          className={`flex flex-col-reverse md:flex-row md:items-center md:gap-2 border-b border-[#333333] ${view === 'cards' ? 'sticky top-[69px] md:top-0 z-30 -mx-4 md:-mx-6 px-4 md:px-6 bg-black' : ''}`}
+          ref={filterBar}
+          className="flex flex-col-reverse md:flex-row md:items-center md:gap-2 border-b border-[#333333] sticky top-[69px] md:top-0 z-30 -mx-4 md:-mx-6 px-4 md:px-6 bg-black"
           role="group"
           aria-label="Filters"
           data-testid="filter-bar"
@@ -671,6 +686,7 @@ const OutreachPage: React.FC = () => {
           coverage={data.coverage}
           sort={sortNow}
           sortLabel={listLabel}
+          below={barHeight}
           onSort={nextSort}
           onOpen={setOpen}
           onRetry={(row, field) => void enrich([row.id], [field]).catch(() => {})}

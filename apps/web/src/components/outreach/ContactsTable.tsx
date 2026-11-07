@@ -207,7 +207,9 @@ export const ContactsTable: React.FC<{
   onSort?: () => void;
   /** What "list order" is for this list, e.g. "Most parcels first". */
   sortLabel?: string;
-}> = ({ rows, coverage, onOpen, onRetry, sort = 'list', onSort, sortLabel }) => {
+  /** Height of the filter bar stuck above, so the column header sticks just under it. */
+  below?: number;
+}> = ({ rows, coverage, onOpen, onRetry, sort = 'list', onSort, sortLabel, below = 0 }) => {
   const lit = useJustFilled(rows);
   const glow = (id: string, f: OutreachField) => (lit.has(`${id}:${f}`) ? ' cell-filled' : '');
   const tableWidth = WIDTH.name + COLUMN_KEYS.reduce((sum, k) => sum + WIDTH[k], 0);
@@ -229,10 +231,14 @@ export const ContactsTable: React.FC<{
     </colgroup>
   );
   // Up and down is the page's scroll and sideways is the table's, so a slanted swipe moves one way, not both.
-  // The header is its own strip: it sticks under the top bar as the page scrolls and is moved sideways with the rows.
+  // The header is its own strip: it sticks under the top bar and the filters as the page scrolls and is moved sideways with the rows.
   return (
     <div className="relative bg-[#121212] border border-[#333333]" data-testid="contacts-table">
-      <div ref={headBox} className="sticky top-[69px] md:top-0 z-20 overflow-hidden bg-[#121212] border-b border-[#333333]">
+      <div
+        ref={headBox}
+        className="sticky top-[calc(69px_+_var(--below))] md:top-[var(--below)] z-20 overflow-hidden bg-[#121212] border-b border-[#333333]"
+        style={{ '--below': `${below}px` } as React.CSSProperties}
+      >
         <table className="text-sm table-fixed" style={tableStyle} aria-label="Contacts columns">
           {cols}
           <thead>
