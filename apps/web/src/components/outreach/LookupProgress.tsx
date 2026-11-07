@@ -26,18 +26,18 @@ export const LookupProgress: React.FC<{ rows: OutreachContact[]; since?: string;
   const finished = Boolean(since) && done === batch.length;
   const parts = since ? [plural(phones, 'phone'), plural(emails, 'email'), ...(people ? [plural(people, 'person', 'people')] : []), `${dollars(cents)} ${finished ? 'charged' : 'so far'}`] : [];
   return (
-    <div role="status" aria-live="polite" data-testid="lookup-progress" className="sticky bottom-0 z-20 -mx-px border border-[#333333] bg-[#121212] shadow-[0_-8px_24px_rgba(0,0,0,0.5)]">
+    <div role="status" aria-live="polite" data-testid="lookup-progress" className="border border-[#333333] bg-[#121212]">
       {since && (
         <div className="h-0.5 bg-[#1A1A1A]">
           <div className="h-full bg-[#336699] transition-[width] duration-700" style={{ width: `${Math.round((done / batch.length) * 100)}%` }} />
         </div>
       )}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 pr-20 md:pr-4 text-sm">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-1.5 text-sm">
         {finished ? <CheckCircle2 className="w-4 h-4 text-[#7fb0e0]" aria-hidden /> : <span className="live-dot" aria-hidden />}
         <span className="text-white">{finished ? `Done: ${plural(batch.length, 'owner')} looked up` : since ? `Looking up ${plural(batch.length, 'owner')} · ${done} done` : `Looking up ${plural(batch.length, 'owner')}…`}</span>
         {parts.length > 0 && <span className="text-gray-400 tabular-nums">{parts.join(' · ')}</span>}
         {finished && (
-          <button type="button" onClick={onDismiss} aria-label="Dismiss" className="ml-auto inline-flex items-center justify-center w-8 h-8 text-gray-500 hover:text-white">
+          <button type="button" onClick={onDismiss} aria-label="Dismiss" className="ml-auto -my-1 inline-flex items-center justify-center w-8 h-8 text-gray-500 hover:text-white">
             <X className="w-4 h-4" />
           </button>
         )}

@@ -544,6 +544,8 @@ const OutreachPage: React.FC = () => {
           {list.truncated && (list.total === undefined || list.total <= list.rowCount) && <span className="text-amber-300"> · The top of a longer list; ask for a narrower one to reach the rest.</span>}
         </p>
       )}
+      {/* The lookup that's running, up top with the list rather than over the + button. */}
+      {data && <LookupProgress rows={data.rows} since={batch?.at} onDismiss={() => keepBatch(null)} />}
       {note && <p className="text-sm text-gray-300">{note}</p>}
       {chosen.length > 0 && (
         <div className="flex flex-wrap items-center gap-3 bg-[#121212] border border-[#333333] px-4 py-2" data-testid="unlock-bar">
@@ -678,7 +680,6 @@ const OutreachPage: React.FC = () => {
           hidden={hiddenColumns}
         />
       )}
-      {data && <LookupProgress rows={data.rows} since={batch?.at} onDismiss={() => keepBatch(null)} />}
       <ContactSheet
         row={open}
         unlockCents={unlockCents}
