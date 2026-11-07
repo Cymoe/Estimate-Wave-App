@@ -45,7 +45,7 @@ function matchesSearch(lead: Lead, query: string) {
   if (!q) return true;
   const digits = q.replace(/\D/g, '');
   if (digits.length >= 3 && (lead.phone ?? '').replace(/\D/g, '').includes(digits)) return true;
-  return [lead.name, lead.email, lead.address, lead.city, lead.county, lead.notes].some((field) => field?.toLowerCase().includes(q));
+  return [lead.name, lead.company, lead.email, lead.address, lead.city, lead.county, lead.notes].some((field) => field?.toLowerCase().includes(q));
 }
 
 const NO_COUNTY = '__none';
@@ -141,6 +141,7 @@ const LeadCard: React.FC<{
         </div>
         {value > 0 && <span className="text-sm font-medium whitespace-nowrap">{dollars(value)}</span>}
       </div>
+      {lead.company && <p className="mt-0.5 text-xs text-gray-500 truncate">{lead.company}</p>}
       {summary && (
         <p className="mt-1 text-xs text-gray-400 truncate" title={summary}>
           {summary}

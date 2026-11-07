@@ -387,6 +387,8 @@ export const costCodeFields = {
 
 export const leadFields = {
   name: v.string(),
+  // The company they're with, when the lead is a person at a company (an LLC's manager, say).
+  company: v.optional(v.string()),
   phone: v.optional(v.string()),
   email: v.optional(v.string()),
   address: v.optional(v.string()),

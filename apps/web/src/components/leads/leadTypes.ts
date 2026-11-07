@@ -3,6 +3,8 @@ export type LeadStatus = 'new' | 'no_answer' | 'contacted' | 'scheduled' | 'quot
 export interface Lead {
   id: string;
   name: string;
+  /** The company they're with, when the lead is a person at one. */
+  company?: string;
   phone?: string;
   email?: string;
   address?: string;

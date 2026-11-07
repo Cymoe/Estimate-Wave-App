@@ -3,6 +3,7 @@ import { AddressLink } from '../common/AddressLink';
 import { fullAddress } from '../../lib/mapsLinks';
 import { createPortal } from 'react-dom';
 import {
+  Briefcase,
   Building2,
   CalendarDays,
   Clock,
@@ -33,6 +34,7 @@ import { LANGUAGE_OPTIONS } from '../../i18n/lang';
 /** The text fields, held as strings while editing. */
 interface Draft {
   name: string;
+  company: string;
   phone: string;
   email: string;
   address: string;
@@ -49,6 +51,7 @@ type Field = keyof Draft;
 
 const draftOf = (lead: Lead | null): Draft => ({
   name: lead?.name ?? '',
+  company: lead?.company ?? '',
   phone: lead?.phone ?? '',
   email: lead?.email ?? '',
   address: lead?.address ?? '',
@@ -330,6 +333,16 @@ export const LeadDrawer: React.FC<{
           {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
 
           <div className="mt-6 space-y-0.5">
+            <Row icon={Briefcase} label="Company">
+              <input
+                value={draft.company}
+                onChange={set('company')}
+                onBlur={() => commit('company')}
+                placeholder="Add company"
+                aria-label="Company"
+                className={plainInput}
+              />
+            </Row>
             <Row icon={Phone} label="Phone">
               <input
                 type="tel"

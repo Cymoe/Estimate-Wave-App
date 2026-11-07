@@ -259,6 +259,7 @@ export const ensureClient = mutation({
     const now = nowIso();
     const clientId = await ctx.db.insert("clients", {
       name: doc.name,
+      ...(doc.company ? { companyName: doc.company } : {}),
       ...(doc.email ? { email: doc.email } : {}),
       ...(doc.phone ? { phone: doc.phone } : {}),
       ...(doc.address ? { address: doc.address } : {}),

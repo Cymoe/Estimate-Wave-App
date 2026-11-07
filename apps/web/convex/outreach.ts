@@ -631,9 +631,10 @@ export const setStatus = mutation({
 /**
  * The owner goes to Leads, where the calls, follow-ups and the estimate
  * already live. The lead (new, source Outreach) gets the decision maker's
- * name (or the owner's), the best number not on Do Not Call, the email, the
- * property as its address, and a note with the owner, the mailing address
- * and the company's note. Sent once; after that the same lead comes back.
+ * name with the owning company as its company (or just the owner's name),
+ * the best number not on Do Not Call, the email, the property as its
+ * address, and a note with what they own, the mailing address and the
+ * company's own note. Sent once; after that the same lead comes back.
  */
 export const sendToLeads = mutation({
   args: { organizationId: v.id("organizations"), contactId: v.id("outreachContacts") },
@@ -647,15 +648,13 @@ export const sendToLeads = mutation({
       const phone = (contact.phones ?? []).find((p) => !p.dnc && !p.litigator);
       const email = (contact.emails ?? []).find((e) => e.nameMatch !== false);
       const mailing = [contact.mailing.address, contact.mailing.city, contact.mailing.state, contact.mailing.zip?.slice(0, 5)].filter(Boolean).join(", ");
-      const notes = [
-        `From Outreach. ${contact.why}.`,
-        contact.person ? `Owner: ${contact.name}${contact.person.title ? `; ${contact.person.name} is ${contact.person.title}` : ""}.` : "",
-        mailing ? `Mailing address: ${mailing}.` : "",
-        contact.note ?? "",
-      ].filter(Boolean).join("\n");
+      const notes = [`From Outreach. ${contact.why}.`, mailing ? `Mailing address: ${mailing}.` : "", contact.note ?? ""].filter(Boolean).join("\n");
+      // The person to call, and the company they're with when it's a company's.
       const name = contact.person?.name ?? contact.name;
+      const company = contact.company && name !== contact.name ? contact.name : undefined;
       leadId = await ctx.db.insert("leads", {
         name,
+        ...(company ? { company } : {}),
         ...(phone ? { phone: phone.number } : {}),
         ...(email ? { email: email.email } : {}),
         ...(contact.property.address ? { address: contact.property.address, city: "Midland" } : {}),

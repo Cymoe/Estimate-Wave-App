@@ -420,16 +420,21 @@ describe("a company's lists", () => {
     await co.as.mutation(api.outreach.setStatus, { organizationId: org, contactId: city.id, status: "skip" });
     expect(await cityNow()).toMatchObject({ status: "skip", note: "Ask for Dana, mornings" });
     await co.as.mutation(api.outreach.setStatus, { organizationId: org, contactId: city.id, status: "new" });
-    // Send to Leads makes one new lead, from Outreach, with the property as its address and the note in its notes.
+    // Send to Leads makes one new lead, from Outreach: the person to call, the company they're with, the property as its address, the note in its notes.
+    await t.run(async (ctx) => ctx.db.patch(city.id as never, { person: { name: "Dana Reyes", title: "Owns the home the mail goes to", source: "tx-comptroller" } }));
     const leadId = await co.as.mutation(api.outreach.sendToLeads, { organizationId: org, contactId: city.id });
     expect(await co.as.mutation(api.outreach.sendToLeads, { organizationId: org, contactId: city.id })).toBe(leadId);
     const lead = await t.run(async (ctx) => ctx.db.get(leadId));
-    expect(lead).toMatchObject({ name: "City Of Midland", source: "Outreach", status: "new", city: "Midland", organizationId: org });
+    expect(lead).toMatchObject({ name: "Dana Reyes", company: "City Of Midland", source: "Outreach", status: "new", city: "Midland", organizationId: org });
+    expect(lead!.notes).not.toContain("Owns the home the mail goes to");
+    // Quoting them later makes a client with the company on it.
+    const clientId = await co.as.mutation(api.leads.ensureClient, { id: leadId });
+    expect(await t.run(async (ctx) => ctx.db.get(clientId))).toMatchObject({ name: "Dana Reyes", companyName: "City Of Midland" });
     expect(lead!.address).toBe(city.property.address);
     expect(lead!.notes).toContain("From Outreach.");
     expect(lead!.notes).toContain("Ask for Dana, mornings");
     // It's on the Leads page like any other lead.
-    expect((await co.as.query(api.leads.list, { organizationId: org })).map((l: { name: string }) => l.name)).toContain("City Of Midland");
+    expect((await co.as.query(api.leads.list, { organizationId: org })).map((l: { name: string }) => l.name)).toContain("Dana Reyes");
     expect(await cityNow()).toMatchObject({ status: "lead", leadId });
     expect((await co.as.query(api.outreach.lists, { organizationId: org })).find((l) => l.who === "commercial")!.done).toBe(2);
 
