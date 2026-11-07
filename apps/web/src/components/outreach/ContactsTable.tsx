@@ -136,7 +136,10 @@ const Empty: React.FC<{ cell: OutreachCell; onRetry?: () => void }> = ({ cell, o
   }
 };
 
-const th = 'font-medium px-3 py-2 whitespace-nowrap align-top overflow-hidden';
+/** Header cells stay at the top while the rows scroll under them; the line under them is a shadow so it sticks too. */
+const head = 'sticky top-0 bg-[#121212] shadow-[inset_0_-1px_0_#333333]';
+const thBase = 'font-medium px-3 py-2 whitespace-nowrap align-top overflow-hidden';
+const th = `${head} z-20 ${thBase}`;
 const td = 'px-3 py-2 whitespace-nowrap align-top overflow-hidden text-ellipsis';
 /**
  * Each column's width, in rem, fixed so the table never shifts as answers
@@ -163,7 +166,7 @@ const pinned = 'sticky bg-[#121212] group-hover:bg-[#1A1A1A]';
 /**
  * The CRM: one row per owner. What the row has comes first (the person
  * behind a company, phone, email, status), then the roll's columns and
- * the property's signals; the name stays pinned as the rest scroll, and the right edge
+ * the property's signals; the name stays pinned as the rest scroll, the header stays on top as the rows scroll, and the right edge
  * fades while more columns wait. Tap a row for the sheet; tick rows to
  * enrich them.
  */
@@ -190,7 +193,7 @@ export const ContactsTable: React.FC<{
   const scrolled = (el: HTMLDivElement) => setAtEnd(el.scrollWidth <= el.clientWidth || el.scrollLeft + el.clientWidth >= el.scrollWidth - 2);
   return (
     <div className="relative" data-testid="contacts-table">
-      <div className="bg-[#121212] border border-[#333333] overflow-x-auto" onScroll={(e) => scrolled(e.currentTarget)} ref={(el) => el && scrolled(el)}>
+      <div className="bg-[#121212] border border-[#333333] overflow-auto max-h-[calc(100dvh-8rem)]" onScroll={(e) => scrolled(e.currentTarget)} ref={(el) => el && scrolled(el)}>
         <table className="text-sm table-fixed" style={{ width: `${widthOf(shownKeys)}rem`, minWidth: '100%' }} aria-label="Contacts">
           <colgroup>
             <col style={{ width: `${WIDTH.select}rem` }} />
@@ -200,11 +203,11 @@ export const ContactsTable: React.FC<{
             ))}
           </colgroup>
           <thead>
-            <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-[#333333]">
-              <th className={`${pinned} left-0 z-10 px-3 py-2 w-10 align-top`}>
+            <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
+              <th className={`${head} left-0 z-30 px-3 py-2 w-10 align-top`}>
                 <input type="checkbox" checked={all} onChange={(e) => onSelectAll(e.target.checked)} aria-label="Select all" className="accent-[#336699]" />
               </th>
-              <th className={`${pinned} left-10 z-10 ${th} border-r border-[#333333]`}>Name</th>
+              <th className={`${head} left-10 z-30 ${thBase} border-r border-[#333333]`}>Name</th>
               {show('person') && (
                 <th className={th}>
                   Decision maker
