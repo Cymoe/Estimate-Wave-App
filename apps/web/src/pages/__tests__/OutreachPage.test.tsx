@@ -213,6 +213,26 @@ describe('the Outreach page', () => {
     expect(statusOf()).toBe('New');
   });
 
+  it('a research run says so on the banner: owners researched and answers found, not phones and emails', async () => {
+    lists = [list];
+    localStorage.setItem('outreach.batch', JSON.stringify({ at: '2026-11-05T15:00:00Z' }));
+    const at = '2026-11-05T15:02:00Z';
+    const answer = { question: 'Any plans?', answer: 'A parks bond passed in 2026.', sources: [], at };
+    // Phones found last week stay out of it: only cells asked in this run count.
+    const before = { phone: { status: 'found', at: '2026-10-01T00:00:00Z', source: 'batchdata', chargedCents: 100 }, email: { status: 'locked' }, person: { status: 'locked' } };
+    contacts = {
+      ...twoContacts(),
+      rows: [
+        contact('r1', { research: answer, enrichment: { ...before, research: { status: 'found', at, source: 'claude', chargedCents: 25 } } }),
+        contact('r2', { name: 'City Of Midland', enrichment: { ...before, research: { status: 'running', at } } }),
+      ],
+    };
+    await render('/outreach/l1');
+    expect(document.body.querySelector('[data-testid="lookup-progress"]')!.textContent).toBe('Researching 2 owners · 1 done1 answer · $0.25 so far');
+    await act(async () => pushContacts!({ ...contacts, rows: [contacts.rows[0], contact('r2', { name: 'City Of Midland', enrichment: { ...before, research: { status: 'none', at } } })] }));
+    expect(document.body.querySelector('[data-testid="lookup-progress"]')!.textContent).toBe('Done: 2 owners researched1 answer · $0.25 charged');
+  });
+
   it('shows a finished lookup as a summary to dismiss, a new signal with a tag and its own chip, and makes a cell glow the moment its answer lands', async () => {
     lists = [list];
     localStorage.setItem('outreach.batch', JSON.stringify({ at: '2026-11-05T15:00:00Z' }));
