@@ -40,6 +40,8 @@ async function rebuildOwners(ctx: ActionCtx) {
   let added = 0;
   let updated = 0;
   let error: string | undefined;
+  // How many owners each facet holds, so a list can say its total without reading the facet.
+  const facetCounts: Record<string, number> = {};
   try {
     const counter = new AddressCounter();
     await readRoll(ctx, counter);
@@ -64,6 +66,7 @@ async function rebuildOwners(ctx: ActionCtx) {
       }
     };
     for (const row of grouper.rows(Date.now())) {
+      for (const f of row.facets) facetCounts[f.facet] = (facetCounts[f.facet] ?? 0) + 1;
       batch.push(row);
       if (batch.length >= UPSERT_BATCH) await flush();
     }
@@ -73,7 +76,7 @@ async function rebuildOwners(ctx: ActionCtx) {
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
-  await ctx.runMutation(internal.permits.recordSync, { source: OWNERS_SOURCE, fetched, added, updated, error, fieldsVersion: error ? undefined : OWNERS_VERSION });
+  await ctx.runMutation(internal.permits.recordSync, { source: OWNERS_SOURCE, fetched, added, updated, error, fieldsVersion: error ? undefined : OWNERS_VERSION, facetCounts: error ? undefined : facetCounts });
   return { fetched, added, updated, error };
 }
 

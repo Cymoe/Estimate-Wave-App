@@ -202,15 +202,34 @@ const rowOf = (o: Doc<"owners">, facet: Facet): ListRow | null => {
   };
 };
 
+/** Whether a definition narrows its facet at all; one that doesn't is counted from the facet alone, with no owner read. */
+const narrows = (def: Definition) =>
+  def.who === "wealthy" ||
+  def.who === "recent_buyer" ||
+  [def.minValueCents, def.maxValueCents, def.minParcels, def.ownerOccupied, def.companyOwned, def.outOfState, def.deedWithinDays].some((x) => x !== undefined) ||
+  Boolean(def.useCodes?.length || def.zips?.length || def.streets?.length);
+
+/** Owners read in parallel, a hundred at a time, in the facet's order. */
+async function ownersOf(ctx: QueryCtx | MutationCtx, facetRows: Array<Doc<"ownerFacets">>, from: number, to: number): Promise<Array<Doc<"owners"> | null>> {
+  const out: Array<Doc<"owners"> | null> = [];
+  for (let i = from; i < to; i += 100) {
+    out.push(...(await Promise.all(facetRows.slice(i, Math.min(to, i + 100)).map((f) => ctx.db.get(f.ownerId)))));
+  }
+  return out;
+}
+
 /**
  * The rows a definition picks: its facet read top-down by what it's sorted
  * on, filtered in memory. The first `offset` matches are skipped (a list
- * loading its next page), then up to the limit are returned; the rest are
- * only counted, so `total` is how many owners the definition reaches.
- * `truncated` means the scan cap was hit with rows unread, so the total is
- * a floor: narrow the list to see everyone.
+ * loading its next page), then up to `want` (at most the limit) are
+ * returned; the rest are only counted, so `total` is how many owners the
+ * definition reaches and `count` how many this page of the list holds.
+ * A definition that doesn't narrow its facet is counted from the facet
+ * alone (the rebuild's count when it has one, exact past the scan), and
+ * only the page's owners are read. `truncated` means the total is a
+ * floor: the scan cap was hit with rows unread.
  */
-export async function buildRows(ctx: QueryCtx | MutationCtx, def: Definition, offset = 0) {
+export async function buildRows(ctx: QueryCtx | MutationCtx, def: Definition, offset = 0, want?: number) {
   let facet: Facet;
   try {
     facet = facetFor(def);
@@ -218,32 +237,48 @@ export async function buildRows(ctx: QueryCtx | MutationCtx, def: Definition, of
     fail("INVALID", e instanceof Error ? e.message : String(e));
   }
   const limit = Math.min(MAX_ROWS, Math.max(1, def.limit ?? DEFAULT_ROWS));
+  const page = Math.min(limit, want ?? limit);
   const now = Date.now();
-  const facetRows = await ctx.db
-    .query("ownerFacets")
-    .withIndex("by_facet_and_sort", (q) => q.eq("county", def.county).eq("facet", facet))
-    .order("desc")
-    .take(SCAN);
+  const query = () =>
+    ctx.db
+      .query("ownerFacets")
+      .withIndex("by_facet_and_sort", (q) => q.eq("county", def.county).eq("facet", facet))
+      .order("desc");
+  if (!narrows(def)) {
+    // Every row of the facet is on the list: the count comes from the rebuild, or from the facet up to the scan cap.
+    const sync = await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", OWNERS_SOURCE)).unique();
+    const counted = sync?.facetCounts?.[facet];
+    const facetRows = await query().take(Math.max(SCAN, offset + page));
+    const total = counted ?? facetRows.length;
+    const truncated = counted === undefined && facetRows.length >= SCAN;
+    const owners = await ownersOf(ctx, facetRows, offset, Math.min(facetRows.length, offset + page));
+    const rows = owners.flatMap((o) => (o ? (rowOf(o, facet) ?? []) : []));
+    const count = Math.min(limit, Math.max(0, total - offset));
+    return { rows, count, total, truncated, limited: total - offset >= limit };
+  }
+  const facetRows = await query().take(SCAN);
   const valueSorted = facet !== "investor" && facet !== "office" && facet !== "buyer";
   const minValue = def.minValueCents ?? (def.who === "wealthy" ? WEALTHY_DEFAULT_CENTS : undefined);
   const rows: ListRow[] = [];
   let total = 0;
   let floored = false;
-  for (const f of facetRows) {
-    const owner = await ctx.db.get(f.ownerId);
-    if (!owner) continue;
-    // Sorted by value, so once a row is under the floor every row after it is too.
-    if (valueSorted && minValue !== undefined && facetValue(owner as unknown as OwnerRow, facet) < minValue) {
-      floored = true;
-      break;
+  outer: for (let i = 0; i < facetRows.length; i += 100) {
+    for (const owner of await ownersOf(ctx, facetRows, i, Math.min(facetRows.length, i + 100))) {
+      if (!owner) continue;
+      // Sorted by value, so once a row is under the floor every row after it is too.
+      if (valueSorted && minValue !== undefined && facetValue(owner as unknown as OwnerRow, facet) < minValue) {
+        floored = true;
+        break outer;
+      }
+      if (!matches(owner as unknown as OwnerRow, def, facet, now)) continue;
+      total++;
+      if (total <= offset || rows.length >= page) continue;
+      const row = rowOf(owner, facet);
+      if (row) rows.push(row);
     }
-    if (!matches(owner as unknown as OwnerRow, def, facet, now)) continue;
-    total++;
-    if (total <= offset || rows.length >= limit) continue;
-    const row = rowOf(owner, facet);
-    if (row) rows.push(row);
   }
-  return { rows, total, truncated: !floored && facetRows.length === SCAN, limited: rows.length >= limit };
+  const count = Math.min(limit, Math.max(0, total - offset));
+  return { rows, count, total, truncated: !floored && facetRows.length === SCAN, limited: total - offset >= limit };
 }
 
 // ---- A company's lists ----
@@ -273,17 +308,20 @@ export const preview = query({
   args: { organizationId: v.id("organizations"), definition: outreachDefinition },
   handler: async (ctx, { organizationId, definition }) => {
     await requirePro(ctx, organizationId);
-    const built = await buildRows(ctx, definition);
-    return { count: built.rows.length, total: built.total, truncated: built.truncated, limited: built.limited, rows: built.rows.slice(0, 25) };
+    const built = await buildRows(ctx, definition, 0, PREVIEW_ROWS);
+    return { count: built.count, total: built.total, truncated: built.truncated, limited: built.limited, rows: built.rows };
   },
 });
+
+/** A preview reads this many owners; the count and total come without the rest. */
+const PREVIEW_ROWS = 25;
 
 export const previewInternal = internalQuery({
   args: { organizationId: v.id("organizations"), definition: outreachDefinition },
   handler: async (ctx, { organizationId, definition }) => {
     await requirePro(ctx, organizationId);
-    const built = await buildRows(ctx, definition);
-    return { count: built.rows.length, total: built.total, truncated: built.truncated, limited: built.limited, rows: built.rows.slice(0, 25) };
+    const built = await buildRows(ctx, definition, 0, PREVIEW_ROWS);
+    return { count: built.count, total: built.total, truncated: built.truncated, limited: built.limited, rows: built.rows };
   },
 });
 

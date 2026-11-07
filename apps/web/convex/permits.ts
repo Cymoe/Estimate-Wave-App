@@ -118,6 +118,7 @@ export const recordSync = internalMutation({
     lastAppliedAt: v.optional(v.string()),
     error: v.optional(v.string()),
     fieldsVersion: v.optional(v.number()),
+    facetCounts: v.optional(v.record(v.string(), v.number())),
   },
   handler: async (ctx, { source, ...result }) => {
     const existing = await ctx.db

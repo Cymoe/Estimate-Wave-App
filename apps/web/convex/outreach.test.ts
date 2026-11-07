@@ -295,6 +295,12 @@ describe("a company's lists", () => {
     ]);
     expect((await co.as.query(api.outreach.preview, { organizationId: org, definition: { county: "Midland", who: "commercial", streets: ["Midkiff Road"] } })).count).toBe(1);
     expect((await co.as.query(api.outreach.preview, { organizationId: org, definition: { county: "Midland", who: "commercial", useCodes: ["F2"] } })).count).toBe(0);
+    // A list that doesn't narrow its facet is counted from the rebuild's tally, not by reading every owner.
+    await t.run(async (ctx) => {
+      const owners = (await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "midland-owners")).unique())!;
+      expect(owners.facetCounts).toMatchObject({ commercial: 2 });
+    });
+    expect(await co.as.query(api.outreach.preview, { organizationId: org, definition: { county: "Midland", who: "commercial" } })).toMatchObject({ count: 2, total: 2, truncated: false, limited: false });
     // Property managers and investors.
     const managers = await co.as.query(api.outreach.preview, { organizationId: org, definition: { county: "Midland", who: "manager" } });
     expect(managers.rows.map((r) => [r.name, r.company, r.why])).toEqual([["ACME MANAGEMENT", "ACME MANAGEMENT", "Gets the tax bills for 5 properties from 3 owners"]]);

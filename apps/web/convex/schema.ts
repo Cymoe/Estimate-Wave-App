@@ -1199,6 +1199,8 @@ export default defineSchema({
     error: v.optional(v.string()),
     // Which PERMIT_FIELDS the stored permits were read with (lib/permits.ts).
     fieldsVersion: v.optional(v.number()),
+    // For the owners build: how many owners each facet holds, so a list can say its total exactly.
+    facetCounts: v.optional(v.record(v.string(), v.number())),
     // How the last run reading builders from the city's permit portal went.
     details: v.optional(
       v.object({
