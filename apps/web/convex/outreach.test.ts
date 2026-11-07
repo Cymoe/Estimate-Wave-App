@@ -5,7 +5,7 @@ import { setup, signUp } from "./test.setup";
 import { actAs } from "./lib/actor";
 import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
-import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, facetsOf, groupOwners, guessDefinition, listOrder, mailKey, ownerKey, shortMoney, type Condensed, type OwnerRow } from "./lib/outreach";
+import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, facetsOf, groupOwners, guessDefinition, listOrder, mailKey, ownerKey, parcelsIn, shortMoney, type Condensed, type OwnerRow } from "./lib/outreach";
 import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, lineOwner, samePerson, scrubPhones, tracerfyDnc, trestleRealContact, twilioLookup, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { GIVE_UP_ERROR } from "./outreach";
 
@@ -171,6 +171,9 @@ describe("grouping the roll into owners", () => {
     expect(() => definitionFromArgs({ who: "wealthy", min_value: 5, max_value: 1 })).toThrow(/above/);
     expect(defaultTitle({ county: "Midland", who: "wealthy", minValueCents: 150_000_000 })).toBe("Wealthy homeowners over $1.5M, Midland");
     expect(defaultTitle({ county: "Midland", who: "manager" })).toBe("Property managers, Midland");
+    expect(defaultTitle({ county: "Midland", who: "investor", companyOwned: true, minParcels: 5 })).toBe("Company investors with 5+ properties, Midland");
+    expect(defaultTitle({ county: "Midland", who: "investor", companyOwned: false, outOfState: true })).toBe("Out-of-state individual investors, Midland");
+    expect(defaultTitle({ county: "Midland", who: "commercial", companyOwned: true, minValueCents: 500_000_000 })).toBe("Commercial property owners (companies) over $5M, Midland");
   });
 
   test("the words alone pick a list while the assistant is away; a stretch is no guess at all", () => {
@@ -195,6 +198,20 @@ describe("grouping the roll into owners", () => {
     expect(who("doctors")).toBeUndefined();
     expect(dollarsIn("about $850k")).toBe(85_000_000);
     expect(dollarsIn("no money here")).toBeUndefined();
+    // The cuts on a holder list: companies only, a floor on holdings, mail outside Texas.
+    expect(who("Company investors with 5 or more properties")).toEqual({ county: "Midland", who: "investor", companyOwned: true, minParcels: 5 });
+    expect(guessDefinition("Company investors with 5 or more properties")!.title).toBe("Company investors with 5+ properties, Midland");
+    expect(who("investors who are LLCs with 10+ properties")).toEqual({ county: "Midland", who: "investor", companyOwned: true, minParcels: 10 });
+    expect(who("landlords with more than 4 rentals")).toEqual({ county: "Midland", who: "investor", minParcels: 5 });
+    expect(who("individual investors with at least 3 properties")).toEqual({ county: "Midland", who: "investor", companyOwned: false, minParcels: 3 });
+    expect(who("out of state investors")).toEqual({ county: "Midland", who: "investor", outOfState: true });
+    expect(who("investors with mail outside Texas")).toEqual({ county: "Midland", who: "investor", outOfState: true });
+    expect(who("shopping center owners that are companies")).toEqual({ county: "Midland", who: "commercial", companyOwned: true });
+    // Dollars are not a floor on holdings, and a homeowner list takes no company cut.
+    expect(who("commercial buildings over 5 million")).toEqual({ county: "Midland", who: "commercial", minValueCents: 500_000_000 });
+    expect(who("wealthy company owners")).toEqual({ county: "Midland", who: "wealthy" });
+    expect(parcelsIn("5+")).toBe(5);
+    expect(parcelsIn("over 5 million")).toBeUndefined();
   });
 });
 
@@ -1704,6 +1721,10 @@ describe("asking in plain words", () => {
     expect(words).toMatchObject({ ok: true, definition: { county: "Midland", who: "manager" }, title: "Property managers, Midland", count: 1 });
     expect(words.explanation).toBe("Property managers. Names and mailing addresses; no phone numbers.");
     expect(words).not.toHaveProperty("note");
+    // The first working list cuts without the assistant: companies holding 3 or more, which is Nuka Hiva alone.
+    const slice = await co.as.action(api.outreach.interpret, { organizationId: co.organizationId, request: "Company investors with 3 or more properties" });
+    expect(slice).toMatchObject({ ok: true, definition: { county: "Midland", who: "investor", companyOwned: true, minParcels: 3 }, title: "Company investors with 3+ properties, Midland", count: 1 });
+    expect(slice.ok && slice.preview.map((r) => r.name)).toEqual(["Nuka Hiva LLC"]);
     const stretch = await co.as.action(api.outreach.interpret, { organizationId: co.organizationId, request: "oil executives" });
     expect(stretch).toEqual({
       ok: false,

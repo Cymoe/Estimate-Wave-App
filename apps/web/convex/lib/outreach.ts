@@ -533,7 +533,7 @@ export const WHO_GUIDE = `Pick exactly one who:
 - recent_buyer: deed within deed_within_days (default 90). "Just bought", "new homeowners", "recently moved".
 - absentee: a home whose owner's mail goes elsewhere; out of state unless out_of_state is false. "Absentee owners", "out-of-town owners".
 - custom: only with explicit use_codes (A homes, B apartments, F1 commercial, F2 industrial).
-Filters: min_value and max_value are dollars of the property the list is about; min_parcels is how many properties they own; zips filter the owner's MAILING zip (where letters go); streets filter the PROPERTY's street; limit caps the rows a list holds at once (up to 500, the default; the rest load page by page).`;
+Filters: min_value and max_value are dollars of the property the list is about; min_parcels is how many properties they own ("5 or more properties" is 5); company_owned true keeps companies only ("company investors", "LLCs"), false keeps people; out_of_state true keeps owners whose mail goes outside Texas; zips filter the owner's MAILING zip (where letters go); streets filter the PROPERTY's street; limit caps the rows a list holds at once (up to 500, the default; the rest load page by page).`;
 
 /** The definition as JSON schema, in the words the assistant and the tool use (dollars, snake_case). */
 export const DEFINITION_SCHEMA = {
@@ -667,7 +667,25 @@ export function guessDefinition(ask: string, county = "Midland"): { definition: 
   else if (has(/wealthy|\brich\b|luxury|high-end|expensive|million|\bover \$|worth/) || amount !== undefined) definition = { county, who: "wealthy" };
   if (!definition) return undefined;
   if (amount !== undefined && (definition.who === "wealthy" || definition.who === "commercial")) definition.minValueCents = amount;
+  // The cuts a holder list takes: companies only, a floor on how many they own, mail outside Texas.
+  if (["investor", "builder", "commercial", "multifamily"].includes(definition.who)) {
+    if (has(/\b(compan(y|ies)|llcs?|corporations?|corporate|entities|businesses)\b/)) definition.companyOwned = true;
+    else if (has(/\b(individuals?|private owners?|not compan(y|ies))\b/)) definition.companyOwned = false;
+    const floor = parcelsIn(words);
+    if (floor !== undefined) definition.minParcels = floor;
+    if (has(/out[- ]of[- ](state|town)|outside (of )?(texas|the state|tx)\b/)) definition.outOfState = true;
+  }
   return { definition, title: defaultTitle(definition) };
+}
+
+const HOLDINGS = "(?:properties|parcels|buildings|homes|houses|rentals|units|doors)";
+/** "5 or more properties", "5+ properties", "at least 5 properties", "more than 4 properties" → 5. */
+export function parcelsIn(words: string): number | undefined {
+  const atLeast = words.match(new RegExp(`\\b(\\d{1,3})\\s*(?:\\+|or more|and up|plus|or greater)\\s*${HOLDINGS}?`)) ?? words.match(new RegExp(`\\b(?:at least|minimum of|a minimum of|no fewer than)\\s*(\\d{1,3})\\s*${HOLDINGS}`));
+  if (atLeast) return Number(atLeast[1]);
+  const moreThan = words.match(new RegExp(`\\b(?:more than|over|above)\\s*(\\d{1,3})\\s*${HOLDINGS}`));
+  if (moreThan) return Number(moreThan[1]) + 1;
+  return undefined;
 }
 
 /** A list's title when the asker gave none. */
@@ -683,8 +701,14 @@ export function defaultTitle(def: Definition): string {
     absentee: "Absentee owners",
     custom: "Property owners",
   };
+  // "Company investors with 5+ properties", "Out-of-state investors", "Commercial property owners (companies)".
+  let name = base[def.who];
+  if (def.companyOwned === true) name = def.who === "investor" ? "Company investors" : `${name} (companies)`;
+  if (def.companyOwned === false) name = def.who === "investor" ? "Individual investors" : `${name} (individuals)`;
+  if (def.outOfState === true && def.who !== "absentee") name = `Out-of-state ${name.charAt(0).toLowerCase()}${name.slice(1)}`;
+  const parcels = def.minParcels ? ` with ${def.minParcels}+ properties` : "";
   const extra = def.minValueCents ? ` over ${shortMoney(def.minValueCents)}` : "";
-  return `${base[def.who]}${extra}, ${def.county}`;
+  return `${name}${parcels}${extra}, ${def.county}`;
 }
 
 /** The short label a list shows for its who. */

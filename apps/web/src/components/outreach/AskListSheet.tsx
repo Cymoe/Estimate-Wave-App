@@ -4,7 +4,7 @@ import { outreachAPI, type OutreachDefinition, type OutreachPreviewRow } from '.
 import { shortMoney } from '../../../convex/lib/outreach';
 import { mailingLine } from './format';
 
-const EXAMPLES = ['Shopping center owners', 'Real estate investors', 'Homebuilders', 'Property managers', 'Homes worth over $1M'];
+const EXAMPLES = ['Company investors with 5 or more properties', 'Shopping center owners', 'Real estate investors', 'Homebuilders', 'Property managers', 'Homes worth over $1M'];
 
 const field = 'w-full bg-[#1A1A1A] border border-[#333333] px-3 text-white text-base md:text-sm focus:outline-none focus:border-[#336699]';
 const primary = 'px-4 py-2 text-sm font-medium bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50';

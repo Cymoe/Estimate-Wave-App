@@ -319,6 +319,9 @@ describe('the Outreach page', () => {
       suggestion: { definition: { county: 'Midland', who: 'wealthy', minValueCents: 150_000_000 }, title: 'Homes over $1.5M, Midland' },
     };
     await render('/outreach?new=1');
+    // The first working list is one tap: companies holding five or more.
+    await click('Company investors with 5 or more properties');
+    expect((document.body.querySelector('textarea') as HTMLTextAreaElement).value).toBe('Company investors with 5 or more properties');
     await click('Homes worth over $1M');
     expect((document.body.querySelector('textarea') as HTMLTextAreaElement).value).toBe('Homes worth over $1M');
     await click('Build');
