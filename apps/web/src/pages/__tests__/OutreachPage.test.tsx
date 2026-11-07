@@ -319,10 +319,16 @@ describe('the Outreach page', () => {
     await flush();
     expect(setStatus).toHaveBeenLastCalledWith('o1', 'r1', 'new', undefined);
     // The table, a tap away; the choice sticks on this device.
-    await click('Table');
+    // The switch is just an icon, named for screen readers.
+    const viewSwitch = async (name: string) => {
+      await act(async () => (document.body.querySelector(`button[aria-label="${name}"]`) as HTMLButtonElement).click());
+      await flush();
+    };
+    expect(document.body.querySelector('button[aria-label="Show as a table"]')!.textContent).toBe('');
+    await viewSwitch('Show as a table');
     expect(document.body.querySelector('[data-testid="contacts-table"]')).not.toBeNull();
     expect(localStorage.getItem('outreach.view')).toBe('table');
-    await click('Cards');
+    await viewSwitch('Show as cards');
     expect(document.body.querySelector('[data-testid="contact-cards"]')).not.toBeNull();
   });
 
@@ -389,7 +395,7 @@ describe('the Outreach page', () => {
     const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(2)')).map((c) => c.textContent);
     expect(names()).toEqual(['Oak Plaza LLC', 'City Of Midland', 'Vance Robert & Linda']);
     const filters = document.body.querySelector('[aria-label="Filters"]')!;
-    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Mail only 1', 'Needs you 1', 'Cards']);
+    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Mail only 1', 'Needs you 1', '']);
     // The failed cell says why, and Retry runs that field again without opening the sheet.
     const failedCell = document.body.querySelectorAll('[data-testid="contact-row"]')[0].querySelectorAll('td')[2];
     expect(failedCell.textContent?.trim()).toBe('Lookup failedThe state registry timed outRetry');

@@ -590,7 +590,6 @@ const OutreachPage: React.FC = () => {
               className={`${chip(false)} gap-2`}
             >
               {view === 'cards' ? <Table2 className="w-4 h-4" /> : <LayoutList className="w-4 h-4" />}
-              <span className="hidden xl:inline">{view === 'cards' ? 'Table' : 'Cards'}</span>
             </button>
           </div>
         </div>
