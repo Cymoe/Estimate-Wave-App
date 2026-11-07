@@ -244,7 +244,9 @@ export const ContactsTable: React.FC<{
                     </td>
                   )}
                   {show('value') && (
-                    <td className={`${td} text-right tabular-nums text-gray-300`}>{r.property.valueCents ? shortMoney(r.property.valueCents) : ''}</td>
+                    <td className={`${td} text-right tabular-nums text-gray-300`} title={r.properties > 1 ? `${r.properties} properties in all` : undefined}>
+                      {r.properties > 1 ? shortMoney(r.totalValueCents) : r.property.valueCents ? shortMoney(r.property.valueCents) : ''}
+                    </td>
                   )}
                   {show('type') && (
                     <td className={`${td} text-gray-400`}>{kindsText(r.kinds)}</td>

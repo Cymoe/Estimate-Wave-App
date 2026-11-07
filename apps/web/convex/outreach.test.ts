@@ -5,7 +5,7 @@ import { setup, signUp } from "./test.setup";
 import { actAs } from "./lib/actor";
 import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
-import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, groupOwners, guessDefinition, listOrder, mailKey, ownerKey, shortMoney, type Condensed } from "./lib/outreach";
+import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, facetsOf, groupOwners, guessDefinition, listOrder, mailKey, ownerKey, shortMoney, type Condensed, type OwnerRow } from "./lib/outreach";
 import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, lineOwner, samePerson, scrubPhones, tracerfyDnc, trestleRealContact, twilioLookup, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { GIVE_UP_ERROR } from "./outreach";
 
@@ -108,6 +108,37 @@ describe("grouping the roll into owners", () => {
     expect(on("City Of Midland")).toEqual(["commercial"]);
     expect(on("Betenbough Homes LLC")).toEqual(["builder"]);
     expect(owners).toHaveLength(11);
+  });
+
+  test("governments, districts and lenders hold parcels without being investors", () => {
+    const holder = (name: string): OwnerRow => ({
+      key: name,
+      kind: "owner",
+      name,
+      company: true,
+      mailing: { address: "500 N LORAINE ST", city: "MIDLAND", state: "TX", zip: "79701" },
+      parcels: 28,
+      residential: 0,
+      multifamily: 0,
+      commercial: 28,
+      totalValueCents: 2_810_000_000,
+      maxValueCents: 2_810_000_000,
+      commercialValueCents: 2_810_000_000,
+      ownerOccupied: false,
+      outOfState: false,
+      useCodes: ["F1"],
+      streets: ["N LORAINE ST"],
+      tops: {},
+    });
+    const facets = (name: string) => facetsOf(holder(name), NOW).map((f) => f.facet);
+    // The roll writes the county's own name without "County of".
+    for (const name of ["Midland County", "Midland County Hospital District", "Midland Independent School District", "Permian Basin Municipal Utility District", "Midland Memorial Foundation", "First Federal Credit Union", "Fairview Cemetery"]) {
+      expect(facets(name), name).toEqual(["commercial"]);
+    }
+    // A company with a government word inside its name is still an investor.
+    for (const name of ["County Line Investments LLC", "District Holdings LLC", "Federal Street Partners LP"]) {
+      expect(facets(name), name).toEqual(["investor", "commercial"]);
+    }
   });
 
   test("pass one finds only the office; pass two hands its rows out and lets them go", () => {

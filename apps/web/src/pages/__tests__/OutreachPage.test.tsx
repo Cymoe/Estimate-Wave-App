@@ -134,6 +134,7 @@ const twoContacts = () => ({
       mailing: { address: '300 N LORAINE ST', city: 'MIDLAND', state: 'TX', zip: '79701' },
       why: '4 commercial buildings worth $300K',
       properties: 4,
+      totalValueCents: 120_000_000,
       signals: [{ kind: 'code_violation', date: '2026-09-14', detail: 'High weeds' }],
     }),
   ],
@@ -172,6 +173,8 @@ describe('the Outreach page', () => {
     // The mailing address is one column: street, then city, state and zip under it.
     expect(cells(0)).toEqual(['', 'Oak Plaza LLC', '—', '—', '—', '—', 'New', '1 MAIN STDALLAS, TX 75201', '12 Midkiff Rd', '$3M', 'Commercial', '—']);
     expect(cells(1)[8]).toBe('12 Midkiff Rd +3');
+    // An owner with several properties shows what they hold in all, the number the list is sorted on.
+    expect(cells(1)[9]).toBe('$1.2M');
     expect(cells(1)[11]).toBe('Code violation Sep 2026');
     expect(rows[0].querySelectorAll('td')[1].className).toContain('sticky');
     expect(document.body.querySelector('[data-testid="more-columns"]')).not.toBeNull();
