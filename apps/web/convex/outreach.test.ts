@@ -6,7 +6,7 @@ import { actAs } from "./lib/actor";
 import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
 import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, groupOwners, guessDefinition, mailKey, ownerKey, shortMoney, type Condensed } from "./lib/outreach";
-import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, lineOwner, samePerson, scrubPhones, tracerfyDnc, trestleRealContact, twilioLookup, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
+import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, lineOwner, samePerson, scrubPhones, tracerfyDnc, trestleRealContact, twilioLookup, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { GIVE_UP_ERROR } from "./outreach";
 
 afterEach(() => {
@@ -512,6 +512,7 @@ describe("a company's lists", () => {
       { source: "tracerfy", outcome: "skipped", note: "Not connected" },
       { source: "enformion", outcome: "skipped", note: "Not connected" },
       { source: "hunter", outcome: "skipped", note: "Not connected" },
+      { source: "leadmagic", outcome: "skipped", note: "Not connected" },
       // The contact check's word on the email, from the call made for her mobile.
       { source: "trestle", outcome: "hit", note: "In the owner's name · grade B" },
       { source: "zerobounce", outcome: "skipped", note: "Not connected" },
@@ -572,6 +573,7 @@ describe("a company's lists", () => {
       ["tracerfy", false, [["phone", 0, 0, 0], ["email", 0, 0, 0]]],
       ["enformion", false, [["phone", 0, 0, 0], ["email", 0, 0, 0]]],
       ["hunter", false, [["email", 0, 0, 0]]],
+      ["leadmagic", false, [["email", 0, 0, 0]]],
       ["trestle", true, [["phone", 1, 1, 0], ["email", 1, 1, 0]]],
       ["twilio", false, [["phone", 0, 0, 0]]],
       ["tracerfy-dnc", false, [["phone", 0, 0, 0]]],
@@ -669,6 +671,7 @@ describe("a company's lists", () => {
       { source: "tracerfy", outcome: "hit", note: "1 email" },
       { source: "enformion", outcome: "skipped", note: "Not connected" },
       { source: "hunter", outcome: "skipped", note: "Not connected" },
+      { source: "leadmagic", outcome: "skipped", note: "Not connected" },
       { source: "trestle", outcome: "skipped", note: "Not connected" },
       { source: "zerobounce", outcome: "hit", note: "1 of 1 deliverable" },
     ]);
@@ -1352,6 +1355,35 @@ describe("the wider stack", () => {
     expect(applyEmailCheck([{ email: "a@b.example", source: "x" }], "a@b.example", { source: "trestle" }).try).toEqual({ source: "trestle", outcome: "miss", note: "Couldn't say whose it is" });
     // No email sent: nothing comes back about one.
     expect((await checkPhonesWith(phones, [withEmail], ["REYES"], who)).email).toBeUndefined();
+  });
+
+  test("LeadMagic finds a work email from the person's name and the company's, after Hunter; a miss or an address on another company's domain is nothing, and a refused key says so", async () => {
+    const bodies: unknown[] = [];
+    const source = leadMagic("lm-key", async (url, init) => {
+      expect(String(url)).toBe("https://api.leadmagic.io/v1/people/email-finder");
+      expect((init?.headers as Record<string, string>)["X-API-Key"]).toBe("lm-key");
+      bodies.push(JSON.parse(init!.body as string));
+      return json({ email: "dana@oakplaza.com", status: "valid", credits_consumed: 1, message: "Email found", first_name: "Dana", last_name: "Reyes", domain: "oakplaza.com", employment_verified: true });
+    });
+    const named = { ...company, person: { name: "Dana Reyes", source: "tx-comptroller" } };
+    expect(await source.trace(named)).toEqual({ emails: [{ email: "dana@oakplaza.com", source: "leadmagic", verified: true }] });
+    expect(bodies).toEqual([{ first_name: "Dana", last_name: "Reyes", company_name: "Oak Plaza LLC" }]);
+    // Nobody named yet, or a person who isn't at a company: not asked, and the ledger says why.
+    expect(source.applies!(company)).toBe("Needs a named person at a company");
+    expect(source.applies!({ ...named, company: undefined })).toBe("Needs a named person at a company");
+    expect(source.applies!(named)).toBeUndefined();
+    // A miss is free and empty; an address on some other company's domain doesn't count.
+    expect(await leadMagic("lm-key", async () => json({ email: null, status: null, credits_consumed: 0, message: "No email found" })).trace(named)).toEqual({});
+    expect(await leadMagic("lm-key", async () => json({ email: "dana@gmail.com", status: "valid", credits_consumed: 1, domain_mismatch: true, requested_domain: "oakplaza.com" })).trace(named)).toEqual({});
+    await expect(leadMagic("bad", async () => json({ message: "Invalid API key" }, 401)).trace(named)).rejects.toThrow("LeadMagic: HTTP 401 (Invalid API key)");
+    expect(leadMagic(undefined).connected).toBe(false);
+    // Last in the email chain, after Hunter.
+    const [email] = await waterfall(named, [hunter("h-key", async () => json({ data: { email: null } })), source], ["email"]);
+    expect(email.source).toBe("leadmagic");
+    expect(email.tries).toEqual([
+      { source: "hunter", outcome: "miss", note: "No match" },
+      { source: "leadmagic", outcome: "hit", note: "1 email" },
+    ]);
   });
 
   test("the Do Not Call scrub flags listed numbers and known litigators, drops nothing, and says how many are clear", async () => {

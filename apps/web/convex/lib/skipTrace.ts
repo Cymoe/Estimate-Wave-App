@@ -514,6 +514,44 @@ export function hunter(key: string | undefined, fetchFn: Fetch = fetch, base = "
 }
 
 /**
+ * LeadMagic's email finder: POST /v1/people/email-finder with X-API-Key,
+ * the person's name and the company's name (it finds the domain). The
+ * same job as Hunter at a fraction of the price, and the provider that
+ * wins most business-data waterfalls; a miss costs nothing. Last in the
+ * email chain, after Hunter.
+ */
+export function leadMagic(key: string | undefined, fetchFn: Fetch = fetch, base = "https://api.leadmagic.io/v1"): Vendor {
+  return {
+    name: "leadmagic",
+    fields: ["email"],
+    connected: Boolean(key),
+    applies: (input) => {
+      const who = input.person ? splitName(input.person.name, "person") : {};
+      return input.company && who.first && who.last ? undefined : "Needs a named person at a company";
+    },
+    trace: async (input) => {
+      const who = input.person ? splitName(input.person.name, "person") : {};
+      if (!input.company || !who.first || !who.last) return {};
+      const response = await fetchFn(`${base}/people/email-finder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json", "X-API-Key": key ?? "" },
+        body: JSON.stringify({ first_name: titleCase(who.first), last_name: titleCase(who.last), company_name: input.company }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { message?: unknown; error?: unknown };
+        const detail = str(body.message) ?? str(body.error);
+        throw new Error(`LeadMagic: HTTP ${response.status}${detail ? ` (${detail})` : ""}`);
+      }
+      const body = (await response.json()) as { email?: string | null; status?: string | null; domain_mismatch?: boolean };
+      const email = str(body.email ?? undefined);
+      // Nothing found, or only an address on some other company's domain: no email.
+      if (!email || body.status !== "valid" || body.domain_mismatch === true) return {};
+      return { emails: [{ email, source: "leadmagic", verified: true }] };
+    },
+  };
+}
+
+/**
  * The stack, in the order it's tried: free state records first, then the
  * paid registry; the skip traces by price; a work-email finder last.
  */
@@ -525,6 +563,7 @@ export function vendors(env: Record<string, string | undefined>, fetchFn: Fetch 
     tracerfy(env.TRACERFY_API_KEY, fetchFn, env.TRACERFY_API_BASE || undefined),
     enformion(env.ENFORMION_AP_NAME, env.ENFORMION_AP_PASSWORD, fetchFn, env.ENFORMION_API_BASE || undefined),
     hunter(env.HUNTER_API_KEY, fetchFn),
+    leadMagic(env.LEADMAGIC_API_KEY, fetchFn),
   ];
 }
 
@@ -907,7 +946,7 @@ export function applyEmailCheck(emails: Email[], address: string, check: EmailCh
 export const KEY_FOR: Record<Field, string> = {
   person: "TX_COMPTROLLER_API_KEY or COBALT_API_KEY",
   phone: "BATCHDATA_API_KEY, TRACERFY_API_KEY or ENFORMION_AP_NAME with ENFORMION_AP_PASSWORD",
-  email: "BATCHDATA_API_KEY, TRACERFY_API_KEY, ENFORMION_AP_NAME with ENFORMION_AP_PASSWORD, or HUNTER_API_KEY",
+  email: "BATCHDATA_API_KEY, TRACERFY_API_KEY, ENFORMION_AP_NAME with ENFORMION_AP_PASSWORD, HUNTER_API_KEY or LEADMAGIC_API_KEY",
   research: "ANTHROPIC_API_KEY",
 };
 

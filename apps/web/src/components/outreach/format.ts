@@ -14,6 +14,7 @@ export const sourceName = (s: string) =>
     tracerfy: 'Tracerfy',
     enformion: 'EnformionGO',
     hunter: 'Hunter',
+    leadmagic: 'LeadMagic',
     'tx-comptroller': 'Texas Comptroller',
     cobalt: 'State registry (Cobalt)',
     zerobounce: 'ZeroBounce',
