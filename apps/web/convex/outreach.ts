@@ -948,9 +948,12 @@ export const enrich = mutation({
     const answers = jobs.filter((j) => j.fields.includes("research")).length;
     const balance = organization.walletBalanceCents ?? 0;
     const cost = phones * UNLOCK_CENTS + answers * RESEARCH_CENTS;
-    if (cost > balance) {
+    // Lookups still running are charged when they land, so what they could cost is spoken for already.
+    const held = cost > 0 ? heldCents(await contactsOf(ctx, organizationId)) : 0;
+    if (cost + held > balance) {
       const needs = [phones ? `${phones} ${phones === 1 ? "phone" : "phones"}` : "", answers ? `${answers} research ${answers === 1 ? "answer" : "answers"}` : ""].filter(Boolean).join(" and ");
-      fail("INVALID", `Balance too low: ${dollars(cost)} needed for ${needs}, ${dollars(balance)} available`);
+      const free = held ? `${dollars(Math.max(0, balance - held))} available (${dollars(held)} held for lookups still running)` : `${dollars(balance)} available`;
+      fail("INVALID", `Balance too low: ${dollars(cost)} needed for ${needs}, ${free}`);
     }
     const asked = question?.trim().slice(0, 300) || DEFAULT_RESEARCH_QUESTION;
     const now = nowIso();
@@ -971,6 +974,20 @@ export const enrich = mutation({
     return { queued: jobs.length, costCents: cost, at: now };
   },
 });
+
+/** The most the company's running lookups can still charge: a phone or a research answer each, sample runs aside. */
+function heldCents(contacts: Doc<"outreachContacts">[]) {
+  let held = 0;
+  for (const c of contacts) {
+    if (isSampleRun(c)) continue;
+    const cells = cellsOf(c);
+    if (cells.phone.status === "running") held += UNLOCK_CENTS;
+    if (cellFor(cells, "research").status === "running") held += RESEARCH_CENTS;
+  }
+  return held;
+}
+
+export const UNPAID_ERROR = "Found, but the balance ran out before it could be paid for. Add funds and look it up again.";
 
 /** How long a sister entity's lookup waits behind the one before it in the same batch. */
 export const FAMILY_STAGGER_MS = 90 * 1000;
@@ -1171,6 +1188,7 @@ export const recordEnrichment = internalMutation({
     const mark = simulated ? { simulated: true } : {};
     const price = shared ? 0 : field === "phone" ? UNLOCK_CENTS : field === "research" ? RESEARCH_CENTS : 0;
     let chargedCents = 0;
+    let unpaid = false;
     if (found && price > 0 && requestedBy) {
       try {
         await postTransaction(ctx, c.organizationId, {
@@ -1182,20 +1200,24 @@ export const recordEnrichment = internalMutation({
         });
         chargedCents = price;
       } catch {
-        // The balance ran out between the request and the hit: the company keeps what was found.
+        // Spent elsewhere since the request (the hold only covers other lookups): what was found isn't handed over unpaid.
+        unpaid = true;
       }
     }
-    cells[field] = found
-      ? { status: "found", at: now, requestedBy, source, chargedCents: price > 0 || (shared && field === "phone") ? chargedCents : undefined, tries, ...mark }
-      : error
-        ? { status: "failed", at: now, requestedBy, error, tries, ...mark }
-        : { status: "none", at: now, requestedBy, source, tries, ...mark };
+    const kept = found && !unpaid;
+    cells[field] = unpaid
+      ? { status: "failed", at: now, requestedBy, source, error: UNPAID_ERROR, tries, ...mark }
+      : found
+        ? { status: "found", at: now, requestedBy, source, chargedCents: price > 0 || (shared && field === "phone") ? chargedCents : undefined, tries, ...mark }
+        : error
+          ? { status: "failed", at: now, requestedBy, error, tries, ...mark }
+          : { status: "none", at: now, requestedBy, source, tries, ...mark };
     await ctx.db.patch(contactId, {
       enrichment: cells,
-      ...(field === "phone" && found ? { phones } : {}),
-      ...(field === "email" && found ? { emails } : {}),
-      ...(field === "person" && found ? { person } : {}),
-      ...(field === "research" ? { research: found ? research : c.research, researchQuestion: undefined } : {}),
+      ...(field === "phone" && kept ? { phones } : {}),
+      ...(field === "email" && kept ? { emails } : {}),
+      ...(field === "person" && kept ? { person } : {}),
+      ...(field === "research" ? { research: kept ? research : c.research, researchQuestion: undefined } : {}),
       updatedAt: now,
     });
     // The stack's own scorecard: an attempt per source asked, a hit for the one that answered.

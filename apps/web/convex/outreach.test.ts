@@ -8,7 +8,7 @@ import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, ownerKey, parcelsIn, shortMoney, underFloor, type Condensed, type OwnerRow } from "./lib/outreach";
 import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, lineOwner, samePerson, scrubPhones, tracerfyDnc, trestleRealContact, twilioLookup, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
-import { GIVE_UP_ERROR } from "./outreach";
+import { GIVE_UP_ERROR, UNPAID_ERROR } from "./outreach";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -1181,6 +1181,39 @@ describe("a company's lists", () => {
     // The sample clear-out takes simulated results too.
     expect(await t.mutation(internal.outreach.seedSampleList, { email: "owner@roof.example", clear: true })).toMatchObject({ done: true, cleared: 1 });
     expect((await read()).rows.find((r) => r.id === real.id)!.enrichment).toEqual({ phone: { status: "locked" }, email: { status: "locked" }, person: { status: "locked" }, research: { status: "locked" } });
+  });
+
+  test("running lookups hold what they could charge, so a second batch can't spend the same balance; a hit the balance can't pay for isn't handed over", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 100 }));
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    const read = async () => await co.as.query(api.outreach.contacts, { organizationId: org });
+    const rows = (await read()).rows;
+    const oak = rows.find((r) => r.name === "Oak Plaza LLC")!;
+    const cityHall = rows.find((r) => r.name === "City Of Midland")!;
+
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["phone"] })).resolves.toMatchObject({ queued: 1, costCents: 100 });
+    // Nothing charged yet, but the dollar is spoken for.
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [cityHall.id], fields: ["phone"] })).rejects.toThrow(
+      /Balance too low: \$1\.00 needed for 1 phone, \$0\.00 available \(\$1\.00 held for lookups still running\)/,
+    );
+    // Free fields still go.
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [cityHall.id], fields: ["person"] })).resolves.toMatchObject({ queued: 1, costCents: 0 });
+
+    // The balance is spent elsewhere before the hit lands: the phone isn't kept, nothing is charged, and Retry shows.
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 0 }));
+    await t.mutation(internal.outreach.recordEnrichment, { contactId: oak.id as Id<"outreachContacts">, field: "phone", source: "batchdata", phones: [{ number: "4325550100", type: "mobile", source: "batchdata" }] });
+    const after = await read();
+    const oakNow = after.rows.find((r) => r.id === oak.id)!;
+    expect(oakNow.enrichment.phone).toMatchObject({ status: "failed", source: "batchdata", error: UNPAID_ERROR });
+    expect(oakNow.phones).toEqual([]);
+    expect(after.balanceCents).toBe(0);
+    expect(await t.run(async (ctx) => ctx.db.query("walletTransactions").collect())).toEqual([]);
   });
 
   test("seedSample fills one owner with marked sample data for a look at the layout, charges nothing, and clears it again", async () => {
