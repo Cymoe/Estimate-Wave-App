@@ -101,7 +101,6 @@ jest.mock('../../components/layouts/DashboardLayout', () => ({
 
 import OutreachPage from '../OutreachPage';
 import { ContactsTable } from '../../components/outreach/ContactsTable';
-import { followUpText, localDay } from '../../components/outreach/format';
 
 // The screen width the page asks about: a laptop unless a test says it's a phone.
 let narrowScreen = false;
@@ -210,7 +209,7 @@ describe('the Outreach page', () => {
     });
     await act(async () => (document.body.querySelectorAll('[data-testid="contact-row"]')[1] as HTMLTableRowElement).click());
     await flush();
-    await click('Interested');
+    await click('Skip');
     await flush();
     const statusOf = () => document.body.querySelectorAll('[data-testid="contact-row"]')[1].querySelectorAll('td')[5].textContent;
     expect(statusOf()).toBe('New');
@@ -332,29 +331,22 @@ describe('the Outreach page', () => {
     expect(city).toContain('Decision maker: not looked up');
     expect(city).toContain('Phone: not looked up');
     expect(cards[1].querySelector('[data-testid="card-reach"]')).toBeNull();
-    // What happened on the call: No answer comes back in two days; Call back asks which day.
+    // Skip, and Skip again puts them back; Send to Leads hands them over, and then the button opens the lead.
     const tapCard = async (text: string) => {
       const card = document.body.querySelectorAll('[data-testid="contact-card"]')[0];
       await act(async () => (Array.from(card.querySelectorAll('button')).find((b) => b.textContent?.trim() === text) as HTMLButtonElement).click());
       await flush();
     };
-    await tapCard('No answer');
-    expect(setStatus).toHaveBeenLastCalledWith('o1', 'r1', 'no_answer', '', localDay(2), true);
-    const statusLine = () => document.body.querySelectorAll('[data-testid="contact-card"]')[0].querySelector('[data-testid="card-status"]')!.textContent;
-    expect(statusLine()).toBe(`No answer · ${followUpText(localDay(2))}`);
-    await tapCard('Call back');
-    expect(document.body.querySelector('[data-testid="callback-days"]')).not.toBeNull();
-    await tapCard('Tomorrow');
-    expect(setStatus).toHaveBeenLastCalledWith('o1', 'r1', 'callback', '', localDay(1), true);
-    expect(statusLine()).toBe('Call back · Tomorrow');
-    expect(document.body.querySelector('[data-testid="callback-days"]')).toBeNull();
-    // Interested: off to Leads, where the follow-ups and the estimate live; once there, the button opens the lead.
-    await tapCard('Interested');
-    expect(setStatus).toHaveBeenLastCalledWith('o1', 'r1', 'interested', '', undefined, true);
+    const cardButtons = () => Array.from(document.body.querySelectorAll('[data-testid="contact-card"]')[0].querySelectorAll('button')).map((b) => b.textContent?.trim()).slice(-2);
+    expect(cardButtons()).toEqual(['Send to Leads', 'Skip']);
+    await tapCard('Skip');
+    expect(setStatus).toHaveBeenLastCalledWith('o1', 'r1', 'skip', '');
+    expect(cardButtons()).toEqual(['Send to Leads', 'Skipped']);
+    await tapCard('Skipped');
+    expect(setStatus).toHaveBeenLastCalledWith('o1', 'r1', 'new', '');
     await tapCard('Send to Leads');
     expect(sendToLeads).toHaveBeenCalledWith('o1', 'r1');
-    expect(statusLine()).toBe('In Leads');
-    expect(Array.from(document.body.querySelectorAll('[data-testid="contact-card"]')[0].querySelectorAll('button')).some((b) => b.textContent?.trim() === 'Open in Leads')).toBe(true);
+    expect(cardButtons().at(-1)).toBe('In Leads');
     // The table, a tap away; the choice sticks on this device.
     // The switch is just an icon, named for screen readers.
     const viewSwitch = async (name: string) => {
@@ -368,7 +360,7 @@ describe('the Outreach page', () => {
     await viewSwitch('Show as cards');
     expect(document.body.querySelector('[data-testid="contact-cards"]')).not.toBeNull();
     // An owner already in Leads: the button opens their lead.
-    await act(async () => (Array.from(document.body.querySelectorAll('[data-testid="contact-card"]')[0].querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Open in Leads') as HTMLButtonElement).click());
+    await act(async () => (Array.from(document.body.querySelectorAll('[data-testid="contact-card"]')[0].querySelectorAll('button')).find((b) => b.textContent?.trim() === 'In Leads') as HTMLButtonElement).click());
     expect(path).toBe('/leads?lead=lead1');
   });
 
@@ -451,7 +443,7 @@ describe('the Outreach page', () => {
     const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(1)')).map((c) => c.textContent);
     expect(names()).toEqual(['Oak Plaza LLC', 'City Of Midland', 'Vance Robert & Linda']);
     const filters = document.body.querySelector('[aria-label="Filters"]')!;
-    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Due today 0', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Mail only 1', 'Needs you 1', '', '']);
+    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Mail only 1', 'Needs you 1', '', '']);
     // The failed cell says why, and Retry runs that field again without opening the sheet.
     const failedCell = document.body.querySelectorAll('[data-testid="contact-row"]')[0].querySelectorAll('td')[1];
     expect(failedCell.textContent?.trim()).toBe('Lookup failedThe state registry timed outRetry');
@@ -516,32 +508,6 @@ describe('the Outreach page', () => {
     expect(path).toBe('/outreach/l9');
   });
 
-  it('Due today: who to call back, or try again, today or before; the table says when', async () => {
-    lists = [list];
-    contacts = {
-      ...twoContacts(),
-      rows: [
-        contact('r1', { status: 'no_answer', followUpOn: localDay(-1), touches: [{ at: '2026-11-05T15:00:00Z', status: 'no_answer', followUpOn: localDay(-1) }] }),
-        contact('r2', { name: 'City Of Midland', status: 'callback', followUpOn: localDay(3) }),
-      ],
-    };
-    await render('/outreach/l1');
-    const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(1)')).map((c) => c.textContent);
-    expect(button('Due today').textContent?.trim()).toBe('Due today 1');
-    await click('Due today');
-    expect(names()).toEqual(['Oak Plaza LLC']);
-    const followUps = () => Array.from(document.body.querySelectorAll('[data-testid="follow-up"]')).map((f) => [f.textContent, f.className.includes('amber')]);
-    expect(followUps()).toEqual([[followUpText(localDay(-1)), true]]);
-    expect(followUpText(localDay(-1))).toMatch(/^Overdue · /);
-    await act(async () => (document.body.querySelector('[data-testid="filter-bar"] button') as HTMLButtonElement).click());
-    await flush();
-    expect(names()).toEqual(['Oak Plaza LLC', 'City Of Midland']);
-    expect(followUps()[1]).toEqual([followUpText(localDay(3)), false]);
-    // The status picker offers the call outcomes; the earlier Sent, Done and Skipped only while a row has one.
-    const options = Array.from(document.body.querySelectorAll('select option')).map((o) => o.textContent);
-    expect(options).toEqual(['All statuses', 'New', 'No answer', 'Call back', 'Interested', 'Not interested', 'In Leads']);
-  });
-
   it('says what it cannot make and builds the closest instead; an example chip fills the ask', async () => {
     interpreted = {
       ok: false,
@@ -585,12 +551,12 @@ describe('the Outreach page', () => {
     await click('Find the person behind the company · free');
     expect(enrich).toHaveBeenCalledWith('o1', ['r1'], ['person'], undefined);
     await act(async () => type(sheet.querySelector('textarea#outreach-note') as HTMLTextAreaElement, 'Mailed Nov 5'));
-    await click('Not interested');
-    expect(setStatus).toHaveBeenCalledWith('o1', 'r1', 'not_interested', 'Mailed Nov 5', undefined, true);
+    await click('Skip');
+    expect(setStatus).toHaveBeenCalledWith('o1', 'r1', 'skip', 'Mailed Nov 5');
     expect(document.body.textContent).toContain('1 done');
-    expect(document.body.querySelector('[data-testid="contact-row"]')!.textContent).toContain('Not interested');
-    // The call is in the history, with its note.
-    expect(document.body.querySelector('[data-testid="history"]')!.textContent).toContain('Not interestedMailed Nov 5');
+    expect(document.body.querySelector('[data-testid="contact-row"]')!.textContent).toContain('Skipped');
+    // The status picker: New, In Leads, Skipped; nothing to track calls with here.
+    expect(Array.from(document.body.querySelectorAll('select option')).map((o) => o.textContent)).toEqual(['All statuses', 'New', 'In Leads', 'Skipped']);
 
     // The CSV, for a mail merge.
     const made: string[] = [];

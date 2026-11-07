@@ -13,7 +13,7 @@ import { fundErrorText, openFundingPage } from '../components/market/WalletBar';
 import { useAuth } from '../contexts/AuthContext';
 import { isStaff } from '../lib/roles';
 import { DEFAULT_ROWS, WHO_LABEL, listOrder } from '../../convex/lib/outreach';
-import { callOk, isDue, mailOnly, openToLook, sourceName, STATUS_LABEL } from '../components/outreach/format';
+import { callOk, mailOnly, openToLook, sourceName, STATUS_LABEL } from '../components/outreach/format';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 const iconButton = 'w-11 h-11 inline-flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2A2A2A] border border-[#333333]';
@@ -22,15 +22,13 @@ const SORT_KEY = 'outreach.sort';
 const BATCH_KEY = 'outreach.batch';
 const chip = (on: boolean) => `inline-flex items-center gap-1 px-3 h-9 shrink-0 text-sm border whitespace-nowrap ${on ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333333] text-gray-300 hover:bg-[#2A2A2A]'}`;
 const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: cents % 100 ? 2 : 0 })}`;
-/** The status picker: the call outcomes always; the earlier Sent, Done and Skipped only while some row still has one. */
-const STATUS_FILTERS: OutreachRowStatus[] = ['new', 'no_answer', 'callback', 'interested', 'not_interested', 'lead'];
-const OLD_STATUSES: OutreachRowStatus[] = ['client', 'sent', 'done', 'skip'];
+/** The status picker: New, In Leads, Skipped; earlier statuses only while some row still has one. */
+const STATUS_FILTERS: OutreachRowStatus[] = ['new', 'lead', 'skip'];
+const OLD_STATUSES: OutreachRowStatus[] = ['no_answer', 'callback', 'interested', 'not_interested', 'client', 'sent', 'done'];
 /** The quick filters over the table: what a row has, or what it needs from you. */
-type Show = 'all' | 'due' | 'new' | 'signal' | 'ready' | 'email' | 'mail' | 'needs';
+type Show = 'all' | 'new' | 'signal' | 'ready' | 'email' | 'mail' | 'needs';
 const SHOWS: Array<{ value: Show; label: string; has: (r: OutreachContact) => boolean }> = [
   { value: 'all', label: 'All', has: () => true },
-  /** No answer and Call back whose day has come: who to call today. */
-  { value: 'due', label: 'Due today', has: (r) => isDue(r) },
   /** A signal first seen this week: the lists are watched, and this is what changed. Shown only when there is one. */
   { value: 'new', label: 'New this week', has: (r) => r.signals.some((x) => x.fresh) },
   /** A code violation, a demolition order or a stalled permit on the property: the warmest calls on any list. */
@@ -426,19 +424,14 @@ const OutreachPage: React.FC = () => {
 
   const addFunds = () => organizationId && openFundingPage(organizationId).catch((err) => setError(fundErrorText(err)));
 
-  /** A call's outcome or a note: shown at once, saved behind it, and put back if the save fails. */
-  const setContactStatus = async (row: OutreachContact, next: OutreachRowStatus, text: string, followUpOn?: string, touch?: boolean) => {
+  /** Skip, or a note: shown at once, saved behind it, and put back if the save fails. */
+  const setContactStatus = async (row: OutreachContact, next: OutreachRowStatus, text: string) => {
     if (!organizationId) return;
-    const was = { status: row.status, note: row.note, followUpOn: row.followUpOn, touches: row.touches };
-    // As the server does it: a call or a new status moves the day (kept only for No answer and Call back) and goes in the history.
-    const changed = touch || next !== row.status;
-    const day = changed ? (next === 'no_answer' || next === 'callback' ? followUpOn : undefined) : row.followUpOn;
-    const note = text.trim() || undefined;
-    const touches = changed ? [...(row.touches ?? []), { at: new Date().toISOString(), status: next, note, followUpOn: day }] : row.touches;
-    setData((d) => d && { ...d, rows: d.rows.map((r) => (r.id === row.id ? { ...r, status: next, note, followUpOn: day, touches } : r)) });
+    const was = { status: row.status, note: row.note };
+    setData((d) => d && { ...d, rows: d.rows.map((r) => (r.id === row.id ? { ...r, status: next, note: text.trim() || undefined } : r)) });
     setLists((l) => l && l.map((x) => (row.listIds.includes(x.id) ? { ...x, done: doneOn(x.id, row, next) } : x)));
     try {
-      await outreachAPI.setStatus(organizationId, row.id, next, text.trim(), followUpOn, touch);
+      await outreachAPI.setStatus(organizationId, row.id, next, text.trim());
     } catch (err) {
       setData((d) => d && { ...d, rows: d.rows.map((r) => (r.id === row.id ? { ...r, ...was } : r)) });
       setLists((l) => l && l.map((x) => (row.listIds.includes(x.id) ? { ...x, done: doneOn(x.id, { ...row, status: next }, row.status) } : x)));
@@ -447,19 +440,19 @@ const OutreachPage: React.FC = () => {
   };
   /** The list's done count after this row's status change. */
   const doneOn = (id: string, row: OutreachContact, next: OutreachRowStatus) => {
-    const worked = (s: OutreachRowStatus) => ['interested', 'not_interested', 'lead', 'client', 'done', 'skip'].includes(s);
+    const worked = (s: OutreachRowStatus) => !['new', 'sent', 'no_answer', 'callback'].includes(s);
     const current = lists?.find((l) => l.id === id)?.done ?? 0;
     return Math.max(0, current + (worked(next) ? 1 : 0) - (worked(row.status) ? 1 : 0));
   };
 
-  /** Interested: off to Leads, where the follow-ups, the visit and the estimate already live; once there, this opens the lead. */
+  /** Off to Leads, where the calls, follow-ups and the estimate already live; once there, this opens the lead. */
   const toLeads = async (row: OutreachContact) => {
     if (!organizationId) return;
     if (row.leadId) return navigate(`/leads?lead=${row.leadId}`);
     setError(null);
     try {
       const leadId = await outreachAPI.sendToLeads(organizationId, row.id);
-      setData((d) => d && { ...d, rows: d.rows.map((r) => (r.id === row.id ? { ...r, status: 'lead', leadId, followUpOn: undefined, touches: [...(r.touches ?? []), { at: new Date().toISOString(), status: 'lead' }] } : r)) });
+      setData((d) => d && { ...d, rows: d.rows.map((r) => (r.id === row.id ? { ...r, status: 'lead', leadId } : r)) });
       setLists((l) => l && l.map((x) => (row.listIds.includes(x.id) ? { ...x, done: doneOn(x.id, row, 'lead') } : x)));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't send them to Leads");
@@ -647,7 +640,7 @@ const OutreachPage: React.FC = () => {
                     show === s.value ? 'text-white border-[#336699] bg-[#336699]/10' : `border-transparent hover:text-white hover:bg-[#2a2a2a] ${s.value === 'needs' ? 'text-amber-300' : 'text-gray-400'}`
                   }`}
                 >
-                  {s.label} {s.value !== 'all' && <span className={(s.value === 'needs' || s.value === 'due') && show !== s.value && counts[s.value] > 0 ? 'text-amber-300/70' : 'text-gray-500'}>{counts[s.value]}</span>}
+                  {s.label} {s.value !== 'all' && <span className={s.value === 'needs' && show !== s.value && counts[s.value] > 0 ? 'text-amber-300/70' : 'text-gray-500'}>{counts[s.value]}</span>}
                 </button>
               ),
             )}
@@ -695,7 +688,7 @@ const OutreachPage: React.FC = () => {
         <ContactCards
           rows={rows}
           onOpen={setOpen}
-          onOutcome={(row, next, day) => setContactStatus(row, next, row.note ?? '', day, true)}
+          onStatus={(row, next) => setContactStatus(row, next, row.note ?? '')}
           onRetry={(row, field) => void enrich([row.id], [field]).catch(() => {})}
           onLead={(row) => void toLeads(row)}
         />

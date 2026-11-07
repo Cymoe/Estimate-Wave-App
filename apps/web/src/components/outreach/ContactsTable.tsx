@@ -5,7 +5,7 @@ import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { fullAddress } from '../../lib/mapsLinks';
 import type { OutreachCell, OutreachContact, OutreachContacts, OutreachCoverage, OutreachField, OutreachPhone, OutreachRowStatus, OutreachSignal, OutreachTry, OutreachWho } from '../../lib/api';
 import { shortMoney, WHO_LABEL } from '../../../convex/lib/outreach';
-import { askingText, callOk, dayText, deedSearchUrl, dueAgain, followUpText, isDue, localDay, NO_ANSWER_DAYS, OUTCOMES, phoneText, sourceList, sourceName, STATUS_LABEL, tryAgainFrom } from './format';
+import { askingText, callOk, deedSearchUrl, dueAgain, phoneText, sourceList, sourceName, STATUS_LABEL, tryAgainFrom } from './format';
 
 /** The column's short name for the kind of owner. */
 const KIND: Record<OutreachWho, string> = {
@@ -23,77 +23,8 @@ const SIGNAL_LABEL: Record<OutreachSignal['kind'], string> = { code_violation: '
 const PHONE_TYPE: Record<OutreachPhone['type'], string> = { mobile: 'mobile', landline: 'landline', voip: 'VoIP', unknown: '' };
 
 const statusTone = (s: OutreachRowStatus) =>
-  s === 'interested' || s === 'lead' || s === 'done' ? 'text-[#7fb0e0]' : s === 'not_interested' || s === 'skip' ? 'text-gray-600' : s === 'new' ? 'text-gray-500' : 'text-amber-300';
-/** Under a status: the day to try again, amber once it's come. */
-const FollowUp: React.FC<{ row: OutreachContact; className?: string }> = ({ row, className = '' }) =>
-  row.followUpOn && (row.status === 'no_answer' || row.status === 'callback') ? (
-    <span className={`${className} ${isDue(row) ? 'text-amber-300' : 'text-gray-500'}`} data-testid="follow-up">
-      {followUpText(row.followUpOn)}
-    </span>
-  ) : null;
+  s === 'lead' || s === 'interested' || s === 'client' || s === 'done' ? 'text-[#7fb0e0]' : s === 'skip' || s === 'not_interested' ? 'text-gray-600' : s === 'new' ? 'text-gray-500' : 'text-amber-300';
 
-/**
- * What happened on the call: No answer (back on Due today in two days), Call
- * back (pick the day), Interested, Not interested. Each tap is logged, so a
- * second No answer counts as a second try.
- */
-export const Outcomes: React.FC<{
-  row: OutreachContact;
-  busy?: boolean;
-  onOutcome: (status: OutreachRowStatus, followUpOn?: string) => void;
-  className?: string;
-}> = ({ row, busy, onOutcome, className = '' }) => {
-  const [picking, setPicking] = useState(false);
-  useEffect(() => setPicking(false), [row.id, row.status, row.followUpOn]);
-  const tap = (s: (typeof OUTCOMES)[number]) => {
-    if (s === 'callback') return setPicking((p) => !p);
-    setPicking(false);
-    onOutcome(s, s === 'no_answer' ? localDay(NO_ANSWER_DAYS) : undefined);
-  };
-  const day = 'inline-flex items-center justify-center px-3 min-h-[40px] text-sm border border-[#333333] text-gray-200 hover:bg-[#2A2A2A] disabled:opacity-50';
-  return (
-    <div className={className} data-testid="outcomes">
-      <div className="grid grid-cols-4 border border-[#333333] divide-x divide-[#333333]" role="group" aria-label="What happened">
-        {OUTCOMES.map((s) => {
-          const on = row.status === s || (s === 'callback' && picking);
-          return (
-            <button
-              key={s}
-              type="button"
-              onClick={() => tap(s)}
-              disabled={busy}
-              aria-pressed={row.status === s}
-              className={`min-h-[44px] px-1 text-[13px] leading-tight disabled:opacity-50 ${on ? 'bg-[#336699] text-white' : 'text-gray-300 hover:bg-[#2A2A2A]'}`}
-            >
-              {STATUS_LABEL[s]}
-            </button>
-          );
-        })}
-      </div>
-      {picking && (
-        <div className="flex flex-wrap items-center gap-2 pt-2" role="group" aria-label="Call back on" data-testid="callback-days">
-          {[
-            ['Tomorrow', 1],
-            ['In 3 days', 3],
-            ['Next week', 7],
-          ].map(([label, n]) => (
-            <button key={label} type="button" disabled={busy} className={day} onClick={() => onOutcome('callback', localDay(n as number))}>
-              {label}
-            </button>
-          ))}
-          <input
-            type="date"
-            aria-label="Pick a day"
-            min={localDay()}
-            disabled={busy}
-            onChange={(e) => e.target.value && onOutcome('callback', e.target.value)}
-            className="h-10 px-2 bg-[#1A1A1A] border border-[#333333] text-sm text-white rounded-none [color-scheme:dark] focus:outline-none focus:border-[#336699]"
-          />
-        </div>
-      )}
-    </div>
-  );
-};
 const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: cents % 100 ? 2 : 0 })}`;
 const monthYear = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
 const kindsText = (kinds: OutreachWho[]) => kinds.map((k) => KIND[k]).join(', ');
@@ -416,10 +347,7 @@ export const ContactsTable: React.FC<{
                   <td className={`${td} max-w-[22rem] truncate${glow(r.id, 'research')}`} title={r.research?.answer}>
                     {r.research ? <span className="text-gray-200">{r.research.answer}</span> : <Empty cell={r.enrichment.research ?? { status: 'locked' }} onRetry={() => onRetry(r, 'research')} />}
                   </td>
-                  <td className={td}>
-                    <span className={statusTone(r.status)}>{STATUS_LABEL[r.status] ?? r.status}</span>
-                    <FollowUp row={r} className="block text-[11px]" />
-                  </td>
+                  <td className={`${td} ${statusTone(r.status)}`}>{STATUS_LABEL[r.status] ?? r.status}</td>
                   <td className={`${td} max-w-[16rem] truncate text-gray-300`}>
                     {r.mailing.address ?? ''}
                     {cityLine(r.mailing) ? <span className="block text-[11px] text-gray-500">{cityLine(r.mailing)}</span> : null}
@@ -460,23 +388,23 @@ export const ContactsTable: React.FC<{
 /**
  * The list for calling from a phone: one card per owner, stacked. The
  * decision maker, the best number with Call and Text, a signal if the
- * property has one, what happened on the call. Tap the card for the full sheet.
+ * property has one, then Send to Leads or Skip. Tap the card for the full sheet.
  */
 export const ContactCards: React.FC<{
   rows: OutreachContact[];
   onOpen: (row: OutreachContact) => void;
-  /** A call's outcome, with the day to try again for No answer and Call back. */
-  onOutcome: (row: OutreachContact, status: OutreachRowStatus, followUpOn?: string) => Promise<void>;
+  onStatus: (row: OutreachContact, status: OutreachRowStatus) => Promise<void>;
   onRetry: (row: OutreachContact, field: OutreachField) => void;
-  /** Interested: send them to Leads, or open the lead they became. */
+  /** Send them to Leads, or open the lead they became. */
   onLead: (row: OutreachContact) => void;
-}> = ({ rows, onOpen, onOutcome, onRetry, onLead }) => {
+}> = ({ rows, onOpen, onStatus, onRetry, onLead }) => {
   const [saving, setSaving] = useState<string | null>(null);
   const lit = useJustFilled(rows);
-  const mark = async (row: OutreachContact, next: OutreachRowStatus, followUpOn?: string) => {
+  const skip = async (row: OutreachContact) => {
     setSaving(row.id);
     try {
-      await onOutcome(row, next, followUpOn);
+      // Skip again puts them back.
+      await onStatus(row, row.status === 'skip' ? 'new' : 'skip');
     } catch {
       // The sheet shows errors; a card just stays as it was.
     } finally {
@@ -494,14 +422,7 @@ export const ContactCards: React.FC<{
         return (
           <li key={r.id} className={`bg-[#121212] border border-[#333333]${['person', 'phone', 'email'].some((f) => lit.has(`${r.id}:${f}`)) ? ' cell-filled' : ''}`} data-testid="contact-card">
             <button type="button" onClick={() => onOpen(r)} className="block w-full text-left px-4 pt-3 pb-2">
-              <span className={`block text-[15px] font-medium ${r.status === 'skip' || r.status === 'not_interested' ? 'text-gray-500 line-through' : 'text-white'}`}>{r.name}</span>
-              {r.status !== 'new' && (
-                <span className="block text-xs" data-testid="card-status">
-                  <span className={statusTone(r.status)}>{STATUS_LABEL[r.status] ?? r.status}</span>
-                  {r.followUpOn && (r.status === 'no_answer' || r.status === 'callback') ? <span className="text-gray-600"> · </span> : null}
-                  <FollowUp row={r} />
-                </span>
-              )}
+              <span className={`block text-[15px] font-medium ${r.status === 'skip' ? 'text-gray-500 line-through' : 'text-white'}`}>{r.name}</span>
               <span className="block text-xs text-gray-500">
                 {r.properties > 1 ? `${r.properties} properties · ${shortMoney(r.totalValueCents)}` : r.property.valueCents ? shortMoney(r.property.valueCents) : r.property.address}
                 {r.related?.length ? ` · +${r.related.length} related` : ''}
@@ -564,13 +485,27 @@ export const ContactCards: React.FC<{
                 )}
               </div>
             )}
-            <div className="px-4 pb-3 space-y-2">
-              {(r.status === 'interested' || r.status === 'lead') && (
-                <button type="button" onClick={() => onLead(r)} className={`${big} w-full bg-[#336699] hover:bg-[#2a5580] text-white`} data-testid="to-leads">
-                  {r.status === 'lead' ? 'Open in Leads' : 'Send to Leads'} <ArrowRight className="w-4 h-4" />
+            <div className="flex border-t border-[#333333]">
+              <button
+                type="button"
+                onClick={() => onLead(r)}
+                disabled={saving === r.id}
+                className={`flex-1 inline-flex items-center justify-center gap-1.5 min-h-[44px] text-sm disabled:opacity-50 ${r.leadId ? 'text-[#7fb0e0] bg-[#336699]/15' : 'text-gray-200 hover:bg-[#1A1A1A]'}`}
+                data-testid="to-leads"
+              >
+                {r.leadId ? 'In Leads' : 'Send to Leads'} <ArrowRight className="w-4 h-4" />
+              </button>
+              {!r.leadId && (
+                <button
+                  type="button"
+                  onClick={() => void skip(r)}
+                  disabled={saving === r.id}
+                  aria-pressed={r.status === 'skip'}
+                  className={`flex-1 min-h-[44px] text-sm border-l border-[#333333] disabled:opacity-50 ${r.status === 'skip' ? 'text-gray-300 bg-[#1A1A1A]' : 'text-gray-500 hover:bg-[#1A1A1A]'}`}
+                >
+                  {r.status === 'skip' ? 'Skipped' : 'Skip'}
                 </button>
               )}
-              <Outcomes row={r} busy={saving === r.id} onOutcome={(st, day) => void mark(r, st, day)} />
             </div>
           </li>
         );
@@ -684,8 +619,7 @@ export const ContactSheet: React.FC<{
   researchQuestion: string;
   balanceCents: number;
   onClose: () => void;
-  /** `touch`: a call's outcome, logged in the history; without it, just the note saved. */
-  onStatus: (row: OutreachContact, status: OutreachRowStatus, note: string, followUpOn?: string, touch?: boolean) => Promise<void>;
+  onStatus: (row: OutreachContact, status: OutreachRowStatus, note: string) => Promise<void>;
   onEnrich: (row: OutreachContact, fields: OutreachField[], question?: string) => Promise<void>;
   onAddFunds: () => void;
   onLead: (row: OutreachContact) => void;
@@ -711,7 +645,7 @@ export const ContactSheet: React.FC<{
       setBusy(false);
     }
   };
-  const set = (status: OutreachRowStatus, followUpOn?: string, touch?: boolean) => run(() => onStatus(row, status, note, followUpOn, touch), "Couldn't save that");
+  const set = (status: OutreachRowStatus) => run(() => onStatus(row, status, note), "Couldn't save that");
   const enrich = (fields: OutreachField[], asked?: string) => run(() => onEnrich(row, fields, asked), "Couldn't start that");
   const property = fullAddress(row.property.address, 'Midland', 'TX');
   const mailing = fullAddress(row.mailing.address, row.mailing.city, row.mailing.state, row.mailing.zip?.slice(0, 5));
@@ -961,34 +895,18 @@ export const ContactSheet: React.FC<{
           />
         </div>
         <div className="space-y-2">
-          <div className={label}>What happened</div>
-          <Outcomes row={row} busy={busy} onOutcome={(st, day) => void set(st, day, true)} />
-          {row.followUpOn && (row.status === 'no_answer' || row.status === 'callback') && (
-            <p className="text-sm text-gray-400">
-              {row.status === 'callback' ? 'Call back' : 'Try again'}: <FollowUp row={row} />
-            </p>
-          )}
-          {(row.status === 'interested' || row.status === 'lead') && (
+          <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => onLead(row)} disabled={busy} className={primary} data-testid="to-leads">
-              {row.status === 'lead' ? 'Open in Leads' : 'Send to Leads'} <ArrowRight className="w-4 h-4" />
+              {row.leadId ? 'Open in Leads' : 'Send to Leads'} <ArrowRight className="w-4 h-4" />
             </button>
-          )}
-          {row.status === 'interested' && <p className="text-xs text-gray-500">Follow-ups, the visit and the estimate happen in Leads. Their number, email, property and these calls go with them.</p>}
-        </div>
-        {row.touches && row.touches.length > 0 && (
-          <div className="space-y-1" data-testid="history">
-            <div className={label}>History</div>
-            <ol className="text-sm">
-              {[...row.touches].reverse().slice(0, 8).map((t, i) => (
-                <li key={`${t.at}-${i}`} className="py-1 text-gray-400">
-                  <span className="text-gray-500">{new Date(t.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span> · <span className="text-gray-200">{STATUS_LABEL[t.status] ?? t.status}</span>
-                  {t.followUpOn ? <span className="text-gray-500"> · {t.status === 'callback' ? 'call back' : 'try again'} {dayText(t.followUpOn)}</span> : null}
-                  {t.note ? <span className="block text-xs text-gray-500 break-words">{t.note}</span> : null}
-                </li>
-              ))}
-            </ol>
+            {!row.leadId && (
+              <button type="button" onClick={() => set(row.status === 'skip' ? 'new' : 'skip')} disabled={busy} aria-pressed={row.status === 'skip'} className={quiet}>
+                {row.status === 'skip' ? 'Skipped · undo' : 'Skip'}
+              </button>
+            )}
           </div>
-        )}
+          <p className="text-xs text-gray-500">{row.leadId ? 'Calls, follow-ups and the estimate are in Leads.' : 'Calls, follow-ups and the estimate happen in Leads. The number, email, property and note go with them.'}</p>
+        </div>
         {error && (
           <p className="text-sm text-red-400" role="alert">
             {error}

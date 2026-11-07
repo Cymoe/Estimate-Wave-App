@@ -5,7 +5,7 @@ import { phoneText, STATUS_LABEL } from './format';
 /** The contacts as a CSV: one row per owner, the mailing address split for a mail merge, phones and emails where unlocked. */
 export function outreachCsv(rows: OutreachContact[]): string {
   return toCsv(
-    ['Name', 'Company', 'Decision maker', 'Title', 'Phone', 'Phone type', 'DNC', 'Other phones', 'Email', 'Status', 'Follow up on', 'Note', 'Mailing address', 'Mailing city', 'Mailing state', 'Mailing zip', 'Property address', 'Property value', 'Properties', 'Total value', 'Type', 'Why', 'Signals', 'Research', 'Research sources'],
+    ['Name', 'Company', 'Decision maker', 'Title', 'Phone', 'Phone type', 'DNC', 'Other phones', 'Email', 'Status', 'Note', 'Mailing address', 'Mailing city', 'Mailing state', 'Mailing zip', 'Property address', 'Property value', 'Properties', 'Total value', 'Type', 'Why', 'Signals', 'Research', 'Research sources'],
     rows.map((r) => [
       r.name,
       r.company ?? '',
@@ -17,7 +17,6 @@ export function outreachCsv(rows: OutreachContact[]): string {
       r.phones.slice(1).map((p) => `${phoneText(p.number)}${p.dnc ? ' (DNC)' : ''}`).join(' '),
       r.emails.map((e) => e.email).join(' '),
       STATUS_LABEL[r.status] ?? r.status,
-      r.followUpOn ?? '',
       r.note ?? '',
       r.mailing.address ?? '',
       r.mailing.city ?? '',

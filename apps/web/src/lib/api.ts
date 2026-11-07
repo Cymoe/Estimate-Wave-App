@@ -1197,10 +1197,8 @@ export type OutreachDefinition = {
   limit?: number;
 };
 export type OutreachMailing = { address?: string; city?: string; state?: string; zip?: string };
-/** Where an owner stands after the calls; sent, done and skip are the earlier statuses some rows still have. */
-export type OutreachRowStatus = 'new' | 'no_answer' | 'callback' | 'interested' | 'not_interested' | 'lead' | 'client' | 'sent' | 'done' | 'skip';
-/** One call or change of status, newest last. */
-export type OutreachTouch = { at: string; status: OutreachRowStatus; note?: string; followUpOn?: string };
+/** New, sent to Leads, or skipped; the others are earlier statuses some rows still have. */
+export type OutreachRowStatus = 'new' | 'lead' | 'skip' | 'no_answer' | 'callback' | 'interested' | 'not_interested' | 'client' | 'sent' | 'done';
 export type OutreachPhoneType = 'mobile' | 'landline' | 'voip' | 'unknown';
 /** litigator: the subscriber is a known TCPA litigator; grade: the checker's A to F for reaching someone on the line. */
 export type OutreachPhone = { number: string; type: OutreachPhoneType; dnc?: boolean; verified?: boolean; score?: number; source: string; name?: string; litigator?: boolean; grade?: string };
@@ -1232,9 +1230,6 @@ export type OutreachContact = {
   listIds: string[];
   status: OutreachRowStatus;
   note?: string;
-  /** The day to reach them again (YYYY-MM-DD). */
-  followUpOn?: string;
-  touches?: OutreachTouch[];
   /** The lead they became on the Leads page. */
   leadId?: string;
   phones: OutreachPhone[];
@@ -1303,10 +1298,10 @@ export const outreachAPI = {
     run('query', api.outreach.preview, { organizationId, definition }),
   create: (organizationId: string, definition: OutreachDefinition, title?: string): Promise<{ listId: string; rowCount: number; added: number; truncated: boolean }> =>
     run('mutation', api.outreach.create, defined({ organizationId, definition, title })),
-  /** A status, with the day to try again for No answer and Call back; `touch` logs it as a call. */
-  setStatus: (organizationId: string, contactId: string, status: OutreachRowStatus, note?: string, followUpOn?: string, touch?: boolean) =>
-    run('mutation', api.outreach.setStatus, defined({ organizationId, contactId, status, note, followUpOn, touch })),
-  /** Sends an interested owner to Leads (once); returns the lead's id. */
+  /** Skip or un-skip, and the note; no note sent keeps the one there. */
+  setStatus: (organizationId: string, contactId: string, status: OutreachRowStatus, note?: string) =>
+    run('mutation', api.outreach.setStatus, defined({ organizationId, contactId, status, note })),
+  /** Sends an owner to Leads (once); returns the lead's id. */
   sendToLeads: (organizationId: string, contactId: string): Promise<string> => run('mutation', api.outreach.sendToLeads, { organizationId, contactId }),
   remove: (organizationId: string, listId: string) => run('mutation', api.outreach.remove, { organizationId, listId }),
   /** Loads the next page of a list that reached its cap. */

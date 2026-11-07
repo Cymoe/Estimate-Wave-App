@@ -334,8 +334,8 @@ export const assertPro = internalQuery({
   },
 });
 
-/** Settled: an answer one way or the other, or sent to Leads. No answer and Call back are still in play. */
-const isWorked = (s: Doc<"outreachContacts">["status"]) => ["interested", "not_interested", "lead", "client", "done", "skip"].includes(s);
+/** Dealt with: sent to Leads or skipped (or an earlier settled status); not new or still being tried. */
+const isWorked = (s: Doc<"outreachContacts">["status"]) => !["new", "sent", "no_answer", "callback"].includes(s);
 
 /** Every contact a company has, newest first. */
 async function contactsOf(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">) {
@@ -458,8 +458,6 @@ const contactView = (c: Doc<"outreachContacts">, signals: SignalBadge[], related
   listIds: c.listIds,
   status: c.status,
   note: c.note,
-  followUpOn: c.followUpOn,
-  touches: (c.touches ?? []).slice(-20).map(({ at, status, note, followUpOn }) => ({ at, status, note, followUpOn })),
   leadId: c.leadId,
   phones: c.phones ?? [],
   emails: c.emails ?? [],
@@ -613,51 +611,29 @@ export const sources = query({
 });
 
 /** Marks a contact sent, done or skipped (or new again), with a note. */
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
-const TOUCHES_KEPT = 50;
-/** The statuses that wait on a day: the rest clear it. */
-const DATED = new Set(["no_answer", "callback"]);
-
 /**
- * Where an owner stands, and the day to try them again. A call's outcome
- * (`touch`) goes in their history; saving just the note doesn't. No answer
- * and Call back keep a follow-up day; any other status clears it.
+ * Skip or un-skip an owner, and their note. Outreach stops there: the
+ * calls, follow-ups and the estimate happen in Leads (sendToLeads).
  */
 export const setStatus = mutation({
-  args: {
-    organizationId: v.id("organizations"),
-    contactId: v.id("outreachContacts"),
-    status: outreachRowStatus,
-    note: v.optional(v.string()),
-    followUpOn: v.optional(v.string()),
-    touch: v.optional(v.boolean()),
-  },
-  handler: async (ctx, { organizationId, contactId, status, note, followUpOn, touch }) => {
-    const { user } = await requirePro(ctx, organizationId);
+  args: { organizationId: v.id("organizations"), contactId: v.id("outreachContacts"), status: outreachRowStatus, note: v.optional(v.string()) },
+  handler: async (ctx, { organizationId, contactId, status, note }) => {
+    await requirePro(ctx, organizationId);
     const contact = await ctx.db.get(contactId);
     if (!contact || contact.organizationId !== organizationId) fail("NOT_FOUND", "No such contact");
-    if (followUpOn !== undefined && !DAY.test(followUpOn)) fail("INVALID", "Pick a day to call back");
-    const changed = touch || status !== contact.status;
-    if (changed && status === "callback" && !followUpOn) fail("INVALID", "Pick a day to call back");
-    const now = nowIso();
     // No note sent leaves the one there; an empty one clears it.
     const text = note === undefined ? contact.note : note.trim() || undefined;
-    // Only a call or a new status moves the follow-up day; a note on its own leaves it.
-    const day = changed ? (DATED.has(status) ? followUpOn : undefined) : contact.followUpOn;
-    const touches = changed
-      ? [...(contact.touches ?? []), { at: now, status, ...(text ? { note: text } : {}), ...(day ? { followUpOn: day } : {}), userId: user._id }].slice(-TOUCHES_KEPT)
-      : contact.touches;
-    await ctx.db.patch(contactId, { status, note: text, followUpOn: day, touches, updatedAt: now });
+    await ctx.db.patch(contactId, { status, note: text, updatedAt: nowIso() });
     return null;
   },
 });
 
 /**
- * Interested: the owner goes to Leads, where follow-ups, the visit and the
- * estimate already live. The lead gets the decision maker's name (or the
- * owner's), the best number not on Do Not Call, the email, the property as
- * its address, and a note with the owner, the mailing address and the calls
- * so far. Sent once; after that the same lead comes back.
+ * The owner goes to Leads, where the calls, follow-ups and the estimate
+ * already live. The lead (new, source Outreach) gets the decision maker's
+ * name (or the owner's), the best number not on Do Not Call, the email, the
+ * property as its address, and a note with the owner, the mailing address
+ * and the company's note. Sent once; after that the same lead comes back.
  */
 export const sendToLeads = mutation({
   args: { organizationId: v.id("organizations"), contactId: v.id("outreachContacts") },
@@ -671,15 +647,11 @@ export const sendToLeads = mutation({
       const phone = (contact.phones ?? []).find((p) => !p.dnc && !p.litigator);
       const email = (contact.emails ?? []).find((e) => e.nameMatch !== false);
       const mailing = [contact.mailing.address, contact.mailing.city, contact.mailing.state, contact.mailing.zip?.slice(0, 5)].filter(Boolean).join(", ");
-      const calls = (contact.touches ?? [])
-        .filter((t) => t.status !== "new")
-        .map((t) => `${t.at.slice(0, 10)}: ${STATUS_WORDS[t.status] ?? t.status}${t.note ? ` (${t.note})` : ""}`);
       const notes = [
         `From Outreach. ${contact.why}.`,
         contact.person ? `Owner: ${contact.name}${contact.person.title ? `; ${contact.person.name} is ${contact.person.title}` : ""}.` : "",
         mailing ? `Mailing address: ${mailing}.` : "",
         contact.note ?? "",
-        calls.length ? `Calls: ${calls.join("; ")}.` : "",
       ].filter(Boolean).join("\n");
       const name = contact.person?.name ?? contact.name;
       leadId = await ctx.db.insert("leads", {
@@ -688,9 +660,8 @@ export const sendToLeads = mutation({
         ...(email ? { email: email.email } : {}),
         ...(contact.property.address ? { address: contact.property.address, city: "Midland" } : {}),
         source: "Outreach",
-        status: "contacted",
+        status: "new",
         notes,
-        lastContactAt: now,
         organizationId,
         userId: user._id,
         createdAt: now,
@@ -705,23 +676,10 @@ export const sendToLeads = mutation({
         details: { name, fromOutreach: contactId },
       });
     }
-    if (contact.status !== "lead" || contact.leadId !== leadId) {
-      const touches = [...(contact.touches ?? []), { at: now, status: "lead" as const, userId: user._id }].slice(-TOUCHES_KEPT);
-      await ctx.db.patch(contactId, { leadId, status: "lead", followUpOn: undefined, touches, updatedAt: now });
-    }
+    if (contact.status !== "lead" || contact.leadId !== leadId) await ctx.db.patch(contactId, { leadId, status: "lead", updatedAt: now });
     return leadId;
   },
 });
-/** A status in the words the lead's note uses. */
-const STATUS_WORDS: Partial<Record<Doc<"outreachContacts">["status"], string>> = {
-  no_answer: "no answer",
-  callback: "call back",
-  interested: "interested",
-  not_interested: "not interested",
-  sent: "sent",
-  done: "done",
-  skip: "skipped",
-};
 
 /** Drops a list. Its contacts lose the tag; one on no other list goes too, unless the company paid to unlock it. */
 export const remove = mutation({

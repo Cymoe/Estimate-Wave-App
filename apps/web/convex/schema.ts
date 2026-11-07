@@ -477,25 +477,23 @@ export const outreachProperty = v.object({
 });
 
 /**
- * Where an owner stands. The cold calls: no answer, call back, interested,
- * not interested; lead once they're sent to Leads, where the rest happens.
- * sent, done and skip are the earlier statuses, kept for the rows that still
- * have them.
+ * Where an owner stands: new, sent to Leads (where the calls and follow-ups
+ * happen), or skipped. The rest are earlier statuses, kept for the rows that
+ * still have them.
  */
 export const outreachRowStatus = v.union(
   v.literal("new"),
+  v.literal("lead"),
+  v.literal("skip"),
   v.literal("no_answer"),
   v.literal("callback"),
   v.literal("interested"),
   v.literal("not_interested"),
-  v.literal("lead"),
-  // Made a client directly, for a few minutes before Interested went to Leads instead.
   v.literal("client"),
   v.literal("sent"),
   v.literal("done"),
-  v.literal("skip"),
 );
-/** One call or change of status, newest last: what happened, the note, and the follow-up it set. */
+/** Earlier: one call logged from Outreach. No longer written; kept for the rows that have them. */
 export const outreachTouch = v.object({
   at: v.string(),
   status: outreachRowStatus,
@@ -1188,12 +1186,12 @@ export default defineSchema({
     listIds: v.array(v.id("outreachLists")),
     status: outreachRowStatus,
     note: v.optional(v.string()),
-    /** The day to reach them again (YYYY-MM-DD, the company's own day); on the Due today tab from then on. */
+    // Earlier call tracking, no longer written (calls are worked in Leads).
     followUpOn: v.optional(v.string()),
-    /** Every call and change of status, newest last, the last 50. */
     touches: v.optional(v.array(outreachTouch)),
     /** The lead they became on the Leads page. */
     leadId: v.optional(v.id("leads")),
+    // Earlier: the client a contact was made into directly.
     clientId: v.optional(v.id("clients")),
     phones: v.optional(v.array(outreachPhone)),
     emails: v.optional(v.array(outreachEmail)),
