@@ -351,22 +351,11 @@ describe('the Outreach page', () => {
     await click('Shopping center owners');
     expect(path).toBe('/outreach/l1');
     expect(getContacts).toHaveBeenLastCalledWith('o1', 'l1');
-    // The steps over the list: nothing looked up yet, so every bar is "not looked up".
-    const steps = document.body.querySelector('[data-testid="steps"]')!;
-    expect(steps.textContent).toContain('1Owners in this list2');
-    expect(steps.textContent).toContain('2 companies go to step 2 for the person');
-    expect(steps.textContent).toContain('Commercial owners · highest value first · 0 done · asked Nov 5');
+    // One quiet line about the list over it; no step cards.
+    expect(document.body.querySelector('[data-testid="steps"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="list-line"]')!.textContent).toBe('Commercial owners · highest value first · 0 done · asked Nov 5');
     // Two owners and no total: nothing about a cap.
     expect(document.body.querySelector('[data-testid="list-total"]')).toBeNull();
-    expect(steps.textContent).toContain('2Person behind the company · free0 of 2 companies2 not looked up');
-    expect(steps.textContent).toContain('3Phone · $1 when found0 of 22 not looked up$0 charged');
-    expect(steps.textContent).toContain('4Email · included0 of 22 not looked up');
-    // Hidden, it's one line, and stays hidden on the next visit.
-    await click('Hide');
-    expect(document.body.querySelector('[data-testid="steps"]')!.textContent).toBe('2 owners0 of 2 people found0 phones0 emailsShow steps');
-    expect(localStorage.getItem('outreach.steps')).toBe('hidden');
-    await click('Show steps');
-    expect(localStorage.getItem('outreach.steps')).toBe('shown');
   });
 
   it('search and the quick filters narrow the table: ready to call, has email, needs you', async () => {
@@ -395,11 +384,6 @@ describe('the Outreach page', () => {
     expect(names()).toEqual(['Oak Plaza LLC', 'City Of Midland', 'Vance Robert & Linda']);
     const filters = document.body.querySelector('[aria-label="Filters"]')!;
     expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Needs you 1', 'Cards', 'Columns']);
-    const steps = document.body.querySelector('[data-testid="steps"]')!.textContent!;
-    expect(steps).toContain('2 companies go to step 2 for the person · 1 person or trust skips to step 3');
-    expect(steps).toContain('1 of 2 companies1 found1 need a retry');
-    expect(steps).toContain('2 of 32 found1 not looked up$2 charged · 1 not callable (Do Not Call or litigator)');
-    expect(steps).toContain('1 of 31 found1 none1 not looked up1 verified deliverable');
     // The failed cell says why, and Retry runs that field again without opening the sheet.
     const failedCell = document.body.querySelectorAll('[data-testid="contact-row"]')[0].querySelectorAll('td')[2];
     expect(failedCell.textContent?.trim()).toBe('Lookup failedThe state registry timed outRetry');

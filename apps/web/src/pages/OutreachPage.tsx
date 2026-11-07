@@ -6,7 +6,6 @@ import { outreachAPI, type OutreachContact, type OutreachContacts, type Outreach
 import { AskListSheet } from '../components/outreach/AskListSheet';
 import { ContactCards, ContactsTable, ContactSheet } from '../components/outreach/ContactsTable';
 import { useMediaQuery } from '../hooks/useMediaQuery';
-import { StepStrip } from '../components/outreach/StepStrip';
 import { LookupProgress } from '../components/outreach/LookupProgress';
 import { COLUMNS, readHiddenColumns, writeHiddenColumns, type ColumnKey } from '../components/outreach/columns';
 import { csvName, download, outreachCsv } from '../components/outreach/outreachCsv';
@@ -494,29 +493,21 @@ const OutreachPage: React.FC = () => {
           ))}
         </div>
       )}
-      {data && data.rows.length > 0 && (
-        <StepStrip
-          rows={data.rows}
-          unlockCents={unlockCents}
-          listLine={
-            list && (
-              <>
-                {WHO_LABEL[list.who]} · {listOrder(list.definition).label} · {list.done} done · asked {day(list.createdAt)}
-                {list.total !== undefined && list.total > list.rowCount && (
-                  <span data-testid="list-total">
-                    {' '}
-                    · {list.rowCount.toLocaleString('en-US')} of {list.total.toLocaleString('en-US')}
-                    {list.truncated ? '+' : ''} loaded{' '}
-                    <button type="button" onClick={() => void extend()} disabled={extending} className="text-[#7fb0e0] hover:text-white disabled:text-gray-500">
-                      {extending ? 'Loading…' : `Load the next ${Math.min(list.total - list.rowCount, list.definition.limit ?? DEFAULT_ROWS).toLocaleString('en-US')}`}
-                    </button>
-                  </span>
-                )}
-                {list.truncated && (list.total === undefined || list.total <= list.rowCount) && <span className="text-amber-300"> · The top of a longer list; ask for a narrower one to reach the rest.</span>}
-              </>
-            )
-          }
-        />
+      {data && data.rows.length > 0 && list && (
+        <p className="text-xs text-gray-500" data-testid="list-line">
+          {WHO_LABEL[list.who]} · {listOrder(list.definition).label} · {list.done} done · asked {day(list.createdAt)}
+          {list.total !== undefined && list.total > list.rowCount && (
+            <span data-testid="list-total">
+              {' '}
+              · {list.rowCount.toLocaleString('en-US')} of {list.total.toLocaleString('en-US')}
+              {list.truncated ? '+' : ''} loaded{' '}
+              <button type="button" onClick={() => void extend()} disabled={extending} className="text-[#7fb0e0] hover:text-white disabled:text-gray-500">
+                {extending ? 'Loading…' : `Load the next ${Math.min(list.total - list.rowCount, list.definition.limit ?? DEFAULT_ROWS).toLocaleString('en-US')}`}
+              </button>
+            </span>
+          )}
+          {list.truncated && (list.total === undefined || list.total <= list.rowCount) && <span className="text-amber-300"> · The top of a longer list; ask for a narrower one to reach the rest.</span>}
+        </p>
       )}
       {note && <p className="text-sm text-gray-300">{note}</p>}
       {chosen.length > 0 && (
