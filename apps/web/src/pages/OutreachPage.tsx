@@ -12,7 +12,7 @@ import { useConfirm } from '../components/common/ConfirmDialog';
 import { fundErrorText, openFundingPage } from '../components/market/WalletBar';
 import { useAuth } from '../contexts/AuthContext';
 import { isStaff } from '../lib/roles';
-import { DEFAULT_ROWS, WHO_LABEL } from '../../convex/lib/outreach';
+import { DEFAULT_ROWS, WHO_LABEL, listOrder } from '../../convex/lib/outreach';
 import { callOk, sourceName } from '../components/outreach/format';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -402,7 +402,7 @@ const OutreachPage: React.FC = () => {
           listLine={
             list && (
               <>
-                {WHO_LABEL[list.who]} · {list.done} done · asked {day(list.createdAt)}
+                {WHO_LABEL[list.who]} · {listOrder(list.definition).label} · {list.done} done · asked {day(list.createdAt)}
                 {list.total !== undefined && list.total > list.rowCount && (
                   <span data-testid="list-total">
                     {' '}

@@ -5,7 +5,7 @@ import { setup, signUp } from "./test.setup";
 import { actAs } from "./lib/actor";
 import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
-import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, groupOwners, guessDefinition, mailKey, ownerKey, shortMoney, type Condensed } from "./lib/outreach";
+import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, groupOwners, guessDefinition, listOrder, mailKey, ownerKey, shortMoney, type Condensed } from "./lib/outreach";
 import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, lineOwner, samePerson, scrubPhones, tracerfyDnc, trestleRealContact, twilioLookup, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { GIVE_UP_ERROR } from "./outreach";
 
@@ -327,9 +327,10 @@ describe("a company's lists", () => {
     await rebuild(t);
     const onList = async (listId: typeof saved.listId) => (await co.as.query(api.outreach.contacts, { organizationId: org, listId })).rows;
     const list = await onList(saved.listId);
+    // In the list's own order: the most valuable building first, not the alphabet.
     expect(list.map((r) => [r.name, r.property.valueCents, r.status, r.kinds])).toEqual([
-      ["City Of Midland", 30_000_000, "new", ["commercial"]],
       ["Oak Plaza LLC", 300_000_000, "new", ["commercial"]],
+      ["City Of Midland", 30_000_000, "new", ["commercial"]],
     ]);
     expect((await co.as.query(api.outreach.lists, { organizationId: org })).map((l) => [l.title, l.who, l.rowCount, l.done])).toEqual([
       ["Commercial property owners, Midland", "commercial", 2, 0],
@@ -349,7 +350,10 @@ describe("a company's lists", () => {
     const city = list.find((r) => r.name === "City Of Midland")!;
     await co.as.mutation(api.outreach.setStatus, { organizationId: org, contactId: city.id, status: "skip" });
     await co.as.mutation(api.outreach.setStatus, { organizationId: org, contactId: city.id, status: "sent" });
-    expect((await onList(saved.listId)).map((r) => [r.status, r.note])).toEqual([["sent", undefined], ["done", "Mailed the letter"]]);
+    expect((await onList(saved.listId)).map((r) => [r.name, r.status, r.note])).toEqual([
+      ["Oak Plaza LLC", "done", "Mailed the letter"],
+      ["City Of Midland", "sent", undefined],
+    ]);
     expect((await co.as.query(api.outreach.lists, { organizationId: org })).map((l) => [l.who, l.done]).sort()).toEqual([["commercial", 1], ["investor", 1]]);
 
     // Another company can't see it; a company off the plan can't use Outreach at all.
@@ -1067,11 +1071,21 @@ describe("a company's lists", () => {
     const saved = await co.as.mutation(api.outreach.create, { organizationId: org, definition: def });
     expect(saved).toMatchObject({ rowCount: 5, total: 30, added: 5, limited: true });
     const read = async () => await co.as.query(api.outreach.contacts, { organizationId: org, listId: saved.listId });
-    expect((await read()).rows.map((r) => r.property.valueCents).sort((a, b) => b - a)).toEqual([300_000_000, 290_000_000, 280_000_000, 270_000_000, 260_000_000]);
+    // The table keeps the list's own order (highest value first here), not the alphabet.
+    expect((await read()).rows.map((r) => r.property.valueCents)).toEqual([300_000_000, 290_000_000, 280_000_000, 270_000_000, 260_000_000]);
     expect(await co.as.mutation(api.outreach.extend, { organizationId: org, listId: saved.listId })).toEqual({ loaded: 5, added: 5, rowCount: 10, total: 30, truncated: false });
-    const ten = (await read()).rows.map((r) => r.property.valueCents).sort((a, b) => b - a);
+    const ten = (await read()).rows.map((r) => r.property.valueCents);
     expect(ten).toHaveLength(10);
     expect(ten[9]).toBe(210_000_000);
+    // Investors come biggest holder first, whatever their names.
+    expect(listOrder({ county: "Midland", who: "investor" }).label).toBe("most properties first");
+    const byHoldings = [
+      { properties: 3, totalValueCents: 50_000_000, property: { valueCents: 90_000_000 } },
+      { properties: 54, totalValueCents: 1_200_000_000, property: { valueCents: 34_500_000 } },
+      { properties: 3, totalValueCents: 80_000_000, property: { valueCents: 10_000_000 } },
+    ].sort((a, b) => listOrder({ county: "Midland", who: "investor" }).key(b) - listOrder({ county: "Midland", who: "investor" }).key(a));
+    expect(byHoldings.map((r) => r.properties)).toEqual([54, 3, 3]);
+    expect(byHoldings[1].totalValueCents).toBe(80_000_000);
     const lists = await co.as.query(api.outreach.lists, { organizationId: org });
     expect(lists.find((l) => l.id === saved.listId)).toMatchObject({ rowCount: 10, total: 30, truncated: false });
     for (let i = 0; i < 4; i++) await co.as.mutation(api.outreach.extend, { organizationId: org, listId: saved.listId });

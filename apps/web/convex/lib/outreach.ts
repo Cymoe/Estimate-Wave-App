@@ -475,6 +475,20 @@ export function matches(row: OwnerRow, def: Definition, facet: Facet, now: numbe
   return true;
 }
 
+/**
+ * The order a list's rows come in, the same one its facet is read in: the
+ * biggest holders first for investors, builders and managers; the most
+ * valuable property first for the rest. Recent buyers come as pulled,
+ * newest deed first. `key` ranks a saved row; higher comes first.
+ */
+export function listOrder(def: Definition): { label: string; key: (row: { properties: number; totalValueCents: number; property: { valueCents?: number } }) => number } {
+  const facet = facetFor(def);
+  if (facet === "investor" || facet === "builder") return { label: "most properties first", key: (r) => r.properties * 1e9 + Math.min(r.totalValueCents, 1e9 - 1) };
+  if (facet === "office") return { label: "most properties first", key: (r) => r.properties };
+  if (facet === "buyer") return { label: "newest deed first", key: () => 0 };
+  return { label: "highest value first", key: (r) => r.property.valueCents ?? r.totalValueCents };
+}
+
 /** Why someone is on the list, in a line. */
 export function why(row: OwnerRow, facet: Facet): string {
   const kinds = [

@@ -184,7 +184,7 @@ describe('the Outreach page', () => {
     const steps = document.body.querySelector('[data-testid="steps"]')!;
     expect(steps.textContent).toContain('1Owners in this list2');
     expect(steps.textContent).toContain('2 companies go to step 2 for the person');
-    expect(steps.textContent).toContain('Commercial owners · 0 done · asked Nov 5');
+    expect(steps.textContent).toContain('Commercial owners · highest value first · 0 done · asked Nov 5');
     // Two owners and no total: nothing about a cap.
     expect(document.body.querySelector('[data-testid="list-total"]')).toBeNull();
     expect(steps.textContent).toContain('2Person behind the company · free0 of 2 companies2 not looked up');

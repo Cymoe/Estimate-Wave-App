@@ -35,6 +35,7 @@ import {
   facetFor,
   guessDefinition,
   facetValue,
+  listOrder,
   matches,
   propertyFor,
   why,
@@ -521,13 +522,22 @@ async function phoneHitRate(ctx: QueryCtx | MutationCtx, organizationId: Id<"org
   return attempts > 0 ? hits / attempts : undefined;
 }
 
-/** The company's contacts, newest first; on one list only when listId is given. With coverage, the balance and the price, for the headers and the unlock bar. */
+/**
+ * The company's contacts: on one list, in the list's own order (the
+ * biggest holders or the most valuable property first, as the list was
+ * built); across all lists, newest first. With coverage, the balance and
+ * the price, for the headers and the unlock bar.
+ */
 export const contacts = query({
   args: { organizationId: v.id("organizations"), listId: v.optional(v.id("outreachLists")) },
   handler: async (ctx, { organizationId, listId }) => {
     const { organization } = await requirePro(ctx, organizationId);
     const all = await contactsOf(ctx, organizationId);
-    const picked = all.filter((c) => !listId || c.listIds.includes(listId)).sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.name.localeCompare(b.name));
+    const list = listId ? await ctx.db.get(listId) : null;
+    const order = list && list.organizationId === organizationId ? listOrder(list.definition) : undefined;
+    const picked = all
+      .filter((c) => !listId || c.listIds.includes(listId))
+      .sort((a, b) => (order ? order.key(b) - order.key(a) || a.name.localeCompare(b.name) : b.createdAt.localeCompare(a.createdAt) || a.name.localeCompare(b.name)));
     const rows = [];
     for (const c of picked) rows.push(contactView(c, await signalsFor(ctx, c.property.parcelId)));
     return {
