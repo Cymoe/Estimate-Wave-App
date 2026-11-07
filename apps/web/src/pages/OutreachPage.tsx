@@ -29,9 +29,11 @@ const STATUS_FILTERS: Array<{ value: OutreachRowStatus | 'all'; label: string }>
   { value: 'skip', label: 'Skipped' },
 ];
 /** The quick filters over the table: what a row has, or what it needs from you. */
-type Show = 'all' | 'ready' | 'email' | 'needs';
+type Show = 'all' | 'signal' | 'ready' | 'email' | 'needs';
 const SHOWS: Array<{ value: Show; label: string; has: (r: OutreachContact) => boolean }> = [
   { value: 'all', label: 'All', has: () => true },
+  /** A code violation, a demolition order or a stalled permit on the property: the warmest calls on any list. */
+  { value: 'signal', label: 'Has a signal', has: (r) => r.signals.length > 0 },
   { value: 'ready', label: 'Ready to call', has: (r) => r.phones.some(callOk) },
   { value: 'email', label: 'Has email', has: (r) => r.emails.length > 0 },
   { value: 'needs', label: 'Needs you', has: (r) => Object.values(r.enrichment).some((c) => c.status === 'failed') },

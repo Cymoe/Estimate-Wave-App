@@ -214,6 +214,7 @@ describe('the Outreach page', () => {
           enrichment: { phone: { ...found, chargedCents: 100 }, email: found, person: { ...found, source: 'tx-comptroller' } },
           phones: [{ number: '4325550199', type: 'landline', source: 'tracerfy' }],
           emails: [{ email: 'dana@midlandtx.gov', source: 'tracerfy', verified: true }],
+          signals: [{ kind: 'code_violation', date: '2026-09-14', detail: 'High weeds' }],
         }),
         contact('r3', { name: 'Vance Robert & Linda', company: undefined, mailing: { address: '9 ELM ST', city: 'ODESSA', state: 'TX', zip: '79761' } }),
       ],
@@ -222,7 +223,7 @@ describe('the Outreach page', () => {
     const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(2)')).map((c) => c.textContent);
     expect(names()).toEqual(['Oak Plaza LLC', 'City Of Midland', 'Vance Robert & Linda']);
     const filters = document.body.querySelector('[aria-label="Filters"]')!;
-    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Ready to call 1', 'Has email 1', 'Needs you 1', 'Columns']);
+    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Needs you 1', 'Columns']);
     const steps = document.body.querySelector('[data-testid="steps"]')!.textContent!;
     expect(steps).toContain('2 companies go to step 2 for the person · 1 person or trust skips to step 3');
     expect(steps).toContain('1 of 2 companies1 found1 need a retry');
@@ -240,6 +241,9 @@ describe('the Outreach page', () => {
     expect(names()).toEqual(['City Of Midland']);
     await click('Needs you');
     expect(names()).toEqual(['Oak Plaza LLC']);
+    // A code violation, demolition order or stalled permit on the property: the warmest calls.
+    await click('Has a signal');
+    expect(names()).toEqual(['City Of Midland']);
     await act(async () => (filters.querySelector('button') as HTMLButtonElement).click());
     await act(async () => type(document.body.querySelector('input[aria-label="Search"]') as HTMLInputElement, 'elm'));
     expect(names()).toEqual(['Vance Robert & Linda']);
