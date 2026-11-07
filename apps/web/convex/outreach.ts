@@ -940,8 +940,10 @@ export const recordEnrichment = internalMutation({
     research: v.optional(outreachResearch),
     error: v.optional(v.string()),
     tries: v.optional(v.array(outreachTry)),
+    /** From the simulated chain (no phone source connected yet): kept apart, never charged. */
+    simulated: v.optional(v.boolean()),
   },
-  handler: async (ctx, { contactId, field, source, phones = [], emails = [], person, research, error, tries }) => {
+  handler: async (ctx, { contactId, field, source, phones = [], emails = [], person, research, error, tries, simulated }) => {
     const c = await ctx.db.get(contactId);
     if (!c) return null;
     const cells = { ...cellsOf(c) };
@@ -950,7 +952,8 @@ export const recordEnrichment = internalMutation({
     const requestedBy = cellFor(cells, field).requestedBy;
     const found = field === "phone" ? phones.length > 0 : field === "email" ? emails.length > 0 : field === "person" ? Boolean(person) : Boolean(research);
     // Copied from a related owner with the same decision maker (already paid for there), or a sample run: no charge, no scorecard.
-    const shared = source === "shared" || isSampleRun(c);
+    const shared = source === "shared" || isSampleRun(c) || Boolean(simulated);
+    const mark = simulated ? { simulated: true } : {};
     const price = shared ? 0 : field === "phone" ? UNLOCK_CENTS : field === "research" ? RESEARCH_CENTS : 0;
     let chargedCents = 0;
     if (found && price > 0 && requestedBy) {
@@ -968,10 +971,10 @@ export const recordEnrichment = internalMutation({
       }
     }
     cells[field] = found
-      ? { status: "found", at: now, requestedBy, source, chargedCents: price > 0 || (shared && field === "phone") ? chargedCents : undefined, tries }
+      ? { status: "found", at: now, requestedBy, source, chargedCents: price > 0 || (shared && field === "phone") ? chargedCents : undefined, tries, ...mark }
       : error
-        ? { status: "failed", at: now, requestedBy, error, tries }
-        : { status: "none", at: now, requestedBy, source, tries };
+        ? { status: "failed", at: now, requestedBy, error, tries, ...mark }
+        : { status: "none", at: now, requestedBy, source, tries, ...mark };
     await ctx.db.patch(contactId, {
       enrichment: cells,
       ...(field === "phone" && found ? { phones } : {}),
@@ -1161,7 +1164,10 @@ export const seedSample = internalMutation({
 const isSampleRun = (c: Doc<"outreachContacts">) => Boolean(c.note?.startsWith("Sample"));
 /** An owner filled by the sample filler: its note, or its 555-01xx numbers or example.com addresses, say so. */
 const isSample = (c: Doc<"outreachContacts">) =>
-  Boolean(c.note?.startsWith("Sample")) || (c.phones ?? []).some((p) => isSampleNumber(p.number)) || (c.emails ?? []).some((e) => e.email.endsWith("example.com"));
+  Boolean(c.note?.startsWith("Sample")) ||
+  (c.phones ?? []).some((p) => isSampleNumber(p.number)) ||
+  (c.emails ?? []).some((e) => e.email.endsWith("example.com")) ||
+  Object.values(cellsOf(c)).some((cell) => cell?.simulated);
 
 /**
  * Fills a list's first owners (in the list's own order) with sample results,

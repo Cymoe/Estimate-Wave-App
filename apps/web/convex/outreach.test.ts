@@ -1077,6 +1077,40 @@ describe("a company's lists", () => {
     expect((await t.run(async (ctx) => ctx.db.query("dataSourceStats").collect())).filter((x) => x.hits > 0)).toEqual([]);
   });
 
+  test("with no phone source connected, a real owner's lookup walks the simulated chain: marked simulated, never charged, off the scorecard, cleared with the samples", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    vi.stubEnv("SAMPLE_STEP_MS", "0");
+    vi.stubEnv("OUTREACH_SIMULATE", "");
+    for (const k of ["TX_COMPTROLLER_API_KEY", "COBALT_API_KEY", "BATCHDATA_API_KEY", "TRACERFY_API_KEY", "ENFORMION_AP_NAME", "HUNTER_API_KEY", "LEADMAGIC_API_KEY", "TRESTLE_API_KEY", "TWILIO_ACCOUNT_SID", "ZEROBOUNCE_API_KEY"]) vi.stubEnv(k, "");
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 500 }));
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "investor" } });
+    const read = async () => await co.as.query(api.outreach.contacts, { organizationId: org });
+    const real = (await read()).rows.find((r) => r.company)!;
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [real.id], fields: ["person", "phone", "email", "research"] });
+    await t.finishAllScheduledFunctions(() => {});
+    const after = await read();
+    const row = after.rows.find((r) => r.id === real.id)!;
+    // Every source gets its turn, in the real order, and no cell says "not connected".
+    expect(row.enrichment.person.tries!.map((x) => x.source)).toEqual(["roll", "permits", "tx-comptroller", "cobalt"]);
+    expect(row.enrichment.phone.tries!.map((x) => x.source).slice(0, 4)).toEqual(["permits", "batchdata", "tracerfy", "enformion"]);
+    for (const f of ["person", "phone", "email", "research"] as const) {
+      expect(row.enrichment[f]!.status).not.toBe("failed");
+      expect(row.enrichment[f]!.simulated).toBe(true);
+    }
+    expect(row.phones.every((p) => isSampleNumber(p.number))).toBe(true);
+    // Free, and the sources' scorecard is left alone.
+    expect(after.balanceCents).toBe(500);
+    expect((await t.run(async (ctx) => ctx.db.query("dataSourceStats").collect())).filter((x) => x.hits > 0)).toEqual([]);
+    // The sample clear-out takes simulated results too.
+    expect(await t.mutation(internal.outreach.seedSampleList, { email: "owner@roof.example", clear: true })).toMatchObject({ done: true, cleared: 1 });
+    expect((await read()).rows.find((r) => r.id === real.id)!.enrichment).toEqual({ phone: { status: "locked" }, email: { status: "locked" }, person: { status: "locked" }, research: { status: "locked" } });
+  });
+
   test("seedSample fills one owner with marked sample data for a look at the layout, charges nothing, and clears it again", async () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     const t = setup();

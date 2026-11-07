@@ -647,6 +647,25 @@ describe('the Outreach page', () => {
     expect(research.textContent).toContain('Read Nov 5 · $0.25');
   });
 
+  it('a simulated lookup says so on the row and in How we found it, and costs nothing', async () => {
+    lists = [list];
+    const sim = { status: 'found', at: '2026-11-05T15:01:00Z', source: 'tracerfy', simulated: true, tries: [{ source: 'batchdata', outcome: 'miss', note: 'No match' }, { source: 'tracerfy', outcome: 'hit', note: '1 number' }] };
+    contacts = {
+      ...twoContacts(),
+      rows: [contact('r1', { phones: [{ number: '4325550142', type: 'mobile', source: 'tracerfy' }], enrichment: { phone: sim, email: { status: 'none', simulated: true }, person: { status: 'locked' }, research: { status: 'locked' } } }), contact('r2', { name: 'City Of Midland' })],
+    };
+    await render('/outreach/l1');
+    const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
+    expect(rows[0].querySelector('[data-testid="simulated"]')!.textContent).toBe('Simulated');
+    expect(rows[1].querySelector('[data-testid="simulated"]')).toBeNull();
+    await act(async () => (rows[0] as HTMLElement).click());
+    await flush();
+    const how = document.body.querySelector('[data-testid="how-found"]')!;
+    expect(how.querySelector('[data-testid="simulated-note"]')!.textContent).toContain('Nothing was charged.');
+    expect(how.textContent).toContain('Found · simulated');
+    expect(how.textContent).toContain('This owner cost $0.');
+  });
+
   it('tells staff when the roll was grouped into owners, or that it failed, with a rebuild; companies see nothing', async () => {
     await render();
     expect(document.body.querySelector('[data-testid="owners-line"]')).toBeNull();

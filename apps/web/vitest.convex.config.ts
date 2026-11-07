@@ -9,5 +9,7 @@ export default defineConfig({
     environment: "edge-runtime",
     include: ["convex/**/*.test.ts"],
     server: { deps: { inline: ["convex-test"] } },
+    // The real lookup path by default; the simulated chain (no phone source connected) is tested on its own.
+    env: { OUTREACH_SIMULATE: "off" },
   },
 });

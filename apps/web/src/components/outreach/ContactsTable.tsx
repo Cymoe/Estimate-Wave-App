@@ -272,6 +272,11 @@ export const ContactsTable: React.FC<{
                         +{r.related.length} related
                       </span>
                     ) : null}
+                    {isSimulated(r) && (
+                      <span className="block text-[11px] text-gray-500" title="No phone source is connected yet, so this lookup was simulated: made-up results, nothing charged." data-testid="simulated">
+                        Simulated
+                      </span>
+                    )}
                   </td>
                   {show('person') && (
                     <td className={`${td} max-w-[14rem] truncate${glow(r.id, 'person')}`}>
@@ -413,6 +418,7 @@ export const ContactCards: React.FC<{
               <span className="block text-xs text-gray-500">
                 {r.properties > 1 ? `${r.properties} properties · ${shortMoney(r.totalValueCents)}` : r.property.valueCents ? shortMoney(r.property.valueCents) : r.property.address}
                 {r.related?.length ? ` · +${r.related.length} related` : ''}
+                {isSimulated(r) ? ' · Simulated' : ''}
               </span>
               {signal && (
                 <span className="mt-1 inline-flex items-center gap-1 text-xs text-amber-300">
@@ -493,6 +499,8 @@ export const ContactCards: React.FC<{
 };
 
 const dollarsOrFree = (cents?: number) => (cents ? dollars(cents) : 'free');
+/** Any of the owner's results came from the simulated chain (no phone source connected yet). */
+const isSimulated = (r: OutreachContact) => Object.values(r.enrichment).some((c) => c?.simulated);
 /** The ledger's name for a source. */
 const LEDGER_NAME: Record<string, string> = { claude: 'The web, read by Claude' };
 const ledgerName = (s: string) => LEDGER_NAME[s] ?? sourceName(s);
@@ -506,7 +514,7 @@ const STEP_TITLE: Record<OutreachField, string> = { person: 'Person behind the c
 
 /** What a step came to, for the badge at its right. */
 const stepBadge = (c: OutreachCell) =>
-  c.status === 'found' ? `Found · ${dollarsOrFree(c.chargedCents)}` : c.status === 'none' ? 'None · free' : c.status === 'failed' ? 'Failed · free' : c.status === 'running' ? 'Looking…' : 'Not looked up';
+  c.status === 'found' ? `Found · ${c.simulated ? 'simulated' : dollarsOrFree(c.chargedCents)}` : c.status === 'none' ? 'None · free' : c.status === 'failed' ? 'Failed · free' : c.status === 'running' ? 'Looking…' : 'Not looked up';
 
 /**
  * How we found it: each step that has run, with every source's turn in
@@ -529,6 +537,11 @@ const HowFound: React.FC<{ row: OutreachContact }> = ({ row }) => {
       <p className="text-xs text-gray-500">
         Each step tries its sources in order and stops at the first match. This owner cost {dollars(cost)}.
       </p>
+      {steps.some((s) => s.cell.simulated) && (
+        <p className="mt-1 text-xs text-amber-300" data-testid="simulated-note">
+          Simulated: no phone source is connected yet, so every source took its turn with made-up answers. Nothing was charged.
+        </p>
+      )}
       <ol className="mt-2 space-y-3">
         {steps.map((s, i) => (
           <li key={s.field}>

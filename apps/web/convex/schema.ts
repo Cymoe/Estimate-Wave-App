@@ -530,6 +530,8 @@ export const outreachCell = v.object({
   tries: v.optional(v.array(outreachTry)),
   /** While running: the source being asked right now, for the page to say so. */
   asking: v.optional(v.string()),
+  /** Made up by the simulated chain, run while no phone source is connected: never charged, cleared with the sample data. */
+  simulated: v.optional(v.boolean()),
 });
 export const outreachEnrichment = v.object({ phone: outreachCell, email: outreachCell, person: outreachCell, research: v.optional(outreachCell) });
 /** What the AI found on the web about an owner, with where it read it. */

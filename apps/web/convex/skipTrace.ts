@@ -35,7 +35,10 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
   const input = await ctx.runQuery(internal.outreach.contactForTrace, { contactId });
   if (!input) return;
   const wanted = fields.filter((f): f is Field => input.fields.includes(f));
-  if (input.sample) return await runSample(ctx, contactId, input, wanted);
+  // Until a phone source is connected, every lookup walks the simulated chain instead of stopping at "not connected", so the page can be seen working; it's marked simulated and never charged.
+  // OUTREACH_SIMULATE=off turns it off (the tests of the real path do).
+  const simulate = process.env.OUTREACH_SIMULATE !== "off" && !vendors(process.env).some((s) => s.connected && s.fields.includes("phone"));
+  if (input.sample || simulate) return await runSample(ctx, contactId, input, wanted, simulate && !input.sample);
   // Our own records come first and cost nothing: the home the company's mail goes to, and the permits it pulled. Only read when a field they can answer is wanted.
   const own: Vendor[] = [];
   if (input.company && wanted.some((f) => f !== "research")) {
@@ -207,8 +210,10 @@ async function runSample(
   contactId: TraceArgs["contactId"],
   input: { name: string; company?: string; person?: { name: string }; properties: number; question: string } & Parameters<typeof waterfall>[0],
   wanted: Field[],
+  simulated = false,
 ) {
   const step = Number(process.env.SAMPLE_STEP_MS ?? 1100);
+  const mark = simulated ? { simulated: true } : {};
   const wait = () => new Promise<void>((resolve) => setTimeout(resolve, step));
   const s = sampleFor(sampleIndex(input.name), { name: input.name, company: Boolean(input.company), properties: input.properties }, new Date().toISOString(), input.person?.name);
   const progress: Progress = async (field, tries, asking) => {
@@ -244,6 +249,7 @@ async function runSample(
       emails: field === "email" ? o.found.emails : undefined,
       person: field === "person" ? o.found.person : undefined,
       tries,
+      ...mark,
     });
   }
   if (wanted.includes("research")) {
@@ -257,6 +263,7 @@ async function runSample(
       source: "claude",
       research,
       tries: [research ? { source: "claude", outcome: "hit", note: "2 pages read" } : { source: "claude", outcome: "miss", note: "Nothing specific on this owner" }],
+      ...mark,
     });
   }
 }
