@@ -146,11 +146,13 @@ const SourcesPanel: React.FC<{ organizationId: string }> = ({ organizationId }) 
  */
 const SearchBox: React.FC<{ value: string; onChange: (value: string) => void }> = ({ value, onChange }) => {
   const [focused, setFocused] = useState(false);
+  const box = useRef<HTMLInputElement>(null);
   const open = focused || value.length > 0;
   return (
-    <label className={`relative block ${open ? 'flex-1 md:flex-none' : ''}`} title={open ? undefined : 'Search owner, person or street'}>
-      <Search className={`w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none ${open ? 'text-gray-500' : 'text-gray-300'}`} aria-hidden />
+    <div className={`relative ${open ? 'flex-1 md:flex-none' : ''}`}>
+      <Search className={`w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none ${open ? 'text-gray-500' : 'hidden'}`} aria-hidden />
       <input
+        ref={box}
         type="search"
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -164,11 +166,24 @@ const SearchBox: React.FC<{ value: string; onChange: (value: string) => void }> 
         }}
         placeholder={open ? 'Search owner, person or street' : ''}
         aria-label="Search"
-        className={`h-9 border border-[#333333] text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699] transition-[width] duration-200 ${
-          open ? 'w-full md:w-64 pl-8 pr-3 bg-[#1A1A1A]' : 'w-9 pl-8 pr-0 bg-transparent cursor-pointer hover:bg-[#2A2A2A]'
+        tabIndex={open ? 0 : -1}
+        className={`h-9 appearance-none rounded-none border border-[#333333] bg-[#1A1A1A] text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699] transition-[width] duration-200 ${
+          open ? 'w-full md:w-64 pl-8 pr-3' : 'w-9 p-0 opacity-0'
         }`}
       />
-    </label>
+      {/* Closed, it's a button like the view switch beside it; a tap focuses the box at once, so the keyboard comes up with it. */}
+      {!open && (
+        <button
+          type="button"
+          onClick={() => box.current?.focus()}
+          aria-label="Open search"
+          title="Search owner, person or street"
+          className={`${chip(false)} absolute inset-0 w-9 justify-center px-0`}
+        >
+          <Search className="w-[18px] h-[18px]" />
+        </button>
+      )}
+    </div>
   );
 };
 

@@ -414,7 +414,7 @@ describe('the Outreach page', () => {
     const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(1)')).map((c) => c.textContent);
     expect(names()).toEqual(['Oak Plaza LLC', 'City Of Midland', 'Vance Robert & Linda']);
     const filters = document.body.querySelector('[aria-label="Filters"]')!;
-    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Mail only 1', 'Needs you 1', '']);
+    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Mail only 1', 'Needs you 1', '', '']);
     // The failed cell says why, and Retry runs that field again without opening the sheet.
     const failedCell = document.body.querySelectorAll('[data-testid="contact-row"]')[0].querySelectorAll('td')[1];
     expect(failedCell.textContent?.trim()).toBe('Lookup failedThe state registry timed outRetry');
@@ -437,8 +437,11 @@ describe('the Outreach page', () => {
     // Search is just its icon until tapped; an empty box folds back when left.
     const search = document.body.querySelector('input[aria-label="Search"]') as HTMLInputElement;
     expect(search.placeholder).toBe('');
-    await act(async () => search.focus());
+    // Closed, it's a button; a tap opens the box with the cursor in it.
+    await act(async () => (document.body.querySelector('button[aria-label="Open search"]') as HTMLButtonElement).click());
+    expect(document.activeElement).toBe(search);
     expect(search.placeholder).toBe('Search owner, person or street');
+    expect(document.body.querySelector('button[aria-label="Open search"]')).toBeNull();
     await act(async () => search.blur());
     expect(search.placeholder).toBe('');
     await act(async () => type(document.body.querySelector('input[aria-label="Search"]') as HTMLInputElement, 'elm'));
