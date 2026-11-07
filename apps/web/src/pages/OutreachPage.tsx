@@ -1,6 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Download, LayoutList, Lock, Search, SlidersHorizontal, Table2, Trash2 } from 'lucide-react';
+import { ChevronDown, Download, LayoutList, Lock, Search, SlidersHorizontal, Table2, Trash2 } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachField, type OutreachListSummary, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { AskListSheet } from '../components/outreach/AskListSheet';
@@ -20,7 +20,7 @@ const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month
 const iconButton = 'w-11 h-11 inline-flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2A2A2A] border border-[#333333]';
 const VIEW_KEY = 'outreach.view';
 const BATCH_KEY = 'outreach.batch';
-const chip = (on: boolean) => `px-3 min-h-[36px] text-sm border whitespace-nowrap ${on ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333333] text-gray-300 hover:bg-[#2A2A2A]'}`;
+const chip = (on: boolean) => `inline-flex items-center gap-1 px-3 h-9 shrink-0 text-sm border whitespace-nowrap ${on ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333333] text-gray-300 hover:bg-[#2A2A2A]'}`;
 const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: cents % 100 ? 2 : 0 })}`;
 const STATUS_FILTERS: Array<{ value: OutreachRowStatus | 'all'; label: string }> = [
   { value: 'all', label: 'All statuses' },
@@ -135,6 +135,37 @@ const SourcesPanel: React.FC<{ organizationId: string }> = ({ organizationId }) 
 };
 
 /** The Columns button and its panel: a checkbox per column the table can do without. */
+/**
+ * One line of filters that never wraps: when they don't fit, the row slides
+ * sideways and its right edge fades, and only then.
+ */
+const ChipRow: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const row = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState(false);
+  const measure = useCallback(() => {
+    const el = row.current;
+    if (el) setMore(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  }, []);
+  useEffect(() => {
+    measure();
+    const el = row.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const watch = new ResizeObserver(measure);
+    watch.observe(el);
+    Array.from(el.children).forEach((c) => watch.observe(c));
+    return () => watch.disconnect();
+  });
+  return (
+    <div
+      ref={row}
+      onScroll={measure}
+      className={`flex flex-1 min-w-0 items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${more ? '[mask-image:linear-gradient(to_right,black_calc(100%-32px),transparent)]' : ''}`}
+    >
+      {children}
+    </div>
+  );
+};
+
 const ColumnsPicker: React.FC<{ hidden: Set<ColumnKey>; onChange: (hidden: Set<ColumnKey>) => void }> = ({ hidden, onChange }) => {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -157,8 +188,9 @@ const ColumnsPicker: React.FC<{ hidden: Set<ColumnKey>; onChange: (hidden: Set<C
   };
   return (
     <div className="relative" ref={box}>
-      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-haspopup="true" className={`${chip(false)} inline-flex items-center gap-2`}>
-        <SlidersHorizontal className="w-4 h-4" /> Columns
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-haspopup="true" className={`${chip(false)} gap-2`} title="Columns">
+        <SlidersHorizontal className="w-4 h-4" />
+        <span className="hidden xl:inline">Columns</span>
         {hidden.size > 0 && <span className="text-gray-500">{COLUMNS.length - hidden.size} of {COLUMNS.length}</span>}
       </button>
       {open && (
@@ -545,52 +577,68 @@ const OutreachPage: React.FC = () => {
       )}
       {data && data.rows.length > 0 && (
         <div
-          className={`flex items-center gap-2 ${view === 'cards' ? 'sticky top-[69px] md:top-0 z-30 -mx-4 md:-mx-6 px-4 md:px-6 py-2 bg-black border-b border-[#333333] flex-nowrap overflow-x-auto md:flex-wrap [&>*]:shrink-0' : 'flex-wrap'}`}
+          className={`flex items-center gap-2 ${view === 'cards' ? 'sticky top-[69px] md:top-0 z-30 -mx-4 md:-mx-6 px-4 md:px-6 py-2 bg-black border-b border-[#333333]' : ''}`}
           role="group"
           aria-label="Filters"
           data-testid="filter-bar"
         >
-          <label className="relative block">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" aria-hidden />
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search owner, person or street"
-              aria-label="Search"
-              className={`${view === 'cards' ? 'w-44 md:w-72' : 'w-72'} max-w-full bg-[#1A1A1A] border border-[#333333] pl-9 pr-3 min-h-[36px] text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]`}
-            />
-          </label>
-          {SHOWS.map((s) =>
-            (s.value === 'needs' || s.value === 'new') && counts[s.value] === 0 ? null : (
-              <button
-                key={s.value}
-                type="button"
-                onClick={() => setShow(s.value)}
-                aria-pressed={show === s.value}
-                className={s.value === 'needs' && show !== 'needs' ? `${chip(false)} border-amber-400/60 text-amber-300` : chip(show === s.value)}
+          {/* Search and the quick filters on one line; when they don't fit, they slide sideways instead of wrapping. */}
+          <ChipRow>
+            <label className="relative block shrink-0">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" aria-hidden />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search"
+                title="Search owner, person or street"
+                aria-label="Search"
+                className="w-40 xl:w-44 2xl:w-64 h-9 bg-[#1A1A1A] border border-[#333333] pl-9 pr-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
+              />
+            </label>
+            {SHOWS.map((s) =>
+              (s.value === 'needs' || s.value === 'new') && counts[s.value] === 0 ? null : (
+                <button
+                  key={s.value}
+                  type="button"
+                  onClick={() => setShow(s.value)}
+                  aria-pressed={show === s.value}
+                  className={s.value === 'needs' && show !== 'needs' ? `${chip(false)} border-amber-400/60 text-amber-300` : chip(show === s.value)}
+                >
+                  {s.label} {s.value !== 'all' && <span className={s.value === 'needs' && show !== 'needs' ? 'text-amber-300/70' : 'text-gray-500'}>{counts[s.value]}</span>}
+                </button>
+              ),
+            )}
+          </ChipRow>
+          {/* How the list is shown stays put on the right, the same height and corners as the chips. */}
+          <div className="flex shrink-0 items-center gap-2">
+            <label className="relative block">
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as OutreachRowStatus | 'all')}
+                aria-label="Status"
+                className="appearance-none h-9 rounded-none bg-[#1A1A1A] border border-[#333333] pl-3 pr-8 text-sm text-gray-300 focus:outline-none focus:border-[#336699]"
               >
-                {s.label} {s.value !== 'all' && <span className={s.value === 'needs' && show !== 'needs' ? 'text-amber-300/70' : 'text-gray-500'}>{counts[s.value]}</span>}
-              </button>
-            ),
-          )}
-          <select value={status} onChange={(e) => setStatus(e.target.value as OutreachRowStatus | 'all')} aria-label="Status" className="ml-auto bg-[#1A1A1A] border border-[#333333] px-2 min-h-[36px] text-sm text-gray-300">
-            {STATUS_FILTERS.map((f) => (
-              <option key={f.value} value={f.value}>
-                {f.label}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={() => pickView(view === 'cards' ? 'table' : 'cards')}
-            aria-label={view === 'cards' ? 'Show as a table' : 'Show as cards'}
-            title={view === 'cards' ? 'Show as a table' : 'Show as cards'}
-            className="inline-flex items-center gap-2 px-3 min-h-[36px] text-sm text-gray-300 border border-[#333333] hover:bg-[#2A2A2A]"
-          >
-            {view === 'cards' ? <Table2 className="w-4 h-4" /> : <LayoutList className="w-4 h-4" />} {view === 'cards' ? 'Table' : 'Cards'}
-          </button>
-          {view === 'table' && <ColumnsPicker hidden={hiddenColumns} onChange={pickColumns} />}
+                {STATUS_FILTERS.map((f) => (
+                  <option key={f.value} value={f.value}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" aria-hidden />
+            </label>
+            <button
+              type="button"
+              onClick={() => pickView(view === 'cards' ? 'table' : 'cards')}
+              aria-label={view === 'cards' ? 'Show as a table' : 'Show as cards'}
+              title={view === 'cards' ? 'Show as a table' : 'Show as cards'}
+              className={`${chip(false)} gap-2`}
+            >
+              {view === 'cards' ? <Table2 className="w-4 h-4" /> : <LayoutList className="w-4 h-4" />}
+              <span className="hidden xl:inline">{view === 'cards' ? 'Table' : 'Cards'}</span>
+            </button>
+            {view === 'table' && <ColumnsPicker hidden={hiddenColumns} onChange={pickColumns} />}
+          </div>
         </div>
       )}
       {data === null || lists === null ? (
