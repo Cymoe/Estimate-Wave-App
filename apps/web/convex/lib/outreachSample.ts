@@ -6,6 +6,7 @@
 
 import type { Infer } from "convex/values";
 import type { outreachEmail, outreachPerson, outreachPhone, outreachResearch, outreachTry } from "../schema";
+import type { Found, Vendor } from "./skipTrace";
 
 export const SAMPLE_NOTE = "Sample data to show the layout, not a real lookup.";
 /** How many owners one run fills at most. */
@@ -48,9 +49,11 @@ const NOT_NEEDED = "Not needed, already found";
  * nothing; one in ten fails and waits on Retry, and one in ten is left
  * unlooked so the Look up button still has something to do.
  */
-export function sampleFor(i: number, owner: { name: string; company: boolean; properties: number }, at: string): Sample {
-  const [first, last] = PEOPLE[i % PEOPLE.length];
-  const who = owner.company ? `${first} ${last}` : owner.name;
+export function sampleFor(i: number, owner: { name: string; company: boolean; properties: number }, at: string, named?: string): Sample {
+  // The person already on the owner, when there is one, so a rerun keeps the same name.
+  const parts = named?.trim().split(/\s+/) ?? [];
+  const [first, last] = parts.length >= 2 ? [parts[0], parts[parts.length - 1]] : PEOPLE[i % PEOPLE.length];
+  const who = owner.company ? (parts.length >= 2 ? named!.trim() : `${first} ${last}`) : owner.name;
   const title = TITLES[i % TITLES.length];
   const n = (k: number) => String(4325550100 + ((i * 2 + k) % 100));
   const mail = `${first.toLowerCase()}.${last.toLowerCase()}@example.com`;
@@ -176,4 +179,50 @@ export function sampleFor(i: number, owner: { name: string; company: boolean; pr
   const researchCell: SampleCell = asked ? { status: "found", at, source: "claude", chargedCents: 25, tries: [{ source: "claude", outcome: "hit", note: "2 pages read" }] } : locked;
 
   return { person, phones, emails, research, cells: { person: personCell, phone: phoneCell, email: emailCell, research: researchCell } };
+}
+
+/** Which run an owner gets on a rerun, from its name: the same each time, never "not looked up" or "failed". */
+export function sampleIndex(name: string): number {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 1000;
+  const i = h % 10;
+  return i === 6 ? 0 : i === 9 ? 5 : i;
+}
+
+/**
+ * The stack a sample owner's rerun walks: every real source by name, in the
+ * real order, each taking a moment and answering from the sample, so the
+ * page shows the whole chain the way a run with keys does. Nothing outside
+ * is called.
+ */
+export function sampleStack(s: Sample, wait: () => Promise<void>): Vendor[] {
+  const phoneVia = s.cells.phone.status === "found" ? s.cells.phone.source : undefined;
+  const emailVia = s.cells.email.status === "found" ? s.cells.email.source : undefined;
+  const answer = (name: string): Found => ({
+    ...(name === "tx-comptroller" && s.person ? { person: s.person } : {}),
+    ...(name === "roll" && s.person?.confirmedBy?.includes("roll") ? { person: { ...s.person, source: "roll", confirmedBy: undefined } } : {}),
+    ...(phoneVia === name && s.phones ? { phones: s.phones } : {}),
+    ...(emailVia === name && s.emails ? { emails: s.emails } : {}),
+  });
+  const vendor = (name: string, fields: Vendor["fields"], extra: Partial<Vendor> = {}): Vendor => ({
+    name,
+    fields,
+    connected: true,
+    trace: async () => {
+      await wait();
+      return answer(name);
+    },
+    ...extra,
+  });
+  return [
+    vendor("roll", ["person"], { free: true, authority: 1 }),
+    vendor("permits", ["person", "phone", "email"], { free: true, authority: 2 }),
+    vendor("tx-comptroller", ["person"], { free: true, authority: 3 }),
+    vendor("cobalt", ["person"]),
+    vendor("batchdata", ["phone", "email"]),
+    vendor("tracerfy", ["phone", "email"]),
+    vendor("enformion", ["phone", "email"]),
+    vendor("hunter", ["email"]),
+    vendor("leadmagic", ["email"]),
+  ];
 }

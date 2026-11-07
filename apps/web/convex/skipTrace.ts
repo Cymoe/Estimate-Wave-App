@@ -11,6 +11,7 @@ import { internalAction, type ActionCtx } from "./_generated/server";
 import { outreachField } from "./schema";
 import { KEY_FOR, applyEmailCheck, checkEmails, checkPhonesWith, dedupeEmails, expectedNames, lineOwner, phoneCheckers, phoneScrub, rankPhones, scrubPhones, vendors, verifier, waterfall, type EmailCheck, type Field, type Found, type Progress, type Reuse, type Try, type Vendor } from "./lib/skipTrace";
 import { researchOwner } from "./lib/research";
+import { sampleFor, sampleIndex, sampleStack } from "./lib/outreachSample";
 
 type TraceArgs = { contactId: import("./_generated/dataModel").Id<"outreachContacts">; fields: Field[] };
 
@@ -34,6 +35,7 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
   const input = await ctx.runQuery(internal.outreach.contactForTrace, { contactId });
   if (!input) return;
   const wanted = fields.filter((f): f is Field => input.fields.includes(f));
+  if (input.sample) return await runSample(ctx, contactId, input, wanted);
   // Our own records come first and cost nothing: the home the company's mail goes to, and the permits it pulled. Only read when a field they can answer is wanted.
   const own: Vendor[] = [];
   if (input.company && wanted.some((f) => f !== "research")) {
@@ -191,5 +193,70 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
         await ctx.runMutation(internal.outreach.recordEnrichment, { contactId, field: "research", error: `Claude: ${text}`, tries: [{ source: "claude", outcome: "error", note: text }] });
       }
     }
+  }
+}
+
+/**
+ * A sample owner's rerun: the same waterfall over a stack that answers from
+ * the sample, a moment per source, then the line check, the Do Not Call
+ * scrub and the email check, each narrated. Nothing outside is called and
+ * nothing is charged (recordEnrichment sees the sample mark).
+ */
+async function runSample(
+  ctx: ActionCtx,
+  contactId: TraceArgs["contactId"],
+  input: { name: string; company?: string; person?: { name: string }; properties: number; question: string } & Parameters<typeof waterfall>[0],
+  wanted: Field[],
+) {
+  const step = Number(process.env.SAMPLE_STEP_MS ?? 1100);
+  const wait = () => new Promise<void>((resolve) => setTimeout(resolve, step));
+  const s = sampleFor(sampleIndex(input.name), { name: input.name, company: Boolean(input.company), properties: input.properties }, new Date().toISOString(), input.person?.name);
+  const progress: Progress = async (field, tries, asking) => {
+    await ctx.runMutation(internal.outreach.noteProgress, { contactId, field, asking, tries });
+  };
+  const outcomes = await waterfall(input, sampleStack(s, wait), wanted.filter((f) => f !== "research"), undefined, progress);
+  const after = (field: "phone" | "email", sources: string[]) => {
+    const cell = s.cells[field];
+    return cell.status === "locked" ? [] : cell.tries.filter((t) => sources.includes(t.source));
+  };
+  for (const field of ["person", "phone", "email"] as Field[]) {
+    if (!wanted.includes(field)) continue;
+    const o = outcomes.find((x) => x.field === field)!;
+    const tries = [...o.tries];
+    if (field === "phone" && o.found.phones?.length) {
+      await progress("phone", tries, "trestle");
+      await wait();
+      tries.push(...after("phone", ["trestle", "twilio"]));
+      await progress("phone", tries, "tracerfy-dnc");
+      await wait();
+      tries.push(...after("phone", ["tracerfy-dnc"]));
+    }
+    if (field === "email" && o.found.emails?.length) {
+      await progress("email", tries, "zerobounce");
+      await wait();
+      tries.push(...after("email", ["zerobounce", "trestle"]));
+    }
+    await ctx.runMutation(internal.outreach.recordEnrichment, {
+      contactId,
+      field,
+      source: o.source,
+      phones: field === "phone" ? o.found.phones : undefined,
+      emails: field === "email" ? o.found.emails : undefined,
+      person: field === "person" ? o.found.person : undefined,
+      tries,
+    });
+  }
+  if (wanted.includes("research")) {
+    await progress("research", [], "claude");
+    await wait();
+    await wait();
+    const research = s.research ? { ...s.research, question: input.question } : undefined;
+    await ctx.runMutation(internal.outreach.recordEnrichment, {
+      contactId,
+      field: "research",
+      source: "claude",
+      research,
+      tries: [research ? { source: "claude", outcome: "hit", note: "2 pages read" } : { source: "claude", outcome: "miss", note: "Nothing specific on this owner" }],
+    });
   }
 }

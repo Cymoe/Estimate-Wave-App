@@ -804,6 +804,9 @@ export const contactForTrace = internalQuery({
       mailing: c.mailing,
       fields,
       question: c.researchQuestion ?? DEFAULT_RESEARCH_QUESTION,
+      properties: c.properties,
+      // A sample owner reruns the sample chain: every source by name, nothing called, nothing charged.
+      sample: isSampleRun(c),
     };
   },
 });
@@ -946,8 +949,8 @@ export const recordEnrichment = internalMutation({
     const now = nowIso();
     const requestedBy = cellFor(cells, field).requestedBy;
     const found = field === "phone" ? phones.length > 0 : field === "email" ? emails.length > 0 : field === "person" ? Boolean(person) : Boolean(research);
-    // Copied from a related owner with the same decision maker: already paid for there.
-    const shared = source === "shared";
+    // Copied from a related owner with the same decision maker (already paid for there), or a sample run: no charge, no scorecard.
+    const shared = source === "shared" || isSampleRun(c);
     const price = shared ? 0 : field === "phone" ? UNLOCK_CENTS : field === "research" ? RESEARCH_CENTS : 0;
     let chargedCents = 0;
     if (found && price > 0 && requestedBy) {
@@ -979,7 +982,7 @@ export const recordEnrichment = internalMutation({
     });
     // The stack's own scorecard: an attempt per source asked, a hit for the one that answered.
     if (!shared && (source || !error)) await bumpStat(ctx, c.organizationId, source ?? "none", field, found, chargedCents, now);
-    if (tries) await noteProblems(ctx, c.organizationId, field, tries, now);
+    if (tries && !shared) await noteProblems(ctx, c.organizationId, field, tries, now);
     return null;
   },
 });
@@ -1154,6 +1157,8 @@ export const seedSample = internalMutation({
   },
 });
 
+/** An owner the sample filler marked: reruns walk the sample chain and cost nothing. Only the mark counts here. */
+const isSampleRun = (c: Doc<"outreachContacts">) => Boolean(c.note?.startsWith("Sample"));
 /** An owner filled by the sample filler: its note, or its 555-01xx numbers or example.com addresses, say so. */
 const isSample = (c: Doc<"outreachContacts">) =>
   Boolean(c.note?.startsWith("Sample")) || (c.phones ?? []).some((p) => isSampleNumber(p.number)) || (c.emails ?? []).some((e) => e.email.endsWith("example.com"));
