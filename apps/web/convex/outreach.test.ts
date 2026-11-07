@@ -6,7 +6,7 @@ import { actAs } from "./lib/actor";
 import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
 import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, groupOwners, guessDefinition, mailKey, ownerKey, shortMoney, type Condensed } from "./lib/outreach";
-import { checkEmails, zeroBounce } from "./lib/skipTrace";
+import { checkEmails, cobaltSos, enformion, hunter, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -416,7 +416,7 @@ describe("a company's lists", () => {
     vi.stubEnv("BATCHDATA_API_KEY", "");
     await t.finishAllScheduledFunctions(() => {});
     const noKey = (await read()).rows.find((r) => r.id === oak.id)!;
-    expect(noKey.enrichment.person).toMatchObject({ status: "failed", error: expect.stringContaining("TX_COMPTROLLER_API_KEY"), tries: [{ source: "tx-comptroller", outcome: "skipped", note: "Not connected" }] });
+    expect(noKey.enrichment.person).toMatchObject({ status: "failed", error: expect.stringContaining("TX_COMPTROLLER_API_KEY"), tries: [{ source: "tx-comptroller", outcome: "skipped", note: "Not connected" }, { source: "cobalt", outcome: "skipped", note: "Not connected" }] });
 
     // With keys: the Comptroller names Oak Plaza's manager, BatchData finds her phones and an email; the city gets nothing.
     await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 250 }));
@@ -485,14 +485,17 @@ describe("a company's lists", () => {
       email: { status: "found", source: "batchdata" },
     });
     // The ledger for the sheet: every source's turn, in order; Tracerfy isn't connected in this test.
-    expect(oakNow.enrichment.person.tries).toEqual([{ source: "tx-comptroller", outcome: "hit", note: "Dana Reyes, Manager" }]);
+    expect(oakNow.enrichment.person.tries).toEqual([{ source: "tx-comptroller", outcome: "hit", note: "Dana Reyes, Manager" }, { source: "cobalt", outcome: "skipped", note: "Not connected" }]);
     expect(oakNow.enrichment.phone.tries).toEqual([
       { source: "batchdata", outcome: "hit", note: "3 numbers" },
       { source: "tracerfy", outcome: "skipped", note: "Not connected" },
+      { source: "enformion", outcome: "skipped", note: "Not connected" },
     ]);
     expect(oakNow.enrichment.email.tries).toEqual([
       { source: "batchdata", outcome: "hit", note: "1 email" },
       { source: "tracerfy", outcome: "skipped", note: "Not connected" },
+      { source: "enformion", outcome: "skipped", note: "Not connected" },
+      { source: "hunter", outcome: "skipped", note: "Not connected" },
       { source: "zerobounce", outcome: "skipped", note: "Not connected" },
     ]);
     // Ranked: the vendor's score first, then mobile before VoIP before landline; the DNC landline is kept but flagged.
@@ -505,7 +508,7 @@ describe("a company's lists", () => {
     const cityNow = traced.rows.find((r) => r.id === cityHall.id)!;
     // The state has no entity called City Of Midland, and BatchData has nothing for it: three free misses.
     expect(cityNow.enrichment).toMatchObject({ phone: { status: "none" }, email: { status: "none" }, person: { status: "none" } });
-    expect(cityNow.enrichment.person.tries).toEqual([{ source: "tx-comptroller", outcome: "miss", note: "No match" }]);
+    expect(cityNow.enrichment.person.tries).toEqual([{ source: "tx-comptroller", outcome: "miss", note: "No match" }, { source: "cobalt", outcome: "skipped", note: "Not connected" }]);
     expect(cityNow.phones).toEqual([]);
     expect(traced.balanceCents).toBe(150);
     expect(traced.coverage).toEqual({ phone: { found: 1, total: 2, sources: 1 }, email: { found: 1, total: 2, sources: 1 }, person: { found: 1, total: 2, sources: 1 }, research: { found: 0, total: 2, sources: 0 } });
@@ -535,8 +538,11 @@ describe("a company's lists", () => {
     const stack = await ops.as.query(api.outreach.sources, { organizationId: org });
     expect(stack.map((s) => [s.name, s.connected, s.stats.map((x) => [x.field, x.attempts, x.hits, x.chargedCents])])).toEqual([
       ["tx-comptroller", true, [["person", 1, 1, 0]]],
+      ["cobalt", false, [["person", 0, 0, 0]]],
       ["batchdata", true, [["phone", 1, 1, 100], ["email", 1, 1, 0]]],
       ["tracerfy", false, [["phone", 0, 0, 0], ["email", 0, 0, 0]]],
+      ["enformion", false, [["phone", 0, 0, 0], ["email", 0, 0, 0]]],
+      ["hunter", false, [["email", 0, 0, 0]]],
       ["zerobounce", false, [["email", 0, 0, 0]]],
     ]);
     await expect(co.as.query(api.outreach.sources, { organizationId: org })).rejects.toThrow(/staff/);
@@ -603,6 +609,7 @@ describe("a company's lists", () => {
     expect(now.enrichment.phone.tries).toEqual([
       { source: "batchdata", outcome: "miss", note: "No match" },
       { source: "tracerfy", outcome: "hit", note: "2 numbers" },
+      { source: "enformion", outcome: "skipped", note: "Not connected" },
     ]);
     // Rank 1 first even though it's DNC; the landline follows. Only the Vances' numbers, not the tenant's.
     expect(now.phones).toEqual([
@@ -614,6 +621,8 @@ describe("a company's lists", () => {
     expect(now.enrichment.email.tries).toEqual([
       { source: "batchdata", outcome: "miss", note: "No match" },
       { source: "tracerfy", outcome: "hit", note: "1 email" },
+      { source: "enformion", outcome: "skipped", note: "Not connected" },
+      { source: "hunter", outcome: "skipped", note: "Not connected" },
       { source: "zerobounce", outcome: "hit", note: "1 of 1 deliverable" },
     ]);
     expect(calls.filter((c) => c.url.startsWith("https://api.zerobounce.net/v2/validate?api_key=zb-key&email=robert%40vance.example"))).toHaveLength(1);
@@ -644,6 +653,7 @@ describe("a company's lists", () => {
       { source: "batchdata", outcome: "error", note: expect.stringContaining("429") },
       // Nobody at the address shares Reyes's surname, so every number there counts.
       { source: "tracerfy", outcome: "hit", note: "3 numbers" },
+      { source: "enformion", outcome: "skipped", note: "Not connected" },
     ]);
 
     // Tracerfy out of credits and BatchData empty: a free miss whose note names the cause.
@@ -664,6 +674,7 @@ describe("a company's lists", () => {
     expect(now.enrichment.phone.tries).toEqual([
       { source: "batchdata", outcome: "miss", note: "No match" },
       { source: "tracerfy", outcome: "error", note: "Tracerfy: HTTP 402 (Insufficient credits. Instant trace requires 5 credits per lookup. You have 0 credits.)" },
+      { source: "enformion", outcome: "skipped", note: "Not connected" },
     ]);
     expect((await read()).balanceCents).toBe(300);
   });
@@ -903,6 +914,123 @@ describe("the deliverability check", () => {
     expect(await checkEmails(found("x@a.example"), broke)).toEqual({ emails: found("x@a.example"), try: { source: "zerobounce", outcome: "error", note: "ZeroBounce: Invalid API key or your account ran out of credits" } });
     const down = zeroBounce("k", async () => json({}, 503));
     expect((await checkEmails(found("x@a.example"), down)).try).toEqual({ source: "zerobounce", outcome: "error", note: "ZeroBounce: HTTP 503" });
+  });
+});
+
+describe("the wider stack", () => {
+  const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
+  const company: TraceInput = {
+    name: "Oak Plaza LLC",
+    company: "Oak Plaza LLC",
+    property: { address: "12 Midkiff Rd", city: "Midland", state: "TX" },
+    mailing: { address: "1 MAIN ST", city: "DALLAS", state: "TX", zip: "75201" },
+  };
+  const outOfState: TraceInput = { ...company, name: "Pine Holdings LLC", company: "Pine Holdings LLC", mailing: { address: "9 ELM ST", city: "DENVER", state: "CO", zip: "80202" } };
+
+  test("Cobalt asks the mailing state's registry, waits out a slow state, and names the officer who runs it, or a registered agent who is a person", async () => {
+    const urls: string[] = [];
+    const waits: number[] = [];
+    let slow = true;
+    const source = cobaltSos(
+      "cb-key",
+      async (url, init) => {
+        urls.push(String(url));
+        expect((init?.headers as Record<string, string>)["x-api-key"]).toBe("cb-key");
+        if (String(url).includes("retryId=") || !slow) {
+          return json({
+            status: "complete",
+            results: [
+              { title: "PINE HOLDINGS LLC", officers: [{ name: "CT CORPORATION SYSTEM", title: "AGENT" }, { name: "JANE PINE", title: "MANAGING MEMBER", address: "9 Elm St, Denver, CO 80202" }, { name: "AL PINE", title: "MEMBER" }] },
+              { title: "PINE HOLDINGS II LLC", officers: [{ name: "BOB WRONG", title: "MANAGER" }] },
+            ],
+          });
+        }
+        return json({ status: "pending", results: [], retryId: "retry_1" });
+      },
+      "https://cobalt.example",
+      async (ms) => {
+        waits.push(ms);
+      },
+    );
+    expect(await source.trace(outOfState)).toEqual({ person: { name: "Jane Pine", title: "Managing Member", address: "9 Elm St, Denver, CO 80202", source: "cobalt" } });
+    expect(urls).toEqual(["https://cobalt.example/v1/search?searchQuery=Pine%20Holdings%20LLC&state=colorado", "https://cobalt.example/v1/search?retryId=retry_1&state=colorado"]);
+    expect(waits).toEqual([5000]);
+    // Only an agent listed, and a person: they stand in. An agent that is a company doesn't.
+    slow = false;
+    const agentOnly = cobaltSos("cb-key", async () => json({ status: "complete", results: [{ title: "X LLC", officers: [], registeredAgent: { name: "Sam Agent", address: "1 Oak St" } }] }));
+    expect(await agentOnly.trace(company)).toEqual({ person: { name: "Sam Agent", title: "Registered Agent", address: "1 Oak St", source: "cobalt" } });
+    const firmAgent = cobaltSos("cb-key", async () => json({ status: "complete", results: [{ title: "X LLC", officers: [], registeredAgent: { name: "CT Corporation System" } }] }));
+    expect(await firmAgent.trace(company)).toEqual({});
+    expect(await cobaltSos("cb-key", async () => json({ status: "complete", results: [] })).trace(company)).toEqual({});
+    await expect(cobaltSos("cb-key", async () => json({}, 429)).trace(company)).rejects.toThrow("Cobalt: HTTP 429");
+    expect(await cobaltSos("cb-key").trace({ ...company, company: undefined })).toEqual({});
+  });
+
+  test("EnformionGO traces a named person at their mailing address: connected lines score higher; a company with nobody named is skipped", async () => {
+    let sent: Record<string, unknown> = {};
+    const source = enformion("ap-name", "ap-pass", async (url, init) => {
+      expect(String(url)).toBe("https://devapi.enformion.com/Contact/Enrich");
+      const h = init?.headers as Record<string, string>;
+      expect([h["galaxy-ap-name"], h["galaxy-ap-password"], h["galaxy-search-type"]]).toEqual(["ap-name", "ap-pass", "DevAPIContactEnrich"]);
+      sent = JSON.parse(init?.body as string);
+      return json({
+        isError: false,
+        person: {
+          phones: [
+            { number: "(432) 555-0142", type: "Mobile", isConnected: true },
+            { number: "432-555-0199", type: "Landline", isConnected: false },
+          ],
+          emails: [{ email: "Dana@Reyes.example", isValidated: true, isBusiness: false }],
+        },
+      });
+    });
+    const named = { ...company, person: { name: "Dana Reyes", title: "Manager", source: "tx-comptroller" } };
+    expect(source.applies?.(named)).toBeUndefined();
+    expect(source.applies?.(company)).toBe("Needs a person's name");
+    expect(await source.trace(named)).toEqual({
+      phones: [
+        { number: "(432) 555-0142", type: "mobile", verified: true, score: 80, source: "enformion" },
+        { number: "432-555-0199", type: "landline", score: 20, source: "enformion" },
+      ],
+      emails: [{ email: "Dana@Reyes.example", source: "enformion" }],
+    });
+    expect(sent).toEqual({ FirstName: "Dana", LastName: "Reyes", Address: { addressLine1: "1 MAIN ST", addressLine2: "DALLAS, TX 75201" } });
+    // A person from the roll ("VANCE ROBERT & LINDA") is traced at the property when the roll has no mailing address.
+    const vance: TraceInput = { name: "VANCE ROBERT & LINDA", property: { address: "1 Spruce Av", city: "Midland", state: "TX" }, mailing: {} };
+    await source.trace(vance);
+    expect(sent).toEqual({ FirstName: "Robert", LastName: "Vance", Address: { addressLine1: "1 Spruce Av", addressLine2: "Midland, TX" } });
+    const refused = enformion("a", "b", async () => json({ isError: true, error: { inputErrors: [], warnings: ["Not enough criteria"] } }));
+    await expect(refused.trace(named)).rejects.toThrow("EnformionGO: Not enough criteria");
+    expect(enformion("a", undefined).connected).toBe(false);
+  });
+
+  test("Hunter finds a work email for the person behind a company, from the company's name; it needs both, and a miss costs nothing", async () => {
+    const urls: string[] = [];
+    const source = hunter("h-key", async (url) => {
+      urls.push(String(url));
+      return json({ data: { email: "dana@oakplaza.com", score: 92, verification: { status: "valid" } } });
+    });
+    const named = { ...company, person: { name: "Dana Reyes", source: "tx-comptroller" } };
+    expect(source.applies?.(named)).toBeUndefined();
+    expect(source.applies?.(company)).toBe("Needs a named person at a company");
+    expect(source.applies?.({ ...named, company: undefined })).toBe("Needs a named person at a company");
+    expect(await source.trace(named)).toEqual({ emails: [{ email: "dana@oakplaza.com", source: "hunter", verified: true }] });
+    expect(urls).toEqual(["https://api.hunter.io/v2/email-finder?company=Oak%20Plaza%20LLC&first_name=Dana&last_name=Reyes&api_key=h-key"]);
+    expect(await hunter("h-key", async () => json({ data: { email: null, score: null } })).trace(named)).toEqual({});
+    expect(await hunter("h-key", async () => json({ errors: [{ id: "not_found" }] }, 404)).trace(named)).toEqual({});
+    await expect(hunter("h-key", async () => json({ errors: [{ id: "usage_limit", details: "You have reached your usage limit." }] }, 429)).trace(named)).rejects.toThrow("Hunter: HTTP 429 (You have reached your usage limit.)");
+  });
+
+  test("the waterfall skips a source that can't take this owner, with the reason in the ledger, and still asks the next one", async () => {
+    const picky = hunter("h-key", async () => json({ data: { email: "x@y.example" } }));
+    const asked: string[] = [];
+    const other = { name: "other", fields: ["email" as const], connected: true, trace: async () => (asked.push("other"), { emails: [{ email: "o@o.example", source: "other" }] }) };
+    const [email] = await waterfall(company, [picky, other], ["email"]);
+    expect(email.tries).toEqual([
+      { source: "hunter", outcome: "skipped", note: "Needs a named person at a company" },
+      { source: "other", outcome: "hit", note: "1 email" },
+    ]);
+    expect(email.source).toBe("other");
   });
 });
 

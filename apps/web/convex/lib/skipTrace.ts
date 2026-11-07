@@ -29,6 +29,8 @@ export type Vendor = {
   fields: Field[];
   /** True when the deployment holds its key. */
   connected: boolean;
+  /** Why this owner can't be asked about here (a reason for the ledger), or nothing when it can. */
+  applies?: (input: TraceInput) => string | undefined;
   trace: (input: TraceInput) => Promise<Found>;
 };
 
@@ -273,9 +275,169 @@ export function comptrollerTexas(key: string | undefined, fetchFn: Fetch = fetch
   };
 }
 
-/** The stack, in the order it's tried: free state records first, then the paid traces. */
+const STATE_NAMES: Record<string, string> = {
+  AL: "alabama", AK: "alaska", AZ: "arizona", AR: "arkansas", CA: "california", CO: "colorado", CT: "connecticut", DE: "delaware", DC: "district of columbia", FL: "florida",
+  GA: "georgia", HI: "hawaii", ID: "idaho", IL: "illinois", IN: "indiana", IA: "iowa", KS: "kansas", KY: "kentucky", LA: "louisiana", ME: "maine",
+  MD: "maryland", MA: "massachusetts", MI: "michigan", MN: "minnesota", MS: "mississippi", MO: "missouri", MT: "montana", NE: "nebraska", NV: "nevada", NH: "new hampshire",
+  NJ: "new jersey", NM: "new mexico", NY: "new york", NC: "north carolina", ND: "north dakota", OH: "ohio", OK: "oklahoma", OR: "oregon", PA: "pennsylvania", RI: "rhode island",
+  SC: "south carolina", SD: "south dakota", TN: "tennessee", TX: "texas", UT: "utah", VT: "vermont", VA: "virginia", WA: "washington", WV: "west virginia", WI: "wisconsin", WY: "wyoming",
+};
+const ENTITY = /\b(LLC|L L C|INC|LTD|LP|LLP|CORP|CORPORATION|COMPANY|CO|TRUST|SYSTEM|SERVICES?)\b/i;
+const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Cobalt Intelligence's Secretary of State search: one call reaches every
+ * state's registry, for the companies the Texas Comptroller doesn't list
+ * (registered elsewhere, or newer than the last report). GET
+ * /v1/search?searchQuery=&state= with x-api-key; the state is where the
+ * company gets its mail, else where the property is. A slow state hands
+ * back a retryId, polled a few times. Officers come back as {name, title,
+ * address}; with none, a registered agent who is a person stands in.
+ */
+export function cobaltSos(key: string | undefined, fetchFn: Fetch = fetch, base = "https://apigateway.cobaltintelligence.com", wait: (ms: number) => Promise<void> = pause): Vendor {
+  const headers = { Accept: "application/json", "x-api-key": key ?? "" };
+  type Result = { title?: string; officers?: Array<{ name?: string; title?: string; address?: string }>; registeredAgent?: { name?: string; address?: string } };
+  type Body = { status?: string; results?: Result[]; retryId?: string | null; message?: string };
+  return {
+    name: "cobalt",
+    fields: ["person"],
+    connected: Boolean(key),
+    trace: async (input) => {
+      if (!input.company) return {};
+      const query = input.company.replace(/[<>]/g, "").trim();
+      const code = (input.mailing.state ?? input.property.state ?? "TX").toUpperCase().slice(0, 2);
+      const state = STATE_NAMES[code] ?? code.toLowerCase();
+      const get = async (params: string) => {
+        const response = await fetchFn(`${base}/v1/search?${params}`, { headers });
+        if (!response.ok) throw new Error(`Cobalt: HTTP ${response.status}`);
+        return (await response.json()) as Body;
+      };
+      let body = await get(`searchQuery=${encodeURIComponent(query)}&state=${encodeURIComponent(state)}`);
+      for (let tries = 0; body.retryId && !(body.results?.length) && tries < 4; tries++) {
+        await wait(5000);
+        body = await get(`retryId=${encodeURIComponent(body.retryId)}&state=${encodeURIComponent(state)}`);
+      }
+      const results = asArray(body.results) as Result[];
+      if (results.length === 0) return {};
+      const wanted = query.toUpperCase().replace(/[^A-Z0-9 ]/g, "").replace(/\s+/g, " ");
+      const clean = (t?: string) => (t ?? "").toUpperCase().replace(/[^A-Z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+      const result = results.find((r) => clean(r.title) === wanted) ?? results[0];
+      const officers = (asArray(result.officers) as Array<{ name?: string; title?: string; address?: string }>).filter((o) => o.name && !ENTITY.test(o.name));
+      const rank = (title?: string) => {
+        const i = RUNS_IT.findIndex((re) => title && re.test(title));
+        return i === -1 ? RUNS_IT.length : i;
+      };
+      const best = [...officers].sort((a, b) => rank(a.title) - rank(b.title))[0];
+      const agent = result.registeredAgent;
+      const pick = best ?? (agent?.name && !ENTITY.test(agent.name) ? { name: agent.name, title: "Registered agent", address: agent.address } : undefined);
+      if (!pick?.name) return {};
+      return { person: { name: titleCase(pick.name), title: pick.title ? titleCase(pick.title) : undefined, address: pick.address || undefined, source: "cobalt" } };
+    },
+  };
+}
+
+/**
+ * EnformionGO (Endato): POST /Contact/Enrich with a name and an address
+ * answers with the best-matching person's phones (typed, with whether the
+ * line is connected) and emails. It needs a person's name, so a company
+ * waits for the state records to name one.
+ */
+export function enformion(apName: string | undefined, apPassword: string | undefined, fetchFn: Fetch = fetch, base = "https://devapi.enformion.com"): Vendor {
+  const who = (input: TraceInput) => (input.person ? splitName(input.person.name, "person") : input.company ? {} : splitName(input.name));
+  return {
+    name: "enformion",
+    fields: ["phone", "email"],
+    connected: Boolean(apName && apPassword),
+    applies: (input) => (who(input).first && who(input).last ? undefined : "Needs a person's name"),
+    trace: async (input) => {
+      const name = who(input);
+      if (!name.first || !name.last) return {};
+      const at = input.mailing.address && input.mailing.city && input.mailing.state ? input.mailing : input.property;
+      const response = await fetchFn(`${base}/Contact/Enrich`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "galaxy-ap-name": apName ?? "",
+          "galaxy-ap-password": apPassword ?? "",
+          "galaxy-search-type": "DevAPIContactEnrich",
+        },
+        body: JSON.stringify({
+          FirstName: titleCase(name.first),
+          LastName: titleCase(name.last),
+          Address: { addressLine1: at.address, addressLine2: [at.city, at.state].filter(Boolean).join(", ") + (at.zip ? ` ${at.zip.slice(0, 5)}` : "") },
+        }),
+      });
+      if (!response.ok) throw new Error(`EnformionGO: HTTP ${response.status}`);
+      const body = (await response.json()) as {
+        isError?: boolean;
+        error?: { warnings?: string[]; inputErrors?: string[] };
+        message?: string;
+        person?: { phones?: unknown[]; emails?: unknown[] };
+      };
+      if (body.isError) throw new Error(`EnformionGO: ${[...(body.error?.inputErrors ?? []), ...(body.error?.warnings ?? []), body.message].filter(Boolean).join("; ") || "error"}`);
+      const phones: Phone[] = [];
+      const emails: Email[] = [];
+      for (const p of asArray(body.person?.phones) as Array<Record<string, unknown>>) {
+        const number = str(p.number);
+        if (!number) continue;
+        phones.push({ number, type: phoneType(p.type), verified: p.isConnected === true ? true : undefined, score: p.isConnected === true ? 80 : p.isConnected === false ? 20 : undefined, source: "enformion" });
+      }
+      for (const e of asArray(body.person?.emails) as Array<Record<string, unknown>>) {
+        const email = str(e.email);
+        if (email) emails.push({ email, source: "enformion" });
+      }
+      return { phones, emails };
+    },
+  };
+}
+
+/**
+ * Hunter's email finder: a work address for the person behind a company,
+ * from the company's name alone (Hunter finds the domain). Last in the
+ * email chain, so it runs when the skip traces found nothing; nothing is
+ * charged when it finds nothing.
+ */
+export function hunter(key: string | undefined, fetchFn: Fetch = fetch, base = "https://api.hunter.io/v2"): Vendor {
+  return {
+    name: "hunter",
+    fields: ["email"],
+    connected: Boolean(key),
+    applies: (input) => {
+      const who = input.person ? splitName(input.person.name, "person") : {};
+      return input.company && who.first && who.last ? undefined : "Needs a named person at a company";
+    },
+    trace: async (input) => {
+      const who = input.person ? splitName(input.person.name, "person") : {};
+      if (!input.company || !who.first || !who.last) return {};
+      const params = `company=${encodeURIComponent(input.company)}&first_name=${encodeURIComponent(who.first)}&last_name=${encodeURIComponent(who.last)}&api_key=${encodeURIComponent(key ?? "")}`;
+      const response = await fetchFn(`${base}/email-finder?${params}`, { headers: { Accept: "application/json" } });
+      if (response.status === 404 || response.status === 451) return {};
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { errors?: Array<{ details?: string }> };
+        throw new Error(`Hunter: HTTP ${response.status}${body.errors?.[0]?.details ? ` (${body.errors[0].details})` : ""}`);
+      }
+      const body = (await response.json()) as { data?: { email?: string | null; verification?: { status?: string } } };
+      const email = str(body.data?.email);
+      if (!email) return {};
+      return { emails: [{ email, source: "hunter", verified: body.data?.verification?.status === "valid" ? true : undefined }] };
+    },
+  };
+}
+
+/**
+ * The stack, in the order it's tried: free state records first, then the
+ * paid registry; the skip traces by price; a work-email finder last.
+ */
 export function vendors(env: Record<string, string | undefined>): Vendor[] {
-  return [comptrollerTexas(env.TX_COMPTROLLER_API_KEY), batchData(env.BATCHDATA_API_KEY), tracerfy(env.TRACERFY_API_KEY, fetch, env.TRACERFY_API_BASE || undefined)];
+  return [
+    comptrollerTexas(env.TX_COMPTROLLER_API_KEY),
+    cobaltSos(env.COBALT_API_KEY, fetch, env.COBALT_API_BASE || undefined),
+    batchData(env.BATCHDATA_API_KEY),
+    tracerfy(env.TRACERFY_API_KEY, fetch, env.TRACERFY_API_BASE || undefined),
+    enformion(env.ENFORMION_AP_NAME, env.ENFORMION_AP_PASSWORD, fetch, env.ENFORMION_API_BASE || undefined),
+    hunter(env.HUNTER_API_KEY),
+  ];
 }
 
 // ---- Email deliverability ----
@@ -364,9 +526,9 @@ export async function checkEmails(emails: Email[], checker: Verifier): Promise<{
 
 /** The keys a field's sources need, for the "not connected" note. */
 export const KEY_FOR: Record<Field, string> = {
-  person: "TX_COMPTROLLER_API_KEY",
-  phone: "BATCHDATA_API_KEY or TRACERFY_API_KEY",
-  email: "BATCHDATA_API_KEY or TRACERFY_API_KEY",
+  person: "TX_COMPTROLLER_API_KEY or COBALT_API_KEY",
+  phone: "BATCHDATA_API_KEY, TRACERFY_API_KEY or ENFORMION_AP_NAME with ENFORMION_AP_PASSWORD",
+  email: "BATCHDATA_API_KEY, TRACERFY_API_KEY, ENFORMION_AP_NAME with ENFORMION_AP_PASSWORD, or HUNTER_API_KEY",
   research: "ANTHROPIC_API_KEY",
 };
 
@@ -416,6 +578,11 @@ export async function waterfall(input: TraceInput, vendors: Vendor[], fields: Fi
       }
       if (result) {
         tries.push({ source: vendor.name, outcome: "skipped", note: "Not needed, already found" });
+        continue;
+      }
+      const why = vendor.applies?.(input);
+      if (why) {
+        tries.push({ source: vendor.name, outcome: "skipped", note: why });
         continue;
       }
       try {

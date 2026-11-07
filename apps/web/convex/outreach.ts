@@ -727,7 +727,8 @@ export const recordCheck = internalMutation({
 });
 
 /** "batchdata" → "BatchData", "tx-comptroller" → "Texas Comptroller". */
-export const sourceLabel = (s: string) => ({ batchdata: "BatchData", tracerfy: "Tracerfy", "tx-comptroller": "Texas Comptroller", zerobounce: "ZeroBounce", claude: "Claude, from the web" })[s] ?? s;
+export const sourceLabel = (s: string) =>
+  ({ batchdata: "BatchData", tracerfy: "Tracerfy", enformion: "EnformionGO", hunter: "Hunter", "tx-comptroller": "Texas Comptroller", cobalt: "State registry (Cobalt)", zerobounce: "ZeroBounce", claude: "Claude, from the web" })[s] ?? s;
 
 /**
  * One-off: contacts unlocked before per-field cells existed get their

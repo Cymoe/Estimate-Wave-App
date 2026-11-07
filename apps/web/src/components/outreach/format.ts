@@ -6,4 +6,5 @@ export const mailingLine = (m: { address?: string; city?: string; state?: string
 export const phoneText = (n: string) => (n.length === 10 ? `(${n.slice(0, 3)}) ${n.slice(3, 6)}-${n.slice(6)}` : n);
 
 /** "batchdata" → "BatchData", "tx-comptroller" → "Texas Comptroller". */
-export const sourceName = (s: string) => ({ batchdata: 'BatchData', tracerfy: 'Tracerfy', 'tx-comptroller': 'Texas Comptroller', zerobounce: 'ZeroBounce', claude: 'the web' })[s] ?? s;
+export const sourceName = (s: string) =>
+  ({ batchdata: 'BatchData', tracerfy: 'Tracerfy', enformion: 'EnformionGO', hunter: 'Hunter', 'tx-comptroller': 'Texas Comptroller', cobalt: 'State registry (Cobalt)', zerobounce: 'ZeroBounce', claude: 'the web' })[s] ?? s;
