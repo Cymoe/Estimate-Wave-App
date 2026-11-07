@@ -389,7 +389,8 @@ export const ContactSheet: React.FC<{
   // The buttons: the best number not on the Do Not Call list; a text only to a mobile.
   const callable = row.phones.find(callOk);
   const textable = row.phones.find((p) => callOk(p) && p.type === 'mobile');
-  const email0 = row.emails[0];
+  // The Email button goes to an address the contact check didn't say belongs to someone else.
+  const email0 = row.emails.find((e) => e.nameMatch !== false) ?? row.emails[0];
   return (
     <SlideOutDrawer isOpen onClose={onClose} title={row.name} width="md">
       <div className="p-6 space-y-5">

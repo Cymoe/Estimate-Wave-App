@@ -222,7 +222,7 @@ describe('the Outreach page', () => {
     const steps = document.body.querySelector('[data-testid="steps"]')!.textContent!;
     expect(steps).toContain('2 companies go to step 2 for the person · 1 person or trust skips to step 3');
     expect(steps).toContain('1 of 2 companies1 found1 need a retry');
-    expect(steps).toContain('2 of 32 found1 not looked up$2 charged · 1 on Do Not Call only');
+    expect(steps).toContain('2 of 32 found1 not looked up$2 charged · 1 not callable (Do Not Call or litigator)');
     expect(steps).toContain('1 of 31 found1 none1 not looked up1 verified deliverable');
     // The failed cell says why, and Retry runs that field again without opening the sheet.
     const failedCell = document.body.querySelectorAll('[data-testid="contact-row"]')[0].querySelectorAll('td')[2];

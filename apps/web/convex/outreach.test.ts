@@ -1406,8 +1406,11 @@ describe("the wider stack", () => {
       { number: "4325550199", type: "landline" as const, source: "batchdata" },
       { number: "4325550177", type: "voip" as const, source: "batchdata" },
     ];
-    const r = await scrubPhones(phones, scrub);
+    // Only the best three go to the paid scrub; a fourth stays as it was.
+    const r = await scrubPhones([...phones, { number: "4325550001", type: "unknown" as const, source: "batchdata" }], scrub);
     expect(bodies).toEqual([[{ phone: "4325550100" }, { phone: "4325550199" }, { phone: "4325550177" }]]);
+    expect(r.phones[3]).toEqual({ number: "4325550001", type: "unknown", source: "batchdata" });
+    r.phones.pop();
     expect(r.phones).toEqual([
       { number: "4325550100", type: "mobile", source: "batchdata" },
       { number: "4325550199", type: "landline", source: "batchdata", dnc: true },

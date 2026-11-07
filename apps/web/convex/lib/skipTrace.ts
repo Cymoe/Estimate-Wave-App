@@ -800,7 +800,8 @@ export async function scrubPhones(phones: Phone[], scrub: PhoneScrub): Promise<{
   if (!scrub.connected) return { phones, try: { source: scrub.name, outcome: "skipped", note: "Not connected" } };
   let found: Map<string, Scrub>;
   try {
-    found = await scrub.scrub(phones.map((p) => p.number));
+    // The best few only (the same ones the line check saw): the scrub is paid per number, and the rest aren't the ones anyone calls.
+    found = await scrub.scrub(phones.slice(0, CHECK_AT_MOST).map((p) => p.number));
   } catch (e) {
     return { phones, try: { source: scrub.name, outcome: "error", note: e instanceof Error ? e.message : String(e) } };
   }

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { OutreachCell, OutreachContact } from '../../lib/api';
+import { callOk } from './format';
 
 /** How a step's cells stand across the list. */
 type Tally = { found: number; looking: number; none: number; failed: number; locked: number; total: number };
@@ -40,7 +41,7 @@ function stepsOf(rows: OutreachContact[]): Steps {
   let phoneCents = 0;
   let chargedCents = 0;
   for (const r of rows) {
-    if (r.phones.length > 0 && r.phones.every((p) => p.dnc)) dncOnly++;
+    if (r.phones.length > 0 && !r.phones.some(callOk)) dncOnly++;
     if (r.emails.some((e) => e.verified)) verifiedEmails++;
     if (Object.values(r.enrichment).some((c) => c.status === 'running')) looking++;
     phoneCents += r.enrichment.phone.chargedCents ?? 0;
@@ -201,7 +202,7 @@ export const StepStrip: React.FC<{ rows: OutreachContact[]; unlockCents: number;
           <Bar t={s.phone} />
           <p className="mt-1 text-[11px] text-gray-400 tabular-nums">
             {dollars(s.phoneCents)} charged
-            {s.dncOnly > 0 ? ` · ${s.dncOnly} on Do Not Call only` : ''}
+            {s.dncOnly > 0 ? ` · ${s.dncOnly} not callable (Do Not Call or litigator)` : ''}
           </p>
         </Step>
         <Step n={4} title="Email · included">

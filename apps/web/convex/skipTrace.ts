@@ -62,39 +62,6 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
   // Our own records always get their turn; "not connected" is about the outside sources.
   const none = (field: Field) => !external.some((s) => s.connected && s.fields.includes(field));
   const outcomes = await waterfall(input, stack, wanted.filter((f) => f !== "research"));
-  // Research isn't a vendor in the stack: Claude reads the web, after the person lookup has named who to read about.
-  if (fields.includes("research") && input.fields.includes("research")) {
-    const person = outcomes.find((o) => o.field === "person")?.found.person ?? input.person;
-    if (!process.env.ANTHROPIC_API_KEY) {
-      await ctx.runMutation(internal.outreach.recordEnrichment, {
-        contactId,
-        field: "research",
-        error: "The assistant isn't connected yet (ANTHROPIC_API_KEY isn't set on the Convex deployment).",
-        tries: [{ source: "claude", outcome: "skipped", note: "Not connected" }],
-      });
-    } else {
-      try {
-        const r = await researchOwner({ ...input, person }, input.question);
-        await ctx.runMutation(internal.outreach.recordEnrichment, {
-          contactId,
-          field: "research",
-          source: "claude",
-          research: r.found ? { question: input.question, answer: r.answer, sources: r.sources, at: new Date().toISOString() } : undefined,
-          error: r.answer ? undefined : "The assistant gave no answer.",
-          tries: [
-            r.found
-              ? { source: "claude", outcome: "hit", note: `${r.sources.length} ${r.sources.length === 1 ? "page" : "pages"} read` }
-              : r.answer
-                ? { source: "claude", outcome: "miss", note: "Nothing specific on this owner" }
-                : { source: "claude", outcome: "error", note: "No answer came back" },
-          ],
-        });
-      } catch (e) {
-        const text = e instanceof Error ? e.message : String(e);
-        await ctx.runMutation(internal.outreach.recordEnrichment, { contactId, field: "research", error: `Claude: ${text}`, tries: [{ source: "claude", outcome: "error", note: text }] });
-      }
-    }
-  }
   // The phone step runs before the email step: the contact check's word on the first email rides on the first phone call.
   const checkers = phoneCheckers(process.env);
   const firstEmail = wanted.includes("email") ? dedupeEmails(outcomes.find((x) => x.field === "email")?.found.emails ?? [])[0]?.email : undefined;
@@ -162,5 +129,39 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
       error: !o.source && o.errors.length > 0 ? o.errors.join("; ") : undefined,
       tries,
     });
+  }
+  // Research last, once the person, phone and email are written: it's the slowest step, and what's found shouldn't wait on it.
+  // It isn't a vendor in the stack: Claude reads the web, after the person lookup has named who to read about.
+  if (fields.includes("research") && input.fields.includes("research")) {
+    const person = outcomes.find((o) => o.field === "person")?.found.person ?? input.person;
+    if (!process.env.ANTHROPIC_API_KEY) {
+      await ctx.runMutation(internal.outreach.recordEnrichment, {
+        contactId,
+        field: "research",
+        error: "The assistant isn't connected yet (ANTHROPIC_API_KEY isn't set on the Convex deployment).",
+        tries: [{ source: "claude", outcome: "skipped", note: "Not connected" }],
+      });
+    } else {
+      try {
+        const r = await researchOwner({ ...input, person }, input.question);
+        await ctx.runMutation(internal.outreach.recordEnrichment, {
+          contactId,
+          field: "research",
+          source: "claude",
+          research: r.found ? { question: input.question, answer: r.answer, sources: r.sources, at: new Date().toISOString() } : undefined,
+          error: r.answer ? undefined : "The assistant gave no answer.",
+          tries: [
+            r.found
+              ? { source: "claude", outcome: "hit", note: `${r.sources.length} ${r.sources.length === 1 ? "page" : "pages"} read` }
+              : r.answer
+                ? { source: "claude", outcome: "miss", note: "Nothing specific on this owner" }
+                : { source: "claude", outcome: "error", note: "No answer came back" },
+          ],
+        });
+      } catch (e) {
+        const text = e instanceof Error ? e.message : String(e);
+        await ctx.runMutation(internal.outreach.recordEnrichment, { contactId, field: "research", error: `Claude: ${text}`, tries: [{ source: "claude", outcome: "error", note: text }] });
+      }
+    }
   }
 }

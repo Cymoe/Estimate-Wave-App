@@ -13,7 +13,7 @@ import { fundErrorText, openFundingPage } from '../components/market/WalletBar';
 import { useAuth } from '../contexts/AuthContext';
 import { isStaff } from '../lib/roles';
 import { WHO_LABEL } from '../../convex/lib/outreach';
-import { sourceName } from '../components/outreach/format';
+import { callOk, sourceName } from '../components/outreach/format';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 const iconButton = 'w-11 h-11 inline-flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2A2A2A] border border-[#333333]';
@@ -32,7 +32,7 @@ const STATUS_FILTERS: Array<{ value: OutreachRowStatus | 'all'; label: string }>
 type Show = 'all' | 'ready' | 'email' | 'needs';
 const SHOWS: Array<{ value: Show; label: string; has: (r: OutreachContact) => boolean }> = [
   { value: 'all', label: 'All', has: () => true },
-  { value: 'ready', label: 'Ready to call', has: (r) => r.phones.some((p) => !p.dnc) },
+  { value: 'ready', label: 'Ready to call', has: (r) => r.phones.some(callOk) },
   { value: 'email', label: 'Has email', has: (r) => r.emails.length > 0 },
   { value: 'needs', label: 'Needs you', has: (r) => Object.values(r.enrichment).some((c) => c.status === 'failed') },
 ];
