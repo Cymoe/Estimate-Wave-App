@@ -553,7 +553,12 @@ const OutreachPage: React.FC = () => {
         </div>
       )}
       {data && data.rows.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filters">
+        <div
+          className={`flex items-center gap-2 ${view === 'cards' ? 'sticky top-[69px] md:top-0 z-30 -mx-4 md:-mx-6 px-4 md:px-6 py-2 bg-black border-b border-[#333333] flex-nowrap overflow-x-auto md:flex-wrap [&>*]:shrink-0' : 'flex-wrap'}`}
+          role="group"
+          aria-label="Filters"
+          data-testid="filter-bar"
+        >
           <label className="relative block">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" aria-hidden />
             <input
@@ -562,7 +567,7 @@ const OutreachPage: React.FC = () => {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search owner, person or street"
               aria-label="Search"
-              className="w-72 max-w-full bg-[#1A1A1A] border border-[#333333] pl-9 pr-3 min-h-[36px] text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
+              className={`${view === 'cards' ? 'w-44 md:w-72' : 'w-72'} max-w-full bg-[#1A1A1A] border border-[#333333] pl-9 pr-3 min-h-[36px] text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]`}
             />
           </label>
           {SHOWS.map((s) =>
