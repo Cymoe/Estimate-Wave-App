@@ -51,7 +51,7 @@ let interpreted: Record<string, unknown> = {
   count: 2,
   truncated: false,
   limited: false,
-  preview: [contact('r1'), contact('r2', { name: 'City Of Midland' })],
+  preview: [contact('r1'), contact('r2', { name: 'City Of Midland', properties: 4, totalValueCents: 30_000_000, why: '4 commercial buildings worth $300K' })],
 };
 const interpret = jest.fn(async () => interpreted);
 const preview = jest.fn(async () => ({ count: 1, truncated: false, limited: false, rows: [contact('r1', { name: 'Vance Robert & Linda' })] }));
@@ -293,6 +293,10 @@ describe('the Outreach page', () => {
     expect(built.textContent).toContain('Owners of commercial buildings on the roll; no phone numbers.');
     expect(built.querySelectorAll('[aria-label="Preview"] li')).toHaveLength(2);
     expect(built.textContent).toContain('1 MAIN ST, DALLAS, TX, 75201');
+    // Each row shows the owner's holdings, what the list is sorted on: one building's value, or how many properties and their total.
+    const previewRows = Array.from(built.querySelectorAll('[aria-label="Preview"] li')).map((li) => li.textContent?.replace(/\s+/g, ' ').trim());
+    expect(previewRows[0]).toContain('Oak Plaza LLC$3M');
+    expect(previewRows[1]).toContain('City Of Midland4 properties · $300K');
     const title = built.querySelector('input#outreach-title') as HTMLInputElement;
     expect(title.value).toBe('Shopping center owners, Midland');
     await act(async () => type(title, 'Strip centers'));

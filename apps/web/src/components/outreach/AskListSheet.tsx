@@ -175,7 +175,11 @@ export const AskListSheet: React.FC<{
                   <li key={r.key} className="px-3 py-2.5 text-sm">
                     <div className="flex items-baseline justify-between gap-3">
                       <span className="text-white truncate">{r.name}</span>
-                      {r.property.valueCents ? <span className="text-gray-400 tabular-nums shrink-0">{shortMoney(r.property.valueCents)}</span> : null}
+                      {/* The owner's holdings, not one building: what the list is sorted on. */}
+                      <span className="text-gray-400 tabular-nums shrink-0">
+                        {r.properties > 1 ? `${r.properties.toLocaleString('en-US')} properties · ` : ''}
+                        {shortMoney(r.properties > 1 ? r.totalValueCents : r.property.valueCents ?? r.totalValueCents)}
+                      </span>
                     </div>
                     <div className="text-xs text-gray-500 truncate">{mailingLine(r.mailing)}</div>
                   </li>
