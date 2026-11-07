@@ -102,13 +102,13 @@ const Empty: React.FC<{ cell: OutreachCell; onRetry?: () => void }> = ({ cell, o
       return <span className="text-gray-600">None found</span>;
     case 'failed':
       return (
-        <span className="inline-flex items-start gap-3">
-          <span className="min-w-0">
-            <span className="inline-flex items-center gap-1 text-amber-300">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Lookup failed
+        <span className="flex items-start gap-2 min-w-0">
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-1 text-amber-300 whitespace-nowrap">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> <span className="truncate">Lookup failed</span>
             </span>
             {cell.error && (
-              <span className="block max-w-[8rem] truncate text-[11px] text-gray-500" title={cell.error}>
+              <span className="block truncate text-[11px] text-gray-500" title={cell.error}>
                 {cell.error}
               </span>
             )}
@@ -120,7 +120,7 @@ const Empty: React.FC<{ cell: OutreachCell; onRetry?: () => void }> = ({ cell, o
                 e.stopPropagation();
                 onRetry();
               }}
-              className="px-2 min-h-[28px] text-xs text-amber-300 border border-amber-400/60 hover:bg-amber-400/10 whitespace-nowrap"
+              className="shrink-0 px-2 min-h-[28px] text-xs text-amber-300 border border-amber-400/60 hover:bg-amber-400/10 whitespace-nowrap"
             >
               Retry
             </button>
@@ -136,8 +136,27 @@ const Empty: React.FC<{ cell: OutreachCell; onRetry?: () => void }> = ({ cell, o
   }
 };
 
-const th = 'font-medium px-3 py-2 whitespace-nowrap align-top';
-const td = 'px-3 py-2 whitespace-nowrap align-top';
+const th = 'font-medium px-3 py-2 whitespace-nowrap align-top overflow-hidden';
+const td = 'px-3 py-2 whitespace-nowrap align-top overflow-hidden text-ellipsis';
+/**
+ * Each column's width, in rem, fixed so the table never shifts as answers
+ * arrive (a lookup's narration, a phone landing): what doesn't fit is cut
+ * with an ellipsis instead of widening its column.
+ */
+const WIDTH: Record<'select' | 'name' | ColumnKey, number> = {
+  select: 2.5,
+  name: 16,
+  person: 13,
+  phone: 12.5,
+  email: 15,
+  research: 18,
+  status: 6,
+  mailing: 15,
+  property: 13,
+  value: 6,
+  type: 9,
+  signals: 14,
+};
 /** The checkbox and the name stay put while the roll columns scroll under them. */
 const pinned = 'sticky bg-[#121212] group-hover:bg-[#1A1A1A]';
 
@@ -164,14 +183,22 @@ export const ContactsTable: React.FC<{
   const lit = useJustFilled(rows);
   const glow = (id: string, f: OutreachField) => (lit.has(`${id}:${f}`) ? ' cell-filled' : '');
   const show = (k: ColumnKey) => !hidden?.has(k);
-  const shown = (['person', 'phone', 'email', 'research', 'status', 'mailing', 'property', 'value', 'type', 'signals'] as ColumnKey[]).filter(show).length;
+  const shownKeys = (['person', 'phone', 'email', 'research', 'status', 'mailing', 'property', 'value', 'type', 'signals'] as ColumnKey[]).filter(show);
+  const widthOf = (keys: ColumnKey[]) => WIDTH.select + WIDTH.name + keys.reduce((sum, k) => sum + WIDTH[k], 0);
   const [atEnd, setAtEnd] = useState(false);
   // No fade when every column fits, or once the last one is in view.
   const scrolled = (el: HTMLDivElement) => setAtEnd(el.scrollWidth <= el.clientWidth || el.scrollLeft + el.clientWidth >= el.scrollWidth - 2);
   return (
     <div className="relative" data-testid="contacts-table">
       <div className="bg-[#121212] border border-[#333333] overflow-x-auto" onScroll={(e) => scrolled(e.currentTarget)} ref={(el) => el && scrolled(el)}>
-        <table className="w-full text-sm" style={{ minWidth: `${20 + shown * 7}rem` }} aria-label="Contacts">
+        <table className="text-sm table-fixed" style={{ width: `${widthOf(shownKeys)}rem`, minWidth: '100%' }} aria-label="Contacts">
+          <colgroup>
+            <col style={{ width: `${WIDTH.select}rem` }} />
+            <col style={{ width: `${WIDTH.name}rem` }} />
+            {shownKeys.map((k) => (
+              <col key={k} style={{ width: `${WIDTH[k]}rem` }} />
+            ))}
+          </colgroup>
           <thead>
             <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-[#333333]">
               <th className={`${pinned} left-0 z-10 px-3 py-2 w-10 align-top`}>
