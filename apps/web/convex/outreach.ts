@@ -28,16 +28,15 @@ import {
   RESEARCH_CENTS,
   UNLOCK_CENTS,
   DEFAULT_RESEARCH_QUESTION,
-  WEALTHY_DEFAULT_CENTS,
   WHO_GUIDE,
   defaultTitle,
   definitionFromArgs,
   facetFor,
   guessDefinition,
-  facetValue,
   listOrder,
   matches,
   propertyFor,
+  underFloor,
   why,
   type Condensed,
   type Definition,
@@ -258,16 +257,14 @@ export async function buildRows(ctx: QueryCtx | MutationCtx, def: Definition, of
     return { rows, count, total, truncated, limited: total - offset >= limit };
   }
   const facetRows = await query().take(SCAN);
-  const valueSorted = facet !== "investor" && facet !== "office" && facet !== "buyer";
-  const minValue = def.minValueCents ?? (def.who === "wealthy" ? WEALTHY_DEFAULT_CENTS : undefined);
   const rows: ListRow[] = [];
   let total = 0;
   let floored = false;
   outer: for (let i = 0; i < facetRows.length; i += 100) {
     for (const owner of await ownersOf(ctx, facetRows, i, Math.min(facetRows.length, i + 100))) {
       if (!owner) continue;
-      // Sorted by value, so once a row is under the floor every row after it is too.
-      if (valueSorted && minValue !== undefined && facetValue(owner as unknown as OwnerRow, facet) < minValue) {
+      // Sorted by holdings or value, so once a row is under the floor every row after it is too: the count is exact.
+      if (underFloor(owner as unknown as OwnerRow, def, facet)) {
         floored = true;
         break outer;
       }

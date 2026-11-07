@@ -5,7 +5,7 @@ import { setup, signUp } from "./test.setup";
 import { actAs } from "./lib/actor";
 import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
-import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, facetsOf, groupOwners, guessDefinition, listOrder, mailKey, ownerKey, parcelsIn, shortMoney, type Condensed, type OwnerRow } from "./lib/outreach";
+import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, facetsOf, groupOwners, guessDefinition, listOrder, mailKey, ownerKey, parcelsIn, shortMoney, underFloor, type Condensed, type OwnerRow } from "./lib/outreach";
 import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, lineOwner, samePerson, scrubPhones, tracerfyDnc, trestleRealContact, twilioLookup, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { GIVE_UP_ERROR } from "./outreach";
 
@@ -139,6 +139,15 @@ describe("grouping the roll into owners", () => {
     for (const name of ["County Line Investments LLC", "District Holdings LLC", "Federal Street Partners LP"]) {
       expect(facets(name), name).toEqual(["investor", "commercial"]);
     }
+    // Read top-down by holdings, an investor list with a floor stops at the first owner under it; by value, the rest do.
+    const four = { ...holder("Four Corners LLC"), parcels: 4 };
+    expect(underFloor(four, { county: "Midland", who: "investor", minParcels: 5 }, "investor")).toBe(true);
+    expect(underFloor(four, { county: "Midland", who: "investor", minParcels: 4 }, "investor")).toBe(false);
+    expect(underFloor(four, { county: "Midland", who: "investor", companyOwned: true }, "investor")).toBe(false);
+    expect(underFloor(four, { county: "Midland", who: "builder", minParcels: 5 }, "builder")).toBe(true);
+    expect(underFloor(four, { county: "Midland", who: "commercial", minValueCents: 3_000_000_000 }, "commercial")).toBe(true);
+    expect(underFloor(four, { county: "Midland", who: "commercial", minValueCents: 2_000_000_000 }, "commercial")).toBe(false);
+    expect(underFloor(four, { county: "Midland", who: "recent_buyer", minValueCents: 9_000_000_000 }, "buyer")).toBe(false);
   });
 
   test("pass one finds only the office; pass two hands its rows out and lets them go", () => {

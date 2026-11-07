@@ -453,6 +453,19 @@ export function propertyFor(row: OwnerRow, facet: Facet): Property | undefined {
   return row.tops[pick[facet] ?? "all"] ?? row.tops.all;
 }
 
+/**
+ * A facet is read top-down by what it's sorted on, so once a row is under
+ * the definition's floor on that measure, nothing after it can match and
+ * the read can stop: holdings for investors, builders and offices, value
+ * for the rest. Buyers are sorted by deed date, which has no floor here.
+ */
+export function underFloor(row: OwnerRow, def: Definition, facet: Facet): boolean {
+  if (facet === "investor" || facet === "builder" || facet === "office") return def.minParcels !== undefined && row.parcels < def.minParcels;
+  if (facet === "buyer") return false;
+  const minValue = def.minValueCents ?? (def.who === "wealthy" ? WEALTHY_DEFAULT_CENTS : undefined);
+  return minValue !== undefined && facetValue(row, facet) < minValue;
+}
+
 /** The filters a definition adds on top of its facet, plus the wealthy and buyer defaults. */
 export function matches(row: OwnerRow, def: Definition, facet: Facet, now: number): boolean {
   const minValue = def.minValueCents ?? (def.who === "wealthy" ? WEALTHY_DEFAULT_CENTS : undefined);
