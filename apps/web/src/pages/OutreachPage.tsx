@@ -460,6 +460,8 @@ const OutreachPage: React.FC = () => {
 
   return (
     <div className="p-4 md:p-6 space-y-4" data-testid="outreach-page">
+      {/* A lookup running, or just finished: a banner across the top of the page, edge to edge. */}
+      {data && <LookupProgress rows={data.rows} since={batch?.at} onDismiss={() => keepBatch(null)} className="-mx-4 md:-mx-6 -mt-4 md:-mt-6" />}
       <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold text-white">Outreach</h1>
@@ -527,8 +529,6 @@ const OutreachPage: React.FC = () => {
           {list.truncated && (list.total === undefined || list.total <= list.rowCount) && <span className="text-amber-300"> · The top of a longer list; ask for a narrower one to reach the rest.</span>}
         </p>
       )}
-      {/* The lookup that's running, up top with the list rather than over the + button. */}
-      {data && <LookupProgress rows={data.rows} since={batch?.at} onDismiss={() => keepBatch(null)} />}
       {note && <p className="text-sm text-gray-300">{note}</p>}
       {chosen.length > 0 && (
         <div className="flex flex-wrap items-center gap-3 bg-[#121212] border border-[#333333] px-4 py-2" data-testid="unlock-bar">

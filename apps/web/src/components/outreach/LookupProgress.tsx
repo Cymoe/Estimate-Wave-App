@@ -12,7 +12,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
  * after `since`, the time the lookup started; without it (a lookup started
  * elsewhere), the owners still running.
  */
-export const LookupProgress: React.FC<{ rows: OutreachContact[]; since?: string; onDismiss: () => void }> = ({ rows, since, onDismiss }) => {
+export const LookupProgress: React.FC<{ rows: OutreachContact[]; since?: string; onDismiss: () => void; className?: string }> = ({ rows, since, onDismiss, className = '' }) => {
   const running = (r: OutreachContact) => Object.values(r.enrichment).some((c) => c?.status === 'running');
   const asked = (c?: OutreachCell) => Boolean(since && c?.at && c.at >= since && c.status !== 'locked');
   const found = (c?: OutreachCell) => (since ? asked(c) : Boolean(c?.at)) && c!.status === 'found';
@@ -26,13 +26,8 @@ export const LookupProgress: React.FC<{ rows: OutreachContact[]; since?: string;
   const finished = Boolean(since) && done === batch.length;
   const parts = since ? [plural(phones, 'phone'), plural(emails, 'email'), ...(people ? [plural(people, 'person', 'people')] : []), `${dollars(cents)} ${finished ? 'charged' : 'so far'}`] : [];
   return (
-    <div role="status" aria-live="polite" data-testid="lookup-progress" className="border border-[#333333] bg-[#121212]">
-      {since && (
-        <div className="h-0.5 bg-[#1A1A1A]">
-          <div className="h-full bg-[#336699] transition-[width] duration-700" style={{ width: `${Math.round((done / batch.length) * 100)}%` }} />
-        </div>
-      )}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-1.5 text-sm">
+    <div role="status" aria-live="polite" data-testid="lookup-progress" className={`relative bg-[#121212] border-b border-[#333333] ${className}`}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 md:px-6 py-2 text-sm">
         {finished ? <CheckCircle2 className="w-4 h-4 text-[#7fb0e0]" aria-hidden /> : <span className="live-dot" aria-hidden />}
         <span className="text-white">{finished ? `Done: ${plural(batch.length, 'owner')} looked up` : since ? `Looking up ${plural(batch.length, 'owner')} · ${done} done` : `Looking up ${plural(batch.length, 'owner')}…`}</span>
         {parts.length > 0 && <span className="text-gray-400 tabular-nums">{parts.join(' · ')}</span>}
@@ -42,6 +37,12 @@ export const LookupProgress: React.FC<{ rows: OutreachContact[]; since?: string;
           </button>
         )}
       </div>
+      {/* The blue line along the banner's bottom edge fills as owners finish. */}
+      {since && (
+        <div className="absolute inset-x-0 -bottom-px h-0.5 bg-[#1A1A1A]">
+          <div className="h-full bg-[#336699] transition-[width] duration-700" style={{ width: `${Math.round((done / batch.length) * 100)}%` }} />
+        </div>
+      )}
     </div>
   );
 };
