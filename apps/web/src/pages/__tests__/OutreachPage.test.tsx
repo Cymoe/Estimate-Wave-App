@@ -415,6 +415,13 @@ describe('the Outreach page', () => {
     await click('Has a signal');
     expect(names()).toEqual(['City Of Midland']);
     await act(async () => (filters.querySelector('button') as HTMLButtonElement).click());
+    // Search is just its icon until tapped; an empty box folds back when left.
+    const search = document.body.querySelector('input[aria-label="Search"]') as HTMLInputElement;
+    expect(search.placeholder).toBe('');
+    await act(async () => search.focus());
+    expect(search.placeholder).toBe('Search owner, person or street');
+    await act(async () => search.blur());
+    expect(search.placeholder).toBe('');
     await act(async () => type(document.body.querySelector('input[aria-label="Search"]') as HTMLInputElement, 'elm'));
     expect(names()).toEqual(['Vance Robert & Linda']);
     await act(async () => type(document.body.querySelector('input[aria-label="Search"]') as HTMLInputElement, 'reyes'));

@@ -139,6 +139,39 @@ const SourcesPanel: React.FC<{ organizationId: string }> = ({ organizationId }) 
  * One line of filters that never wraps: when they don't fit, the row slides
  * sideways and its right edge fades, and only then.
  */
+/**
+ * Search as just its icon until it's wanted: a tap opens it into a box,
+ * and an empty box folds back to the icon when you leave it. Escape
+ * clears it. A box with words in it stays open.
+ */
+const SearchBox: React.FC<{ value: string; onChange: (value: string) => void }> = ({ value, onChange }) => {
+  const [focused, setFocused] = useState(false);
+  const open = focused || value.length > 0;
+  return (
+    <label className={`relative block ${open ? 'flex-1 md:flex-none' : ''}`} title={open ? undefined : 'Search owner, person or street'}>
+      <Search className={`w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none ${open ? 'text-gray-500' : 'text-gray-300'}`} aria-hidden />
+      <input
+        type="search"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            onChange('');
+            e.currentTarget.blur();
+          }
+        }}
+        placeholder={open ? 'Search owner, person or street' : ''}
+        aria-label="Search"
+        className={`h-9 border border-[#333333] text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699] transition-[width] duration-200 ${
+          open ? 'w-full md:w-64 pl-8 pr-3 bg-[#1A1A1A]' : 'w-9 pl-8 pr-0 bg-transparent cursor-pointer hover:bg-[#2A2A2A]'
+        }`}
+      />
+    </label>
+  );
+};
+
 const ChipRow: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const row = useRef<HTMLDivElement>(null);
   const [more, setMore] = useState(false);
@@ -557,18 +590,7 @@ const OutreachPage: React.FC = () => {
           </ChipRow>
           {/* Search, status and the view switch stay put on the right; on a phone they get their own line above the tabs. */}
           <div className="flex w-full md:w-auto shrink-0 items-center gap-2 py-1.5">
-            <label className="relative block flex-1 md:flex-none">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" aria-hidden />
-              <input
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search"
-                title="Search owner, person or street"
-                aria-label="Search"
-                className="w-full md:w-40 2xl:w-56 h-9 bg-[#1A1A1A] border border-[#333333] pl-9 pr-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
-              />
-            </label>
+            <SearchBox value={query} onChange={setQuery} />
             <label className="relative block">
               <select
                 value={status}
