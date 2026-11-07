@@ -32,8 +32,10 @@ import {
   defaultTitle,
   definitionFromArgs,
   facetFor,
+  familyKey,
   guessDefinition,
   listOrder,
+  mailKey,
   matches,
   propertyFor,
   underFloor,
@@ -45,7 +47,7 @@ import {
 } from "./lib/outreach";
 import { MIDLAND_PARCELS, addressKey } from "./lib/parcels";
 import { planIsActive } from "./lib/plan";
-import { needsAttention, phoneCheckers, phoneScrub, splitName, vendors, verifier, type Found, type Person } from "./lib/skipTrace";
+import { needsAttention, phoneCheckers, phoneScrub, samePerson, splitName, vendors, verifier, type Found, type Person } from "./lib/skipTrace";
 import { dollars, postTransaction } from "./lib/wallet";
 
 const COUNTY = MIDLAND_PARCELS.county;
@@ -440,7 +442,7 @@ export function cellsOf(c: Doc<"outreachContacts">): NonNullable<Doc<"outreachCo
 /** The cell for a field, with research's absence on older rows read as locked. */
 const cellFor = (cells: NonNullable<Doc<"outreachContacts">["enrichment"]>, field: Doc<"dataSourceStats">["field"]): Cell => cells[field] ?? LOCKED;
 
-const contactView = (c: Doc<"outreachContacts">, signals: SignalBadge[]) => ({
+const contactView = (c: Doc<"outreachContacts">, signals: SignalBadge[], related: Array<{ id: Id<"outreachContacts">; name: string }> = []) => ({
   id: c._id,
   key: c.key,
   name: c.name,
@@ -460,6 +462,8 @@ const contactView = (c: Doc<"outreachContacts">, signals: SignalBadge[]) => ({
   research: c.research,
   enrichment: { ...cellsOf(c), research: cellFor(cellsOf(c), "research") },
   signals,
+  /** Sister entities of the same company family ("Nuka Hiva Alpha 1-54 LLC" and "Nuka Hiva Alpha LLC"): likely one operator. */
+  related,
   createdAt: c.createdAt,
 });
 export type ContactView = ReturnType<typeof contactView>;
@@ -535,8 +539,18 @@ export const contacts = query({
     const picked = all
       .filter((c) => !listId || c.listIds.includes(listId))
       .sort((a, b) => (order ? order.key(b) - order.key(a) || a.name.localeCompare(b.name) : b.createdAt.localeCompare(a.createdAt) || a.name.localeCompare(b.name)));
+    // Sister entities across all the company's contacts, not only this list.
+    const families = new Map<string, Array<{ id: Id<"outreachContacts">; name: string }>>();
+    for (const c of all) {
+      const f = c.company ? familyKey(c.name) : undefined;
+      if (f) families.set(f, [...(families.get(f) ?? []), { id: c._id, name: c.name }]);
+    }
+    const relatedTo = (c: Doc<"outreachContacts">) => {
+      const f = c.company ? familyKey(c.name) : undefined;
+      return f ? (families.get(f) ?? []).filter((r) => r.id !== c._id) : [];
+    };
     const rows = [];
-    for (const c of picked) rows.push(contactView(c, await signalsFor(ctx, c.property.parcelId)));
+    for (const c of picked) rows.push(contactView(c, await signalsFor(ctx, c.property.parcelId), relatedTo(c)));
     return {
       rows,
       coverage: coverageOf(picked),
@@ -709,17 +723,26 @@ export const enrich = mutation({
     }
     const asked = question?.trim().slice(0, 300) || DEFAULT_RESEARCH_QUESTION;
     const now = nowIso();
+    // Sister entities wait their turn: the first finds the person and the phone, the rest find the same person free and copy it.
+    const place = new Map<string, number>();
     for (const { contact, fields: open } of jobs) {
+      const family = contact.company && open.some((f) => f === "phone" || f === "email") ? familyKey(contact.name) : undefined;
+      const turn = family ? (place.get(family) ?? 0) : 0;
+      if (family) place.set(family, turn + 1);
+      const delay = turn * FAMILY_STAGGER_MS;
       const cells = { ...cellsOf(contact) };
       for (const f of open) cells[f] = { status: "running", at: now, requestedBy: user._id };
       await ctx.db.patch(contact._id, { enrichment: cells, unlock: undefined, ...(open.includes("research") ? { researchQuestion: asked } : {}), updatedAt: now });
-      await ctx.scheduler.runAfter(0, internal.skipTrace.trace, { contactId: contact._id, fields: open });
+      await ctx.scheduler.runAfter(delay, internal.skipTrace.trace, { contactId: contact._id, fields: open });
       // The watchdog: should the lookup be killed before it writes anything, these cells still end up failed, with Retry.
-      await ctx.scheduler.runAfter(GIVE_UP_AFTER_MS, internal.outreach.giveUp, { contactId: contact._id, fields: open, at: now });
+      await ctx.scheduler.runAfter(delay + GIVE_UP_AFTER_MS, internal.outreach.giveUp, { contactId: contact._id, fields: open, at: now });
     }
     return { queued: jobs.length, costCents: cost };
   },
 });
+
+/** How long a sister entity's lookup waits behind the one before it in the same batch. */
+export const FAMILY_STAGGER_MS = 90 * 1000;
 
 /** How long a lookup may run before its cells are failed as taking too long (Convex stops the action itself at ten). */
 export const GIVE_UP_AFTER_MS = 10 * 60 * 1000;
@@ -766,6 +789,34 @@ export const contactForTrace = internalQuery({
       fields,
       question: c.researchQuestion ?? DEFAULT_RESEARCH_QUESTION,
     };
+  },
+});
+
+/**
+ * A phone and email already found on another of the company's owners with
+ * the same decision maker, for the trace to copy instead of paying again.
+ * Same person by name is not enough on its own (two John Smiths): the
+ * owners must also be one family, share a mailing address, or the person
+ * the same address.
+ */
+export const sharedLookup = internalQuery({
+  args: { contactId: v.id("outreachContacts"), person: outreachPerson },
+  handler: async (ctx, { contactId, person }): Promise<{ from: string; phones: Doc<"outreachContacts">["phones"]; emails: Doc<"outreachContacts">["emails"] } | null> => {
+    const me = await ctx.db.get(contactId);
+    if (!me) return null;
+    const family = me.company ? familyKey(me.name) : undefined;
+    const mail = mailKey(me.mailing);
+    const home = person.address?.trim().toUpperCase();
+    for (const c of await contactsOf(ctx, me.organizationId)) {
+      if (c._id === contactId || !c.person || !(c.phones?.length) || cellFor(cellsOf(c), "phone").status !== "found") continue;
+      if (!samePerson(person, c.person)) continue;
+      const tied =
+        (family !== undefined && c.company !== undefined && familyKey(c.name) === family) ||
+        (mail !== undefined && mailKey(c.mailing) === mail) ||
+        (home !== undefined && c.person.address?.trim().toUpperCase() === home);
+      if (tied) return { from: c.name, phones: c.phones, emails: c.emails };
+    }
+    return null;
   },
 });
 
@@ -860,7 +911,9 @@ export const recordEnrichment = internalMutation({
     const now = nowIso();
     const requestedBy = cellFor(cells, field).requestedBy;
     const found = field === "phone" ? phones.length > 0 : field === "email" ? emails.length > 0 : field === "person" ? Boolean(person) : Boolean(research);
-    const price = field === "phone" ? UNLOCK_CENTS : field === "research" ? RESEARCH_CENTS : 0;
+    // Copied from a related owner with the same decision maker: already paid for there.
+    const shared = source === "shared";
+    const price = shared ? 0 : field === "phone" ? UNLOCK_CENTS : field === "research" ? RESEARCH_CENTS : 0;
     let chargedCents = 0;
     if (found && price > 0 && requestedBy) {
       try {
@@ -877,7 +930,7 @@ export const recordEnrichment = internalMutation({
       }
     }
     cells[field] = found
-      ? { status: "found", at: now, requestedBy, source, chargedCents: price > 0 ? chargedCents : undefined, tries }
+      ? { status: "found", at: now, requestedBy, source, chargedCents: price > 0 || (shared && field === "phone") ? chargedCents : undefined, tries }
       : error
         ? { status: "failed", at: now, requestedBy, error, tries }
         : { status: "none", at: now, requestedBy, source, tries };
@@ -890,7 +943,7 @@ export const recordEnrichment = internalMutation({
       updatedAt: now,
     });
     // The stack's own scorecard: an attempt per source asked, a hit for the one that answered.
-    if (source || !error) await bumpStat(ctx, c.organizationId, source ?? "none", field, found, chargedCents, now);
+    if (!shared && (source || !error)) await bumpStat(ctx, c.organizationId, source ?? "none", field, found, chargedCents, now);
     if (tries) await noteProblems(ctx, c.organizationId, field, tries, now);
     return null;
   },
@@ -956,6 +1009,7 @@ export const sourceLabel = (s: string) =>
     trestle: "Trestle contact check",
     "tracerfy-dnc": "Tracerfy DNC scrub",
     claude: "Claude, from the web",
+    shared: "A related owner (no charge)",
   })[s] ?? s;
 
 /**

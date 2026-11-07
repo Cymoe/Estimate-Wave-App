@@ -1220,6 +1220,8 @@ export type OutreachContact = {
   research?: OutreachResearch;
   enrichment: OutreachEnrichment;
   signals: OutreachSignal[];
+  /** Sister entities of the same company family: likely one operator, sharing one lookup. */
+  related?: Array<{ id: string; name: string }>;
   createdAt: string;
 };
 export type OutreachPreviewRow = Pick<OutreachContact, 'key' | 'name' | 'company' | 'mailing' | 'property' | 'properties' | 'totalValueCents' | 'why'>;

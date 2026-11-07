@@ -1038,7 +1038,10 @@ const hitNote = (field: Field, found: Found) => {
  * every field it covers. A source that throws is skipped (its message
  * kept), so one outage doesn't fail the unlock.
  */
-export async function waterfall(input: TraceInput, vendors: Vendor[], fields: Field[]): Promise<Outcome[]> {
+/** A phone or email already paid for on a related owner with the same decision maker: copied, so no source is asked. */
+export type Reuse = (field: "phone" | "email", input: TraceInput) => Promise<{ found: Found; note: string } | undefined>;
+
+export async function waterfall(input: TraceInput, vendors: Vendor[], fields: Field[], reuse?: Reuse): Promise<Outcome[]> {
   const answers = new Map<string, Promise<Found>>();
   const ask = (vendor: Vendor) => {
     let p = answers.get(vendor.name);
@@ -1058,6 +1061,13 @@ export async function waterfall(input: TraceInput, vendors: Vendor[], fields: Fi
     const tries: Try[] = [];
     let result: Outcome | undefined;
     let authority = 0;
+    const copied = (field === "phone" || field === "email") && reuse && input.person ? await reuse(field, input) : undefined;
+    if (copied && has(field, copied.found)) {
+      tries.push({ source: "shared", outcome: "hit", note: copied.note });
+      for (const vendor of vendors) if (vendor.fields.includes(field)) tries.push({ source: vendor.name, outcome: "skipped", note: "Not needed, already found" });
+      out.push({ field, found: copied.found, source: "shared", errors, tries });
+      continue;
+    }
     for (const vendor of vendors) {
       if (!vendor.fields.includes(field)) continue;
       if (!vendor.connected) {

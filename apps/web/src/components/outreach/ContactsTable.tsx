@@ -176,7 +176,14 @@ export const ContactsTable: React.FC<{
                   <td className={`${pinned} left-0 z-10 ${td}`} onClick={(e) => e.stopPropagation()}>
                     <input type="checkbox" checked={selected.has(r.id)} onChange={(e) => onSelect(r.id, e.target.checked)} aria-label={`Select ${r.name}`} className="accent-[#336699]" />
                   </td>
-                  <td className={`${pinned} left-10 z-10 ${td} border-r border-[#333333] max-w-[16rem] truncate ${r.status === 'skip' ? 'text-gray-500 line-through' : 'text-white'}`}>{r.name}</td>
+                  <td className={`${pinned} left-10 z-10 ${td} border-r border-[#333333] max-w-[16rem] truncate ${r.status === 'skip' ? 'text-gray-500 line-through' : 'text-white'}`}>
+                    {r.name}
+                    {r.related?.length ? (
+                      <span className="block text-[11px] text-gray-500 no-underline" title={`Related: ${r.related.map((x) => x.name).join(', ')}`} data-testid="related">
+                        +{r.related.length} related
+                      </span>
+                    ) : null}
+                  </td>
                   {show('person') && (
                     <td className={`${td} max-w-[14rem] truncate`}>
                       {r.person ? (
@@ -400,6 +407,12 @@ export const ContactSheet: React.FC<{
           {row.why}
           {row.kinds.length ? <span className="text-gray-500"> · {row.kinds.map((k) => WHO_LABEL[k]).join(', ')}</span> : null}
         </p>
+        {row.related?.length ? (
+          <p className="text-sm text-gray-400" data-testid="related-sheet">
+            Related: {row.related.map((x) => x.name).join(', ')}
+            <span className="block text-xs text-gray-500">Likely one operator. Once one is looked up, the others copy the same person's phone and email free.</span>
+          </p>
+        ) : null}
         <div className="divide-y divide-[#333333] border-y border-[#333333]">
           {row.company && (
             <div className="py-3" data-testid="decision-maker">

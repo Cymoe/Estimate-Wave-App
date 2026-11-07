@@ -9,7 +9,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import { outreachField } from "./schema";
-import { KEY_FOR, applyEmailCheck, checkEmails, checkPhonesWith, dedupeEmails, expectedNames, lineOwner, phoneCheckers, phoneScrub, rankPhones, scrubPhones, vendors, verifier, waterfall, type EmailCheck, type Field, type Found, type Try, type Vendor } from "./lib/skipTrace";
+import { KEY_FOR, applyEmailCheck, checkEmails, checkPhonesWith, dedupeEmails, expectedNames, lineOwner, phoneCheckers, phoneScrub, rankPhones, scrubPhones, vendors, verifier, waterfall, type EmailCheck, type Field, type Found, type Reuse, type Try, type Vendor } from "./lib/skipTrace";
 import { researchOwner } from "./lib/research";
 
 type TraceArgs = { contactId: import("./_generated/dataModel").Id<"outreachContacts">; fields: Field[] };
@@ -63,12 +63,21 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
   const stack = [...own, ...external];
   // Our own records always get their turn; "not connected" is about the outside sources.
   const none = (field: Field) => !external.some((s) => s.connected && s.fields.includes(field));
-  const outcomes = await waterfall(input, stack, wanted.filter((f) => f !== "research"));
+  // A decision maker already found, with a phone, on a sister entity: copy it rather than pay for it again.
+  const reuse: Reuse = async (field, who) => {
+    const hit = who.person ? await ctx.runQuery(internal.outreach.sharedLookup, { contactId, person: who.person }) : null;
+    if (!hit) return undefined;
+    const note = `Same decision maker as ${hit.from}; copied, no charge`;
+    return field === "phone" ? { found: { phones: hit.phones as Found["phones"] }, note } : { found: { emails: hit.emails as Found["emails"] }, note };
+  };
+  const outcomes = await waterfall(input, stack, wanted.filter((f) => f !== "research"), reuse);
+  const isShared = (field: Field) => outcomes.find((x) => x.field === field)?.source === "shared";
   // Deliverability first, so the one name check rides on a live address, not one about to be dropped.
   const emailOutcome = outcomes.find((x) => x.field === "email");
   let emailsKept = wanted.includes("email") ? dedupeEmails(emailOutcome?.found.emails ?? []) : [];
   let deliverability: Try | undefined;
-  if (emailsKept.length > 0) {
+  // Copied addresses were checked on the owner they came from.
+  if (emailsKept.length > 0 && !isShared("email")) {
     const checked = await checkEmails(emailsKept, verifier(process.env));
     emailsKept = checked.emails;
     deliverability = checked.try;
@@ -92,9 +101,10 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
       continue;
     }
     let emails = field === "email" ? emailsKept : undefined;
-    let phones = field === "phone" ? rankPhones(o.found.phones ?? []) : undefined;
+    let phones = field === "phone" ? (o.source === "shared" ? (o.found.phones ?? []) : rankPhones(o.found.phones ?? [])) : undefined;
     const tries = [...o.tries];
-    if (field === "phone" && phones && phones.length > 0) {
+    // Copied numbers were checked and scrubbed on the owner they came from: no second paid check.
+    if (field === "phone" && phones && phones.length > 0 && o.source !== "shared") {
       // The checker's word: dead lines go, live ones carry their type, the name on the account or a name match, and a grade.
       const person = outcomes.find((x) => x.field === "person")?.found.person ?? input.person;
       const who = { ...input, person };

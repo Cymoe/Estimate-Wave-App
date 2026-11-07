@@ -5,7 +5,7 @@ import { setup, signUp } from "./test.setup";
 import { actAs } from "./lib/actor";
 import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
-import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, facetsOf, groupOwners, guessDefinition, listOrder, mailKey, ownerKey, parcelsIn, shortMoney, underFloor, type Condensed, type OwnerRow } from "./lib/outreach";
+import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, ownerKey, parcelsIn, shortMoney, underFloor, type Condensed, type OwnerRow } from "./lib/outreach";
 import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, lineOwner, samePerson, scrubPhones, tracerfyDnc, trestleRealContact, twilioLookup, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { GIVE_UP_ERROR } from "./outreach";
 
@@ -818,6 +818,104 @@ describe("a company's lists", () => {
     expect((await read()).rows.find((r) => r.id === ortiz.id)!.enrichment.phone.status).toBe("none");
     const cleared = (await ops.as.query(api.outreach.sources, { organizationId: org })).find((s) => s.name === "tracerfy")!;
     expect(cleared.stats.map((s) => [s.field, s.problem])).toEqual([["phone", undefined], ["email", undefined]]);
+  });
+
+  test("sister entities share one lookup: tagged as related, staggered, and the second copies the first's phone free once the same decision maker is named", async () => {
+    // The family: legal words and numbering go, the name stays.
+    expect(familyKey("NUKA HIVA ALPHA 1-54 LLC")).toBe("NUKA HIVA ALPHA");
+    expect(familyKey("Nuka Hiva Alpha 55-106, LLC")).toBe("NUKA HIVA ALPHA");
+    expect(familyKey("NUKA HIVA ALPHA LLC")).toBe("NUKA HIVA ALPHA");
+    expect(familyKey("OAK PLAZA II LP")).toBe(familyKey("Oak Plaza LLC"));
+    expect(familyKey("MIDLAND TX PROPERTIES LLC")).not.toBe(familyKey("MIDLAND HOLDINGS LLC"));
+    expect(familyKey("SMITH LLC")).toBeUndefined();
+    expect(familyKey("MIDLAND 2 LLC")).toBeUndefined();
+
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    const three = (prefix: string, owner: string, mailing: Condensed["mailing"]) =>
+      ["1", "2", "3"].map((n) => parcel(`${prefix}${n}`, { owner, companyOwned: true, ownerOccupied: false, mailing }));
+    await addParcels(t, [
+      ...three("a", "NUKA HIVA ALPHA 1-54 LLC", { address: "3119 S COUNTY RD 1109", city: "MIDLAND", state: "TX", zip: "79706" }),
+      ...three("b", "NUKA HIVA ALPHA 55-106, LLC", { address: "319 S COUNTY ROAD 1109", city: "MIDLAND", state: "TX", zip: "79706" }),
+      ...three("c", "BRAZOS VENTURES LLC", { address: "9 OAK ST", city: "AUSTIN", state: "TX", zip: "78701" }),
+    ]);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 1000 }));
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "investor" } });
+    const read = async () => (await co.as.query(api.outreach.contacts, { organizationId: org })).rows;
+    const byName = async (start: string) => (await read()).find((r) => r.name.startsWith(start))!;
+    const first = await byName("Nuka Hiva Alpha 1-54");
+    const second = await byName("Nuka Hiva Alpha 55-106");
+    const brazos = await byName("Brazos");
+    // Tagged as related, both ways; an unrelated company is not.
+    expect(first.related).toEqual([{ id: second.id, name: second.name }]);
+    expect(second.related).toEqual([{ id: first.id, name: first.name }]);
+    expect(brazos.related).toEqual([]);
+
+    // The Comptroller names one manager for both Nuka Hiva entities, and a man of the same name at another address for Brazos.
+    vi.stubEnv("TX_COMPTROLLER_API_KEY", "cpa-key");
+    vi.stubEnv("BATCHDATA_API_KEY", "bd-key");
+    for (const k of ["TRACERFY_API_KEY", "ENFORMION_AP_NAME", "TRESTLE_API_KEY", "TWILIO_ACCOUNT_SID", "ZEROBOUNCE_API_KEY", "HUNTER_API_KEY", "LEADMAGIC_API_KEY", "COBALT_API_KEY"]) vi.stubEnv(k, "");
+    const batchdata: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const json = (data: unknown) => new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" } });
+        if (url.includes("franchise-tax-list")) {
+          const name = decodeURIComponent(url.split("name=")[1]).toUpperCase();
+          const id = name.includes("BRAZOS") ? "32022222222" : name.includes("NUKA") ? `3201${name.includes("55") ? "2" : "1"}000000` : undefined;
+          return json({ success: true, data: id ? [{ name, taxpayerId: id, mailingAddressZip: "79706" }] : [], count: id ? 1 : 0 });
+        }
+        if (url.includes("franchise-tax/")) {
+          const brazosId = url.includes("32022222222");
+          return json({
+            success: true,
+            data: {
+              name: brazosId ? "BRAZOS VENTURES LLC" : "NUKA HIVA ALPHA LLC",
+              officerInfo: [
+                brazosId
+                  ? { AGNT_NM: "KAI MOANA", AGNT_TITL_TX: "MANAGER", AD_STR_POB_TX: "50 RIVER RD", CITY_NM: "AUSTIN", ST_CD: "TX", AD_ZP: "78701" }
+                  : { AGNT_NM: "KAI MOANA", AGNT_TITL_TX: "MANAGER", AD_STR_POB_TX: "1 HARBOR DR", CITY_NM: "MIDLAND", ST_CD: "TX", AD_ZP: "79706" },
+              ],
+            },
+          });
+        }
+        const body = JSON.parse((init?.body as string) ?? "{}") as { requests: Array<{ propertyAddress: { street: string } }> };
+        batchdata.push(body.requests[0].propertyAddress.street);
+        return json({
+          results: {
+            persons: [{ name: { first: "Kai", last: "Moana" }, phoneNumbers: [{ number: "432-555-0142", type: "Mobile", score: 90 }], emails: [{ email: "kai@nukahiva.example" }] }],
+          },
+        });
+      }),
+    );
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [first.id, second.id, brazos.id] })).resolves.toEqual({ queued: 3, costCents: 300 });
+    // The first of the family and the unrelated company run now; the sister waits its turn.
+    await t.finishAllScheduledFunctions(() => {});
+    expect((await byName("Nuka Hiva Alpha 1-54")).enrichment.phone).toMatchObject({ status: "found", source: "batchdata", chargedCents: 100 });
+    expect((await byName("Brazos")).enrichment.phone).toMatchObject({ status: "found", source: "batchdata", chargedCents: 100 });
+    expect((await byName("Nuka Hiva Alpha 55-106")).enrichment.phone.status).toBe("running");
+    const asked = batchdata.length;
+    expect(asked).toBeGreaterThan(0);
+
+    // Its turn: the same manager, so the phone and email are copied, nothing is charged and no paid source is asked.
+    await t.action(internal.skipTrace.trace, { contactId: second.id, fields: ["person", "phone", "email"] });
+    const copied = await byName("Nuka Hiva Alpha 55-106");
+    expect(copied.person).toMatchObject({ name: "Kai Moana", source: "tx-comptroller" });
+    expect(copied.phones).toEqual((await byName("Nuka Hiva Alpha 1-54")).phones);
+    expect(copied.emails).toEqual((await byName("Nuka Hiva Alpha 1-54")).emails);
+    expect(copied.enrichment.phone).toMatchObject({ status: "found", source: "shared", chargedCents: 0 });
+    expect(copied.enrichment.email).toMatchObject({ status: "found", source: "shared" });
+    expect(copied.enrichment.phone.tries![0]).toEqual({ source: "shared", outcome: "hit", note: `Same decision maker as ${first.name}; copied, no charge` });
+    expect(copied.enrichment.phone.tries).toContainEqual({ source: "batchdata", outcome: "skipped", note: "Not needed, already found" });
+    expect(batchdata).toHaveLength(asked);
+    // Two phones paid for, not three; the copy is not a source hit on the scorecard.
+    const after = await co.as.query(api.outreach.contacts, { organizationId: org });
+    expect(after.balanceCents).toBe(800);
+    const stats = await t.run(async (ctx) => ctx.db.query("dataSourceStats").collect());
+    expect(stats.some((s) => s.source === "shared")).toBe(false);
   });
 
   test("the watchdog fails a lookup that never wrote back, free and with Retry; a newer request on the field is left to its own", async () => {

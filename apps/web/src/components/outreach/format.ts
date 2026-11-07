@@ -22,6 +22,7 @@ export const sourceName = (s: string) =>
     trestle: 'the contact check (Trestle)',
     'tracerfy-dnc': 'the Do Not Call scrub (Tracerfy)',
     claude: 'the web',
+    shared: 'a related owner (no charge)',
   })[s] ?? s;
 
 /** A number worth calling: not on the Do Not Call list and not a known litigator. */

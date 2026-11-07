@@ -107,6 +107,24 @@ export function ownerKey(owner: string): string {
   );
 }
 
+const LEGAL_WORDS = new Set(["LLC", "L", "C", "LP", "P", "LLP", "LLLP", "LTD", "INC", "CORP", "CORPORATION", "CO", "COMPANY", "PC", "PLLC"]);
+const NUMBERING = /^(\d+(-\d+)?|#\d+|I|II|III|IV|V|VI|VII|VIII|IX|X)$/;
+
+/**
+ * One family for a company's sister entities: "NUKA HIVA ALPHA 1-54 LLC",
+ * "Nuka Hiva Alpha 55-106, LLC" and "NUKA HIVA ALPHA LLC" all give
+ * "NUKA HIVA ALPHA". Only the legal words and the numbering go, so
+ * "MIDLAND TX PROPERTIES" and "MIDLAND HOLDINGS" stay apart. A stem too
+ * short to tell companies apart ("SMITH", "MIDLAND") forms no family.
+ */
+export function familyKey(name: string): string | undefined {
+  const words = ownerKey(name).replace(/[^A-Z0-9#\- ]/g, " ").split(/\s+/).filter(Boolean);
+  while (words.length && (LEGAL_WORDS.has(words[words.length - 1]) || NUMBERING.test(words[words.length - 1]) || (words.length > 2 && words[words.length - 1].length === 1))) words.pop();
+  const stem = words.filter((w) => !LEGAL_WORDS.has(w) && !NUMBERING.test(w)).join(" ");
+  if (!stem || (stem.split(" ").length < 2 && stem.length < 8)) return undefined;
+  return stem;
+}
+
 /** One spelling of a mailing address, with the zip, so two owners billed at one office share it. */
 export function mailKey(mailing: Mailing): string | undefined {
   const line = addressKey(mailing.address);
