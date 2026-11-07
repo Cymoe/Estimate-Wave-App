@@ -1207,7 +1207,8 @@ export default defineSchema({
     updatedAt: v.optional(v.string()),
   })
     .index("by_organization", ["organizationId"])
-    .index("by_organization_and_key", ["organizationId", "key"]),
+    .index("by_organization_and_key", ["organizationId", "key"])
+    .index("by_lead", ["leadId"]),
 
   // How each data source has done for a company, per field: the hit rate
   // on the Data sources panel and behind the "about $136" estimate is the

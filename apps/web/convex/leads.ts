@@ -237,6 +237,10 @@ export const remove = mutation({
   handler: async (ctx, { id }) => {
     const { doc, user } = await getOwned(ctx, "leads", id);
     await ctx.db.delete(id);
+    // An owner sent here from Outreach goes back to New there, ready to send again.
+    for (const c of await ctx.db.query("outreachContacts").withIndex("by_lead", (q) => q.eq("leadId", id)).collect()) {
+      await ctx.db.patch(c._id, { status: "new", leadId: undefined, updatedAt: nowIso() });
+    }
     await logActivity(ctx, {
       organizationId: doc.organizationId,
       userId: user._id,

@@ -568,7 +568,11 @@ export const contacts = query({
     const since = await freshSince(ctx);
     // Every owner's signals read at once, not one after another.
     const signals = await Promise.all(picked.map((c) => signalsFor(ctx, c.property.parcelId, since)));
-    const rows = picked.map((c, i) => contactView(c, signals[i], relatedTo(c)));
+    // A lead deleted in Leads leaves its owner New here, ready to send again.
+    const gone = new Set(
+      (await Promise.all(picked.filter((c) => c.leadId).map(async (c) => ((await ctx.db.get(c.leadId!)) ? null : c._id)))).filter((id) => id !== null),
+    );
+    const rows = picked.map((c, i) => contactView(gone.has(c._id) ? { ...c, status: c.status === "lead" ? "new" : c.status, leadId: undefined } : c, signals[i], relatedTo(c)));
     return {
       rows,
       coverage: coverageOf(picked),

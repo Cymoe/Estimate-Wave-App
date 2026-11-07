@@ -436,6 +436,15 @@ describe("a company's lists", () => {
     // It's on the Leads page like any other lead.
     expect((await co.as.query(api.leads.list, { organizationId: org })).map((l: { name: string }) => l.name)).toContain("Dana Reyes");
     expect(await cityNow()).toMatchObject({ status: "lead", leadId });
+    // Deleting the lead in Leads puts the owner back to New here, and Send to Leads makes a fresh one.
+    await co.as.mutation(api.leads.remove, { id: leadId });
+    expect(await cityNow()).toMatchObject({ status: "new" });
+    expect((await cityNow()).leadId).toBeUndefined();
+    const again = await co.as.mutation(api.outreach.sendToLeads, { organizationId: org, contactId: city.id });
+    expect(again).not.toBe(leadId);
+    // A lead gone some other way (deleted before this was in place) shows the owner as New too.
+    await t.run(async (ctx) => ctx.db.delete(again));
+    expect(await cityNow()).toMatchObject({ status: "new" });
     expect((await co.as.query(api.outreach.lists, { organizationId: org })).find((l) => l.who === "commercial")!.done).toBe(2);
 
     // Another company can't see it; a company off the plan can't use Outreach at all.
