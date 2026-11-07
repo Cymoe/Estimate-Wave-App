@@ -978,6 +978,17 @@ describe("a company's lists", () => {
     expect(await co.as.mutation(api.outreach.sendManyToLeads, { organizationId: org, contactIds: [first.id, second.id] as never })).toEqual({ sent: 0, leads: 0, joined: 0 });
     await co.as.mutation(api.leads.remove, { id: one.leadId as never });
     expect([(await byName("Nuka Hiva Alpha 1-54")).status, (await byName("Nuka Hiva Alpha 55-106")).status]).toEqual(["new", "new"]);
+
+    // Undo takes a send back: its leads still at New go and their owners are New again; a lead already worked stays.
+    await co.as.mutation(api.leads.remove, { id: (await byName("Brazos")).leadId as never });
+    vi.setSystemTime(new Date(new Date(NOW).getTime() + 60_000));
+    expect(await co.as.mutation(api.outreach.sendManyToLeads, { organizationId: org, contactIds: [first.id, second.id, brazos.id] as never })).toEqual({ sent: 3, leads: 2, joined: 1 });
+    const last = (await co.as.query(api.outreach.contacts, { organizationId: org })).lastSend!;
+    expect(last.leads).toBe(2);
+    await co.as.mutation(api.leads.update, { id: (await byName("Brazos")).leadId as never, data: { status: "contacted" } });
+    expect(await co.as.mutation(api.outreach.undoSend, { organizationId: org, at: last.at })).toEqual({ removed: 1, kept: 1 });
+    expect([(await byName("Nuka Hiva Alpha 1-54")).status, (await byName("Nuka Hiva Alpha 55-106")).status, (await byName("Brazos")).status]).toEqual(["new", "new", "lead"]);
+    expect((await co.as.query(api.outreach.contacts, { organizationId: org })).lastSend).toBeNull();
   });
 
   test("a running lookup's progress shows on its cell, only while it runs; a signal first seen this week is new, but not the first import", async () => {

@@ -20,6 +20,7 @@ const iconButton = 'w-11 h-11 inline-flex items-center justify-center text-gray-
 const VIEW_KEY = 'outreach.view';
 const SORT_KEY = 'outreach.sort';
 const BATCH_KEY = 'outreach.batch';
+const SEND_SEEN_KEY = 'outreach.sendSeen';
 const chip = (on: boolean) => `inline-flex items-center gap-1 px-3 h-9 shrink-0 text-sm border whitespace-nowrap ${on ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333333] text-gray-300 hover:bg-[#2A2A2A]'}`;
 const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: cents % 100 ? 2 : 0 })}`;
 /** The status picker: New, In Leads, Skipped; earlier statuses only while some row still has one. */
@@ -526,6 +527,49 @@ const OutreachPage: React.FC = () => {
   /** The owners showing (this list, filter and search) not yet in Leads or skipped; 500 at a time. */
   const toSend = rows.filter((r) => !r.leadId && r.status !== 'skip').slice(0, 500);
   const [sentNote, setSentNote] = useState<string | null>(null);
+  const [undoNote, setUndoNote] = useState<string | null>(null);
+  // The latest send of many, offered for Undo for a day, until dismissed on this device.
+  const lastSend = data?.lastSend ?? null;
+  const [seenSend, setSeenSend] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(SEND_SEEN_KEY);
+    } catch {
+      return null;
+    }
+  });
+  const dismissSend = () => {
+    setSentNote(null);
+    setUndoNote(null);
+    if (!lastSend) return;
+    setSeenSend(lastSend.at);
+    try {
+      localStorage.setItem(SEND_SEEN_KEY, lastSend.at);
+    } catch {
+      // Private browsing: dismissed for this visit.
+    }
+  };
+  /** Takes back the latest send, after a word on what stays. */
+  const undoLastSend = async () => {
+    if (!organizationId || !lastSend) return;
+    const ok = await confirm({
+      title: `Take back the ${lastSend.leads} ${lastSend.leads === 1 ? 'lead' : 'leads'} from this send?`,
+      message: 'They come out of Leads and their owners are New here again. Any you have already moved past New or quoted stay in Leads.',
+      confirmLabel: 'Undo send',
+    });
+    if (!ok) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await outreachAPI.undoSend(organizationId, lastSend.at);
+      setSentNote(null);
+      setUndoNote(`Took back ${r.removed} ${r.removed === 1 ? 'lead' : 'leads'}${r.kept ? `; kept ${r.kept} you've already started on` : ''}.`);
+      void load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't undo that send");
+    } finally {
+      setBusy(false);
+    }
+  };
   /** Everyone showing to Leads at once, after a word on what happens. */
   const sendAll = async () => {
     if (!organizationId || toSend.length === 0) return;
@@ -540,6 +584,7 @@ const OutreachPage: React.FC = () => {
     setError(null);
     try {
       const r = await outreachAPI.sendManyToLeads(organizationId, toSend.map((x) => x.id));
+      setUndoNote(null);
       setSentNote(`${r.leads} new ${r.leads === 1 ? 'lead' : 'leads'} in Leads${r.joined ? `; ${r.joined} joined a related company's lead` : ''}.`);
       void load();
     } catch (err) {
@@ -628,13 +673,26 @@ const OutreachPage: React.FC = () => {
           {error}
         </p>
       )}
-      {sentNote && (
+      {(undoNote || sentNote || (lastSend && lastSend.at !== seenSend)) && (
         <p className="text-sm text-gray-300" data-testid="sent-note">
-          {sentNote}{' '}
-          <button type="button" onClick={() => navigate('/leads')} className="text-[#7fb0e0] hover:text-white">
-            Open Leads
-          </button>{' '}
-          <button type="button" onClick={() => setSentNote(null)} className="text-gray-500 hover:text-white">
+          {undoNote ??
+            sentNote ??
+            `${lastSend!.leads} leads sent to Leads at ${new Date(lastSend!.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`}{' '}
+          {!undoNote && (
+            <>
+              <button type="button" onClick={() => navigate('/leads')} className="text-[#7fb0e0] hover:text-white">
+                Open Leads
+              </button>{' '}
+              {lastSend && (
+                <>
+                  <button type="button" onClick={() => void undoLastSend()} disabled={busy} className="text-[#7fb0e0] hover:text-white disabled:opacity-50">
+                    Undo
+                  </button>{' '}
+                </>
+              )}
+            </>
+          )}
+          <button type="button" onClick={dismissSend} className="text-gray-500 hover:text-white">
             Dismiss
           </button>
         </p>

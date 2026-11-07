@@ -1266,6 +1266,8 @@ export type OutreachContacts = {
   researchQuestion: string;
   /** The company's own phone hit rate so far, 0–1; undefined until it has tried. */
   phoneHitRate?: number;
+  /** The latest send of two or more leads in the last day, for Undo: when, and how many leads are still there. */
+  lastSend?: { at: string; leads: number } | null;
 };
 /** A source in the stack, as staff see it: connected or not, and how it has done for this company. */
 export type OutreachSource = {
@@ -1304,6 +1306,8 @@ export const outreachAPI = {
   /** Sends many owners to Leads at once (up to 500); owners run by the same people share one lead. */
   sendManyToLeads: (organizationId: string, contactIds: string[]): Promise<{ sent: number; leads: number; joined: number }> =>
     run('mutation', api.outreach.sendManyToLeads, { organizationId, contactIds }),
+  /** Takes back one send to Leads: its leads still at New go, and their owners are New again here. */
+  undoSend: (organizationId: string, at: string): Promise<{ removed: number; kept: number }> => run('mutation', api.outreach.undoSend, { organizationId, at }),
   /** Sends an owner to Leads (once); returns the lead's id. */
   sendToLeads: (organizationId: string, contactId: string): Promise<string> => run('mutation', api.outreach.sendToLeads, { organizationId, contactId }),
   remove: (organizationId: string, listId: string) => run('mutation', api.outreach.remove, { organizationId, listId }),

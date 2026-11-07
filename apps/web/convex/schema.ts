@@ -1193,6 +1193,8 @@ export default defineSchema({
     touches: v.optional(v.array(outreachTouch)),
     /** The lead they became on the Leads page. */
     leadId: v.optional(v.id("leads")),
+    /** When it was sent to Leads; every owner of one send shares it, so the send can be taken back. */
+    sentAt: v.optional(v.string()),
     // Earlier: the client a contact was made into directly.
     clientId: v.optional(v.id("clients")),
     phones: v.optional(v.array(outreachPhone)),

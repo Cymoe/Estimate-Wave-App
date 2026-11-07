@@ -581,6 +581,7 @@ export const contacts = query({
       researchCents: RESEARCH_CENTS,
       researchQuestion: DEFAULT_RESEARCH_QUESTION,
       phoneHitRate: await phoneHitRate(ctx, organizationId),
+      lastSend: await lastSendOf(ctx, organizationId),
     };
   },
 });
@@ -704,7 +705,7 @@ async function sendOne(
       made = true;
     }
   }
-  if (contact.status !== "lead" || contact.leadId !== lead._id) await ctx.db.patch(contact._id, { leadId: lead._id, status: "lead", updatedAt: now });
+  if (contact.status !== "lead" || contact.leadId !== lead._id) await ctx.db.patch(contact._id, { leadId: lead._id, status: "lead", sentAt: now, updatedAt: now });
   // Later owners in the same send see this one's lead.
   const mine = all.find((c) => c._id === contact._id);
   if (mine) mine.leadId = lead._id;
@@ -750,6 +751,56 @@ export const sendToLeads = mutation({
     const contact = await ctx.db.get(contactId);
     if (!contact || contact.organizationId !== organizationId) fail("NOT_FOUND", "No such contact");
     return (await sendOne(ctx, organizationId, user._id, contact, await contactsOf(ctx, organizationId), nowIso())).leadId;
+  },
+});
+
+/** How long a send to Leads can be taken back. */
+const UNDO_HOURS = 24;
+/** Outreach leads made by one send, which share their creation time. */
+async function leadsOfSend(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">) {
+  return (await ctx.db.query("leads").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect()).filter((l) => l.source === "Outreach");
+}
+/** The latest send of two or more leads in the last day, to offer Undo on: when, and how many leads are still there. */
+async function lastSendOf(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">): Promise<{ at: string; leads: number } | null> {
+  const since = new Date(Date.now() - UNDO_HOURS * 3600_000).toISOString();
+  const counts = new Map<string, number>();
+  for (const l of await leadsOfSend(ctx, organizationId)) if (l.createdAt >= since) counts.set(l.createdAt, (counts.get(l.createdAt) ?? 0) + 1);
+  const at = [...counts.entries()].filter(([, n]) => n >= 2).map(([t]) => t).sort().at(-1);
+  return at ? { at, leads: counts.get(at)! } : null;
+}
+
+/**
+ * Takes back one send to Leads: its leads still at New with no estimate are
+ * deleted and their owners go back to New here; leads already worked stay.
+ * Owners of that send who joined an older lead leave it again.
+ */
+export const undoSend = mutation({
+  args: { organizationId: v.id("organizations"), at: v.string() },
+  handler: async (ctx, { organizationId, at }) => {
+    await requirePro(ctx, organizationId);
+    const now = nowIso();
+    let removed = 0;
+    let kept = 0;
+    for (const lead of (await leadsOfSend(ctx, organizationId)).filter((l) => l.createdAt === at)) {
+      if (lead.status !== "new" || lead.estimateId) {
+        kept++;
+        continue;
+      }
+      for (const c of await ctx.db.query("outreachContacts").withIndex("by_lead", (q) => q.eq("leadId", lead._id)).collect()) {
+        await ctx.db.patch(c._id, { status: "new", leadId: undefined, sentAt: undefined, updatedAt: now });
+      }
+      await ctx.db.delete(lead._id);
+      removed++;
+    }
+    for (const c of await contactsOf(ctx, organizationId)) {
+      if (c.sentAt !== at || !c.leadId) continue;
+      const lead = await ctx.db.get(c.leadId);
+      if (!lead || lead.createdAt === at) continue;
+      const line = `Also owns as ${c.name}:`;
+      await ctx.db.patch(lead._id, { notes: (lead.notes ?? "").split("\n").filter((l) => !l.startsWith(line)).join("\n") || undefined, updatedAt: now });
+      await ctx.db.patch(c._id, { status: "new", leadId: undefined, sentAt: undefined, updatedAt: now });
+    }
+    return { removed, kept };
   },
 });
 

@@ -59,6 +59,7 @@ const create = jest.fn(async () => ({ listId: 'l9', rowCount: 2, added: 2, trunc
 const setStatus = jest.fn(async () => null);
 const sendToLeads = jest.fn(async () => 'lead1');
 const sendManyToLeads = jest.fn(async () => ({ sent: 2, leads: 1, joined: 1 }));
+const undoSend = jest.fn(async () => ({ removed: 120, kept: 5 }));
 const remove = jest.fn(async () => null);
 const extend = jest.fn(async () => ({ loaded: 500, added: 500, rowCount: 1000, total: 2340, truncated: false }));
 const enrich = jest.fn(async () => ({ queued: 1, costCents: 100, at: '2026-11-05T15:00:00Z' }));
@@ -87,6 +88,7 @@ jest.mock('../../lib/api', () => ({
     setStatus: (...args: unknown[]) => setStatus(...(args as [])),
     sendToLeads: (...args: unknown[]) => sendToLeads(...(args as [])),
     sendManyToLeads: (...args: unknown[]) => sendManyToLeads(...(args as [])),
+    undoSend: (...args: unknown[]) => undoSend(...(args as [])),
     remove: (...args: unknown[]) => remove(...(args as [])),
     extend: (...args: unknown[]) => extend(...(args as [])),
     enrich: (...args: unknown[]) => enrich(...(args as [])),
@@ -527,6 +529,23 @@ describe('the Outreach page', () => {
     expect(document.body.querySelector('[data-testid="sent-note"]')!.textContent).toContain("1 new lead in Leads; 1 joined a related company's lead.");
     await click('Open Leads');
     expect(path).toBe('/leads');
+  });
+
+  it('a send of many can be taken back in one tap, after asking; leads already worked stay', async () => {
+    lists = [list];
+    contacts = { ...twoContacts(), lastSend: { at: '2026-11-07T22:58:00.000Z', leads: 125 } };
+    await render('/outreach/l1');
+    const line = () => document.body.querySelector('[data-testid="sent-note"]')!.textContent!;
+    expect(line()).toContain('125 leads sent to Leads at');
+    await click('Undo');
+    expect(document.body.textContent).toContain('Take back the 125 leads from this send?');
+    await click('Undo send');
+    expect(undoSend).toHaveBeenCalledWith('o1', '2026-11-07T22:58:00.000Z');
+    expect(line()).toBe("Took back 120 leads; kept 5 you've already started on. Dismiss");
+    // Dismissed, it stays dismissed on this device.
+    await click('Dismiss');
+    expect(document.body.querySelector('[data-testid="sent-note"]')).toBeNull();
+    expect(localStorage.getItem('outreach.sendSeen')).toBe('2026-11-07T22:58:00.000Z');
   });
 
   it('says what it cannot make and builds the closest instead; an example chip fills the ask', async () => {
