@@ -28,6 +28,19 @@ export const sourceName = (s: string) =>
 /** A number worth calling: not on the Do Not Call list and not a known litigator. */
 export const callOk = (p: { dnc?: boolean; litigator?: boolean }) => !p.dnc && !p.litigator;
 
+/** The sources refresh about monthly, so a "none found" is worth another try after this long. */
+export const TRY_AGAIN_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** When a "none found" cell is due another try. */
+export const tryAgainFrom = (c: { status: string; at?: string }) => (c.status === 'none' && c.at ? new Date(Date.parse(c.at) + TRY_AGAIN_DAYS * DAY_MS) : undefined);
+/** A "none found" old enough to try again (one with no date is). */
+export const dueAgain = (c: { status: string; at?: string }, now = Date.now()) => c.status === 'none' && (!c.at || now >= Date.parse(c.at) + TRY_AGAIN_DAYS * DAY_MS);
+/** A cell a lookup would run: never asked, failed, or a "none found" due another try. */
+export const openToLook = (c: { status: string; at?: string }) => c.status === 'locked' || c.status === 'failed' || dueAgain(c);
+/** Nobody to call: no phone found, or every number found is Do Not Call or a litigator. The mailing address is always there. */
+export const mailOnly = (r: { phones: Array<{ dnc?: boolean; litigator?: boolean }>; enrichment: { phone: { status: string } } }) =>
+  r.enrichment.phone.status === 'none' || (r.enrichment.phone.status === 'found' && r.phones.length > 0 && !r.phones.some(callOk));
+
 /** "the appraisal roll and city permits", for a person two or more sources agree on. */
 export const sourceList = (sources: string[]) => {
   const names = sources.map(sourceName);

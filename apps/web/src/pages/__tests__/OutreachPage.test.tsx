@@ -1,4 +1,4 @@
-import { createRoot } from 'react-dom/client';
+import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 
@@ -114,11 +114,15 @@ const Where = () => {
   return null;
 };
 
+// Every page a test renders, unmounted after it so its timers and drawers can't reach into the next test.
+const roots: Root[] = [];
 async function render(at = '/outreach') {
   const container = document.createElement('div');
   document.body.appendChild(container);
+  const root = createRoot(container);
+  roots.push(root);
   await act(async () =>
-    createRoot(container).render(
+    root.render(
       <MemoryRouter initialEntries={[at]}>
         <Where />
         <Routes>
@@ -161,6 +165,7 @@ const twoContacts = () => ({
 });
 
 afterEach(() => {
+  act(() => roots.splice(0).forEach((r) => r.unmount()));
   document.body.innerHTML = '';
   jest.clearAllMocks();
   lists = [];
@@ -384,7 +389,7 @@ describe('the Outreach page', () => {
     const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(2)')).map((c) => c.textContent);
     expect(names()).toEqual(['Oak Plaza LLC', 'City Of Midland', 'Vance Robert & Linda']);
     const filters = document.body.querySelector('[aria-label="Filters"]')!;
-    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Needs you 1', 'Cards', 'Columns']);
+    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Mail only 1', 'Needs you 1', 'Cards', 'Columns']);
     // The failed cell says why, and Retry runs that field again without opening the sheet.
     const failedCell = document.body.querySelectorAll('[data-testid="contact-row"]')[0].querySelectorAll('td')[2];
     expect(failedCell.textContent?.trim()).toBe('Lookup failedThe state registry timed outRetry');
@@ -396,6 +401,9 @@ describe('the Outreach page', () => {
     await click('Ready to call');
     expect(names()).toEqual(['City Of Midland']);
     await click('Needs you');
+    expect(names()).toEqual(['Oak Plaza LLC']);
+    // Nobody to call (its only number is Do Not Call): it goes out by mail.
+    await click('Mail only');
     expect(names()).toEqual(['Oak Plaza LLC']);
     // A code violation, demolition order or stalled permit on the property: the warmest calls.
     await click('Has a signal');
@@ -664,6 +672,34 @@ describe('the Outreach page', () => {
     expect(how.querySelector('[data-testid="simulated-note"]')!.textContent).toContain('Nothing was charged.');
     expect(how.textContent).toContain('Found · simulated');
     expect(how.textContent).toContain('This owner cost $0.');
+  });
+
+  it('a "none found" can be tried again once a month has passed, from the table, and any time from the sheet; the bulk lookup leaves recent ones alone', async () => {
+    lists = [list];
+    const none = (at: string) => ({ status: 'none', at, source: undefined, tries: [{ source: 'batchdata', outcome: 'miss', note: 'No match' }] });
+    const old = '2026-01-05T15:00:00Z';
+    const recent = new Date().toISOString();
+    const looked = (at: string) => ({ phone: none(at), email: none(at), person: { status: 'found', at, source: 'tx-comptroller' }, research: { status: 'locked' } });
+    contacts = { ...twoContacts(), balanceCents: 500, rows: [contact('r1', { enrichment: looked(old) }), contact('r2', { name: 'City Of Midland', enrichment: looked(recent) })] };
+    await render('/outreach/l1');
+    const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
+    const phoneCell = (i: number) => rows[i].querySelectorAll('td')[3];
+    expect(phoneCell(0).textContent).toBe('None foundTry again');
+    expect(phoneCell(1).textContent).toBe('None found');
+    // Only the month-old one is still open to the list's Look up; the fresh "none" isn't asked again.
+    expect(button('Look up').textContent).toContain('Look up 1');
+    await act(async () => (phoneCell(0).querySelector('button') as HTMLButtonElement).click());
+    await flush();
+    expect(enrich).toHaveBeenLastCalledWith('o1', ['r1'], ['phone'], undefined);
+    // The sheet offers it any time, and says when the sources will have refreshed.
+    await act(async () => (rows[1] as HTMLElement).click());
+    await flush();
+    const again = document.body.querySelector('[data-testid="try-again"]') as HTMLButtonElement;
+    expect(again.textContent?.trim()).toBe('Try again · $1 only if a phone is found');
+    expect(document.body.textContent).toContain('a new try is most likely to turn something up after');
+    await act(async () => again.click());
+    await flush();
+    expect(enrich).toHaveBeenLastCalledWith('o1', ['r2'], ['phone', 'email'], undefined);
   });
 
   it('tells staff when the roll was grouped into owners, or that it failed, with a rebuild; companies see nothing', async () => {

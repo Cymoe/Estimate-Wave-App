@@ -14,7 +14,7 @@ import { fundErrorText, openFundingPage } from '../components/market/WalletBar';
 import { useAuth } from '../contexts/AuthContext';
 import { isStaff } from '../lib/roles';
 import { DEFAULT_ROWS, WHO_LABEL, listOrder } from '../../convex/lib/outreach';
-import { callOk, sourceName } from '../components/outreach/format';
+import { callOk, mailOnly, openToLook, sourceName } from '../components/outreach/format';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 const iconButton = 'w-11 h-11 inline-flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2A2A2A] border border-[#333333]';
@@ -30,7 +30,7 @@ const STATUS_FILTERS: Array<{ value: OutreachRowStatus | 'all'; label: string }>
   { value: 'skip', label: 'Skipped' },
 ];
 /** The quick filters over the table: what a row has, or what it needs from you. */
-type Show = 'all' | 'new' | 'signal' | 'ready' | 'email' | 'needs';
+type Show = 'all' | 'new' | 'signal' | 'ready' | 'email' | 'mail' | 'needs';
 const SHOWS: Array<{ value: Show; label: string; has: (r: OutreachContact) => boolean }> = [
   { value: 'all', label: 'All', has: () => true },
   /** A signal first seen this week: the lists are watched, and this is what changed. Shown only when there is one. */
@@ -39,6 +39,8 @@ const SHOWS: Array<{ value: Show; label: string; has: (r: OutreachContact) => bo
   { value: 'signal', label: 'Has a signal', has: (r) => r.signals.length > 0 },
   { value: 'ready', label: 'Ready to call', has: (r) => r.phones.some(callOk) },
   { value: 'email', label: 'Has email', has: (r) => r.emails.length > 0 },
+  /** Looked up and nobody to call: these go out by mail (Export gives the addresses). Shown only when there are some. */
+  { value: 'mail', label: 'Mail only', has: mailOnly },
   { value: 'needs', label: 'Needs you', has: (r) => Object.values(r.enrichment).some((c) => c.status === 'failed') },
 ];
 /** Owner, company, person or either street, any case. */
@@ -368,8 +370,9 @@ const OutreachPage: React.FC = () => {
   }, [data, status, show, query]);
   const counts = useMemo(() => Object.fromEntries(SHOWS.map((s) => [s.value, (data?.rows ?? []).filter(s.has).length])) as Record<Show, number>, [data]);
   const chosen = rows.filter((r) => selected.has(r.id));
-  const needsPhone = (r: OutreachContact) => r.enrichment.phone.status !== 'found' && r.enrichment.phone.status !== 'running';
-  const hasLock = (r: OutreachContact) => needsPhone(r) || (r.company && r.enrichment.person.status !== 'found' && r.enrichment.person.status !== 'running');
+  // What a lookup would run: never asked, failed, or a "none found" a month old (the sources refresh monthly).
+  const needsPhone = (r: OutreachContact) => openToLook(r.enrichment.phone);
+  const hasLock = (r: OutreachContact) => needsPhone(r) || Boolean(r.company && openToLook(r.enrichment.person));
   const unlockable = chosen.filter(hasLock);
   const unlockCents = data?.unlockCents ?? 100;
   const balanceCents = data?.balanceCents ?? 0;
@@ -602,7 +605,7 @@ const OutreachPage: React.FC = () => {
               />
             </label>
             {SHOWS.map((s) =>
-              (s.value === 'needs' || s.value === 'new') && counts[s.value] === 0 ? null : (
+              (s.value === 'needs' || s.value === 'new' || s.value === 'mail') && counts[s.value] === 0 ? null : (
                 <button
                   key={s.value}
                   type="button"

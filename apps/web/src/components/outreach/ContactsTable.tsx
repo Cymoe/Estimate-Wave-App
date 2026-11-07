@@ -5,7 +5,7 @@ import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { fullAddress } from '../../lib/mapsLinks';
 import type { OutreachCell, OutreachContact, OutreachContacts, OutreachCoverage, OutreachField, OutreachPhone, OutreachRowStatus, OutreachSignal, OutreachTry, OutreachWho } from '../../lib/api';
 import { shortMoney, WHO_LABEL } from '../../../convex/lib/outreach';
-import { askingText, callOk, deedSearchUrl, phoneText, sourceList, sourceName } from './format';
+import { askingText, callOk, deedSearchUrl, dueAgain, phoneText, sourceList, sourceName, tryAgainFrom } from './format';
 import type { ColumnKey } from './columns';
 
 const STATUS_LABEL: Record<OutreachRowStatus, string> = { new: 'New', sent: 'Sent', done: 'Done', skip: 'Skipped' };
@@ -98,8 +98,30 @@ const Empty: React.FC<{ cell: OutreachCell; onRetry?: () => void }> = ({ cell, o
     case 'running':
       return <Live cell={cell} />;
     case 'found':
-    case 'none':
       return <span className="text-gray-600">None found</span>;
+    case 'none': {
+      // The sources refresh monthly: once a month has gone by, the owner can be tried again, free unless something turns up.
+      const from = tryAgainFrom(cell);
+      return (
+        <span className="flex items-center gap-2 min-w-0">
+          <span className="text-gray-600 truncate" title={from && !dueAgain(cell) ? `Can be tried again from ${from.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : undefined}>
+            None found
+          </span>
+          {onRetry && dueAgain(cell) && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRetry();
+              }}
+              className="shrink-0 px-2 min-h-[28px] text-xs text-[#7fb0e0] border border-[#336699] hover:bg-[#336699]/20 whitespace-nowrap"
+            >
+              Try again
+            </button>
+          )}
+        </span>
+      );
+    }
     case 'failed':
       return (
         <span className="flex items-start gap-2 min-w-0">
@@ -579,6 +601,23 @@ const HowFound: React.FC<{ row: OutreachContact }> = ({ row }) => {
 };
 
 /** One owner: the person behind the company, the phones ranked with their flags, the emails, both addresses in Apple Maps, the status, a note. */
+/**
+ * Another try at a "none found": the sources refresh monthly, so the sheet
+ * says when one is due, and offers it now anyway for this one owner.
+ */
+const TryAgain: React.FC<{ cell: OutreachCell; onClick: () => void; disabled: boolean; note: string; className: string }> = ({ cell, onClick, disabled, note, className }) => {
+  const from = tryAgainFrom(cell);
+  const day = (d: Date) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return (
+    <div className="space-y-1">
+      <button type="button" onClick={onClick} disabled={disabled} className={className} data-testid="try-again">
+        <Search className="w-4 h-4" /> Try again · {note}
+      </button>
+      {from && !dueAgain(cell) && <p className="text-xs text-gray-500">The sources refresh monthly, so a new try is most likely to turn something up after {day(from)}.</p>}
+    </div>
+  );
+};
+
 export const ContactSheet: React.FC<{
   row: OutreachContact | null;
   unlockCents: number;
@@ -666,7 +705,10 @@ export const ContactSheet: React.FC<{
               ) : person.status === 'running' ? (
                 <p className="text-sm text-gray-400">Looking up the company's officers…</p>
               ) : person.status === 'none' ? (
-                <p className="text-sm text-gray-500">The state lists no officer for this company.</p>
+                <div className="space-y-2">
+                  <p className="text-sm text-gray-500">The state lists no officer for this company.</p>
+                  <TryAgain cell={person} onClick={() => enrich(['person'])} disabled={busy} note="Free" className={quiet} />
+                </div>
               ) : (
                 <div className="space-y-2 pt-1">
                   {person.status === 'failed' && <p className="text-sm text-amber-300">{person.error ?? "The lookup didn't go through."}</p>}
@@ -735,7 +777,10 @@ export const ContactSheet: React.FC<{
             ) : phone.status === 'running' || email.status === 'running' ? (
               <p className="text-sm text-gray-400">Looking up the phone and email… this takes a few seconds.</p>
             ) : phone.status === 'none' ? (
-              <p className="text-sm text-gray-500">No phone or email found for this owner. Nothing was charged.</p>
+              <div className="space-y-2">
+                <p className="text-sm text-gray-500">No phone or email found for this owner. Nothing was charged. The mailing address above still reaches them.</p>
+                <TryAgain cell={phone} onClick={() => enrich(['phone', 'email'])} disabled={busy || !canPay} note={`${dollars(unlockCents)} only if a phone is found`} className={quiet} />
+              </div>
             ) : (
               <div className="space-y-2 pt-1">
                 {phone.status === 'failed' && <p className="text-sm text-amber-300">{phone.error ?? "The lookup didn't go through."} Nothing was charged.</p>}
