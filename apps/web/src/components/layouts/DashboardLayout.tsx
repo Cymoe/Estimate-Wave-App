@@ -707,8 +707,8 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, full
                     />
                   </div>
 
-                  {/* Mobile Layout - unchanged */}
-                  <div className="md:hidden flex-1 pt-14 pb-16">
+                  {/* Mobile Layout. min-w-0: a flex item is otherwise as wide as its widest content, so a row of nowrap chips meant to scroll would push the whole page past the screen. */}
+                  <div className="md:hidden flex-1 min-w-0 pt-14 pb-16">
                     <div className="px-4">
                       {!isDesktop && children}
                     </div>
