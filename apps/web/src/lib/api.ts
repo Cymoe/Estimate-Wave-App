@@ -1238,6 +1238,8 @@ export type OutreachContact = {
   note?: string;
   /** The lead they became on the Leads page. */
   leadId?: string;
+  /** Where that lead stands in Leads (new, contacted, quoted, won…). */
+  leadStage?: string;
   phones: OutreachPhone[];
   emails: OutreachEmail[];
   person?: OutreachPerson;
@@ -1263,6 +1265,8 @@ export type OutreachListSummary = {
   truncated: boolean;
   /** How many owners the list's ask reaches (a floor when truncated); missing on lists saved before it was counted. */
   total?: number;
+  /** What the list has turned into in Leads: owners sent, leads with an estimate, jobs sold. */
+  results?: { sent: number; estimates: number; sold: number };
   createdAt: string;
 };
 /** "12 / 200 · 2 sources" on a column header. */

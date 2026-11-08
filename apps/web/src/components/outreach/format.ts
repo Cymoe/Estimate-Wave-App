@@ -92,5 +92,16 @@ export const STATUS_LABEL: Record<string, string> = {
   done: 'Done',
 };
 
+/** A lead's stage as Leads names it, for an owner already sent: "Contacted", "Estimate Sent", "Job sold". */
+export const LEAD_STAGE: Record<string, string> = {
+  new: 'New lead',
+  no_answer: 'No answer',
+  contacted: 'Contacted',
+  scheduled: 'Estimate scheduled',
+  quoted: 'Estimate sent',
+  won: 'Job sold',
+  lost: 'Lost',
+};
+
 /** True when any of an owner's answers came from the stand-in, not a real source. */
 export const isSimulated = (r: { enrichment: Record<string, { simulated?: boolean } | undefined> }) => Object.values(r.enrichment).some((c) => c?.simulated);

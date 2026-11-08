@@ -1974,6 +1974,9 @@ describe("a company's lists", () => {
     expect(tenants.rows[0].phones).toEqual([]);
     expect(await co.as.query(api.outreach.preview, { organizationId: org, definition: definitionFromArgs({ who: "occupant", within_days: 30 }) })).toMatchObject({ count: 2, total: 2 });
 
+    // Dorothy Hale goes to Leads today; tomorrow's records will find her lead.
+    const haleLead = await co.as.mutation(api.outreach.sendToLeads, { organizationId: org, contactId: held.rows[0].id });
+
     // ---- The next morning: the daily pass, without remaking the owners ----
     vi.setSystemTime(Date.parse("2026-11-06T07:00:00.000Z"));
     const buildOf = async (name: string) => t.run(async (ctx) => (await ctx.db.query("owners").filter((q) => q.eq(q.field("name"), name)).first())!.buildId);
@@ -2016,6 +2019,21 @@ describe("a company's lists", () => {
       expect(owners.filter((o) => o.kind === "occupant")).toHaveLength(3);
       expect((await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "midland-owners-records")).unique())!).toMatchObject({ fetched: 12, added: 1, updated: 2 });
     });
+    // Her lead hears about the new case: a dated line in its notes and the New signal tag, once.
+    const told = (await t.run(async (ctx) => ctx.db.get(haleLead)))!;
+    expect(told.notes!.split("\n").filter((l) => l.includes("new code violation"))).toEqual(["Nov 4: new code violation, Deteriorated Structure."]);
+    expect(told.newSignal).toMatchObject({ kind: "code_violation", detail: "Deteriorated Structure", date: "2026-11-04T12:00:00.000Z" });
+    // The list says what it has turned into, and the owner shows the lead's stage as it moves.
+    const heldList = async () => (await co.as.query(api.outreach.lists, { organizationId: org })).find((l) => l.id === held.listId)!;
+    const haleNow = async () => (await co.as.query(api.outreach.contacts, { organizationId: org, listId: held.listId })).rows[0];
+    expect((await heldList()).results).toEqual({ sent: 1, estimates: 0, sold: 0 });
+    expect((await haleNow()).leadStage).toBe("new");
+    await co.as.mutation(api.leads.update, { id: haleLead, data: { status: "quoted" } });
+    expect((await heldList()).results).toEqual({ sent: 1, estimates: 1, sold: 0 });
+    await co.as.mutation(api.leads.update, { id: haleLead, data: { status: "won" } });
+    expect((await heldList()).results).toEqual({ sent: 1, estimates: 1, sold: 1 });
+    expect((await haleNow()).leadStage).toBe("won");
+
     // On the lists: the new case leads, newest first; the plumber is there to call; the preview's total is exact.
     const since = await co.as.query(api.outreach.preview, { organizationId: org, definition: definitionFromArgs({ who: "violation" }) });
     expect(since).toMatchObject({ count: 2, total: 2 });

@@ -871,6 +871,12 @@ const OutreachPage: React.FC = () => {
             {WHO_LABEL[list.who]} · {listOrder(list.definition).label} ·{' '}
           </span>
           {list.done} done
+          {list.results && list.results.sent > 0 && (
+            <span data-testid="list-results">
+              {' '}
+              · {list.results.sent} sent · {list.results.estimates} {list.results.estimates === 1 ? 'estimate' : 'estimates'} · {list.results.sold} sold
+            </span>
+          )}
           <span className="hidden md:inline"> · asked {day(list.createdAt)}</span>
           {list.total !== undefined && list.total > list.rowCount && (
             <span data-testid="list-total">

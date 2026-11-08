@@ -13,6 +13,8 @@ export interface Lead {
   county?: string;
   /** Last call, text or card note, and how many calls and texts so far. */
   lastContactAt?: string;
+  /** The newest public record about an Outreach lead's property since it was sent. */
+  newSignal?: { kind: string; detail: string; date: string; at: string };
   contacts?: number;
   texts?: number;
   jobType?: string;

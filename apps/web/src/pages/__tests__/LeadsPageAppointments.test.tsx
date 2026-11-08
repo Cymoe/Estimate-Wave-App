@@ -155,6 +155,34 @@ describe('Leads board', () => {
     expect((document.body.querySelector('form input[aria-label="Name"]') as HTMLInputElement).value).toBe('Rocky Vansau');
   });
 
+  it('an Outreach lead with a new code case on its property says New signal for two weeks; From Outreach filters to those leads', async () => {
+    const saved = rows;
+    const fresh = { kind: 'code_violation', detail: 'High weeds', date: '2026-11-04T12:00:00Z', at: new Date().toISOString() };
+    rows = [
+      { ...saved[0], id: 'o1', name: 'Dorothy Hale', status: 'contacted', source: 'Outreach', newSignal: fresh },
+      { ...saved[0], id: 'o2', name: 'Old News', status: 'contacted', source: 'Outreach', newSignal: { ...fresh, at: '2026-01-01T00:00:00Z' } },
+      { ...saved[0], id: 'w1', name: 'Walk In', status: 'contacted' },
+    ] as unknown as typeof rows;
+    try {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      await act(async () => createRoot(container).render(<MemoryRouter><LeadsPage /></MemoryRouter>));
+      await flush();
+      const tags = Array.from(container.querySelectorAll('[data-testid="new-signal"]'));
+      expect(tags.map((t) => t.getAttribute('title'))).toEqual(['High weeds']);
+      const filter = container.querySelector('select[aria-label="Filter leads"]') as HTMLSelectElement;
+      expect(Array.from(filter.options).map((o) => o.textContent)).toContain('From Outreach');
+      await act(async () => {
+        filter.value = 'outreach';
+        filter.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      const names = ['Dorothy Hale', 'Old News', 'Walk In'].filter((n) => Array.from(container.querySelectorAll('span')).some((el) => el.textContent === n));
+      expect(names).toEqual(['Dorothy Hale', 'Old News']);
+    } finally {
+      rows = saved;
+    }
+  });
+
   it('folds empty stages to slim strips, with no New lead button (the + adds leads)', async () => {
     const container = document.createElement('div');
     document.body.appendChild(container);

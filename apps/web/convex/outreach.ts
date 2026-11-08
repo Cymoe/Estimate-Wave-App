@@ -380,6 +380,33 @@ export const dropStaleOf = internalMutation({
  * the row's signals, trades, newest date and "signal" property, and its
  * violation and stalled facets. Records already on the row change nothing.
  */
+const SIGNAL_WORDS: Record<Doc<"signals">["kind"], string> = { code_violation: "code violation", dilapidated: "dilapidated building", demolition: "demolition order", stalled_permit: "stalled permit" };
+
+/**
+ * A new public record about an owner already sent to Leads goes to the lead:
+ * a dated line in its notes ("Nov 12: new code violation, High weeds.") and
+ * the New signal tag on its card. Only records that came in after the send, once each.
+ */
+async function tellLeads(ctx: MutationCtx, key: string, s: Doc<"signals">) {
+  const now = nowIso();
+  const day = new Date(s.date).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  const line = `${day}: new ${SIGNAL_WORDS[s.kind]}, ${s.detail}.`;
+  const told = new Set<string>();
+  for (const c of await ctx.db.query("outreachContacts").withIndex("by_key", (q) => q.eq("key", key)).collect()) {
+    if (!c.leadId || told.has(c.leadId)) continue;
+    // Something already on the record when the owner was sent isn't news.
+    if (c.sentAt && s.importedAt < c.sentAt) continue;
+    const lead = await ctx.db.get(c.leadId);
+    if (!lead || lead.status === "won" || lead.status === "lost" || (lead.notes ?? "").includes(line)) continue;
+    told.add(c.leadId);
+    await ctx.db.patch(lead._id, {
+      notes: [lead.notes, line].filter(Boolean).join("\n"),
+      newSignal: { kind: s.kind, detail: s.detail, date: s.date, at: now },
+      updatedAt: now,
+    });
+  }
+}
+
 export const refreshSignals = internalMutation({
   args: { since: v.string(), cursor: v.optional(v.string()), buildId: v.string() },
   handler: async (ctx, { since, cursor, buildId }) => {
@@ -404,6 +431,7 @@ export const refreshSignals = internalMutation({
       const moved = await writeFacets(ctx, owner._id, facetsOf(next as unknown as OwnerRow, now), buildId);
       for (const [facet, n] of Object.entries(moved)) delta[facet] = (delta[facet] ?? 0) + n;
       touched.add(owner.key);
+      await tellLeads(ctx, owner.key, s);
     }
     return { read: page.page.length, touched: touched.size, delta, continueCursor: page.continueCursor, isDone: page.isDone };
   },
@@ -560,7 +588,9 @@ async function requirePro(ctx: QueryCtx | MutationCtx, organizationId: Id<"organ
   return member;
 }
 
-const listView = (l: Doc<"outreachLists">, done: number) => ({
+/** What a list has turned into in Leads: owners sent, leads with an estimate, jobs sold. */
+type ListResults = { sent: number; estimates: number; sold: number };
+const listView = (l: Doc<"outreachLists">, done: number, results: ListResults = { sent: 0, estimates: 0, sold: 0 }) => ({
   id: l._id,
   title: l.title,
   who: l.definition.who,
@@ -570,6 +600,7 @@ const listView = (l: Doc<"outreachLists">, done: number) => ({
   truncated: l.truncated,
   /** How many owners the definition reaches (a floor when truncated); missing on lists saved before it was counted. */
   total: l.total,
+  results,
   createdAt: l.createdAt,
 });
 
@@ -705,7 +736,26 @@ export const listsDef = queryDef({
     const contacts = await contactsOf(ctx, organizationId);
     const done = new Map<Id<"outreachLists">, number>();
     for (const c of contacts) if (isWorked(c.status)) for (const id of c.listIds) done.set(id, (done.get(id) ?? 0) + 1);
-    return lists.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((l) => listView(l, done.get(l._id) ?? 0));
+    // Each lead counted once per list, however many of the list's owners joined it.
+    const leads = new Map((await ctx.db.query("leads").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect()).map((l) => [l._id, l] as const));
+    const seen = new Map<Id<"outreachLists">, Set<string>>();
+    const results = new Map<Id<"outreachLists">, ListResults>();
+    for (const c of contacts) {
+      const lead = c.leadId && leads.get(c.leadId);
+      if (!lead) continue;
+      for (const id of c.listIds) {
+        const s = seen.get(id) ?? new Set<string>();
+        seen.set(id, s);
+        if (s.has(lead._id)) continue;
+        s.add(lead._id);
+        const r = results.get(id) ?? { sent: 0, estimates: 0, sold: 0 };
+        r.sent++;
+        if (lead.estimateId || lead.status === "quoted" || lead.status === "won") r.estimates++;
+        if (lead.status === "won") r.sold++;
+        results.set(id, r);
+      }
+    }
+    return lists.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((l) => listView(l, done.get(l._id) ?? 0, results.get(l._id)));
   },
 });
 export const lists = query(listsDef);
@@ -736,7 +786,7 @@ const cellFor = (cells: NonNullable<Doc<"outreachContacts">["enrichment"]>, fiel
  */
 const isCompany = (c: { company?: string; kinds: Doc<"outreachContacts">["kinds"] }) => c.company !== undefined && !c.kinds.includes("realtor");
 
-const contactView = (c: Doc<"outreachContacts">, signals: SignalBadge[], related: Array<{ id: Id<"outreachContacts">; name: string }> = [], known?: Known) => ({
+const contactView = (c: Doc<"outreachContacts">, signals: SignalBadge[], related: Array<{ id: Id<"outreachContacts">; name: string }> = [], known?: Known, leadStage?: Doc<"leads">["status"]) => ({
   id: c._id,
   key: c.key,
   name: c.name,
@@ -751,6 +801,8 @@ const contactView = (c: Doc<"outreachContacts">, signals: SignalBadge[], related
   status: c.status,
   note: c.note,
   leadId: c.leadId,
+  /** Where the lead stands in Leads: Contacted, Estimate Sent, Job sold… */
+  ...(c.leadId && leadStage ? { leadStage } : {}),
   phones: c.phones ?? [],
   emails: c.emails ?? [],
   person: c.person,
@@ -862,14 +914,25 @@ export const contacts = query({
     const since = await freshSince(ctx);
     // Every owner's signals read at once, not one after another.
     const signals = await Promise.all(picked.map((c) => (c.property ? signalsFor(ctx, c.property.parcelId, since) : Promise.resolve([] as SignalBadge[]))));
-    // A lead deleted in Leads leaves its owner New here, ready to send again.
+    // A lead deleted in Leads leaves its owner New here, ready to send again; one still there shows its stage.
+    const stages = new Map<Id<"outreachContacts">, Doc<"leads">["status"]>();
     const gone = new Set(
-      (await Promise.all(picked.filter((c) => c.leadId).map(async (c) => ((await ctx.db.get(c.leadId!)) ? null : c._id)))).filter((id) => id !== null),
+      (
+        await Promise.all(
+          picked
+            .filter((c) => c.leadId)
+            .map(async (c) => {
+              const lead = await ctx.db.get(c.leadId!);
+              if (lead) stages.set(c._id, lead.status);
+              return lead ? null : c._id;
+            }),
+        )
+      ).filter((id) => id !== null),
     );
     const index = await knownOf(ctx, organizationId);
     const rows = picked.map((c, i) => {
       const shown = gone.has(c._id) ? { ...c, status: c.status === "lead" ? ("new" as const) : c.status, leadId: undefined } : c;
-      return contactView(shown, signals[i], relatedTo(c), shown.leadId ? undefined : knownFor(shown, index));
+      return contactView(shown, signals[i], relatedTo(c), shown.leadId ? undefined : knownFor(shown, index), stages.get(c._id));
     });
     return {
       rows,

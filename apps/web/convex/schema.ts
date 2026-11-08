@@ -1322,7 +1322,8 @@ export default defineSchema({
   })
     .index("by_organization", ["organizationId"])
     .index("by_organization_and_key", ["organizationId", "key"])
-    .index("by_lead", ["leadId"]),
+    .index("by_lead", ["leadId"])
+    .index("by_key", ["key"]),
 
   // How each data source has done for a company, per field: the hit rate
   // on the Data sources panel and behind the "about $136" estimate is the
@@ -1902,6 +1903,9 @@ export default defineSchema({
     // When the company last called, texted or noted the lead, and how many
     // calls and texts so far (server-set by leads.logContact).
     lastContactAt: v.optional(v.string()),
+    // The newest public record about an Outreach lead's property since it was
+    // sent (a code violation, a stalled permit), from the nightly records pass.
+    newSignal: v.optional(v.object({ kind: v.string(), detail: v.string(), date: v.string(), at: v.string() })),
     contacts: v.optional(v.number()),
     texts: v.optional(v.number()),
     // County, as the Lead Market knew it when it sold the lead (server-set).

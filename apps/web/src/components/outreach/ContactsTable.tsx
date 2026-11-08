@@ -5,7 +5,7 @@ import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { fullAddress } from '../../lib/mapsLinks';
 import type { OutreachCell, OutreachContact, OutreachContacts, OutreachCoverage, OutreachField, OutreachPhone, OutreachRowStatus, OutreachSignal, OutreachTry, OutreachWho } from '../../lib/api';
 import { shortMoney, WHO_LABEL } from '../../../convex/lib/outreach';
-import { askingText, callOk, deedSearchUrl, dueAgain, isSimulated, phoneKind, phoneText, sourceList, sourceName, STATUS_LABEL, tryAgainFrom } from './format';
+import { askingText, callOk, deedSearchUrl, dueAgain, isSimulated, LEAD_STAGE, phoneKind, phoneText, sourceList, sourceName, STATUS_LABEL, tryAgainFrom } from './format';
 
 /** The column's short name for the kind of owner. */
 const KIND: Record<OutreachWho, string> = {
@@ -358,7 +358,10 @@ export const ContactsTable: React.FC<{
                   <td className={`${td} max-w-[22rem] truncate${glow(r.id, 'research')}`} title={r.research?.answer}>
                     {r.research ? <span className="text-gray-200">{r.research.answer}</span> : <Empty cell={r.enrichment.research ?? { status: 'locked' }} onRetry={() => onRetry(r, 'research')} />}
                   </td>
-                  <td className={`${td} ${statusTone(r.status)}`}>{STATUS_LABEL[r.status] ?? r.status}</td>
+                  <td className={`${td} ${statusTone(r.status)}`}>
+                    {STATUS_LABEL[r.status] ?? r.status}
+                    {r.leadId && r.leadStage && <span className="block text-[11px] text-gray-500">{LEAD_STAGE[r.leadStage] ?? r.leadStage}</span>}
+                  </td>
                   <td className={`${td} max-w-[16rem] truncate text-gray-300`}>
                     {r.mailing.address ?? ''}
                     {cityLine(r.mailing) ? <span className="block text-[11px] text-gray-500">{cityLine(r.mailing)}</span> : null}
@@ -524,7 +527,7 @@ export const ContactCards: React.FC<{
                 }`}
                 data-testid="to-leads"
               >
-                {r.leadId ? 'In Leads' : 'To Leads'} <ArrowRight className="w-4 h-4" />
+                {r.leadId ? (r.leadStage ? (LEAD_STAGE[r.leadStage] ?? 'In Leads') : 'In Leads') : 'To Leads'} <ArrowRight className="w-4 h-4" />
               </button>
             </div>
           </li>
@@ -938,7 +941,7 @@ export const ContactSheet: React.FC<{
               <span className="text-gray-400">{row.known.kind === 'client' ? 'Sending makes the lead under that client, not a new one.' : 'Sending adds this owner to that lead instead of making another.'}</span>
             </p>
           )}
-          <p className="text-xs text-gray-500">{row.leadId ? 'Calls, follow-ups and the estimate are in Leads.' : 'Calls, follow-ups and the estimate happen in Leads. The number, email, property and note go with them.'}</p>
+          <p className="text-xs text-gray-500">{row.leadId ? `${row.leadStage ? `In Leads: ${LEAD_STAGE[row.leadStage] ?? row.leadStage}. ` : ''}Calls, follow-ups and the estimate are in Leads.` : 'Calls, follow-ups and the estimate happen in Leads. The number, email, property and note go with them.'}</p>
         </div>
         {error && (
           <p className="text-sm text-red-400" role="alert">

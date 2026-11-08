@@ -435,6 +435,17 @@ describe('the Outreach page', () => {
     expect(cards[1].querySelector('[data-testid="known"]')!.textContent).toBe('Already in Leads');
   });
 
+  it('a list says what it has turned into in Leads, and an owner already sent shows where its lead stands', async () => {
+    narrowScreen = true;
+    lists = [{ ...list, results: { sent: 3, estimates: 1, sold: 1 } }];
+    const two = twoContacts();
+    contacts = { ...two, rows: [{ ...two.rows[0], status: 'lead', leadId: 'lead1', leadStage: 'quoted' }, two.rows[1]] };
+    await render('/outreach/l1');
+    expect(document.body.querySelector('[data-testid="list-results"]')!.textContent).toBe(' · 3 sent · 1 estimate · 1 sold');
+    const card = document.body.querySelectorAll('[data-testid="contact-card"]')[0];
+    expect(card.querySelector('[data-testid="to-leads"]')!.textContent?.trim()).toBe('Estimate sent');
+  });
+
   it('shows the contacts table with a chip per list, or says to tap + when there are none', async () => {
     await render();
     expect(document.body.querySelector('[data-testid="outreach-empty"]')!.textContent).toBe('No contacts yet. Tap + and pick who you want to reach.');

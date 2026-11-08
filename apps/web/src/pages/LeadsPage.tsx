@@ -139,6 +139,12 @@ const LeadCard: React.FC<{
           {/* Where it came from: Webb Leads, and which way (bid, Marketplace, Vault...). */}
           {leadTag(lead) && <span className={`${chip} text-emerald-300 border-emerald-500/40 bg-emerald-500/10`}>{leadTag(lead)}</span>}
           {lead.isSample && <span className={`${chip} text-gray-400 border-[#333333]`}>Sample</span>}
+          {/* A new code case or permit on an Outreach lead's property, for two weeks: a reason to call now. */}
+          {lead.newSignal && OPEN.includes(lead.status) && now - Date.parse(lead.newSignal.at) < 14 * 86_400_000 && (
+            <span className={`${chip} text-amber-300 border-amber-500/40 bg-amber-500/10`} title={lead.newSignal.detail} data-testid="new-signal">
+              New signal
+            </span>
+          )}
         </div>
         {value > 0 && <span className="text-sm font-medium whitespace-nowrap">{dollars(value)}</span>}
       </div>
