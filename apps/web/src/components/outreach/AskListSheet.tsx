@@ -1,19 +1,28 @@
 import React, { useEffect, useState } from 'react';
 import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { outreachAPI, type OutreachDefinition, type OutreachPreviewRow } from '../../lib/api';
-import { shortMoney } from '../../../convex/lib/outreach';
+import { defaultTitle, shortMoney } from '../../../convex/lib/outreach';
 import { mailingLine } from './format';
 
-const EXAMPLES = [
-  'Company investors with 5 or more properties',
-  'Shopping center owners',
-  'Homes with code violations',
-  'Stalled permits',
-  'Contractors pulling permits',
-  'Homes owned 20+ years',
-  'Homebuilders',
-  'Property managers',
-  'Homes worth over $1M',
+type Preset = { label: string; definition: OutreachDefinition; explanation: string };
+
+const COUNTY = 'Midland';
+const NO_PHONES = 'Names and mailing addresses; no phone numbers.';
+
+/** The ready-made lists: one tap builds the exact filter, with no guessing from words. */
+const PRESETS: Preset[] = [
+  { label: 'Company investors with 5+ properties', definition: { county: COUNTY, who: 'investor', companyOwned: true, minParcels: 5 }, explanation: `Companies holding five or more Midland properties, most first. ${NO_PHONES}` },
+  { label: 'Shopping center owners', definition: { county: COUNTY, who: 'commercial' }, explanation: `Owners of commercial buildings on the roll, biggest holdings first. ${NO_PHONES}` },
+  { label: 'Apartment owners', definition: { county: COUNTY, who: 'multifamily' }, explanation: `Owners of apartment buildings and multifamily, biggest holdings first. ${NO_PHONES}` },
+  { label: 'Homes with code violations', definition: { county: COUNTY, who: 'violation' }, explanation: `Owners the city cited in the last two years, newest case first, with the trade each case calls for. ${NO_PHONES}` },
+  { label: 'Stalled permits', definition: { county: COUNTY, who: 'stalled' }, explanation: `Owners whose permit expired before the work was finished, newest first. ${NO_PHONES}` },
+  { label: 'Contractors pulling permits', definition: { county: COUNTY, who: 'contractor' }, explanation: 'Companies named on permits in the last 180 days, busiest first; the phone and email on their permits come along free.' },
+  { label: 'Homes owned 20+ years', definition: { county: COUNTY, who: 'long_owned', ownedForDays: 7305 }, explanation: `Owner-occupied homes held twenty years or more, longest first. ${NO_PHONES}` },
+  { label: 'Recent buyers', definition: { county: COUNTY, who: 'recent_buyer' }, explanation: `Owners who took their deed in the last year, newest first. ${NO_PHONES}` },
+  { label: 'Absentee owners', definition: { county: COUNTY, who: 'absentee' }, explanation: `Owners whose tax bill goes to another address, most properties first. ${NO_PHONES}` },
+  { label: 'Homebuilders', definition: { county: COUNTY, who: 'builder' }, explanation: `Homebuilders holding spec homes and lots, most first. ${NO_PHONES}` },
+  { label: 'Property managers', definition: { county: COUNTY, who: 'manager' }, explanation: `Offices that receive the tax bills for several owners' properties. ${NO_PHONES}` },
+  { label: 'Homes worth over $1M', definition: { county: COUNTY, who: 'wealthy', minValueCents: 100_000_000 }, explanation: `Owner-occupied homes appraised over $1M, highest first. ${NO_PHONES}` },
 ];
 
 const field = 'w-full bg-[#1A1A1A] border border-[#333333] px-3 text-white text-base md:text-sm focus:outline-none focus:border-[#336699]';
@@ -45,6 +54,7 @@ export const AskListSheet: React.FC<{
   onSaved: (listId: string) => void;
 }> = ({ open, organizationId, onClose, onSaved }) => {
   const [ask, setAsk] = useState('');
+  const [preset, setPreset] = useState<string | null>(null);
   const [busy, setBusy] = useState<'build' | 'save' | null>(null);
   const [built, setBuilt] = useState<Built | null>(null);
   const [cannot, setCannot] = useState<{ explanation: string; suggestion?: { definition: OutreachDefinition; title: string } } | null>(null);
@@ -53,14 +63,34 @@ export const AskListSheet: React.FC<{
   useEffect(() => {
     if (open) return;
     setAsk('');
+    setPreset(null);
     setBuilt(null);
     setCannot(null);
     setError(null);
     setBusy(null);
   }, [open]);
 
+  /** A ready-made list: the filter runs as written, straight to the count and preview. */
+  const pick = async (p: Preset) => {
+    setPreset(p.label);
+    setAsk('');
+    setBusy('build');
+    setError(null);
+    setCannot(null);
+    setBuilt(null);
+    try {
+      const got = await outreachAPI.preview(organizationId, p.definition);
+      setBuilt({ definition: p.definition, title: defaultTitle(p.definition), explanation: p.explanation, count: got.count, total: got.total, truncated: got.truncated, limited: got.limited, rows: got.rows });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "The list couldn't be built");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const build = async () => {
     if (!ask.trim()) return;
+    setPreset(null);
     setBusy('build');
     setError(null);
     setCannot(null);
@@ -110,8 +140,25 @@ export const AskListSheet: React.FC<{
     <SlideOutDrawer isOpen={open} onClose={onClose} title="Ask for a list" width="lg">
       <div className="p-6 space-y-5">
         <div className="space-y-2">
+          <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Who do you want to reach?</p>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Ready-made lists">
+            {PRESETS.map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() => void pick(p)}
+                disabled={busy !== null}
+                aria-pressed={preset === p.label}
+                className={`px-3 py-2 text-sm border disabled:opacity-50 ${preset === p.label ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333333] text-gray-300 hover:bg-[#2A2A2A]'}`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="space-y-2">
           <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider" htmlFor="outreach-ask">
-            Who do you want to reach?
+            Or say it in your own words
           </label>
           <textarea
             id="outreach-ask"
@@ -123,19 +170,12 @@ export const AskListSheet: React.FC<{
                 void build();
               }
             }}
-            placeholder="Shopping center owners in Midland"
+            placeholder="Roofing contractors with 3 or more permits"
             rows={2}
             className={`${field} py-2 resize-none`}
           />
-          <div className="flex flex-wrap gap-2">
-            {EXAMPLES.map((example) => (
-              <button key={example} type="button" onClick={() => setAsk(example)} className="px-2.5 py-1 text-xs text-gray-300 border border-[#333333] hover:bg-[#2A2A2A]">
-                {example}
-              </button>
-            ))}
-          </div>
           <div className="flex items-center justify-between gap-3">
-            <p className="text-xs text-gray-500">From the Midland County roll: names and mailing addresses, no phone numbers.</p>
+            <p className="text-xs text-gray-500">From the Midland County roll and the city's permits and code cases.</p>
             <button type="button" onClick={build} disabled={!ask.trim() || busy !== null} className={primary}>
               {busy === 'build' ? 'Building…' : 'Build'}
             </button>

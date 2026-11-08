@@ -370,7 +370,7 @@ describe('the Outreach page', () => {
 
   it('shows the contacts table with a chip per list, or says to tap + when there are none', async () => {
     await render();
-    expect(document.body.querySelector('[data-testid="outreach-empty"]')!.textContent).toBe('No contacts yet. Tap + and say who you want to reach.');
+    expect(document.body.querySelector('[data-testid="outreach-empty"]')!.textContent).toBe('No contacts yet. Tap + and pick who you want to reach.');
     // Just the title: no paragraph of explanation under it.
     expect(document.body.querySelector('header')!.textContent).toBe('Outreach');
     document.body.innerHTML = '';
@@ -490,9 +490,21 @@ describe('the Outreach page', () => {
     expect(path).toBe('/outreach');
     const dialog = document.body.querySelector('[role="dialog"][aria-label="Ask for a list"]')!;
     expect(dialog).not.toBeNull();
-    const chips = Array.from(dialog.querySelectorAll('button')).map((b) => b.textContent);
-    expect(chips).toContain('Homebuilders');
-    expect(chips).toEqual(expect.arrayContaining(['Homes with code violations', 'Stalled permits', 'Contractors pulling permits', 'Homes owned 20+ years']));
+    const chips = Array.from(dialog.querySelectorAll('[aria-label="Ready-made lists"] button')).map((b) => b.textContent);
+    expect(chips).toEqual([
+      'Company investors with 5+ properties',
+      'Shopping center owners',
+      'Apartment owners',
+      'Homes with code violations',
+      'Stalled permits',
+      'Contractors pulling permits',
+      'Homes owned 20+ years',
+      'Recent buyers',
+      'Absentee owners',
+      'Homebuilders',
+      'Property managers',
+      'Homes worth over $1M',
+    ]);
     const ask = dialog.querySelector('textarea') as HTMLTextAreaElement;
     await act(async () => type(ask, 'shopping center owners in Midland'));
     await click('Build');
@@ -550,19 +562,34 @@ describe('the Outreach page', () => {
     expect(localStorage.getItem('outreach.sendSeen')).toBe('2026-11-07T22:58:00.000Z');
   });
 
-  it('says what it cannot make and builds the closest instead; an example chip fills the ask', async () => {
+  it('a ready-made list is one tap, run as written with no guessing; the words say what they cannot make and build the closest instead', async () => {
     interpreted = {
       ok: false,
       explanation: "The roll doesn't say what anyone does for a living.",
       suggestion: { definition: { county: 'Midland', who: 'wealthy', minValueCents: 150_000_000 }, title: 'Homes over $1.5M, Midland' },
     };
     await render('/outreach?new=1');
-    // The first working list is one tap: companies holding five or more.
-    await click('Company investors with 5 or more properties');
-    expect((document.body.querySelector('textarea') as HTMLTextAreaElement).value).toBe('Company investors with 5 or more properties');
-    await click('Homes worth over $1M');
-    expect((document.body.querySelector('textarea') as HTMLTextAreaElement).value).toBe('Homes worth over $1M');
+    // The first working list is one tap: companies holding five or more, straight to the count, the assistant never asked.
+    await click('Company investors with 5+ properties');
+    expect(preview).toHaveBeenCalledWith('o1', { county: 'Midland', who: 'investor', companyOwned: true, minParcels: 5 });
+    expect(interpret).not.toHaveBeenCalled();
+    expect(document.body.querySelector('[aria-label="Ready-made lists"] button[aria-pressed="true"]')!.textContent).toBe('Company investors with 5+ properties');
+    let built = document.body.querySelector('[data-testid="built"]')!;
+    expect(built.textContent).toContain('1 owner');
+    expect(built.textContent).toContain('Companies holding five or more Midland properties, most first.');
+    expect((document.body.querySelector('input#outreach-title') as HTMLInputElement).value).toBe('Company investors with 5+ properties, Midland');
+    await click('Contractors pulling permits');
+    expect(preview).toHaveBeenLastCalledWith('o1', { county: 'Midland', who: 'contractor' });
+    built = document.body.querySelector('[data-testid="built"]')!;
+    expect(built.textContent).toContain('the phone and email on their permits come along free');
+    expect((document.body.querySelector('input#outreach-title') as HTMLInputElement).value).toBe('Active contractors, Midland');
+    await click('Homes owned 20+ years');
+    expect(preview).toHaveBeenLastCalledWith('o1', { county: 'Midland', who: 'long_owned', ownedForDays: 7305 });
+    expect((document.body.querySelector('input#outreach-title') as HTMLInputElement).value).toBe('Homes owned 20+ years, Midland');
+    // Something not on the chips goes to the assistant.
+    await act(async () => type(document.body.querySelector('textarea') as HTMLTextAreaElement, 'dentists'));
     await click('Build');
+    expect(document.body.querySelector('[aria-label="Ready-made lists"] button[aria-pressed="true"]')).toBeNull();
     const cannot = document.body.querySelector('[data-testid="cannot"]')!;
     expect(cannot.textContent).toContain("The roll doesn't say what anyone does for a living.");
     await click('Build the closest instead: Homes over $1.5M, Midland');

@@ -789,7 +789,7 @@ const OutreachPage: React.FC = () => {
         <p className="text-sm text-gray-500">Loading…</p>
       ) : lists.length === 0 ? (
         <p className="text-sm text-gray-500" data-testid="outreach-empty">
-          No contacts yet. Tap + and say who you want to reach.
+          No contacts yet. Tap + and pick who you want to reach.
         </p>
       ) : rows.length === 0 ? (
         <p className="text-sm text-gray-500">{data.rows.length === 0 ? 'Nobody matched. Ask for a wider list.' : 'Nobody matches those filters.'}</p>
