@@ -1,6 +1,6 @@
 import { SUPPORT_EMAIL } from '../../../convex/lib/support';
 import React, { Suspense, lazy, useState } from 'react';
-import { X, ChevronRight, User, Building, CreditCard, HelpCircle, LogOut, Plus } from 'lucide-react';
+import { X, ChevronRight, HelpCircle, LogOut, Plus } from 'lucide-react';
 import { NavShapeMark } from './NavShapes';
 import { usePresence } from '../common/usePresence';
 import { NavLink, useNavigate } from 'react-router-dom';
@@ -30,6 +30,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
   const [orgDropdownOpen, setOrgDropdownOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const [addingCompany, setAddingCompany] = useState(false);
   const { plan, active: planActive } = usePlan(selectedOrg.id || undefined);
   const dim = planActive ? '' : ' opacity-40 grayscale';
@@ -256,25 +257,31 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
           </NavLink>
         </nav>
 
-        {/* User Section */}
+        {/* User Section: the balance always in view; the account's own items behind a tap on the name, as on the desktop sidebar. */}
         <div className="mt-auto border-t border-[#333333] p-4">
-          <div className="mb-4">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 bg-[#336699] rounded-full flex items-center justify-center text-white font-medium">
-                {(user?.name || user?.email || 'You').charAt(0).toUpperCase()}
-              </div>
-              <div>
-                <div className="text-white font-medium">
-                  {user?.name || user?.email || 'You'}
-                </div>
-                <div className="text-gray-400 text-sm">{planLabel(plan)}</div>
-              </div>
+          <WalletTile organizationId={selectedOrg.id || undefined} variant="menu" onOpen={onClose} />
+          <button
+            type="button"
+            onClick={() => setAccountOpen((o) => !o)}
+            aria-expanded={accountOpen}
+            aria-label="Account"
+            className="w-full flex items-center gap-3 p-3 rounded-[4px] hover:bg-[#333333] transition-colors"
+          >
+            <div className="w-10 h-10 bg-[#336699] rounded-full flex items-center justify-center text-white font-medium shrink-0">
+              {(user?.name || user?.email || 'You').charAt(0).toUpperCase()}
             </div>
-          </div>
+            <div className="min-w-0 flex-1 text-left">
+              <div className="text-white font-medium truncate">
+                {user?.name || user?.email || 'You'}
+              </div>
+              <div className="text-gray-400 text-sm">{planLabel(plan)}</div>
+            </div>
+            <ChevronRight className={`h-4 w-4 text-gray-400 transition-transform ${accountOpen ? 'rotate-90' : ''}`} />
+          </button>
 
           {/* User Actions */}
+          {accountOpen && (
           <div className="space-y-1">
-            <WalletTile organizationId={selectedOrg.id || undefined} variant="menu" onOpen={onClose} />
             {isStaff(user) && (
               <button
                 onClick={() => {
@@ -333,6 +340,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
               </button>
             </div>
           </div>
+          )}
         </div>
       </div>
       {addingCompany && (

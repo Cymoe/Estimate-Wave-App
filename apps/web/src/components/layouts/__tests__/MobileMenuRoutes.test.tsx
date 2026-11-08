@@ -32,14 +32,30 @@ async function open() {
   );
 }
 const tap = (label: string) => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim().startsWith(label))!;
+const account = () => document.body.querySelector('button[aria-label="Account"]') as HTMLButtonElement;
 
 afterEach(() => {
   document.body.innerHTML = '';
 });
 
 describe('the phone menu', () => {
+  it('keeps the account items behind a tap on the name, as the desktop sidebar does', async () => {
+    await open();
+    expect(account().getAttribute('aria-expanded')).toBe('false');
+    expect(account().textContent).toContain('ana@basin.example');
+    expect(document.body.textContent).not.toContain('Company settings');
+    expect(document.body.textContent).not.toContain('Sign Out');
+    await act(async () => account().click());
+    expect(account().getAttribute('aria-expanded')).toBe('true');
+    expect(document.body.textContent).toContain('Company settings');
+    expect(document.body.textContent).toContain('Sign Out');
+    await act(async () => account().click());
+    expect(document.body.textContent).not.toContain('Sign Out');
+  });
+
   it('reaches Company settings and the Pro plan page, not routes that no longer exist', async () => {
     await open();
+    await act(async () => account().click());
     await act(async () => tap('Company settings').click());
     expect(path).toBe('/settings/organization');
     await act(async () => tap('Pro plan').click());
@@ -48,6 +64,7 @@ describe('the phone menu', () => {
 
   it('offers Contact support by email; the tutorials are gone', async () => {
     await open();
+    await act(async () => account().click());
     const support = Array.from(document.body.querySelectorAll('a')).find((a) => a.textContent?.includes('Contact support'))!;
     expect(support.getAttribute('href')).toMatch(/^mailto:/);
     expect(document.body.textContent).not.toMatch(/tutorial/i);
