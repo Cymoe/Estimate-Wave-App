@@ -308,6 +308,7 @@ export const ContactsTable: React.FC<{
                         +{r.related.length} related
                       </span>
                     ) : null}
+                    <Known row={r} />
                     {isSimulated(r) && (
                       <span className="block text-[11px] text-gray-500" title="No phone source is connected yet, so this lookup was simulated: made-up results, nothing charged." data-testid="simulated">
                         Simulated
@@ -401,6 +402,15 @@ export const ContactsTable: React.FC<{
  * row of actions: Call, Text and Email as icons, and To Leads. Skip sits small
  * in the corner. Tap the card for the full sheet.
  */
+/** "Already a client", "Already in Leads as Kai Moana": someone the company has, so a send joins them rather than making a second. */
+const knownText = (k: NonNullable<OutreachContact['known']>, owner: string) => `${k.kind === 'client' ? 'Already a client' : 'Already in Leads'}${k.name.toLowerCase() === owner.toLowerCase() ? '' : `: ${k.name}`}`;
+const Known: React.FC<{ row: OutreachContact; className?: string }> = ({ row, className = '' }) =>
+  row.known && !row.leadId ? (
+    <span className={`block text-[11px] text-[#7fb0e0] ${className}`} data-testid="known">
+      {knownText(row.known, row.name)}
+    </span>
+  ) : null;
+
 export const ContactCards: React.FC<{
   rows: OutreachContact[];
   onOpen: (row: OutreachContact) => void;
@@ -450,6 +460,7 @@ export const ContactCards: React.FC<{
                 {r.properties > 1 ? `${r.properties} properties · ${shortMoney(r.totalValueCents)}` : r.property?.valueCents ? shortMoney(r.property.valueCents) : (r.property?.address ?? r.company ?? '')}
                 {r.related?.length ? ` · +${r.related.length} related` : ''}
               </span>
+              <Known row={r} className="mt-0.5 text-xs" />
               {signal && (
                 <span className="mt-1 inline-flex items-center gap-1 text-xs text-amber-300">
                   <AlertTriangle className="w-3.5 h-3.5" /> {signal.fresh ? <span className="px-1 text-[10px] font-medium uppercase tracking-wide text-[#121212] bg-amber-300">New</span> : null} {SIGNAL_LABEL[signal.kind]} {monthYear(signal.date)}
@@ -921,6 +932,12 @@ export const ContactSheet: React.FC<{
               </button>
             )}
           </div>
+          {row.known && !row.leadId && (
+            <p className="text-sm text-[#7fb0e0]" data-testid="known">
+              {knownText(row.known, row.name)}.{' '}
+              <span className="text-gray-400">{row.known.kind === 'client' ? 'Sending makes the lead under that client, not a new one.' : 'Sending adds this owner to that lead instead of making another.'}</span>
+            </p>
+          )}
           <p className="text-xs text-gray-500">{row.leadId ? 'Calls, follow-ups and the estimate are in Leads.' : 'Calls, follow-ups and the estimate happen in Leads. The number, email, property and note go with them.'}</p>
         </div>
         {error && (

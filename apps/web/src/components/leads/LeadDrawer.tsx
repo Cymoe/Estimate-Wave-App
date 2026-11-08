@@ -28,6 +28,7 @@ import { leadsAPI } from '../../lib/api';
 import { formatCurrency } from '../../utils/format';
 import { AppointmentField } from './AppointmentField';
 import { LeadCredit } from '../market/LeadCredit';
+import { FromOutreach } from './FromOutreach';
 import { KNOWN_CITIES, SOURCES, STATUSES, type Lead, type LeadStatus, type Trade } from './leadTypes';
 import { LANGUAGE_OPTIONS } from '../../i18n/lang';
 
@@ -329,6 +330,7 @@ export const LeadDrawer: React.FC<{
           </label>
 
           {lead && <LeadCredit lead={lead} onAcknowledged={(at) => onChanged(lead, { acknowledgedAt: at })} />}
+          {lead?.source === 'Outreach' && <FromOutreach organizationId={organizationId} leadId={lead.id} />}
 
           {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
 

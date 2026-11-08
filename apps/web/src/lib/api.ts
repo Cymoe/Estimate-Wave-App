@@ -1246,8 +1246,12 @@ export type OutreachContact = {
   signals: OutreachSignal[];
   /** Sister entities of the same company family: likely one operator, sharing one lookup. */
   related?: Array<{ id: string; name: string }>;
+  /** A client or lead the company already has for this owner, until it's sent: sending joins it rather than making another. */
+  known?: { kind: 'client' | 'lead'; id: string; name: string };
   createdAt: string;
 };
+/** An Outreach owner behind a lead, for the lead's drawer. */
+export type OutreachOwnerOfLead = { id: string; name: string; why: string; properties: number; totalValueCents: number; address?: string };
 export type OutreachPreviewRow = Pick<OutreachContact, 'key' | 'name' | 'company' | 'mailing' | 'property' | 'properties' | 'totalValueCents' | 'why'>;
 export type OutreachListSummary = {
   id: string;
@@ -1316,6 +1320,8 @@ export const outreachAPI = {
   undoSend: (organizationId: string, at: string): Promise<{ removed: number; kept: number }> => run('mutation', api.outreach.undoSend, { organizationId, at }),
   /** Sends an owner to Leads (once); returns the lead's id. */
   sendToLeads: (organizationId: string, contactId: string): Promise<string> => run('mutation', api.outreach.sendToLeads, { organizationId, contactId }),
+  /** The Outreach owners a lead came from: who, what they own and why they were picked. */
+  ownersOfLead: (organizationId: string, leadId: string): Promise<OutreachOwnerOfLead[]> => run('query', api.outreach.ownersOfLead, { organizationId, leadId }),
   remove: (organizationId: string, listId: string) => run('mutation', api.outreach.remove, { organizationId, listId }),
   /** Loads the next page of a list that reached its cap. */
   extend: (organizationId: string, listId: string): Promise<{ loaded: number; added: number; rowCount: number; total: number; truncated: boolean }> =>

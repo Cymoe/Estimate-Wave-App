@@ -405,6 +405,23 @@ describe('the Outreach page', () => {
     expect(document.body.querySelectorAll('[data-testid="contact-card"]')).toHaveLength(0);
   });
 
+  it("an owner the company already has says so, on the card and the sheet; a lead's See owner link opens that owner here", async () => {
+    narrowScreen = true;
+    lists = [list];
+    contacts = twoContacts();
+    contacts.rows[0] = { ...contacts.rows[0], known: { kind: 'client', id: 'c1', name: 'Acme Holdings' } } as never;
+    contacts.rows[1] = { ...contacts.rows[1], known: { kind: 'lead', id: 'l9', name: 'City Of Midland' } } as never;
+    await render('/outreach/l1?owner=r2');
+    // Opened straight to that owner's sheet, and the address drops the ?owner.
+    const sheet = document.body.querySelector('[role="dialog"]') ?? document.body;
+    expect(sheet.textContent).toContain('Already in Leads. Sending adds this owner to that lead instead of making another.');
+    expect(path).toBe('/outreach/l1');
+    const cards = Array.from(document.body.querySelectorAll('[data-testid="contact-card"]'));
+    expect(cards[0].querySelector('[data-testid="known"]')!.textContent).toBe('Already a client: Acme Holdings');
+    // Same name as the owner: no need to say it twice.
+    expect(cards[1].querySelector('[data-testid="known"]')!.textContent).toBe('Already in Leads');
+  });
+
   it('shows the contacts table with a chip per list, or says to tap + when there are none', async () => {
     await render();
     expect(document.body.querySelector('[data-testid="outreach-empty"]')!.textContent).toBe('No contacts yet. Tap + and pick who you want to reach.');

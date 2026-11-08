@@ -7,10 +7,13 @@ import type { Lead } from '../leadTypes';
 
 const update = jest.fn(async () => ({}));
 const create = jest.fn(async () => ({}));
+const ownersOfLead = jest.fn(async () => [] as unknown[]);
 jest.mock('../../../lib/api', () => ({
   leadsAPI: { update: (...args: unknown[]) => update(...(args as [])), create: (...args: unknown[]) => create(...(args as [])) },
+  outreachAPI: { ownersOfLead: (...args: unknown[]) => ownersOfLead(...(args as [])) },
 }));
 
+import { MemoryRouter } from 'react-router-dom';
 import { LeadDrawer } from '../LeadDrawer';
 
 const lead: Lead = {
@@ -40,7 +43,13 @@ function open(props: Partial<React.ComponentProps<typeof LeadDrawer>> = {}) {
   document.body.appendChild(container);
   root = createRoot(container);
   const handlers = { onClose: jest.fn(), onCreated: jest.fn(), onChanged: jest.fn(), onStatus: jest.fn() };
-  act(() => root.render(<LeadDrawer organizationId="org1" lead={lead} trades={[]} {...handlers} {...props} />));
+  act(() =>
+    root.render(
+      <MemoryRouter>
+        <LeadDrawer organizationId="org1" lead={lead} trades={[]} {...handlers} {...props} />
+      </MemoryRouter>,
+    ),
+  );
   return handlers;
 }
 
@@ -182,5 +191,27 @@ describe('LeadDrawer', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it('a lead from Outreach shows the owners it came from, what they own and why, with a link back; other leads show nothing', async () => {
+    ownersOfLead.mockResolvedValueOnce([
+      { id: 'o1', name: 'Nuka Hiva Alpha 1-54 LLC', why: 'Owns 8 commercial buildings', properties: 8, totalValueCents: 300_000_000 },
+      { id: 'o2', name: 'Nuka Hiva Alpha 55-106 LLC', why: 'Owns a shopping center', properties: 1, totalValueCents: 90_000_000, address: '400 W Wall St' },
+    ]);
+    open({ lead: { ...lead, source: 'Outreach' } });
+    await act(async () => {});
+    expect(ownersOfLead).toHaveBeenCalledWith('org1', 'l1');
+    const box = document.body.querySelector('[data-testid="from-outreach"]')!;
+    expect(box.textContent).toContain('From Outreach');
+    expect(box.textContent).toContain('8 properties · $3M · Owns 8 commercial buildings');
+    expect(box.textContent).toContain('400 W Wall St · Owns a shopping center');
+    expect(Array.from(box.querySelectorAll('a')).map((a) => a.getAttribute('href'))).toEqual(['/outreach?owner=o1', '/outreach?owner=o2']);
+    act(() => root.unmount());
+    document.body.innerHTML = '';
+    ownersOfLead.mockClear();
+    open();
+    await act(async () => {});
+    expect(ownersOfLead).not.toHaveBeenCalled();
+    expect(document.body.querySelector('[data-testid="from-outreach"]')).toBeNull();
   });
 });

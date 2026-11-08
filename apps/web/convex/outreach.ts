@@ -736,7 +736,7 @@ const cellFor = (cells: NonNullable<Doc<"outreachContacts">["enrichment"]>, fiel
  */
 const isCompany = (c: { company?: string; kinds: Doc<"outreachContacts">["kinds"] }) => c.company !== undefined && !c.kinds.includes("realtor");
 
-const contactView = (c: Doc<"outreachContacts">, signals: SignalBadge[], related: Array<{ id: Id<"outreachContacts">; name: string }> = []) => ({
+const contactView = (c: Doc<"outreachContacts">, signals: SignalBadge[], related: Array<{ id: Id<"outreachContacts">; name: string }> = [], known?: Known) => ({
   id: c._id,
   key: c.key,
   name: c.name,
@@ -759,6 +759,8 @@ const contactView = (c: Doc<"outreachContacts">, signals: SignalBadge[], related
   signals,
   /** Sister entities of the same company family ("Nuka Hiva Alpha 1-54 LLC" and "Nuka Hiva Alpha LLC"): likely one operator. */
   related,
+  /** A client or lead the company already has for this owner, until it's sent. */
+  ...(known && !c.leadId ? { known } : {}),
   createdAt: c.createdAt,
 });
 export type ContactView = ReturnType<typeof contactView>;
@@ -864,7 +866,11 @@ export const contacts = query({
     const gone = new Set(
       (await Promise.all(picked.filter((c) => c.leadId).map(async (c) => ((await ctx.db.get(c.leadId!)) ? null : c._id)))).filter((id) => id !== null),
     );
-    const rows = picked.map((c, i) => contactView(gone.has(c._id) ? { ...c, status: c.status === "lead" ? "new" : c.status, leadId: undefined } : c, signals[i], relatedTo(c)));
+    const index = await knownOf(ctx, organizationId);
+    const rows = picked.map((c, i) => {
+      const shown = gone.has(c._id) ? { ...c, status: c.status === "lead" ? ("new" as const) : c.status, leadId: undefined } : c;
+      return contactView(shown, signals[i], relatedTo(c), shown.leadId ? undefined : knownFor(shown, index));
+    });
     return {
       rows,
       coverage: coverageOf(picked),
@@ -950,6 +956,58 @@ export const SAMPLE_LEFT_OUT = "Sample contact details were left out; look this 
  * its note, and the number or email it was missing. `all` is the company's
  * contacts, kept current as owners are sent.
  */
+/** A client or lead the company already has, matched to an owner. */
+type Known = { kind: "client" | "lead"; id: string; name: string };
+
+const NAME_FILLER = new Set(["llc", "l", "c", "inc", "lp", "llp", "ltd", "co", "corp", "corporation", "company", "the", "pllc", "pc"]);
+/** "Oak Plaza, L.L.C." and "oak plaza llc" → "oak plaza": a name to compare, without its punctuation or entity words. */
+function nameKey(name?: string): string | undefined {
+  const words = (name ?? "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .split(/\s+/)
+    .filter((w) => w && !NAME_FILLER.has(w));
+  // One word is too loose to call two names the same ("Smith").
+  return words.length >= 2 ? words.join(" ") : undefined;
+}
+const phoneKey = (p?: string) => {
+  const d = (p ?? "").replace(/\D/g, "").slice(-10);
+  return d.length === 10 ? d : undefined;
+};
+const emailKey = (e?: string) => e?.trim().toLowerCase() || undefined;
+
+/** Everyone the company already has, by phone, email and name: clients first, so a client wins over a lead. */
+async function knownOf(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">) {
+  const index = new Map<string, Known>();
+  const add = (k: Known, keys: Array<string | undefined>) => {
+    for (const key of keys) if (key && !index.has(key)) index.set(key, k);
+  };
+  for (const c of await ctx.db.query("clients").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect()) {
+    add({ kind: "client", id: c._id, name: c.companyName || c.name }, [`p:${phoneKey(c.phone)}`, `e:${emailKey(c.email)}`, `n:${nameKey(c.name)}`, `n:${nameKey(c.companyName)}`].filter((k) => !k.endsWith(":undefined")));
+  }
+  for (const l of await ctx.db.query("leads").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect()) {
+    if (l.isSample) continue;
+    add({ kind: "lead", id: l._id, name: l.company || l.name }, [`p:${phoneKey(l.phone)}`, `e:${emailKey(l.email)}`, `n:${nameKey(l.name)}`, `n:${nameKey(l.company)}`].filter((k) => !k.endsWith(":undefined")));
+  }
+  return index;
+}
+type KnownIndex = Awaited<ReturnType<typeof knownOf>>;
+
+/** The client or lead an owner already is: by a real phone or email, else by the owner's name. */
+function knownFor(c: Doc<"outreachContacts">, index: KnownIndex): Known | undefined {
+  const cells = cellsOf(c);
+  const real = (field: "phone" | "email") => !isSampleRun(c) && !cellFor(cells, field).simulated;
+  const keys = [
+    ...(real("phone") ? (c.phones ?? []).map((p) => `p:${phoneKey(p.number)}`) : []),
+    ...(real("email") ? (c.emails ?? []).map((e) => `e:${emailKey(e.email)}`) : []),
+    // The owner's own name, not the decision maker's: two men named Kai Moana are not one lead.
+    `n:${nameKey(c.name)}`,
+  ];
+  const hits = keys.map((k) => index.get(k)).filter((k): k is Known => k !== undefined && !(k.kind === "lead" && k.id === c.leadId));
+  return hits.find((k) => k.kind === "client") ?? hits[0];
+}
+
 async function sendOne(
   ctx: MutationCtx,
   organizationId: Id<"organizations">,
@@ -957,6 +1015,7 @@ async function sendOne(
   contact: Doc<"outreachContacts">,
   all: Doc<"outreachContacts">[],
   now: string,
+  index?: KnownIndex,
 ): Promise<{ leadId: Id<"leads">; made: boolean }> {
   const have = async (id?: Id<"leads">) => (id ? await ctx.db.get(id) : null);
   // Sample and simulated results are made up: they show the layout here, but a lead is called for real.
@@ -974,6 +1033,10 @@ async function sendOne(
       lead = await have(other.leadId);
       if (lead) break;
     }
+    // Someone the company already has: a lead is joined, a client gets the new lead under their name.
+    const known = lead ? undefined : knownFor(contact, index ?? (await knownOf(ctx, organizationId)));
+    if (known?.kind === "lead") lead = await have(known.id as Id<"leads">);
+    const client = known?.kind === "client" ? await ctx.db.get(known.id as Id<"clients">) : null;
     if (lead) {
       // Joins the lead of the same operator: what this one owns, and anything the lead was missing.
       await ctx.db.patch(lead._id, {
@@ -987,6 +1050,7 @@ async function sendOne(
       const notes = [
         `From Outreach. ${contact.why}.`,
         mailing ? `Mailing address: ${mailing}.` : "",
+        client ? `Already a client: ${client.companyName || client.name}.` : "",
         leftOut ? SAMPLE_LEFT_OUT : "",
         isSampleRun(contact) ? "" : (contact.note ?? ""),
       ]
@@ -1002,6 +1066,7 @@ async function sendOne(
         source: "Outreach",
         status: "new",
         notes,
+        ...(client ? { clientId: client._id } : {}),
         organizationId,
         userId,
         createdAt: now,
@@ -1010,6 +1075,8 @@ async function sendOne(
       await logActivity(ctx, { organizationId, userId, action: "created", resourceType: "lead", resourceId: leadId, details: { name, fromOutreach: contact._id } });
       lead = (await ctx.db.get(leadId))!;
       made = true;
+      // Later owners in the same send that share a phone or email join this lead.
+      if (index) for (const k of [`p:${phoneKey(lead.phone)}`, `e:${emailKey(lead.email)}`]) if (!k.endsWith(":undefined") && !index.has(k)) index.set(k, { kind: "lead", id: leadId, name: lead.company || lead.name });
     }
   }
   if (contact.status !== "lead" || contact.leadId !== lead._id) await ctx.db.patch(contact._id, { leadId: lead._id, status: "lead", sentAt: now, updatedAt: now });
@@ -1058,6 +1125,20 @@ export const sendToLeads = mutation({
     const contact = await ctx.db.get(contactId);
     if (!contact || contact.organizationId !== organizationId) fail("NOT_FOUND", "No such contact");
     return (await sendOne(ctx, organizationId, user._id, contact, await contactsOf(ctx, organizationId), nowIso())).leadId;
+  },
+});
+
+/** The Outreach owners behind a lead, for the lead's drawer: who they are, what they own and why they were picked. */
+export const ownersOfLead = query({
+  args: { organizationId: v.id("organizations"), leadId: v.id("leads") },
+  handler: async (ctx, { organizationId, leadId }) => {
+    await requireMember(ctx, organizationId);
+    const lead = await ctx.db.get(leadId);
+    if (!lead || lead.organizationId !== organizationId) return [];
+    const owners = await ctx.db.query("outreachContacts").withIndex("by_lead", (q) => q.eq("leadId", leadId)).collect();
+    return owners
+      .filter((c) => c.organizationId === organizationId)
+      .map((c) => ({ id: c._id, name: c.name, why: c.why, properties: c.properties, totalValueCents: c.totalValueCents, address: c.property?.address }));
   },
 });
 
@@ -1127,6 +1208,7 @@ export const sendManyToLeads = mutation({
     const all = await contactsOf(ctx, organizationId);
     const byId = new Map(all.map((c) => [c._id, c] as const));
     const now = nowIso();
+    const index = await knownOf(ctx, organizationId);
     let sent = 0;
     let made = 0;
     for (const id of new Set(contactIds)) {
@@ -1134,7 +1216,7 @@ export const sendManyToLeads = mutation({
       if (!contact) continue;
       const before = contact.leadId && (await ctx.db.get(contact.leadId));
       if (before) continue;
-      const r = await sendOne(ctx, organizationId, user._id, contact, all, now);
+      const r = await sendOne(ctx, organizationId, user._id, contact, all, now, index);
       sent++;
       if (r.made) made++;
     }

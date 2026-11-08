@@ -447,6 +447,15 @@ const OutreachPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
+  // A lead's "See owner" opens /outreach?owner=<id>: that owner's sheet, once the contacts are in.
+  useEffect(() => {
+    const id = searchParams.get('owner');
+    if (!id || !data) return;
+    const row = data.rows.find((r) => r.id === id);
+    if (row) setOpen(row);
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams, data]);
+
   // The blue + button's "Outreach list" opens /outreach?new=1.
   useEffect(() => {
     if (searchParams.get('new') !== '1') return;

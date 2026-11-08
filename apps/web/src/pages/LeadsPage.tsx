@@ -30,12 +30,13 @@ const isOverdue = (lead: Lead, todayIso: string) => {
   const day = nextDay(lead);
   return !!day && day < todayIso && OPEN.includes(lead.status);
 };
-type LeadFilter = 'all' | 'appointment' | 'overdue' | 'recent';
+type LeadFilter = 'all' | 'appointment' | 'overdue' | 'recent' | 'outreach';
 const FILTERS: { value: LeadFilter; label: string }[] = [
   { value: 'all', label: 'All leads' },
   { value: 'appointment', label: 'Appointment set' },
   { value: 'overdue', label: 'Follow-up overdue' },
   { value: 'recent', label: 'Added in the last 30 days' },
+  { value: 'outreach', label: 'From Outreach' },
 ];
 const VIEW_KEY = 'leadsView';
 
@@ -405,6 +406,7 @@ const LeadsPage: React.FC = () => {
     if (leadFilter === 'appointment') return !!lead.appointmentAt;
     if (leadFilter === 'overdue') return isOverdue(lead, todayIso);
     if (leadFilter === 'recent') return (lead.createdAt ?? '') >= monthAgo;
+    if (leadFilter === 'outreach') return lead.source === 'Outreach';
     return true;
   });
   // The follow-up line counts every lead the "Follow-up overdue" filter shows, whatever else is filtered.
@@ -536,7 +538,8 @@ const LeadsPage: React.FC = () => {
             </div>
             <div className="flex items-center gap-2 md:contents">
             <select value={leadFilter} onChange={(e) => setLeadFilter(e.target.value as LeadFilter)} aria-label="Filter leads" className={`${control} flex-1 min-w-0 md:flex-none px-3`}>
-              {FILTERS.map((f) => (
+              {/* From Outreach only once a lead has come from there. */}
+              {FILTERS.filter((f) => f.value !== 'outreach' || leadFilter === 'outreach' || leads.some((lead) => lead.source === 'Outreach')).map((f) => (
                 <option key={f.value} value={f.value}>{f.label}</option>
               ))}
             </select>

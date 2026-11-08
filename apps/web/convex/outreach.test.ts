@@ -608,10 +608,14 @@ describe("a company's lists", () => {
     // A lead gone some other way (deleted before this was in place) shows the owner as New too.
     await t.run(async (ctx) => ctx.db.delete(again));
     expect(await cityNow()).toMatchObject({ status: "new" });
+    // Quoting made them a client, so the owner says so, and a new lead goes under that client instead of making a second one.
+    expect((await cityNow()).known).toEqual({ kind: "client", id: clientId, name: "City Of Midland" });
     // With no decision maker found yet, the lead is the company itself, and Company still says so.
     await t.run(async (ctx) => ctx.db.patch(city.id as never, { person: undefined }));
     const bare = await co.as.mutation(api.outreach.sendToLeads, { organizationId: org, contactId: city.id });
-    expect(await t.run(async (ctx) => ctx.db.get(bare))).toMatchObject({ name: "City Of Midland", company: "City Of Midland" });
+    expect(await t.run(async (ctx) => ctx.db.get(bare))).toMatchObject({ name: "City Of Midland", company: "City Of Midland", clientId });
+    expect((await t.run(async (ctx) => ctx.db.get(bare)))!.notes).toContain("Already a client: City Of Midland.");
+    expect((await cityNow()).known).toBeUndefined();
     // A lead sent before Company was always filled gets it from the one-off fill; a lead from elsewhere is left alone.
     await t.run(async (ctx) => ctx.db.patch(bare, { company: undefined }));
     const walkIn = await co.as.mutation(api.leads.create, { organizationId: org, data: { name: "Walk-in", source: "Outreach" } });
@@ -619,6 +623,22 @@ describe("a company's lists", () => {
     expect(await t.run(async (ctx) => ctx.db.get(bare))).toMatchObject({ company: "City Of Midland" });
     expect(await t.run(async (ctx) => ctx.db.get(walkIn!._id))).not.toHaveProperty("company");
     expect((await co.as.query(api.outreach.lists, { organizationId: org })).find((l) => l.who === "commercial")!.done).toBe(2);
+
+    // A lead the company already has, by a phone, an email or the same name without its LP, is joined, not made twice.
+    const park = all.rows.find((r) => r.name === "Park Holdings LP")!;
+    const walkUp = await co.as.mutation(api.leads.create, { organizationId: org, data: { name: "Park Holdings", source: "Referral" } });
+    const parkNow = async () => (await co.as.query(api.outreach.contacts, { organizationId: org })).rows.find((r) => r.id === park.id)!;
+    expect((await parkNow()).known).toEqual({ kind: "lead", id: walkUp!._id, name: "Park Holdings" });
+    expect(await co.as.mutation(api.outreach.sendToLeads, { organizationId: org, contactId: park.id })).toBe(walkUp!._id);
+    expect((await t.run(async (ctx) => ctx.db.get(walkUp!._id)))!.notes).toContain("Also owns as Park Holdings LP:");
+    // The lead's drawer shows who it came from.
+    expect(await co.as.query(api.outreach.ownersOfLead, { organizationId: org, leadId: walkUp!._id })).toEqual([
+      expect.objectContaining({ id: park.id, name: "Park Holdings LP", why: park.why }),
+    ]);
+    // One word is too loose to match on: a lead named "Nuka" is not Nuka Hiva LLC.
+    await co.as.mutation(api.leads.create, { organizationId: org, data: { name: "Nuka" } });
+    expect(all.rows.find((r) => r.name === "Nuka Hiva LLC")).toBeDefined();
+    expect((await co.as.query(api.outreach.contacts, { organizationId: org })).rows.find((r) => r.name === "Nuka Hiva LLC")!.known).toBeUndefined();
 
     // Another company can't see it; a company off the plan can't use Outreach at all.
     const other = await proCompany(t, "owner@paint.example");
@@ -636,7 +656,7 @@ describe("a company's lists", () => {
     expect(left.rows.map((r) => [r.name, r.kinds, r.status])).toEqual([
       ["Nuka Hiva LLC", ["investor"], "new"],
       ["Oak Plaza LLC", ["investor"], "done"],
-      ["Park Holdings LP", ["investor"], "new"],
+      ["Park Holdings LP", ["investor"], "lead"],
     ]);
     await co.as.mutation(api.outreach.remove, { organizationId: org, listId: second.listId });
     await t.run(async (ctx) => {
@@ -1096,10 +1116,19 @@ describe("a company's lists", () => {
           });
         }
         const body = JSON.parse((init?.body as string) ?? "{}") as { requests: Array<{ propertyAddress: { street: string } }> };
-        batchdata.push(body.requests[0].propertyAddress.street);
+        const street = body.requests[0].propertyAddress.street;
+        batchdata.push(street);
+        // The other Kai Moana, looked up from Brazos's parcels, has his own phone and email.
+        const other = street.startsWith("C");
         return json({
           results: {
-            persons: [{ name: { first: "Kai", last: "Moana" }, phoneNumbers: [{ number: "432-555-0142", type: "Mobile", score: 90 }], emails: [{ email: "kai@nukahiva.example" }] }],
+            persons: [
+              {
+                name: { first: "Kai", last: "Moana" },
+                phoneNumbers: [{ number: other ? "512-555-0177" : "432-555-0142", type: "Mobile", score: 90 }],
+                emails: [{ email: other ? "kai@brazos.example" : "kai@nukahiva.example" }],
+              },
+            ],
           },
         });
       }),
