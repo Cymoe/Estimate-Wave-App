@@ -9,22 +9,37 @@ type Preset = { label: string; definition: OutreachDefinition; explanation: stri
 const COUNTY = 'Midland';
 const NO_PHONES = 'Names and mailing addresses; no phone numbers.';
 
-/** The ready-made lists: one tap builds the exact filter, with no guessing from words. */
-const PRESETS: Preset[] = [
-  { label: 'Company investors with 5+ properties', definition: { county: COUNTY, who: 'investor', companyOwned: true, minParcels: 5 }, explanation: `Companies holding five or more Midland properties, most first. ${NO_PHONES}` },
-  { label: 'Shopping center owners', definition: { county: COUNTY, who: 'commercial' }, explanation: `Owners of commercial buildings on the roll, biggest holdings first. ${NO_PHONES}` },
-  { label: 'Owners of 3+ commercial buildings', definition: { county: COUNTY, who: 'portfolio', minParcels: 3 }, explanation: `One owner, several storefronts or buildings: the landlord whose roofs and systems come due in turn, most buildings first. ${NO_PHONES}` },
-  { label: 'Architects & engineers on permits', definition: { county: COUNTY, who: 'designer' }, explanation: 'Design firms named on commercial permits in the last 180 days, busiest first; the phone and email on their permits come along free.' },
-  { label: 'Apartment owners', definition: { county: COUNTY, who: 'multifamily' }, explanation: `Owners of apartment buildings and multifamily, biggest holdings first. ${NO_PHONES}` },
-  { label: 'Homes with code violations', definition: { county: COUNTY, who: 'violation' }, explanation: `Owners the city cited in the last two years, newest case first, with the trade each case calls for. ${NO_PHONES}` },
-  { label: 'Stalled permits', definition: { county: COUNTY, who: 'stalled' }, explanation: `Owners whose permit expired before the work was finished, newest first. ${NO_PHONES}` },
-  { label: 'Contractors pulling permits', definition: { county: COUNTY, who: 'contractor' }, explanation: 'Companies named on permits in the last 180 days, busiest first; the phone and email on their permits come along free.' },
-  { label: 'Homes owned 20+ years', definition: { county: COUNTY, who: 'long_owned', ownedForDays: 7305 }, explanation: `Owner-occupied homes held twenty years or more, longest first. ${NO_PHONES}` },
-  { label: 'Recent buyers', definition: { county: COUNTY, who: 'recent_buyer' }, explanation: `Owners who took their deed in the last year, newest first. ${NO_PHONES}` },
-  { label: 'Absentee owners', definition: { county: COUNTY, who: 'absentee' }, explanation: `Owners whose tax bill goes to another address, most properties first. ${NO_PHONES}` },
-  { label: 'Homebuilders', definition: { county: COUNTY, who: 'builder' }, explanation: `Homebuilders holding spec homes and lots, most first. ${NO_PHONES}` },
-  { label: 'Property managers', definition: { county: COUNTY, who: 'manager' }, explanation: `Offices that receive the tax bills for several owners' properties. ${NO_PHONES}` },
-  { label: 'Homes worth over $1M', definition: { county: COUNTY, who: 'wealthy', minValueCents: 100_000_000 }, explanation: `Owner-occupied homes appraised over $1M, highest first. ${NO_PHONES}` },
+/** The ready-made lists, in three short rows so a heading finds the row and the row finds the list. One tap builds the exact filter, no guessing from words. */
+const GROUPS: Array<{ heading: string; presets: Preset[] }> = [
+  {
+    heading: 'Commercial and investors',
+    presets: [
+      { label: 'Owners of 3+ commercial buildings', definition: { county: COUNTY, who: 'portfolio', minParcels: 3 }, explanation: `One owner, several storefronts or buildings: the landlord whose roofs and systems come due in turn, most buildings first. ${NO_PHONES}` },
+      { label: 'Shopping center owners', definition: { county: COUNTY, who: 'commercial' }, explanation: `Owners of commercial buildings on the roll, biggest holdings first. ${NO_PHONES}` },
+      { label: 'Apartment owners', definition: { county: COUNTY, who: 'multifamily' }, explanation: `Owners of apartment buildings and multifamily, biggest holdings first. ${NO_PHONES}` },
+      { label: 'Company investors with 5+ properties', definition: { county: COUNTY, who: 'investor', companyOwned: true, minParcels: 5 }, explanation: `Companies holding five or more Midland properties, most first. ${NO_PHONES}` },
+      { label: 'Property managers', definition: { county: COUNTY, who: 'manager' }, explanation: `Offices that receive the tax bills for several owners' properties. ${NO_PHONES}` },
+    ],
+  },
+  {
+    heading: 'Homeowners',
+    presets: [
+      { label: 'Code violations', definition: { county: COUNTY, who: 'violation' }, explanation: `Owners the city cited in the last two years, newest case first, with the trade each case calls for. ${NO_PHONES}` },
+      { label: 'Stalled permits', definition: { county: COUNTY, who: 'stalled' }, explanation: `Owners whose permit expired before the work was finished, newest first. ${NO_PHONES}` },
+      { label: 'Owned 20+ years', definition: { county: COUNTY, who: 'long_owned', ownedForDays: 7305 }, explanation: `Owner-occupied homes held twenty years or more, longest first. ${NO_PHONES}` },
+      { label: 'Recent buyers', definition: { county: COUNTY, who: 'recent_buyer' }, explanation: `Owners who took their deed in the last year, newest first. ${NO_PHONES}` },
+      { label: 'Absentee owners', definition: { county: COUNTY, who: 'absentee' }, explanation: `Owners whose tax bill goes to another address, most properties first. ${NO_PHONES}` },
+      { label: 'Homes over $1M', definition: { county: COUNTY, who: 'wealthy', minValueCents: 100_000_000 }, explanation: `Owner-occupied homes appraised over $1M, highest first. ${NO_PHONES}` },
+    ],
+  },
+  {
+    heading: 'People who bring work',
+    presets: [
+      { label: 'Contractors pulling permits', definition: { county: COUNTY, who: 'contractor' }, explanation: 'Companies named on permits in the last 180 days, busiest first; the phone and email on their permits come along free.' },
+      { label: 'Architects & engineers', definition: { county: COUNTY, who: 'designer' }, explanation: 'Design firms named on commercial permits in the last 180 days, busiest first; the phone and email on their permits come along free.' },
+      { label: 'Homebuilders', definition: { county: COUNTY, who: 'builder' }, explanation: `Homebuilders holding spec homes and lots, most first. ${NO_PHONES}` },
+    ],
+  },
 ];
 
 const field = 'w-full bg-[#1A1A1A] border border-[#333333] px-3 text-white text-base md:text-sm focus:outline-none focus:border-[#336699]';
@@ -141,22 +156,26 @@ export const AskListSheet: React.FC<{
   return (
     <SlideOutDrawer isOpen={open} onClose={onClose} title="Ask for a list" width="lg">
       <div className="p-6 space-y-5">
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Who do you want to reach?</p>
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Ready-made lists">
-            {PRESETS.map((p) => (
-              <button
-                key={p.label}
-                type="button"
-                onClick={() => void pick(p)}
-                disabled={busy !== null}
-                aria-pressed={preset === p.label}
-                className={`px-3 py-2 text-sm border disabled:opacity-50 ${preset === p.label ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333333] text-gray-300 hover:bg-[#2A2A2A]'}`}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
+        <div className="space-y-4" role="group" aria-label="Ready-made lists">
+          {GROUPS.map((g) => (
+            <div key={g.heading} className="space-y-2" role="group" aria-label={g.heading}>
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">{g.heading}</p>
+              <div className="flex flex-wrap gap-2">
+                {g.presets.map((p) => (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={() => void pick(p)}
+                    disabled={busy !== null}
+                    aria-pressed={preset === p.label}
+                    className={`px-3 py-2 text-sm border disabled:opacity-50 ${preset === p.label ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333333] text-gray-300 hover:bg-[#2A2A2A]'}`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
         <div className="space-y-2">
           <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider" htmlFor="outreach-ask">

@@ -490,22 +490,12 @@ describe('the Outreach page', () => {
     expect(path).toBe('/outreach');
     const dialog = document.body.querySelector('[role="dialog"][aria-label="Ask for a list"]')!;
     expect(dialog).not.toBeNull();
-    const chips = Array.from(dialog.querySelectorAll('[aria-label="Ready-made lists"] button')).map((b) => b.textContent);
-    expect(chips).toEqual([
-      'Company investors with 5+ properties',
-      'Shopping center owners',
-      'Owners of 3+ commercial buildings',
-      'Architects & engineers on permits',
-      'Apartment owners',
-      'Homes with code violations',
-      'Stalled permits',
-      'Contractors pulling permits',
-      'Homes owned 20+ years',
-      'Recent buyers',
-      'Absentee owners',
-      'Homebuilders',
-      'Property managers',
-      'Homes worth over $1M',
+    // Three short rows under headings, not one pile of chips.
+    const rows = Array.from(dialog.querySelectorAll('[aria-label="Ready-made lists"] [role="group"]')).map((g) => [g.getAttribute('aria-label'), ...Array.from(g.querySelectorAll('button')).map((b) => b.textContent)]);
+    expect(rows).toEqual([
+      ['Commercial and investors', 'Owners of 3+ commercial buildings', 'Shopping center owners', 'Apartment owners', 'Company investors with 5+ properties', 'Property managers'],
+      ['Homeowners', 'Code violations', 'Stalled permits', 'Owned 20+ years', 'Recent buyers', 'Absentee owners', 'Homes over $1M'],
+      ['People who bring work', 'Contractors pulling permits', 'Architects & engineers', 'Homebuilders'],
     ]);
     const ask = dialog.querySelector('textarea') as HTMLTextAreaElement;
     await act(async () => type(ask, 'shopping center owners in Midland'));
@@ -585,7 +575,7 @@ describe('the Outreach page', () => {
     built = document.body.querySelector('[data-testid="built"]')!;
     expect(built.textContent).toContain('the phone and email on their permits come along free');
     expect((document.body.querySelector('input#outreach-title') as HTMLInputElement).value).toBe('Active contractors, Midland');
-    await click('Homes owned 20+ years');
+    await click('Owned 20+ years');
     expect(preview).toHaveBeenLastCalledWith('o1', { county: 'Midland', who: 'long_owned', ownedForDays: 7305 });
     expect((document.body.querySelector('input#outreach-title') as HTMLInputElement).value).toBe('Homes owned 20+ years, Midland');
     // Something not on the chips goes to the assistant.
