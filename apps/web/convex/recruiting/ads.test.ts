@@ -145,8 +145,8 @@ describe("writing a batch", () => {
     expect(req.system).toBe(AD_BRIEF);
     expect(req.user).toContain("Comp sheet:\n" + COMP);
     expect(req.user).toContain("1. Marcus was a line cook");
-    expect(req.user).toContain("acme-m1 | meta_primary | money proof | 6 | 3 | 1 | 2 | 50% | 0 | - | $300 | 1.00");
-    expect(req.user).toContain("acme-m3 | meta_primary | competition | 1 | 0 | 1 | 0 | 0% | 0 | - | - | - (not proven yet)");
+    expect(req.user).toContain("acme-m1 | meta_primary | money proof | 6 | 3 | 1 | 2 | 50% | 0 | - | 0 | $300 | 1.00 | -");
+    expect(req.user).toContain("acme-m3 | meta_primary | competition | 1 | 0 | 1 | 0 | 0% | 0 | - | 0 | - | - | - (not proven yet)");
     expect(req.user).toContain("## The winners' words");
     expect(req.user).toContain("[acme-m1, money proof]\nThe money proof ad's words");
     expect(req.user).toContain("Volume but no A's (acme-m2)");

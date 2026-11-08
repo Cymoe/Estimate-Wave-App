@@ -54,7 +54,7 @@ const pct = (n: number | null) => (n === null ? "-" : `${Math.round(n * 100)}%`)
 const money = (cents?: number) => (cents ? `$${(cents / 100).toLocaleString("en-US", { maximumFractionDigits: 0 })}` : "-");
 
 /** The request: the client's inputs, then the numbers, then the winners' own words to riff on. */
-export function batchRequest(input: { client: { name: string; role: string; city: string; territory?: string; compSheet: string; repStories?: string[]; perks?: string; wants?: string }; performance: AdPerformance[]; angles: Array<{ angle: string; ads: number; applicants: number; A: number; spendCents: number; aRate: number | null; aPer100: number | null }>; retireRule: string[] }): string {
+export function batchRequest(input: { client: { name: string; role: string; city: string; territory?: string; compSheet: string; repStories?: string[]; perks?: string; wants?: string }; performance: AdPerformance[]; angles: Array<{ angle: string; ads: number; applicants: number; A: number; hired: number; spendCents: number; aRate: number | null; aPer100: number | null }>; retireRule: string[] }): string {
   const { client, performance, angles } = input;
   const lines = [
     `Write this week's batch for ${client.name}.`,
@@ -72,17 +72,18 @@ export function batchRequest(input: { client: { name: string; role: string; city
   ];
   if (performance.length === 0) lines.push("No ads have run yet: no winners. Spread the batch across the angles.");
   else {
-    lines.push("source ad id | kind | angle | applicants | A | B | C | A rate | booked | show rate | spend | A's per $100");
+    lines.push("source ad id | kind | angle | applicants | A | B | C | A rate | booked | show rate | hired | spend | A's per $100 | cost per hire");
     for (const r of performance) {
       lines.push(
-        [r.sourceAdId, r.kind ?? "?", r.angle ?? "?", r.applicants, r.A, r.B, r.C, pct(r.aRate), r.booked, pct(r.showRate), money(r.spendCents), r.aPer100 === null ? "-" : r.aPer100.toFixed(2)].join(" | ") +
+        [r.sourceAdId, r.kind ?? "?", r.angle ?? "?", r.applicants, r.A, r.B, r.C, pct(r.aRate), r.booked, pct(r.showRate), r.hired, money(r.spendCents), r.aPer100 === null ? "-" : r.aPer100.toFixed(2), money(r.costPerHireCents ?? undefined)].join(" | ") +
           (r.applicants < PROVEN_AT ? " (not proven yet)" : "") +
           (r.status === "retired" ? " (retired)" : ""),
       );
     }
-    lines.push("", "## By angle", "angle | ads | applicants | A | A rate | spend | A's per $100");
-    for (const a of angles) lines.push([a.angle, a.ads, a.applicants, a.A, pct(a.aRate), money(a.spendCents), a.aPer100 === null ? "-" : a.aPer100.toFixed(2)].join(" | "));
-    const winners = performance.filter((r) => r.body && r.status === "approved" && r.applicants >= PROVEN_AT && r.A > 0).slice(0, 5);
+    lines.push("", "## By angle", "angle | ads | applicants | A | A rate | hired | spend | A's per $100");
+    for (const a of angles) lines.push([a.angle, a.ads, a.applicants, a.A, pct(a.aRate), a.hired, money(a.spendCents), a.aPer100 === null ? "-" : a.aPer100.toFixed(2)].join(" | "));
+    // An ad that got someone hired is a winner however few applied.
+    const winners = performance.filter((r) => r.body && r.status === "approved" && (r.hired > 0 || (r.applicants >= PROVEN_AT && r.A > 0))).slice(0, 5);
     if (winners.length) {
       lines.push("", "## The winners' words (riff on these for the ~70%)");
       for (const w of winners) lines.push(`[${w.sourceAdId}, ${w.angle}]\n${w.body}`);

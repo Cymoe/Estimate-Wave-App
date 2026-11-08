@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Copy } from 'lucide-react';
 import { recruitingAPI, type RecruitAdPerformance, type RecruitAds } from '../../lib/api';
 import { input, primary, secondary } from '../ops/ui';
-import { copy, errorText, KIND_LABEL } from './labels';
+import { applyLink, copy, dollars, errorText, KIND_LABEL } from './labels';
 
 const pct = (n: number | null) => (n === null ? '–' : `${Math.round(n * 100)}%`);
 
@@ -15,7 +15,7 @@ function Performance({ rows, onSpend }: { rows: RecruitAdPerformance[]; onSpend:
       <table className="w-full text-sm" data-testid="ad-performance">
         <thead className="text-xs text-gray-500 text-left">
           <tr>
-            {['Source ad id', 'Angle', 'Applicants', "A's", 'A rate', 'Booked', 'Show rate', 'Spend', "A's / $100"].map((h) => (
+            {['Source ad id', 'Angle', 'Applicants', "A's", 'A rate', 'Booked', 'Show rate', 'Hired', 'Spend', "A's / $100", 'Per hire'].map((h) => (
               <th key={h} className="px-3 py-2 font-normal whitespace-nowrap">
                 {h}
               </th>
@@ -35,6 +35,7 @@ function Performance({ rows, onSpend }: { rows: RecruitAdPerformance[]; onSpend:
               <td className="px-3 py-2">{pct(r.aRate)}</td>
               <td className="px-3 py-2">{r.booked}</td>
               <td className="px-3 py-2">{pct(r.showRate)}</td>
+              <td className="px-3 py-2">{r.hired}</td>
               <td className="px-3 py-2">
                 {r.status === 'approved' ? (
                   <form
@@ -55,12 +56,13 @@ function Performance({ rows, onSpend }: { rows: RecruitAdPerformance[]; onSpend:
                     />
                   </form>
                 ) : r.spendCents ? (
-                  `$${Math.round(r.spendCents / 100)}`
+                  dollars(r.spendCents)
                 ) : (
                   '–'
                 )}
               </td>
               <td className="px-3 py-2">{r.aPer100 === null ? '–' : r.aPer100.toFixed(2)}</td>
+              <td className="px-3 py-2">{r.costPerHireCents === null ? '–' : dollars(r.costPerHireCents)}</td>
             </tr>
           ))}
         </tbody>
@@ -88,10 +90,12 @@ export function AdsTab() {
   if (!data) return <p className="text-sm text-gray-400">{error ?? 'Loading…'}</p>;
   if (data.clients.length === 0) return <p className="text-sm text-gray-400">Add a client first (Clients tab), with its comp sheet and rep stories.</p>;
 
-  const handOff = data.approved.map((a) => `${a.sourceAdId} · ${a.client} · ${KIND_LABEL[a.kind]?.replace(/s$/, '') ?? a.kind} · ${a.angle}\n${a.title ? `${a.title}\n` : ''}${a.body}`).join('\n\n---\n\n');
+  const handOff = data.approved
+    .map((a) => `${a.sourceAdId} · ${a.client} · ${KIND_LABEL[a.kind]?.replace(/s$/, '') ?? a.kind} · ${a.angle}\nLink: ${applyLink(a.slug, a.sourceAdId)}\n${a.title ? `${a.title}\n` : ''}${a.body}`)
+    .join('\n\n---\n\n');
   return (
     <div className="space-y-8">
-      <p className="text-sm text-gray-400">Nothing runs until it&apos;s approved here. Approving gives the ad its source ad id: put it on the live ad so applicants trace back to it.</p>
+      <p className="text-sm text-gray-400">Nothing runs until it&apos;s approved here. Approving gives the ad its source ad id and its own apply link: the live ad points at that link, so applicants trace back to it.</p>
       {note && (
         <p className="text-sm text-emerald-300" role="status">
           {note}
@@ -156,7 +160,7 @@ export function AdsTab() {
                               </ul>
                             )}
                             <div className="flex gap-2 mt-3">
-                              <button type="button" className={primary} onClick={() => void act(() => recruitingAPI.decideAd(d.id, 'approve'), (id) => `Approved: its source ad id is ${String(id)}.`)}>
+                              <button type="button" className={primary} onClick={() => void act(() => recruitingAPI.decideAd(d.id, 'approve'), (id) => `Approved: its source ad id is ${String(id)}. Its apply link: ${applyLink(c.client.slug, String(id))}`)}>
                                 Approve
                               </button>
                               <button type="button" className={secondary} onClick={() => void act(() => recruitingAPI.decideAd(d.id, 'reject'))}>

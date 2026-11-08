@@ -16,7 +16,16 @@ function ApplicantDialog({ applicantId, onClose }: { applicantId: string; onClos
       setError(errorText(err));
     }
   };
+  const outcome = async (picked: 'hired' | 'not_hired') => {
+    try {
+      // Tapping the one that's on takes it off.
+      await recruitingAPI.markOutcome(applicantId, t?.applicant.outcome === picked ? null : picked);
+    } catch (err) {
+      setError(errorText(err));
+    }
+  };
   const a = t?.applicant;
+  const interviewed = a && (a.status === 'interviewed' || a.outcome || (a.status === 'booked' && a.interviewAt && Date.parse(a.interviewAt) <= Date.now()));
   return (
     <Dialog title={a ? a.name : 'Applicant'} onClose={onClose} wide>
       {t === undefined && <p className="text-sm text-gray-400">Loading…</p>}
@@ -25,7 +34,7 @@ function ApplicantDialog({ applicantId, onClose }: { applicantId: string; onClos
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <ScoreBadge score={a.score} />
-            <span className="text-gray-200">{STATUS_LABEL[a.status] ?? a.status}</span>
+            <span className="text-gray-200">{a.outcome === 'hired' ? 'Hired' : (STATUS_LABEL[a.status] ?? a.status)}</span>
             <span className="text-gray-500">
               · {a.client} · ad {a.sourceAdId} · {a.phone}
             </span>
@@ -39,6 +48,16 @@ function ApplicantDialog({ applicantId, onClose }: { applicantId: string; onClos
               <button type="button" className={secondary} onClick={() => void mark(false)}>
                 No-show (texts a rebook link)
               </button>
+            </div>
+          )}
+          {interviewed && (
+            <div className="flex flex-wrap items-center gap-2" data-testid="outcome">
+              <span className="text-sm text-gray-400">After the interview:</span>
+              {(['hired', 'not_hired'] as const).map((o) => (
+                <button key={o} type="button" aria-pressed={a.outcome === o} className={a.outcome === o ? primary : secondary} onClick={() => void outcome(o)}>
+                  {o === 'hired' ? 'Hired' : 'Not hired'}
+                </button>
+              ))}
             </div>
           )}
           {a.notes && <p className="text-sm text-gray-300 whitespace-pre-wrap border-l-2 border-[#336699] pl-3">{a.notes}</p>}
@@ -100,7 +119,7 @@ export function ApplicantsTab({ clients, openId, onOpen }: { clients: RecruitCli
               <span className="min-w-0 flex-1">
                 <span className="flex flex-wrap items-baseline gap-x-2">
                   <span className="text-sm font-medium text-white">{a.name}</span>
-                  <span className="text-xs text-gray-400">{STATUS_LABEL[a.status] ?? a.status}</span>
+                  <span className={`text-xs ${a.outcome === 'hired' ? 'text-emerald-300' : 'text-gray-400'}`}>{a.outcome === 'hired' ? 'Hired' : (STATUS_LABEL[a.status] ?? a.status)}</span>
                   <span className="text-xs text-gray-500">
                     · {a.client} · ad {a.sourceAdId}
                   </span>

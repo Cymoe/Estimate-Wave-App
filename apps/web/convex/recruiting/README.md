@@ -3,13 +3,17 @@
 Two agents for National Sales Registry, a recruiting service for door-to-door sales companies (roofing first). They live inside Estimate Wave's Convex deployment, kept apart by their own tables (`recruit*`) and their own Twilio number.
 
 - **Jordan** (`agent.ts`, `tools.ts`) texts each applicant within two minutes of applying. Jordan screens them one question at a time, scores them A, B or C, books interviews on the client's Cal.com calendar, and flags anything odd to Myles or a VA.
-- **The ad agent** (`adAgent.ts`, `ads.ts`) writes each client's recruiting ads every Monday. It learns which ads bring in A's, and a person approves every ad.
+- **The ad agent** (`adAgent.ts`, `ads.ts`) writes each client's recruiting ads every Monday. It learns which ads bring in hires and A's per dollar, and a person approves every ad.
+
+Two public pages, no login (`public.ts`):
+- **The apply page**, `/jobs/<slug>?ad=<source ad id>`: what every ad links to. A rep leaves a name and cell and checks the box agreeing to texts; the exact words and the time are saved with them (proof of opt-in for A2P 10DLC). Jordan texts within two minutes. Approving an ad in Ops gives its link.
+- **The hires link**, `/hires/<token>`: private to each client and in their weekly report. They mark who they hired; hires lead the ad numbers.
 
 Everything is managed in **Ops → Recruiting** (`/ops/recruiting`, staff only):
-- **Applicants:** each rep's thread, answers, score, and Showed / No-show.
+- **Applicants:** each rep's thread, answers, score, Showed / No-show, and Hired / Not hired.
 - **Try it:** text Jordan as a rep. The real brief and tools run, but nothing is sent, booked or counted.
 - **Ads:** approve or reject drafts. Approving gives the ad its source ad id. Also retire suggestions, spend, and the numbers.
-- **Clients:** add a client and their ad inputs.
+- **Clients:** add a client and their ad inputs; each shows its apply page and hires link.
 - **By ad:** which ads bring in A's.
 - **Setup:** what's connected, and the addresses to give out.
 
@@ -26,7 +30,7 @@ Everything is managed in **Ops → Recruiting** (`/ops/recruiting`, staff only):
 | `ANTHROPIC_API_KEY` | Jordan and the ad agent (already set). This is all **Try it** needs |
 | `RECRUIT_TWILIO_FROM` | Jordan's own number. Without it, no recruiting text goes out. The office line's `TWILIO_FROM` is never used |
 | `RECRUIT_TWILIO_WEBHOOK_URL` | Optional. The exact URL set in Twilio, if signatures fail behind a proxy |
-| `RECRUIT_APPLY_SECRET` | Ad forms send it with each applicant (`Authorization: Bearer …`) |
+| `RECRUIT_APPLY_SECRET` | Optional. Only for ad forms that post applicants straight to `/recruiting/apply` (`Authorization: Bearer …`); the apply page doesn't need it |
 | `RECRUIT_FLAG_PHONES` | Who `flag_human` texts: Myles and a VA, comma-separated |
 | `CAL_API_KEY`, `CAL_WEBHOOK_SECRET` | Booking through Cal.com, and its webhook (optional) |
 | `RECRUIT_TWILIO_ADVANCED_OPT_OUT` | `on` when Twilio's Advanced Opt-Out answers STOP/HELP for the number |
@@ -41,9 +45,8 @@ The Twilio account (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`) and Resend are sh
 1. Buy a second Twilio number and register it for **A2P 10DLC** under a recruiting campaign.
 2. Set that number's **A message comes in** webhook to `https://<deployment>.convex.site/recruiting/sms`. Ops → Recruiting → Setup shows the exact address.
 3. Turn on Advanced Opt-Out, then set `RECRUIT_TWILIO_FROM` and `RECRUIT_TWILIO_ADVANCED_OPT_OUT=on`.
-4. Have the ad forms POST each applicant to `/recruiting/apply` with:
-   - `{"name","phone","clientId","sourceAdId"}`
-   - `Authorization: Bearer <RECRUIT_APPLY_SECRET>`
+4. Point each ad at its apply link (Ops → Recruiting → Ads, once approved). The A2P campaign's opt-in proof is the apply page: give the registration a client's `/jobs/<slug>` address.
+5. Or, for a form that posts applicants itself: POST `/recruiting/apply` with `{"name","phone","clientId","sourceAdId"}` and `Authorization: Bearer <RECRUIT_APPLY_SECRET>`.
 
 ## Endpoints
 

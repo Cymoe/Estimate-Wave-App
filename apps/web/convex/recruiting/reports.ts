@@ -4,23 +4,26 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction, internalQuery, type QueryCtx } from "../_generated/server";
+import { siteUrl } from "../delivery";
 import { sendEmail } from "../lib/email";
 
 const WEEK = 7 * 86_400_000;
 
-type AdRow = { sourceAdId: string; applicants: number; A: number; B: number; C: number; booked: number; showed: number };
+type AdRow = { sourceAdId: string; applicants: number; A: number; B: number; C: number; booked: number; showed: number; hired: number };
 
-function byAdOf(applicants: Doc<"recruitApplicants">[]): AdRow[] {
+/** Per source ad id: how many applied, how they scored, booked, showed and got hired. Hires first, then A's. */
+export function byAdOf(applicants: Doc<"recruitApplicants">[]): AdRow[] {
   const rows = new Map<string, AdRow>();
   for (const a of applicants) {
-    const r = rows.get(a.sourceAdId) ?? { sourceAdId: a.sourceAdId, applicants: 0, A: 0, B: 0, C: 0, booked: 0, showed: 0 };
+    const r = rows.get(a.sourceAdId) ?? { sourceAdId: a.sourceAdId, applicants: 0, A: 0, B: 0, C: 0, booked: 0, showed: 0, hired: 0 };
     r.applicants++;
     if (a.score) r[a.score]++;
     if (a.bookedAt) r.booked++;
     if (a.status === "interviewed") r.showed++;
+    if (a.outcome === "hired") r.hired++;
     rows.set(a.sourceAdId, r);
   }
-  return [...rows.values()].sort((x, y) => y.A - x.A || y.applicants - x.applicants);
+  return [...rows.values()].sort((x, y) => y.hired - x.hired || y.A - x.A || y.applicants - x.applicants);
 }
 
 /** Real applicants only: "Try it" tests stay out of every number. */
@@ -55,10 +58,12 @@ export const week = internalQuery({
     const due = all.filter((a) => a.interviewAt && a.interviewAt >= since && Date.parse(a.interviewAt) <= end);
     const showed = due.filter((a) => a.status === "interviewed").length;
     const missed = due.filter((a) => a.status === "no_show").length;
+    // Hires marked this week, whenever the rep applied.
+    const hired = all.filter((a) => a.outcome === "hired" && a.outcomeAt && a.outcomeAt >= since).length;
     return {
       client: { name: client.name, role: client.role, city: client.city, reportEmail: client.reportEmail },
       since,
-      applicants: applicants.map((a) => ({ name: a.name, phone: a.phone, score: a.score ?? "-", status: a.status, sourceAdId: a.sourceAdId, interviewAt: a.interviewAt, notes: a.notes })),
+      applicants: applicants.map((a) => ({ name: a.name, phone: a.phone, score: a.score ?? "-", status: a.status, outcome: a.outcome, sourceAdId: a.sourceAdId, interviewAt: a.interviewAt, notes: a.notes })),
       counts: {
         applied: applicants.length,
         A: applicants.filter((a) => a.score === "A").length,
@@ -68,6 +73,7 @@ export const week = internalQuery({
         showed,
         missed,
         showRate: showed + missed > 0 ? showed / (showed + missed) : null,
+        hired,
       },
       byAd: byAdOf(applicants),
     };
@@ -77,12 +83,13 @@ export const week = internalQuery({
 export type Week = {
   client: { name: string; role: string; city: string; reportEmail?: string };
   since: string;
-  applicants: Array<{ name: string; phone: string; score: string; status: string; sourceAdId: string; interviewAt?: string; notes?: string }>;
-  counts: { applied: number; A: number; B: number; C: number; booked: number; showed: number; missed: number; showRate: number | null };
+  applicants: Array<{ name: string; phone: string; score: string; status: string; outcome?: string; sourceAdId: string; interviewAt?: string; notes?: string }>;
+  counts: { applied: number; A: number; B: number; C: number; booked: number; showed: number; missed: number; showRate: number | null; hired: number };
   byAd: AdRow[];
 };
 
-export function reportText(w: Week): { subject: string; text: string; html: string } {
+/** `hiresLink`: the client's private page to mark who they hired. */
+export function reportText(w: Week, hiresLink?: string): { subject: string; text: string; html: string } {
   const c = w.counts;
   const rate = c.showRate === null ? "no interviews due yet" : `${Math.round(c.showRate * 100)}% (${c.showed} of ${c.showed + c.missed})`;
   const subject = `${w.client.name}: ${c.applied} applicants this week, ${c.A} A's, ${c.booked} interviews booked`;
@@ -92,20 +99,23 @@ export function reportText(w: Week): { subject: string; text: string; html: stri
     `Applicants: ${c.applied}  (A ${c.A} · B ${c.B} · C ${c.C})`,
     `Interviews booked: ${c.booked}`,
     `Show rate: ${rate}`,
+    `Hired: ${c.hired}`,
+    ...(hiresLink ? ["", `Who did you hire? Mark them here, so we find you more like them: ${hiresLink}`] : []),
     "",
     "By ad:",
-    ...w.byAd.map((r) => `  ${r.sourceAdId}: ${r.applicants} applied, ${r.A} A, ${r.B} B, ${r.C} C, ${r.booked} booked`),
+    ...w.byAd.map((r) => `  ${r.sourceAdId}: ${r.applicants} applied, ${r.A} A, ${r.B} B, ${r.C} C, ${r.booked} booked${r.hired ? `, ${r.hired} hired` : ""}`),
     "",
     "Applicants:",
-    ...w.applicants.map((a) => `  ${a.score}  ${a.name}  ${a.status}${a.interviewAt ? `  interview ${a.interviewAt.slice(0, 16).replace("T", " ")} UTC` : ""}${a.notes ? `  ${a.notes.split("\n")[0]}` : ""}`),
+    ...w.applicants.map((a) => `  ${a.score}  ${a.name}  ${a.outcome === "hired" ? "hired" : a.status}${a.interviewAt ? `  interview ${a.interviewAt.slice(0, 16).replace("T", " ")} UTC` : ""}${a.notes ? `  ${a.notes.split("\n")[0]}` : ""}`),
   ];
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
   const row = (cells: Array<string | number>) => `<tr>${cells.map((x) => `<td style="padding:4px 10px;border-bottom:1px solid #ddd">${esc(String(x))}</td>`).join("")}</tr>`;
   const html = [
     `<h2 style="font-family:sans-serif">${esc(w.client.name)}: ${esc(w.client.role)}, ${esc(w.client.city)}</h2>`,
-    `<p style="font-family:sans-serif">Last 7 days: <b>${c.applied}</b> applicants (A ${c.A} · B ${c.B} · C ${c.C}), <b>${c.booked}</b> interviews booked, show rate <b>${esc(rate)}</b>.</p>`,
-    `<h3 style="font-family:sans-serif">By ad</h3><table style="font-family:sans-serif;border-collapse:collapse">${row(["Ad", "Applied", "A", "B", "C", "Booked"])}${w.byAd.map((r) => row([r.sourceAdId, r.applicants, r.A, r.B, r.C, r.booked])).join("")}</table>`,
-    `<h3 style="font-family:sans-serif">Applicants</h3><table style="font-family:sans-serif;border-collapse:collapse">${row(["Score", "Name", "Status", "Ad", "Notes"])}${w.applicants.map((a) => row([a.score, a.name, a.status, a.sourceAdId, a.notes?.split("\n")[0] ?? ""])).join("")}</table>`,
+    `<p style="font-family:sans-serif">Last 7 days: <b>${c.applied}</b> applicants (A ${c.A} · B ${c.B} · C ${c.C}), <b>${c.booked}</b> interviews booked, show rate <b>${esc(rate)}</b>, <b>${c.hired}</b> hired.</p>`,
+    ...(hiresLink ? [`<p style="font-family:sans-serif"><a href="${esc(hiresLink)}">Mark who you hired</a>, so we find you more like them.</p>`] : []),
+    `<h3 style="font-family:sans-serif">By ad</h3><table style="font-family:sans-serif;border-collapse:collapse">${row(["Ad", "Applied", "A", "B", "C", "Booked", "Hired"])}${w.byAd.map((r) => row([r.sourceAdId, r.applicants, r.A, r.B, r.C, r.booked, r.hired])).join("")}</table>`,
+    `<h3 style="font-family:sans-serif">Applicants</h3><table style="font-family:sans-serif;border-collapse:collapse">${row(["Score", "Name", "Status", "Ad", "Notes"])}${w.applicants.map((a) => row([a.score, a.name, a.outcome === "hired" ? "hired" : a.status, a.sourceAdId, a.notes?.split("\n")[0] ?? ""])).join("")}</table>`,
   ].join("\n");
   return { subject, text: lines.join("\n"), html };
 }
@@ -118,7 +128,8 @@ export const sendWeekly = internalAction({
     for (const c of clients) {
       if (!c.active || !c.reportEmail) continue;
       const w = await ctx.runQuery(internal.recruiting.reports.week, { clientId: c.clientId });
-      const r = await sendEmail([c.reportEmail], reportText(w));
+      const token = c.hiresToken ?? (await ctx.runMutation(internal.recruiting.clients.links, { clientId: c.clientId }));
+      const r = await sendEmail([c.reportEmail], reportText(w, `${siteUrl()}/hires/${token}`));
       if (r.status !== "sent") console.error(`Weekly report for ${c.name} not sent: ${r.error}`);
     }
   },

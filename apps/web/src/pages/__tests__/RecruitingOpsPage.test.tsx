@@ -16,6 +16,9 @@ const client = {
   adsEnabled: true,
   applicants: 3,
   A: 1,
+  hired: 1,
+  slug: 'acme',
+  hiresToken: 'tok123',
   createdAt: '2026-11-01T00:00:00.000Z',
 };
 
@@ -31,10 +34,11 @@ const tryItStart = jest.fn(async () => 'a1');
 const tryItSend = jest.fn(async () => ({}));
 const decideAd = jest.fn(async () => 'acme-m1');
 const saveClient = jest.fn(async () => 'c2');
+const markOutcome = jest.fn(async () => null);
 const ads = {
   clients: [
     {
-      client: { id: 'c1', name: 'Acme Roofing', adsEnabled: true },
+      client: { id: 'c1', name: 'Acme Roofing', adsEnabled: true, slug: 'acme' },
       writing: false,
       latest: { createdAt: '2026-11-09T14:00:00.000Z', learningNotes: 'Money proof brings the A’s.', problems: [], variations: 7, fresh: 18 },
       drafts: [
@@ -42,7 +46,7 @@ const ads = {
         { id: 'd2', kind: 'hook', angle: 'money proof', body: 'Make $250k this summer', warnings: ['Pay number not in the comp sheet or rep stories: $250,000'] },
       ],
       retire: [{ sourceAdId: 'acme-m9', reason: '12 applicants, no A’s' }],
-      performance: [{ sourceAdId: 'acme-m0', kind: 'meta_primary', angle: 'money proof', status: 'approved', applicants: 6, A: 3, aRate: 0.5, booked: 2, showRate: null, spendCents: 30000, aPer100: 1 }],
+      performance: [{ sourceAdId: 'acme-m0', kind: 'meta_primary', angle: 'money proof', status: 'approved', applicants: 6, A: 3, aRate: 0.5, booked: 2, showRate: null, spendCents: 30000, aPer100: 1, hired: 2, costPerHireCents: 15000 }],
     },
   ],
   approved: [],
@@ -61,6 +65,12 @@ jest.mock('../../lib/api', () => ({
     decideAd: (...a: unknown[]) => decideAd(...(a as [])),
     approveClean: async () => ['acme-m1'],
     saveClient: (...a: unknown[]) => saveClient(...(a as [])),
+    watchThread: (_id: string, cb: (v: unknown) => void) =>
+      watch('thread', {
+        applicant: { id: 'a1', name: 'Dana Cruz', phone: '+14325550100', clientId: 'c1', client: 'Acme Roofing', sourceAdId: 'acme-m1', score: 'A', status: 'interviewed', answers: {}, test: false, replying: false, createdAt: '2026-11-01T00:00:00.000Z', lastText: null },
+        messages: [],
+      })(cb),
+    markOutcome: (...a: unknown[]) => markOutcome(...(a as [])),
   },
 }));
 let role = 'staff';
@@ -103,6 +113,8 @@ describe('Ops → Recruiting', () => {
     const page = await render('/ops/recruiting?tab=clients');
     expect(page.querySelector('[data-testid="recruit-client"]')!.textContent).toContain('Acme Roofing');
     expect(page.textContent).toContain('Client id c1');
+    expect(page.textContent).toContain(`${window.location.origin}/jobs/acme`);
+    expect(page.textContent).toContain(`${window.location.origin}/hires/tok123`);
     await click(button('Add client'));
     await type(document.querySelector('input[aria-label="Company"]')!, 'Storm Pros');
     await type(document.querySelector('input[aria-label="Role"]')!, 'Roofing setter');
@@ -152,9 +164,17 @@ describe('Ops → Recruiting', () => {
     expect(button('Approve the 1 without warnings')).toBeTruthy();
     await click(drafts[1].querySelector('button')!);
     expect(decideAd).toHaveBeenCalledWith('d1', 'approve');
-    expect(page.textContent).toContain('Approved: its source ad id is acme-m1.');
+    expect(page.textContent).toContain(`Approved: its source ad id is acme-m1. Its apply link: ${window.location.origin}/jobs/acme?ad=acme-m1`);
     expect(page.textContent).toContain('acme-m9: 12 applicants');
     expect(page.querySelector('[data-testid="ad-performance"]')!.textContent).toContain('1.00');
+    expect(page.querySelector('[data-testid="ad-performance"]')!.textContent).toContain('$150');
+  });
+
+  it('after the interview, staff mark a rep hired', async () => {
+    await render('/ops/recruiting?applicant=a1');
+    const box = document.querySelector('[data-testid="outcome"]')!;
+    await click(Array.from(box.querySelectorAll('button')).find((b) => b.textContent === 'Hired')!);
+    expect(markOutcome).toHaveBeenCalledWith('a1', 'hired');
   });
 
   it('Setup says what is connected and where Twilio points', async () => {

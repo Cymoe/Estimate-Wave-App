@@ -8,9 +8,10 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, query, type MutationCtx } from "../_generated/server";
 import { fail, requireStaff } from "../lib/access";
 import { approvedOf, decideIn, retireIn, reviewOf, setSpendIn } from "./ads";
-import { applyIn, cancelJobs, inboundIn } from "./applicants";
-import { checkTimezone } from "./clients";
+import { applyIn, cancelJobs, inboundIn, setOutcome } from "./applicants";
+import { checkTimezone, ensureLinks, slugOf } from "./clients";
 import { markNoShow } from "./followups";
+import { byAdOf } from "./reports";
 
 const clientFields = {
   name: v.string(),
@@ -41,6 +42,7 @@ const applicantView = (a: Doc<"recruitApplicants">, clientName: string, last?: D
   notes: a.notes,
   answers: a.answers,
   interviewAt: a.interviewAt,
+  outcome: a.outcome,
   createdAt: a.createdAt,
   test: a.test === true,
   replying: a.replying === true,
@@ -55,7 +57,15 @@ export const clients = query({
     const out = [];
     for (const c of await ctx.db.query("recruitClients").collect()) {
       const applicants = (await ctx.db.query("recruitApplicants").withIndex("by_client", (q) => q.eq("clientId", c._id)).collect()).filter((a) => !a.test);
-      out.push({ ...c, id: c._id, applicants: applicants.length, A: applicants.filter((a) => a.score === "A").length });
+      out.push({
+        ...c,
+        id: c._id,
+        // Saved before slugs were handed out: the apply page still finds it by its name's slug.
+        slug: c.slug ?? slugOf(c.name),
+        applicants: applicants.length,
+        A: applicants.filter((a) => a.score === "A").length,
+        hired: applicants.filter((a) => a.outcome === "hired").length,
+      });
     }
     return out.sort((x, y) => x.name.localeCompare(y.name));
   },
@@ -69,11 +79,10 @@ export const saveClient = mutation({
     checkTimezone(fields.timezone);
     for (const k of ["name", "role", "city", "compSheet", "calEventLink"] as const) if (!fields[k].trim()) fail("INVALID", `${k} is required`);
     const clean = { ...fields, repStories: fields.repStories?.map((s) => s.trim()).filter(Boolean) };
-    if (clientId) {
-      await ctx.db.patch(clientId, clean);
-      return clientId;
-    }
-    return await ctx.db.insert("recruitClients", { ...clean, active: clean.active ?? true, createdAt: new Date().toISOString() });
+    const id = clientId ?? (await ctx.db.insert("recruitClients", { ...clean, active: clean.active ?? true, createdAt: new Date().toISOString() }));
+    if (clientId) await ctx.db.patch(clientId, clean);
+    await ensureLinks(ctx, id);
+    return id;
   },
 });
 
@@ -119,6 +128,17 @@ export const markAttendance = mutation({
     await requireStaff(ctx);
     if (showed) await ctx.db.patch(applicantId, { status: "interviewed" });
     else await markNoShow(ctx, applicantId);
+  },
+});
+
+/** After the interview: hired, not hired, or cleared. Feeds hires per dollar and the client's report. */
+export const markOutcome = mutation({
+  args: { applicantId: v.id("recruitApplicants"), outcome: v.union(v.literal("hired"), v.literal("not_hired"), v.null()) },
+  handler: async (ctx, { applicantId, outcome }) => {
+    await requireStaff(ctx);
+    const a = await ctx.db.get(applicantId);
+    if (!a) fail("NOT_FOUND", "No such applicant");
+    await setOutcome(ctx, a, outcome);
   },
 });
 
@@ -239,23 +259,13 @@ export const writeBatch = mutation({
   },
 });
 
-/** Per ad, across clients: applicants, A/B/C, booked, showed, over the last `days`. */
+/** Per ad, across clients: applicants, A/B/C, booked, showed, hired, over the last `days`. */
 export const byAd = query({
   args: { days: v.optional(v.number()) },
   handler: async (ctx, { days }) => {
     await requireStaff(ctx);
     const since = new Date(Date.now() - (days ?? 30) * 86_400_000).toISOString();
-    const rows = new Map<string, { sourceAdId: string; applicants: number; A: number; B: number; C: number; booked: number; showed: number }>();
-    for (const a of await ctx.db.query("recruitApplicants").collect()) {
-      if (a.test || a.createdAt < since) continue;
-      const r = rows.get(a.sourceAdId) ?? { sourceAdId: a.sourceAdId, applicants: 0, A: 0, B: 0, C: 0, booked: 0, showed: 0 };
-      r.applicants++;
-      if (a.score) r[a.score]++;
-      if (a.bookedAt) r.booked++;
-      if (a.status === "interviewed") r.showed++;
-      rows.set(a.sourceAdId, r);
-    }
-    return [...rows.values()].sort((x, y) => y.A - x.A || y.applicants - x.applicants);
+    return byAdOf((await ctx.db.query("recruitApplicants").collect()).filter((a) => a.createdAt >= since && !a.test));
   },
 });
 

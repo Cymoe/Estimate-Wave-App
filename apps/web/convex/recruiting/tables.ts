@@ -45,9 +45,15 @@ export const recruitTables = {
     // On: a new batch of ads is written every Monday.
     adsEnabled: v.optional(v.boolean()),
     // Short name in source ad ids ("acme" → "acme-m7"), and the last number handed out.
+    // The slug is also the apply page's address: /jobs/acme.
     slug: v.optional(v.string()),
     adSeq: v.optional(v.number()),
-  }).index("by_name", ["name"]),
+    // The private link in the weekly report where the client marks who they hired (/hires/<token>).
+    hiresToken: v.optional(v.string()),
+  })
+    .index("by_name", ["name"])
+    .index("by_slug", ["slug"])
+    .index("by_hires_token", ["hiresToken"]),
 
   recruitApplicants: defineTable({
     name: v.string(),
@@ -75,6 +81,12 @@ export const recruitTables = {
     // The scheduled reminder and no-show checks, so a rebooking can cancel them.
     jobIds: v.optional(v.array(v.id("_scheduled_functions"))),
     remindersSent: v.optional(v.array(v.string())),
+    // After the interview: the client hired them or didn't. Set from Ops or the client's hires link.
+    outcome: v.optional(v.union(v.literal("hired"), v.literal("not_hired"))),
+    outcomeAt: v.optional(v.string()),
+    // Applied on the apply page: when they agreed to texts, and the exact words they agreed to.
+    consentAt: v.optional(v.string()),
+    consentText: v.optional(v.string()),
     // A test applicant from Ops → Recruiting's "Try it": nothing is texted or booked for real, and they're left out of the numbers.
     test: v.optional(v.boolean()),
   })

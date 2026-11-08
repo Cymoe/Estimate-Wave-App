@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Copy, Plus } from 'lucide-react';
 import { recruitingAPI, type RecruitClient, type RecruitClientInput } from '../../lib/api';
 import { Dialog, Field, input, primary, secondary } from '../ops/ui';
-import { copy, errorText } from './labels';
+import { applyLink, copy, errorText, hiresLink } from './labels';
 
 const TIMEZONES = ['America/Chicago', 'America/New_York', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles'];
 
@@ -116,6 +116,23 @@ function ClientForm({ initial, onClose }: { initial: RecruitClient | null; onClo
   );
 }
 
+function LinkRow({ label, hint, url, copied, onCopy }: { label: string; hint: string; url: string; copied: boolean; onCopy: () => void }) {
+  return (
+    <div>
+      <p className="flex flex-wrap items-center gap-x-2">
+        <span className="text-gray-400">{label}</span>
+        <a href={url} target="_blank" rel="noreferrer" className="text-gray-200 break-all underline-offset-2 hover:underline">
+          {url}
+        </a>
+        <button type="button" className="text-[#7fb0e0] inline-flex items-center gap-1" onClick={onCopy}>
+          <Copy className="w-3 h-3" /> {copied ? 'Copied' : 'Copy'}
+        </button>
+      </p>
+      <p>{hint}</p>
+    </div>
+  );
+}
+
 export function ClientsTab({ clients, applyUrl }: { clients: RecruitClient[] | null; applyUrl?: string }) {
   const [editing, setEditing] = useState<RecruitClient | 'new' | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -142,21 +159,25 @@ export function ClientsTab({ clients, applyUrl }: { clients: RecruitClient[] | n
                 {c.role} · {c.city}
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                {c.applicants} applicants · {c.A} A&apos;s · {c.adsEnabled ? 'weekly ads on' : 'weekly ads off'}
+                {c.applicants} applicants · {c.A} A&apos;s · {c.hired} hired · {c.adsEnabled ? 'weekly ads on' : 'weekly ads off'}
               </p>
             </div>
             <button type="button" className={secondary} onClick={() => setEditing(c)}>
               Edit
             </button>
           </div>
-          <div className="mt-3 text-xs text-gray-500 space-y-1">
+          <div className="mt-3 text-xs text-gray-500 space-y-2">
+            <LinkRow label="Apply page" hint="Each approved ad gets its own copy of this link (Ads tab), so applicants trace back to the ad." url={applyLink(c.slug)} copied={copied === `apply-${c.id}`} onCopy={() => void copyIt(`apply-${c.id}`, applyLink(c.slug))} />
+            {c.hiresToken && (
+              <LinkRow label="Hires link" hint="Private to the client: they mark who they hired. It's in their weekly report too." url={hiresLink(c.hiresToken)} copied={copied === `hires-${c.id}`} onCopy={() => void copyIt(`hires-${c.id}`, hiresLink(c.hiresToken!))} />
+            )}
             <p>
               Client id <code className="text-gray-300">{c.id}</code>{' '}
               <button type="button" className="text-[#7fb0e0] inline-flex items-center gap-1" onClick={() => void copyIt(`id-${c.id}`, c.id)}>
                 <Copy className="w-3 h-3" /> {copied === `id-${c.id}` ? 'Copied' : 'Copy'}
-              </button>
+              </button>{' '}
+              for ad forms that post applicants straight to the apply address (Setup tab).
             </p>
-            <p>Ad forms post applicants to the apply address (Setup tab) with this client id and the ad&apos;s source ad id.</p>
           </div>
         </section>
       ))}

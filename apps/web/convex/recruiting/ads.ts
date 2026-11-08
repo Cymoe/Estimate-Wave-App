@@ -5,6 +5,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { ensureLinks, slugOf } from "./clients";
 
 const nowIso = () => new Date().toISOString();
 
@@ -33,6 +34,9 @@ export type AdPerformance = {
   showRate: number | null;
   spendCents?: number;
   aPer100: number | null;
+  hired: number;
+  // Spend over hires, when both are known.
+  costPerHireCents: number | null;
 };
 
 /** Every ad that has brought in applicants or been approved for this client, with its numbers. */
@@ -46,7 +50,7 @@ export async function performanceOf(ctx: QueryCtx, clientId: Id<"recruitClients"
   const row = (id: string) => {
     let r = rows.get(id);
     if (!r) {
-      r = { sourceAdId: id, applicants: 0, A: 0, B: 0, C: 0, aRate: null, booked: 0, showed: 0, missed: 0, showRate: null, aPer100: null };
+      r = { sourceAdId: id, applicants: 0, A: 0, B: 0, C: 0, aRate: null, booked: 0, showed: 0, missed: 0, showRate: null, aPer100: null, hired: 0, costPerHireCents: null };
       rows.set(id, r);
     }
     return r;
@@ -59,25 +63,31 @@ export async function performanceOf(ctx: QueryCtx, clientId: Id<"recruitClients"
     if (a.bookedAt) r.booked++;
     if (a.status === "interviewed") r.showed++;
     if (a.status === "no_show") r.missed++;
+    if (a.outcome === "hired") r.hired++;
   }
   for (const r of rows.values()) {
     r.aRate = r.applicants ? r.A / r.applicants : null;
     r.showRate = r.showed + r.missed ? r.showed / (r.showed + r.missed) : null;
     r.aPer100 = r.spendCents ? (r.A / r.spendCents) * 10_000 : null;
+    r.costPerHireCents = r.spendCents && r.hired ? Math.round(r.spendCents / r.hired) : null;
   }
-  // A's per dollar first, then A-grade rate, then volume.
-  return [...rows.values()].sort((x, y) => (y.aPer100 ?? -1) - (x.aPer100 ?? -1) || (y.aRate ?? -1) - (x.aRate ?? -1) || y.applicants - x.applicants);
+  // Hires per dollar first (they're what the client pays for), then A's per dollar, A-grade rate, volume.
+  const hiresPerDollar = (r: AdPerformance) => (r.spendCents && r.hired ? r.hired / r.spendCents : r.hired ? Number.MIN_VALUE : -1);
+  return [...rows.values()].sort(
+    (x, y) => hiresPerDollar(y) - hiresPerDollar(x) || (y.aPer100 ?? -1) - (x.aPer100 ?? -1) || (y.aRate ?? -1) - (x.aRate ?? -1) || y.applicants - x.applicants,
+  );
 }
 
 /** The same numbers rolled up by angle, so the agent can see which angles win. */
 export function byAngle(rows: AdPerformance[]) {
-  const angles = new Map<string, { angle: string; ads: number; applicants: number; A: number; spendCents: number; aRate: number | null; aPer100: number | null }>();
+  const angles = new Map<string, { angle: string; ads: number; applicants: number; A: number; hired: number; spendCents: number; aRate: number | null; aPer100: number | null }>();
   for (const r of rows) {
     const key = r.angle ?? "(written outside the agent)";
-    const a = angles.get(key) ?? { angle: key, ads: 0, applicants: 0, A: 0, spendCents: 0, aRate: null, aPer100: null };
+    const a = angles.get(key) ?? { angle: key, ads: 0, applicants: 0, A: 0, hired: 0, spendCents: 0, aRate: null, aPer100: null };
     a.ads++;
     a.applicants += r.applicants;
     a.A += r.A;
+    a.hired += r.hired;
     a.spendCents += r.spendCents ?? 0;
     angles.set(key, a);
   }
@@ -85,11 +95,11 @@ export function byAngle(rows: AdPerformance[]) {
     a.aRate = a.applicants ? a.A / a.applicants : null;
     a.aPer100 = a.spendCents ? (a.A / a.spendCents) * 10_000 : null;
   }
-  return [...angles.values()].sort((x, y) => (y.aPer100 ?? -1) - (x.aPer100 ?? -1) || (y.aRate ?? -1) - (x.aRate ?? -1));
+  return [...angles.values()].sort((x, y) => y.hired - x.hired || (y.aPer100 ?? -1) - (x.aPer100 ?? -1) || (y.aRate ?? -1) - (x.aRate ?? -1));
 }
 
 /** Ads that bring volume but no A's (the brief's retire rule). */
-export const volumeNoAs = (rows: AdPerformance[]) => rows.filter((r) => r.status === "approved" && r.applicants >= RETIRE_AFTER && r.A === 0);
+export const volumeNoAs = (rows: AdPerformance[]) => rows.filter((r) => r.status === "approved" && r.applicants >= RETIRE_AFTER && r.A === 0 && r.hired === 0);
 
 /** What the ad agent writes from: the client's inputs and every ad's numbers. */
 export const inputs = internalQuery({
@@ -142,14 +152,6 @@ export const failBatch = internalMutation({
   handler: async (ctx, { batchId, error }) => await ctx.db.patch(batchId, { status: "failed", error }),
 });
 
-const slugOf = (name: string) =>
-  name
-    .toLowerCase()
-    .replace(/[^a-z0-9 ]/g, "")
-    .split(/\s+/)
-    .filter((w) => w && !["the", "and", "of", "llc", "inc", "co"].includes(w))[0]
-    ?.slice(0, 10) || "client";
-
 /**
  * A person's call on a draft. Approving hands out the source ad id that goes
  * on the live ad and into /apply, so applicants trace back to it.
@@ -166,8 +168,8 @@ export async function decideIn(ctx: MutationCtx, { adId, decision }: { adId: Id<
       await ctx.db.patch(adId, { status: "rejected", decidedAt: nowIso() });
       return null;
     }
-    const client = (await ctx.db.get(ad.clientId))!;
-    const slug = client.slug ?? slugOf(client.name);
+    const client = await ensureLinks(ctx, ad.clientId);
+    const slug = client.slug!;
     // The next number whose id nobody has used: not an ad of ours, not an ad id applicants already came in on.
     let seq = client.adSeq ?? 0;
     let sourceAdId: string;
@@ -179,7 +181,7 @@ export async function decideIn(ctx: MutationCtx, { adId, decision }: { adId: Id<
       const takenByApplicants = await ctx.db.query("recruitApplicants").withIndex("by_source_ad", (q) => q.eq("sourceAdId", id)).first();
       if (!takenByAd && !takenByApplicants) break;
     }
-    await ctx.db.patch(client._id, { slug, adSeq: seq });
+    await ctx.db.patch(client._id, { adSeq: seq });
     await ctx.db.patch(adId, { status: "approved", sourceAdId, decidedAt: nowIso() });
     return sourceAdId;
 }
@@ -224,7 +226,7 @@ export async function reviewOf(ctx: QueryCtx) {
       for (const r of latest?.retire ?? []) if (live.has(r.sourceAdId)) retire.set(r.sourceAdId, r.reason);
       for (const r of volumeNoAs(performance)) if (!retire.has(r.sourceAdId)) retire.set(r.sourceAdId, `${r.applicants} applicants, no A's`);
       out.push({
-        client: { id: client._id, name: client.name, adsEnabled: client.adsEnabled === true },
+        client: { id: client._id, name: client.name, adsEnabled: client.adsEnabled === true, slug: client.slug ?? slugOf(client.name) },
         writing: batches.some((b) => b.status === "writing"),
         failed: batches[0]?.status === "failed" ? batches[0].error : undefined,
         latest: latest ? { createdAt: latest.createdAt, learningNotes: latest.learningNotes, problems: latest.problems ?? [], variations: latest.variations ?? 0, fresh: latest.fresh ?? 0 } : null,
@@ -242,7 +244,7 @@ export async function approvedOf(ctx: QueryCtx) {
     const rows = [];
     for (const c of clients) {
       for (const ad of await ctx.db.query("recruitAds").withIndex("by_client_status", (q) => q.eq("clientId", c._id).eq("status", "approved")).collect()) {
-        rows.push({ sourceAdId: ad.sourceAdId!, client: c.name, kind: ad.kind, angle: ad.angle, title: ad.title ?? "", body: ad.body, approvedAt: ad.decidedAt ?? "" });
+        rows.push({ sourceAdId: ad.sourceAdId!, client: c.name, slug: c.slug ?? slugOf(c.name), kind: ad.kind, angle: ad.angle, title: ad.title ?? "", body: ad.body, approvedAt: ad.decidedAt ?? "" });
       }
     }
     return rows.sort((x, y) => y.approvedAt.localeCompare(x.approvedAt));

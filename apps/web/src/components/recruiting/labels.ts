@@ -35,3 +35,10 @@ export async function copy(text: string) {
     return false;
   }
 }
+
+/** The apply page an ad links to; the ad's source id rides along so applicants trace back to it. */
+export const applyLink = (slug: string, sourceAdId?: string) => `${window.location.origin}/jobs/${slug}${sourceAdId ? `?ad=${encodeURIComponent(sourceAdId)}` : ''}`;
+/** A client's private page for marking who they hired (also in their weekly report). */
+export const hiresLink = (token: string) => `${window.location.origin}/hires/${token}`;
+/** "$1,250" from cents. */
+export const dollars = (cents: number) => `$${Math.round(cents / 100).toLocaleString('en-US')}`;

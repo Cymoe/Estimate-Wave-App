@@ -1471,8 +1471,9 @@ export type RecruitClientInput = {
   adsEnabled?: boolean;
   active?: boolean;
 };
-export type RecruitClient = RecruitClientInput & { id: string; active: boolean; applicants: number; A: number; createdAt: string };
+export type RecruitClient = RecruitClientInput & { id: string; active: boolean; applicants: number; A: number; hired: number; createdAt: string; slug: string; hiresToken?: string };
 export type RecruitScore = 'A' | 'B' | 'C';
+export type RecruitOutcome = 'hired' | 'not_hired';
 export type RecruitApplicant = {
   id: string;
   name: string;
@@ -1485,6 +1486,7 @@ export type RecruitApplicant = {
   notes?: string;
   answers: Record<string, string>;
   interviewAt?: string;
+  outcome?: RecruitOutcome;
   createdAt: string;
   test: boolean;
   replying: boolean;
@@ -1504,10 +1506,12 @@ export type RecruitAdPerformance = {
   showRate: number | null;
   spendCents?: number;
   aPer100: number | null;
+  hired: number;
+  costPerHireCents: number | null;
 };
 export type RecruitAds = {
   clients: Array<{
-    client: { id: string; name: string; adsEnabled: boolean };
+    client: { id: string; name: string; adsEnabled: boolean; slug: string };
     writing: boolean;
     failed?: string;
     latest: { createdAt: string; learningNotes?: string; problems: string[]; variations: number; fresh: number } | null;
@@ -1515,9 +1519,9 @@ export type RecruitAds = {
     retire: Array<{ sourceAdId: string; reason: string }>;
     performance: RecruitAdPerformance[];
   }>;
-  approved: Array<{ sourceAdId: string; client: string; kind: RecruitAdKind; angle: string; title: string; body: string; approvedAt: string }>;
+  approved: Array<{ sourceAdId: string; client: string; slug: string; kind: RecruitAdKind; angle: string; title: string; body: string; approvedAt: string }>;
 };
-export type RecruitByAd = Array<{ sourceAdId: string; applicants: number; A: number; B: number; C: number; booked: number; showed: number }>;
+export type RecruitByAd = Array<{ sourceAdId: string; applicants: number; A: number; B: number; C: number; booked: number; showed: number; hired: number }>;
 export type RecruitSetup = { applyUrl: string; smsWebhook: string; calWebhook: string; spendUrl: string; ready: { claude: boolean; number: boolean; applySecret: boolean; cal: boolean; flags: boolean } };
 
 export const recruitingAPI = {
@@ -1527,6 +1531,7 @@ export const recruitingAPI = {
     watchOn(api.recruiting.ops.applicants, defined(filter), onUpdate, onError),
   watchThread: (applicantId: string, onUpdate: (t: RecruitThread | null) => void, onError?: (e: APIError) => void) => watchOn(api.recruiting.ops.thread, { applicantId }, onUpdate, onError),
   markAttendance: (applicantId: string, showed: boolean) => run('mutation', api.recruiting.ops.markAttendance, { applicantId, showed }),
+  markOutcome: (applicantId: string, outcome: RecruitOutcome | null) => run('mutation', api.recruiting.ops.markOutcome, { applicantId, outcome }),
   watchTryIt: (onUpdate: (t: RecruitThread | null) => void, onError?: (e: APIError) => void) => watchOn(api.recruiting.ops.tryIt, {}, onUpdate, onError),
   tryItStart: (clientId: string, name?: string): Promise<string> => run('mutation', api.recruiting.ops.tryItStart, defined({ clientId, name })),
   tryItSend: (body: string): Promise<{ reply?: string }> => run('mutation', api.recruiting.ops.tryItSend, { body }),
@@ -1539,4 +1544,14 @@ export const recruitingAPI = {
   writeBatch: (clientId: string) => run('mutation', api.recruiting.ops.writeBatch, { clientId }),
   byAd: (days = 30): Promise<RecruitByAd> => run('query', api.recruiting.ops.byAd, { days }),
   setup: (): Promise<RecruitSetup> => run('query', api.recruiting.ops.setup, {}),
+};
+
+/** The public recruiting pages, no login: the apply page an ad links to, and a client's hires link. */
+export type RecruitJob = { company: string; role: string; city: string; perks: string | null; service: string; consent: string };
+export type RecruitHires = { company: string; role: string; reps: Array<{ id: string; name: string; score: RecruitScore | null; interviewAt: string | null; missed: boolean; outcome: RecruitOutcome | null }> };
+export const recruitingPublicAPI = {
+  job: (slug: string): Promise<RecruitJob | null> => run('query', api.recruiting.public.job, { slug }),
+  apply: (details: { slug: string; ad?: string; name: string; phone: string; agreed: boolean }): Promise<{ existing: boolean }> => run('mutation', api.recruiting.public.apply, defined(details)),
+  watchHires: (token: string, onUpdate: (h: RecruitHires | null) => void, onError?: (e: APIError) => void) => watchOn(api.recruiting.public.hires, { token }, onUpdate, onError),
+  setHire: (token: string, applicantId: string, outcome: RecruitOutcome | null) => run('mutation', api.recruiting.public.setHire, { token, applicantId, outcome }),
 };

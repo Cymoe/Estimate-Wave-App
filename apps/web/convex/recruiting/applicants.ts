@@ -11,9 +11,12 @@ import { e164, keywordOf, simulating } from "./lib/texts";
 
 const nowIso = () => new Date().toISOString();
 
+/** Who the texts are from, in the HELP reply and on the apply page. */
+export const serviceName = () => process.env.RECRUIT_SERVICE_NAME ?? "National Sales Registry";
+
 /** What Twilio's rules want the HELP reply to say: who we are and how to stop. */
 export const helpText = () =>
-  `${process.env.RECRUIT_SERVICE_NAME ?? "National Sales Registry"}: texts about the sales role you applied for. Msg & data rates may apply. Reply STOP to opt out.${process.env.RECRUIT_HELP_CONTACT ? ` Help: ${process.env.RECRUIT_HELP_CONTACT}` : ""}`;
+  `${serviceName()}: texts about the sales role you applied for. Msg & data rates may apply. Reply STOP to opt out.${process.env.RECRUIT_HELP_CONTACT ? ` Help: ${process.env.RECRUIT_HELP_CONTACT}` : ""}`;
 const STOP_TEXT = "You're unsubscribed and won't get more texts from us. Reply START to opt back in.";
 const START_TEXT = "You're opted back in. Reply STOP anytime to opt out.";
 /** Twilio's Advanced Opt-Out answers STOP, START and HELP itself; then we only keep the record. */
@@ -34,7 +37,8 @@ async function latestFor(ctx: QueryCtx, phone: string) {
  * applies to the same client again) and has the first text go out within two
  * minutes. Nothing is texted to a number that opted out.
  */
-export type ApplyArgs = { name: string; phone: string; clientId: string; sourceAdId: string; test?: boolean };
+/** `consentText`: the words they agreed to on the apply page, kept with the time as proof of opt-in. */
+export type ApplyArgs = { name: string; phone: string; clientId: string; sourceAdId: string; test?: boolean; consentText?: string };
 export type Applied = { ok: true; applicantId: Id<"recruitApplicants">; existing: boolean } | { ok: false; error: string };
 
 export const apply = internalMutation({
@@ -68,6 +72,7 @@ export async function applyIn(ctx: MutationCtx, args: ApplyArgs): Promise<Applie
       followUps: 0,
       createdAt: nowIso(),
       ...(args.test ? { test: true } : {}),
+      ...(args.consentText ? { consentAt: nowIso(), consentText: args.consentText } : {}),
     });
     // A human-feeling pause, under two minutes; a second in the simulator.
     const delay = simulating() || args.test ? 1000 : 30_000 + Math.floor(Math.random() * 90_000);
@@ -257,3 +262,14 @@ export const markNoShow = internalMutation({
     await noShowIn(ctx, a._id);
   },
 });
+
+/**
+ * After the interview: hired, not hired, or cleared (null). A hire means they
+ * showed, so a rep still marked booked or no-show becomes interviewed.
+ */
+export async function setOutcome(ctx: MutationCtx, a: Doc<"recruitApplicants">, outcome: "hired" | "not_hired" | null) {
+  if (outcome === null) return await ctx.db.patch(a._id, { outcome: undefined, outcomeAt: undefined });
+  const showed = outcome === "hired" && (a.status === "booked" || a.status === "no_show");
+  if (showed) await cancelJobs(ctx, a);
+  await ctx.db.patch(a._id, { outcome, outcomeAt: nowIso(), ...(showed ? { status: "interviewed" as const } : {}) });
+}

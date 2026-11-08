@@ -24,7 +24,7 @@ const SUMMARY: Record<Tab, string> = {
   try: 'Text Jordan as a rep to test the brief: nothing is sent or counted',
   ads: "The ad agent's drafts to approve, and how every ad is doing",
   clients: 'The companies National Sales Registry recruits for',
-  byad: "Which ads bring in A-grade reps, last 30 days",
+  byad: "Which ads bring in A-grade reps and hires, last 30 days",
   setup: "What's connected, and the addresses to give Twilio, Cal.com and the ad forms",
 };
 
@@ -42,7 +42,7 @@ function ByAdTab() {
       <table className="w-full text-sm" data-testid="by-ad">
         <thead className="text-xs text-gray-500 text-left">
           <tr>
-            {['Source ad id', 'Applicants', 'A', 'B', 'C', 'Booked', 'Showed'].map((h) => (
+            {['Source ad id', 'Applicants', 'A', 'B', 'C', 'Booked', 'Showed', 'Hired'].map((h) => (
               <th key={h} className="px-3 py-2 font-normal">
                 {h}
               </th>
@@ -59,6 +59,7 @@ function ByAdTab() {
               <td className="px-3 py-2">{r.C}</td>
               <td className="px-3 py-2">{r.booked}</td>
               <td className="px-3 py-2">{r.showed}</td>
+              <td className="px-3 py-2">{r.hired}</td>
             </tr>
           ))}
         </tbody>
@@ -72,7 +73,7 @@ function SetupTab({ setup }: { setup: RecruitSetup | null }) {
   const checks: Array<[boolean, string, string]> = [
     [setup.ready.claude, 'Claude', 'ANTHROPIC_API_KEY: Jordan and the ad agent. Try it works with only this.'],
     [setup.ready.number, "Jordan's own Twilio number", "RECRUIT_TWILIO_FROM: a new number, registered for A2P 10DLC (recruiting). Not the office line's."],
-    [setup.ready.applySecret, 'Apply secret', 'RECRUIT_APPLY_SECRET: the ad forms send it with each applicant.'],
+    [setup.ready.applySecret, 'Apply secret (optional)', "RECRUIT_APPLY_SECRET: only for ad forms that post applicants directly. The apply page doesn't need it."],
     [setup.ready.flags, 'Who gets flags', 'RECRUIT_FLAG_PHONES: Myles and a VA, comma-separated.'],
     [setup.ready.cal, 'Cal.com', 'CAL_API_KEY: so Jordan can book times itself. Without it Jordan sends the booking link.'],
   ];
@@ -93,7 +94,7 @@ function SetupTab({ setup }: { setup: RecruitSetup | null }) {
       <dl className="text-sm space-y-2">
         {[
           ['Twilio: "A message comes in" for Jordan\'s number', setup.smsWebhook],
-          ['Ad forms post applicants to', setup.applyUrl],
+          ['Ad forms that post applicants directly (most ads use the apply page instead: Clients tab)', setup.applyUrl],
           ['Cal.com webhook (optional)', setup.calWebhook],
           ["Media buyer's spend (optional)", setup.spendUrl],
         ].map(([label, url]) => (

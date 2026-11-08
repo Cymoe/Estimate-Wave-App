@@ -428,10 +428,10 @@ describe("on a clock", () => {
     await t.run(async (ctx) => ctx.db.insert("recruitApplicants", { name: "Elsewhere", phone: "+14325559997", clientId: other, sourceAdId: "fb-ad-7", answers: {}, score: "A", status: "texted", followUps: 0, createdAt: new Date().toISOString() }));
 
     const w = await t.query(internal.recruiting.reports.week, { clientId });
-    expect(w.counts).toEqual({ applied: 5, A: 2, B: 1, C: 1, booked: 3, showed: 1, missed: 1, showRate: 0.5 });
+    expect(w.counts).toEqual({ applied: 5, A: 2, B: 1, C: 1, booked: 3, showed: 1, missed: 1, showRate: 0.5, hired: 0 });
     expect(w.byAd).toEqual([
-      { sourceAdId: "fb-ad-7", applicants: 3, A: 2, B: 1, C: 0, booked: 3, showed: 1 },
-      { sourceAdId: "ig-3", applicants: 2, A: 0, B: 0, C: 1, booked: 0, showed: 0 },
+      { sourceAdId: "fb-ad-7", applicants: 3, A: 2, B: 1, C: 0, booked: 3, showed: 1, hired: 0 },
+      { sourceAdId: "ig-3", applicants: 2, A: 0, B: 0, C: 1, booked: 0, showed: 0, hired: 0 },
     ]);
     const { reportText } = await import("./reports");
     const email = reportText(w);
