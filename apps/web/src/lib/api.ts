@@ -1203,8 +1203,10 @@ export type OutreachMailing = { address?: string; city?: string; state?: string;
 /** New, sent to Leads, or skipped; the others are earlier statuses some rows still have. */
 export type OutreachRowStatus = 'new' | 'lead' | 'skip' | 'no_answer' | 'callback' | 'interested' | 'not_interested' | 'client' | 'sent' | 'done';
 export type OutreachPhoneType = 'mobile' | 'landline' | 'voip' | 'unknown';
-/** litigator: the subscriber is a known TCPA litigator; grade: the checker's A to F for reaching someone on the line. */
-export type OutreachPhone = { number: string; type: OutreachPhoneType; dnc?: boolean; verified?: boolean; score?: number; source: string; name?: string; litigator?: boolean; grade?: string };
+/** Whose line: the person's own, or the business's. */
+export type OutreachPhoneLine = 'personal' | 'work';
+/** line: personal or work, from the source and the carrier; litigator: the subscriber is a known TCPA litigator; grade: the checker's A to F for reaching someone on the line. */
+export type OutreachPhone = { number: string; type: OutreachPhoneType; line?: OutreachPhoneLine; dnc?: boolean; verified?: boolean; score?: number; source: string; name?: string; litigator?: boolean; grade?: string };
 /** nameMatch: whether the address belongs to the named person, by the contact check; grade: its A to F. */
 export type OutreachEmail = { email: string; source: string; verified?: boolean; nameMatch?: boolean; grade?: string };
 /** confirmedBy: other free sources that named the same person. */

@@ -5,6 +5,10 @@ export const mailingLine = (m: { address?: string; city?: string; state?: string
 /** "4325550100" → "(432) 555-0100". */
 export const phoneText = (n: string) => (n.length === 10 ? `(${n.slice(0, 3)}) ${n.slice(3, 6)}-${n.slice(6)}` : n);
 
+const PHONE_TYPE: Record<string, string> = { mobile: 'mobile', landline: 'landline', voip: 'VoIP', unknown: '' };
+/** "mobile · personal", "landline · work": the type, then whose line it is when known. */
+export const phoneKind = (p: { type: string; line?: string }) => [PHONE_TYPE[p.type] ?? p.type, p.line].filter(Boolean).join(' · ');
+
 /** "batchdata" → "BatchData", "tx-comptroller" → "Texas Comptroller". */
 export const sourceName = (s: string) =>
   ({
@@ -15,6 +19,7 @@ export const sourceName = (s: string) =>
     enformion: 'EnformionGO',
     hunter: 'Hunter',
     leadmagic: 'LeadMagic',
+    'leadmagic-mobile': 'the LeadMagic mobile finder',
     'tx-comptroller': 'Texas Comptroller',
     cobalt: 'State registry (Cobalt)',
     zerobounce: 'ZeroBounce',
@@ -64,6 +69,7 @@ export const askingText = (s?: string) =>
         enformion: 'Asking EnformionGO',
         hunter: 'Asking Hunter',
         leadmagic: 'Asking LeadMagic',
+        'leadmagic-mobile': 'Asking LeadMagic for the mobile',
         trestle: 'Checking the lines',
         twilio: 'Checking the lines',
         'tracerfy-dnc': 'Do Not Call scrub',
