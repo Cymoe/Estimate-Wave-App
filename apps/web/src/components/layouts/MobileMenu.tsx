@@ -223,7 +223,22 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
             }
           >
             <NavShapeMark shape="estimates" className="w-5 h-5 shrink-0" />
-            <span>Work</span>
+            <span>Estimates</span>
+          </NavLink>
+
+          <NavLink
+            to="/projects"
+            onClick={onClose}
+            className={({ isActive }) =>
+              `flex items-center gap-3 p-3 rounded-[4px] transition-colors ${
+                isActive
+                  ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border border-[#336699]/50 text-white'
+                  : 'hover:bg-[#333333] text-gray-300'
+              }${dim}`
+            }
+          >
+            <NavShapeMark shape="projects" className="w-5 h-5 shrink-0" />
+            <span>Projects</span>
           </NavLink>
 
           <NavLink
@@ -239,21 +254,6 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
           >
             <NavShapeMark shape="pricebook" className="w-5 h-5 shrink-0" />
             <span>Price Book</span>
-          </NavLink>
-
-          <NavLink
-            to="/services"
-            onClick={onClose}
-            className={({ isActive }) =>
-              `flex items-center gap-3 p-3 rounded-[4px] transition-colors ${
-                isActive
-                  ? 'bg-gradient-to-br from-[#336699]/20 to-[#336699]/5 border border-[#336699]/50 text-white'
-                  : 'hover:bg-[#333333] text-gray-300'
-              }${dim}`
-            }
-          >
-            <NavShapeMark shape="projects" className="w-5 h-5 shrink-0" />
-            <span>Services</span>
           </NavLink>
         </nav>
 
