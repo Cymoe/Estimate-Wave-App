@@ -378,10 +378,15 @@ describe('the Outreach page', () => {
   it('on a phone the header is one button and a More menu, and the list, search and a status filter share one line', async () => {
     narrowScreen = true;
     lists = [list];
-    contacts = twoContacts();
+    const two = twoContacts();
     // One with a number to call; one already in Leads, so not looked up again (their number is already there).
-    contacts.rows[0] = { ...contacts.rows[0], phones: [{ number: '4325550100', type: 'mobile', source: 'batchdata' }] } as never;
-    contacts.rows[1] = { ...contacts.rows[1], known: { kind: 'lead', id: 'l9', name: 'City Of Midland' } } as never;
+    contacts = {
+      ...two,
+      rows: [
+        { ...two.rows[0], phones: [{ number: '4325550100', type: 'mobile', source: 'batchdata' }] },
+        { ...two.rows[1], known: { kind: 'lead', id: 'l9', name: 'City Of Midland' } },
+      ],
+    };
     await render('/outreach/l1');
     const header = document.body.querySelector('[data-testid="actions"]')!;
     // One thing to do next (with Add funds while the balance is short); the rest waits under More.
@@ -411,9 +416,14 @@ describe('the Outreach page', () => {
   it("an owner the company already has says so, on the card and the sheet; a lead's See owner link opens that owner here", async () => {
     narrowScreen = true;
     lists = [list];
-    contacts = twoContacts();
-    contacts.rows[0] = { ...contacts.rows[0], known: { kind: 'client', id: 'c1', name: 'Acme Holdings' } } as never;
-    contacts.rows[1] = { ...contacts.rows[1], known: { kind: 'lead', id: 'l9', name: 'City Of Midland' } } as never;
+    const two = twoContacts();
+    contacts = {
+      ...two,
+      rows: [
+        { ...two.rows[0], known: { kind: 'client', id: 'c1', name: 'Acme Holdings' } },
+        { ...two.rows[1], known: { kind: 'lead', id: 'l9', name: 'City Of Midland' } },
+      ],
+    };
     await render('/outreach/l1?owner=r2');
     // Opened straight to that owner's sheet, and the address drops the ?owner.
     const sheet = document.body.querySelector('[role="dialog"]') ?? document.body;
