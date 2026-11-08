@@ -15,10 +15,6 @@ price confidently on site.
 | Sign-in | Convex Auth: Google and email/password |
 | `apps/blog` | Astro marketing blog (no database) |
 
-`apps/backend` (Express + MongoDB) is the previous backend. Nothing in the
-web app calls it any more; it is kept only until the Convex deployment is
-live, then it can be deleted.
-
 ## Data model (Convex)
 
 | Table | Holds |
