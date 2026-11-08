@@ -355,6 +355,27 @@ const rebuild = async (t: ReturnType<typeof setup>) => {
 };
 
 describe("the owners table", () => {
+  test("reads more than a page of permits, in the build and in the daily pass", async () => {
+    // The live rebuild once failed on page two with InvalidCursor: the window's start was recomputed per page, so the cursor belonged to another query. The window is now an argument fixed once per read; this harness doesn't bind cursors to queries, so it only checks the paging itself.
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    await addParcels(t, ROLL);
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 501; i++) {
+        await ctx.db.insert("permits", { source: "midland", permitNumber: `P-${i}`, name: "Residential - Building", workClass: "Alteration & Repair", county: "Midland", city: "Midland", appliedAt: new Date(NOW - (i % 170) * 24 * 3600_000).toISOString(), address: "12 MIDKIFF RD", addressKey: addressKey("12 MIDKIFF RD"), trades: ["roofing"], residential: true, importedAt: "2026-11-01T07:20:00.000Z", builder: `BUILDER ${i % 7} LLC` });
+      }
+    });
+    const result = await rebuild(t);
+    expect(result.error).toBeUndefined();
+    expect(result).toMatchObject({ fetched: 19, added: 11 + 7 });
+    await t.run(async (ctx) => {
+      const builders = (await ctx.db.query("owners").collect()).filter((o) => o.kind === "contractor");
+      expect(builders.map((b) => b.parcels).reduce((a, b) => a + b, 0)).toBe(501);
+    });
+    // The daily pass reads the same way.
+    expect((await t.action(internal.outreachRefresh.refresh, {})).error).toBeUndefined();
+  });
+
   test("is rebuilt from the roll, written once, and loses owners that left it", async () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     const t = setup();

@@ -112,6 +112,8 @@ export const LONG_OWNED_YEARS = 20;
 export const SIGNAL_YEARS = 2;
 /** Permits this recent make a company an active contractor. */
 export const CONTRACTOR_DAYS = 180;
+/** The start of the permit window, fixed once per read: a page cursor only continues the very same query, so every page must ask from the same instant. */
+export const permitsSince = (now = Date.now()) => new Date(now - CONTRACTOR_DAYS * 24 * 3600_000).toISOString();
 /** This many commercial buildings make a portfolio owner: the landlord with the storefronts, whose roofs and systems come up in turn. */
 export const PORTFOLIO_BUILDINGS = 2;
 /** How many signals an owner row keeps, newest first. */

@@ -8,7 +8,7 @@
 // rows a day instead of tens of thousands.
 import { internal } from "./_generated/api";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
-import { ContractorGrouper, OWNERS_SOURCE, REFRESH_SOURCE, newBuildId, type CondensedPermit, type Property } from "./lib/outreach";
+import { ContractorGrouper, OWNERS_SOURCE, REFRESH_SOURCE, newBuildId, permitsSince, type CondensedPermit, type Property } from "./lib/outreach";
 
 const UPSERT_BATCH = 200;
 /** Records imported this long before the last pass are read again: the pass and the sync overlap, and a repeat changes nothing. */
@@ -61,7 +61,8 @@ async function refreshRecords(ctx: ActionCtx): Promise<RefreshResult> {
     // The permit companies, remade whole: permits are few, and a company's row is nothing but its permits.
     const contractors = new ContractorGrouper();
     const designers = new ContractorGrouper("designer");
-    fetched += await readAll<CondensedPermit>((cursor) => ctx.runQuery(internal.outreach.permitPage, { cursor }), { addAll: (rows) => { contractors.addAll(rows); designers.addAll(rows); } });
+    const window = permitsSince();
+    fetched += await readAll<CondensedPermit>((cursor) => ctx.runQuery(internal.outreach.permitPage, { since: window, cursor }), { addAll: (rows) => { contractors.addAll(rows); designers.addAll(rows); } });
     const lookup = (addressKeys: string[]): Promise<Record<string, Property>> => ctx.runQuery(internal.outreach.parcelsAt, { addressKeys });
     const set: Record<string, number> = {};
     for (const grouper of [contractors, designers]) {

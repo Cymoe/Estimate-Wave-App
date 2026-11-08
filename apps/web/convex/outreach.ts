@@ -21,7 +21,6 @@ import { fail, isStaff, logActivity, nowIso, organizationIdsFor, requireMember, 
 import { mutationDef, queryDef } from "./lib/actor";
 import { callClaude } from "./lib/claude";
 import {
-  CONTRACTOR_DAYS,
   DEFAULT_ROWS,
   MAX_ROWS,
   OUTREACH_INPUT_SCHEMA,
@@ -116,11 +115,16 @@ export const signalPage = internalQuery({
   },
 });
 
-/** One page of the permits a company pulled within CONTRACTOR_DAYS, cut down to what grouping contractors needs. */
+/**
+ * One page of the permits a company pulled since `since` (permitsSince),
+ * cut down to what grouping contractors needs. The caller fixes `since`
+ * once for the whole read: a cursor only continues the very same query,
+ * and a window recomputed per page made the live rebuild fail with
+ * InvalidCursor on page two.
+ */
 export const permitPage = internalQuery({
-  args: { cursor: v.optional(v.string()) },
-  handler: async (ctx, { cursor }) => {
-    const since = new Date(Date.now() - CONTRACTOR_DAYS * 24 * 3600_000).toISOString();
+  args: { since: v.string(), cursor: v.optional(v.string()) },
+  handler: async (ctx, { since, cursor }) => {
     const page = await ctx.db
       .query("permits")
       .withIndex("by_county_and_applied", (q) => q.eq("county", COUNTY).gte("appliedAt", since))

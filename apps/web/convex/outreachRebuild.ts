@@ -6,7 +6,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
-import { AddressCounter, ContractorGrouper, OWNERS_SOURCE, OWNERS_VERSION, OwnerGrouper, newBuildId, type Condensed, type CondensedPermit, type GroupedRow, type Property } from "./lib/outreach";
+import { AddressCounter, ContractorGrouper, OWNERS_SOURCE, OWNERS_VERSION, OwnerGrouper, newBuildId, permitsSince, type Condensed, type CondensedPermit, type GroupedRow, type Property } from "./lib/outreach";
 import { MIDLAND_PARCELS } from "./lib/parcels";
 
 const UPSERT_BATCH = 200;
@@ -61,7 +61,8 @@ async function rebuildOwners(ctx: ActionCtx) {
     // The companies on recent permits, as rows of their own: the builders, and the architects and engineers who applied.
     const permits = new ContractorGrouper();
     const designers = new ContractorGrouper("designer");
-    await readAll<CondensedPermit>((cursor) => ctx.runQuery(internal.outreach.permitPage, { cursor }), { addAll: (rows) => { permits.addAll(rows); designers.addAll(rows); } });
+    const since = permitsSince();
+    await readAll<CondensedPermit>((cursor) => ctx.runQuery(internal.outreach.permitPage, { since, cursor }), { addAll: (rows) => { permits.addAll(rows); designers.addAll(rows); } });
     const contractors = [...(await permits.grouped(parcelsAt(ctx))), ...(await designers.grouped(parcelsAt(ctx)))];
     const buildId = newBuildId();
     let batch: GroupedRow[] = [];
