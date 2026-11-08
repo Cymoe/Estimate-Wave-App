@@ -44,7 +44,7 @@ const SHOWS: Array<{ value: Show; label: string; has: (r: OutreachContact) => bo
 ];
 /** Owner, company, person or either street, any case. */
 const matches = (r: OutreachContact, q: string) => {
-  const hay = [r.name, r.company, r.person?.name, r.mailing.address, r.property.address].filter(Boolean).join('\n').toLowerCase();
+  const hay = [r.name, r.company, r.person?.name, r.mailing.address, r.property?.address].filter(Boolean).join('\n').toLowerCase();
   return hay.includes(q);
 };
 

@@ -1180,7 +1180,7 @@ export const reportAPI = {
 
 // ---- Outreach ----
 
-export type OutreachWho = 'investor' | 'builder' | 'manager' | 'commercial' | 'portfolio' | 'multifamily' | 'wealthy' | 'recent_buyer' | 'absentee' | 'long_owned' | 'violation' | 'stalled' | 'contractor' | 'designer' | 'occupant' | 'custom';
+export type OutreachWho = 'investor' | 'builder' | 'manager' | 'commercial' | 'portfolio' | 'multifamily' | 'wealthy' | 'recent_buyer' | 'absentee' | 'long_owned' | 'violation' | 'stalled' | 'contractor' | 'designer' | 'occupant' | 'realtor' | 'custom';
 export type OutreachDefinition = {
   county: string;
   who: OutreachWho;
@@ -1225,7 +1225,8 @@ export type OutreachContact = {
   name: string;
   company?: string;
   mailing: OutreachMailing;
-  property: { parcelId: string; address: string; useCode: string; valueCents?: number };
+  /** Absent for a realtor, who owns nothing here. */
+  property?: { parcelId: string; address: string; useCode: string; valueCents?: number };
   properties: number;
   totalValueCents: number;
   why: string;

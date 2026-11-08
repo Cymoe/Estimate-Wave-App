@@ -39,6 +39,7 @@ const GROUPS: Array<{ heading: string; presets: Preset[] }> = [
     presets: [
       { label: 'Contractors pulling permits', definition: { county: COUNTY, who: 'contractor' }, explanation: 'Companies named on permits in the last 180 days, busiest first; the phone and email on their permits come along free.' },
       { label: 'Architects & engineers', definition: { county: COUNTY, who: 'designer' }, explanation: 'Design firms named on commercial permits in the last 180 days, busiest first; the phone and email on their permits come along free.' },
+      { label: 'Realtors', definition: { county: COUNTY, who: 'realtor' }, explanation: 'Every agent and broker holding an active Texas license in Midland County, with their brokerage; brokers who sponsor agents first, then the longest licensed. The state withholds phones and emails, so the lookups find them.' },
       { label: 'Homebuilders', definition: { county: COUNTY, who: 'builder' }, explanation: `Homebuilders holding spec homes and lots, most first. ${NO_PHONES}` },
     ],
   },
@@ -276,11 +277,17 @@ export const AskListSheet: React.FC<{
                       <span className="text-white truncate">{r.name}</span>
                       {/* The owner's holdings, not one building: what the list is sorted on. */}
                       <span className="text-gray-400 tabular-nums shrink-0">
-                        {r.properties > 1 ? `${r.properties.toLocaleString('en-US')} properties · ` : ''}
-                        {shortMoney(r.properties > 1 ? r.totalValueCents : r.property.valueCents ?? r.totalValueCents)}
+                        {r.property || r.properties > 0 ? (
+                          <>
+                            {r.properties > 1 ? `${r.properties.toLocaleString('en-US')} properties · ` : ''}
+                            {shortMoney(r.properties > 1 ? r.totalValueCents : r.property?.valueCents ?? r.totalValueCents)}
+                          </>
+                        ) : (
+                          <span className="truncate">{r.company ?? ''}</span>
+                        )}
                       </span>
                     </div>
-                    <div className="text-xs text-gray-500 truncate">{mailingLine(r.mailing)}</div>
+                    <div className="text-xs text-gray-500 truncate">{r.property || r.properties > 0 ? mailingLine(r.mailing) : r.why}</div>
                   </li>
                 ))}
                 {built.count > 5 && <li className="px-3 py-2 text-xs text-gray-500">and {built.count - 5} more</li>}

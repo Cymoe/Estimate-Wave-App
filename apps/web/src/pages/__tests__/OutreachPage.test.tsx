@@ -497,7 +497,7 @@ describe('the Outreach page', () => {
     expect(headings()).toEqual([
       ['Commercial and investors6 lists', 'false'],
       ['Homeowners6 lists', 'false'],
-      ['People who bring work3 lists', 'false'],
+      ['People who bring work4 lists', 'false'],
     ]);
     const chips = () => Array.from(dialog.querySelectorAll('[aria-label="Ready-made lists"] [role="group"]')).map((g) => [g.getAttribute('aria-label'), ...Array.from(g.querySelectorAll('button')).map((b) => b.textContent)]);
     expect(chips()).toEqual([]);
@@ -506,7 +506,7 @@ describe('the Outreach page', () => {
     await click('Homeowners');
     expect(chips()).toEqual([['Homeowners', 'Code violations', 'Stalled permits', 'Owned 20+ years', 'Recent buyers', 'Absentee owners', 'Homes over $1M']]);
     await click('People who bring work');
-    expect(chips()).toEqual([['People who bring work', 'Contractors pulling permits', 'Architects & engineers', 'Homebuilders']]);
+    expect(chips()).toEqual([['People who bring work', 'Contractors pulling permits', 'Architects & engineers', 'Realtors', 'Homebuilders']]);
     await click('People who bring work');
     expect(chips()).toEqual([]);
     const ask = dialog.querySelector('textarea') as HTMLTextAreaElement;
@@ -653,6 +653,51 @@ describe('the Outreach page', () => {
     await act(async () => (document.body.querySelector('button[aria-label="Export CSV"]') as HTMLButtonElement).click());
     expect(made).toEqual(['text/csv']);
     expect(clicks).toEqual(['shopping-center-owners.csv']);
+  });
+
+  it('a realtor has no property: the table shows the brokerage in its place, the sheet says so, the card and the CSV cope, and search finds the brokerage', async () => {
+    lists = [{ ...list, id: 'l2', title: 'Realtors', who: 'realtor', definition: { county: 'Midland', who: 'realtor' }, rowCount: 1 }];
+    const realtor = contact('r3', {
+      name: 'Elena Rivera',
+      company: 'Fathom Realty, LLC',
+      mailing: { city: 'Midland', state: 'TX' },
+      property: undefined,
+      properties: 0,
+      totalValueCents: 0,
+      why: 'Sales agent with Fathom Realty, LLC since Mar 2021, licensed since 2016; license through Sep 2027',
+      kinds: ['realtor'],
+      listIds: ['l2'],
+      person: { name: 'Elena Rivera', title: 'Sales agent, TREC license 700001', source: 'trec' },
+      enrichment: { phone: { status: 'locked' }, email: { status: 'locked' }, person: { status: 'found', source: 'trec' }, research: { status: 'locked' } },
+    });
+    contacts = { rows: [realtor], coverage: coverage(0, 0, 1, 1), ...money };
+    await render('/outreach/l2');
+    const row = document.body.querySelector('[data-testid="contact-row"]')!;
+    expect(row.textContent).toContain('Elena Rivera');
+    expect(row.textContent).toContain('Fathom Realty, LLC');
+    expect(row.textContent).toContain('Realtor');
+    await act(async () => (row as HTMLTableRowElement).click());
+    const sheet = document.body.querySelector('[role="dialog"][aria-label="Elena Rivera"]')!;
+    expect(sheet.textContent).toContain('Owns nothing on the roll; works with Fathom Realty, LLC.');
+    expect(sheet.querySelector('[data-testid="deeds"]')).toBeNull();
+    // No street to map: the state withholds it, so there is no Apple Maps link at all.
+    expect(sheet.textContent).toContain('The state withholds addresses for license holders');
+    expect(Array.from(sheet.querySelectorAll('a')).map((a) => a.getAttribute('href'))).toEqual([]);
+    // The CSV leaves the property columns blank rather than failing.
+    const made: string[] = [];
+    (URL as unknown as { createObjectURL: (b: Blob) => string }).createObjectURL = (b: Blob) => {
+      made.push(b.type);
+      return 'blob:x';
+    };
+    (URL as unknown as { revokeObjectURL: () => void }).revokeObjectURL = () => {};
+    jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    await act(async () => (document.body.querySelector('button[aria-label="Export CSV"]') as HTMLButtonElement).click());
+    expect(made).toEqual(['text/csv']);
+    // Search by the brokerage.
+    await act(async () => type(document.body.querySelector('input[type="search"]') as HTMLInputElement, 'fathom'));
+    expect(document.body.querySelectorAll('[data-testid="contact-row"]')).toHaveLength(1);
+    await act(async () => type(document.body.querySelector('input[type="search"]') as HTMLInputElement, 'midkiff'));
+    expect(document.body.querySelectorAll('[data-testid="contact-row"]')).toHaveLength(0);
   });
 
   it('one Look up runs the whole list, $1 a phone from the balance with an estimate; found rows show the person, the ranked phone with its flags, and the email', async () => {

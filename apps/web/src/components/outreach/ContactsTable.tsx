@@ -24,6 +24,7 @@ const KIND: Record<OutreachWho, string> = {
   contractor: 'Contractor',
   designer: 'Architect',
   occupant: 'Tenant',
+  realtor: 'Realtor',
   custom: 'Custom',
 };
 const SIGNAL_LABEL: Record<OutreachSignal['kind'], string> = { code_violation: 'Code violation', dilapidated: 'Dilapidated', demolition: 'Demolition order', stalled_permit: 'Stalled permit' };
@@ -360,11 +361,11 @@ export const ContactsTable: React.FC<{
                     {cityLine(r.mailing) ? <span className="block text-[11px] text-gray-500">{cityLine(r.mailing)}</span> : null}
                   </td>
                   <td className={`${td} max-w-[14rem] truncate text-gray-300`}>
-                    {r.property.address}
+                    {r.property ? r.property.address : <span className="text-gray-600">{r.company ?? '—'}</span>}
                     {r.properties > 1 ? <span className="text-gray-500"> +{r.properties - 1}</span> : null}
                   </td>
                   <td className={`${td} text-right tabular-nums text-gray-300`} title={r.properties > 1 ? `${r.properties} properties in all` : undefined}>
-                    {r.properties > 1 ? shortMoney(r.totalValueCents) : r.property.valueCents ? shortMoney(r.property.valueCents) : ''}
+                    {r.properties > 1 ? shortMoney(r.totalValueCents) : r.property?.valueCents ? shortMoney(r.property.valueCents) : ''}
                   </td>
                   <td className={`${td} text-gray-400`}>{kindsText(r.kinds)}</td>
                   <td className={`${td} text-amber-300`}>
@@ -431,7 +432,7 @@ export const ContactCards: React.FC<{
             <button type="button" onClick={() => onOpen(r)} className="block w-full text-left px-4 pt-3 pb-2">
               <span className={`block text-[15px] font-medium ${r.status === 'skip' ? 'text-gray-500 line-through' : 'text-white'}`}>{r.name}</span>
               <span className="block text-xs text-gray-500">
-                {r.properties > 1 ? `${r.properties} properties · ${shortMoney(r.totalValueCents)}` : r.property.valueCents ? shortMoney(r.property.valueCents) : r.property.address}
+                {r.properties > 1 ? `${r.properties} properties · ${shortMoney(r.totalValueCents)}` : r.property?.valueCents ? shortMoney(r.property.valueCents) : (r.property?.address ?? r.company ?? '')}
                 {r.related?.length ? ` · +${r.related.length} related` : ''}
                 {isSimulated(r) ? ' · Simulated' : ''}
               </span>
@@ -654,8 +655,9 @@ export const ContactSheet: React.FC<{
   };
   const set = (status: OutreachRowStatus) => run(() => onStatus(row, status, note), "Couldn't save that");
   const enrich = (fields: OutreachField[], asked?: string) => run(() => onEnrich(row, fields, asked), "Couldn't start that");
-  const property = fullAddress(row.property.address, 'Midland', 'TX');
-  const mailing = fullAddress(row.mailing.address, row.mailing.city, row.mailing.state, row.mailing.zip?.slice(0, 5));
+  const property = row.property ? fullAddress(row.property.address, 'Midland', 'TX') : undefined;
+  const mailing = row.mailing.address ? fullAddress(row.mailing.address, row.mailing.city, row.mailing.state, row.mailing.zip?.slice(0, 5)) : undefined;
+  const realtor = row.kinds.includes('realtor');
   const link = 'inline-flex items-center gap-2 text-[15px] text-[#7fb0e0] min-h-[44px]';
   const label = 'text-xs font-medium text-gray-400 uppercase tracking-wider';
   const primary = 'inline-flex items-center gap-2 px-4 min-h-[44px] text-sm font-medium bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50';
@@ -870,22 +872,29 @@ export const ContactSheet: React.FC<{
                 <MapPin className="w-4 h-4 shrink-0" /> {mailing}
               </AddressLink>
             ) : (
-              <p className="text-sm text-gray-500">No mailing address on the roll.</p>
+              <p className="text-sm text-gray-500">{realtor ? 'The state withholds addresses for license holders; reach them through the brokerage or the lookups.' : 'No mailing address on the roll.'}</p>
             )}
           </div>
-          <div className="py-3">
-            <div className={label}>Property</div>
-            <AddressLink address={property} className={link}>
-              <MapPin className="w-4 h-4 shrink-0" /> {row.property.address}
-            </AddressLink>
-            <div className="text-sm text-gray-400">
-              {row.property.valueCents ? `Worth ${shortMoney(row.property.valueCents)}` : ''}
-              {row.properties > 1 ? `${row.property.valueCents ? ' · ' : ''}${row.properties} properties, ${shortMoney(row.totalValueCents)} in all` : ''}
+          {row.property && property ? (
+            <div className="py-3">
+              <div className={label}>Property</div>
+              <AddressLink address={property} className={link}>
+                <MapPin className="w-4 h-4 shrink-0" /> {row.property.address}
+              </AddressLink>
+              <div className="text-sm text-gray-400">
+                {row.property.valueCents ? `Worth ${shortMoney(row.property.valueCents)}` : ''}
+                {row.properties > 1 ? `${row.property.valueCents ? ' · ' : ''}${row.properties} properties, ${shortMoney(row.totalValueCents)} in all` : ''}
+              </div>
+              <a href={deedSearchUrl(row.name)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm text-[#7fb0e0] hover:text-white min-h-[44px]" data-testid="deeds">
+                <FileText className="w-4 h-4 shrink-0" /> Deeds at the county clerk
+              </a>
             </div>
-            <a href={deedSearchUrl(row.name)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm text-[#7fb0e0] hover:text-white min-h-[44px]" data-testid="deeds">
-              <FileText className="w-4 h-4 shrink-0" /> Deeds at the county clerk
-            </a>
-          </div>
+          ) : (
+            <div className="py-3">
+              <div className={label}>Property</div>
+              <p className="text-sm text-gray-500">Owns nothing on the roll{row.company ? `; works with ${row.company}` : ''}.</p>
+            </div>
+          )}
         </div>
         <div className="space-y-2">
           <label className={`block ${label}`} htmlFor="outreach-note">
