@@ -17,10 +17,14 @@ const str = (x: unknown): string | undefined => (typeof x === "string" && x.trim
 
 /** The owner and property as the question's subject. */
 export function subject(input: TraceInput): string {
+  // A realtor: the person is the row, from their license, and the company is the brokerage they work with.
+  if (input.person?.source === "trec") {
+    return [`Licensed real estate ${/broker/i.test(input.person.title ?? "") ? "broker" : "agent"} in ${input.mailing.city ?? "Midland"}, ${input.mailing.state ?? "TX"}: ${input.person.name}${input.person.title ? ` (${input.person.title})` : ""}`, input.company ? `Brokerage: ${input.company}` : ""].filter(Boolean).join("\n");
+  }
   const lines = [
     input.company ? `Company owner on the roll: ${input.company}` : `Owner on the roll: ${input.name}`,
     input.person ? `Person behind the company (state records): ${input.person.name}${input.person.title ? `, ${input.person.title}` : ""}${input.person.address ? `, ${input.person.address}` : ""}` : "",
-    `Property: ${input.property.address}, ${input.property.city}, ${input.property.state}${input.property.zip ? ` ${input.property.zip}` : ""}`,
+    input.property ? `Property: ${input.property.address}, ${input.property.city}, ${input.property.state}${input.property.zip ? ` ${input.property.zip}` : ""}` : "",
     input.mailing.address ? `Mailing address: ${[input.mailing.address, input.mailing.city, input.mailing.state, input.mailing.zip?.slice(0, 5)].filter(Boolean).join(", ")}` : "",
   ];
   return lines.filter(Boolean).join("\n");

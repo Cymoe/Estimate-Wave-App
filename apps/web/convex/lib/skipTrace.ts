@@ -44,9 +44,13 @@ export type TraceInput = {
   /** Set when the owner is a company: vendors match people, so the person found first (or the name's words) is traced. */
   company?: string;
   person?: Person;
-  property: { address: string; city: string; state: string; zip?: string };
+  /** Absent when the owner owns nothing here (a realtor): sources that trace from an address skip. */
+  property?: { address: string; city: string; state: string; zip?: string };
   mailing: { address?: string; city?: string; state?: string; zip?: string };
 };
+
+/** Why an address-bound source can't take this owner, or nothing when it can. */
+export const needsProperty = (input: TraceInput): string | undefined => (input.property ? undefined : "No property address on file");
 
 export type Found = { phones?: Phone[]; emails?: Email[]; person?: Person };
 
@@ -213,6 +217,7 @@ export function batchData(key: string | undefined, fetchFn: Fetch = fetch, base 
     name: "batchdata",
     fields: ["phone", "email"],
     connected: Boolean(key),
+    applies: needsProperty,
     trace: async (input) => {
       const who = input.person ? splitName(input.person.name, "person") : splitName(input.company ?? input.name);
       const response = await fetchFn(`${base}/property/skip-trace`, {
@@ -221,7 +226,7 @@ export function batchData(key: string | undefined, fetchFn: Fetch = fetch, base 
         body: JSON.stringify({
           requests: [
             {
-              propertyAddress: { street: input.property.address, city: input.property.city, state: input.property.state, zip: input.property.zip },
+              propertyAddress: { street: input.property!.address, city: input.property!.city, state: input.property!.state, zip: input.property!.zip },
               ...(input.mailing.address && input.mailing.city && input.mailing.state
                 ? { mailingAddress: { street: input.mailing.address, city: input.mailing.city, state: input.mailing.state, zip: input.mailing.zip } }
                 : {}),
@@ -271,6 +276,7 @@ export function tracerfy(key: string | undefined, fetchFn: Fetch = fetch, base =
     name: "tracerfy",
     fields: ["phone", "email"],
     connected: Boolean(key),
+    applies: needsProperty,
     trace: async (input) => {
       const who = input.person ? splitName(input.person.name, "person") : input.company ? {} : splitName(input.name);
       const byName = Boolean(who.first && who.last);
@@ -278,10 +284,10 @@ export function tracerfy(key: string | undefined, fetchFn: Fetch = fetch, base =
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${key}` },
         body: JSON.stringify({
-          address: input.property.address,
-          city: input.property.city,
-          state: input.property.state,
-          ...(input.property.zip ? { zip: input.property.zip } : {}),
+          address: input.property!.address,
+          city: input.property!.city,
+          state: input.property!.state,
+          ...(input.property!.zip ? { zip: input.property!.zip } : {}),
           find_owner: !byName,
           ...(byName ? { first_name: who.first, last_name: who.last } : {}),
         }),
@@ -418,7 +424,7 @@ export function cobaltSos(key: string | undefined, fetchFn: Fetch = fetch, base 
     trace: async (input) => {
       if (!input.company) return {};
       const query = input.company.replace(/[<>]/g, "").trim();
-      const code = (input.mailing.state ?? input.property.state ?? "TX").toUpperCase().slice(0, 2);
+      const code = (input.mailing.state ?? input.property?.state ?? "TX").toUpperCase().slice(0, 2);
       const state = STATE_NAMES[code] ?? code.toLowerCase();
       const get = async (params: string) => {
         const response = await fetchFn(`${base}/v1/search?${params}`, { headers });
@@ -467,7 +473,8 @@ export function enformion(apName: string | undefined, apPassword: string | undef
     trace: async (input) => {
       const name = who(input);
       if (!name.first || !name.last) return {};
-      const at = input.mailing.address && input.mailing.city && input.mailing.state ? input.mailing : input.property;
+      // Where they are: the mailing address when whole, else the property, else the town alone.
+      const at = input.mailing.address && input.mailing.city && input.mailing.state ? input.mailing : (input.property ?? { address: undefined, city: input.mailing.city, state: input.mailing.state ?? "TX", zip: input.mailing.zip });
       const response = await fetchFn(`${base}/Contact/Enrich`, {
         method: "POST",
         headers: {
@@ -480,7 +487,7 @@ export function enformion(apName: string | undefined, apPassword: string | undef
         body: JSON.stringify({
           FirstName: titleCase(name.first),
           LastName: titleCase(name.last),
-          Address: { addressLine1: at.address, addressLine2: [at.city, at.state].filter(Boolean).join(", ") + (at.zip ? ` ${at.zip.slice(0, 5)}` : "") },
+          Address: { ...(at.address ? { addressLine1: at.address } : {}), addressLine2: [at.city, at.state].filter(Boolean).join(", ") + (at.zip ? ` ${at.zip.slice(0, 5)}` : "") },
         }),
       });
       if (!response.ok) throw new Error(`EnformionGO: HTTP ${response.status}`);

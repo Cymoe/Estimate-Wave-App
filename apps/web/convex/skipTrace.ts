@@ -52,7 +52,7 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
       applies: () => ("why" in home ? home.why : undefined),
       trace: async () => ("person" in home ? { person: home.person } : {}),
     });
-    const permits = await ctx.runQuery(internal.outreach.permitContactsAt, { address: input.property.address, company: input.company });
+    const permits = input.property ? await ctx.runQuery(internal.outreach.permitContactsAt, { address: input.property.address, company: input.company }) : { found: { phones: [], emails: [] } as Found, permits: 0, matched: 0 };
     const has: Found = permits.found;
     own.push({
       name: "permits",
