@@ -1,0 +1,85 @@
+name: Deploy the screener
+
+# Pushes screener/ (Jordan the SMS screener and the ad agent) to its own
+# Convex deployment, named by the SCREENER_CONVEX_DEPLOY_KEY secret. Never
+# touches Estimate Wave's deployment. Runs on every push to the screener
+# branch that changes screener/, or by hand from the Actions tab.
+
+on:
+  push:
+    branches: [screener]
+    paths:
+      - 'screener/**'
+      - '.github/workflows/screener-deploy.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: screener
+
+    steps:
+      - name: Check deploy key
+        working-directory: .
+        env:
+          RAW_KEY: ${{ secrets.SCREENER_CONVEX_DEPLOY_KEY }}
+        run: |
+          key="${RAW_KEY//%7C/|}"
+          key="${key//%7c/|}"
+          if [ -z "$key" ]; then
+            echo "::error::Add a SCREENER_CONVEX_DEPLOY_KEY repository secret: in the Convex dashboard, make a new project for the screener, then Settings > Deploy keys > Generate a production deploy key. Not Estimate Wave's key."
+            exit 1
+          fi
+          echo "::add-mask::$key"
+          echo "::add-mask::${key#*|}"
+          if ! [[ "$key" =~ ^(dev|prod|preview):([a-z0-9-]+)\|.+$ ]]; then
+            echo "::error::SCREENER_CONVEX_DEPLOY_KEY isn't a Convex deploy key (it looks like prod:<deployment>|<key>). Copy it again from the Convex dashboard."
+            exit 1
+          fi
+          name="${BASH_REMATCH[2]}"
+          echo "SCREENER_DEPLOY_KEY=$key" >> "$GITHUB_ENV"
+          echo "DEPLOYMENT=$name" >> "$GITHUB_ENV"
+          echo "Deploying the screener to ${name}"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: screener/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Run the tests
+        run: npm test
+
+      # scripts/convex.mjs uses SCREENER_DEPLOY_KEY and nothing else, so this can only reach the screener's deployment.
+      - name: Push functions and schema
+        run: npm run deploy -- --yes
+
+      - name: Make the review key and the apply secret, the first time
+        # Random, set once, kept after that. Read them in the Convex dashboard (Settings > Environment Variables), never in these logs.
+        run: |
+          for name in REVIEW_KEY APPLY_SECRET; do
+            if [ -z "$(node scripts/convex.mjs env get "$name" 2>/dev/null)" ]; then
+              node scripts/convex.mjs env set "$name" "$(openssl rand -hex 24)" > /dev/null
+              echo "Set $name"
+            else
+              echo "$name already set"
+            fi
+          done
+
+      - name: Where it lives
+        run: |
+          {
+            echo "### The screener is deployed to \`${DEPLOYMENT}\`"
+            echo ""
+            echo "- Ad review page: https://${DEPLOYMENT}.convex.site/review?key=REVIEW_KEY (put the REVIEW_KEY from the Convex dashboard's Environment Variables after key=)"
+            echo "- Applicants post to: https://${DEPLOYMENT}.convex.site/apply"
+            echo "- Twilio's webhook: https://${DEPLOYMENT}.convex.site/sms"
+          } >> "$GITHUB_STEP_SUMMARY"
