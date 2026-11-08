@@ -16,7 +16,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { outreachDefinition, outreachEmail, outreachField, outreachPerson, outreachPhone, outreachResearch, outreachTry, outreachRowStatus, ownerContact, ownerSignal } from "./schema";
+import { outreachDefinition, outreachEmail, outreachField, outreachPerson, outreachPhone, outreachResearch, outreachTry, outreachRowStatus, ownerContact, ownerSignal, realtorLicense } from "./schema";
 import { fail, isStaff, logActivity, nowIso, organizationIdsFor, requireMember, requireStaff } from "./lib/access";
 import { mutationDef, queryDef } from "./lib/actor";
 import { callClaude } from "./lib/claude";
@@ -38,6 +38,7 @@ import {
   designersOn,
   occupantsOn,
   type CondensedOccupant,
+  type CondensedRealtor,
   facetFor,
   facetsOf,
   familyKey,
@@ -184,6 +185,30 @@ export const occupantPage = internalQuery({
   },
 });
 
+/** One page of the county's active license holders (lib/realtors.ts), for the realtor rows. */
+export const realtorPage = internalQuery({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db
+      .query("realtors")
+      .withIndex("by_county_and_seen", (q) => q.eq("county", COUNTY))
+      .paginate({ cursor: cursor ?? null, numItems: 500 });
+    const rows: CondensedRealtor[] = page.page.map((r) => ({
+      licenseNumber: r.licenseNumber,
+      type: r.type,
+      name: r.name,
+      first: r.first,
+      last: r.last,
+      licensedAt: r.licensedAt,
+      expiresAt: r.expiresAt,
+      brokerage: r.brokerage,
+      brokerageSince: r.brokerageSince,
+      supervisor: r.supervisor,
+    }));
+    return { rows, continueCursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
 /** One page of the Comptroller's sales-tax outlets that started selling since `since` (lib/outlets.ts), as occupant sightings. */
 export const outletPage = internalQuery({
   args: { since: v.string(), cursor: v.optional(v.string()) },
@@ -208,7 +233,7 @@ export const outletPage = internalQuery({
 
 const ownerRow = v.object({
   key: v.string(),
-  kind: v.union(v.literal("owner"), v.literal("office"), v.literal("contractor"), v.literal("designer"), v.literal("occupant")),
+  kind: v.union(v.literal("owner"), v.literal("office"), v.literal("contractor"), v.literal("designer"), v.literal("occupant"), v.literal("realtor")),
   name: v.string(),
   company: v.boolean(),
   mailing: v.object({ address: v.optional(v.string()), city: v.optional(v.string()), state: v.optional(v.string()), zip: v.optional(v.string()) }),
@@ -237,16 +262,18 @@ const ownerRow = v.object({
   sources: v.optional(v.array(v.union(v.literal("occupancy"), v.literal("permit"), v.literal("outlet")))),
   businessKind: v.optional(v.string()),
   taxpayer: v.optional(v.string()),
+  license: v.optional(realtorLicense),
+  brokerage: v.optional(v.string()),
 });
 const facetRow = v.object({ facet: v.string(), sort: v.number() });
 
 const OWNER_KEYS = [
   "kind", "name", "company", "parcels", "residential", "multifamily", "commercial", "totalValueCents", "maxValueCents",
-  "homeValueCents", "rentalValueCents", "commercialValueCents", "multifamilyValueCents", "ownerOccupied", "outOfState", "latestDeed", "homeDeed", "owners", "latestAt", "businessKind", "taxpayer",
+  "homeValueCents", "rentalValueCents", "commercialValueCents", "multifamilyValueCents", "ownerOccupied", "outOfState", "latestDeed", "homeDeed", "owners", "latestAt", "businessKind", "taxpayer", "brokerage",
 ] as const;
 const sameOwner = (a: Doc<"owners">, b: OwnerRow) =>
   OWNER_KEYS.every((k) => (a[k] ?? undefined) === (b[k] ?? undefined)) &&
-  JSON.stringify([a.mailing, a.useCodes, a.streets, a.tops, a.signals, a.trades, a.contacts, a.sources]) === JSON.stringify([b.mailing, b.useCodes, b.streets, b.tops, b.signals, b.trades, b.contacts, b.sources]);
+  JSON.stringify([a.mailing, a.useCodes, a.streets, a.tops, a.signals, a.trades, a.contacts, a.sources, a.license]) === JSON.stringify([b.mailing, b.useCodes, b.streets, b.tops, b.signals, b.trades, b.contacts, b.sources, b.license]);
 
 /**
  * An owner's facet rows made to match `facets`, stamped with this build.
@@ -401,13 +428,20 @@ export type ListRow = {
   name: string;
   company?: string;
   mailing: Doc<"owners">["mailing"];
-  property: Doc<"outreachContacts">["property"];
+  /** Absent for a realtor, who owns nothing here. */
+  property?: Doc<"outreachContacts">["property"];
   properties: number;
   totalValueCents: number;
   why: string;
-  /** A contractor, designer or occupant: the person, phone and email its permits already name, free. */
-  found?: { person?: Doc<"outreachContacts">["person"]; phones: NonNullable<Doc<"outreachContacts">["phones"]>; emails: NonNullable<Doc<"outreachContacts">["emails"]> };
+  /** A contractor, designer or occupant: the person, phone and email its permits already name, free. A realtor: the person, from their license. */
+  found?: { person?: Doc<"outreachContacts">["person"]; phones: NonNullable<Doc<"outreachContacts">["phones"]>; emails: NonNullable<Doc<"outreachContacts">["emails"]>; source?: string };
 };
+
+/** What a realtor's license already says: the person is the row, from "trec", free. */
+export function foundOnLicense(o: Pick<OwnerRow, "name" | "license">): ListRow["found"] | undefined {
+  if (!o.license) return undefined;
+  return { person: { name: o.name, title: `${o.license.type === "broker" ? "Broker" : "Sales agent"}, TREC license ${o.license.number}`, source: "trec" }, phones: [], emails: [], source: "trec" };
+}
 
 /** What a contractor's permits already say about who to call: the first named person, every phone and email, all from "permits". */
 export function foundOnPermits(contacts: OwnerContact[] | undefined): ListRow["found"] | undefined {
@@ -422,18 +456,21 @@ export function foundOnPermits(contacts: OwnerContact[] | undefined): ListRow["f
 }
 
 const rowOf = (o: Doc<"owners">, facet: Facet): ListRow | null => {
-  const p = propertyFor(o as unknown as OwnerRow, facet) ?? o.tops.all;
-  if (!p) return null;
+  const row = o as unknown as OwnerRow;
+  const p = propertyFor(row, facet) ?? o.tops.all;
+  // A realtor owns nothing here: the row stands without a property. Anyone else without one is nothing to list.
+  if (!p && o.kind !== "realtor") return null;
   return {
     key: o.key,
     name: o.name,
-    company: o.company ? o.name : undefined,
+    company: o.kind === "realtor" ? o.brokerage : o.company ? o.name : undefined,
     mailing: o.mailing,
-    property: { parcelId: p.parcelId as Id<"parcels">, address: title(p.address), useCode: p.useCode, valueCents: p.valueCents },
+    ...(p ? { property: { parcelId: p.parcelId as Id<"parcels">, address: title(p.address), useCode: p.useCode, valueCents: p.valueCents } } : {}),
     properties: o.parcels,
     totalValueCents: o.totalValueCents,
-    why: why(o as unknown as OwnerRow, facet),
+    why: why(row, facet),
     ...(o.kind === "contractor" || o.kind === "designer" || o.kind === "occupant" ? { found: foundOnPermits(o.contacts) } : {}),
+    ...(o.kind === "realtor" ? { found: foundOnLicense(row) } : {}),
   };
 };
 
@@ -619,16 +656,17 @@ async function addRows(ctx: MutationCtx, organizationId: Id<"organizations">, li
       });
     } else {
       const { found, ...rest } = row;
-      // A contractor's permits already name who to call: those cells start found, from "permits", at no charge.
+      // A contractor's permits (or a realtor's license) already name who to call: those cells start found, from that record, at no charge.
+      const from = found?.source ?? "permits";
       const given = found
         ? {
             person: found.person,
             phones: found.phones.length ? found.phones : undefined,
             emails: found.emails.length ? found.emails : undefined,
             enrichment: {
-              person: found.person ? { status: "found" as const, at: now, source: "permits", tries: [{ source: "permits", outcome: "hit" as const, note: found.person.name }] } : LOCKED,
-              phone: found.phones.length ? { status: "found" as const, at: now, source: "permits", chargedCents: 0, tries: [{ source: "permits", outcome: "hit" as const, note: `${found.phones.length} ${found.phones.length === 1 ? "number" : "numbers"}` }] } : LOCKED,
-              email: found.emails.length ? { status: "found" as const, at: now, source: "permits", tries: [{ source: "permits", outcome: "hit" as const, note: `${found.emails.length} ${found.emails.length === 1 ? "email" : "emails"}` }] } : LOCKED,
+              person: found.person ? { status: "found" as const, at: now, source: from, tries: [{ source: from, outcome: "hit" as const, note: found.person.name }] } : LOCKED,
+              phone: found.phones.length ? { status: "found" as const, at: now, source: from, chargedCents: 0, tries: [{ source: from, outcome: "hit" as const, note: `${found.phones.length} ${found.phones.length === 1 ? "number" : "numbers"}` }] } : LOCKED,
+              email: found.emails.length ? { status: "found" as const, at: now, source: from, tries: [{ source: from, outcome: "hit" as const, note: `${found.emails.length} ${found.emails.length === 1 ? "email" : "emails"}` }] } : LOCKED,
               research: LOCKED,
             },
           }
@@ -690,6 +728,13 @@ export function cellsOf(c: Doc<"outreachContacts">): NonNullable<Doc<"outreachCo
 }
 /** The cell for a field, with research's absence on older rows read as locked. */
 const cellFor = (cells: NonNullable<Doc<"outreachContacts">["enrichment"]>, field: Doc<"dataSourceStats">["field"]): Cell => cells[field] ?? LOCKED;
+
+/**
+ * Whether the contact is itself a company (an LLC on the roll, a contractor),
+ * so its sister entities are kin and the person behind it is to be found.
+ * A realtor's `company` is the brokerage they work with, not what they are.
+ */
+const isCompany = (c: { company?: string; kinds: Doc<"outreachContacts">["kinds"] }) => c.company !== undefined && !c.kinds.includes("realtor");
 
 const contactView = (c: Doc<"outreachContacts">, signals: SignalBadge[], related: Array<{ id: Id<"outreachContacts">; name: string }> = []) => ({
   id: c._id,
@@ -805,16 +850,16 @@ export const contacts = query({
     // Sister entities across all the company's contacts, not only this list.
     const families = new Map<string, Array<{ id: Id<"outreachContacts">; name: string }>>();
     for (const c of all) {
-      const f = c.company ? familyKey(c.name) : undefined;
+      const f = isCompany(c) ? familyKey(c.name) : undefined;
       if (f) families.set(f, [...(families.get(f) ?? []), { id: c._id, name: c.name }]);
     }
     const relatedTo = (c: Doc<"outreachContacts">) => {
-      const f = c.company ? familyKey(c.name) : undefined;
+      const f = isCompany(c) ? familyKey(c.name) : undefined;
       return f ? (families.get(f) ?? []).filter((r) => r.id !== c._id) : [];
     };
     const since = await freshSince(ctx);
     // Every owner's signals read at once, not one after another.
-    const signals = await Promise.all(picked.map((c) => signalsFor(ctx, c.property.parcelId, since)));
+    const signals = await Promise.all(picked.map((c) => (c.property ? signalsFor(ctx, c.property.parcelId, since) : Promise.resolve([] as SignalBadge[]))));
     // A lead deleted in Leads leaves its owner New here, ready to send again.
     const gone = new Set(
       (await Promise.all(picked.filter((c) => c.leadId).map(async (c) => ((await ctx.db.get(c.leadId!)) ? null : c._id)))).filter((id) => id !== null),
@@ -950,10 +995,10 @@ async function sendOne(
       const name = person?.name ?? contact.name;
       const leadId = await ctx.db.insert("leads", {
         name,
-        ...(contact.company ? { company: contact.name } : {}),
+        ...(isCompany(contact) ? { company: contact.name } : contact.company ? { company: contact.company } : {}),
         ...(phone ? { phone: phone.number } : {}),
         ...(email ? { email: email.email } : {}),
-        ...(contact.property.address ? { address: contact.property.address, city: "Midland" } : {}),
+        ...(contact.property?.address ? { address: contact.property.address, city: "Midland" } : {}),
         source: "Outreach",
         status: "new",
         notes,
@@ -1203,7 +1248,7 @@ export const enrich = mutation({
       const c = await ctx.db.get(id);
       if (!c || c.organizationId !== organizationId) fail("NOT_FOUND", "No such contact");
       const cells = cellsOf(c);
-      const open = FIELDS.filter((f) => fields.includes(f) && (f !== "person" || c.company) && cellFor(cells, f).status !== "found" && cellFor(cells, f).status !== "running");
+      const open = FIELDS.filter((f) => fields.includes(f) && (f !== "person" || isCompany(c)) && cellFor(cells, f).status !== "found" && cellFor(cells, f).status !== "running");
       if (open.length) jobs.push({ contact: c, fields: open });
     }
     const phones = jobs.filter((j) => j.fields.includes("phone")).length;
@@ -1222,7 +1267,7 @@ export const enrich = mutation({
     // Sister entities wait their turn: the first finds the person and the phone, the rest find the same person free and copy it.
     const place = new Map<string, number>();
     for (const { contact, fields: open } of jobs) {
-      const family = contact.company && open.some((f) => f === "phone" || f === "email") ? familyKey(contact.name) : undefined;
+      const family = isCompany(contact) && open.some((f) => f === "phone" || f === "email") ? familyKey(contact.name) : undefined;
       const turn = family ? (place.get(family) ?? 0) : 0;
       if (family) place.set(family, turn + 1);
       const delay = turn * FAMILY_STAGGER_MS;
@@ -1294,7 +1339,7 @@ export const contactForTrace = internalQuery({
       name: c.name,
       company: c.company,
       person: c.person,
-      property: { address: c.property.address, city: title(COUNTY), state: "TX", zip: undefined as string | undefined },
+      ...(c.property ? { property: { address: c.property.address, city: title(COUNTY), state: "TX", zip: undefined as string | undefined } } : {}),
       mailing: c.mailing,
       fields,
       question: c.researchQuestion ?? DEFAULT_RESEARCH_QUESTION,
@@ -1343,7 +1388,7 @@ export const sharedLookup = internalQuery({
       if (c._id === contactId || !c.person || !(c.phones?.length) || cellFor(cellsOf(c), "phone").status !== "found") continue;
       if (!samePerson(person, c.person)) continue;
       const tied =
-        (family !== undefined && c.company !== undefined && familyKey(c.name) === family) ||
+        (family !== undefined && isCompany(c) && familyKey(c.name) === family) ||
         (mail !== undefined && mailKey(c.mailing) === mail) ||
         (home !== undefined && c.person.address?.trim().toUpperCase() === home);
       if (tied) return { from: c.name, phones: c.phones, emails: c.emails };
@@ -1719,9 +1764,9 @@ export const seedSampleList = internalMutation({
         if (filled >= Math.min(SAMPLE_MAX, Math.max(1, count))) break;
         if (!untouched(c)) continue;
         const at = new Date(Date.now() - filled * 7 * 60_000).toISOString();
-        const family = c.company ? familyKey(c.name) : undefined;
+        const family = isCompany(c) ? familyKey(c.name) : undefined;
         const sister = family ? families.get(family) : undefined;
-        const s = sampleFor(filled, { name: c.name, company: Boolean(c.company), properties: c.properties }, at);
+        const s = sampleFor(filled, { name: c.name, company: isCompany(c), properties: c.properties }, at);
         const cell = (x: (typeof s.cells)["phone"]): Cell => (x.status === "locked" ? LOCKED : { ...x, requestedBy: user?._id });
         if (sister?.person && sister.phones?.length) {
           // The same manager as a sister entity: the phone and email copied free, as the shared lookup does.

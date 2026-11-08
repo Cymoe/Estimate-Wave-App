@@ -6,7 +6,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
-import { AddressCounter, ContractorGrouper, OWNERS_SOURCE, OWNERS_VERSION, OccupantGrouper, OwnerGrouper, newBuildId, occupantsSince, permitsSince, type Condensed, type CondensedOccupant, type CondensedPermit, type GroupedRow, type Property } from "./lib/outreach";
+import { AddressCounter, ContractorGrouper, OWNERS_SOURCE, OWNERS_VERSION, OccupantGrouper, OwnerGrouper, RealtorGrouper, newBuildId, occupantsSince, permitsSince, type Condensed, type CondensedOccupant, type CondensedPermit, type CondensedRealtor, type GroupedRow, type Property } from "./lib/outreach";
 import { MIDLAND_PARCELS } from "./lib/parcels";
 
 const UPSERT_BATCH = 200;
@@ -70,6 +70,9 @@ async function rebuildOwners(ctx: ActionCtx) {
     await readAll<CondensedOccupant>((cursor) => ctx.runQuery(internal.outreach.occupantPage, { since: arrivals, cursor }), occupants);
     await readAll<CondensedOccupant>((cursor) => ctx.runQuery(internal.outreach.outletPage, { since: arrivals, cursor }), occupants);
     const tenants = await occupants.grouped(parcelsAt(ctx));
+    // The agents and brokers licensed here, with their brokerages: rows with no property at all.
+    const realtors = new RealtorGrouper();
+    await readAll<CondensedRealtor>((cursor) => ctx.runQuery(internal.outreach.realtorPage, { cursor }), realtors);
     const buildId = newBuildId();
     let batch: GroupedRow[] = [];
     let inFlight: Array<Promise<void>> = [];
@@ -91,6 +94,7 @@ async function rebuildOwners(ctx: ActionCtx) {
       yield* grouper.rows(Date.now());
       yield* contractors;
       yield* tenants;
+      yield* realtors.grouped(Date.now());
     };
     for (const row of all()) {
       for (const f of row.facets) facetCounts[f.facet] = (facetCounts[f.facet] ?? 0) + 1;

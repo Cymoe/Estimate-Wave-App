@@ -1529,6 +1529,75 @@ describe("a company's lists", () => {
     });
   });
 
+  test("the realtors list: licensed agents and brokers with no property, the person free from the license, and lookups that work from the name and brokerage", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    await addParcels(t, ROLL);
+    await t.run(async (ctx) => {
+      const stamp = "2026-11-08T06:55:00.000Z";
+      const holder = (licenseNumber: string, type: "agent" | "broker" | "brokerage", name: string, over: Record<string, unknown> = {}) =>
+        ctx.db.insert("realtors", { county: "Midland", licenseNumber, type, name, expiresAt: "2027-09-30", supervisor: false, importedAt: stamp, seenAt: stamp, ...over });
+      await holder("700001", "agent", "ELENA MARIE RIVERA", { first: "ELENA", last: "RIVERA", licensedAt: "2016-03-14", brokerage: { licenseNumber: "601430-BB", name: "FATHOM REALTY, LLC", type: "brokerage" }, brokerageSince: "2021-03-01" });
+      await holder("700002", "agent", "SAM LEE", { first: "SAM", last: "LEE", licensedAt: "2024-01-10", brokerage: { licenseNumber: "516832-B", name: "TERRY LANCE MARKER", type: "broker" } });
+      await holder("516832-B", "broker", "TERRY LANCE MARKER", { first: "TERRY", last: "MARKER", licensedAt: "1989-08-07", supervisor: true });
+      await holder("601430-BB", "brokerage", "FATHOM REALTY, LLC");
+    });
+    // Eleven owners and offices from the roll, and three people on the realtor list; the brokerage company is nobody's row.
+    expect(await rebuild(t)).toEqual({ fetched: 19, added: 14, updated: 0 });
+    await t.run(async (ctx) => {
+      const realtors = (await ctx.db.query("owners").collect()).filter((o) => o.kind === "realtor");
+      expect(realtors.map((o) => [o.name, o.brokerage, o.license?.sponsors]).sort()).toEqual([["Elena Rivera", "Fathom Realty, LLC", undefined], ["Sam Lee", "Terry Lance Marker", undefined], ["Terry Marker", undefined, 1]]);
+      expect((await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "midland-owners")).unique())!.facetCounts).toMatchObject({ realtor: 3 });
+    });
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    // Sponsoring brokers first, then the longest licensed.
+    const preview = await co.as.query(api.outreach.preview, { organizationId: org, definition: definitionFromArgs({ who: "realtor" }) });
+    expect(preview.rows.map((r) => [r.name, r.company, r.property, r.properties, r.why])).toEqual([
+      ["Terry Marker", undefined, undefined, 0, "Broker, licensed since 1989; sponsors 1 agent; license through Sep 2027"],
+      ["Elena Rivera", "Fathom Realty, LLC", undefined, 0, "Sales agent with Fathom Realty, LLC since Mar 2021, licensed since 2016; license through Sep 2027"],
+      ["Sam Lee", "Terry Lance Marker", undefined, 0, "Sales agent with Terry Lance Marker, licensed since 2024; license through Sep 2027"],
+    ]);
+    const { listId } = await co.as.mutation(api.outreach.create, { organizationId: org, definition: definitionFromArgs({ who: "realtor" }) });
+    const read = async () => await co.as.query(api.outreach.contacts, { organizationId: org, listId });
+    const elena = (await read()).rows.find((r) => r.name === "Elena Rivera")!;
+    // The person is the row, from the license, free; nothing to show for a property or its signals.
+    expect(elena).toMatchObject({ company: "Fathom Realty, LLC", properties: 0, mailing: { city: "Midland", state: "TX" }, signals: [], kinds: ["realtor"] });
+    expect(elena.property).toBeUndefined();
+    expect(elena.person).toEqual({ name: "Elena Rivera", title: "Sales agent, TREC license 700001", source: "trec" });
+    expect(elena.enrichment).toMatchObject({ person: { status: "found", source: "trec" }, phone: { status: "locked" }, email: { status: "locked" } });
+    // A lookup: the sources that trace from a property address stand aside; Hunter finds her work email from her name and the brokerage.
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 500 }));
+    for (const k of ["TX_COMPTROLLER_API_KEY", "COBALT_API_KEY", "ENFORMION_AP_NAME", "LEADMAGIC_API_KEY", "ZEROBOUNCE_API_KEY", "TRESTLE_API_KEY", "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"]) vi.stubEnv(k, "");
+    vi.stubEnv("BATCHDATA_API_KEY", "bd");
+    vi.stubEnv("TRACERFY_API_KEY", "tf");
+    vi.stubEnv("HUNTER_API_KEY", "hk");
+    const urls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      urls.push(url);
+      if (url.includes("hunter.io")) return new Response(JSON.stringify({ data: { email: "elena@fathomrealty.com", verification: { status: "valid" } } }), { status: 200 });
+      throw new Error(`unexpected call: ${url}`);
+    }));
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [elena.id], fields: ["phone", "email"] });
+    await t.finishAllScheduledFunctions(() => {});
+    const after = (await read()).rows.find((r) => r.id === elena.id)!;
+    expect(after.enrichment.phone.tries).toEqual([
+      { source: "permits", outcome: "skipped", note: "No permits at the property" },
+      { source: "batchdata", outcome: "skipped", note: "No property address on file" },
+      { source: "tracerfy", outcome: "skipped", note: "No property address on file" },
+      { source: "enformion", outcome: "skipped", note: "Not connected" },
+    ]);
+    expect(after.enrichment.phone).toMatchObject({ status: "none" });
+    expect(after.emails).toEqual([{ email: "elena@fathomrealty.com", source: "hunter", verified: true }]);
+    expect(after.enrichment.email).toMatchObject({ status: "found", source: "hunter" });
+    expect(urls.filter((u) => u.includes("hunter.io"))).toEqual(["https://api.hunter.io/v2/email-finder?company=Fathom%20Realty%2C%20LLC&first_name=Elena&last_name=Rivera&api_key=hk"]);
+    // Sent to Leads: her name, the brokerage as the company, the email, no address.
+    const leadId = await co.as.mutation(api.outreach.sendToLeads, { organizationId: org, contactId: elena.id });
+    const lead = (await t.run(async (ctx) => ctx.db.get(leadId)))!;
+    expect([lead.name, lead.company, lead.email, lead.address]).toEqual(["Elena Rivera", "Fathom Realty, LLC", "elena@fathomrealty.com", undefined]);
+    expect(guessDefinition("realtors who can send me work")?.definition).toEqual({ county: "Midland", who: "realtor" });
+  });
+
   test("research reads the web about an owner through Claude: an answer with sources for 25¢, nothing found free", async () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     const t = setup();
