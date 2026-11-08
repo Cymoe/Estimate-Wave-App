@@ -1,0 +1,28 @@
+{
+  "name": "screener",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "SMS screening agent for a recruiting service: Convex + Claude + Twilio + Cal.com",
+  "scripts": {
+    "brief": "node scripts/build-brief.mjs",
+    "dev": "npm run brief && node scripts/convex.mjs dev",
+    "deploy": "npm run brief && node scripts/convex.mjs deploy",
+    "test": "npm run brief && vitest run",
+    "typecheck": "npm run brief && tsc --noEmit -p convex",
+    "simulate": "tsx scripts/simulate.ts",
+    "convex": "node scripts/convex.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.6.0",
+    "convex": "^1.46.0"
+  },
+  "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
+    "@types/node": "^22.15.32",
+    "convex-test": "^0.0.60",
+    "tsx": "^4.19.2",
+    "typescript": "^5.5.3",
+    "vitest": "^3.2.7"
+  }
+}
