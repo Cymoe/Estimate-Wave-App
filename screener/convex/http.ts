@@ -2,12 +2,17 @@
 //   POST /apply   a new applicant from an ad form (needs APPLY_SECRET)
 //   POST /sms     Twilio's "a message comes in" webhook
 //   POST /cal     Cal.com's webhook (optional): reschedules, cancels, no-shows
+//   GET/POST /review         the ad review page (needs REVIEW_KEY)
+//   GET /ads/approved.csv    approved ads for the video team and media buyer (REVIEW_KEY)
+//   POST /ads/spend          the media buyer's spend on an ad (APPLY_SECRET)
 //   POST /simulate/inbound, GET /simulate/thread   only with SMS_MODE=simulate
 
 import { httpRouter } from "convex/server";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { calSignatureOk } from "./lib/calcom";
+import { reviewPage } from "./lib/reviewPage";
 import { e164, simulating, twilioSignatureOk } from "./lib/sms";
 
 const http = httpRouter();
@@ -80,6 +85,87 @@ http.route({
       attendeeNoShow: p.attendees?.some((a) => a.noShow === true),
     });
     return json(result);
+  }),
+});
+
+/** The review key, from ?key= or the form; compared in constant time. */
+function reviewKeyOk(given: string | null): boolean {
+  const key = process.env.REVIEW_KEY;
+  if (!key || !given || given.length !== key.length) return false;
+  let diff = 0;
+  for (let i = 0; i < key.length; i++) diff |= key.charCodeAt(i) ^ given.charCodeAt(i);
+  return diff === 0;
+}
+const html = (body: string, status = 200) => new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+
+http.route({
+  path: "/review",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    if (!process.env.REVIEW_KEY) return html("<p>Set REVIEW_KEY on the deployment to use the review page.</p>", 503);
+    const url = new URL(request.url);
+    const key = url.searchParams.get("key");
+    if (!reviewKeyOk(key)) return html("<p>Wrong or missing key.</p>", 401);
+    return html(reviewPage(await ctx.runQuery(internal.ads.review, {}), key!, url.searchParams.get("notice") ?? undefined));
+  }),
+});
+
+http.route({
+  path: "/review",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const form = new URLSearchParams(await request.text());
+    const key = form.get("key");
+    if (!reviewKeyOk(key)) return html("<p>Wrong or missing key.</p>", 401);
+    const action = form.get("action");
+    let notice = "";
+    if (action === "approve" || action === "reject") {
+      const id = await ctx.runMutation(internal.ads.decide, { adId: form.get("adId") as Id<"ads">, decision: action });
+      notice = action === "approve" ? (id ? `Approved: its source ad id is ${id}.` : "Already decided.") : "Rejected.";
+    } else if (action === "approve_clean") {
+      const all = await ctx.runQuery(internal.ads.review, {});
+      const ids: string[] = [];
+      for (const d of all.find((c) => c.client.id === form.get("clientId"))?.drafts ?? []) {
+        if (d.warnings.length) continue;
+        const id = await ctx.runMutation(internal.ads.decide, { adId: d.id, decision: "approve" });
+        if (id) ids.push(id);
+      }
+      notice = `Approved ${ids.length}: ${ids.join(", ")}.`;
+    } else if (action === "retire") {
+      await ctx.runMutation(internal.ads.retire, { sourceAdId: form.get("sourceAdId") ?? "" });
+      notice = `Retired ${form.get("sourceAdId")}. Tell the media buyer to turn it off.`;
+    } else if (action === "write") {
+      await ctx.scheduler.runAfter(0, internal.adAgent.writeBatch, { clientId: form.get("clientId") as Id<"clients"> });
+      notice = "Writing a new batch: it takes a minute or two. Refresh to see it.";
+    }
+    const back = `/review?key=${encodeURIComponent(key!)}&notice=${encodeURIComponent(notice)}`;
+    return new Response(null, { status: 303, headers: { location: back } });
+  }),
+});
+
+http.route({
+  path: "/ads/approved.csv",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    if (!reviewKeyOk(new URL(request.url).searchParams.get("key"))) return new Response("Wrong or missing key", { status: 401 });
+    const rows = await ctx.runQuery(internal.ads.approved, {});
+    const cell = (s: string) => `"${s.replace(/"/g, '""')}"`;
+    const csv = [["source_ad_id", "client", "kind", "angle", "title", "body", "approved_at"], ...rows.map((r) => [r.sourceAdId, r.client, r.kind, r.angle, r.title, r.body, r.approvedAt])].map((r) => r.map(cell).join(",")).join("\n");
+    return new Response(csv, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="approved-ads.csv"' } });
+  }),
+});
+
+http.route({
+  path: "/ads/spend",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const secret = process.env.APPLY_SECRET;
+    if (!secret) return json({ error: "APPLY_SECRET isn't set on the deployment" }, 503);
+    if (!secretOk(request, secret)) return json({ error: "unauthorized" }, 401);
+    const body = (await request.json().catch(() => null)) as { sourceAdId?: string; dollars?: number } | null;
+    if (!body?.sourceAdId || typeof body.dollars !== "number" || body.dollars < 0) return json({ error: "send {sourceAdId, dollars} with the total spent so far" }, 422);
+    const result = await ctx.runMutation(internal.ads.setSpend, { sourceAdId: body.sourceAdId, dollars: body.dollars });
+    return json(result, result.ok ? 200 : 404);
   }),
 });
 

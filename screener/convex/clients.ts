@@ -14,6 +14,12 @@ const fields = {
   calEventTypeId: v.optional(v.number()),
   timezone: v.string(),
   reportEmail: v.optional(v.string()),
+  // For the ad agent (ad-brief.md, "Inputs per client").
+  territory: v.optional(v.string()),
+  repStories: v.optional(v.array(v.string())),
+  perks: v.optional(v.string()),
+  wants: v.optional(v.string()),
+  adsEnabled: v.optional(v.boolean()),
 };
 
 function checkTimezone(timezone: string) {
@@ -45,6 +51,11 @@ export const update = internalMutation({
     timezone: v.optional(v.string()),
     reportEmail: v.optional(v.string()),
     active: v.optional(v.boolean()),
+    territory: v.optional(v.string()),
+    repStories: v.optional(v.array(v.string())),
+    perks: v.optional(v.string()),
+    wants: v.optional(v.string()),
+    adsEnabled: v.optional(v.boolean()),
   },
   handler: async (ctx, { clientId, ...patch }) => {
     if (patch.timezone) checkTimezone(patch.timezone);
@@ -56,5 +67,5 @@ export const update = internalMutation({
 export const list = internalQuery({
   args: {},
   handler: async (ctx) =>
-    (await ctx.db.query("clients").collect()).map((c) => ({ clientId: c._id, name: c.name, role: c.role, city: c.city, timezone: c.timezone, active: c.active, reportEmail: c.reportEmail })),
+    (await ctx.db.query("clients").collect()).map((c) => ({ clientId: c._id, name: c.name, role: c.role, city: c.city, timezone: c.timezone, active: c.active, reportEmail: c.reportEmail, adsEnabled: c.adsEnabled === true })),
 });

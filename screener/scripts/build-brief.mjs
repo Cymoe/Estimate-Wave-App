@@ -1,19 +1,23 @@
-// Bundles screener-brief.md into convex/lib/brief.ts. Convex functions can't
-// read files at runtime, so the brief ships inside the code; the .md file
-// stays the one place to edit it. Runs before dev, deploy, test and typecheck.
+// Bundles the briefs into the code: screener-brief.md → convex/lib/brief.ts
+// (BRIEF, Jordan's system prompt) and ad-brief.md → convex/lib/adBrief.ts
+// (AD_BRIEF, the ad agent's). Convex functions can't read files at runtime,
+// so the briefs ship inside the code; the .md files stay the one place to
+// edit them. Runs before dev, deploy, test and typecheck.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const source = join(root, "screener-brief.md");
-if (!existsSync(source)) {
-  console.error("screener-brief.md is missing: put the brief at screener/screener-brief.md");
-  process.exit(1);
+for (const [file, out, name] of [
+  ["screener-brief.md", "convex/lib/brief.ts", "BRIEF"],
+  ["ad-brief.md", "convex/lib/adBrief.ts", "AD_BRIEF"],
+]) {
+  const source = join(root, file);
+  if (!existsSync(source)) {
+    console.error(`${file} is missing: put it at screener/${file}`);
+    process.exit(1);
+  }
+  const text = readFileSync(source, "utf8");
+  writeFileSync(join(root, out), `// Generated from ${file} by \`npm run brief\`. Edit the .md file, not this one.\nexport const ${name} = ${JSON.stringify(text)};\n`);
+  console.log(`${file} bundled (${text.length} characters).`);
 }
-const brief = readFileSync(source, "utf8");
-writeFileSync(
-  join(root, "convex/lib/brief.ts"),
-  `// Generated from screener-brief.md by \`npm run brief\`. Edit the .md file, not this one.\nexport const BRIEF = ${JSON.stringify(brief)};\n`,
-);
-console.log(`Brief bundled (${brief.length} characters).`);

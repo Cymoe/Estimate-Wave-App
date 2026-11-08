@@ -8,16 +8,21 @@
  * @module
  */
 
+import type * as adAgent from "../adAgent.js";
+import type * as ads from "../ads.js";
 import type * as agent from "../agent.js";
 import type * as applicants from "../applicants.js";
 import type * as clients from "../clients.js";
 import type * as crons from "../crons.js";
 import type * as followups from "../followups.js";
 import type * as http from "../http.js";
+import type * as lib_adBrief from "../lib/adBrief.js";
+import type * as lib_adChecks from "../lib/adChecks.js";
 import type * as lib_brief from "../lib/brief.js";
 import type * as lib_calcom from "../lib/calcom.js";
 import type * as lib_claude from "../lib/claude.js";
 import type * as lib_email from "../lib/email.js";
+import type * as lib_reviewPage from "../lib/reviewPage.js";
 import type * as lib_sms from "../lib/sms.js";
 import type * as lib_time from "../lib/time.js";
 import type * as reports from "../reports.js";
@@ -30,16 +35,21 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  adAgent: typeof adAgent;
+  ads: typeof ads;
   agent: typeof agent;
   applicants: typeof applicants;
   clients: typeof clients;
   crons: typeof crons;
   followups: typeof followups;
   http: typeof http;
+  "lib/adBrief": typeof lib_adBrief;
+  "lib/adChecks": typeof lib_adChecks;
   "lib/brief": typeof lib_brief;
   "lib/calcom": typeof lib_calcom;
   "lib/claude": typeof lib_claude;
   "lib/email": typeof lib_email;
+  "lib/reviewPage": typeof lib_reviewPage;
   "lib/sms": typeof lib_sms;
   "lib/time": typeof lib_time;
   reports: typeof reports;

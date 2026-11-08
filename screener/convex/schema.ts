@@ -34,6 +34,16 @@ export default defineSchema({
     reportEmail: v.optional(v.string()),
     active: v.boolean(),
     createdAt: v.string(),
+    // What the ad agent writes from (ad-brief.md, "Inputs per client").
+    territory: v.optional(v.string()),
+    repStories: v.optional(v.array(v.string())),
+    perks: v.optional(v.string()),
+    wants: v.optional(v.string()),
+    // On: a new batch of ads is written every Monday.
+    adsEnabled: v.optional(v.boolean()),
+    // Short name in source ad ids ("acme" → "acme-m7"), and the last number handed out.
+    slug: v.optional(v.string()),
+    adSeq: v.optional(v.number()),
   }).index("by_name", ["name"]),
 
   applicants: defineTable({
@@ -78,6 +88,46 @@ export default defineSchema({
     // Logged, not sent through Twilio (SMS_MODE=simulate).
     simulated: v.optional(v.boolean()),
   }).index("by_applicant", ["applicantId", "at"]),
+
+  // One run of the ad agent for a client: the pieces it wrote are in `ads`.
+  adBatches: defineTable({
+    clientId: v.id("clients"),
+    status: v.union(v.literal("writing"), v.literal("ready"), v.literal("failed")),
+    createdAt: v.string(),
+    learningNotes: v.optional(v.string()),
+    // Ads the agent (or the volume-but-no-A's rule) says to retire; a person decides.
+    retire: v.optional(v.array(v.object({ sourceAdId: v.string(), reason: v.string() }))),
+    // How the batch splits: riffs on winners vs new angles.
+    variations: v.optional(v.number()),
+    fresh: v.optional(v.number()),
+    // Anything off about the batch as a whole (too few pieces, etc.).
+    problems: v.optional(v.array(v.string())),
+    error: v.optional(v.string()),
+  }).index("by_client", ["clientId", "createdAt"]),
+
+  // A piece of ad copy: a hook, a Meta primary text, a video script or an Indeed post.
+  ads: defineTable({
+    clientId: v.id("clients"),
+    batchId: v.id("adBatches"),
+    kind: v.union(v.literal("hook"), v.literal("meta_primary"), v.literal("video_script"), v.literal("indeed")),
+    angle: v.string(),
+    title: v.optional(v.string()),
+    body: v.string(),
+    // The source ad id of the winner this riffs on; none for a new angle.
+    variationOf: v.optional(v.string()),
+    // What the checks caught: a pay number not in the comp sheet, a word about a protected trait, a missing "earnings vary".
+    warnings: v.array(v.string()),
+    // draft → approved (gets a source ad id) or rejected, or expired when the next batch lands undecided; approved → retired.
+    status: v.union(v.literal("draft"), v.literal("approved"), v.literal("rejected"), v.literal("expired"), v.literal("retired")),
+    sourceAdId: v.optional(v.string()),
+    // Total spent on it so far, from the media buyer, for A's per dollar.
+    spendCents: v.optional(v.number()),
+    createdAt: v.string(),
+    decidedAt: v.optional(v.string()),
+  })
+    .index("by_client_status", ["clientId", "status"])
+    .index("by_batch", ["batchId"])
+    .index("by_source_ad", ["sourceAdId"]),
 
   // A number that texted STOP: nothing goes to it again, for any client, until it texts START.
   optOuts: defineTable({

@@ -18,7 +18,7 @@ Silence follow-ups, interview reminders, no-show rebooks and a weekly report to 
 
 Jordan's behavior, scoring, rules and tools live in **`screener-brief.md`**. It is the system prompt, so to change how Jordan talks or scores, edit that file and deploy (`npm run deploy`). Its last section, "How this system works", tells Jordan what the code does for it. Keep that section in step with the code.
 
-Separate from the ad agent (next): every applicant carries the `sourceAdId` of the ad they came from, so the ad agent can learn which ads bring in A's.
+The same project runs the **ad agent** (below). It writes each client's recruiting ads and learns from which ads bring in A-grade reps, because every applicant carries the `sourceAdId` of the ad they came from.
 
 Built on Convex (database, functions, HTTP endpoints, schedules), Claude through the Anthropic SDK, Twilio for SMS, Cal.com for booking and Resend for the report email. It is its own project with its own Convex deployment, separate from Estimate Wave in the same repo.
 
@@ -47,6 +47,11 @@ Monday ──▶ each client gets their week by email
 | `convex/reports.ts` | The weekly email and the by-ad numbers |
 | `convex/crons.ts` | Hourly sweep, Monday report |
 | `scripts/simulate.ts` | Plays an applicant end to end with no real texts |
+| `ad-brief.md` | The ad agent's brief: its system prompt |
+| `convex/adAgent.ts` | Writes a batch with Claude; Monday's run |
+| `convex/ads.ts` | Drafts, approvals and source ad ids, spend, numbers by ad and angle |
+| `convex/lib/adChecks.ts` | The ad brief's rules, checked in code on every piece |
+| `convex/lib/reviewPage.ts` | The review page |
 
 ## Setup
 
@@ -81,6 +86,8 @@ Set them on each deployment with `npm run convex -- env set NAME value` (or in t
 | `CAL_PLACEHOLDER_EMAIL_DOMAIN` | Optional. Cal.com needs an attendee email, so a rep who gave none is booked as `<phone>@<this>` (default `sms.invalid`). Have the brief ask for their email |
 | `CAL_WEBHOOK_SECRET` | Optional. Signing secret for the `/cal` webhook |
 | `RESEND_API_KEY`, `RESEND_FROM` | The weekly report email, e.g. `Screening <reports@yourdomain.com>` |
+| `REVIEW_KEY` | The ad review page's key (`/review?key=…`). Long and random; anyone with the link can approve ads |
+| `REVIEW_EMAIL` | Optional. Who gets "new ads to review" when a batch is written |
 | `SMS_MODE` | `simulate` on a dev deployment logs texts instead of sending them, and turns on the simulator's endpoints. **Never on production** |
 | `CAL_MODE` | `stub` on a dev deployment fakes open times and bookings |
 
@@ -200,3 +207,83 @@ npm test
 The simulator creates (then reuses) a test client called "Simulation Roofing", with a roofing comp sheet. Each run uses a new 555-01xx number. At the end it prints the thread and the applicant's status, score, answers and notes.
 
 You can also run it with no Convex account at all: `CONVEX_AGENT_MODE=anonymous npm run dev` starts a local backend at `http://127.0.0.1:3211`.
+
+## The ad agent
+
+The ad agent writes recruiting ads for each client from `ad-brief.md`. A person approves every piece before it runs.
+
+### What it writes
+
+Each batch has:
+- 10–20 hooks;
+- 5 Meta primary texts;
+- 5 video scripts of 15–30 seconds;
+- 3 Indeed postings.
+
+Every piece carries an angle tag: money proof, no experience, rep story, freedom, competition, storm season, and so on.
+
+### What it learns from
+
+- **The client's inputs:** comp sheet, rep stories, perks, territory, and who they want.
+- **The registry's numbers by ad and by angle:** applicants, A's, A-grade rate, interviews booked, show rate, spend, and A's per $100.
+
+It ranks by A's per dollar, then by A-grade rate. Once there are winners, about 70% of each batch riffs on them and 30% tries new angles. It suggests retiring ads that bring 10 or more applicants but no A's.
+
+### Checks before anyone sees it
+
+Code checks every piece against the brief's rules. A piece that fails gets a warning on the review page:
+- a pay number that isn't in the comp sheet or a rep story;
+- a word about a protected trait (age, gender, family and the like: Meta's Employment category);
+- get-rich-quick wording;
+- no "earnings vary, commission-based";
+- a video script longer than 30 seconds.
+
+### Set a client up for ads
+
+Add the inputs to the client (or include them in `clients:create`):
+
+```bash
+npm run convex -- run clients:update '{
+  "clientId": "…",
+  "territory": "Permian Basin",
+  "repStories": ["Marcus was a line cook at $14 an hour. In his second storm season he made $112,000 closing roofs."],
+  "perks": "Paid training, weekly leaderboard, Cabo trip for the top 10",
+  "wants": "Closers and setters; experience a plus, not required",
+  "adsEnabled": true
+}'
+```
+
+The agent only uses pay numbers and stories found here and in `compSheet`. Put real ones in.
+
+### Weekly loop
+
+- Every Monday, after the client report, each client with `adsEnabled` gets a new batch.
+- `REVIEW_EMAIL` gets the link.
+- The new batch replaces last week's undecided drafts.
+- To write one now, run `npm run convex -- run adAgent:writeBatch '{"clientId":"…"}'`, or use **Write a new batch now** on the review page.
+
+### Reviewing
+
+Open `https://<deployment>.convex.site/review?key=<REVIEW_KEY>`. For each client it shows:
+- the drafts by kind, with their warnings, and Approve / Reject buttons;
+- "Approve the N without warnings";
+- the batch's learning notes;
+- retire suggestions;
+- how every approved ad is doing.
+
+**Approving gives the piece its source ad id**, for example `acme-m7`: client, kind (h hook, m Meta, v video, i Indeed), number.
+
+### Hand-off
+
+- **Approved ads:** `https://<deployment>.convex.site/ads/approved.csv?key=<REVIEW_KEY>` has every approved piece with its id. Scripts go to the video team; copy and videos go to the media buyer.
+- **The id on the live ad:** the media buyer puts the source ad id on the live ad, so the application form sends it as `sourceAdId` to `/apply`. A hidden field or a UTM the form passes through both work. That's what ties applicants, and Jordan's A/B/C, back to the ad.
+- **Spend:** the media buyer reports spend as the running total per ad, for A's per dollar:
+
+  ```bash
+  curl -X POST https://<deployment>.convex.site/ads/spend \
+    -H "Authorization: Bearer $APPLY_SECRET" -H "Content-Type: application/json" \
+    -d '{"sourceAdId":"acme-m7","dollars":420}'
+  # or: npm run convex -- run ads:setSpend '{"sourceAdId":"acme-m7","dollars":420}'
+  ```
+
+- **Retiring:** when you retire an ad on the review page, tell the media buyer to turn it off. The registry stops counting it as live.

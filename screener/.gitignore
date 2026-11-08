@@ -1,3 +1,4 @@
 node_modules/
 .env.local
 convex/lib/brief.ts
+convex/lib/adBrief.ts

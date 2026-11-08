@@ -15,6 +15,7 @@ export default defineConfig({
       TWILIO_WEBHOOK_URL: "https://screener.example/sms",
       MYLES_PHONE: "+14325550000",
       ANTHROPIC_API_KEY: "test-key",
+      REVIEW_KEY: "review-key",
     },
   },
 });
