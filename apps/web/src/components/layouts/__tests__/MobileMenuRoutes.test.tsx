@@ -62,6 +62,24 @@ describe('the phone menu', () => {
     expect(path).toBe('/plan');
   });
 
+  it('names the pages as the desktop sidebar does: Estimates and Projects, no Services (a redirect, not a page)', async () => {
+    await open();
+    const links = Array.from(document.body.querySelectorAll('nav a')).map((a) => [a.textContent?.trim(), a.getAttribute('href')]);
+    expect(links).toEqual([
+      ['Leads', '/leads'],
+      ['Bids', '/bids'],
+      ['Marketplace', '/marketplace'],
+      ['The Vault', '/vault'],
+      ['Webb Report', '/report'],
+      ['Outreach', '/outreach'],
+      ['Estimates', '/work'],
+      ['Projects', '/projects'],
+      ['Price Book', '/price-book'],
+    ]);
+    expect(document.body.textContent).not.toContain('Services');
+    expect(document.body.textContent).not.toContain('Work');
+  });
+
   it('offers Contact support by email; the tutorials are gone', async () => {
     await open();
     await act(async () => account().click());
