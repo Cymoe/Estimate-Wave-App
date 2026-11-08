@@ -19,12 +19,27 @@ import { flagHuman, runTool, textApplicant, TOOLS, type TurnState } from "./tool
 const MAX_ROUNDS = 8;
 
 /** The thread as Claude sees it: what we know first, then the texts, theirs as user turns and ours as assistant turns. */
-export function conversation(applicant: Doc<"applicants">, client: Doc<"clients">, messages: Array<Pick<Doc<"messages">, "direction" | "body">>, note?: string): Anthropic.MessageParam[] {
+/** How fast they answer us: the median minutes from our text to their next one, once they've answered twice. */
+export function replySpeed(messages: Array<Pick<Doc<"messages">, "direction" | "at">>): number | undefined {
+  const gaps: number[] = [];
+  for (let i = 1; i < messages.length; i++) {
+    if (messages[i].direction === "in" && messages[i - 1].direction === "out") gaps.push((Date.parse(messages[i].at) - Date.parse(messages[i - 1].at)) / 60_000);
+  }
+  if (gaps.length < 2) return undefined;
+  gaps.sort((x, y) => x - y);
+  return gaps[Math.floor(gaps.length / 2)];
+}
+
+const minutes = (m: number) => (m < 1 ? "under a minute" : m < 90 ? `about ${Math.round(m)} minute${Math.round(m) === 1 ? "" : "s"}` : `about ${Math.round(m / 60)} hours`);
+
+export function conversation(applicant: Doc<"applicants">, client: Doc<"clients">, messages: Array<Pick<Doc<"messages">, "direction" | "body" | "at">>, note?: string): Anthropic.MessageParam[] {
+  const speed = replySpeed(messages);
   const known = [
     `[Applicant: ${applicant.name}, ${applicant.phone}. Applied for ${client.role} with ${client.name} in ${client.city}, from ad ${applicant.sourceAdId}.`,
     `Status: ${applicant.status}${applicant.score ? `, score ${applicant.score}` : ""}.`,
     Object.keys(applicant.answers).length ? `Saved answers: ${JSON.stringify(applicant.answers)}.` : "",
     applicant.interviewAt ? `Interview booked for ${spoken(new Date(applicant.interviewAt), client.timezone)}.` : "",
+    speed !== undefined ? `They typically reply in ${minutes(speed)}.` : "",
     `It's ${spoken(new Date(), client.timezone)} where the client is.]`,
   ]
     .filter(Boolean)

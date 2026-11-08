@@ -30,7 +30,8 @@ export const sweep = internalMutation({
         const quiet = now - Date.parse(a.lastOutboundAt);
         if (quiet < LADDER[Math.min(a.followUps, 2)]) continue;
         if (a.followUps >= 2) {
-          await ctx.db.patch(a._id, { status: "ghosted" });
+          // The brief: ghosting twice mid-conversation is an instant no.
+          await ctx.db.patch(a._id, { status: "ghosted", score: a.score ?? "C", notes: [a.notes, "Ghosted after two follow-ups."].filter(Boolean).join("\n") });
           continue;
         }
         const client = await ctx.db.get(a.clientId);
@@ -122,6 +123,17 @@ export const noShow = internalMutation({
   handler: async (ctx, { applicantId }) => markNoShow(ctx, applicantId),
 });
 
+/** "You're booked for Tue, Nov 10 at 10:00 AM": for a time picked through the booking link. */
+export const confirmBooking = internalAction({
+  args: { applicantId: v.id("applicants"), interviewAt: v.string() },
+  handler: async (ctx, { applicantId, interviewAt }) => {
+    const now = await ctx.runQuery(internal.applicants.context, { applicantId });
+    if (!now || now.applicant.status !== "booked" || now.applicant.interviewAt !== interviewAt) return;
+    const { applicant, client } = now;
+    await textApplicant(ctx, applicantId, `You're booked, ${applicant.name.split(" ")[0]}: ${client.name} interview ${spoken(new Date(interviewAt), client.timezone)}. See you then!`);
+  },
+});
+
 export const rebook = internalAction({
   args: { applicantId: v.id("applicants") },
   handler: async (ctx, { applicantId }) => {
@@ -145,7 +157,11 @@ export const calEvent = internalMutation({
     const a = byUid ?? byPhone ?? null;
     if (!a) return { matched: false };
     if ((trigger === "BOOKING_CREATED" || trigger === "BOOKING_RESCHEDULED") && uid && startTime) {
-      await markBooked(ctx, { applicantId: a._id, interviewAt: new Date(startTime).toISOString(), calBookingUid: uid });
+      const interviewAt = new Date(startTime).toISOString();
+      // Booked through the link (or moved on Cal.com): confirm it by text. One Jordan booked already has its confirmation.
+      const known = a.calBookingUid === uid && a.interviewAt === interviewAt;
+      await markBooked(ctx, { applicantId: a._id, interviewAt, calBookingUid: uid });
+      if (!known) await ctx.scheduler.runAfter(0, internal.followups.confirmBooking, { applicantId: a._id, interviewAt });
     } else if (trigger === "BOOKING_CANCELLED" && a.status === "booked") {
       await cancelJobs(ctx, a);
       await ctx.db.patch(a._id, { status: "qualified", interviewAt: undefined, calBookingUid: undefined });

@@ -4,10 +4,12 @@
 //
 // The dev deployment needs SMS_MODE=simulate and CAL_MODE=stub set (README).
 //
-//   npm run simulate -- --script happy        a strong rep who books
-//   npm run simulate -- --script c            no experience, out of town
+//   npm run simulate -- --script happy        a strong D2D roofing closer who books
+//   npm run simulate -- --script c            no car, no weekends
 //   npm run simulate -- --script stop         asks one thing, then STOP
-//   npm run simulate -- --script flag         wants a person
+//   npm run simulate -- --script flag         asks something Jordan can't answer
+//   npm run simulate -- --script angry        upset, "stop texting me"
+//   npm run simulate -- --script ghost        answers twice, then goes quiet
 //   npm run simulate -- --interactive         you type the rep's side
 //
 // Options: --client <id> (else a test client is made), --name, --phone, --ad.
@@ -23,18 +25,29 @@ import { fileURLToPath } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const SCRIPTS: Record<string, string[]> = {
+  // A-grade: D2D roofing closer with numbers, commission's fine, car, evenings, starts soon, bilingual.
   happy: [
-    "Yeah I'm interested!",
-    "About 3 years selling solar door to door. I close around 8 deals a month.",
-    "Yes, I live in Midland.",
-    "I could start next Monday.",
-    "Commission is fine with me, I'd like to clear 6k a month.",
-    "The first time you have works for me.",
-    "dana.reyes@example.com",
+    "Yeah for sure",
+    "Both, mostly closing the last year",
+    "Yes, 2 summers knocking for a roofing company in Dallas",
+    "About 6 to 8 deals a month closing, set like 40 appts a month before that",
+    "Yeah commission is fine, I made more that way",
+    "Yes I have my own truck",
+    "Evenings and weekends are fine",
+    "I can start next week",
+    "I speak Spanish too. And yeah I'd travel for storm season",
+    "The first time you have works",
   ],
-  c: ["Sure", "I've never done sales, I work at a restaurant right now", "I live in Dallas, can't move", "Ok thanks"],
-  stop: ["What's the pay like?", "STOP", "hello?"],
-  flag: ["Is this legit? I heard this company doesn't pay its reps.", "I want to talk to a real person please."],
+  // C: no transportation, no weekends.
+  c: ["Hi", "No sales before, I work retail", "No, never", "I don't have a car right now", "I can't do weekends", "Ok thanks"],
+  // STOP mid-conversation, then nothing goes out.
+  stop: ["Hey", "What's the pay?", "STOP", "hello?"],
+  // A question Jordan can't answer from the client info: flagged to a person.
+  flag: ["Hey", "Is this legit? I heard this company doesn't pay its reps", "Can I talk to someone real?"],
+  // Upset, then asks to stop in their own words: flagged and opted out.
+  angry: ["who is this", "I never applied for anything, stop texting me"],
+  // Answers twice, then goes quiet: the 4-hour and next-day follow-ups come on their own (run followups:sweep to see them sooner).
+  ghost: ["Hi", "Yeah I did some setting for a solar company"],
 };
 
 function arg(name: string): string | undefined {
@@ -98,10 +111,11 @@ function print(t: NonNullable<Thread>) {
 
 function testClient(): string {
   const client = {
-    name: "Simulation Solar",
-    role: "Door-to-door solar sales rep",
+    name: "Simulation Roofing",
+    role: "Door-to-door roofing sales rep (setters and closers)",
     city: "Midland, TX",
-    compSheet: "Commission only: $500 per install, paid weekly. Average rep closes 6–10 a month. Top reps clear $8k/month. Leads provided.",
+    compSheet:
+      "Commission-based. Closers: 10% of contract value, average job $14k. Setters: $150 per appointment that sits, plus $250 when it closes. Paid weekly. First-year closers average $60-90k; top closers clear $150k+ in storm season. Earnings vary. Training and leads provided.",
     calEventLink: "https://cal.com/simulation/interview",
     calEventTypeId: 1,
     timezone: "America/Chicago",
@@ -128,7 +142,7 @@ async function main() {
   const clientId = arg("client") ?? testClient();
   // A 555-01xx number, so a real phone can never be texted by mistake.
   const phone = arg("phone") ?? `+1432555${String(100 + Math.floor(Math.random() * 99)).padStart(4, "0")}`;
-  const name = arg("name") ?? "Dana Reyes";
+  const name = arg("name") ?? "Marcus Lee";
   const ad = arg("ad") ?? "sim-ad-1";
 
   console.log(`Applying ${name} (${phone}) to client ${clientId} from ad ${ad}…`);
@@ -172,7 +186,8 @@ async function main() {
   if (a.interviewAt) console.log(`Interview: ${a.interviewAt}`);
   console.log(`Answers:   ${JSON.stringify(a.answers, null, 2).replace(/\n/g, "\n           ")}`);
   if (a.notes) console.log(`Notes:     ${a.notes.replace(/\n/g, "\n           ")}`);
-  if (a.status === "flagged") console.log("Myles was texted a summary (in simulate mode it's in the deployment's logs, not sent).");
+  if (a.status === "flagged") console.log("Myles (FLAG_PHONES) was texted a summary: in simulate mode it's in the deployment's logs, not sent.");
+  if (scriptName === "ghost") console.log("Follow-ups come 4 hours and a day after the last text. To see the sweep run now: npm run convex -- run followups:sweep (it only sends once the time has passed).");
 }
 
 main().catch((err) => {

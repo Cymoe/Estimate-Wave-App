@@ -13,7 +13,7 @@ const nowIso = () => new Date().toISOString();
 
 /** What Twilio's rules want the HELP reply to say: who we are and how to stop. */
 export const helpText = () =>
-  `${process.env.SERVICE_NAME ?? "Rep screening"}: texts about the sales role you applied for. Msg & data rates may apply. Reply STOP to opt out.${process.env.HELP_CONTACT ? ` Help: ${process.env.HELP_CONTACT}` : ""}`;
+  `${process.env.SERVICE_NAME ?? "National Sales Registry"}: texts about the sales role you applied for. Msg & data rates may apply. Reply STOP to opt out.${process.env.HELP_CONTACT ? ` Help: ${process.env.HELP_CONTACT}` : ""}`;
 const STOP_TEXT = "You're unsubscribed and won't get more texts from us. Reply START to opt back in.";
 const START_TEXT = "You're opted back in. Reply STOP anytime to opt out.";
 /** Twilio's Advanced Opt-Out answers STOP, START and HELP itself; then we only keep the record. */
@@ -198,6 +198,19 @@ export const setStatus = internalMutation({
   handler: async (ctx, { applicantId, status, note }) => {
     const a = (await ctx.db.get(applicantId))!;
     await ctx.db.patch(applicantId, { status, ...(note ? { notes: [a.notes, note].filter(Boolean).join("\n") } : {}) });
+  },
+});
+
+/** Asked to stop in their own words (flag_human with stop_requested): opted out like STOP, kept flagged for a person. */
+export const optOut = internalMutation({
+  args: { applicantId: v.id("applicants") },
+  handler: async (ctx, { applicantId }) => {
+    const a = (await ctx.db.get(applicantId))!;
+    if (!(await isOptedOut(ctx, a.phone))) await ctx.db.insert("optOuts", { phone: a.phone, at: nowIso() });
+    for (const other of await ctx.db.query("applicants").withIndex("by_phone", (q) => q.eq("phone", a.phone)).collect()) {
+      await cancelJobs(ctx, other);
+      await ctx.db.patch(other._id, { followUpPending: false, ...(other._id === applicantId ? {} : { status: "opted_out" as const }) });
+    }
   },
 });
 

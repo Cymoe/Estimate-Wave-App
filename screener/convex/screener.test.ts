@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { BRIEF } from "./lib/brief";
+import { conversation, replySpeed } from "./agent";
 import { e164, keywordOf, twilioSignature } from "./lib/sms";
 import { inQuietHours, nextSendable, nightBefore, spoken } from "./lib/time";
 import schema from "./schema";
@@ -240,6 +241,90 @@ describe("texting", () => {
   });
 });
 
+describe("the brief's rules", () => {
+  async function screening() {
+    const s = setup();
+    const clientId = await s.client();
+    await s.apply({ name: "Dana Reyes", phone: PHONE, clientId, sourceAdId: "fb-ad-7" });
+    claude.script.push(say("Hey Dana, Jordan with National Sales Registry. Saw you applied for the solar rep spot in Midland. Done sales before? Reply STOP to opt out."));
+    await s.settle();
+    return { ...s, clientId };
+  }
+
+  test("get_client_info gives Jordan the open interview times and the booking link along with the comp sheet", async () => {
+    const { text, settle } = await screening();
+    claude.script.push(use("get_client_info"), say("Cool. Closer, setter, or both?"));
+    await text("yeah 2 years");
+    await settle();
+    const info = JSON.parse((claude.calls.at(-1)!.messages.at(-1) as { content: Array<{ content: string }> }).content[0].content);
+    expect(info).toMatchObject({ role: "Door-to-door solar rep", compSheet: expect.stringContaining("$500 per install"), bookingLink: "https://cal.com/acme/interview" });
+    expect(info.openInterviewTimes).toHaveLength(6);
+    expect(info.openInterviewTimes[0]).toEqual({ start: expect.any(String), says: expect.stringMatching(/^[A-Z][a-z]{2}, [A-Z][a-z]{2} \d+ at \d+:\d{2} [AP]M$/) });
+  });
+
+  test("'please stop texting me' in their own words: flagged to everyone on FLAG_PHONES and opted out, so nothing else goes out", async () => {
+    vi.stubEnv("FLAG_PHONES", "+14325550000, +14325550001");
+    const sent: string[] = [];
+    const log = vi.spyOn(console, "log").mockImplementation((line: string) => void sent.push(String(line)));
+    try {
+      const { t, text, thread, settle } = await screening();
+      claude.script.push(use("flag_human", { reason: "Asked to stop texting", stop_requested: true }), say("No problem, I'll stop texting. Take care!"));
+      await text("please stop texting me");
+      await settle();
+      const after = await thread();
+      expect(after.applicant.status).toBe("flagged");
+      // Opted out: even this turn's goodbye wasn't sent.
+      expect(after.messages.at(-1)).toMatchObject({ direction: "in", body: "please stop texting me" });
+      expect(await t.run(async (ctx) => ctx.db.query("optOuts").collect())).toEqual([expect.objectContaining({ phone: PHONE })]);
+      // Both people were texted the summary, with the conversation and how to see all of it.
+      const flags = sent.filter((l) => l.startsWith("Flag texted to"));
+      expect(flags.map((l) => l.split(" ")[3])).toEqual(["+14325550000", "+14325550001"]);
+      expect(flags[0]).toContain("(asked to stop: opted out)");
+      expect(flags[0]).toContain("Dana: please stop texting me");
+      expect(flags[0]).toContain(`applicants:thread '{"phone":"${PHONE}"}'`);
+      // No follow-ups later either.
+      vi.setSystemTime(Date.now() + 5 * 3_600_000);
+      await t.mutation(internal.followups.sweep, {});
+      await settle();
+      expect((await thread()).messages.filter((m) => m.direction === "out")).toHaveLength(1);
+    } finally {
+      log.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test("a time picked through the booking link is confirmed by text; one Jordan booked isn't confirmed twice", async () => {
+    const { t, thread, settle } = await screening();
+    const confirmation = "You're booked, Dana: Acme Solar interview Wed, Nov 11 at 2:00 PM. See you then!";
+    const confirmations = async () => (await thread()).messages.filter((m) => m.body === confirmation).length;
+    await t.mutation(internal.followups.calEvent, { trigger: "BOOKING_CREATED", uid: "bk_link", startTime: "2026-11-11T20:00:00.000Z", phone: PHONE });
+    await settle();
+    expect((await thread()).applicant).toMatchObject({ status: "booked", interviewAt: "2026-11-11T20:00:00.000Z" });
+    expect(await confirmations()).toBe(1);
+    // The same booking arriving again (as when Jordan booked it through the API) sends nothing new.
+    await t.mutation(internal.followups.calEvent, { trigger: "BOOKING_CREATED", uid: "bk_link", startTime: "2026-11-11T20:00:00.000Z", phone: PHONE });
+    await settle();
+    expect(await confirmations()).toBe(1);
+  });
+
+  test("Jordan sees how fast they reply, for the brief's 'replies fast' bump", () => {
+    const at = (min: number) => new Date(MONDAY_10AM_CT + min * 60_000).toISOString();
+    const msgs = [
+      { direction: "out" as const, body: "hi", at: at(0) },
+      { direction: "in" as const, body: "hey", at: at(2) },
+      { direction: "out" as const, body: "q", at: at(3) },
+      { direction: "in" as const, body: "a", at: at(6) },
+      { direction: "out" as const, body: "q2", at: at(7) },
+      { direction: "in" as const, body: "a2", at: at(47) },
+    ];
+    expect(replySpeed(msgs)).toBe(3);
+    expect(replySpeed(msgs.slice(0, 2))).toBeUndefined();
+    const applicant = { name: "Dana Reyes", phone: PHONE, sourceAdId: "fb-ad-7", status: "screening", answers: {} } as never;
+    const client = { name: "Acme Solar", role: "Roofing sales rep", city: "Midland, TX", timezone: "America/Chicago" } as never;
+    expect(conversation(applicant, client, msgs)[0].content).toContain("They typically reply in about 3 minutes.");
+  });
+});
+
 describe("on a clock", () => {
   test("silence: follow-up 1 after 4 hours, follow-up 2 a day later, then ghosted", async () => {
     const { t, client, apply, thread, settle } = setup();
@@ -274,7 +359,8 @@ describe("on a clock", () => {
 
     vi.setSystemTime(Date.now() + 25 * 3_600_000);
     await sweep();
-    expect((await thread()).applicant.status).toBe("ghosted");
+    // Ghosting twice mid-conversation is an instant no: scored C, with a note.
+    expect((await thread()).applicant).toMatchObject({ status: "ghosted", score: "C", notes: "Ghosted after two follow-ups." });
   });
 
   test("a follow-up due at night waits for 8am client time", () => {

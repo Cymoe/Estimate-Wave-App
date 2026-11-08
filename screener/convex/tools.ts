@@ -18,7 +18,7 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "get_client_info",
-    description: "The client this applicant applied to: the role, the city, the pay plan (comp sheet), the timezone and the booking link.",
+    description: "The client this applicant applied to: the role, the city, the pay plan (comp sheet), the timezone, the next open interview times and the booking link.",
     input_schema: { type: "object", properties: {} },
   },
   {
@@ -49,10 +49,13 @@ export const TOOLS: Anthropic.Tool[] = [
   {
     name: "flag_human",
     description:
-      "Hand this applicant to a person (Myles). Use it when they're upset, ask for a person, raise anything legal or about safety, or ask something you can't answer from the client info. You stop texting them after this; tell them someone will follow up.",
+      "Alert Myles or a VA with the conversation. Use it when they're angry or confused, ask to stop, ask for a person, or ask something you can't answer from the client info. You stop texting them after this turn.",
     input_schema: {
       type: "object",
-      properties: { reason: { type: "string", description: "Why, in one line." } },
+      properties: {
+        reason: { type: "string", description: "Why, in one line." },
+        stop_requested: { type: "boolean", description: "True when they asked to stop being texted in their own words. They're opted out: nothing more is sent to them." },
+      },
       required: ["reason"],
     },
   },
@@ -81,16 +84,25 @@ export async function runTool(ctx: ActionCtx, state: TurnState, name: string, in
       if (result === "Sent.") state.sentThisTurn = true;
       return result;
     }
-    case "get_client_info":
+    case "get_client_info": {
+      // The open times, when the calendar can be read; the booking link always works.
+      let openTimes: unknown;
+      try {
+        openTimes = (await openSlots(client.calEventTypeId, client.timezone)).slice(0, 6).map((s) => ({ start: s.start, says: spoken(new Date(s.start), client.timezone) }));
+      } catch (err) {
+        openTimes = `Couldn't read the calendar (${err instanceof Error ? err.message : String(err)}); send the booking link.`;
+      }
       return JSON.stringify({
         client: client.name,
         role: client.role,
         city: client.city,
         compSheet: client.compSheet,
         timezone: client.timezone,
+        openInterviewTimes: openTimes,
         bookingLink: client.calEventLink,
         now: spoken(new Date(), client.timezone),
       });
+    }
     case "book_interview": {
       const start = typeof input.start === "string" ? input.start : undefined;
       if (!start) {
@@ -112,32 +124,55 @@ export async function runTool(ctx: ActionCtx, state: TurnState, name: string, in
       await ctx.runMutation(internal.applicants.save, { applicantId: applicant._id, answers, score, status, notes });
       return "Saved.";
     }
-    case "flag_human":
-      await flagHuman(ctx, applicant._id, String(input.reason ?? "No reason given"));
+    case "flag_human": {
+      const stop = input.stop_requested === true;
+      await flagHuman(ctx, applicant._id, String(input.reason ?? "No reason given"), { stopRequested: stop });
       state.flagged = true;
-      return "Flagged. A person will follow up; don't text them again after this turn.";
+      return stop ? "Flagged, and they're opted out: nothing more can be texted to them, this turn included." : "Flagged. A person will follow up; don't text them again after this turn.";
+    }
     default:
       return `There's no tool called ${name}.`;
   }
 }
 
-/** Texts Myles a summary and stops the agent replying to this applicant. */
-export async function flagHuman(ctx: ActionCtx, applicantId: Id<"applicants">, reason: string): Promise<void> {
+/** Who gets flags: FLAG_PHONES (comma-separated, e.g. Myles and a VA), else MYLES_PHONE. */
+export const flagPhones = () =>
+  (process.env.FLAG_PHONES ?? process.env.MYLES_PHONE ?? "")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+/**
+ * Hands an applicant to a person: texts Myles (or a VA) a summary with the
+ * end of the conversation, and the agent stops replying. When they asked to
+ * stop in their own words, they're opted out too, as STOP would.
+ */
+export async function flagHuman(ctx: ActionCtx, applicantId: Id<"applicants">, reason: string, opts: { stopRequested?: boolean } = {}): Promise<string> {
   const now = await ctx.runQuery(internal.applicants.context, { applicantId });
-  if (!now) return;
+  if (!now) return "";
   const { applicant, client, messages } = now;
+  const first = applicant.name.split(" ")[0];
   const last = messages
-    .slice(-4)
-    .map((m) => `${m.direction === "in" ? applicant.name.split(" ")[0] : "Agent"}: ${m.body}`)
+    .slice(-6)
+    .map((m) => `${m.direction === "in" ? first : "Jordan"}: ${m.body}`)
     .join("\n");
-  const summary = [`Screener flag: ${applicant.name} ${applicant.phone}`, `${client.name} (${client.role}, ${client.city}) · score ${applicant.score ?? "-"} · ad ${applicant.sourceAdId}`, `Why: ${reason}`, last].filter(Boolean).join("\n");
+  const summary = [
+    `Screener flag: ${applicant.name} ${applicant.phone}${opts.stopRequested ? " (asked to stop: opted out)" : ""}`,
+    `${client.name} (${client.role}, ${client.city}) · score ${applicant.score ?? "-"} · ad ${applicant.sourceAdId}`,
+    `Why: ${reason}`,
+    last,
+    `Whole thread: npm run convex -- run applicants:thread '{"phone":"${applicant.phone}"}'`,
+  ]
+    .filter(Boolean)
+    .join("\n");
   await ctx.runMutation(internal.applicants.setStatus, { applicantId, status: "flagged", note: `Flagged: ${reason}` });
-  const to = process.env.MYLES_PHONE;
-  if (!to) {
-    console.error("MYLES_PHONE isn't set; flag not texted:", summary);
-    return;
+  if (opts.stopRequested) await ctx.runMutation(internal.applicants.optOut, { applicantId });
+  const to = flagPhones();
+  if (to.length === 0) console.error("FLAG_PHONES / MYLES_PHONE isn't set; flag not texted:", summary);
+  for (const phone of to) {
+    const r = await sendSms(phone, summary.slice(0, 1500));
+    if (r.status === "failed" || r.status === "skipped") console.error(`Flag text to ${phone} failed: ${r.error}`);
+    else console.log(`Flag texted to ${phone} (${r.status}):\n${summary}`);
   }
-  const r = await sendSms(to, summary.slice(0, 1500));
-  if (r.status === "failed" || r.status === "skipped") console.error(`Flag text to Myles failed: ${r.error}`);
-  else console.log(`Flag texted to Myles (${r.status}):\n${summary}`);
+  return summary;
 }
