@@ -623,6 +623,13 @@ describe("a company's lists", () => {
     expect(await t.run(async (ctx) => ctx.db.get(bare))).toMatchObject({ company: "City Of Midland" });
     expect(await t.run(async (ctx) => ctx.db.get(walkIn!._id))).not.toHaveProperty("company");
     expect((await co.as.query(api.outreach.lists, { organizationId: org })).find((l) => l.who === "commercial")!.done).toBe(2);
+    // Under a client with no number looked up, the lead takes the client's phone and email: nothing to pay for.
+    await t.run(async (ctx) => {
+      await ctx.db.delete(bare);
+      await ctx.db.patch(clientId, { phone: "(432) 555-0188", email: "dana@city.example" });
+    });
+    const underClient = await co.as.mutation(api.outreach.sendToLeads, { organizationId: org, contactId: city.id });
+    expect(await t.run(async (ctx) => ctx.db.get(underClient))).toMatchObject({ clientId, phone: "(432) 555-0188", email: "dana@city.example" });
 
     // A lead the company already has, by a phone, an email or the same name without its LP, is joined, not made twice.
     const park = all.rows.find((r) => r.name === "Park Holdings LP")!;

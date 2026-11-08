@@ -1060,8 +1060,9 @@ async function sendOne(
       const leadId = await ctx.db.insert("leads", {
         name,
         ...(isCompany(contact) ? { company: contact.name } : contact.company ? { company: contact.company } : {}),
-        ...(phone ? { phone: phone.number } : {}),
-        ...(email ? { email: email.email } : {}),
+        // Under a client, the client's number and email when the lookup has none: nothing to pay for.
+        ...(phone ? { phone: phone.number } : client?.phone ? { phone: client.phone } : {}),
+        ...(email ? { email: email.email } : client?.email ? { email: client.email } : {}),
         ...(contact.property?.address ? { address: contact.property.address, city: "Midland" } : {}),
         source: "Outreach",
         status: "new",

@@ -488,7 +488,9 @@ const OutreachPage: React.FC = () => {
     return `up to ${dollars(most)}, about ${dollars(Math.round(most * hitRate))} at your ${Math.round(hitRate * 100)}% hit rate so far`;
   };
   // The header's buttons act on the whole list (or every contact): everyone a lookup would run on, and everyone with no research yet.
-  const listOpen = (data?.rows ?? []).filter(hasLock);
+  // Someone already a client or a lead isn't looked up in bulk: their number is already in the app. One can still be looked up from its sheet.
+  const listOpen = (data?.rows ?? []).filter((r) => hasLock(r) && !r.known);
+  const listKnown = (data?.rows ?? []).filter((r) => hasLock(r) && r.known).length;
   const listPhones = listOpen.filter(needsPhone).length;
   const listResearch = (data?.rows ?? []).filter(needsResearch);
   const researchCost = listResearch.length * researchCents;
@@ -576,7 +578,9 @@ const OutreachPage: React.FC = () => {
     const who = list ? `the ${listOpen.length} ${listOpen.length === 1 ? 'owner' : 'owners'} on “${list.title}”` : `all ${listOpen.length} ${listOpen.length === 1 ? 'contact' : 'contacts'}`;
     const ok = await confirm({
       title: `Look up ${who}?`,
-      message: `${listPhones} ${listPhones === 1 ? 'phone' : 'phones'} to find: ${estimate(listPhones)}. Charged only for phones found; the person behind each company and emails are free.`,
+      message: `${listPhones} ${listPhones === 1 ? 'phone' : 'phones'} to find: ${estimate(listPhones)}. Charged only for phones found; the person behind each company and emails are free.${
+        listKnown ? ` ${listKnown} you already have as ${listKnown === 1 ? 'a client or lead is' : 'clients or leads are'} left out.` : ''
+      }`,
       confirmLabel: 'Look them up',
     });
     if (!ok) return;
@@ -596,7 +600,11 @@ const OutreachPage: React.FC = () => {
   };
 
   /** The owners showing (this list, filter and search) not yet in Leads or skipped; 500 at a time. */
-  const toSend = rows.filter((r) => !r.leadId && r.status !== 'skip').slice(0, 500);
+  // Only owners you can reach go in bulk: a number that's OK to call, an email, or a client or lead you already have. The rest wait for a lookup.
+  const reachable = (r: OutreachContact) => r.phones.some(callOk) || r.emails.length > 0 || Boolean(r.known);
+  const waiting = rows.filter((r) => !r.leadId && r.status !== 'skip');
+  const toSend = waiting.filter(reachable).slice(0, 500);
+  const unreachable = waiting.length - waiting.filter(reachable).length;
   const [sentNote, setSentNote] = useState<string | null>(null);
   const [undoNote, setUndoNote] = useState<string | null>(null);
   // The latest send of many, offered for Undo for a day, until dismissed on this device.
@@ -647,7 +655,9 @@ const OutreachPage: React.FC = () => {
     const n = toSend.length;
     const ok = await confirm({
       title: `Send ${n} ${n === 1 ? 'owner' : 'owners'} to Leads?`,
-      message: 'The owners showing go to Leads as New, where you call and follow up. Companies run by the same people become one lead.',
+      message: `The owners showing with a number or email go to Leads as New, where you call and follow up. Companies run by the same people become one lead.${
+        unreachable ? ` ${unreachable} with no number or email yet stay here; look them up first, or send one from its card.` : ''
+      }`,
       confirmLabel: 'Send to Leads',
     });
     if (!ok) return;

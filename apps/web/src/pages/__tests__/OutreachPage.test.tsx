@@ -379,10 +379,13 @@ describe('the Outreach page', () => {
     narrowScreen = true;
     lists = [list];
     contacts = twoContacts();
+    // One with a number to call; one already in Leads, so not looked up again (their number is already there).
+    contacts.rows[0] = { ...contacts.rows[0], phones: [{ number: '4325550100', type: 'mobile', source: 'batchdata' }] } as never;
+    contacts.rows[1] = { ...contacts.rows[1], known: { kind: 'lead', id: 'l9', name: 'City Of Midland' } } as never;
     await render('/outreach/l1');
     const header = document.body.querySelector('[data-testid="actions"]')!;
     // One thing to do next (with Add funds while the balance is short); the rest waits under More.
-    expect(Array.from(header.querySelectorAll('button')).map((b) => b.textContent?.trim() || b.getAttribute('aria-label'))).toEqual(['Look up 2', 'Add funds', 'More']);
+    expect(Array.from(header.querySelectorAll('button')).map((b) => b.textContent?.trim() || b.getAttribute('aria-label'))).toEqual(['Look up 1', 'Add funds', 'More']);
     await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
     const more = Array.from(document.body.querySelectorAll('[role="menu"] button')).map((b) => b.textContent?.trim());
     expect(more).toEqual(expect.arrayContaining(['Send 2 to Leads', 'Show as a table', 'Export CSV', 'Delete list']));
@@ -633,16 +636,28 @@ describe('the Outreach page', () => {
     lists = [list];
     contacts = {
       ...twoContacts(),
-      rows: [contact('r1'), contact('r2', { name: 'City Of Midland' }), contact('r3', { name: 'Skipped Co', status: 'skip' }), contact('r4', { name: 'Sent Co', status: 'lead', leadId: 'lead9' })],
+      rows: [
+        contact('r1', { phones: [{ number: '4325550100', type: 'mobile', source: 'batchdata' }] }),
+        contact('r2', { name: 'City Of Midland', emails: [{ email: 'clerk@midland.example', source: 'batchdata' }] }),
+        contact('r3', { name: 'Skipped Co', status: 'skip' }),
+        contact('r4', { name: 'Sent Co', status: 'lead', leadId: 'lead9' }),
+        // Nothing to reach them by yet: waits for a lookup.
+        contact('r5', { name: 'Not Looked Up Co' }),
+        // Only a Do Not Call number: nothing to call either.
+        contact('r6', { name: 'DNC Co', phones: [{ number: '4325550199', type: 'landline', dnc: true, source: 'batchdata' }] }),
+        // Already a client: reachable through them.
+        contact('r7', { name: 'Client Co', known: { kind: 'client', id: 'c1', name: 'Client Co' } }),
+      ],
     };
     await render('/outreach/l1');
     const send = document.body.querySelector('[data-testid="send-all"]') as HTMLButtonElement;
-    expect(send.textContent).toBe('Send 2 to Leads');
+    expect(send.textContent).toBe('Send 3 to Leads');
     await act(async () => send.click());
     await flush();
-    expect(document.body.textContent).toContain('Send 2 owners to Leads?');
+    expect(document.body.textContent).toContain('Send 3 owners to Leads?');
+    expect(document.body.textContent).toContain('2 with no number or email yet stay here; look them up first, or send one from its card.');
     await click('Send to Leads');
-    expect(sendManyToLeads).toHaveBeenCalledWith('o1', ['r1', 'r2']);
+    expect(sendManyToLeads).toHaveBeenCalledWith('o1', ['r1', 'r2', 'r7']);
     expect(document.body.querySelector('[data-testid="sent-note"]')!.textContent).toContain("1 new lead in Leads; 1 joined a related company's lead.");
     await click('Open Leads');
     expect(path).toBe('/leads');
