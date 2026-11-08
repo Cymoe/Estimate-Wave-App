@@ -1,6 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ChevronDown, Download, LayoutList, Lock, Search, Table2, Trash2, Undo2, X } from 'lucide-react';
+import { Check, ChevronDown, Download, LayoutList, Lock, MoreHorizontal, Search, SlidersHorizontal, Table2, Trash2, Undo2, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachField, type OutreachListSummary, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { AskListSheet } from '../components/outreach/AskListSheet';
@@ -13,7 +13,7 @@ import { fundErrorText, openFundingPage } from '../components/market/WalletBar';
 import { useAuth } from '../contexts/AuthContext';
 import { isStaff } from '../lib/roles';
 import { DEFAULT_ROWS, WHO_LABEL, listOrder } from '../../convex/lib/outreach';
-import { callOk, mailOnly, openToLook, sourceName, STATUS_LABEL } from '../components/outreach/format';
+import { callOk, isSimulated, mailOnly, openToLook, sourceName, STATUS_LABEL } from '../components/outreach/format';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 const iconButton = 'w-10 h-10 md:w-11 md:h-11 shrink-0 inline-flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2A2A2A] border border-[#333333]';
@@ -169,10 +169,11 @@ const SourcesPanel: React.FC<{ organizationId: string }> = ({ organizationId }) 
  * and an empty box folds back to the icon when you leave it. Escape
  * clears it. A box with words in it stays open.
  */
-const SearchBox: React.FC<{ value: string; onChange: (value: string) => void }> = ({ value, onChange }) => {
+const SearchBox: React.FC<{ value: string; onChange: (value: string) => void; onOpenChange?: (open: boolean) => void }> = ({ value, onChange, onOpenChange }) => {
   const [focused, setFocused] = useState(false);
   const box = useRef<HTMLInputElement>(null);
   const open = focused || value.length > 0;
+  useEffect(() => onOpenChange?.(open), [open, onOpenChange]);
   return (
     <div className={`relative ${open ? 'flex-1 md:flex-none' : ''}`}>
       <Search className={`w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none ${open ? 'text-gray-500' : 'hidden'}`} aria-hidden />
@@ -211,6 +212,36 @@ const SearchBox: React.FC<{ value: string; onChange: (value: string) => void }> 
     </div>
   );
 };
+
+/** A short menu under its button, for a phone: closes on a pick or a tap anywhere else. */
+const PopMenu: React.FC<{ label: string; icon: React.ReactNode; dot?: boolean; size?: string; children: (close: () => void) => React.ReactNode }> = ({ label, icon, dot, size, children }) => {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: Event) => box.current && !box.current.contains(e.target as Node) && setOpen(false);
+    document.addEventListener('mousedown', away);
+    document.addEventListener('touchstart', away);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('touchstart', away);
+    };
+  }, [open]);
+  return (
+    <div ref={box} className="relative shrink-0">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-label={label} aria-expanded={open} title={label} className={`${size ? `${size} shrink-0 inline-flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2A2A2A] border border-[#333333]` : iconButton} relative ${open ? 'text-white bg-[#2A2A2A]' : ''}`}>
+        {icon}
+        {dot && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#7fb0e0]" aria-hidden />}
+      </button>
+      {open && (
+        <div role="menu" aria-label={label} className="absolute right-0 top-full mt-1 z-40 min-w-[14rem] py-1 bg-[#1A1A1A] border border-[#333333] shadow-xl">
+          {children(() => setOpen(false))}
+        </div>
+      )}
+    </div>
+  );
+};
+const menuItem = 'flex w-full items-center gap-3 px-4 min-h-[44px] text-left text-sm text-gray-200 hover:bg-[#2A2A2A] disabled:opacity-50';
 
 const ChipRow: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const row = useRef<HTMLDivElement>(null);
@@ -335,6 +366,8 @@ const OutreachPage: React.FC = () => {
   const [open, setOpen] = useState<OutreachContact | null>(null);
   /** On a phone the staff lines (owners build, data sources) are folded until asked for. */
   const [staffOpen, setStaffOpen] = useState(false);
+  // On a phone an open search box takes the list picker's place.
+  const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -652,7 +685,56 @@ const OutreachPage: React.FC = () => {
             </div>
           )}
         </div>
-        {data && rows.length > 0 && (
+        {/* On a phone: the one thing to do next, and the rest under More. */}
+        {data && rows.length > 0 && narrow && (
+          <div className="flex items-center gap-2" data-testid="actions">
+            {listOpen.length > 0 ? (
+              <button type="button" onClick={() => void enrichAll()} disabled={busy || short} className={`${action} flex-1 justify-center bg-[#336699] hover:bg-[#2a5580]`} title={estimate(listPhones)}>
+                <Lock className="w-4 h-4" /> Look up {listOpen.length}
+              </button>
+            ) : toSend.length > 0 ? (
+              <button type="button" onClick={() => void sendAll()} disabled={busy} className={`${action} flex-1 justify-center border border-[#336699] hover:bg-[#336699]/20`} data-testid="send-all">
+                Send {toSend.length} to Leads
+              </button>
+            ) : (
+              <span className="flex-1" />
+            )}
+            {listOpen.length > 0 && short && (
+              <button type="button" onClick={addFunds} className="shrink-0 min-h-[40px] text-sm text-[#7fb0e0] hover:text-white">
+                Add funds
+              </button>
+            )}
+            <PopMenu label="More" icon={<MoreHorizontal className="w-5 h-5" />}>
+              {(close) => (
+                <>
+                  {listResearch.length > 0 && (
+                    <button type="button" role="menuitem" className={menuItem} disabled={busy || researchCost > balanceCents} onClick={() => (close(), void researchAll())}>
+                      Research {listResearch.length}
+                      <span className="ml-auto text-xs text-gray-500">{dollars(researchCents)} an answer</span>
+                    </button>
+                  )}
+                  {listOpen.length > 0 && toSend.length > 0 && (
+                    <button type="button" role="menuitem" className={menuItem} disabled={busy} onClick={() => (close(), void sendAll())} data-testid="send-all">
+                      Send {toSend.length} to Leads
+                    </button>
+                  )}
+                  <button type="button" role="menuitem" className={menuItem} onClick={() => (close(), pickView(view === 'cards' ? 'table' : 'cards'))}>
+                    {view === 'cards' ? <Table2 className="w-4 h-4 text-gray-500" /> : <LayoutList className="w-4 h-4 text-gray-500" />} {view === 'cards' ? 'Show as a table' : 'Show as cards'}
+                  </button>
+                  <button type="button" role="menuitem" className={menuItem} onClick={() => (close(), download(csvName(list?.title ?? 'contacts'), outreachCsv(rows)))}>
+                    <Download className="w-4 h-4 text-gray-500" /> Export CSV
+                  </button>
+                  {list && (
+                    <button type="button" role="menuitem" className={`${menuItem} text-red-300`} onClick={() => (close(), void removeList())}>
+                      <Trash2 className="w-4 h-4" /> Delete list
+                    </button>
+                  )}
+                </>
+              )}
+            </PopMenu>
+          </div>
+        )}
+        {data && rows.length > 0 && !narrow && (
           <div className="flex gap-2 shrink-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap md:overflow-visible" data-testid="actions">
             {listOpen.length > 0 && (
               <button
@@ -732,6 +814,8 @@ const OutreachPage: React.FC = () => {
       {/* The lists: chips on a desktop; on a phone one picker, since several titles of this length are a wall. */}
       {lists && lists.length > 0 && (
         <>
+          {/* On a phone with owners showing, the picker lives in the sticky bar below instead. */}
+          {!(narrow && data && data.rows.length > 0) && (
           <label className="relative block md:hidden">
             <select
               value={listId ?? ''}
@@ -748,6 +832,7 @@ const OutreachPage: React.FC = () => {
             </select>
             <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" aria-hidden />
           </label>
+          )}
           <div className="hidden md:flex flex-wrap items-center gap-2" role="group" aria-label="Lists">
             <button type="button" onClick={() => navigate('/outreach')} aria-pressed={!listId} className={chip(!listId)}>
               All
@@ -807,7 +892,40 @@ const OutreachPage: React.FC = () => {
               ),
             )}
           </ChipRow>
-          {/* Search, status and the view switch stay put on the right; on a phone they get their own line above the tabs. */}
+          {/* Search, status and the view switch stay put on the right. On a phone the line above the tabs is the list, search and a filter menu. */}
+          {narrow ? (
+            <div className="flex w-full items-center gap-2 py-1.5">
+              {lists && lists.length > 0 && !searching && (
+                <label className="relative flex-1 min-w-0">
+                  <select
+                    value={listId ?? ''}
+                    onChange={(e) => navigate(e.target.value ? `/outreach/${e.target.value}` : '/outreach')}
+                    aria-label="List"
+                    className="appearance-none w-full h-9 rounded-none bg-[#1A1A1A] border border-[#333333] pl-3 pr-9 text-base text-white truncate focus:outline-none focus:border-[#336699]"
+                  >
+                    <option value="">All lists</option>
+                    {lists.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.title}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" aria-hidden />
+                </label>
+              )}
+              <SearchBox value={query} onChange={setQuery} onOpenChange={setSearching} />
+              <PopMenu label="Filter by status" icon={<SlidersHorizontal className="w-4 h-4" />} dot={status !== 'all'} size="w-9 h-9">
+                {(close) =>
+                  (['all', ...STATUS_FILTERS, ...OLD_STATUSES.filter((x) => status === x || data.rows.some((r) => r.status === x))] as Array<OutreachRowStatus | 'all'>).map((x) => (
+                    <button key={x} type="button" role="menuitemradio" aria-checked={status === x} className={menuItem} onClick={() => (close(), setStatus(x))}>
+                      {x === 'all' ? 'All statuses' : STATUS_LABEL[x]}
+                      {status === x && <Check className="ml-auto w-4 h-4 text-[#7fb0e0]" />}
+                    </button>
+                  ))
+                }
+              </PopMenu>
+            </div>
+          ) : (
           <div className="flex w-full md:w-auto shrink-0 items-center gap-2 py-1.5">
             <SearchBox value={query} onChange={setQuery} />
             <label className="relative block">
@@ -836,7 +954,13 @@ const OutreachPage: React.FC = () => {
               {view === 'cards' ? <Table2 className="w-4 h-4" /> : <LayoutList className="w-4 h-4" />}
             </button>
           </div>
+          )}
         </div>
+      )}
+      {view === 'cards' && rows.some(isSimulated) && (
+        <p className="text-xs text-gray-500" data-testid="sample-note">
+          Sample results: no phone source is connected yet.
+        </p>
       )}
       {data === null || lists === null ? (
         <p className="text-sm text-gray-500">Loading…</p>

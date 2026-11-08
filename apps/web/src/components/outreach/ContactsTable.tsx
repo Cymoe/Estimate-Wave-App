@@ -5,7 +5,7 @@ import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { fullAddress } from '../../lib/mapsLinks';
 import type { OutreachCell, OutreachContact, OutreachContacts, OutreachCoverage, OutreachField, OutreachPhone, OutreachRowStatus, OutreachSignal, OutreachTry, OutreachWho } from '../../lib/api';
 import { shortMoney, WHO_LABEL } from '../../../convex/lib/outreach';
-import { askingText, callOk, deedSearchUrl, dueAgain, phoneKind, phoneText, sourceList, sourceName, STATUS_LABEL, tryAgainFrom } from './format';
+import { askingText, callOk, deedSearchUrl, dueAgain, isSimulated, phoneKind, phoneText, sourceList, sourceName, STATUS_LABEL, tryAgainFrom } from './format';
 
 /** The column's short name for the kind of owner. */
 const KIND: Record<OutreachWho, string> = {
@@ -397,8 +397,9 @@ export const ContactsTable: React.FC<{
 
 /**
  * The list for calling from a phone: one card per owner, stacked. The
- * decision maker, the best number with Call and Text, a signal if the
- * property has one, then Send to Leads or Skip. Tap the card for the full sheet.
+ * decision maker, the best number, a signal if the property has one, and one
+ * row of actions: Call, Text and Email as icons, and To Leads. Skip sits small
+ * in the corner. Tap the card for the full sheet.
  */
 export const ContactCards: React.FC<{
   rows: OutreachContact[];
@@ -422,6 +423,7 @@ export const ContactCards: React.FC<{
     }
   };
   const big = 'flex-1 inline-flex items-center justify-center gap-2 min-h-[44px] text-sm font-medium';
+  const square = 'w-11 h-11 shrink-0 inline-flex items-center justify-center border border-[#333333] text-gray-200 hover:bg-[#2A2A2A]';
   return (
     <ul className="space-y-2" data-testid="contact-cards">
       {rows.map((r) => {
@@ -430,13 +432,23 @@ export const ContactCards: React.FC<{
         const email = r.emails.find((e) => e.nameMatch !== false) ?? r.emails[0];
         const signal = r.signals[0];
         return (
-          <li key={r.id} className={`bg-[#121212] border border-[#333333]${['person', 'phone', 'email'].some((f) => lit.has(`${r.id}:${f}`)) ? ' cell-filled' : ''}`} data-testid="contact-card">
-            <button type="button" onClick={() => onOpen(r)} className="block w-full text-left px-4 pt-3 pb-2">
+          <li key={r.id} className={`relative bg-[#121212] border border-[#333333]${['person', 'phone', 'email'].some((f) => lit.has(`${r.id}:${f}`)) ? ' cell-filled' : ''}`} data-testid="contact-card">
+            {!r.leadId && (
+              <button
+                type="button"
+                onClick={() => void skip(r)}
+                disabled={saving === r.id}
+                aria-pressed={r.status === 'skip'}
+                className={`absolute top-1 right-1 z-10 px-3 min-h-[40px] text-xs disabled:opacity-50 ${r.status === 'skip' ? 'text-gray-300' : 'text-gray-500 hover:text-white'}`}
+              >
+                {r.status === 'skip' ? 'Skipped' : 'Skip'}
+              </button>
+            )}
+            <button type="button" onClick={() => onOpen(r)} className="block w-full text-left pl-4 pr-20 pt-3 pb-2">
               <span className={`block text-[15px] font-medium ${r.status === 'skip' ? 'text-gray-500 line-through' : 'text-white'}`}>{r.name}</span>
               <span className="block text-xs text-gray-500">
                 {r.properties > 1 ? `${r.properties} properties · ${shortMoney(r.totalValueCents)}` : r.property?.valueCents ? shortMoney(r.property.valueCents) : (r.property?.address ?? r.company ?? '')}
                 {r.related?.length ? ` · +${r.related.length} related` : ''}
-                {isSimulated(r) ? ' · Simulated' : ''}
               </span>
               {signal && (
                 <span className="mt-1 inline-flex items-center gap-1 text-xs text-amber-300">
@@ -476,46 +488,33 @@ export const ContactCards: React.FC<{
                 <Empty cell={r.enrichment.phone} onRetry={() => onRetry(r, 'phone')} />
               </div>
             )}
-            {(call || text || email) && (
-              <div className="flex gap-2 px-4 pb-2" data-testid="card-reach">
-                {call && (
-                  <a href={`tel:${call.number}`} className={`${big} bg-[#336699] hover:bg-[#2a5580] text-white`}>
-                    <Phone className="w-4 h-4" /> Call
-                  </a>
-                )}
-                {text && (
-                  <a href={`sms:${text.number}`} className={`${big} border border-[#333333] text-gray-200 hover:bg-[#2A2A2A]`}>
-                    <MessageSquare className="w-4 h-4" /> Text
-                  </a>
-                )}
-                {email && !text && (
-                  <a href={`mailto:${email.email}`} className={`${big} border border-[#333333] text-gray-200 hover:bg-[#2A2A2A]`}>
-                    <Mail className="w-4 h-4" /> Email
-                  </a>
-                )}
-              </div>
-            )}
-            <div className="flex border-t border-[#333333]">
+            <div className="flex gap-2 px-4 pb-3" data-testid="card-actions">
+              {call && (
+                <a href={`tel:${call.number}`} className={`${big} bg-[#336699] hover:bg-[#2a5580] text-white`} data-testid="card-call">
+                  <Phone className="w-4 h-4" /> Call
+                </a>
+              )}
+              {text && (
+                <a href={`sms:${text.number}`} aria-label="Text" title="Text" className={square}>
+                  <MessageSquare className="w-4 h-4" />
+                </a>
+              )}
+              {email && (
+                <a href={`mailto:${email.email}`} aria-label="Email" title="Email" className={square}>
+                  <Mail className="w-4 h-4" />
+                </a>
+              )}
               <button
                 type="button"
                 onClick={() => onLead(r)}
                 disabled={saving === r.id}
-                className={`flex-1 inline-flex items-center justify-center gap-1.5 min-h-[44px] text-sm disabled:opacity-50 ${r.leadId ? 'text-[#7fb0e0] bg-[#336699]/15' : 'text-gray-200 hover:bg-[#1A1A1A]'}`}
+                className={`${call ? 'shrink-0 px-3' : 'flex-1'} inline-flex items-center justify-center gap-1.5 min-h-[44px] text-sm border disabled:opacity-50 ${
+                  r.leadId ? 'text-[#7fb0e0] border-[#336699]/50 bg-[#336699]/15' : 'text-gray-200 border-[#333333] hover:bg-[#2A2A2A]'
+                }`}
                 data-testid="to-leads"
               >
-                {r.leadId ? 'In Leads' : 'Send to Leads'} <ArrowRight className="w-4 h-4" />
+                {r.leadId ? 'In Leads' : 'To Leads'} <ArrowRight className="w-4 h-4" />
               </button>
-              {!r.leadId && (
-                <button
-                  type="button"
-                  onClick={() => void skip(r)}
-                  disabled={saving === r.id}
-                  aria-pressed={r.status === 'skip'}
-                  className={`flex-1 min-h-[44px] text-sm border-l border-[#333333] disabled:opacity-50 ${r.status === 'skip' ? 'text-gray-300 bg-[#1A1A1A]' : 'text-gray-500 hover:bg-[#1A1A1A]'}`}
-                >
-                  {r.status === 'skip' ? 'Skipped' : 'Skip'}
-                </button>
-              )}
             </div>
           </li>
         );
@@ -526,7 +525,6 @@ export const ContactCards: React.FC<{
 
 const dollarsOrFree = (cents?: number) => (cents ? dollars(cents) : 'free');
 /** Any of the owner's results came from the simulated chain (no phone source connected yet). */
-const isSimulated = (r: OutreachContact) => Object.values(r.enrichment).some((c) => c?.simulated);
 /** The ledger's name for a source. */
 const LEDGER_NAME: Record<string, string> = { claude: 'The web, read by Claude' };
 const ledgerName = (s: string) => LEDGER_NAME[s] ?? sourceName(s);

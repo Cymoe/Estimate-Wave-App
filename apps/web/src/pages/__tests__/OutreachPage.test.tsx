@@ -326,40 +326,45 @@ describe('the Outreach page', () => {
     expect(oak).toContain('Dana Reyes · Manager');
     // The best number to call is the one not on the Do Not Call list.
     expect(oak).toContain('(432) 555-0100');
-    const reach = cards[0].querySelector('[data-testid="card-reach"]')!;
-    expect(Array.from(reach.querySelectorAll('a')).map((a) => [a.textContent?.trim(), a.getAttribute('href')])).toEqual([
+    // One row of actions: Call, Text and Email as icons beside it, then To Leads.
+    const reach = cards[0].querySelector('[data-testid="card-actions"]')!;
+    expect(Array.from(reach.querySelectorAll('a')).map((a) => [a.textContent?.trim() || a.getAttribute('aria-label'), a.getAttribute('href')])).toEqual([
       ['Call', 'tel:4325550100'],
       ['Text', 'sms:4325550100'],
+      ['Email', 'mailto:dana@oakplaza.com'],
     ]);
+    expect(reach.querySelector('[data-testid="to-leads"]')!.textContent?.trim()).toBe('To Leads');
     const city = cards[1].textContent!;
     expect(city).toContain('4 properties · $1.2M');
     expect(city).toContain('Code violation Sep 2026');
     expect(city).toContain('Decision maker: not looked up');
     expect(city).toContain('Phone: not looked up');
-    expect(cards[1].querySelector('[data-testid="card-reach"]')).toBeNull();
+    expect(cards[1].querySelectorAll('[data-testid="card-actions"] a')).toHaveLength(0);
     // Skip, and Skip again puts them back; Send to Leads hands them over, and then the button opens the lead.
     const tapCard = async (text: string) => {
       const card = document.body.querySelectorAll('[data-testid="contact-card"]')[0];
       await act(async () => (Array.from(card.querySelectorAll('button')).find((b) => b.textContent?.trim() === text) as HTMLButtonElement).click());
       await flush();
     };
-    const cardButtons = () => Array.from(document.body.querySelectorAll('[data-testid="contact-card"]')[0].querySelectorAll('button')).map((b) => b.textContent?.trim()).slice(-2);
-    expect(cardButtons()).toEqual(['Send to Leads', 'Skip']);
+    const cardButtons = () => Array.from(document.body.querySelectorAll('[data-testid="contact-card"]')[0].querySelectorAll('button')).map((b) => b.textContent?.trim());
+    expect(cardButtons()).toContain('Skip');
     await tapCard('Skip');
     expect(setStatus).toHaveBeenLastCalledWith('o1', 'r1', 'skip', '');
-    expect(cardButtons()).toEqual(['Send to Leads', 'Skipped']);
+    expect(cardButtons()).toContain('Skipped');
     await tapCard('Skipped');
     expect(setStatus).toHaveBeenLastCalledWith('o1', 'r1', 'new', '');
-    await tapCard('Send to Leads');
+    await tapCard('To Leads');
     expect(sendToLeads).toHaveBeenCalledWith('o1', 'r1');
     expect(cardButtons().at(-1)).toBe('In Leads');
-    // The table, a tap away; the choice sticks on this device.
-    // The switch is just an icon, named for screen readers.
+    // Once in Leads there is nothing to skip.
+    expect(cardButtons()).not.toContain('Skip');
+    // The table, a tap away under More; the choice sticks on this device.
     const viewSwitch = async (name: string) => {
-      await act(async () => (document.body.querySelector(`button[aria-label="${name}"]`) as HTMLButtonElement).click());
+      await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
+      await act(async () => (Array.from(document.body.querySelectorAll('[role="menu"] button')).find((b) => b.textContent?.trim() === name) as HTMLButtonElement).click());
       await flush();
     };
-    expect(document.body.querySelector('button[aria-label="Show as a table"]')!.textContent).toBe('');
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
     await viewSwitch('Show as a table');
     expect(document.body.querySelector('[data-testid="contacts-table"]')).not.toBeNull();
     expect(localStorage.getItem('outreach.view')).toBe('table');
@@ -368,6 +373,36 @@ describe('the Outreach page', () => {
     // An owner already in Leads: the button opens their lead.
     await act(async () => (Array.from(document.body.querySelectorAll('[data-testid="contact-card"]')[0].querySelectorAll('button')).find((b) => b.textContent?.trim() === 'In Leads') as HTMLButtonElement).click());
     expect(path).toBe('/leads?lead=lead1');
+  });
+
+  it('on a phone the header is one button and a More menu, and the list, search and a status filter share one line', async () => {
+    narrowScreen = true;
+    lists = [list];
+    contacts = twoContacts();
+    await render('/outreach/l1');
+    const header = document.body.querySelector('[data-testid="actions"]')!;
+    // One thing to do next (with Add funds while the balance is short); the rest waits under More.
+    expect(Array.from(header.querySelectorAll('button')).map((b) => b.textContent?.trim() || b.getAttribute('aria-label'))).toEqual(['Look up 2', 'Add funds', 'More']);
+    await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
+    const more = Array.from(document.body.querySelectorAll('[role="menu"] button')).map((b) => b.textContent?.trim());
+    expect(more).toEqual(expect.arrayContaining(['Send 2 to Leads', 'Show as a table', 'Export CSV', 'Delete list']));
+    // A tap elsewhere closes it.
+    await act(async () => document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    // The list picker and the search sit in the sticky bar; the status is a filter menu with a dot when it narrows.
+    const bar = document.body.querySelector('[data-testid="filter-bar"]')!;
+    expect(bar.querySelector('select[aria-label="List"]')).not.toBeNull();
+    expect(bar.querySelector('select[aria-label="Status"]')).toBeNull();
+    expect(document.body.querySelectorAll('select[aria-label="List"]')).toHaveLength(1);
+    const filter = () => bar.querySelector('button[aria-label="Filter by status"]') as HTMLButtonElement;
+    expect(filter().querySelector('span')).toBeNull();
+    await act(async () => filter().click());
+    expect(Array.from(document.body.querySelectorAll('[role="menu"] button')).map((b) => b.textContent?.trim())).toEqual(['All statuses', 'New', 'In Leads', 'Skipped']);
+    await act(async () => (Array.from(document.body.querySelectorAll('[role="menu"] button')).find((b) => b.textContent?.trim() === 'Skipped') as HTMLButtonElement).click());
+    await flush();
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(filter().querySelector('span')).not.toBeNull();
+    expect(document.body.querySelectorAll('[data-testid="contact-card"]')).toHaveLength(0);
   });
 
   it('shows the contacts table with a chip per list, or says to tap + when there are none', async () => {
