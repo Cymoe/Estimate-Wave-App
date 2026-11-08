@@ -490,13 +490,23 @@ describe('the Outreach page', () => {
     expect(path).toBe('/outreach');
     const dialog = document.body.querySelector('[role="dialog"][aria-label="Ask for a list"]')!;
     expect(dialog).not.toBeNull();
-    // Three short rows under headings, not one pile of chips.
-    const rows = Array.from(dialog.querySelectorAll('[aria-label="Ready-made lists"] [role="group"]')).map((g) => [g.getAttribute('aria-label'), ...Array.from(g.querySelectorAll('button')).map((b) => b.textContent)]);
-    expect(rows).toEqual([
-      ['Commercial and investors', 'Owners of 3+ commercial buildings', 'Shopping center owners', 'Apartment owners', 'Company investors with 5+ properties', 'Property managers'],
-      ['Homeowners', 'Code violations', 'Stalled permits', 'Owned 20+ years', 'Recent buyers', 'Absentee owners', 'Homes over $1M'],
-      ['People who bring work', 'Contractors pulling permits', 'Architects & engineers', 'Homebuilders'],
+    // Three closed rows, not one pile of chips; a row opens to its lists, one row at a time.
+    const headings = () => Array.from(dialog.querySelectorAll('[aria-label="Ready-made lists"] button[aria-expanded]')).map((b) => [b.textContent, b.getAttribute('aria-expanded')]);
+    expect(headings()).toEqual([
+      ['Commercial and investors5 lists', 'false'],
+      ['Homeowners6 lists', 'false'],
+      ['People who bring work3 lists', 'false'],
     ]);
+    const chips = () => Array.from(dialog.querySelectorAll('[aria-label="Ready-made lists"] [role="group"]')).map((g) => [g.getAttribute('aria-label'), ...Array.from(g.querySelectorAll('button')).map((b) => b.textContent)]);
+    expect(chips()).toEqual([]);
+    await click('Commercial and investors');
+    expect(chips()).toEqual([['Commercial and investors', 'Owners of 3+ commercial buildings', 'Shopping center owners', 'Apartment owners', 'Company investors with 5+ properties', 'Property managers']]);
+    await click('Homeowners');
+    expect(chips()).toEqual([['Homeowners', 'Code violations', 'Stalled permits', 'Owned 20+ years', 'Recent buyers', 'Absentee owners', 'Homes over $1M']]);
+    await click('People who bring work');
+    expect(chips()).toEqual([['People who bring work', 'Contractors pulling permits', 'Architects & engineers', 'Homebuilders']]);
+    await click('People who bring work');
+    expect(chips()).toEqual([]);
     const ask = dialog.querySelector('textarea') as HTMLTextAreaElement;
     await act(async () => type(ask, 'shopping center owners in Midland'));
     await click('Build');
@@ -561,20 +571,26 @@ describe('the Outreach page', () => {
       suggestion: { definition: { county: 'Midland', who: 'wealthy', minValueCents: 150_000_000 }, title: 'Homes over $1.5M, Midland' },
     };
     await render('/outreach?new=1');
-    // The first working list is one tap: companies holding five or more, straight to the count, the assistant never asked.
+    // Open the row, tap the list: companies holding five or more, straight to the count, the assistant never asked.
+    await click('Commercial and investors');
     await click('Company investors with 5+ properties');
     expect(preview).toHaveBeenCalledWith('o1', { county: 'Midland', who: 'investor', companyOwned: true, minParcels: 5 });
     expect(interpret).not.toHaveBeenCalled();
     expect(document.body.querySelector('[aria-label="Ready-made lists"] button[aria-pressed="true"]')!.textContent).toBe('Company investors with 5+ properties');
+    // Closed again, the row says which list is picked inside it.
+    await click('Commercial and investors');
+    expect(button('Commercial and investors').textContent).toBe('Commercial and investorsCompany investors with 5+ properties');
     let built = document.body.querySelector('[data-testid="built"]')!;
     expect(built.textContent).toContain('1 owner');
     expect(built.textContent).toContain('Companies holding five or more Midland properties, most first.');
     expect((document.body.querySelector('input#outreach-title') as HTMLInputElement).value).toBe('Company investors with 5+ properties, Midland');
+    await click('People who bring work');
     await click('Contractors pulling permits');
     expect(preview).toHaveBeenLastCalledWith('o1', { county: 'Midland', who: 'contractor' });
     built = document.body.querySelector('[data-testid="built"]')!;
     expect(built.textContent).toContain('the phone and email on their permits come along free');
     expect((document.body.querySelector('input#outreach-title') as HTMLInputElement).value).toBe('Active contractors, Midland');
+    await click('Homeowners');
     await click('Owned 20+ years');
     expect(preview).toHaveBeenLastCalledWith('o1', { county: 'Midland', who: 'long_owned', ownedForDays: 7305 });
     expect((document.body.querySelector('input#outreach-title') as HTMLInputElement).value).toBe('Homes owned 20+ years, Midland');

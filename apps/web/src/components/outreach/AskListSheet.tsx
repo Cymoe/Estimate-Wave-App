@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { ChevronRight } from 'lucide-react';
 import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { outreachAPI, type OutreachDefinition, type OutreachPreviewRow } from '../../lib/api';
 import { defaultTitle, shortMoney } from '../../../convex/lib/outreach';
@@ -72,6 +73,8 @@ export const AskListSheet: React.FC<{
 }> = ({ open, organizationId, onClose, onSaved }) => {
   const [ask, setAsk] = useState('');
   const [preset, setPreset] = useState<string | null>(null);
+  /** The one row of ready-made lists that's open; the sheet opens to just the three headings. */
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [busy, setBusy] = useState<'build' | 'save' | null>(null);
   const [built, setBuilt] = useState<Built | null>(null);
   const [cannot, setCannot] = useState<{ explanation: string; suggestion?: { definition: OutreachDefinition; title: string } } | null>(null);
@@ -81,6 +84,7 @@ export const AskListSheet: React.FC<{
     if (open) return;
     setAsk('');
     setPreset(null);
+    setOpenGroup(null);
     setBuilt(null);
     setCannot(null);
     setError(null);
@@ -156,26 +160,49 @@ export const AskListSheet: React.FC<{
   return (
     <SlideOutDrawer isOpen={open} onClose={onClose} title="Ask for a list" width="lg">
       <div className="p-6 space-y-5">
-        <div className="space-y-4" role="group" aria-label="Ready-made lists">
-          {GROUPS.map((g) => (
-            <div key={g.heading} className="space-y-2" role="group" aria-label={g.heading}>
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">{g.heading}</p>
-              <div className="flex flex-wrap gap-2">
-                {g.presets.map((p) => (
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Who do you want to reach?</p>
+          <div className="border border-[#333333] divide-y divide-[#333333]" role="group" aria-label="Ready-made lists">
+            {GROUPS.map((g) => {
+              const isOpen = openGroup === g.heading;
+              const chosen = g.presets.find((p) => p.label === preset);
+              const id = `outreach-group-${g.heading.toLowerCase().replace(/\W+/g, '-')}`;
+              return (
+                <div key={g.heading}>
                   <button
-                    key={p.label}
                     type="button"
-                    onClick={() => void pick(p)}
-                    disabled={busy !== null}
-                    aria-pressed={preset === p.label}
-                    className={`px-3 py-2 text-sm border disabled:opacity-50 ${preset === p.label ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333333] text-gray-300 hover:bg-[#2A2A2A]'}`}
+                    onClick={() => setOpenGroup(isOpen ? null : g.heading)}
+                    aria-expanded={isOpen}
+                    aria-controls={id}
+                    className="w-full min-h-[48px] flex items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-[#2A2A2A]"
                   >
-                    {p.label}
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-white">{g.heading}</span>
+                      {/* Closed, the row still says what's picked inside it, or how many lists it holds. */}
+                      <span className="block text-xs text-gray-400 truncate">{chosen && !isOpen ? chosen.label : `${g.presets.length} lists`}</span>
+                    </span>
+                    <ChevronRight className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
                   </button>
-                ))}
-              </div>
-            </div>
-          ))}
+                  {isOpen && (
+                    <div id={id} className="flex flex-wrap gap-2 px-3 pb-3" role="group" aria-label={g.heading}>
+                      {g.presets.map((p) => (
+                        <button
+                          key={p.label}
+                          type="button"
+                          onClick={() => void pick(p)}
+                          disabled={busy !== null}
+                          aria-pressed={preset === p.label}
+                          className={`px-3 py-2 text-sm border disabled:opacity-50 ${preset === p.label ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333333] text-gray-300 hover:bg-[#2A2A2A]'}`}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
         <div className="space-y-2">
           <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider" htmlFor="outreach-ask">
