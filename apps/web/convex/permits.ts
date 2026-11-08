@@ -15,7 +15,7 @@ import {
 } from "./_generated/server";
 import { nowIso, requireMember, requireStaff, requireUser } from "./lib/access";
 import { planSummary } from "./marketplace";
-import { FIELDS_VERSION, MIDLAND, PERMIT_FIELDS, monthOf, rowsToPermits } from "./lib/permits";
+import { FIELDS_VERSION, MIDLAND, PERMIT_FIELDS, isOccupancy, monthOf, rowsToPermits } from "./lib/permits";
 import { MIDLAND_ENERGOV, detailsFrom, permitGuid } from "./lib/energov";
 import { MIDLAND_PARCELS, addressKey } from "./lib/parcels";
 
@@ -340,12 +340,14 @@ export const syncNow = action({
 });
 
 const since = (days: number) => new Date(Date.now() - days * DAY_MS).toISOString();
-const recent = (ctx: QueryCtx, from: string) =>
-  ctx.db
-    .query("permits")
-    .withIndex("by_county_and_applied", (q) => q.eq("county", MIDLAND.county).gte("appliedAt", from))
-    .order("desc")
-    .take(1000);
+const recent = async (ctx: QueryCtx, from: string) =>
+  (
+    await ctx.db
+      .query("permits")
+      .withIndex("by_county_and_applied", (q) => q.eq("county", MIDLAND.county).gte("appliedAt", from))
+      .order("desc")
+      .take(1000)
+  ).filter((p) => !isOccupancy(p));
 
 /**
  * Permits applied for near a company in the last `days` (7 to 90), newest

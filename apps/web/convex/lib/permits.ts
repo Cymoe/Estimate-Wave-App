@@ -12,10 +12,15 @@ export const MIDLAND = {
 } as const;
 
 /**
- * Bumped when PERMIT_FIELDS gains a field: the next sync then reads the
+ * Bumped when PERMIT_FIELDS gains a field, or when rowsToPermits starts
+ * keeping a kind of permit it used to drop: the next sync then reads the
  * whole backfill window again, so permits already stored get it too.
  */
-export const FIELDS_VERSION = 2;
+export const FIELDS_VERSION = 3;
+
+/** The permit a business needs to move into a space: it names the business, not the landlord, so it is how Outreach finds tenants. */
+export const OCCUPANCY = "Certificate of Occupancy";
+export const isOccupancy = (p: { name: string }) => p.name === OCCUPANCY;
 
 /** The layer's fields we read. */
 export const PERMIT_FIELDS = [
@@ -97,7 +102,7 @@ const text = (value: unknown): string | undefined => {
 const when = (value: unknown): string | undefined =>
   typeof value === "number" && Number.isFinite(value) ? new Date(value).toISOString() : undefined;
 
-/** The layer's features as permit rows, keeping only building work we list. */
+/** The layer's features as permit rows: building work we list, and certificates of occupancy (no trades of their own; they say who moved in). */
 export function rowsToPermits(features: Feature[]): PermitRow[] {
   const rows: PermitRow[] = [];
   for (const f of features) {
@@ -108,7 +113,7 @@ export function rowsToPermits(features: Feature[]): PermitRow[] {
     if (!permitNumber || !name || !appliedAt) continue;
     const workClass = text(a.PermitWorkClass);
     const trades = tradesForPermit(name, workClass);
-    if (trades.length === 0) continue;
+    if (trades.length === 0 && name !== OCCUPANCY) continue;
     const lat = typeof f.geometry?.y === "number" ? f.geometry.y : undefined;
     const lng = typeof f.geometry?.x === "number" ? f.geometry.x : undefined;
     rows.push({
@@ -123,7 +128,7 @@ export function rowsToPermits(features: Feature[]): PermitRow[] {
       issuedAt: when(a.DateIssued),
       lat,
       lng,
-      residential: residentialFor(name, workClass),
+      residential: name === OCCUPANCY ? false : residentialFor(name, workClass),
       trades,
       url: text(a.URL),
     });

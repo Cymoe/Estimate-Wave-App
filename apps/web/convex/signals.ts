@@ -20,7 +20,7 @@ import {
 } from "./_generated/server";
 import { nowIso, requireStaff } from "./lib/access";
 import { MIDLAND_PARCELS, addressKey, isResidentialUse, looseKey, ownerName } from "./lib/parcels";
-import { MIDLAND } from "./lib/permits";
+import { MIDLAND, isOccupancy } from "./lib/permits";
 import {
   LISTS,
   LIST_KEYS,
@@ -105,6 +105,8 @@ export const stalledPermits = internalQuery({
         .withIndex("by_county_and_applied", (q) => q.eq("county", MIDLAND.county))
         .take(20000)
     )
+      // A certificate of occupancy that lapsed is not work that stopped.
+      .filter((p) => !isOccupancy(p))
       .map(stalledPermitSignal)
       .filter((s): s is SignalRow => s !== null),
 });
