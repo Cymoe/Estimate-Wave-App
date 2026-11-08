@@ -2,7 +2,7 @@ import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { lastSeen, remember } from '../lib/lastSeen';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
-import { CalendarClock, CalendarDays, Download, FileSpreadsheet, Kanban, MoreVertical, Plus, Search, UserPlus } from 'lucide-react';
+import { CalendarClock, CalendarDays, Download, FileSpreadsheet, Kanban, MoreVertical, Plus, Search, Trash2, UserPlus } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { CreateEstimateDrawer } from '../components/estimates/CreateEstimateDrawer';
 import { industriesAPI, leadsAPI } from '../lib/api';
@@ -414,9 +414,9 @@ const LeadsPage: React.FC = () => {
     <div className="min-h-screen bg-[#0A0A0A] text-white">
       <Toast text={toast} />
       {confirmDialog}
-      <div className="p-6">
-        {/* Title row: the page name and the quiet staff pill; on the right, the sample leads and their Remove. */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-4">
+      <div className="p-4 md:p-6">
+        {/* Title row: the page name and the quiet staff pill; on the right, the sample leads and their Remove. On a phone the header names the page and the samples are removed from the menu, so this row isn't needed. */}
+        <div className="hidden md:flex flex-wrap items-center gap-x-4 gap-y-2 mb-4">
           <h1 className="hidden md:block text-xl font-semibold">Leads</h1>
           <WalletPill organizationId={organizationId} />
           {hasSamples && (
@@ -472,8 +472,10 @@ const LeadsPage: React.FC = () => {
           </div>
         ) : (
           <>
-          <div className="flex flex-wrap items-center gap-2 mb-4">
-            <label className="relative flex-1 min-w-[200px] max-w-md">
+          {/* On a phone: two rows, search with the view and menu beside it, then the two filters sharing the width. On a desktop the rows flatten (md:contents) into today's one line. */}
+          <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center mb-3 md:mb-4">
+            <div className="flex items-center gap-2 md:contents">
+            <label className="relative flex-1 min-w-0 md:min-w-[200px] md:max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
               <input
                 type="search"
@@ -485,22 +487,7 @@ const LeadsPage: React.FC = () => {
                 className={`${control} w-full pl-9 pr-3 placeholder-gray-500`}
               />
             </label>
-            <select value={leadFilter} onChange={(e) => setLeadFilter(e.target.value as LeadFilter)} aria-label="Filter leads" className={`${control} px-3`}>
-              {FILTERS.map((f) => (
-                <option key={f.value} value={f.value}>{f.label}</option>
-              ))}
-            </select>
-            <select value={countyFilter} onChange={(e) => setCountyFilter(e.target.value)} aria-label="Filter by county" className={`${control} px-3`}>
-              <option value="">All counties</option>
-              {counties.map(([county, count]) => (
-                <option key={county} value={county}>{county} County ({count})</option>
-              ))}
-              {noCounty > 0 && <option value={NO_COUNTY}>No county ({noCounty})</option>}
-            </select>
-            {(query || leadFilter !== 'all' || countyFilter) && (
-              <span className="text-sm text-gray-400">{visible.length} of {leads.length}</span>
-            )}
-            <div className="ml-auto flex items-center gap-2">
+            <div className="flex items-center gap-2 md:order-last md:ml-auto">
               <div className="flex h-10 border border-[#333333]" role="group" aria-label="View">
                 {([['board', Kanban, 'Board'], ['calendar', CalendarDays, 'Calendar']] as const).map(([key, Icon, label]) => (
                   <button
@@ -536,20 +523,45 @@ const LeadsPage: React.FC = () => {
                     <FileSpreadsheet className="w-3 h-3 mr-3 text-gray-400" />
                     Export to Excel
                   </button>
+                  {hasSamples && (
+                    <button type="button" role="menuitem" onClick={() => { setMenuAt(null); removeSamples(); }} className="w-full flex items-center px-3 py-2 text-sm text-white hover:bg-[#333333] md:hidden">
+                      <Trash2 className="w-3 h-3 mr-3 text-gray-400" />
+                      Remove sample leads
+                    </button>
+                  )}
                 </div>,
                 document.body,
               )}
             </div>
+            </div>
+            <div className="flex items-center gap-2 md:contents">
+            <select value={leadFilter} onChange={(e) => setLeadFilter(e.target.value as LeadFilter)} aria-label="Filter leads" className={`${control} flex-1 min-w-0 md:flex-none px-3`}>
+              {FILTERS.map((f) => (
+                <option key={f.value} value={f.value}>{f.label}</option>
+              ))}
+            </select>
+            <select value={countyFilter} onChange={(e) => setCountyFilter(e.target.value)} aria-label="Filter by county" className={`${control} flex-1 min-w-0 md:flex-none px-3`}>
+              <option value="">All counties</option>
+              {counties.map(([county, count]) => (
+                <option key={county} value={county}>{county} County ({count})</option>
+              ))}
+              {noCounty > 0 && <option value={NO_COUNTY}>No county ({noCounty})</option>}
+            </select>
+            {(query || leadFilter !== 'all' || countyFilter) && (
+              <span className="text-sm text-gray-400 whitespace-nowrap">{visible.length} of {leads.length}</span>
+            )}
+            </div>
           </div>
           {/* Every follow-up that has gone by, in one line, with a way to see just those. */}
           {overdue.length > 0 && (
-            <div className="mb-4 px-4 py-3 border border-amber-500/40 bg-amber-500/10 text-sm flex items-center gap-3" data-testid="follow-up-line">
+            <div className="mb-3 md:mb-4 px-3 md:px-4 py-2.5 md:py-3 border border-amber-500/40 bg-amber-500/10 text-sm flex items-center gap-3" data-testid="follow-up-line">
               <Dot tone="bg-amber-300" />
               <span className="min-w-0 truncate">
                 <span className="font-semibold text-white">
                   {overdue.length} {overdue.length === 1 ? 'lead needs' : 'leads need'} a follow-up
                 </span>
-                <span className="text-gray-400">
+                {/* The names need room; a phone has only the count and the link. */}
+                <span className="hidden sm:inline text-gray-400">
                   {' · '}
                   {overdue.slice(0, 3).map((lead) => lead.name).join(', ')}
                   {overdue.length > 3 ? ` +${overdue.length - 3} more` : ''}
