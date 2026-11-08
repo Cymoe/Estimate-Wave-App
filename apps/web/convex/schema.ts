@@ -451,6 +451,10 @@ export const outreachWho = v.union(
   v.literal("wealthy"),
   v.literal("recent_buyer"),
   v.literal("absentee"),
+  v.literal("long_owned"),
+  v.literal("violation"),
+  v.literal("stalled"),
+  v.literal("contractor"),
   v.literal("custom"),
 );
 
@@ -468,6 +472,9 @@ export const outreachDefinition = v.object({
   zips: v.optional(v.array(v.string())),
   streets: v.optional(v.array(v.string())),
   deedWithinDays: v.optional(v.number()),
+  ownedForDays: v.optional(v.number()),
+  trades: v.optional(v.array(v.string())),
+  withinDays: v.optional(v.number()),
   limit: v.optional(v.number()),
 });
 
@@ -476,6 +483,19 @@ export const outreachProperty = v.object({
   address: v.string(),
   useCode: v.string(),
   valueCents: v.optional(v.number()),
+});
+/** A public record on an owner's property, as the owners rebuild keeps it. */
+export const ownerSignal = v.object({
+  kind: v.union(v.literal("code_violation"), v.literal("dilapidated"), v.literal("demolition"), v.literal("stalled_permit")),
+  detail: v.string(),
+  date: v.string(),
+});
+/** A person a contractor's permits name. */
+export const ownerContact = v.object({
+  role: v.optional(v.string()),
+  person: v.optional(v.string()),
+  phone: v.optional(v.string()),
+  email: v.optional(v.string()),
 });
 
 /**
@@ -1085,7 +1105,8 @@ export default defineSchema({
   owners: defineTable({
     county: v.string(),
     key: v.string(),
-    kind: v.union(v.literal("owner"), v.literal("office")),
+    // A contractor is a company on the city's permits, not an owner on the roll; its parcels are permits.
+    kind: v.union(v.literal("owner"), v.literal("office"), v.literal("contractor")),
     name: v.string(),
     company: v.boolean(),
     mailing: v.object({
@@ -1108,11 +1129,19 @@ export default defineSchema({
     ownerOccupied: v.boolean(),
     outOfState: v.boolean(),
     latestDeed: v.optional(v.string()),
+    // The deed on the home they live in, for the long-owned list.
+    homeDeed: v.optional(v.string()),
     useCodes: v.array(v.string()),
     streets: v.array(v.string()),
     tops: v.record(v.string(), outreachProperty),
     // An office: how many different owners it gets bills for.
     owners: v.optional(v.number()),
+    // The newest public records on their properties (lib/signals.ts), the trades those call for, and when the newest was.
+    signals: v.optional(v.array(ownerSignal)),
+    trades: v.optional(v.array(v.string())),
+    latestAt: v.optional(v.string()),
+    // A contractor: the people its permits name.
+    contacts: v.optional(v.array(ownerContact)),
     buildId: v.string(),
   })
     .index("by_county_and_key", ["county", "key"])

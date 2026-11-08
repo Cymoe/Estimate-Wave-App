@@ -16,19 +16,22 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { outreachDefinition, outreachEmail, outreachField, outreachPerson, outreachPhone, outreachResearch, outreachTry, outreachRowStatus } from "./schema";
+import { outreachDefinition, outreachEmail, outreachField, outreachPerson, outreachPhone, outreachResearch, outreachTry, outreachRowStatus, ownerContact, ownerSignal } from "./schema";
 import { fail, isStaff, logActivity, nowIso, organizationIdsFor, requireMember, requireStaff } from "./lib/access";
 import { mutationDef, queryDef } from "./lib/actor";
 import { callClaude } from "./lib/claude";
 import {
+  CONTRACTOR_DAYS,
   DEFAULT_ROWS,
   MAX_ROWS,
   OUTREACH_INPUT_SCHEMA,
   OWNERS_SOURCE,
   RESEARCH_CENTS,
+  SIGNAL_YEARS,
   UNLOCK_CENTS,
   DEFAULT_RESEARCH_QUESTION,
   WHO_GUIDE,
+  companyKey,
   defaultTitle,
   definitionFromArgs,
   facetFor,
@@ -41,8 +44,10 @@ import {
   underFloor,
   why,
   type Condensed,
+  type CondensedPermit,
   type Definition,
   type Facet,
+  type OwnerContact,
   type OwnerRow,
 } from "./lib/outreach";
 import { MIDLAND_PARCELS, addressKey } from "./lib/parcels";
@@ -84,9 +89,74 @@ export const parcelPage = internalQuery({
   },
 });
 
+/**
+ * One page of the city's records on the roll's parcels, within SIGNAL_YEARS,
+ * each with the parcel it's on: what the violation and stalled lists are
+ * built from. Records not matched to a parcel are skipped.
+ */
+export const signalPage = internalQuery({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, { cursor }) => {
+    const since = new Date(Date.now() - SIGNAL_YEARS * 365 * 24 * 3600_000).toISOString();
+    const page = await ctx.db.query("signals").paginate({ cursor: cursor ?? null, numItems: 500 });
+    const rows: Array<{ parcelId: Id<"parcels">; signal: { kind: Doc<"signals">["kind"]; detail: string; date: string }; property: { parcelId: Id<"parcels">; address: string; useCode: string; valueCents?: number } }> = [];
+    const kept = page.page.filter((s) => s.parcelId && s.county === COUNTY && s.date >= since);
+    const parcels = await Promise.all(kept.map((s) => ctx.db.get(s.parcelId!)));
+    kept.forEach((s, i) => {
+      const p = parcels[i];
+      if (!p) return;
+      rows.push({ parcelId: p._id, signal: { kind: s.kind, detail: s.detail, date: s.date }, property: { parcelId: p._id, address: p.siteAddress, useCode: p.useCode, valueCents: p.marketValueCents } });
+    });
+    return { rows, continueCursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
+/** One page of the permits a company pulled within CONTRACTOR_DAYS, cut down to what grouping contractors needs. */
+export const permitPage = internalQuery({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, { cursor }) => {
+    const since = new Date(Date.now() - CONTRACTOR_DAYS * 24 * 3600_000).toISOString();
+    const page = await ctx.db
+      .query("permits")
+      .withIndex("by_county_and_applied", (q) => q.eq("county", COUNTY).gte("appliedAt", since))
+      .paginate({ cursor: cursor ?? null, numItems: 500 });
+    const rows: CondensedPermit[] = [];
+    for (const p of page.page) {
+      if (!p.builder) continue;
+      const mine = companyKey(p.builder);
+      rows.push({
+        builder: p.builder,
+        trades: p.trades,
+        address: p.address,
+        addressKey: p.addressKey,
+        appliedAt: p.appliedAt,
+        valuationCents: p.valuationCents,
+        residential: p.residential,
+        contacts: (p.contacts ?? []).filter((c) => companyKey(c.company) === mine).map((c) => ({ role: c.role, person: c.person, phone: c.phone, email: c.email })),
+      });
+    }
+    return { rows, continueCursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
+/** The roll's parcel at each address, for a contractor's property; addresses off the roll give nothing. */
+export const parcelsAt = internalQuery({
+  args: { addressKeys: v.array(v.string()) },
+  handler: async (ctx, { addressKeys }) => {
+    const out: Record<string, { parcelId: Id<"parcels">; address: string; useCode: string; valueCents?: number }> = {};
+    await Promise.all(
+      [...new Set(addressKeys)].map(async (key) => {
+        const p = await ctx.db.query("parcels").withIndex("by_county_and_address_key", (q) => q.eq("county", COUNTY).eq("addressKey", key)).first();
+        if (p) out[key] = { parcelId: p._id, address: p.siteAddress, useCode: p.useCode, valueCents: p.marketValueCents };
+      }),
+    );
+    return out;
+  },
+});
+
 const ownerRow = v.object({
   key: v.string(),
-  kind: v.union(v.literal("owner"), v.literal("office")),
+  kind: v.union(v.literal("owner"), v.literal("office"), v.literal("contractor")),
   name: v.string(),
   company: v.boolean(),
   mailing: v.object({ address: v.optional(v.string()), city: v.optional(v.string()), state: v.optional(v.string()), zip: v.optional(v.string()) }),
@@ -103,20 +173,25 @@ const ownerRow = v.object({
   ownerOccupied: v.boolean(),
   outOfState: v.boolean(),
   latestDeed: v.optional(v.string()),
+  homeDeed: v.optional(v.string()),
   useCodes: v.array(v.string()),
   streets: v.array(v.string()),
   tops: v.record(v.string(), v.object({ parcelId: v.id("parcels"), address: v.string(), useCode: v.string(), valueCents: v.optional(v.number()) })),
   owners: v.optional(v.number()),
+  signals: v.optional(v.array(ownerSignal)),
+  trades: v.optional(v.array(v.string())),
+  latestAt: v.optional(v.string()),
+  contacts: v.optional(v.array(ownerContact)),
 });
 const facetRow = v.object({ facet: v.string(), sort: v.number() });
 
 const OWNER_KEYS = [
   "kind", "name", "company", "parcels", "residential", "multifamily", "commercial", "totalValueCents", "maxValueCents",
-  "homeValueCents", "rentalValueCents", "commercialValueCents", "multifamilyValueCents", "ownerOccupied", "outOfState", "latestDeed", "owners",
+  "homeValueCents", "rentalValueCents", "commercialValueCents", "multifamilyValueCents", "ownerOccupied", "outOfState", "latestDeed", "homeDeed", "owners", "latestAt",
 ] as const;
 const sameOwner = (a: Doc<"owners">, b: OwnerRow) =>
   OWNER_KEYS.every((k) => (a[k] ?? undefined) === (b[k] ?? undefined)) &&
-  JSON.stringify([a.mailing, a.useCodes, a.streets, a.tops]) === JSON.stringify([b.mailing, b.useCodes, b.streets, b.tops]);
+  JSON.stringify([a.mailing, a.useCodes, a.streets, a.tops, a.signals, a.trades, a.contacts]) === JSON.stringify([b.mailing, b.useCodes, b.streets, b.tops, b.signals, b.trades, b.contacts]);
 
 /** Writes a batch of owner rows and their facets, stamping them with this build. */
 export const upsertOwners = internalMutation({
@@ -188,7 +263,21 @@ export type ListRow = {
   properties: number;
   totalValueCents: number;
   why: string;
+  /** A contractor: the person, phone and email its permits already name, free. */
+  found?: { person?: Doc<"outreachContacts">["person"]; phones: NonNullable<Doc<"outreachContacts">["phones"]>; emails: NonNullable<Doc<"outreachContacts">["emails"]> };
 };
+
+/** What a contractor's permits already say about who to call: the first named person, every phone and email, all from "permits". */
+export function foundOnPermits(contacts: OwnerContact[] | undefined): ListRow["found"] | undefined {
+  if (!contacts?.length) return undefined;
+  const named = contacts.find((c) => c.person);
+  const who = named?.person ? splitName(named.person, "person") : undefined;
+  const person = who?.first && who.last ? { name: title(`${who.first} ${who.last}`), title: named?.role ? `${title(named.role)} on a permit` : undefined, source: "permits" } : undefined;
+  const phones = [...new Set(contacts.map((c) => c.phone).filter((p): p is string => Boolean(p)))].map((number) => ({ number, type: "unknown" as const, source: "permits" }));
+  const emails = [...new Set(contacts.map((c) => c.email).filter((e): e is string => Boolean(e)))].map((email) => ({ email, source: "permits" }));
+  if (!person && !phones.length && !emails.length) return undefined;
+  return { person, phones, emails };
+}
 
 const rowOf = (o: Doc<"owners">, facet: Facet): ListRow | null => {
   const p = propertyFor(o as unknown as OwnerRow, facet) ?? o.tops.all;
@@ -202,6 +291,7 @@ const rowOf = (o: Doc<"owners">, facet: Facet): ListRow | null => {
     properties: o.parcels,
     totalValueCents: o.totalValueCents,
     why: why(o as unknown as OwnerRow, facet),
+    ...(o.kind === "contractor" ? { found: foundOnPermits(o.contacts) } : {}),
   };
 };
 
@@ -209,8 +299,8 @@ const rowOf = (o: Doc<"owners">, facet: Facet): ListRow | null => {
 const narrows = (def: Definition) =>
   def.who === "wealthy" ||
   def.who === "recent_buyer" ||
-  [def.minValueCents, def.maxValueCents, def.minParcels, def.ownerOccupied, def.companyOwned, def.outOfState, def.deedWithinDays].some((x) => x !== undefined) ||
-  Boolean(def.useCodes?.length || def.zips?.length || def.streets?.length);
+  [def.minValueCents, def.maxValueCents, def.minParcels, def.ownerOccupied, def.companyOwned, def.outOfState, def.deedWithinDays, def.ownedForDays, def.withinDays].some((x) => x !== undefined) ||
+  Boolean(def.useCodes?.length || def.zips?.length || def.streets?.length || def.trades?.length);
 
 /** Owners read in parallel, a hundred at a time, in the facet's order. */
 async function ownersOf(ctx: QueryCtx | MutationCtx, facetRows: Array<Doc<"ownerFacets">>, from: number, to: number): Promise<Array<Doc<"owners"> | null>> {
@@ -386,7 +476,22 @@ async function addRows(ctx: MutationCtx, organizationId: Id<"organizations">, li
         updatedAt: now,
       });
     } else {
-      await ctx.db.insert("outreachContacts", { organizationId, ...row, kinds: [who], listIds: [listId], status: "new", createdAt: now });
+      const { found, ...rest } = row;
+      // A contractor's permits already name who to call: those cells start found, from "permits", at no charge.
+      const given = found
+        ? {
+            person: found.person,
+            phones: found.phones.length ? found.phones : undefined,
+            emails: found.emails.length ? found.emails : undefined,
+            enrichment: {
+              person: found.person ? { status: "found" as const, at: now, source: "permits", tries: [{ source: "permits", outcome: "hit" as const, note: found.person.name }] } : LOCKED,
+              phone: found.phones.length ? { status: "found" as const, at: now, source: "permits", chargedCents: 0, tries: [{ source: "permits", outcome: "hit" as const, note: `${found.phones.length} ${found.phones.length === 1 ? "number" : "numbers"}` }] } : LOCKED,
+              email: found.emails.length ? { status: "found" as const, at: now, source: "permits", tries: [{ source: "permits", outcome: "hit" as const, note: `${found.emails.length} ${found.emails.length === 1 ? "email" : "emails"}` }] } : LOCKED,
+              research: LOCKED,
+            },
+          }
+        : {};
+      await ctx.db.insert("outreachContacts", { organizationId, ...rest, ...given, kinds: [who], listIds: [listId], status: "new", createdAt: now });
       added++;
     }
   }
@@ -1134,15 +1239,6 @@ export const homeAt = internalQuery({
     };
   },
 });
-
-/** "OAK PLAZA LLC" and "Oak Plaza, L.L.C." are one company. */
-const companyKey = (name: string) =>
-  name
-    .toUpperCase()
-    .replace(/[^A-Z0-9 ]/g, " ")
-    .replace(/\b(LLC|L L C|INC|LTD|LP|LLP|CORP|CORPORATION|CO|COMPANY|THE)\b/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 
 /**
  * What the city's permits at a company's property say about the company

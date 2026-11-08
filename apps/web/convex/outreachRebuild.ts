@@ -7,21 +7,21 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { nowIso } from "./lib/access";
-import { AddressCounter, OWNERS_SOURCE, OWNERS_VERSION, OwnerGrouper, type Condensed, type GroupedRow } from "./lib/outreach";
+import { AddressCounter, ContractorGrouper, OWNERS_SOURCE, OWNERS_VERSION, OwnerGrouper, facetsOf, type Condensed, type CondensedPermit, type GroupedRow, type Property } from "./lib/outreach";
 import { MIDLAND_PARCELS } from "./lib/parcels";
 
 const UPSERT_BATCH = 200;
 /** How many upsert batches are in flight at once: they touch different owners, so they don't conflict. */
 const PARALLEL = 6;
 
-type Page = { rows: Condensed[]; continueCursor: string; isDone: boolean };
+type Page<T> = { rows: T[]; continueCursor: string; isDone: boolean };
 
-/** Every parcel on the roll, a page at a time, into `into`. Returns how many. */
-async function readRoll(ctx: ActionCtx, into: { addAll: (rows: Condensed[]) => unknown }): Promise<number> {
+/** Every row of a paged query, a page at a time, into `into`. Returns how many. */
+async function readAll<T>(read: (cursor?: string) => Promise<Page<T>>, into: { addAll: (rows: T[]) => unknown }): Promise<number> {
   let fetched = 0;
   let cursor: string | undefined;
   for (;;) {
-    const page: Page = await ctx.runQuery(internal.outreach.parcelPage, { cursor });
+    const page = await read(cursor);
     into.addAll(page.rows);
     fetched += page.rows.length;
     if (page.isDone) break;
@@ -30,10 +30,35 @@ async function readRoll(ctx: ActionCtx, into: { addAll: (rows: Condensed[]) => u
   return fetched;
 }
 
+/** Every parcel on the roll, a page at a time, into `into`. Returns how many. */
+const readRoll = (ctx: ActionCtx, into: { addAll: (rows: Condensed[]) => unknown }) => readAll<Condensed>((cursor) => ctx.runQuery(internal.outreach.parcelPage, { cursor }), into);
+
+type SignalRow = { parcelId: string; signal: { kind: "code_violation" | "dilapidated" | "demolition" | "stalled_permit"; detail: string; date: string }; property: Property };
+
+/**
+ * The companies on recent permits as owner rows, each given the roll's
+ * parcel at its newest permit address; one with no address on the roll
+ * has nothing to show and is left out.
+ */
+async function contractorRows(ctx: ActionCtx, permits: ContractorGrouper, now: number): Promise<GroupedRow[]> {
+  const rows = permits.rows();
+  const found: Record<string, Property> = await ctx.runQuery(internal.outreach.parcelsAt, { addressKeys: rows.flatMap((r) => r.addressKeys) });
+  const out: GroupedRow[] = [];
+  for (const { owner, addressKeys } of rows) {
+    const key = addressKeys.find((k) => found[k]);
+    if (!key) continue;
+    owner.tops = { all: found[key] };
+    out.push({ owner, facets: facetsOf(owner, now) });
+  }
+  return out;
+}
+
 /**
  * Reads the roll twice (once to find the offices, once to group the
- * owners), streams the rows into the owners table in batches, and drops
- * the ones gone. Records how it went under OWNERS_SOURCE.
+ * owners), attaches the city's records to the owners they're about, adds
+ * the contractors on recent permits, streams the rows into the owners
+ * table in batches, and drops the ones gone. Records how it went under
+ * OWNERS_SOURCE.
  */
 async function rebuildOwners(ctx: ActionCtx) {
   let fetched = 0;
@@ -47,6 +72,12 @@ async function rebuildOwners(ctx: ActionCtx) {
     await readRoll(ctx, counter);
     const grouper = new OwnerGrouper(counter.candidates());
     fetched = await readRoll(ctx, grouper);
+    // The city's records, onto the owners of the parcels they're about.
+    await readAll<SignalRow>((cursor) => ctx.runQuery(internal.outreach.signalPage, { cursor }), { addAll: (rows) => grouper.addSignals(rows) });
+    // The companies on recent permits, as rows of their own.
+    const permits = new ContractorGrouper();
+    await readAll<CondensedPermit>((cursor) => ctx.runQuery(internal.outreach.permitPage, { cursor }), permits);
+    const contractors = await contractorRows(ctx, permits, Date.now());
     // Unique even when two builds share a millisecond: stale rows are the ones with any other id.
     const buildId = `${nowIso()}|${Math.random().toString(36).slice(2, 8)}`;
     let batch: GroupedRow[] = [];
@@ -65,7 +96,11 @@ async function rebuildOwners(ctx: ActionCtx) {
         inFlight = [];
       }
     };
-    for (const row of grouper.rows(Date.now())) {
+    const all = function* () {
+      yield* grouper.rows(Date.now());
+      yield* contractors;
+    };
+    for (const row of all()) {
       for (const f of row.facets) facetCounts[f.facet] = (facetCounts[f.facet] ?? 0) + 1;
       batch.push(row);
       if (batch.length >= UPSERT_BATCH) await flush();
