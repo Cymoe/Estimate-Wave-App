@@ -16,7 +16,9 @@ import { DEFAULT_ROWS, WHO_LABEL, listOrder } from '../../convex/lib/outreach';
 import { callOk, mailOnly, openToLook, sourceName, STATUS_LABEL } from '../components/outreach/format';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-const iconButton = 'w-11 h-11 inline-flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2A2A2A] border border-[#333333]';
+const iconButton = 'w-10 h-10 md:w-11 md:h-11 shrink-0 inline-flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2A2A2A] border border-[#333333]';
+/** A bulk action over the list: one row that slides sideways on a phone, so each stays on one line. */
+const action = 'inline-flex items-center gap-2 px-3 h-10 md:h-11 shrink-0 whitespace-nowrap text-sm font-medium text-white disabled:opacity-50';
 const VIEW_KEY = 'outreach.view';
 const SORT_KEY = 'outreach.sort';
 const BATCH_KEY = 'outreach.batch';
@@ -328,6 +330,8 @@ const OutreachPage: React.FC = () => {
   const [show, setShow] = useState<Show>('all');
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<OutreachContact | null>(null);
+  /** On a phone the staff lines (owners build, data sources) are folded until asked for. */
+  const [staffOpen, setStaffOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -629,31 +633,37 @@ const OutreachPage: React.FC = () => {
     <div className="p-4 md:p-6 space-y-4" data-testid="outreach-page">
       {/* A lookup running, or just finished: a banner across the top of the page, edge to edge. */}
       {data && <LookupProgress rows={data.rows} since={batch?.at} onDismiss={() => keepBatch(null)} className="-mx-4 md:-mx-6 -mt-4 md:-mt-6" />}
-      <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+      {/* On a phone the top bar already says Outreach, and the staff lines fold behind one word; the actions become one row that slides sideways. */}
+      <header className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold text-white">Outreach</h1>
+          <h1 className="hidden md:block text-2xl font-semibold text-white">Outreach</h1>
           {isStaff(user) && (
-            <div className="mt-1 flex flex-wrap items-baseline gap-x-3 text-xs text-gray-500">
-              <OwnersLine />
-              <SourcesPanel organizationId={organizationId} />
+            <div className="md:mt-1 text-xs text-gray-500">
+              <button type="button" onClick={() => setStaffOpen((v) => !v)} aria-expanded={staffOpen} className="md:hidden inline-flex items-center gap-1 min-h-[32px] text-gray-500 hover:text-white">
+                Staff <ChevronDown className={`w-3.5 h-3.5 transition-transform ${staffOpen ? 'rotate-180' : ''}`} />
+              </button>
+              <div className={`${staffOpen ? 'flex' : 'hidden'} md:flex flex-wrap items-baseline gap-x-3`}>
+                <OwnersLine />
+                <SourcesPanel organizationId={organizationId} />
+              </div>
             </div>
           )}
         </div>
         {data && rows.length > 0 && (
-          <div className="flex flex-wrap gap-2 shrink-0">
+          <div className="flex gap-2 shrink-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap md:overflow-visible" data-testid="actions">
             {listOpen.length > 0 && (
               <button
                 type="button"
                 onClick={() => void enrichAll()}
                 disabled={busy || short}
-                className="inline-flex items-center gap-2 px-3 h-11 text-sm font-medium bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50"
+                className={`${action} bg-[#336699] hover:bg-[#2a5580]`}
                 title={estimate(listPhones)}
               >
                 <Lock className="w-4 h-4" /> Look up {listOpen.length}
               </button>
             )}
             {listOpen.length > 0 && short && (
-              <button type="button" onClick={addFunds} className="self-center text-sm text-[#7fb0e0] hover:text-white">
+              <button type="button" onClick={addFunds} className="self-center shrink-0 text-sm text-[#7fb0e0] hover:text-white">
                 Add funds
               </button>
             )}
@@ -662,20 +672,14 @@ const OutreachPage: React.FC = () => {
                 type="button"
                 onClick={() => void researchAll()}
                 disabled={busy || researchCost > balanceCents}
-                className="inline-flex items-center gap-2 px-3 h-11 text-sm font-medium text-white border border-[#336699] hover:bg-[#336699]/20 disabled:opacity-50"
+                className={`${action} border border-[#336699] hover:bg-[#336699]/20`}
                 title={`${dollars(researchCents)} an answer, charged only when the web has something to say`}
               >
                 Research {listResearch.length}
               </button>
             )}
             {toSend.length > 0 && (
-              <button
-                type="button"
-                onClick={() => void sendAll()}
-                disabled={busy}
-                className="inline-flex items-center gap-2 px-3 h-11 text-sm font-medium text-white border border-[#333333] hover:bg-[#2A2A2A] disabled:opacity-50"
-                data-testid="send-all"
-              >
+              <button type="button" onClick={() => void sendAll()} disabled={busy} className={`${action} border border-[#333333] hover:bg-[#2A2A2A]`} data-testid="send-all">
                 Send {toSend.length} to Leads
               </button>
             )}
@@ -722,21 +726,45 @@ const OutreachPage: React.FC = () => {
           </button>
         </div>
       )}
+      {/* The lists: chips on a desktop; on a phone one picker, since several titles of this length are a wall. */}
       {lists && lists.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Lists">
-          <button type="button" onClick={() => navigate('/outreach')} aria-pressed={!listId} className={chip(!listId)}>
-            All
-          </button>
-          {lists.map((l) => (
-            <button key={l.id} type="button" onClick={() => navigate(`/outreach/${l.id}`)} aria-pressed={l.id === listId} className={chip(l.id === listId)} title={`${l.title} · ${WHO_LABEL[l.who]} · ${day(l.createdAt)}`}>
-              <span className="truncate">{l.title}</span> <span className="text-gray-500">{l.rowCount}</span>
+        <>
+          <label className="relative block md:hidden">
+            <select
+              value={listId ?? ''}
+              onChange={(e) => navigate(e.target.value ? `/outreach/${e.target.value}` : '/outreach')}
+              aria-label="List"
+              className="appearance-none w-full h-11 rounded-none bg-[#1A1A1A] border border-[#333333] pl-3 pr-9 text-base text-white truncate focus:outline-none focus:border-[#336699]"
+            >
+              <option value="">All lists</option>
+              {lists.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.title}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" aria-hidden />
+          </label>
+          <div className="hidden md:flex flex-wrap items-center gap-2" role="group" aria-label="Lists">
+            <button type="button" onClick={() => navigate('/outreach')} aria-pressed={!listId} className={chip(!listId)}>
+              All
             </button>
-          ))}
-        </div>
+            {lists.map((l) => (
+              <button key={l.id} type="button" onClick={() => navigate(`/outreach/${l.id}`)} aria-pressed={l.id === listId} className={chip(l.id === listId)} title={`${l.title} · ${WHO_LABEL[l.who]} · ${day(l.createdAt)}`}>
+                <span className="truncate">{l.title}</span> <span className="text-gray-500">{l.rowCount}</span>
+              </button>
+            ))}
+          </div>
+        </>
       )}
       {data && data.rows.length > 0 && list && (
         <p className="text-xs text-gray-500" data-testid="list-line">
-          {WHO_LABEL[list.who]} · {listOrder(list.definition).label} · {list.done} done · asked {day(list.createdAt)}
+          {/* On a phone just what's done and what's left to load; who and the order are in the list's title and the ask. */}
+          <span className="hidden md:inline">
+            {WHO_LABEL[list.who]} · {listOrder(list.definition).label} ·{' '}
+          </span>
+          {list.done} done
+          <span className="hidden md:inline"> · asked {day(list.createdAt)}</span>
           {list.total !== undefined && list.total > list.rowCount && (
             <span data-testid="list-total">
               {' '}

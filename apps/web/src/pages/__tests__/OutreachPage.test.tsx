@@ -635,7 +635,9 @@ describe('the Outreach page', () => {
     expect(document.body.textContent).toContain('1 done');
     expect(document.body.querySelector('[data-testid="contact-row"]')!.textContent).toContain('Skipped');
     // The status picker: New, In Leads, Skipped; nothing to track calls with here.
-    expect(Array.from(document.body.querySelectorAll('select option')).map((o) => o.textContent)).toEqual(['All statuses', 'New', 'In Leads', 'Skipped']);
+    expect(Array.from(document.body.querySelectorAll('select[aria-label="Status"] option')).map((o) => o.textContent)).toEqual(['All statuses', 'New', 'In Leads', 'Skipped']);
+    // On a phone the lists are one picker instead of chips.
+    expect(Array.from(document.body.querySelectorAll('select[aria-label="List"] option')).map((o) => o.textContent)).toEqual(['All lists', 'Shopping center owners']);
 
     // The CSV, for a mail merge.
     const made: string[] = [];
