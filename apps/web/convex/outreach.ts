@@ -36,6 +36,8 @@ import {
   defaultTitle,
   definitionFromArgs,
   designersOn,
+  occupantsOn,
+  type CondensedOccupant,
   facetFor,
   facetsOf,
   familyKey,
@@ -147,24 +149,66 @@ export const permitPage = internalQuery({
   },
 });
 
-/** The roll's parcel at each address, for a contractor's property; addresses off the roll give nothing. */
+/** The roll's parcel at each address, for a company's property, with who owns it; addresses off the roll give nothing. */
 export const parcelsAt = internalQuery({
   args: { addressKeys: v.array(v.string()) },
   handler: async (ctx, { addressKeys }) => {
-    const out: Record<string, { parcelId: Id<"parcels">; address: string; useCode: string; valueCents?: number }> = {};
+    const out: Record<string, { parcelId: Id<"parcels">; address: string; useCode: string; valueCents?: number; owner: string }> = {};
     await Promise.all(
       [...new Set(addressKeys)].map(async (key) => {
         const p = await ctx.db.query("parcels").withIndex("by_county_and_address_key", (q) => q.eq("county", COUNTY).eq("addressKey", key)).first();
-        if (p) out[key] = { parcelId: p._id, address: p.siteAddress, useCode: p.useCode, valueCents: p.marketValueCents };
+        if (p) out[key] = { parcelId: p._id, address: p.siteAddress, useCode: p.useCode, valueCents: p.marketValueCents, owner: p.owner };
       }),
     );
     return out;
   },
 });
 
+/**
+ * One page of the businesses the city's permits since `since` place at an
+ * address: a certificate of occupancy names the business moving in; a
+ * commercial permit's "owner" contact is the tenant when it isn't the deed
+ * holder (OccupantGrouper settles that against the roll). `since` is fixed
+ * once by the caller, as for permitPage.
+ */
+export const occupantPage = internalQuery({
+  args: { since: v.string(), cursor: v.optional(v.string()) },
+  handler: async (ctx, { since, cursor }) => {
+    const page = await ctx.db
+      .query("permits")
+      .withIndex("by_county_and_applied", (q) => q.eq("county", COUNTY).gte("appliedAt", since))
+      .paginate({ cursor: cursor ?? null, numItems: 500 });
+    const rows: CondensedOccupant[] = [];
+    for (const p of page.page) rows.push(...occupantsOn({ name: p.name, detail: p.detail, residential: p.residential, appliedAt: p.appliedAt, address: p.address, addressKey: p.addressKey, builder: p.builder, contacts: p.contacts }));
+    return { rows, continueCursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
+/** One page of the Comptroller's sales-tax outlets that started selling since `since` (lib/outlets.ts), as occupant sightings. */
+export const outletPage = internalQuery({
+  args: { since: v.string(), cursor: v.optional(v.string()) },
+  handler: async (ctx, { since, cursor }) => {
+    const page = await ctx.db
+      .query("outlets")
+      .withIndex("by_county_and_at", (q) => q.eq("county", COUNTY).gte("at", since.slice(0, 10)))
+      .paginate({ cursor: cursor ?? null, numItems: 500 });
+    const rows: CondensedOccupant[] = page.page.map((o) => ({
+      business: o.name,
+      source: "outlet" as const,
+      address: o.address,
+      addressKey: o.addressKey,
+      at: o.at,
+      mailing: o.mailing,
+      taxpayer: o.taxpayer,
+      naics: o.naics,
+    }));
+    return { rows, continueCursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
 const ownerRow = v.object({
   key: v.string(),
-  kind: v.union(v.literal("owner"), v.literal("office"), v.literal("contractor"), v.literal("designer")),
+  kind: v.union(v.literal("owner"), v.literal("office"), v.literal("contractor"), v.literal("designer"), v.literal("occupant")),
   name: v.string(),
   company: v.boolean(),
   mailing: v.object({ address: v.optional(v.string()), city: v.optional(v.string()), state: v.optional(v.string()), zip: v.optional(v.string()) }),
@@ -184,22 +228,25 @@ const ownerRow = v.object({
   homeDeed: v.optional(v.string()),
   useCodes: v.array(v.string()),
   streets: v.array(v.string()),
-  tops: v.record(v.string(), v.object({ parcelId: v.id("parcels"), address: v.string(), useCode: v.string(), valueCents: v.optional(v.number()) })),
+  tops: v.record(v.string(), v.object({ parcelId: v.id("parcels"), address: v.string(), useCode: v.string(), valueCents: v.optional(v.number()), owner: v.optional(v.string()) })),
   owners: v.optional(v.number()),
   signals: v.optional(v.array(ownerSignal)),
   trades: v.optional(v.array(v.string())),
   latestAt: v.optional(v.string()),
   contacts: v.optional(v.array(ownerContact)),
+  sources: v.optional(v.array(v.union(v.literal("occupancy"), v.literal("permit"), v.literal("outlet")))),
+  businessKind: v.optional(v.string()),
+  taxpayer: v.optional(v.string()),
 });
 const facetRow = v.object({ facet: v.string(), sort: v.number() });
 
 const OWNER_KEYS = [
   "kind", "name", "company", "parcels", "residential", "multifamily", "commercial", "totalValueCents", "maxValueCents",
-  "homeValueCents", "rentalValueCents", "commercialValueCents", "multifamilyValueCents", "ownerOccupied", "outOfState", "latestDeed", "homeDeed", "owners", "latestAt",
+  "homeValueCents", "rentalValueCents", "commercialValueCents", "multifamilyValueCents", "ownerOccupied", "outOfState", "latestDeed", "homeDeed", "owners", "latestAt", "businessKind", "taxpayer",
 ] as const;
 const sameOwner = (a: Doc<"owners">, b: OwnerRow) =>
   OWNER_KEYS.every((k) => (a[k] ?? undefined) === (b[k] ?? undefined)) &&
-  JSON.stringify([a.mailing, a.useCodes, a.streets, a.tops, a.signals, a.trades, a.contacts]) === JSON.stringify([b.mailing, b.useCodes, b.streets, b.tops, b.signals, b.trades, b.contacts]);
+  JSON.stringify([a.mailing, a.useCodes, a.streets, a.tops, a.signals, a.trades, a.contacts, a.sources]) === JSON.stringify([b.mailing, b.useCodes, b.streets, b.tops, b.signals, b.trades, b.contacts, b.sources]);
 
 /**
  * An owner's facet rows made to match `facets`, stamped with this build.
@@ -257,7 +304,7 @@ export const upsertOwners = internalMutation({
  * daily pass (outreachRefresh.ts) that ran while this build was writing, and
  * its rows stay. `kind` narrows to the permit companies of one kind.
  */
-async function staleOwners(ctx: MutationCtx, buildId: string, kind?: "contractor" | "designer"): Promise<Doc<"owners">[]> {
+async function staleOwners(ctx: MutationCtx, buildId: string, kind?: "contractor" | "designer" | "occupant"): Promise<Doc<"owners">[]> {
   const sameInstant = `${buildId.split("|")[0]}|\uffff`;
   type Bounds<R> = { lt(field: "buildId", value: string): R; gt(field: "buildId", value: string): { lt(field: "buildId", value: string): R } };
   const take = (side: "before" | "beside", n: number) => {
@@ -290,9 +337,9 @@ export const dropStale = internalMutation({
 
 // ---- The daily records pass (outreachRefresh.ts) ----
 
-/** Drops the permit companies of one kind this pass didn't write: no permit in CONTRACTOR_DAYS any more. Pages itself. */
+/** Drops the companies of one kind this pass didn't write: no permit in CONTRACTOR_DAYS, or no arrival in OCCUPANT_DAYS, any more. Pages itself. */
 export const dropStaleOf = internalMutation({
-  args: { kind: v.union(v.literal("contractor"), v.literal("designer")), buildId: v.string() },
+  args: { kind: v.union(v.literal("contractor"), v.literal("designer"), v.literal("occupant")), buildId: v.string() },
   handler: async (ctx, { kind, buildId }) => {
     const stale = await staleOwners(ctx, buildId, kind);
     if (await dropOwners(ctx, stale)) await ctx.scheduler.runAfter(0, internal.outreach.dropStaleOf, { kind, buildId });
@@ -358,7 +405,7 @@ export type ListRow = {
   properties: number;
   totalValueCents: number;
   why: string;
-  /** A contractor or designer: the person, phone and email its permits already name, free. */
+  /** A contractor, designer or occupant: the person, phone and email its permits already name, free. */
   found?: { person?: Doc<"outreachContacts">["person"]; phones: NonNullable<Doc<"outreachContacts">["phones"]>; emails: NonNullable<Doc<"outreachContacts">["emails"]> };
 };
 
@@ -386,7 +433,7 @@ const rowOf = (o: Doc<"owners">, facet: Facet): ListRow | null => {
     properties: o.parcels,
     totalValueCents: o.totalValueCents,
     why: why(o as unknown as OwnerRow, facet),
-    ...(o.kind === "contractor" || o.kind === "designer" ? { found: foundOnPermits(o.contacts) } : {}),
+    ...(o.kind === "contractor" || o.kind === "designer" || o.kind === "occupant" ? { found: foundOnPermits(o.contacts) } : {}),
   };
 };
 

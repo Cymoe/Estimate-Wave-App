@@ -17,6 +17,7 @@ const GROUPS: Array<{ heading: string; presets: Preset[] }> = [
     presets: [
       { label: 'Owners of 3+ commercial buildings', definition: { county: COUNTY, who: 'portfolio', minParcels: 3 }, explanation: `One owner, several storefronts or buildings: the landlord whose roofs and systems come due in turn, most buildings first. ${NO_PHONES}` },
       { label: 'Shopping center owners', definition: { county: COUNTY, who: 'commercial' }, explanation: `Owners of commercial buildings on the roll, biggest holdings first. ${NO_PHONES}` },
+      { label: 'New businesses moving in', definition: { county: COUNTY, who: 'occupant' }, explanation: 'Businesses that moved into a space they don\'t own in the last year, newest first: from certificates of occupancy, the tenant named on a build-out permit, and state sales-tax permits. Phones on their permits come along free.' },
       { label: 'Apartment owners', definition: { county: COUNTY, who: 'multifamily' }, explanation: `Owners of apartment buildings and multifamily, biggest holdings first. ${NO_PHONES}` },
       { label: 'Company investors with 5+ properties', definition: { county: COUNTY, who: 'investor', companyOwned: true, minParcels: 5 }, explanation: `Companies holding five or more Midland properties, most first. ${NO_PHONES}` },
       { label: 'Property managers', definition: { county: COUNTY, who: 'manager' }, explanation: `Offices that receive the tax bills for several owners' properties. ${NO_PHONES}` },

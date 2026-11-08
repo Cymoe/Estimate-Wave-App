@@ -495,14 +495,14 @@ describe('the Outreach page', () => {
     // Three closed rows, not one pile of chips; a row opens to its lists, one row at a time.
     const headings = () => Array.from(dialog.querySelectorAll('[aria-label="Ready-made lists"] button[aria-expanded]')).map((b) => [b.textContent, b.getAttribute('aria-expanded')]);
     expect(headings()).toEqual([
-      ['Commercial and investors5 lists', 'false'],
+      ['Commercial and investors6 lists', 'false'],
       ['Homeowners6 lists', 'false'],
       ['People who bring work3 lists', 'false'],
     ]);
     const chips = () => Array.from(dialog.querySelectorAll('[aria-label="Ready-made lists"] [role="group"]')).map((g) => [g.getAttribute('aria-label'), ...Array.from(g.querySelectorAll('button')).map((b) => b.textContent)]);
     expect(chips()).toEqual([]);
     await click('Commercial and investors');
-    expect(chips()).toEqual([['Commercial and investors', 'Owners of 3+ commercial buildings', 'Shopping center owners', 'Apartment owners', 'Company investors with 5+ properties', 'Property managers']]);
+    expect(chips()).toEqual([['Commercial and investors', 'Owners of 3+ commercial buildings', 'Shopping center owners', 'New businesses moving in', 'Apartment owners', 'Company investors with 5+ properties', 'Property managers']]);
     await click('Homeowners');
     expect(chips()).toEqual([['Homeowners', 'Code violations', 'Stalled permits', 'Owned 20+ years', 'Recent buyers', 'Absentee owners', 'Homes over $1M']]);
     await click('People who bring work');

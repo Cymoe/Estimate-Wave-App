@@ -6,7 +6,7 @@ import { actAs } from "./lib/actor";
 import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
-import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, ownerKey, parcelsIn, shortMoney, tradesForSignal, underFloor, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
+import { AddressCounter, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
 import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, lineOwner, samePerson, scrubPhones, tracerfyDnc, trestleRealContact, twilioLookup, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { GIVE_UP_ERROR, SAMPLE_LEFT_OUT, UNPAID_ERROR } from "./outreach";
 
@@ -288,6 +288,62 @@ describe("grouping the roll into owners", () => {
     expect(permit([{ role: "Applicant", company: "Basin Electric Inc" }])).toEqual([]);
     expect(permit([{ role: "Applicant", company: "Parkhill" }], { residential: true })).toEqual([]);
     expect(permit([{ role: "Applicant", company: "Parkhill" }], { builder: undefined })).toHaveLength(1);
+  });
+
+  test("the tenant list: the business in the space, from whichever source names it, never the landlord", async () => {
+    const who = (ask: string) => guessDefinition(ask)?.definition;
+    expect(who("new businesses moving in")).toEqual({ county: "Midland", who: "occupant" });
+    expect(who("retail tenants")).toEqual({ county: "Midland", who: "occupant" });
+    expect(who("restaurants opening in the last 90 days")).toEqual({ county: "Midland", who: "occupant", withinDays: 90 });
+    expect(guessDefinition("who just moved in within 6 months")?.title).toBe("Businesses moved in within 183 days, Midland");
+    expect(defaultTitle({ county: "Midland", who: "occupant" })).toBe("New businesses moving in, Midland");
+    // The owner of the building is still the portfolio or commercial list.
+    expect(who("retail shop owners")).toEqual({ county: "Midland", who: "portfolio" });
+    // Who a permit says is there: the certificate names the business (the description when the portal has no contacts); a commercial permit's owner contacts, never the builder.
+    const co = { name: "Certificate of Occupancy", appliedAt: "2026-10-15T15:00:00.000Z", address: "30 WADLEY AV", addressKey: addressKey("30 WADLEY AV") };
+    expect(occupantsOn({ ...co, detail: "Blue Door Boutique" })).toEqual([{ business: "Blue Door Boutique", source: "occupancy", address: "30 WADLEY AV", addressKey: addressKey("30 WADLEY AV"), at: co.appliedAt, contacts: [] }]);
+    expect(occupantsOn({ ...co, detail: "Blue Door Boutique", contacts: [{ role: "Applicant", company: "Blue Door LLC", person: "Elena Rivera", phone: "432-555-0144" }] })[0]).toMatchObject({ business: "Blue Door LLC", contacts: [{ person: "Elena Rivera", phone: "432-555-0144" }] });
+    expect(occupantsOn({ ...co, detail: "Certificate of Occupancy" })).toEqual([]);
+    const job = { name: "Commercial - Building", residential: false, appliedAt: "2026-10-25T15:00:00.000Z", address: "32 WADLEY AV", addressKey: addressKey("32 WADLEY AV"), builder: "GHOST BUILDERS INC" };
+    expect(occupantsOn({ ...job, contacts: [{ role: "Contractor", company: "Ghost Builders Inc" }, { role: "Owner", company: "Desert Dental PLLC", person: "Kim Pham" }, { role: "Architect", company: "Parkhill" }] })).toEqual([{ business: "Desert Dental PLLC", source: "permit", address: "32 WADLEY AV", addressKey: addressKey("32 WADLEY AV"), at: job.appliedAt, contacts: [{ role: "Owner", person: "Kim Pham", phone: undefined, email: undefined }] }]);
+    expect(occupantsOn({ ...job, contacts: [{ role: "Owner", company: "Ghost Builders, Inc." }] })).toEqual([]);
+    expect(occupantsOn({ ...job, residential: true, contacts: [{ role: "Owner", company: "Desert Dental PLLC" }] })).toEqual([]);
+    // The same party under another spelling, or one name inside the other.
+    expect(sameParty("OAK PLAZA LLC", "Oak Plaza, L.L.C.")).toBe(true);
+    expect(sameParty("SMITH JOHN", "John Smith")).toBe(true);
+    expect(sameParty("OAK PLAZA", "OAK PLAZA HOLDINGS LLC")).toBe(true);
+    expect(sameParty("Desert Dental PLLC", "WADLEY SQUARE PARTNERS LP")).toBe(false);
+    // Grouped: the sources for one business merge onto one row (the certificate's spelling wins), a permit "owner" who holds the deed is the landlord and is dropped, a home address is no storefront.
+    const roll: Record<string, { parcelId: string; address: string; useCode: string; valueCents?: number; owner?: string }> = {
+      [addressKey("30 WADLEY AV")]: { parcelId: "p30", address: "30 WADLEY AV", useCode: "F1", valueCents: 80_000_000, owner: "WADLEY SQUARE PARTNERS LP" },
+      [addressKey("12 MIDKIFF RD")]: { parcelId: "p12", address: "12 MIDKIFF RD", useCode: "F1", valueCents: 300_000_000, owner: "OAK PLAZA LLC" },
+      [addressKey("4 SPRUCE AV")]: { parcelId: "p4", address: "4 SPRUCE AV", useCode: "A1", owner: "NUKA HIVA LLC" },
+    };
+    const grouper = new OccupantGrouper().addAll([
+      { business: "BLUE DOOR BOUTIQUE", source: "outlet", address: "30 WADLEY AV", addressKey: addressKey("30 WADLEY AV"), at: "2026-10-20T00:00:00.000Z", taxpayer: "RIVERA ELENA", naics: "448120", mailing: { address: "PO BOX 9", city: "MIDLAND", state: "TX", zip: "79702" } },
+      ...occupantsOn({ ...co, detail: "Blue Door Boutique" }),
+      { business: "Oak Plaza LLC", source: "permit", address: "12 MIDKIFF RD", addressKey: addressKey("12 MIDKIFF RD"), at: "2026-10-05T15:00:00.000Z" },
+      { business: "TACO LOCO LLC", source: "outlet", address: "12 MIDKIFF RD", addressKey: addressKey("12 MIDKIFF RD"), at: "2026-09-01T00:00:00.000Z", taxpayer: "TACO LOCO LLC", naics: "722511" },
+      { business: "HOME BAKES", source: "outlet", address: "4 SPRUCE AV", addressKey: addressKey("4 SPRUCE AV"), at: "2026-10-01T00:00:00.000Z" },
+      { business: "GONE FISHING", source: "outlet", address: "1 NOWHERE LN", addressKey: addressKey("1 NOWHERE LN"), at: "2026-10-01T00:00:00.000Z" },
+    ]);
+    expect(grouper.size).toBe(5);
+    const rows = await grouper.grouped(async () => roll, NOW);
+    expect(rows.map((r) => [r.owner.name, r.owner.tops.all.address, r.owner.sources, r.facets.map((f) => f.facet)])).toEqual([
+      ["Blue Door Boutique", "30 WADLEY AV", ["occupancy", "outlet"], ["occupant"]],
+      ["Taco Loco LLC", "12 MIDKIFF RD", ["outlet"], ["occupant"]],
+    ]);
+    const boutique = rows[0].owner;
+    expect(boutique).toMatchObject({ kind: "occupant", company: true, latestAt: "2026-10-20T00:00:00.000Z", businessKind: "retail", taxpayer: "Rivera Elena", mailing: { city: "MIDLAND", zip: "79702" }, totalValueCents: 80_000_000 });
+    // The person behind the sales-tax permit is somebody to ask for; a company behind its own permit is not.
+    expect(boutique.contacts).toEqual([{ role: "Sales-tax permit holder", person: "Rivera Elena" }]);
+    expect(rows[1].owner.contacts).toBeUndefined();
+    expect(why(boutique, "occupant")).toBe("Moved into 30 Wadley Av Oct 2026, a space they don't own (certificate of occupancy, sales-tax permit); retail, run by Rivera Elena");
+    expect(why(rows[1].owner, "occupant")).toBe("Moved into 12 Midkiff Rd Sep 2026, a space they don't own (sales-tax permit); restaurant");
+    // Newest arrival first; an arrival older than the window is off the facet.
+    expect(rows[0].facets[0].sort).toBeGreaterThan(rows[1].facets[0].sort);
+    expect(facetsOf({ ...boutique, latestAt: "2025-01-01T00:00:00.000Z" }, NOW)).toEqual([]);
+    expect(listOrder({ county: "Midland", who: "occupant" }).label).toBe("newest arrival first");
   });
 
   test("one more record onto a stored owner row, the way the build would have put it", () => {
@@ -1620,8 +1676,18 @@ describe("a company's lists", () => {
       await permit("P-5", "2026-10-05T15:00:00.000Z", "12 MIDKIFF RD", { builder: "GHOST BUILDERS INC", valuationCents: 5_000_000, residential: false, trades: ["general-construction"], contacts: [{ role: "Applicant", company: "Parkhill", person: "Lee Ortiz", phone: "432-555-0199" }, { role: "Owner", company: "Oak Plaza LLC", person: "Dana Reyes" }] });
       await permit("P-3", "2026-01-10T15:00:00.000Z", "2 SPRUCE AV", { builder: "WEST TEXAS ROOFING LLC", valuationCents: 9_000_000 });
       await permit("P-4", "2026-10-20T15:00:00.000Z", "999 NOWHERE LN", { builder: "GHOST BUILDERS INC", trades: ["general-construction"] });
+      // The tenants, from three sources: a certificate of occupancy for a boutique in one of Wadley Square's storefronts; a dentist's build-out permit in another, with the dentist as its "owner"; and the state's sales-tax permits, one for the boutique again and one for a taqueria the city's records never named.
+      await permit("CO-1", "2026-10-15T15:00:00.000Z", "30 WADLEY AV", { name: "Certificate of Occupancy", workClass: "Certificate of Occupancy", detail: "Blue Door Boutique", trades: [], residential: false });
+      await permit("P-7", "2026-10-25T15:00:00.000Z", "32 WADLEY AV", { name: "Commercial - Building", workClass: "Alteration & Repair", trades: ["general-construction"], residential: false, valuationCents: 12_000_000, contacts: [{ role: "Owner", company: "Desert Dental PLLC", person: "Kim Pham", phone: "432-555-0155" }] });
+      const outlet = (taxpayerNumber: string, name: string, address: string, at: string, over: Record<string, unknown> = {}) =>
+        ctx.db.insert("outlets", { county: "Midland", taxpayerNumber, outletNumber: "1", name, address, addressKey: addressKey(address), city: "MIDLAND", at, importedAt: stamp, seenAt: stamp, ...over });
+      await outlet("1", "BLUE DOOR BOUTIQUE", "30 WADLEY AV", "2026-10-20T00:00:00.000Z", { taxpayer: "RIVERA ELENA", naics: "448120", mailing: { address: "PO BOX 9", city: "MIDLAND", state: "TX", zip: "79702" } });
+      await outlet("2", "TACO LOCO LLC", "31 WADLEY AV", "2026-09-01T00:00:00.000Z", { taxpayer: "TACO LOCO LLC", naics: "722511" });
+      // A business run from a home, and one that has sold here for years: neither is a tenant moving in.
+      await outlet("3", "HOME BAKES", "4 SPRUCE AV", "2026-10-01T00:00:00.000Z");
+      await outlet("4", "OLD RELIABLE TIRES", "13 SPRUCE AV", "2019-03-01T00:00:00.000Z");
     });
-    expect(await rebuild(t)).toEqual({ fetched: 23, added: 16, updated: 0, error: undefined });
+    expect(await rebuild(t)).toEqual({ fetched: 23, added: 19, updated: 0, error: undefined });
     await t.run(async (ctx) => {
       const owners = await ctx.db.query("owners").collect();
       const facetsOfName = async (name: string) => {
@@ -1658,6 +1724,13 @@ describe("a company's lists", () => {
       // Three storefronts: a portfolio owner as well as an investor and a commercial owner; the city with four is not.
       expect(await facetsOfName("Wadley Square Partners LP")).toEqual(["commercial", "investor", "portfolio"]);
       expect(await facetsOfName("City Of Midland")).toEqual(["commercial"]);
+      // The tenants: the boutique once, from both sources; the dentist off its permit; the taqueria off its sales-tax permit. Oak Plaza, the "owner" on its own center's permit, is the landlord, not a tenant.
+      expect(owners.filter((o) => o.kind === "occupant").map((o) => [o.name, o.tops.all.address, o.sources, o.latestAt?.slice(0, 10)])).toEqual([
+        ["Blue Door Boutique", "30 WADLEY AV", ["occupancy", "outlet"], "2026-10-20"],
+        ["Desert Dental PLLC", "32 WADLEY AV", ["permit"], "2026-10-25"],
+        ["Taco Loco LLC", "31 WADLEY AV", ["outlet"], "2026-09-01"],
+      ]);
+      expect(await facetsOfName("Blue Door Boutique")).toEqual(["occupant"]);
     });
 
     const co = await proCompany(t);
@@ -1703,6 +1776,19 @@ describe("a company's lists", () => {
     expect(architects.rows.map((r) => [r.name, r.why])).toEqual([["Parkhill", "Applied for 2 commercial permits in the last 180 days, $62,000 of work; General Construction, Roofing"]]);
     expect(architects.rows[0]).toMatchObject({ person: { name: "Lee Ortiz", title: "Architect on a permit", source: "permits" }, phones: [{ number: "4325550199", source: "permits" }], emails: [{ email: "lortiz@parkhill.com", source: "permits" }], enrichment: { phone: { status: "found", chargedCents: 0 } } });
     expect(await co.as.query(api.outreach.preview, { organizationId: org, definition: definitionFromArgs({ who: "designer", trades: ["plumbing"] }) })).toMatchObject({ count: 0, total: 0 });
+    // The tenants, newest arrival first on the preview, each with what its sources gave: the dentist's own phone off the permit, the person behind the boutique's sales-tax permit, the taqueria with its kind of business.
+    const arrivals = await co.as.query(api.outreach.preview, { organizationId: org, definition: definitionFromArgs({ who: "occupant" }) });
+    expect(arrivals.rows.map((r) => [r.name, r.property.address, r.why])).toEqual([
+      ["Desert Dental PLLC", "32 Wadley Av", "Moved into 32 Wadley Av Oct 2026, a space they don't own (named on a permit)"],
+      ["Blue Door Boutique", "30 Wadley Av", "Moved into 30 Wadley Av Oct 2026, a space they don't own (certificate of occupancy, sales-tax permit); retail, run by Rivera Elena"],
+      ["Taco Loco LLC", "31 Wadley Av", "Moved into 31 Wadley Av Sep 2026, a space they don't own (sales-tax permit); restaurant"],
+    ]);
+    const tenants = await pull({ who: "occupant" });
+    expect(tenants.rows.map((r) => r.name)).toEqual(["Blue Door Boutique", "Desert Dental PLLC", "Taco Loco LLC"]);
+    expect(tenants.rows[1]).toMatchObject({ person: { name: "Kim Pham", title: "Owner on a permit", source: "permits" }, phones: [{ number: "4325550155", source: "permits" }], enrichment: { phone: { status: "found", chargedCents: 0 } } });
+    expect(tenants.rows[0]).toMatchObject({ person: { name: "Rivera Elena", title: "Sales-Tax Permit Holder on a permit", source: "permits" }, mailing: { city: "MIDLAND", zip: "79702" } });
+    expect(tenants.rows[0].phones).toEqual([]);
+    expect(await co.as.query(api.outreach.preview, { organizationId: org, definition: definitionFromArgs({ who: "occupant", within_days: 30 }) })).toMatchObject({ count: 2, total: 2 });
 
     // ---- The next morning: the daily pass, without remaking the owners ----
     vi.setSystemTime(Date.parse("2026-11-06T07:00:00.000Z"));
@@ -1721,8 +1807,8 @@ describe("a company's lists", () => {
     });
     const pass = await t.action(internal.outreachRefresh.refresh, {});
     await t.finishAllScheduledFunctions(() => {});
-    // Two records read (one a repeat), five permit rows; one owner given her case, the architect down a permit, one contractor new.
-    expect(pass).toEqual({ fetched: 7, added: 1, updated: 2, error: undefined });
+    // Two records read (one a repeat), five permit rows, two tenant sightings off permits and three outlets in the window; one owner given her case, the architect down a permit, one contractor new, the tenants unchanged.
+    expect(pass).toEqual({ fetched: 12, added: 1, updated: 2, error: undefined });
     await t.run(async (ctx) => {
       const owners = await ctx.db.query("owners").collect();
       const facetsOfName = async (name: string) => {
@@ -1742,8 +1828,9 @@ describe("a company's lists", () => {
       expect(owners.find((o) => o.kind === "designer")).toMatchObject({ name: "Parkhill INC", parcels: 1 });
       // The build's facet counts moved with it, so whole-facet totals stay exact.
       const counts = (await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "midland-owners")).unique())!.facetCounts!;
-      expect(counts).toMatchObject({ violation: 2, stalled: 1, contractor: 2, designer: 1 });
-      expect((await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "midland-owners-records")).unique())!).toMatchObject({ fetched: 7, added: 1, updated: 2 });
+      expect(counts).toMatchObject({ violation: 2, stalled: 1, contractor: 2, designer: 1, occupant: 3 });
+      expect(owners.filter((o) => o.kind === "occupant")).toHaveLength(3);
+      expect((await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "midland-owners-records")).unique())!).toMatchObject({ fetched: 12, added: 1, updated: 2 });
     });
     // On the lists: the new case leads, newest first; the plumber is there to call; the preview's total is exact.
     const since = await co.as.query(api.outreach.preview, { organizationId: org, definition: definitionFromArgs({ who: "violation" }) });

@@ -23,6 +23,7 @@ const KIND: Record<OutreachWho, string> = {
   stalled: 'Stalled',
   contractor: 'Contractor',
   designer: 'Architect',
+  occupant: 'Tenant',
   custom: 'Custom',
 };
 const SIGNAL_LABEL: Record<OutreachSignal['kind'], string> = { code_violation: 'Code violation', dilapidated: 'Dilapidated', demolition: 'Demolition order', stalled_permit: 'Stalled permit' };

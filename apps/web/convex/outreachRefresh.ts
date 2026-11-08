@@ -8,7 +8,7 @@
 // rows a day instead of tens of thousands.
 import { internal } from "./_generated/api";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
-import { ContractorGrouper, OWNERS_SOURCE, REFRESH_SOURCE, newBuildId, permitsSince, type CondensedPermit, type Property } from "./lib/outreach";
+import { ContractorGrouper, OWNERS_SOURCE, OccupantGrouper, REFRESH_SOURCE, newBuildId, occupantsSince, permitsSince, type CondensedOccupant, type CondensedPermit, type Property } from "./lib/outreach";
 
 const UPSERT_BATCH = 200;
 /** Records imported this long before the last pass are read again: the pass and the sync overlap, and a repeat changes nothing. */
@@ -63,11 +63,17 @@ async function refreshRecords(ctx: ActionCtx): Promise<RefreshResult> {
     const designers = new ContractorGrouper("designer");
     const window = permitsSince();
     fetched += await readAll<CondensedPermit>((cursor) => ctx.runQuery(internal.outreach.permitPage, { since: window, cursor }), { addAll: (rows) => { contractors.addAll(rows); designers.addAll(rows); } });
+    // And the tenants, the same way: every source's sightings within the window, grouped afresh.
+    const occupants = new OccupantGrouper();
+    const arrivals = occupantsSince();
+    fetched += await readAll<CondensedOccupant>((cursor) => ctx.runQuery(internal.outreach.occupantPage, { since: arrivals, cursor }), occupants);
+    fetched += await readAll<CondensedOccupant>((cursor) => ctx.runQuery(internal.outreach.outletPage, { since: arrivals, cursor }), occupants);
     const lookup = (addressKeys: string[]): Promise<Record<string, Property>> => ctx.runQuery(internal.outreach.parcelsAt, { addressKeys });
     const set: Record<string, number> = {};
-    for (const grouper of [contractors, designers]) {
+    const groupers: Array<{ kind: "contractor" | "designer" | "occupant"; grouped: typeof contractors.grouped }> = [contractors, designers, { kind: "occupant", grouped: (l) => occupants.grouped(l) }];
+    for (const grouper of groupers) {
       const rows = await grouper.grouped(lookup);
-      set[grouper.kind] = rows.length;
+      set[grouper.kind] = rows.filter((r) => r.facets.some((f) => f.facet === grouper.kind)).length;
       for (let i = 0; i < rows.length; i += UPSERT_BATCH) {
         const result = await ctx.runMutation(internal.outreach.upsertOwners, { rows: rows.slice(i, i + UPSERT_BATCH), buildId });
         added += result.added;

@@ -6,7 +6,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
-import { AddressCounter, ContractorGrouper, OWNERS_SOURCE, OWNERS_VERSION, OwnerGrouper, newBuildId, permitsSince, type Condensed, type CondensedPermit, type GroupedRow, type Property } from "./lib/outreach";
+import { AddressCounter, ContractorGrouper, OWNERS_SOURCE, OWNERS_VERSION, OccupantGrouper, OwnerGrouper, newBuildId, occupantsSince, permitsSince, type Condensed, type CondensedOccupant, type CondensedPermit, type GroupedRow, type Property } from "./lib/outreach";
 import { MIDLAND_PARCELS } from "./lib/parcels";
 
 const UPSERT_BATCH = 200;
@@ -64,6 +64,12 @@ async function rebuildOwners(ctx: ActionCtx) {
     const since = permitsSince();
     await readAll<CondensedPermit>((cursor) => ctx.runQuery(internal.outreach.permitPage, { since, cursor }), { addAll: (rows) => { permits.addAll(rows); designers.addAll(rows); } });
     const contractors = [...(await permits.grouped(parcelsAt(ctx))), ...(await designers.grouped(parcelsAt(ctx)))];
+    // The businesses in spaces they don't own, from whichever source names them: certificates of occupancy, permit "owners", sales-tax permits.
+    const occupants = new OccupantGrouper();
+    const arrivals = occupantsSince();
+    await readAll<CondensedOccupant>((cursor) => ctx.runQuery(internal.outreach.occupantPage, { since: arrivals, cursor }), occupants);
+    await readAll<CondensedOccupant>((cursor) => ctx.runQuery(internal.outreach.outletPage, { since: arrivals, cursor }), occupants);
+    const tenants = await occupants.grouped(parcelsAt(ctx));
     const buildId = newBuildId();
     let batch: GroupedRow[] = [];
     let inFlight: Array<Promise<void>> = [];
@@ -84,6 +90,7 @@ async function rebuildOwners(ctx: ActionCtx) {
     const all = function* () {
       yield* grouper.rows(Date.now());
       yield* contractors;
+      yield* tenants;
     };
     for (const row of all()) {
       for (const f of row.facets) facetCounts[f.facet] = (facetCounts[f.facet] ?? 0) + 1;
