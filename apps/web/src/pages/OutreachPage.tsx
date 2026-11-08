@@ -71,17 +71,39 @@ const OwnersLine: React.FC = () => {
       setBusy(false);
     }
   };
+  /** The daily pass on demand: today's permits and code cases onto the owners, without remaking them all. */
+  const refresh = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const r = await outreachAPI.refresh();
+      setNote(r.error ? `Refresh failed: ${r.error}` : r.skipped ? 'Nothing to refresh until the owners are built.' : `Read ${r.fetched.toLocaleString()} records and permits; ${(r.added + r.updated).toLocaleString()} owners changed.`);
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "The refresh couldn't run");
+    } finally {
+      setBusy(false);
+    }
+  };
   if (state === undefined) return null;
+  const link = 'text-[#7fb0e0] hover:text-white disabled:opacity-50';
   return (
     <span data-testid="owners-line">
       {state === null
         ? "The roll hasn't been grouped into owners yet, so every list is empty."
         : state.error
           ? `The owners rebuild on ${day(state.syncedAt)} failed: ${state.error}`
-          : `Owners grouped ${day(state.syncedAt)} from ${state.parcels.toLocaleString()} parcels.`}{' '}
-      <button type="button" onClick={rebuild} disabled={busy} className="text-[#7fb0e0] hover:text-white disabled:opacity-50">
-        {busy ? 'Rebuilding…' : 'Rebuild owners'}
+          : `Owners grouped ${day(state.syncedAt)} from ${state.parcels.toLocaleString()} parcels${state.records ? (state.records.error ? `; the records pass on ${day(state.records.at)} failed: ${state.records.error}` : `; records added ${day(state.records.at)}`) : ''}.`}{' '}
+      <button type="button" onClick={rebuild} disabled={busy} className={link}>
+        {busy ? 'Working…' : 'Rebuild owners'}
       </button>
+      {state !== null && !busy && (
+        <>
+          {' · '}
+          <button type="button" onClick={refresh} className={link}>
+            Refresh records
+          </button>
+        </>
+      )}
       {note && <span className="block text-gray-400">{note}</span>}
     </span>
   );

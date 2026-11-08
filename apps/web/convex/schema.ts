@@ -1057,7 +1057,9 @@ export default defineSchema({
   })
     .index("by_source_id", ["sourceId"])
     .index("by_parcel", ["parcelId", "date"])
-    .index("by_kind_and_date", ["kind", "date"]),
+    .index("by_kind_and_date", ["kind", "date"])
+    // The daily Outreach pass reads what came in since it last ran.
+    .index("by_county_and_imported", ["county", "importedAt"]),
 
   // Owners with 5 or more Midland homes on the roll ("tired landlords").
   landlords: defineTable({
@@ -1103,7 +1105,8 @@ export default defineSchema({
   // Outreach (lib/outreach.ts): the roll grouped into who owns what. One row
   // per owner and mailing address, or per office that gets the tax bills for
   // several owners' properties. Rebuilt after each weekly roll read; rows
-  // from an older build are dropped.
+  // from an older build are dropped. Between builds, a daily pass folds in
+  // the city's new records and remakes the permit companies (outreachRefresh.ts).
   owners: defineTable({
     county: v.string(),
     key: v.string(),
@@ -1147,7 +1150,9 @@ export default defineSchema({
     buildId: v.string(),
   })
     .index("by_county_and_key", ["county", "key"])
-    .index("by_county_and_build", ["county", "buildId"]),
+    .index("by_county_and_build", ["county", "buildId"])
+    // The daily pass remakes the permit companies alone, and drops the ones it didn't write.
+    .index("by_county_kind_and_build", ["county", "kind", "buildId"]),
 
   // One row per owner and facet (investor, office, commercial…), sorted by
   // what matters for that facet, so a list reads one index top-down.

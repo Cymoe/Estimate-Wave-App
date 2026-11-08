@@ -26,6 +26,8 @@ import {
   MAX_ROWS,
   OUTREACH_INPUT_SCHEMA,
   OWNERS_SOURCE,
+  OwnerGrouper,
+  REFRESH_SOURCE,
   RESEARCH_CENTS,
   SIGNAL_YEARS,
   UNLOCK_CENTS,
@@ -36,6 +38,7 @@ import {
   definitionFromArgs,
   designersOn,
   facetFor,
+  facetsOf,
   familyKey,
   guessDefinition,
   listOrder,
@@ -44,6 +47,7 @@ import {
   propertyFor,
   underFloor,
   why,
+  withSignal,
   type Condensed,
   type CondensedPermit,
   type Definition,
@@ -193,6 +197,29 @@ const sameOwner = (a: Doc<"owners">, b: OwnerRow) =>
   OWNER_KEYS.every((k) => (a[k] ?? undefined) === (b[k] ?? undefined)) &&
   JSON.stringify([a.mailing, a.useCodes, a.streets, a.tops, a.signals, a.trades, a.contacts]) === JSON.stringify([b.mailing, b.useCodes, b.streets, b.tops, b.signals, b.trades, b.contacts]);
 
+/**
+ * An owner's facet rows made to match `facets`, stamped with this build.
+ * Returns how each facet's count moved (a facet gained is +1, one lost -1).
+ */
+async function writeFacets(ctx: MutationCtx, ownerId: Id<"owners">, facets: Array<{ facet: string; sort: number }>, buildId: string): Promise<Record<string, number>> {
+  const delta: Record<string, number> = {};
+  const old = await ctx.db.query("ownerFacets").withIndex("by_owner", (q) => q.eq("ownerId", ownerId)).collect();
+  const same = old.length === facets.length && facets.every((f) => old.some((o) => o.facet === f.facet && o.sort === f.sort));
+  if (same) {
+    for (const o of old) await ctx.db.patch(o._id, { buildId });
+    return delta;
+  }
+  for (const o of old) {
+    delta[o.facet] = (delta[o.facet] ?? 0) - 1;
+    await ctx.db.delete(o._id);
+  }
+  for (const f of facets) {
+    delta[f.facet] = (delta[f.facet] ?? 0) + 1;
+    await ctx.db.insert("ownerFacets", { county: COUNTY, facet: f.facet, ownerId, sort: f.sort, buildId });
+  }
+  return delta;
+}
+
 /** Writes a batch of owner rows and their facets, stamping them with this build. */
 export const upsertOwners = internalMutation({
   args: { rows: v.array(v.object({ owner: ownerRow, facets: v.array(facetRow) })), buildId: v.string() },
@@ -214,41 +241,105 @@ export const upsertOwners = internalMutation({
           updated++;
         }
       }
-      const old = await ctx.db.query("ownerFacets").withIndex("by_owner", (q) => q.eq("ownerId", ownerId)).collect();
-      const same =
-        old.length === facets.length && facets.every((f) => old.some((o) => o.facet === f.facet && o.sort === f.sort));
-      if (same) for (const o of old) await ctx.db.patch(o._id, { buildId });
-      else {
-        for (const o of old) await ctx.db.delete(o._id);
-        for (const f of facets) await ctx.db.insert("ownerFacets", { county: COUNTY, facet: f.facet, ownerId, sort: f.sort, buildId });
-      }
+      await writeFacets(ctx, ownerId, facets, buildId);
     }
     return { added, updated };
   },
 });
 
-/** Drops owners (and their facets) that this build didn't write: no longer on the roll. Pages itself. */
+/**
+ * A page of the owners a build or pass didn't write and should drop: any
+ * earlier id, or the same instant under another id. A strictly later id is a
+ * daily pass (outreachRefresh.ts) that ran while this build was writing, and
+ * its rows stay. `kind` narrows to the permit companies of one kind.
+ */
+async function staleOwners(ctx: MutationCtx, buildId: string, kind?: "contractor" | "designer"): Promise<Doc<"owners">[]> {
+  const sameInstant = `${buildId.split("|")[0]}|\uffff`;
+  type Bounds<R> = { lt(field: "buildId", value: string): R; gt(field: "buildId", value: string): { lt(field: "buildId", value: string): R } };
+  const take = (side: "before" | "beside", n: number) => {
+    const bounds = <R,>(q: Bounds<R>) => (side === "before" ? q.lt("buildId", buildId) : q.gt("buildId", buildId).lt("buildId", sameInstant));
+    return kind
+      ? ctx.db.query("owners").withIndex("by_county_kind_and_build", (q) => bounds(q.eq("county", COUNTY).eq("kind", kind))).take(n)
+      : ctx.db.query("owners").withIndex("by_county_and_build", (q) => bounds(q.eq("county", COUNTY))).take(n);
+  };
+  const before = await take("before", DROP_BATCH);
+  const beside = before.length < DROP_BATCH ? await take("beside", DROP_BATCH - before.length) : [];
+  return [...before, ...beside];
+}
+
+/** Drops a page of owners and their facets. True when there may be more. */
+async function dropOwners(ctx: MutationCtx, stale: Doc<"owners">[]): Promise<boolean> {
+  for (const o of stale) {
+    for (const f of await ctx.db.query("ownerFacets").withIndex("by_owner", (q) => q.eq("ownerId", o._id)).collect()) await ctx.db.delete(f._id);
+    await ctx.db.delete(o._id);
+  }
+  return stale.length === DROP_BATCH;
+}
+
+/** Drops owners (and their facets) this build didn't write: no longer on the roll. Pages itself. */
 export const dropStale = internalMutation({
   args: { buildId: v.string() },
   handler: async (ctx, { buildId }) => {
-    // Every build id but this one, from either side of it on the index.
-    const before = await ctx.db
-      .query("owners")
-      .withIndex("by_county_and_build", (q) => q.eq("county", COUNTY).lt("buildId", buildId))
-      .take(DROP_BATCH);
-    const after =
-      before.length < DROP_BATCH
-        ? await ctx.db
-            .query("owners")
-            .withIndex("by_county_and_build", (q) => q.eq("county", COUNTY).gt("buildId", buildId))
-            .take(DROP_BATCH - before.length)
-        : [];
-    const stale = [...before, ...after];
-    for (const o of stale) {
-      for (const f of await ctx.db.query("ownerFacets").withIndex("by_owner", (q) => q.eq("ownerId", o._id)).collect()) await ctx.db.delete(f._id);
-      await ctx.db.delete(o._id);
+    if (await dropOwners(ctx, await staleOwners(ctx, buildId))) await ctx.scheduler.runAfter(0, internal.outreach.dropStale, { buildId });
+  },
+});
+
+// ---- The daily records pass (outreachRefresh.ts) ----
+
+/** Drops the permit companies of one kind this pass didn't write: no permit in CONTRACTOR_DAYS any more. Pages itself. */
+export const dropStaleOf = internalMutation({
+  args: { kind: v.union(v.literal("contractor"), v.literal("designer")), buildId: v.string() },
+  handler: async (ctx, { kind, buildId }) => {
+    const stale = await staleOwners(ctx, buildId, kind);
+    if (await dropOwners(ctx, stale)) await ctx.scheduler.runAfter(0, internal.outreach.dropStaleOf, { kind, buildId });
+    return stale.length;
+  },
+});
+
+/**
+ * One page of the city's records imported since `since`, folded onto the
+ * owners of the parcels they're about, the way the weekly build folds them:
+ * the row's signals, trades, newest date and "signal" property, and its
+ * violation and stalled facets. Records already on the row change nothing.
+ */
+export const refreshSignals = internalMutation({
+  args: { since: v.string(), cursor: v.optional(v.string()), buildId: v.string() },
+  handler: async (ctx, { since, cursor, buildId }) => {
+    const keep = new Date(Date.now() - SIGNAL_YEARS * 365 * 24 * 3600_000).toISOString();
+    const page = await ctx.db
+      .query("signals")
+      .withIndex("by_county_and_imported", (q) => q.eq("county", COUNTY).gte("importedAt", since))
+      .paginate({ cursor: cursor ?? null, numItems: 200 });
+    const delta: Record<string, number> = {};
+    const touched = new Set<string>();
+    const now = Date.now();
+    for (const s of page.page) {
+      if (!s.parcelId || s.date < keep) continue;
+      const p = await ctx.db.get(s.parcelId);
+      const key = p && OwnerGrouper.keyFor(p);
+      if (!key) continue;
+      const owner = await ctx.db.query("owners").withIndex("by_county_and_key", (q) => q.eq("county", COUNTY).eq("key", key)).first();
+      if (!owner || owner.kind !== "owner") continue;
+      const next = withSignal(owner, { kind: s.kind, detail: s.detail, date: s.date }, { parcelId: p._id, address: p.siteAddress, useCode: p.useCode, valueCents: p.marketValueCents });
+      if (next === owner) continue;
+      await ctx.db.patch(owner._id, { signals: next.signals, trades: next.trades, latestAt: next.latestAt, tops: next.tops, buildId });
+      const moved = await writeFacets(ctx, owner._id, facetsOf(next as unknown as OwnerRow, now), buildId);
+      for (const [facet, n] of Object.entries(moved)) delta[facet] = (delta[facet] ?? 0) + n;
+      touched.add(owner.key);
     }
-    if (stale.length === DROP_BATCH) await ctx.scheduler.runAfter(0, internal.outreach.dropStale, { buildId });
+    return { read: page.page.length, touched: touched.size, delta, continueCursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
+/** Moves the owners build's facet counts (what a whole-facet list reports as its total) after a daily pass: exact counts in `set`, movements in `add`. */
+export const adjustFacetCounts = internalMutation({
+  args: { set: v.optional(v.record(v.string(), v.number())), add: v.optional(v.record(v.string(), v.number())) },
+  handler: async (ctx, { set, add }) => {
+    const sync = await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", OWNERS_SOURCE)).unique();
+    if (!sync?.facetCounts) return;
+    const counts = { ...sync.facetCounts, ...(set ?? {}) };
+    for (const [facet, n] of Object.entries(add ?? {})) counts[facet] = Math.max(0, (counts[facet] ?? 0) + n);
+    await ctx.db.patch(sync._id, { facetCounts: counts });
   },
 });
 
@@ -1728,12 +1819,23 @@ export const interpret = action({
   },
 });
 
-/** For staff: when the owners were last rebuilt, from how many parcels. */
+/** For staff: when the owners were last rebuilt, from how many parcels, and when the daily records pass last ran. */
 export const status = query({
   args: {},
   handler: async (ctx) => {
     await requireStaff(ctx);
-    const sync = await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", OWNERS_SOURCE)).unique();
-    return sync ? { syncedAt: sync.syncedAt, parcels: sync.fetched, owners: sync.added + sync.updated, error: sync.error } : null;
+    const [sync, refresh] = await Promise.all([
+      ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", OWNERS_SOURCE)).unique(),
+      ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", REFRESH_SOURCE)).unique(),
+    ]);
+    if (!sync) return null;
+    return {
+      syncedAt: sync.syncedAt,
+      parcels: sync.fetched,
+      owners: sync.added + sync.updated,
+      error: sync.error,
+      // The daily pass, when it has run since the build: its time, how many owners it touched, or why it failed.
+      ...(refresh && refresh.syncedAt > sync.syncedAt ? { records: { at: refresh.syncedAt, touched: refresh.updated, error: refresh.error } } : {}),
+    };
   },
 });

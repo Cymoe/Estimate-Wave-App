@@ -205,8 +205,12 @@ const property = (p: Condensed): Property => ({ parcelId: p.id, address: p.siteA
 const OFFICE_NAMES = 50;
 /** Where the owners rebuild records how it went (permitSources). */
 export const OWNERS_SOURCE = "midland-owners";
+/** Where the daily records pass (outreachRefresh.ts) records how it went. */
+export const REFRESH_SOURCE = "midland-owners-records";
 /** Bumped when the facets or rows change shape: the deploy rebuilds owners made by an older version. */
 export const OWNERS_VERSION = 5;
+/** A build id for the owners table: the instant it started, then a few random characters, so ids sort by time. */
+export const newBuildId = () => `${new Date().toISOString()}|${Math.random().toString(36).slice(2, 8)}`;
 /** What unlocking a contact's phone and email costs, charged only when the trace finds something. */
 export const UNLOCK_CENTS = 100;
 /** What a research answer costs, charged only when the AI found something worth saying. */
@@ -465,6 +469,12 @@ export class OwnerGrouper {
     return attached;
   }
 
+  /** The owner-row key a parcel folds into, the same one `add` uses. */
+  static keyFor(p: Pick<Condensed, "owner" | "mailing">): string | undefined {
+    const ok = ownerKey(p.owner);
+    return ok ? `${ok}|${mailKey(p.mailing) ?? ""}` : undefined;
+  }
+
   /** The rows, one at a time, each dropped from memory as it goes out. */
   *rows(now = Date.now()): Generator<GroupedRow> {
     for (const [key, g] of this.byOwner) {
@@ -538,6 +548,22 @@ export function tradesForSignals(signals: OwnerSignal[]): string[] {
   const out: string[] = [];
   for (const s of signals) for (const t of tradesForSignal(s)) if (!out.includes(t)) out.push(t);
   return out;
+}
+
+/**
+ * A stored owner row with one more of the city's records on it, the way the
+ * weekly build would have folded it: newest first, SIGNAL_KEEP at most, the
+ * newest one's property as the row's "signal" property, trades and latestAt
+ * redone. Returns the row unchanged when the record is already on it, so the
+ * daily pass can tell a real change from a repeat.
+ */
+export function withSignal<R extends Pick<OwnerRow, "signals" | "trades" | "latestAt" | "tops">>(row: R, signal: OwnerSignal, property: Property): R {
+  const have = row.signals ?? [];
+  if (have.some((s) => s.kind === signal.kind && s.date === signal.date && s.detail === signal.detail)) return row;
+  const signals = [...have, signal].sort((a, b) => b.date.localeCompare(a.date)).slice(0, SIGNAL_KEEP);
+  if (!signals.includes(signal)) return row;
+  const tops = signals[0] === signal ? { ...row.tops, signal: property } : row.tops;
+  return { ...row, signals, trades: tradesForSignals(signals), latestAt: signals[0].date, tops };
 }
 
 /** "OAK PLAZA LLC" and "Oak Plaza, L.L.C." are one company. */
@@ -633,7 +659,7 @@ export function designersOn(permit: { builder?: string; residential?: boolean; c
 export class ContractorGrouper {
   private byCompany = new Map<string, ContractorAcc>();
 
-  constructor(private readonly kind: PermitKind = "contractor") {}
+  constructor(readonly kind: PermitKind = "contractor") {}
 
   add(p: CondensedPermit) {
     if ((p.kind ?? "contractor") !== this.kind) return;
@@ -680,6 +706,24 @@ export class ContractorGrouper {
 
   get size() {
     return this.byCompany.size;
+  }
+
+  /**
+   * Each company as an owner row with its property found through `lookup`
+   * (the roll's parcel at each address key): the one at its newest permit
+   * address that is on the roll. A company with none is left out.
+   */
+  async grouped(lookup: (addressKeys: string[]) => Promise<Record<string, Property>>, now = Date.now()): Promise<GroupedRow[]> {
+    const rows = this.rows();
+    const found = rows.length ? await lookup(rows.flatMap((r) => r.addressKeys)) : {};
+    const out: GroupedRow[] = [];
+    for (const { owner, addressKeys } of rows) {
+      const key = addressKeys.find((k) => found[k]);
+      if (!key) continue;
+      owner.tops = { all: found[key] };
+      out.push({ owner, facets: facetsOf(owner, now) });
+    }
+    return out;
   }
 
   /** Each company as an owner row without its property, and where to look for one. */

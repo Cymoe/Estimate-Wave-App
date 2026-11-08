@@ -1322,9 +1322,10 @@ export const outreachAPI = {
     run('mutation', api.outreach.enrich, defined({ organizationId, contactIds, fields, question })),
   /** Staff: the stack in order, with this company's hit rates and spend. */
   sources: (organizationId: string): Promise<OutreachSource[]> => run('query', api.outreach.sources, { organizationId }),
-  /** Staff: when the owners were last grouped, from how many parcels; and a rebuild. */
-  status: (): Promise<{ syncedAt: string; parcels: number; owners: number; error?: string } | null> => run('query', api.outreach.status, {}),
+  /** Staff: when the owners were last grouped, from how many parcels, and when the daily records pass last ran; a rebuild and a pass on demand. */
+  status: (): Promise<{ syncedAt: string; parcels: number; owners: number; error?: string; records?: { at: string; touched: number; error?: string } } | null> => run('query', api.outreach.status, {}),
   rebuild: (): Promise<{ fetched: number; added: number; updated: number; error?: string }> => run('action', api.outreachRebuild.rebuildNow, {}),
+  refresh: (): Promise<{ skipped?: true; fetched: number; added: number; updated: number; error?: string }> => run('action', api.outreachRefresh.refreshNow, {}),
 };
 
 /** Standing bids by county and service type, and the leads they won or missed. */

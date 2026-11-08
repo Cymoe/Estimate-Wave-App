@@ -75,6 +75,7 @@ const watchContacts = jest.fn((_o: string, _l: string | undefined, onUpdate: (c:
 });
 let ownersState: Record<string, unknown> | null = null;
 const rebuild = jest.fn(async () => ({ fetched: 58_418, added: 44_120, updated: 0 }));
+const refresh = jest.fn(async () => ({ fetched: 1_240, added: 3, updated: 17 }));
 let authUser: Record<string, unknown> = { id: 'u1', role: 'user' };
 jest.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: authUser }) }));
 jest.mock('../../components/market/WalletBar', () => ({ openFundingPage: jest.fn(async () => undefined), fundErrorText: (e: unknown) => String(e) }));
@@ -97,6 +98,7 @@ jest.mock('../../lib/api', () => ({
     sources: (...args: unknown[]) => sources(...(args as [])),
     status: async () => ownersState,
     rebuild: () => rebuild(),
+    refresh: () => refresh(),
   },
 }));
 jest.mock('../../components/layouts/DashboardLayout', () => ({
@@ -822,10 +824,24 @@ describe('the Outreach page', () => {
     await click('Rebuild owners');
     expect(rebuild).toHaveBeenCalled();
     expect(line().textContent).toContain('Grouped 58,418 parcels into owners (44,120 written).');
+    // Before the first build there is nothing for the daily pass to fold into.
+    expect(button('Refresh records')).toBeUndefined();
     document.body.innerHTML = '';
     ownersState = { syncedAt: '2026-11-05T06:40:00Z', parcels: 58_418, owners: 44_120, error: 'JavaScript execution ran out of memory' };
     await render();
     expect(line().textContent).toContain('failed: JavaScript execution ran out of memory');
+    // Built, with the daily pass since: when, and a way to run it now.
+    document.body.innerHTML = '';
+    ownersState = { syncedAt: '2026-11-01T07:30:00Z', parcels: 58_418, owners: 44_120, records: { at: '2026-11-07T07:00:00Z', touched: 17 } };
+    await render();
+    expect(line().textContent).toContain('Owners grouped Nov 1 from 58,418 parcels; records added Nov 7.');
+    await click('Refresh records');
+    expect(refresh).toHaveBeenCalled();
+    expect(line().textContent).toContain('Read 1,240 records and permits; 20 owners changed.');
+    document.body.innerHTML = '';
+    ownersState = { syncedAt: '2026-11-01T07:30:00Z', parcels: 58_418, owners: 44_120, records: { at: '2026-11-07T07:00:00Z', touched: 0, error: 'Too many reads' } };
+    await render();
+    expect(line().textContent).toContain('the records pass on Nov 7 failed: Too many reads');
     // The stack, with this company's numbers.
     sources.mockResolvedValueOnce([
       { name: 'tx-comptroller', fields: ['person'], connected: true, stats: [{ field: 'person', attempts: 4, hits: 3, chargedCents: 0 }] },

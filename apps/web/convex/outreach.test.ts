@@ -6,7 +6,7 @@ import { actAs } from "./lib/actor";
 import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
-import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, ownerKey, parcelsIn, shortMoney, tradesForSignal, underFloor, type Condensed, type OwnerRow } from "./lib/outreach";
+import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, ownerKey, parcelsIn, shortMoney, tradesForSignal, underFloor, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
 import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, lineOwner, samePerson, scrubPhones, tracerfyDnc, trestleRealContact, twilioLookup, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { GIVE_UP_ERROR, SAMPLE_LEFT_OUT, UNPAID_ERROR } from "./outreach";
 
@@ -288,6 +288,26 @@ describe("grouping the roll into owners", () => {
     expect(permit([{ role: "Applicant", company: "Basin Electric Inc" }])).toEqual([]);
     expect(permit([{ role: "Applicant", company: "Parkhill" }], { residential: true })).toEqual([]);
     expect(permit([{ role: "Applicant", company: "Parkhill" }], { builder: undefined })).toHaveLength(1);
+  });
+
+  test("one more record onto a stored owner row, the way the build would have put it", () => {
+    const home = { parcelId: "p1", address: "4 SPRUCE AV", useCode: "A1" };
+    const other = { parcelId: "p2", address: "6 ELM ST", useCode: "A1" };
+    const base = { signals: [{ kind: "code_violation" as const, detail: "High Weeds", date: "2026-06-01T12:00:00.000Z" }], trades: ["outdoor-construction"], latestAt: "2026-06-01T12:00:00.000Z", tops: { home, signal: home } };
+    // Newer: it leads, its home becomes the row's, trades gain what it calls for.
+    const newer = withSignal(base, { kind: "code_violation", detail: "Deteriorated Structure", date: "2026-09-01T12:00:00.000Z" }, other);
+    expect(newer.signals.map((s) => s.detail)).toEqual(["Deteriorated Structure", "High Weeds"]);
+    expect(newer).toMatchObject({ latestAt: "2026-09-01T12:00:00.000Z", trades: ["general-construction", "roofing", "outdoor-construction"], tops: { home, signal: other } });
+    // Older: it files in behind, the row's property stays.
+    const older = withSignal(base, { kind: "stalled_permit", detail: "Pool: Expired", date: "2026-01-01T12:00:00.000Z" }, other);
+    expect(older.signals.map((s) => s.kind)).toEqual(["code_violation", "stalled_permit"]);
+    expect(older.tops.signal).toBe(home);
+    // The same record again is the same row, by identity, so the pass writes nothing.
+    expect(withSignal(base, base.signals[0], other)).toBe(base);
+    // A row already full of newer records: an old one doesn't make the cut, and nothing changes.
+    const full = { ...base, signals: Array.from({ length: 6 }, (_, i) => ({ kind: "code_violation" as const, detail: `Case ${i}`, date: `2026-0${6 - i}-01T12:00:00.000Z` })) };
+    expect(withSignal(full, { kind: "code_violation", detail: "Ancient", date: "2025-01-01T12:00:00.000Z" }, other)).toBe(full);
+    expect(withSignal(full, { kind: "code_violation", detail: "New", date: "2026-07-01T12:00:00.000Z" }, other).signals.map((s) => s.detail)).toEqual(["New", "Case 0", "Case 1", "Case 2", "Case 3", "Case 4"]);
   });
 });
 
@@ -1662,6 +1682,59 @@ describe("a company's lists", () => {
     expect(architects.rows.map((r) => [r.name, r.why])).toEqual([["Parkhill", "Applied for 2 commercial permits in the last 180 days, $62,000 of work; General Construction, Roofing"]]);
     expect(architects.rows[0]).toMatchObject({ person: { name: "Lee Ortiz", title: "Architect on a permit", source: "permits" }, phones: [{ number: "4325550199", source: "permits" }], emails: [{ email: "lortiz@parkhill.com", source: "permits" }], enrichment: { phone: { status: "found", chargedCents: 0 } } });
     expect(await co.as.query(api.outreach.preview, { organizationId: org, definition: definitionFromArgs({ who: "designer", trades: ["plumbing"] }) })).toMatchObject({ count: 0, total: 0 });
+
+    // ---- The next morning: the daily pass, without remaking the owners ----
+    vi.setSystemTime(Date.parse("2026-11-06T07:00:00.000Z"));
+    const buildOf = async (name: string) => t.run(async (ctx) => (await ctx.db.query("owners").filter((q) => q.eq(q.field("name"), name)).first())!.buildId);
+    const weekly = await buildOf("Nuka Hiva LLC");
+    await t.run(async (ctx) => {
+      const stamp = "2026-11-06T06:45:00.000Z";
+      // A new case on Dorothy Hale's home; the case on Nuka Hiva's came through the sync again, unchanged.
+      await ctx.db.insert("signals", { county: "Midland", parcelId: ids["20"], address: "20 SPRUCE AV", kind: "code_violation", detail: "Deteriorated Structure", caseNumber: "C-3", date: "2026-11-04T12:00:00.000Z", sourceId: "code:3", importedAt: stamp });
+      const repeat = (await ctx.db.query("signals").withIndex("by_source_id", (q) => q.eq("sourceId", "code:1")).unique())!;
+      await ctx.db.patch(repeat._id, { importedAt: stamp });
+      // A plumber's first permit; and Ghost Builders' one job on the roll is gone (as when the window moves past it).
+      await ctx.db.insert("permits", { source: "midland", permitNumber: "P-6", name: "Residential - Building", workClass: "Alteration & Repair", county: "Midland", city: "Midland", appliedAt: "2026-11-05T16:00:00.000Z", address: "6 ELM ST", addressKey: addressKey("6 ELM ST"), trades: ["plumbing"], residential: true, importedAt: stamp, builder: "BASIN PLUMBING LLC", valuationCents: 450_000, contacts: [{ role: "Contractor", company: "Basin Plumbing LLC", person: "Gil Baca", phone: "432-555-0177" }] });
+      const gone = (await ctx.db.query("permits").filter((q) => q.eq(q.field("permitNumber"), "P-5")).unique())!;
+      await ctx.db.delete(gone._id);
+    });
+    const pass = await t.action(internal.outreachRefresh.refresh, {});
+    await t.finishAllScheduledFunctions(() => {});
+    // Two records read (one a repeat), five permit rows; one owner given her case, the architect down a permit, one contractor new.
+    expect(pass).toEqual({ fetched: 7, added: 1, updated: 2, error: undefined });
+    await t.run(async (ctx) => {
+      const owners = await ctx.db.query("owners").collect();
+      const facetsOfName = async (name: string) => {
+        const o = owners.find((x) => x.name === name)!;
+        return (await ctx.db.query("ownerFacets").withIndex("by_owner", (q) => q.eq("ownerId", o._id)).collect()).map((f) => f.facet).sort();
+      };
+      const hale = owners.find((o) => o.name === "Hale Dorothy")!;
+      expect(hale.signals!.map((s) => [s.detail, s.date.slice(0, 10)])).toEqual([["Deteriorated Structure", "2026-11-04"]]);
+      expect(hale.tops.signal!.address).toBe("20 SPRUCE AV");
+      expect(await facetsOfName("Hale Dorothy")).toEqual(["homeowner", "long_owned", "violation"]);
+      // The repeat changed nothing: Nuka Hiva's row is the weekly build's, untouched.
+      const nuka = owners.find((o) => o.name === "Nuka Hiva LLC")!;
+      expect(nuka.signals).toHaveLength(2);
+      expect(nuka.buildId).toBe(weekly);
+      expect(hale.buildId).not.toBe(weekly);
+      expect(owners.filter((o) => o.kind === "contractor").map((o) => o.name).sort()).toEqual(["Basin Plumbing LLC", "West Texas Roofing LLC"]);
+      expect(owners.find((o) => o.kind === "designer")).toMatchObject({ name: "Parkhill INC", parcels: 1 });
+      // The build's facet counts moved with it, so whole-facet totals stay exact.
+      const counts = (await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "midland-owners")).unique())!.facetCounts!;
+      expect(counts).toMatchObject({ violation: 2, stalled: 1, contractor: 2, designer: 1 });
+      expect((await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "midland-owners-records")).unique())!).toMatchObject({ fetched: 7, added: 1, updated: 2 });
+    });
+    // On the lists: the new case leads, newest first; the plumber is there to call; the preview's total is exact.
+    const since = await co.as.query(api.outreach.preview, { organizationId: org, definition: definitionFromArgs({ who: "violation" }) });
+    expect(since).toMatchObject({ count: 2, total: 2 });
+    expect(since.rows.map((r) => [r.name, r.why])).toEqual([["Hale Dorothy", "Code violation Nov 2026: Deteriorated Structure"], ["Nuka Hiva LLC", "Code violation Sep 2026: Deteriorated Structure; 2 records since Jun 2026"]]);
+    const plumbers = await pull({ who: "contractor", trades: ["plumbing"] });
+    expect(plumbers.rows.map((r) => [r.name, r.property.address, r.phones])).toEqual([["Basin Plumbing LLC", "6 Elm St", [{ number: "4325550177", type: "unknown", source: "permits" }]]]);
+    // Staff see the pass on the status line, once it has run since the build.
+    expect(await co.as.query(api.outreach.status, {}).catch(() => "staff only")).toBe("staff only");
+    // Nothing to do before the owners exist.
+    await t.run(async (ctx) => { for (const s of await ctx.db.query("permitSources").collect()) await ctx.db.delete(s._id); });
+    expect(await t.action(internal.outreachRefresh.refresh, {})).toEqual({ skipped: true, fetched: 0, added: 0, updated: 0 });
   });
 
   test("a long facet is read top-down to the limit, and says so when it's cut", async () => {
