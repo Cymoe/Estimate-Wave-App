@@ -447,6 +447,7 @@ export const outreachWho = v.union(
   v.literal("builder"),
   v.literal("manager"),
   v.literal("commercial"),
+  v.literal("portfolio"),
   v.literal("multifamily"),
   v.literal("wealthy"),
   v.literal("recent_buyer"),
@@ -455,6 +456,7 @@ export const outreachWho = v.union(
   v.literal("violation"),
   v.literal("stalled"),
   v.literal("contractor"),
+  v.literal("designer"),
   v.literal("custom"),
 );
 
@@ -1105,8 +1107,8 @@ export default defineSchema({
   owners: defineTable({
     county: v.string(),
     key: v.string(),
-    // A contractor is a company on the city's permits, not an owner on the roll; its parcels are permits.
-    kind: v.union(v.literal("owner"), v.literal("office"), v.literal("contractor")),
+    // A contractor or designer is a company on the city's permits, not an owner on the roll; its parcels are permits.
+    kind: v.union(v.literal("owner"), v.literal("office"), v.literal("contractor"), v.literal("designer")),
     name: v.string(),
     company: v.boolean(),
     mailing: v.object({

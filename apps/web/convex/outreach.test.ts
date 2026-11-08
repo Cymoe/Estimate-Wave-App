@@ -6,7 +6,7 @@ import { actAs } from "./lib/actor";
 import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
-import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, ownerKey, parcelsIn, shortMoney, tradesForSignal, underFloor, type Condensed, type OwnerRow } from "./lib/outreach";
+import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, ownerKey, parcelsIn, shortMoney, tradesForSignal, underFloor, type Condensed, type OwnerRow } from "./lib/outreach";
 import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, lineOwner, samePerson, scrubPhones, tracerfyDnc, trestleRealContact, twilioLookup, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { GIVE_UP_ERROR, SAMPLE_LEFT_OUT, UNPAID_ERROR } from "./outreach";
 
@@ -136,10 +136,13 @@ describe("grouping the roll into owners", () => {
     for (const name of ["Midland County", "Midland County Hospital District", "Midland Independent School District", "Permian Basin Municipal Utility District", "Midland Memorial Foundation", "First Federal Credit Union", "Fairview Cemetery"]) {
       expect(facets(name), name).toEqual(["commercial"]);
     }
-    // A company with a government word inside its name is still an investor.
+    // A company with a government word inside its name is still an investor; with 28 buildings it's a portfolio owner too, where the city with as many is not.
     for (const name of ["County Line Investments LLC", "District Holdings LLC", "Federal Street Partners LP"]) {
-      expect(facets(name), name).toEqual(["investor", "commercial"]);
+      expect(facets(name), name).toEqual(["investor", "commercial", "portfolio"]);
     }
+    expect(facetsOf(holder("District Holdings LLC"), NOW).find((f) => f.facet === "portfolio")!.sort).toBe(28 * 1e9 + 1e9 - 1);
+    expect(underFloor(holder("District Holdings LLC"), { county: "Midland", who: "portfolio", minParcels: 30 }, "portfolio")).toBe(true);
+    expect(matches({ ...holder("District Holdings LLC"), parcels: 30, commercial: 2 }, { county: "Midland", who: "portfolio", minParcels: 3 }, "portfolio", NOW)).toBe(false);
     // Read top-down by holdings, an investor list with a floor stops at the first owner under it; by value, the rest do.
     const four = { ...holder("Four Corners LLC"), parcels: 4 };
     expect(underFloor(four, { county: "Midland", who: "investor", minParcels: 5 }, "investor")).toBe(true);
@@ -256,6 +259,35 @@ describe("grouping the roll into owners", () => {
     expect(tradesForSignal({ kind: "code_violation", detail: "Illegal Sign" })).toEqual([]);
     expect(tradesForSignal({ kind: "stalled_permit", detail: "Pool: Expired - after 6 month" })).toEqual(["outdoor-construction", "concrete"]);
     expect(tradesForSignal({ kind: "demolition", detail: "Residential, Full" })).toEqual(["general-construction"]);
+  });
+
+  test("the upstream lists from their words: one owner with several buildings, and the architects and engineers on commercial permits", () => {
+    const who = (ask: string) => guessDefinition(ask)?.definition;
+    const title = (ask: string) => guessDefinition(ask)?.title;
+    expect(who("retail shop owners")).toEqual({ county: "Midland", who: "portfolio" });
+    expect(who("owners of retail stores")).toEqual({ county: "Midland", who: "portfolio" });
+    expect(who("storefront owners with 3+ buildings")).toEqual({ county: "Midland", who: "portfolio", minParcels: 3 });
+    expect(title("storefront owners with 3+ buildings")).toBe("Commercial portfolio owners with 3+ buildings, Midland");
+    expect(who("companies that own several commercial buildings")).toEqual({ county: "Midland", who: "portfolio", companyOwned: true });
+    expect(who("commercial portfolios over $2M")).toEqual({ county: "Midland", who: "portfolio", minValueCents: 200_000_000 });
+    // A shopping center is still the commercial list.
+    expect(who("shopping center owners")).toEqual({ county: "Midland", who: "commercial" });
+    expect(who("architects")).toEqual({ county: "Midland", who: "designer" });
+    expect(who("engineering firms on commercial permits")).toEqual({ county: "Midland", who: "designer" });
+    expect(who("who's drawing the plans")).toEqual({ county: "Midland", who: "designer" });
+    expect(who("architects with 2+ permits")).toEqual({ county: "Midland", who: "designer", minParcels: 2 });
+    expect(title("architects with 2+ permits")).toBe("Architects and engineers with 2+ permits, Midland");
+    expect(definitionFromArgs({ who: "portfolio", min_parcels: 4 })).toEqual({ county: "Midland", who: "portfolio", minParcels: 4 });
+    expect(definitionFromArgs({ who: "designer", within_days: 60 })).toEqual({ county: "Midland", who: "designer", withinDays: 60 });
+    // Who on a permit counts as the designer: a role that says so, or an applicant that is neither the owner nor the builder nor named like a trade.
+    const permit = (contacts: Array<{ role: string; company?: string; person?: string; phone?: string }>, over: { builder?: string; residential?: boolean } = {}) => designersOn({ builder: "WEST TEXAS ROOFING LLC", residential: false, contacts, ...over });
+    expect(permit([{ role: "Architect", company: "Parkhill", person: "Lee Ortiz", phone: "4325550199" }, { role: "Owner", company: "Oak Plaza LLC" }])).toEqual([{ company: "Parkhill", contacts: [{ role: "Architect", person: "Lee Ortiz", phone: "4325550199", email: undefined }] }]);
+    expect(permit([{ role: "Applicant", company: "Rhotenberry Wellen Architects", person: "Mark Wellen" }])).toEqual([{ company: "Rhotenberry Wellen Architects", contacts: [{ role: "Applicant", person: "Mark Wellen", phone: undefined, email: undefined }] }]);
+    expect(permit([{ role: "Applicant", company: "West Texas Roofing, LLC", person: "Ray Soto" }])).toEqual([]);
+    expect(permit([{ role: "Applicant", company: "Oak Plaza LLC" }, { role: "Owner", company: "Oak Plaza LLC" }])).toEqual([]);
+    expect(permit([{ role: "Applicant", company: "Basin Electric Inc" }])).toEqual([]);
+    expect(permit([{ role: "Applicant", company: "Parkhill" }], { residential: true })).toEqual([]);
+    expect(permit([{ role: "Applicant", company: "Parkhill" }], { builder: undefined })).toHaveLength(1);
   });
 });
 
@@ -1524,8 +1556,9 @@ describe("a company's lists", () => {
   test("the records lists: violations by what they call for, stalled permits, contractors with their permits' contacts free, and long-held homes", async () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     const t = setup();
-    // One more home, held since 2001.
-    const ids = await addParcels(t, [...ROLL, parcel("20", { owner: "HALE DOROTHY", deedDate: "2001-05-10", marketValueCents: 25_000_000 })]);
+    // One more home, held since 2001; and a landlord with three storefronts on Wadley.
+    const storefront = (id: string, cents: number) => parcel(id, { owner: "WADLEY SQUARE PARTNERS LP", companyOwned: true, ownerOccupied: false, useCode: "F1", siteAddress: `${id} WADLEY AV`, street: "WADLEY AV", marketValueCents: cents, mailing: { address: "9 OAK ST", city: "MIDLAND", state: "TX", zip: "79705" } });
+    const ids = await addParcels(t, [...ROLL, parcel("20", { owner: "HALE DOROTHY", deedDate: "2001-05-10", marketValueCents: 25_000_000 }), storefront("30", 80_000_000), storefront("31", 60_000_000), storefront("32", 40_000_000)]);
     await t.run(async (ctx) => {
       const stamp = "2026-11-01T07:20:00.000Z";
       // The city's records: a deteriorated structure on one of Nuka Hiva's homes (newest first on the row), weeds on another, a stalled pool permit at Oak Plaza, and an old case that no longer counts.
@@ -1541,11 +1574,13 @@ describe("a company's lists", () => {
         { role: "Owner", company: "Oak Plaza LLC", person: "Dana Reyes", phone: "432-555-0100" },
       ];
       await permit("P-1", "2026-10-01T15:00:00.000Z", "12 MIDKIFF RD", { builder: "WEST TEXAS ROOFING LLC", valuationCents: 1_800_000, contacts: roofer });
-      await permit("P-2", "2026-09-10T15:00:00.000Z", "1 SPRUCE AV", { builder: "West Texas Roofing, LLC", valuationCents: 1_200_000, residential: false, trades: ["roofing", "general-construction"], contacts: [{ role: "Contractor", company: "West Texas Roofing LLC", person: "Ray Soto", phone: "4325550123" }, { role: "Applicant", company: "West Texas Roofing LLC", person: "Ana Soto", email: "ana@wtroofing.com" }] });
+      await permit("P-2", "2026-09-10T15:00:00.000Z", "1 SPRUCE AV", { builder: "West Texas Roofing, LLC", valuationCents: 1_200_000, residential: false, trades: ["roofing", "general-construction"], contacts: [{ role: "Contractor", company: "West Texas Roofing LLC", person: "Ray Soto", phone: "4325550123" }, { role: "Applicant", company: "West Texas Roofing LLC", person: "Ana Soto", email: "ana@wtroofing.com" }, { role: "Architect", company: "Parkhill Inc", person: "Lee Ortiz", phone: "(432) 555-0199", email: "LOrtiz@Parkhill.com" }] });
+      // A second commercial job the same architect applied for, with a different builder; the owner is on it too.
+      await permit("P-5", "2026-10-05T15:00:00.000Z", "12 MIDKIFF RD", { builder: "GHOST BUILDERS INC", valuationCents: 5_000_000, residential: false, trades: ["general-construction"], contacts: [{ role: "Applicant", company: "Parkhill", person: "Lee Ortiz", phone: "432-555-0199" }, { role: "Owner", company: "Oak Plaza LLC", person: "Dana Reyes" }] });
       await permit("P-3", "2026-01-10T15:00:00.000Z", "2 SPRUCE AV", { builder: "WEST TEXAS ROOFING LLC", valuationCents: 9_000_000 });
       await permit("P-4", "2026-10-20T15:00:00.000Z", "999 NOWHERE LN", { builder: "GHOST BUILDERS INC", trades: ["general-construction"] });
     });
-    expect(await rebuild(t)).toEqual({ fetched: 20, added: 13, updated: 0, error: undefined });
+    expect(await rebuild(t)).toEqual({ fetched: 23, added: 16, updated: 0, error: undefined });
     await t.run(async (ctx) => {
       const owners = await ctx.db.query("owners").collect();
       const facetsOfName = async (name: string) => {
@@ -1570,8 +1605,18 @@ describe("a company's lists", () => {
         { role: "Applicant", person: "Ana Soto", email: "ana@wtroofing.com" },
       ]);
       expect(roofer.tops.all.address).toBe("12 MIDKIFF RD");
-      expect(owners.filter((o) => o.kind === "contractor")).toHaveLength(1);
+      // Ghost Builders' first job is off the roll, its second is on it: a row from the second alone.
+      expect(owners.filter((o) => o.kind === "contractor").map((o) => [o.name, o.parcels, o.tops.all.address])).toEqual([["West Texas Roofing LLC", 2, "12 MIDKIFF RD"], ["Ghost Builders INC", 2, "12 MIDKIFF RD"]]);
       expect(await facetsOfName("West Texas Roofing LLC")).toEqual(["contractor"]);
+      // The architect: two commercial permits under two spellings, one row, her own contacts only, the property from her newest permit.
+      const architect = owners.find((o) => o.kind === "designer")!;
+      expect(architect).toMatchObject({ name: "Parkhill", company: true, parcels: 2, commercial: 2, totalValueCents: 6_200_000, trades: ["general-construction", "roofing"], latestAt: "2026-10-05T15:00:00.000Z" });
+      expect(architect.contacts).toEqual([{ role: "Architect", person: "Lee Ortiz", phone: "4325550199", email: "lortiz@parkhill.com" }]);
+      expect(architect.tops.all.address).toBe("12 MIDKIFF RD");
+      expect(await facetsOfName("Parkhill")).toEqual(["designer"]);
+      // Three storefronts: a portfolio owner as well as an investor and a commercial owner; the city with four is not.
+      expect(await facetsOfName("Wadley Square Partners LP")).toEqual(["commercial", "investor", "portfolio"]);
+      expect(await facetsOfName("City Of Midland")).toEqual(["commercial"]);
     });
 
     const co = await proCompany(t);
@@ -1609,6 +1654,14 @@ describe("a company's lists", () => {
     // Sent to Leads, the permit's phone goes along.
     const leadId = await co.as.mutation(api.outreach.sendToLeads, { organizationId: org, contactId: roofer.id });
     expect(await t.run(async (ctx) => ctx.db.get(leadId))).toMatchObject({ name: "Ray Soto", company: "West Texas Roofing LLC", phone: "4325550123", email: "ray@wtroofing.com" });
+    // Upstream of the work: the landlord with several buildings, and the architect, with her number off the permit.
+    const landlords = await pull({ who: "portfolio", min_parcels: 3 });
+    expect(landlords.rows.map((r) => [r.name, r.property.address, r.properties, r.why])).toEqual([["Wadley Square Partners LP", "30 Wadley Av", 3, "Owns 3 commercial buildings, the biggest worth $800K"]]);
+    expect(await co.as.query(api.outreach.preview, { organizationId: org, definition: definitionFromArgs({ who: "portfolio", min_parcels: 4 }) })).toMatchObject({ count: 0, total: 0 });
+    const architects = await pull({ who: "designer" });
+    expect(architects.rows.map((r) => [r.name, r.why])).toEqual([["Parkhill", "Applied for 2 commercial permits in the last 180 days, $62,000 of work; General Construction, Roofing"]]);
+    expect(architects.rows[0]).toMatchObject({ person: { name: "Lee Ortiz", title: "Architect on a permit", source: "permits" }, phones: [{ number: "4325550199", source: "permits" }], emails: [{ email: "lortiz@parkhill.com", source: "permits" }], enrichment: { phone: { status: "found", chargedCents: 0 } } });
+    expect(await co.as.query(api.outreach.preview, { organizationId: org, definition: definitionFromArgs({ who: "designer", trades: ["plumbing"] }) })).toMatchObject({ count: 0, total: 0 });
   });
 
   test("a long facet is read top-down to the limit, and says so when it's cut", async () => {

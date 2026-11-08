@@ -74,10 +74,11 @@ async function rebuildOwners(ctx: ActionCtx) {
     fetched = await readRoll(ctx, grouper);
     // The city's records, onto the owners of the parcels they're about.
     await readAll<SignalRow>((cursor) => ctx.runQuery(internal.outreach.signalPage, { cursor }), { addAll: (rows) => grouper.addSignals(rows) });
-    // The companies on recent permits, as rows of their own.
+    // The companies on recent permits, as rows of their own: the builders, and the architects and engineers who applied.
     const permits = new ContractorGrouper();
-    await readAll<CondensedPermit>((cursor) => ctx.runQuery(internal.outreach.permitPage, { cursor }), permits);
-    const contractors = await contractorRows(ctx, permits, Date.now());
+    const designers = new ContractorGrouper("designer");
+    await readAll<CondensedPermit>((cursor) => ctx.runQuery(internal.outreach.permitPage, { cursor }), { addAll: (rows) => { permits.addAll(rows); designers.addAll(rows); } });
+    const contractors = [...(await contractorRows(ctx, permits, Date.now())), ...(await contractorRows(ctx, designers, Date.now()))];
     // Unique even when two builds share a millisecond: stale rows are the ones with any other id.
     const buildId = `${nowIso()}|${Math.random().toString(36).slice(2, 8)}`;
     let batch: GroupedRow[] = [];

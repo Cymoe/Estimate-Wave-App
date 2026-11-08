@@ -13,6 +13,8 @@ const NO_PHONES = 'Names and mailing addresses; no phone numbers.';
 const PRESETS: Preset[] = [
   { label: 'Company investors with 5+ properties', definition: { county: COUNTY, who: 'investor', companyOwned: true, minParcels: 5 }, explanation: `Companies holding five or more Midland properties, most first. ${NO_PHONES}` },
   { label: 'Shopping center owners', definition: { county: COUNTY, who: 'commercial' }, explanation: `Owners of commercial buildings on the roll, biggest holdings first. ${NO_PHONES}` },
+  { label: 'Owners of 3+ commercial buildings', definition: { county: COUNTY, who: 'portfolio', minParcels: 3 }, explanation: `One owner, several storefronts or buildings: the landlord whose roofs and systems come due in turn, most buildings first. ${NO_PHONES}` },
+  { label: 'Architects & engineers on permits', definition: { county: COUNTY, who: 'designer' }, explanation: 'Design firms named on commercial permits in the last 180 days, busiest first; the phone and email on their permits come along free.' },
   { label: 'Apartment owners', definition: { county: COUNTY, who: 'multifamily' }, explanation: `Owners of apartment buildings and multifamily, biggest holdings first. ${NO_PHONES}` },
   { label: 'Homes with code violations', definition: { county: COUNTY, who: 'violation' }, explanation: `Owners the city cited in the last two years, newest case first, with the trade each case calls for. ${NO_PHONES}` },
   { label: 'Stalled permits', definition: { county: COUNTY, who: 'stalled' }, explanation: `Owners whose permit expired before the work was finished, newest first. ${NO_PHONES}` },

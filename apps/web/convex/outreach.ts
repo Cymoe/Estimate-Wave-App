@@ -34,6 +34,7 @@ import {
   companyKey,
   defaultTitle,
   definitionFromArgs,
+  designersOn,
   facetFor,
   familyKey,
   guessDefinition,
@@ -122,18 +123,17 @@ export const permitPage = internalQuery({
       .paginate({ cursor: cursor ?? null, numItems: 500 });
     const rows: CondensedPermit[] = [];
     for (const p of page.page) {
-      if (!p.builder) continue;
-      const mine = companyKey(p.builder);
-      rows.push({
-        builder: p.builder,
-        trades: p.trades,
-        address: p.address,
-        addressKey: p.addressKey,
-        appliedAt: p.appliedAt,
-        valuationCents: p.valuationCents,
-        residential: p.residential,
-        contacts: (p.contacts ?? []).filter((c) => companyKey(c.company) === mine).map((c) => ({ role: c.role, person: c.person, phone: c.phone, email: c.email })),
-      });
+      const about = { trades: p.trades, address: p.address, addressKey: p.addressKey, appliedAt: p.appliedAt, valuationCents: p.valuationCents, residential: p.residential };
+      if (p.builder) {
+        const mine = companyKey(p.builder);
+        rows.push({
+          builder: p.builder,
+          ...about,
+          contacts: (p.contacts ?? []).filter((c) => companyKey(c.company) === mine).map((c) => ({ role: c.role, person: c.person, phone: c.phone, email: c.email })),
+        });
+      }
+      // The architect or engineer on a commercial permit, as a row of its own.
+      for (const d of designersOn(p)) rows.push({ builder: d.company, kind: "designer", ...about, contacts: d.contacts });
     }
     return { rows, continueCursor: page.continueCursor, isDone: page.isDone };
   },
@@ -156,7 +156,7 @@ export const parcelsAt = internalQuery({
 
 const ownerRow = v.object({
   key: v.string(),
-  kind: v.union(v.literal("owner"), v.literal("office"), v.literal("contractor")),
+  kind: v.union(v.literal("owner"), v.literal("office"), v.literal("contractor"), v.literal("designer")),
   name: v.string(),
   company: v.boolean(),
   mailing: v.object({ address: v.optional(v.string()), city: v.optional(v.string()), state: v.optional(v.string()), zip: v.optional(v.string()) }),
@@ -263,7 +263,7 @@ export type ListRow = {
   properties: number;
   totalValueCents: number;
   why: string;
-  /** A contractor: the person, phone and email its permits already name, free. */
+  /** A contractor or designer: the person, phone and email its permits already name, free. */
   found?: { person?: Doc<"outreachContacts">["person"]; phones: NonNullable<Doc<"outreachContacts">["phones"]>; emails: NonNullable<Doc<"outreachContacts">["emails"]> };
 };
 
@@ -291,7 +291,7 @@ const rowOf = (o: Doc<"owners">, facet: Facet): ListRow | null => {
     properties: o.parcels,
     totalValueCents: o.totalValueCents,
     why: why(o as unknown as OwnerRow, facet),
-    ...(o.kind === "contractor" ? { found: foundOnPermits(o.contacts) } : {}),
+    ...(o.kind === "contractor" || o.kind === "designer" ? { found: foundOnPermits(o.contacts) } : {}),
   };
 };
 

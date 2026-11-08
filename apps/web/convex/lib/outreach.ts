@@ -35,8 +35,8 @@ export type OwnerContact = { role?: string; person?: string; phone?: string; ema
 
 export type OwnerRow = {
   key: string;
-  /** Contractor: a company on the city's permits, not an owner on the roll; its parcels are permits. */
-  kind: "owner" | "office" | "contractor";
+  /** Contractor or designer: a company on the city's permits, not an owner on the roll; its parcels are permits. A designer is the architect or engineer applying. */
+  kind: "owner" | "office" | "contractor" | "designer";
   name: string;
   company: boolean;
   mailing: Mailing;
@@ -69,10 +69,10 @@ export type OwnerRow = {
   contacts?: OwnerContact[];
 };
 
-export const FACETS = ["investor", "builder", "office", "commercial", "multifamily", "homeowner", "absentee", "out_of_state", "buyer", "long_owned", "violation", "stalled", "contractor"] as const;
+export const FACETS = ["investor", "builder", "office", "commercial", "portfolio", "multifamily", "homeowner", "absentee", "out_of_state", "buyer", "long_owned", "violation", "stalled", "contractor", "designer"] as const;
 export type Facet = (typeof FACETS)[number];
 
-export const WHO = ["investor", "builder", "manager", "commercial", "multifamily", "wealthy", "recent_buyer", "absentee", "long_owned", "violation", "stalled", "contractor", "custom"] as const;
+export const WHO = ["investor", "builder", "manager", "commercial", "portfolio", "multifamily", "wealthy", "recent_buyer", "absentee", "long_owned", "violation", "stalled", "contractor", "designer", "custom"] as const;
 export type Who = (typeof WHO)[number];
 
 export type Definition = {
@@ -81,6 +81,7 @@ export type Definition = {
   useCodes?: string[];
   minValueCents?: number;
   maxValueCents?: number;
+  /** How many they hold at least: properties, or for portfolio owners commercial buildings, or for contractors and designers permits. */
   minParcels?: number;
   ownerOccupied?: boolean;
   companyOwned?: boolean;
@@ -111,6 +112,8 @@ export const LONG_OWNED_YEARS = 20;
 export const SIGNAL_YEARS = 2;
 /** Permits this recent make a company an active contractor. */
 export const CONTRACTOR_DAYS = 180;
+/** This many commercial buildings make a portfolio owner: the landlord with the storefronts, whose roofs and systems come up in turn. */
+export const PORTFOLIO_BUILDINGS = 2;
 /** How many signals an owner row keeps, newest first. */
 export const SIGNAL_KEEP = 6;
 /** How many permit contacts a contractor row keeps. */
@@ -203,7 +206,7 @@ const OFFICE_NAMES = 50;
 /** Where the owners rebuild records how it went (permitSources). */
 export const OWNERS_SOURCE = "midland-owners";
 /** Bumped when the facets or rows change shape: the deploy rebuilds owners made by an older version. */
-export const OWNERS_VERSION = 4;
+export const OWNERS_VERSION = 5;
 /** What unlocking a contact's phone and email costs, charged only when the trace finds something. */
 export const UNLOCK_CENTS = 100;
 /** What a research answer costs, charged only when the AI found something worth saying. */
@@ -349,9 +352,9 @@ function rowFor(acc: Acc, name: string, company: boolean): OwnerRow {
 /** The facets an owner row is on, each with what it's sorted by. */
 export function facetsOf(row: OwnerRow, now: number): Array<{ facet: Facet; sort: number }> {
   const out: Array<{ facet: Facet; sort: number }> = [];
-  if (row.kind === "contractor") {
+  if (row.kind === "contractor" || row.kind === "designer") {
     // Most permits first, then the most work by value.
-    out.push({ facet: "contractor", sort: row.parcels * 1e9 + Math.min(row.totalValueCents, 1e9 - 1) });
+    out.push({ facet: row.kind, sort: row.parcels * 1e9 + Math.min(row.totalValueCents, 1e9 - 1) });
   } else if (row.kind === "office") {
     out.push({ facet: "office", sort: row.parcels });
   } else {
@@ -371,6 +374,8 @@ export function facetsOf(row: OwnerRow, now: number): Array<{ facet: Facet; sort
     // Three or more properties, or any company holding property: an LLC with one shopping center is an investor too. Builders are their own list.
     if (holder) out.push({ facet: BUILDER.test(upper) ? "builder" : "investor", sort: row.parcels * 1e9 + Math.min(row.totalValueCents, 1e9 - 1) });
     if (row.commercial > 0) out.push({ facet: "commercial", sort: row.commercialValueCents ?? 0 });
+    // Several commercial buildings in private hands (the city and the districts bid their work): the most first, then by what they're worth.
+    if (row.commercial >= PORTFOLIO_BUILDINGS && !NOT_INVESTOR.test(upper)) out.push({ facet: "portfolio", sort: row.commercial * 1e9 + Math.min(row.commercialValueCents ?? 0, 1e9 - 1) });
     if (row.multifamily > 0) out.push({ facet: "multifamily", sort: row.multifamilyValueCents ?? 0 });
     if (row.homeValueCents !== undefined && !row.company) out.push({ facet: "homeowner", sort: row.homeValueCents });
     if (row.rentalValueCents !== undefined && !row.company) {
@@ -544,9 +549,14 @@ export const companyKey = (name: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-/** One permit as the rebuild reads it: the company on it, and what it tells about them. */
+/** A company's part on a permit: the contractor building it, or the designer (architect, engineer) who applied for it. */
+export type PermitKind = "contractor" | "designer";
+
+/** One permit as the rebuild reads it: a company on it, and what it tells about them. */
 export type CondensedPermit = {
+  /** The company this row is about: the builder, or for a designer row the firm that applied. */
   builder: string;
+  kind?: PermitKind;
   trades: string[];
   address?: string;
   addressKey?: string;
@@ -578,21 +588,60 @@ const digits10 = (phone: string | undefined) => {
   return n.length === 10 ? n : undefined;
 };
 
+/** A contact's role that says they drew the plans. */
+const DESIGNER_ROLE = /architect|engineer|design/i;
+const APPLICANT_ROLE = /applicant/i;
+const OWNER_ROLE = /owner|tenant/i;
+/** A company name that says it builds rather than designs: an applicant with one of these is a contractor applying for itself. */
+const TRADE_NAME = /\b(CONSTRUCTION|CONTRACTORS?|CONTRACTING|BUILDERS?|HOMES|ROOFING|ELECTRIC(AL)?|PLUMBING|HVAC|MECHANICAL|AIR|CONCRETE|PAINTING|REMODEL(ING)?|FENCE|POOLS?|SIGNS?)\b/;
+
+export type PermitContact = { role?: string; company?: string; person?: string; phone?: string; email?: string };
+
 /**
- * The companies on the city's permits, grouped: how much they're building,
- * for whom, and the people the permits name. Not owners on the roll, but
- * who a sub or a supplier sells to. `rows` leaves the property for the
- * action to fill from the roll (`addressKeys`, newest first).
+ * The design firms on a commercial permit: a contact whose role says
+ * architect or engineer, or the applicant when it's a separate company
+ * from the owner and the builder and isn't named like a trade. Each with
+ * the permit's contacts for that company. Residential permits are left
+ * alone: the applicant there is the homeowner or the builder.
+ */
+export function designersOn(permit: { builder?: string; residential?: boolean; contacts?: PermitContact[] }): Array<{ company: string; contacts: OwnerContact[] }> {
+  if (permit.residential !== false) return [];
+  const contacts = permit.contacts ?? [];
+  const builder = permit.builder ? companyKey(permit.builder) : "";
+  const owners = new Set(contacts.filter((c) => c.role && OWNER_ROLE.test(c.role)).map((c) => companyKey(c.company ?? "")).filter(Boolean));
+  const firms = new Map<string, string>();
+  for (const c of contacts) {
+    if (!c.company || !c.role) continue;
+    const key = companyKey(c.company);
+    if (!key || key === builder || owners.has(key)) continue;
+    const designer = DESIGNER_ROLE.test(c.role) || (APPLICANT_ROLE.test(c.role) && !TRADE_NAME.test(key));
+    if (designer && !firms.has(key)) firms.set(key, c.company);
+  }
+  return [...firms].map(([key, company]) => ({
+    company,
+    contacts: contacts.filter((c) => companyKey(c.company ?? "") === key).map((c) => ({ role: c.role, person: c.person, phone: c.phone, email: c.email })),
+  }));
+}
+
+/**
+ * The companies on the city's permits, grouped: how much they're building
+ * (or, for designers, drawing), for whom, and the people the permits name.
+ * Not owners on the roll, but who a sub or a supplier sells to. `rows`
+ * leaves the property for the action to fill from the roll (`addressKeys`,
+ * newest first).
  */
 export class ContractorGrouper {
   private byCompany = new Map<string, ContractorAcc>();
 
+  constructor(private readonly kind: PermitKind = "contractor") {}
+
   add(p: CondensedPermit) {
+    if ((p.kind ?? "contractor") !== this.kind) return;
     const key = companyKey(p.builder);
     if (!key) return;
     let c = this.byCompany.get(key);
     if (!c) {
-      c = { key: `contractor:${key}`, name: p.builder, permits: 0, residential: 0, commercial: 0, total: 0, max: 0, trades: [], latestAt: p.appliedAt, addressKeys: [], contacts: [] };
+      c = { key: `${this.kind}:${key}`, name: p.builder, permits: 0, residential: 0, commercial: 0, total: 0, max: 0, trades: [], latestAt: p.appliedAt, addressKeys: [], contacts: [] };
       this.byCompany.set(key, c);
     }
     c.permits++;
@@ -638,7 +687,7 @@ export class ContractorGrouper {
     return [...this.byCompany.values()].map((c) => ({
       owner: {
         key: c.key,
-        kind: "contractor",
+        kind: this.kind,
         name: displayName(c.name),
         company: true,
         mailing: {},
@@ -675,6 +724,8 @@ export function facetFor(def: Definition): Facet {
       return "office";
     case "commercial":
       return "commercial";
+    case "portfolio":
+      return "portfolio";
     case "multifamily":
       return "multifamily";
     case "wealthy":
@@ -692,6 +743,8 @@ export function facetFor(def: Definition): Facet {
       return "stalled";
     case "contractor":
       return "contractor";
+    case "designer":
+      return "designer";
     case "custom": {
       const codes = def.useCodes ?? [];
       if (codes.some((c) => c.startsWith("F"))) return "commercial";
@@ -712,11 +765,13 @@ export function facetValue(row: OwnerRow, facet: Facet): number {
     case "stalled":
       return row.tops.signal?.valueCents ?? row.maxValueCents;
     case "contractor":
+    case "designer":
       return row.totalValueCents;
     case "absentee":
     case "out_of_state":
       return row.rentalValueCents ?? 0;
     case "commercial":
+    case "portfolio":
       return row.commercialValueCents ?? 0;
     case "multifamily":
       return row.multifamilyValueCents ?? 0;
@@ -727,7 +782,7 @@ export function facetValue(row: OwnerRow, facet: Facet): number {
 
 /** The property shown for a row on a list: the one the facet is about. */
 export function propertyFor(row: OwnerRow, facet: Facet): Property | undefined {
-  const pick = { homeowner: "home", long_owned: "home", absentee: "rental", out_of_state: "rental", commercial: "commercial", multifamily: "multifamily", violation: "signal", stalled: "signal" } as Partial<Record<Facet, string>>;
+  const pick = { homeowner: "home", long_owned: "home", absentee: "rental", out_of_state: "rental", commercial: "commercial", portfolio: "commercial", multifamily: "multifamily", violation: "signal", stalled: "signal" } as Partial<Record<Facet, string>>;
   return row.tops[pick[facet] ?? "all"] ?? row.tops.all;
 }
 
@@ -737,7 +792,7 @@ export const signalsFor = (row: OwnerRow, facet: Facet): OwnerSignal[] =>
 
 /** When the newest record a facet is about was: the newest signal of its kind, or a contractor's newest permit. */
 export function recordDate(row: OwnerRow, facet: Facet): string | undefined {
-  if (facet === "contractor") return row.latestAt;
+  if (facet === "contractor" || facet === "designer") return row.latestAt;
   if (facet === "violation" || facet === "stalled") return signalsFor(row, facet)[0]?.date;
   return undefined;
 }
@@ -749,7 +804,7 @@ export function recordDate(row: OwnerRow, facet: Facet): string | undefined {
  * for the rest. Buyers are sorted by deed date, which has no floor here.
  */
 export function underFloor(row: OwnerRow, def: Definition, facet: Facet): boolean {
-  if (facet === "investor" || facet === "builder" || facet === "office" || facet === "contractor") return def.minParcels !== undefined && row.parcels < def.minParcels;
+  if (facet === "investor" || facet === "builder" || facet === "office" || facet === "contractor" || facet === "designer" || facet === "portfolio") return def.minParcels !== undefined && holdings(row, facet) < def.minParcels;
   if (facet === "buyer") return false;
   // Longest owned first: once a home was bought after the cutoff, every one after it was too.
   if (facet === "long_owned") return def.ownedForDays !== undefined && Boolean(row.homeDeed) && Date.parse(`${row.homeDeed}T12:00:00Z`) > Date.now() - def.ownedForDays * DAY_MS;
@@ -762,13 +817,16 @@ export function underFloor(row: OwnerRow, def: Definition, facet: Facet): boolea
   return minValue !== undefined && facetValue(row, facet) < minValue;
 }
 
+/** What minParcels counts on a facet: commercial buildings for portfolio owners, else the row's parcels (permits for a contractor or designer). */
+export const holdings = (row: OwnerRow, facet: Facet) => (facet === "portfolio" ? row.commercial : row.parcels);
+
 /** The filters a definition adds on top of its facet, plus the wealthy and buyer defaults. */
 export function matches(row: OwnerRow, def: Definition, facet: Facet, now: number): boolean {
   const minValue = def.minValueCents ?? (def.who === "wealthy" ? WEALTHY_DEFAULT_CENTS : undefined);
   const v = facetValue(row, facet);
   if (minValue !== undefined && v < minValue) return false;
   if (def.maxValueCents !== undefined && v > def.maxValueCents) return false;
-  if (def.minParcels !== undefined && row.parcels < def.minParcels) return false;
+  if (def.minParcels !== undefined && holdings(row, facet) < def.minParcels) return false;
   if (def.ownerOccupied !== undefined && row.ownerOccupied !== def.ownerOccupied) return false;
   if (def.companyOwned !== undefined && row.company !== def.companyOwned) return false;
   if (def.outOfState !== undefined && row.outOfState !== def.outOfState) return false;
@@ -805,8 +863,9 @@ export function matches(row: OwnerRow, def: Definition, facet: Facet, now: numbe
 export function listOrder(def: Definition): { label: string; key: (row: { properties: number; totalValueCents: number; property: { valueCents?: number } }) => number } {
   const facet = facetFor(def);
   if (facet === "investor" || facet === "builder") return { label: "most properties first", key: (r) => r.properties * 1e9 + Math.min(r.totalValueCents, 1e9 - 1) };
-  if (facet === "contractor") return { label: "most permits first", key: (r) => r.properties * 1e9 + Math.min(r.totalValueCents, 1e9 - 1) };
+  if (facet === "contractor" || facet === "designer") return { label: "most permits first", key: (r) => r.properties * 1e9 + Math.min(r.totalValueCents, 1e9 - 1) };
   if (facet === "office") return { label: "most properties first", key: (r) => r.properties };
+  if (facet === "portfolio") return { label: "most buildings first", key: () => 0 };
   if (facet === "buyer") return { label: "newest deed first", key: () => 0 };
   if (facet === "long_owned") return { label: "longest owned first", key: () => 0 };
   if (facet === "violation" || facet === "stalled") return { label: "newest record first", key: () => 0 };
@@ -828,6 +887,8 @@ export function why(row: OwnerRow, facet: Facet): string {
       return `Gets the tax bills for ${plural(row.parcels, "property", "properties")} from ${plural(row.owners ?? 0, "owner")}`;
     case "commercial":
       return `${row.commercial === 1 ? "Commercial building" : plural(row.commercial, "commercial building")} worth ${shortMoney(row.commercialValueCents ?? 0)}`;
+    case "portfolio":
+      return `Owns ${plural(row.commercial, "commercial building")}, the biggest worth ${shortMoney(row.commercialValueCents ?? 0)}${row.parcels > row.commercial ? `; ${plural(row.parcels, "property", "properties")} in all` : ""}`;
     case "multifamily":
       return `${row.multifamily === 1 ? "Apartment building" : plural(row.multifamily, "apartment building")} worth ${shortMoney(row.multifamilyValueCents ?? 0)}`;
     case "homeowner":
@@ -857,6 +918,10 @@ export function why(row: OwnerRow, facet: Facet): string {
       const trades = row.trades?.length ? `; ${row.trades.map(tradeLabel).join(", ")}` : "";
       return `Pulled ${plural(row.parcels, "permit")} in the last ${CONTRACTOR_DAYS} days${mix ? ` (${mix})` : ""}${row.totalValueCents ? `, ${shortMoney(row.totalValueCents)} of work` : ""}${trades}`;
     }
+    case "designer": {
+      const trades = row.trades?.length ? `; ${row.trades.map(tradeLabel).join(", ")}` : "";
+      return `Applied for ${plural(row.parcels, "commercial permit")} in the last ${CONTRACTOR_DAYS} days${row.totalValueCents ? `, ${shortMoney(row.totalValueCents)} of work` : ""}${trades}`;
+    }
   }
 }
 
@@ -870,6 +935,7 @@ export const WHO_GUIDE = `Pick exactly one who:
 - builder: a homebuilder (Betenbough, D R Horton, names with Homes, Builders, Construction or Development) holding spec homes and lots. "Builders", "homebuilders", "developers".
 - manager: an office whose mailing address receives the tax bills for 5+ properties from 2+ different owners. "Property managers", "management companies".
 - commercial: owns a commercial (F1: shops, offices, shopping centers, restaurants' buildings) or industrial (F2: warehouses, yards) building. "Shopping center owners", "strip malls", "commercial property owners", "building owners". For warehouses set use_codes ["F2"].
+- portfolio: owns ${PORTFOLIO_BUILDINGS} or more commercial buildings (storefronts, shops, offices), most buildings first: the landlord whose roofs and systems come due in turn; min_parcels is how many buildings. "Retail owners", "shop owners", "storefront owners", "owners of several buildings", "commercial portfolios", "one owner with many stores".
 - multifamily: owns an apartment building or duplex (B codes). "Apartment owners", "complexes".
 - wealthy: owner-occupied homes worth at least min_value (default $1,000,000). "Wealthy", "rich", "luxury", "high-end homes", "homes worth over $X".
 - recent_buyer: deed within deed_within_days (default 90). "Just bought", "new homeowners", "recently moved".
@@ -878,8 +944,9 @@ export const WHO_GUIDE = `Pick exactly one who:
 - violation: owners of a property with a code violation, a dilapidated-building listing or a demolition order from the city in the last ${SIGNAL_YEARS} years, newest first; set trades to keep only violations that call for that work (a roofer wants roof and deteriorated-structure cases). "Code violations", "fix-it list", "condemned", "dilapidated", "blighted".
 - stalled: owners whose building permit stopped (expired, stop-work order, denied) in the last ${SIGNAL_YEARS} years: a job somebody never finished. "Stalled permits", "expired permits", "unfinished jobs".
 - contractor: NOT owners: the companies that pulled city permits in the last ${CONTRACTOR_DAYS} days, with the people the permits name, for a sub or supplier who sells to builders and GCs; set trades to the work they pull permits for. "Contractors", "GCs", "builders pulling permits", "who's building right now", "roofing contractors".
+- designer: NOT owners: the architects, engineers and design firms named on commercial permits in the last ${CONTRACTOR_DAYS} days (the applicant when it's neither the owner nor the builder), with the people the permits name; they spec the work before a contractor is picked. "Architects", "engineers", "design firms", "who's drawing the plans".
 - custom: only with explicit use_codes (A homes, B apartments, F1 commercial, F2 industrial).
-Filters: min_value and max_value are dollars of the property the list is about; min_parcels is how many properties they own ("5 or more properties" is 5; for contractor, how many permits); company_owned true keeps companies only ("company investors", "LLCs"), false keeps people; out_of_state true keeps owners whose mail goes outside Texas; zips filter the owner's MAILING zip (where letters go); streets filter the PROPERTY's street; owned_for_years is for long_owned; trades (${TRADES.join(", ")}) is for violation, stalled and contractor; within_days keeps only records newer than that for violation, stalled and contractor; limit caps the rows a list holds at once (up to 500, the default; the rest load page by page).`;
+Filters: min_value and max_value are dollars of the property the list is about; min_parcels is how many properties they own ("5 or more properties" is 5; for portfolio, how many commercial buildings; for contractor and designer, how many permits); company_owned true keeps companies only ("company investors", "LLCs"), false keeps people; out_of_state true keeps owners whose mail goes outside Texas; zips filter the owner's MAILING zip (where letters go); streets filter the PROPERTY's street; owned_for_years is for long_owned; trades (${TRADES.join(", ")}) is for violation, stalled, contractor and designer; within_days keeps only records newer than that for violation, stalled, contractor and designer; limit caps the rows a list holds at once (up to 500, the default; the rest load page by page).`;
 
 /** The definition as JSON schema, in the words the assistant and the tool use (dollars, snake_case). */
 export const DEFINITION_SCHEMA = {
@@ -891,7 +958,7 @@ export const DEFINITION_SCHEMA = {
     use_codes: { type: "array", items: { type: "string" }, description: "Only with who custom, or to narrow commercial to F2: appraisal use codes." },
     min_value: { type: "number", description: "Lowest value, in dollars, of the property the list is about." },
     max_value: { type: "number", description: "Highest value, in dollars." },
-    min_parcels: { type: "integer", description: "At least this many properties owned." },
+    min_parcels: { type: "integer", description: "At least this many properties owned (portfolio: commercial buildings; contractor and designer: permits)." },
     owner_occupied: { type: "boolean", description: "True: the owner lives in one of their homes. False: none." },
     company_owned: { type: "boolean", description: "True: only companies. False: only people." },
     out_of_state: { type: "boolean", description: "True: mailing address outside Texas. False: inside." },
@@ -899,8 +966,8 @@ export const DEFINITION_SCHEMA = {
     streets: { type: "array", items: { type: "string" }, description: "Property streets to keep, e.g. 'Midkiff Rd'." },
     deed_within_days: { type: "integer", description: "Bought within this many days." },
     owned_for_years: { type: "number", description: "Only with who long_owned: in their home at least this many years." },
-    trades: { type: "array", items: { type: "string", enum: [...TRADES] }, description: "Only with who violation, stalled or contractor: the trades the work calls for." },
-    within_days: { type: "integer", description: "Only with who violation, stalled or contractor: the newest record within this many days." },
+    trades: { type: "array", items: { type: "string", enum: [...TRADES] }, description: "Only with who violation, stalled, contractor or designer: the trades the work calls for." },
+    within_days: { type: "integer", description: "Only with who violation, stalled, contractor or designer: the newest record within this many days." },
     limit: { type: "integer", description: "How many rows at most (1 to 500)." },
   },
 } as const;
@@ -1015,32 +1082,36 @@ export function guessDefinition(ask: string, county = "Midland"): { definition: 
   if (has(/code (violation|case|enforcement)|\bviolations?\b|fix-?it|dilapidated|condemned|demolition|blight/)) definition = { county, who: "violation" };
   else if (has(/stalled|expired permit|stop[- ]work|unfinished (job|project|work)|abandoned (job|permit|project)/)) definition = { county, who: "stalled" };
   else if (has(/\bcontractors?\b|\bgcs?\b|\bsubs\b|pull(ing|ed|s)? permits|permit activity|active builders|who('s| is) building/)) definition = { county, who: "contractor" };
+  else if (has(/architect|\bengineers?\b|\bengineering\b|design(er|ers| firms?| build)\b|drawing (the )?plans|\bplans\b/)) definition = { county, who: "designer" };
   else if (has(/long[- ]?time|long[- ]owned|owned (for |their home(s)? (for )?)?\d+\+? ?years|\d+\+ years|empty[- ]nest|older homes|aging (homes|roofs?)|since (19|20)\d\d/)) definition = { county, who: "long_owned" };
   else if (has(/\bmanag(er|ers|ement)\b/)) definition = { county, who: "manager" };
   else if (has(/\b(home)?builders?\b|\bdevelopers?\b/)) definition = { county, who: "builder" };
   else if (has(/\bwarehouse|industrial\b/)) definition = { county, who: "commercial", useCodes: ["F2"] };
-  else if (has(/shopping|strip (mall|center)|retail|commercial|office building|plaza|\bcenters?\b/)) definition = { county, who: "commercial" };
+  // Several buildings in one owner's hands: retail, storefronts, "owners with 3+ buildings". A shopping center is still the commercial list.
+  else if (has(/shopping|strip (mall|center)/)) definition = { county, who: "commercial" };
+  else if (has(/portfolio|retail|storefront|\bshops?\b|\bstores?\b|\bchains?\b|several (commercial )?buildings|multiple (commercial )?buildings|\d+\+? ?(or more )?(commercial )?buildings/)) definition = { county, who: "portfolio" };
+  else if (has(/commercial|office building|plaza|\bcenters?\b/)) definition = { county, who: "commercial" };
   else if (has(/apartment|multi-?family|complex|duplex/)) definition = { county, who: "multifamily" };
   else if (has(/investor|landlord|flipper|rental/)) definition = { county, who: "investor" };
   else if (has(/absentee|out[- ]of[- ](state|town)/)) definition = { county, who: "absentee" };
   else if (has(/\bbought\b|new (home)?owners?|recent|just moved/)) definition = { county, who: "recent_buyer" };
   else if (has(/wealthy|\brich\b|luxury|high-end|expensive|million|\bover \$|worth/) || amount !== undefined) definition = { county, who: "wealthy" };
   if (!definition) return undefined;
-  if (amount !== undefined && (definition.who === "wealthy" || definition.who === "commercial")) definition.minValueCents = amount;
+  if (amount !== undefined && (definition.who === "wealthy" || definition.who === "commercial" || definition.who === "portfolio")) definition.minValueCents = amount;
   if (definition.who === "long_owned") {
     const years = yearsIn(words);
     if (years !== undefined) definition.ownedForDays = Math.round(years * 365.25);
   }
-  if (["violation", "stalled", "contractor"].includes(definition.who)) {
+  if (["violation", "stalled", "contractor", "designer"].includes(definition.who)) {
     const trades = tradesIn(words);
     if (trades.length) definition.trades = trades;
-    if (definition.who === "contractor") {
+    if (definition.who === "contractor" || definition.who === "designer") {
       const floor = parcelsIn(words);
       if (floor !== undefined) definition.minParcels = floor;
     }
   }
   // The cuts a holder list takes: companies only, a floor on how many they own, mail outside Texas.
-  if (["investor", "builder", "commercial", "multifamily"].includes(definition.who)) {
+  if (["investor", "builder", "commercial", "portfolio", "multifamily"].includes(definition.who)) {
     if (has(/\b(compan(y|ies)|llcs?|corporations?|corporate|entities|businesses)\b/)) definition.companyOwned = true;
     else if (has(/\b(individuals?|private owners?|not compan(y|ies))\b/)) definition.companyOwned = false;
     const floor = parcelsIn(words);
@@ -1091,6 +1162,7 @@ export function defaultTitle(def: Definition): string {
     builder: "Homebuilders",
     manager: "Property managers",
     commercial: "Commercial property owners",
+    portfolio: "Commercial portfolio owners",
     multifamily: "Apartment owners",
     wealthy: "Wealthy homeowners",
     recent_buyer: "Recent buyers",
@@ -1099,6 +1171,7 @@ export function defaultTitle(def: Definition): string {
     violation: "Code violations",
     stalled: "Stalled permits",
     contractor: "Active contractors",
+    designer: "Architects and engineers",
     custom: "Property owners",
   };
   // "Company investors with 5+ properties", "Out-of-state investors", "Commercial property owners (companies)".
@@ -1112,7 +1185,8 @@ export function defaultTitle(def: Definition): string {
     name = def.who === "contractor" && def.trades.length === 1 ? `${labels} contractors` : `${name} for ${labels.toLowerCase()}`;
   }
   if (def.who === "long_owned" && def.ownedForDays !== undefined) name = `Homes owned ${Math.round(def.ownedForDays / 365.25)}+ years`;
-  const parcels = def.minParcels ? ` with ${def.minParcels}+ ${def.who === "contractor" ? "permits" : "properties"}` : "";
+  const unit = def.who === "contractor" || def.who === "designer" ? "permits" : def.who === "portfolio" ? "buildings" : "properties";
+  const parcels = def.minParcels ? ` with ${def.minParcels}+ ${unit}` : "";
   const extra = def.minValueCents ? ` over ${shortMoney(def.minValueCents)}` : "";
   return `${name}${parcels}${extra}, ${def.county}`;
 }
@@ -1123,6 +1197,7 @@ export const WHO_LABEL: Record<Who, string> = {
   builder: "Homebuilders",
   manager: "Property managers",
   commercial: "Commercial owners",
+  portfolio: "Portfolio owners",
   multifamily: "Apartment owners",
   wealthy: "Wealthy homeowners",
   recent_buyer: "Recent buyers",
@@ -1131,5 +1206,6 @@ export const WHO_LABEL: Record<Who, string> = {
   violation: "Code violations",
   stalled: "Stalled permits",
   contractor: "Contractors",
+  designer: "Architects & engineers",
   custom: "Custom",
 };

@@ -494,6 +494,8 @@ describe('the Outreach page', () => {
     expect(chips).toEqual([
       'Company investors with 5+ properties',
       'Shopping center owners',
+      'Owners of 3+ commercial buildings',
+      'Architects & engineers on permits',
       'Apartment owners',
       'Homes with code violations',
       'Stalled permits',
