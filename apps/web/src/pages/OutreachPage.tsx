@@ -21,7 +21,7 @@ const VIEW_KEY = 'outreach.view';
 const SORT_KEY = 'outreach.sort';
 const BATCH_KEY = 'outreach.batch';
 const SEND_SEEN_KEY = 'outreach.sendSeen';
-const chip = (on: boolean) => `inline-flex items-center gap-1 px-3 h-9 shrink-0 text-sm border whitespace-nowrap ${on ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333333] text-gray-300 hover:bg-[#2A2A2A]'}`;
+const chip = (on: boolean) => `inline-flex items-center gap-1 px-3 h-9 shrink-0 max-w-full text-sm border whitespace-nowrap ${on ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333333] text-gray-300 hover:bg-[#2A2A2A]'}`;
 const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: cents % 100 ? 2 : 0 })}`;
 /** The status picker: New, In Leads, Skipped; earlier statuses only while some row still has one. */
 const STATUS_FILTERS: OutreachRowStatus[] = ['new', 'lead', 'skip'];
@@ -706,8 +706,8 @@ const OutreachPage: React.FC = () => {
             All
           </button>
           {lists.map((l) => (
-            <button key={l.id} type="button" onClick={() => navigate(`/outreach/${l.id}`)} aria-pressed={l.id === listId} className={chip(l.id === listId)} title={`${WHO_LABEL[l.who]} · ${day(l.createdAt)}`}>
-              {l.title} <span className="text-gray-500">{l.rowCount}</span>
+            <button key={l.id} type="button" onClick={() => navigate(`/outreach/${l.id}`)} aria-pressed={l.id === listId} className={chip(l.id === listId)} title={`${l.title} · ${WHO_LABEL[l.who]} · ${day(l.createdAt)}`}>
+              <span className="truncate">{l.title}</span> <span className="text-gray-500">{l.rowCount}</span>
             </button>
           ))}
         </div>
