@@ -487,6 +487,53 @@ describe('the Outreach page', () => {
     expect(document.body.textContent).toContain('Nobody matches those filters.');
   });
 
+  it("a number says whose line it is: the badge reads personal or work, the filters for each show up only when a row has one, and the CSV carries it", async () => {
+    lists = [list];
+    const found = { status: 'found', at: '2026-11-05T15:01:00Z', source: 'batchdata', chargedCents: 100 };
+    contacts = {
+      ...twoContacts(),
+      rows: [
+        contact('r1', {
+          enrichment: { phone: found, email: { status: 'locked' }, person: { status: 'locked' }, research: { status: 'locked' } },
+          phones: [
+            { number: '4325550100', type: 'mobile', line: 'personal', verified: true, score: 100, name: 'REYES DANA', source: 'leadmagic-mobile' },
+            { number: '4325550199', type: 'landline', line: 'work', verified: true, score: 60, name: 'OAK PLAZA LLC', source: 'permits' },
+          ],
+        }),
+        contact('r2', {
+          name: 'City Of Midland',
+          enrichment: { phone: found, email: { status: 'locked' }, person: { status: 'locked' }, research: { status: 'locked' } },
+          phones: [{ number: '4325550300', type: 'landline', line: 'work', dnc: true, source: 'permits' }],
+        }),
+        contact('r3', { name: 'Vance Robert & Linda', company: undefined, phones: [{ number: '4325550400', type: 'mobile', source: 'tracerfy' }], enrichment: { phone: found, email: { status: 'locked' }, person: { status: 'locked' }, research: { status: 'locked' } } }),
+      ],
+    };
+    await render('/outreach/l1');
+    const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(1)')).map((c) => c.textContent);
+    const filters = document.body.querySelector('[aria-label="Filters"]')!;
+    // Only the City's number is work and Do Not Call, so it isn't counted as a work number worth calling; the Vances' line says nothing about whose it is.
+    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 0', 'Ready to call 2', 'Personal number 1', 'Work number 1', 'Has email 0', 'Mail only 1', '', '']);
+    const first = document.body.querySelector('[data-testid="contact-row"]')!;
+    expect(first.textContent).toContain('(432) 555-0100');
+    expect(first.textContent).toContain('mobile · personal · verified');
+    await click('Personal number');
+    expect(names()).toEqual(['Oak Plaza LLC']);
+    await click('Work number');
+    expect(names()).toEqual(['Oak Plaza LLC']);
+    await act(async () => (filters.querySelector('button') as HTMLButtonElement).click());
+    // The sheet lists both lines with whose they are.
+    await act(async () => (document.body.querySelector('[data-testid="contact-row"]') as HTMLTableRowElement).click());
+    const sheet = document.body.querySelector('[role="dialog"][aria-label="Oak Plaza LLC"]')!;
+    const lines = Array.from(sheet.querySelectorAll('[data-testid="contact-details"] li')).map((li) => li.textContent?.replace(/\s+/g, ' ').trim());
+    expect(lines.slice(0, 2)).toEqual(['(432) 555-0100mobile · personal · verifiedline in the name of REYES DANA', '(432) 555-0199landline · work · verifiedline in the name of OAK PLAZA LLC']);
+    // The CSV: the first number's line in its own column, the others' in brackets.
+    const { outreachCsv } = await import('../../components/outreach/outreachCsv');
+    const csv = outreachCsv(contacts.rows as never);
+    expect(csv.split('\n')[0]).toContain('Phone,Phone type,Phone line,DNC,Other phones');
+    expect(csv.split('\n')[1]).toContain('(432) 555-0100,mobile,personal,,(432) 555-0199 (work)');
+    expect(csv.split('\n')[2]).toContain('(432) 555-0300,landline,work,yes,');
+  });
+
   it("the + button's Outreach list asks in plain words, shows the count and a preview, and Save opens the list", async () => {
     await render('/outreach?new=1');
     expect(path).toBe('/outreach');

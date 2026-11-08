@@ -5,7 +5,7 @@ import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { fullAddress } from '../../lib/mapsLinks';
 import type { OutreachCell, OutreachContact, OutreachContacts, OutreachCoverage, OutreachField, OutreachPhone, OutreachRowStatus, OutreachSignal, OutreachTry, OutreachWho } from '../../lib/api';
 import { shortMoney, WHO_LABEL } from '../../../convex/lib/outreach';
-import { askingText, callOk, deedSearchUrl, dueAgain, phoneText, sourceList, sourceName, STATUS_LABEL, tryAgainFrom } from './format';
+import { askingText, callOk, deedSearchUrl, dueAgain, phoneKind, phoneText, sourceList, sourceName, STATUS_LABEL, tryAgainFrom } from './format';
 
 /** The column's short name for the kind of owner. */
 const KIND: Record<OutreachWho, string> = {
@@ -28,7 +28,6 @@ const KIND: Record<OutreachWho, string> = {
   custom: 'Custom',
 };
 const SIGNAL_LABEL: Record<OutreachSignal['kind'], string> = { code_violation: 'Code violation', dilapidated: 'Dilapidated', demolition: 'Demolition order', stalled_permit: 'Stalled permit' };
-const PHONE_TYPE: Record<OutreachPhone['type'], string> = { mobile: 'mobile', landline: 'landline', voip: 'VoIP', unknown: '' };
 
 const statusTone = (s: OutreachRowStatus) =>
   s === 'lead' || s === 'interested' || s === 'client' || s === 'done' ? 'text-[#7fb0e0]' : s === 'skip' || s === 'not_interested' ? 'text-gray-600' : s === 'new' ? 'text-gray-500' : 'text-amber-300';
@@ -48,15 +47,18 @@ const Coverage: React.FC<{ c: OutreachCoverage; of?: string }> = ({ c, of }) => 
   </span>
 );
 
-/** A phone's small print: its type, whether the checker confirmed it, and the Do Not Call and litigator flags. */
-export const PhoneBadges: React.FC<{ p: OutreachPhone }> = ({ p }) => (
-  <span className="text-[11px] text-gray-500">
-    {PHONE_TYPE[p.type]}
-    {p.verified ? (PHONE_TYPE[p.type] ? ' · ' : '') + 'verified' : ''}
-    {p.dnc ? <span className="text-red-400">{PHONE_TYPE[p.type] || p.verified ? ' · ' : ''}DNC</span> : null}
-    {p.litigator ? <span className="text-red-400">{PHONE_TYPE[p.type] || p.verified || p.dnc ? ' · ' : ''}litigator</span> : null}
-  </span>
-);
+/** A phone's small print: its type, personal or work, whether the checker confirmed it, and the Do Not Call and litigator flags. */
+export const PhoneBadges: React.FC<{ p: OutreachPhone }> = ({ p }) => {
+  const kind = phoneKind(p);
+  return (
+    <span className="text-[11px] text-gray-500">
+      {kind}
+      {p.verified ? (kind ? ' · ' : '') + 'verified' : ''}
+      {p.dnc ? <span className="text-red-400">{kind || p.verified ? ' · ' : ''}DNC</span> : null}
+      {p.litigator ? <span className="text-red-400">{kind || p.verified || p.dnc ? ' · ' : ''}litigator</span> : null}
+    </span>
+  );
+};
 
 /** A lookup at work: the source it's asking now, under it the last thing found. */
 export const Live: React.FC<{ cell: OutreachCell }> = ({ cell }) => {

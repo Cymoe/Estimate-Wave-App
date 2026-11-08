@@ -29,7 +29,7 @@ const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { m
 const STATUS_FILTERS: OutreachRowStatus[] = ['new', 'lead', 'skip'];
 const OLD_STATUSES: OutreachRowStatus[] = ['no_answer', 'callback', 'interested', 'not_interested', 'client', 'sent', 'done'];
 /** The quick filters over the table: what a row has, or what it needs from you. */
-type Show = 'all' | 'new' | 'signal' | 'ready' | 'email' | 'mail' | 'needs';
+type Show = 'all' | 'new' | 'signal' | 'ready' | 'personal' | 'work' | 'email' | 'mail' | 'needs';
 const SHOWS: Array<{ value: Show; label: string; has: (r: OutreachContact) => boolean }> = [
   { value: 'all', label: 'All', has: () => true },
   /** A signal first seen this week: the lists are watched, and this is what changed. Shown only when there is one. */
@@ -37,6 +37,9 @@ const SHOWS: Array<{ value: Show; label: string; has: (r: OutreachContact) => bo
   /** A code violation, a demolition order or a stalled permit on the property: the warmest calls on any list. */
   { value: 'signal', label: 'Has a signal', has: (r) => r.signals.length > 0 },
   { value: 'ready', label: 'Ready to call', has: (r) => r.phones.some(callOk) },
+  /** A number that is the person's own, or the business's, among the ones worth calling. Shown only when there are some. */
+  { value: 'personal', label: 'Personal number', has: (r) => r.phones.some((p) => callOk(p) && p.line === 'personal') },
+  { value: 'work', label: 'Work number', has: (r) => r.phones.some((p) => callOk(p) && p.line === 'work') },
   { value: 'email', label: 'Has email', has: (r) => r.emails.length > 0 },
   /** Looked up and nobody to call: these go out by mail (Export gives the addresses). Shown only when there are some. */
   { value: 'mail', label: 'Mail only', has: mailOnly },
@@ -789,7 +792,7 @@ const OutreachPage: React.FC = () => {
           {/* The quick filters as tabs, underlined in blue like the project and estimate drawers; when they don't fit, they slide sideways instead of wrapping. */}
           <ChipRow>
             {SHOWS.map((s) =>
-              (s.value === 'needs' || s.value === 'new' || s.value === 'mail') && counts[s.value] === 0 ? null : (
+              (s.value === 'needs' || s.value === 'new' || s.value === 'mail' || s.value === 'personal' || s.value === 'work') && counts[s.value] === 0 ? null : (
                 <button
                   key={s.value}
                   type="button"

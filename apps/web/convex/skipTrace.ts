@@ -9,7 +9,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import { outreachField } from "./schema";
-import { KEY_FOR, applyEmailCheck, checkEmails, checkPhonesWith, dedupeEmails, expectedNames, lineOwner, phoneCheckers, phoneScrub, rankPhones, scrubPhones, vendors, verifier, waterfall, type EmailCheck, type Field, type Found, type Progress, type Reuse, type Try, type Vendor } from "./lib/skipTrace";
+import { KEY_FOR, applyEmailCheck, checkEmails, checkPhonesWith, dedupeEmails, expectedNames, lineOwner, phoneCheckers, phoneScrub, rankPhones, scrubPhones, standsAlone, vendors, verifier, waterfall, type EmailCheck, type Field, type Found, type Progress, type Reuse, type Try, type Vendor } from "./lib/skipTrace";
 import { researchOwner } from "./lib/research";
 import { sampleFor, sampleIndex, sampleStack } from "./lib/outreachSample";
 
@@ -37,7 +37,7 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
   const wanted = fields.filter((f): f is Field => input.fields.includes(f));
   // Until a phone source is connected, every lookup walks the simulated chain instead of stopping at "not connected", so the page can be seen working; it's marked simulated and never charged.
   // OUTREACH_SIMULATE=off turns it off (the tests of the real path do).
-  const simulate = process.env.OUTREACH_SIMULATE !== "off" && !vendors(process.env).some((s) => s.connected && s.fields.includes("phone"));
+  const simulate = process.env.OUTREACH_SIMULATE !== "off" && !vendors(process.env).some((s) => standsAlone(s, "phone"));
   if (input.sample || simulate) return await runSample(ctx, contactId, input, wanted, simulate && !input.sample);
   // Our own records come first and cost nothing: the home the company's mail goes to, and the permits it pulled. Only read when a field they can answer is wanted.
   const own: Vendor[] = [];
@@ -67,7 +67,7 @@ async function run(ctx: ActionCtx, { contactId, fields }: TraceArgs) {
   const external = vendors(process.env);
   const stack = [...own, ...external];
   // Our own records always get their turn; "not connected" is about the outside sources.
-  const none = (field: Field) => !external.some((s) => s.connected && s.fields.includes(field));
+  const none = (field: Field) => !external.some((s) => standsAlone(s, field));
   // A decision maker already found, with a phone, on a sister entity: copy it rather than pay for it again.
   const reuse: Reuse = async (field, who) => {
     const hit = who.person ? await ctx.runQuery(internal.outreach.sharedLookup, { contactId, person: who.person }) : null;

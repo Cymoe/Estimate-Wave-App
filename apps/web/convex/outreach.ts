@@ -1341,6 +1341,8 @@ export const contactForTrace = internalQuery({
       person: c.person,
       ...(c.property ? { property: { address: c.property.address, city: title(COUNTY), state: "TX", zip: undefined as string | undefined } } : {}),
       mailing: c.mailing,
+      // Addresses already on the contact: the mobile finder keys off one.
+      emails: (c.emails ?? []).map((e) => e.email),
       fields,
       question: c.researchQuestion ?? DEFAULT_RESEARCH_QUESTION,
       properties: c.properties,
@@ -1450,7 +1452,7 @@ export const permitContactsAt = internalQuery({
         }
         const digits = (c.phone ?? "").replace(/\D/g, "");
         const number = digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
-        if (number.length === 10) found.phones!.push({ number, type: "unknown", source: "permits" });
+        if (number.length === 10) found.phones!.push({ number, type: "unknown", line: "work", source: "permits" });
         if (c.email && c.email.includes("@")) found.emails!.push({ email: c.email.trim().toLowerCase(), source: "permits" });
       }
     }
@@ -1578,6 +1580,7 @@ export const sourceLabel = (s: string) =>
     enformion: "EnformionGO",
     hunter: "Hunter",
     leadmagic: "LeadMagic",
+    "leadmagic-mobile": "LeadMagic mobile finder",
     "tx-comptroller": "Texas Comptroller",
     cobalt: "State registry (Cobalt)",
     zerobounce: "ZeroBounce",

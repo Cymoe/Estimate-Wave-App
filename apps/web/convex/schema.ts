@@ -543,6 +543,8 @@ export const outreachTouch = v.object({
 export const outreachPhone = v.object({
   number: v.string(),
   type: v.union(v.literal("mobile"), v.literal("landline"), v.literal("voip"), v.literal("unknown")),
+  /** Whose line: the person's own, or the business's. From the source, then the carrier's word. */
+  line: v.optional(v.union(v.literal("personal"), v.literal("work"))),
   dnc: v.optional(v.boolean()),
   verified: v.optional(v.boolean()),
   score: v.optional(v.number()),
