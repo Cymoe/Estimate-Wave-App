@@ -85,6 +85,7 @@ export function sampleFor(i: number, owner: { name: string; company: boolean; pr
     hit === "batchdata" ? { source: "batchdata", outcome: "hit", note: `${count} numbers` } : { source: "batchdata", outcome: "miss", note: "No match" },
     hit === "tracerfy" ? { source: "tracerfy", outcome: "hit", note: `${count} numbers` } : hit ? skipped("tracerfy", NOT_NEEDED) : { source: "tracerfy", outcome: "miss", note: "No match" },
     hit ? skipped("enformion", NOT_NEEDED) : { source: "enformion", outcome: "miss", note: "No match" },
+    skipped("leadmagic-mobile", hit ? NOT_NEEDED : "Needs an email to find the mobile by"),
   ];
   let phones: Phone[] | undefined;
   let phoneCell: SampleCell;
@@ -95,29 +96,29 @@ export function sampleFor(i: number, owner: { name: string; company: boolean; pr
       status: "failed",
       at,
       error: "batchdata: HTTP 503 Service Unavailable",
-      tries: [skipped("permits", "No permits at the property"), { source: "batchdata", outcome: "error", note: "HTTP 503 Service Unavailable" }, { source: "tracerfy", outcome: "error", note: "Took longer than 20 seconds" }, { source: "enformion", outcome: "miss", note: "No match" }],
+      tries: [skipped("permits", "No permits at the property"), { source: "batchdata", outcome: "error", note: "HTTP 503 Service Unavailable" }, { source: "tracerfy", outcome: "error", note: "Took longer than 20 seconds" }, { source: "enformion", outcome: "miss", note: "No match" }, skipped("leadmagic-mobile", "Needs an email to find the mobile by")],
     };
   } else {
     const via = kind === 1 ? "tracerfy" : "batchdata";
     phones =
       kind === 4
         ? [
-            { number: n(0), type: "mobile", verified: true, dnc: true, score: 90, grade: "B", source: via },
-            { number: n(1), type: "landline", verified: true, dnc: true, score: 55, grade: "C", source: via },
+            { number: n(0), type: "mobile", line: "personal", verified: true, dnc: true, score: 90, grade: "B", source: via },
+            { number: n(1), type: "landline", line: "personal", verified: true, dnc: true, score: 55, grade: "C", source: via },
           ]
         : kind === 8
           ? [
-              { number: n(0), type: "mobile", verified: true, litigator: true, score: 90, grade: "B", source: via },
-              { number: n(1), type: "landline", verified: true, score: 60, grade: "C", name: who.toUpperCase(), source: via },
+              { number: n(0), type: "mobile", line: "personal", verified: true, litigator: true, score: 90, grade: "B", source: via },
+              { number: n(1), type: "landline", line: "personal", verified: true, score: 60, grade: "C", name: who.toUpperCase(), source: via },
             ]
           : kind === 1
             ? [
-                { number: n(0), type: "voip", verified: true, score: 80, grade: "C", source: via },
-                { number: n(1), type: "mobile", verified: true, score: 75, grade: "B", source: via },
+                { number: n(0), type: "voip", line: "work", verified: true, score: 80, grade: "C", source: via },
+                { number: n(1), type: "mobile", line: "personal", verified: true, score: 75, grade: "B", source: via },
               ]
             : [
-                { number: n(0), type: "mobile", verified: true, score: 100, grade: "A", name: who.toUpperCase(), source: via },
-                { number: n(1), type: "landline", verified: true, score: 60, grade: "C", source: via },
+                { number: n(0), type: "mobile", line: "personal", verified: true, score: 100, grade: "A", name: who.toUpperCase(), source: via },
+                { number: n(1), type: "landline", line: "work", verified: true, score: 60, grade: "C", source: via },
               ];
     const flagged = phones.filter((p) => p.dnc || p.litigator).length;
     phoneCell = {
@@ -127,7 +128,7 @@ export function sampleFor(i: number, owner: { name: string; company: boolean; pr
       chargedCents: 100,
       tries: [
         ...phoneVendors(via, phones.length),
-        { source: "trestle", outcome: "hit", note: `${phones.length} of ${phones.length} live · ${phones.filter((p) => p.name).length} in the owner's name` },
+        { source: "trestle", outcome: "hit", note: `${phones.length} of ${phones.length} live · ${phones.filter((p) => p.name).length} in the owner's name · ${lineNote(phones)}` },
         skipped("twilio", "Not needed, already checked"),
         { source: "tracerfy-dnc", outcome: "hit", note: flagged ? `${flagged} flagged: ${kind === 8 ? "a known litigator" : "on the Do Not Call list"}` : `${phones.length} clear` },
       ],
@@ -181,6 +182,13 @@ export function sampleFor(i: number, owner: { name: string; company: boolean; pr
   return { person, phones, emails, research, cells: { person: personCell, phone: phoneCell, email: emailCell, research: researchCell } };
 }
 
+/** "1 personal, 1 work", the way the line check says it. */
+const lineNote = (phones: Phone[]) => {
+  const personal = phones.filter((p) => p.line === "personal").length;
+  const work = phones.filter((p) => p.line === "work").length;
+  return [personal ? `${personal} personal` : "", work ? `${work} work` : ""].filter(Boolean).join(", ");
+};
+
 /** Which run an owner gets on a rerun, from its name: the same each time, never "not looked up" or "failed". */
 export function sampleIndex(name: string): number {
   let h = 0;
@@ -222,6 +230,7 @@ export function sampleStack(s: Sample, wait: () => Promise<void>): Vendor[] {
     vendor("batchdata", ["phone", "email"]),
     vendor("tracerfy", ["phone", "email"]),
     vendor("enformion", ["phone", "email"]),
+    vendor("leadmagic-mobile", ["phone"], { followUp: true, applies: () => "Needs an email to find the mobile by" }),
     vendor("hunter", ["email"]),
     vendor("leadmagic", ["email"]),
   ];

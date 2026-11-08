@@ -6,9 +6,18 @@
 
 export type Field = "phone" | "email" | "person" | "research";
 export type PhoneType = "mobile" | "landline" | "voip" | "unknown";
+/** Whose line it is: the person's own (personal) or the business's (work). */
+export type PhoneLine = "personal" | "work";
 export type Phone = {
   number: string;
   type: PhoneType;
+  /**
+   * Personal or work. A skip trace finds the person's own numbers; a permit
+   * carries the office line; a mobile finder gives a personal cell. The line
+   * check overrides with the carrier's word when it has one: who the line is
+   * registered to, and whether that's a business.
+   */
+  line?: PhoneLine;
   dnc?: boolean;
   verified?: boolean;
   score?: number;
@@ -46,6 +55,8 @@ export type TraceInput = {
   person?: Person;
   property: { address: string; city: string; state: string; zip?: string };
   mailing: { address?: string; city?: string; state?: string; zip?: string };
+  /** Addresses already on the contact or found earlier in this lookup: a mobile finder keys off one. */
+  emails?: string[];
 };
 
 export type Found = { phones?: Phone[]; emails?: Email[]; person?: Person };
@@ -62,6 +73,8 @@ export type Vendor = {
   authority?: number;
   /** Why this owner can't be asked about here (a reason for the ledger), or nothing when it can. */
   applies?: (input: TraceInput) => string | undefined;
+  /** Only ever a second step, working from what another source found (an email); it doesn't make a field "connected" on its own. */
+  followUp?: boolean;
   trace: (input: TraceInput) => Promise<Found>;
 };
 
@@ -243,6 +256,7 @@ export function batchData(key: string | undefined, fetchFn: Fetch = fetch, base 
           phones.push({
             number,
             type: phoneType(p.type),
+            line: "personal",
             dnc: p.dnc === true || p.tcpa === true ? true : undefined,
             verified: p.reachable === true ? true : undefined,
             score: num(p.score),
@@ -314,6 +328,7 @@ export function tracerfy(key: string | undefined, fetchFn: Fetch = fetch, base =
           phones.push({
             number,
             type: phoneType(p.type),
+            line: "personal",
             dnc: p.dnc === true || p.tcpa === true ? true : undefined,
             score: rank !== undefined ? Math.max(0, 100 - rank) : undefined,
             source: "tracerfy",
@@ -496,7 +511,7 @@ export function enformion(apName: string | undefined, apPassword: string | undef
       for (const p of asArray(body.person?.phones) as Array<Record<string, unknown>>) {
         const number = str(p.number);
         if (!number) continue;
-        phones.push({ number, type: phoneType(p.type), verified: p.isConnected === true ? true : undefined, score: p.isConnected === true ? 80 : p.isConnected === false ? 20 : undefined, source: "enformion" });
+        phones.push({ number, type: phoneType(p.type), line: "personal", verified: p.isConnected === true ? true : undefined, score: p.isConnected === true ? 80 : p.isConnected === false ? 20 : undefined, source: "enformion" });
       }
       for (const e of asArray(body.person?.emails) as Array<Record<string, unknown>>) {
         const email = str(e.email);
@@ -578,9 +593,54 @@ export function leadMagic(key: string | undefined, fetchFn: Fetch = fetch, base 
   };
 }
 
+/** Mailboxes anyone can open: an address there is a personal one, not a work one. */
+const FREE_MAIL = /@(gmail|googlemail|yahoo|ymail|hotmail|outlook|live|msn|aol|icloud|me|mac|proton|protonmail|att|sbcglobal|suddenlink|comcast|verizon)\./i;
+
+/**
+ * LeadMagic's mobile finder: POST /v1/people/mobile-finder with X-API-Key
+ * and an email as the identifier (a work one when there is one) answers
+ * the person's own cell. 5 credits (about 10¢) when found, a miss free.
+ * It only works from an email, so it's a second step: after the skip
+ * traces, with whatever address the contact already has or this lookup
+ * found. The number is a personal line by definition.
+ */
+export function leadMagicMobile(key: string | undefined, fetchFn: Fetch = fetch, base = "https://api.leadmagic.io/v1"): Vendor {
+  const pick = (input: TraceInput) => {
+    const emails = (input.emails ?? []).map((e) => e.trim().toLowerCase()).filter((e) => e.includes("@"));
+    return emails.find((e) => !FREE_MAIL.test(e)) ?? emails[0];
+  };
+  return {
+    name: "leadmagic-mobile",
+    fields: ["phone"],
+    connected: Boolean(key),
+    followUp: true,
+    applies: (input) => (pick(input) ? undefined : "Needs an email to find the mobile by"),
+    trace: async (input) => {
+      const email = pick(input);
+      if (!email) return {};
+      const response = await fetchFn(`${base}/people/mobile-finder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json", "X-API-Key": key ?? "" },
+        body: JSON.stringify(FREE_MAIL.test(email) ? { personal_email: email } : { work_email: email }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { message?: unknown; error?: unknown };
+        const detail = str(body.message) ?? str(body.error);
+        throw new Error(`LeadMagic: HTTP ${response.status}${detail ? ` (${detail})` : ""}`);
+      }
+      const body = (await response.json()) as { mobile_number?: string | null };
+      const number = str(body.mobile_number ?? undefined);
+      const n = number ? normalizePhone(number) : undefined;
+      if (!n) return {};
+      return { phones: [{ number: n, type: "mobile", line: "personal", source: "leadmagic-mobile" }] };
+    },
+  };
+}
+
 /**
  * The stack, in the order it's tried: free state records first, then the
- * paid registry; the skip traces by price; a work-email finder last.
+ * paid registry; the skip traces by price, then the mobile finder that
+ * works from an email; a work-email finder last.
  */
 export function vendors(env: Record<string, string | undefined>, fetchFn: Fetch = guarded()): Vendor[] {
   return [
@@ -589,10 +649,14 @@ export function vendors(env: Record<string, string | undefined>, fetchFn: Fetch 
     batchData(env.BATCHDATA_API_KEY, fetchFn),
     tracerfy(env.TRACERFY_API_KEY, fetchFn, env.TRACERFY_API_BASE || undefined),
     enformion(env.ENFORMION_AP_NAME, env.ENFORMION_AP_PASSWORD, fetchFn, env.ENFORMION_API_BASE || undefined),
+    leadMagicMobile(env.LEADMAGIC_API_KEY, fetchFn),
     hunter(env.HUNTER_API_KEY, fetchFn),
     leadMagic(env.LEADMAGIC_API_KEY, fetchFn),
   ];
 }
+
+/** The sources that make a field answerable on their own: a follow-up step (the mobile finder) doesn't count. */
+export const standsAlone = (vendor: Vendor, field: Field): boolean => vendor.connected && vendor.fields.includes(field) && !vendor.followUp;
 
 // ---- Email deliverability ----
 
@@ -687,6 +751,7 @@ export type LineCheck = {
   unknown?: boolean;
   type?: PhoneType;
   name?: string;
+  /** The carrier's word on who holds the line: a business (true), a consumer (false), or nothing said. */
   business?: boolean;
   nameMatch?: boolean;
   grade?: string;
@@ -708,6 +773,29 @@ export type PhoneChecker = {
 
 /** A to F from the checker, as a score when the vendor gave none. */
 const GRADE_SCORE: Record<string, number> = { A: 95, B: 80, C: 60, D: 40, F: 10 };
+
+/** The words of a company's name a line's registered name can be matched against. */
+const companyWords = (company: string): string[] => company.toUpperCase().split(/[^A-Z0-9]+/).filter((w) => w.length >= 4 && !ENTITY.test(w));
+
+/**
+ * Personal or work, from what the checker said: the carrier's business
+ * flag settles it; else a line in the person's name is personal and one
+ * in the company's name is work (when the owner is the company itself, a
+ * match is the company's line). Nothing said leaves the source's word.
+ */
+export function lineFrom(check: Pick<LineCheck, "business" | "name" | "nameMatch">, who: LineOwner): PhoneLine | undefined {
+  if (check.business === true) return "work";
+  if (check.business === false) return "personal";
+  const isPerson = !who.business || who.name !== who.business;
+  if (check.name) {
+    const name = check.name.toUpperCase();
+    if (who.business && companyWords(who.business).some((w) => name.includes(w))) return "work";
+    const own = splitName(who.name, "person");
+    if (isPerson && own.last && name.includes(own.last.toUpperCase())) return "personal";
+  }
+  if (check.nameMatch === true) return isPerson ? "personal" : "work";
+  return undefined;
+}
 
 /**
  * Trestle's Real Contact API: GET /2.0/real_contact?name=&phone= with
@@ -775,7 +863,8 @@ export function twilioLookup(sid: string | undefined, token: string | undefined,
       const kind = (body.line_type_intelligence?.type ?? "").toLowerCase();
       const type: PhoneType | undefined = kind === "mobile" ? "mobile" : kind === "landline" ? "landline" : /voip/.test(kind) ? "voip" : undefined;
       const name = str(body.caller_name?.caller_name ?? undefined);
-      return { valid: body.valid !== false, type, name, business: body.caller_name?.caller_type === "BUSINESS" };
+      const callerType = body.caller_name?.caller_type;
+      return { valid: body.valid !== false, type, name, business: callerType === "BUSINESS" ? true : callerType === "CONSUMER" ? false : undefined };
     },
   };
 }
@@ -919,6 +1008,8 @@ export async function checkPhones(phones: Phone[], checker: PhoneChecker, expect
   let checked = 0;
   let litigators = 0;
   let unknown = 0;
+  let personal = 0;
+  let work = 0;
   let emailCheck: EmailCheck | undefined;
   try {
     for (const p of phones) {
@@ -941,7 +1032,10 @@ export async function checkPhones(phones: Phone[], checker: PhoneChecker, expect
       if (matches) named++;
       if (line.litigator) litigators++;
       const score = matches ? Math.max(p.score ?? 0, 100) : (p.score ?? (line.grade ? GRADE_SCORE[line.grade] : undefined));
-      kept.push({ ...p, type: line.type ?? p.type, verified: true, name: line.name ?? p.name, score, grade: line.grade ?? p.grade, litigator: line.litigator ? true : p.litigator });
+      const owner = lineFrom(line, who);
+      if (owner === "personal") personal++;
+      else if (owner === "work") work++;
+      kept.push({ ...p, type: line.type ?? p.type, line: owner ?? p.line, verified: true, name: line.name ?? p.name, score, grade: line.grade ?? p.grade, litigator: line.litigator ? true : p.litigator });
     }
   } catch (e) {
     return { phones, try: { source: checker.name, outcome: "error", note: e instanceof Error ? e.message : String(e) } };
@@ -953,6 +1047,7 @@ export async function checkPhones(phones: Phone[], checker: PhoneChecker, expect
     `${live} of ${known} live`,
     named ? `${named} in the owner's name` : "",
     known - live ? `${known - live} dropped` : "",
+    personal || work ? [personal ? `${personal} personal` : "", work ? `${work} work` : ""].filter(Boolean).join(", ") : "",
     litigators ? `${litigators} known ${litigators === 1 ? "litigator" : "litigators"}` : "",
     unknown ? `${unknown} unchecked` : "",
   ]
@@ -1057,7 +1152,8 @@ export async function waterfall(input: TraceInput, vendors: Vendor[], fields: Fi
   const has = (field: Field, found: Found) =>
     field === "person" ? Boolean(found.person) : field === "phone" ? (found.phones?.length ?? 0) > 0 : (found.emails?.length ?? 0) > 0;
   const out: Outcome[] = [];
-  const order: Field[] = ["person", "phone", "email"];
+  // The email before the phone: the mobile finder works from an address this lookup finds.
+  const order: Field[] = ["person", "email", "phone"];
   for (const field of order) {
     if (!fields.includes(field)) continue;
     const errors: string[] = [];
@@ -1069,6 +1165,7 @@ export async function waterfall(input: TraceInput, vendors: Vendor[], fields: Fi
       tries.push({ source: "shared", outcome: "hit", note: copied.note });
       for (const vendor of vendors) if (vendor.fields.includes(field)) tries.push({ source: vendor.name, outcome: "skipped", note: "Not needed, already found" });
       out.push({ field, found: copied.found, source: "shared", errors, tries });
+      if (field === "email") input = withEmails(input, copied.found.emails);
       continue;
     }
     for (const vendor of vendors) {
@@ -1119,7 +1216,16 @@ export async function waterfall(input: TraceInput, vendors: Vendor[], fields: Fi
     }
     result ??= { field, found: {}, errors, tries };
     if (field === "person" && result.found.person) input = { ...input, person: result.found.person };
+    if (field === "email") input = withEmails(input, result.found.emails);
     out.push(result);
   }
-  return out;
+  // In the order the page reads them.
+  const place: Record<Field, number> = { person: 0, phone: 1, email: 2, research: 3 };
+  return out.sort((a, b) => place[a.field] - place[b.field]);
 }
+
+/** The input with the addresses found so far added, for the steps after the email's. */
+const withEmails = (input: TraceInput, emails: Email[] | undefined): TraceInput => {
+  const found = (emails ?? []).map((e) => e.email);
+  return found.length ? { ...input, emails: [...(input.emails ?? []), ...found] } : input;
+};

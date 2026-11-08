@@ -7,7 +7,7 @@ import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { AddressCounter, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
-import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, lineOwner, samePerson, scrubPhones, tracerfyDnc, trestleRealContact, twilioLookup, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
+import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, lineOwner, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { GIVE_UP_ERROR, SAMPLE_LEFT_OUT, UNPAID_ERROR } from "./outreach";
 
 afterEach(() => {
@@ -777,7 +777,8 @@ describe("a company's lists", () => {
       { source: "batchdata", outcome: "hit", note: "3 numbers" },
       { source: "tracerfy", outcome: "skipped", note: "Not connected" },
       { source: "enformion", outcome: "skipped", note: "Not connected" },
-      { source: "trestle", outcome: "hit", note: "3 of 3 live · 1 in the owner's name" },
+      { source: "leadmagic-mobile", outcome: "skipped", note: "Not connected" },
+      { source: "trestle", outcome: "hit", note: "3 of 3 live · 1 in the owner's name · 1 personal" },
       { source: "twilio", outcome: "skipped", note: "Not needed, already checked" },
       { source: "tracerfy-dnc", outcome: "skipped", note: "Not connected" },
     ]);
@@ -794,9 +795,9 @@ describe("a company's lists", () => {
     ]);
     // Ranked: the name match first at 100, then the vendor's score, then mobile before VoIP before landline; the DNC landline is kept but flagged. Each carries the checker's grade.
     expect(oakNow.phones).toEqual([
-      { number: "4325550100", type: "mobile", verified: true, score: 100, grade: "A", source: "batchdata" },
-      { number: "4325550177", type: "voip", verified: true, score: 95, grade: "D", source: "batchdata" },
-      { number: "4325550199", type: "landline", dnc: true, verified: true, score: 60, grade: "C", source: "batchdata" },
+      { number: "4325550100", type: "mobile", line: "personal", verified: true, score: 100, grade: "A", source: "batchdata" },
+      { number: "4325550177", type: "voip", line: "personal", verified: true, score: 95, grade: "D", source: "batchdata" },
+      { number: "4325550199", type: "landline", line: "personal", dnc: true, verified: true, score: 60, grade: "C", source: "batchdata" },
     ]);
     expect(oakNow.emails).toEqual([{ email: "dana@oakplaza.com", source: "batchdata", nameMatch: true, grade: "B" }]);
     // One contact-check call per number; the email rode on the first only.
@@ -847,6 +848,7 @@ describe("a company's lists", () => {
       ["batchdata", true, [["phone", 1, 1, 100], ["email", 1, 1, 0]]],
       ["tracerfy", false, [["phone", 0, 0, 0], ["email", 0, 0, 0]]],
       ["enformion", false, [["phone", 0, 0, 0], ["email", 0, 0, 0]]],
+      ["leadmagic-mobile", false, [["phone", 0, 0, 0]]],
       ["hunter", false, [["email", 0, 0, 0]]],
       ["leadmagic", false, [["email", 0, 0, 0]]],
       ["trestle", true, [["phone", 1, 1, 0], ["email", 1, 1, 0]]],
@@ -927,14 +929,15 @@ describe("a company's lists", () => {
       { source: "batchdata", outcome: "miss", note: "No match" },
       { source: "tracerfy", outcome: "hit", note: "2 numbers" },
       { source: "enformion", outcome: "skipped", note: "Not connected" },
+      { source: "leadmagic-mobile", outcome: "skipped", note: "Not connected" },
       { source: "trestle", outcome: "skipped", note: "Not connected" },
       { source: "twilio", outcome: "skipped", note: "Not connected" },
       { source: "tracerfy-dnc", outcome: "hit", note: "1 of 2 clear · 1 on the Do Not Call list (TX)" },
     ]);
     // Rank 1 first even though it's DNC; the landline follows. Only the Vances' numbers, not the tenant's.
     expect(now.phones).toEqual([
-      { number: "4325550301", type: "mobile", dnc: true, score: 99, source: "tracerfy" },
-      { number: "4325550300", type: "landline", score: 98, source: "tracerfy" },
+      { number: "4325550301", type: "mobile", line: "personal", dnc: true, score: 99, source: "tracerfy" },
+      { number: "4325550300", type: "landline", line: "personal", score: 98, source: "tracerfy" },
     ]);
     const dnc = calls.filter((c) => c.url === "https://www.tracerfy.com/v2/api/dnc/lookup/");
     expect(dnc).toHaveLength(1);
@@ -980,6 +983,7 @@ describe("a company's lists", () => {
       // Nobody at the address shares Reyes's surname, so every number there counts.
       { source: "tracerfy", outcome: "hit", note: "3 numbers" },
       { source: "enformion", outcome: "skipped", note: "Not connected" },
+      { source: "leadmagic-mobile", outcome: "skipped", note: "Not connected" },
       { source: "trestle", outcome: "skipped", note: "Not connected" },
       { source: "twilio", outcome: "skipped", note: "Not connected" },
       // The same three numbers as the Vances' address, one of them on the Texas list.
@@ -1005,6 +1009,7 @@ describe("a company's lists", () => {
       { source: "batchdata", outcome: "miss", note: "No match" },
       { source: "tracerfy", outcome: "error", note: "Tracerfy: HTTP 402 (Insufficient credits. Instant trace requires 5 credits per lookup. You have 0 credits.)" },
       { source: "enformion", outcome: "skipped", note: "Not connected" },
+      { source: "leadmagic-mobile", outcome: "skipped", note: "Not connected" },
     ]);
     expect((await read()).balanceCents).toBe(300);
     // An empty account is flagged on the Sources page until Tracerfy answers properly again; the earlier 429 was not (a retry handles that).
@@ -1500,8 +1505,8 @@ describe("a company's lists", () => {
     ]);
     const oakNow = after.rows.find((r) => r.id === oak.id)!;
     expect(oakNow.person).toEqual({ name: "Dana Reyes", title: "Applicant on permit P-1", source: "permits" });
-    // The applicant's number, confirmed live, mobile and in her name by the carrier; the roofer's number never appears.
-    expect(oakNow.phones).toEqual([{ number: "4325550100", type: "mobile", verified: true, score: 100, source: "permits", name: "REYES DANA" }]);
+    // The applicant's number, confirmed live, mobile and in her name by the carrier, so her own line rather than the office's the permit implied; the roofer's number never appears.
+    expect(oakNow.phones).toEqual([{ number: "4325550100", type: "mobile", line: "personal", verified: true, score: 100, source: "permits", name: "REYES DANA" }]);
     expect(oakNow.emails).toEqual([{ email: "dana@oakplaza.com", source: "permits" }]);
     expect(oakNow.enrichment.phone).toMatchObject({ status: "found", source: "permits", chargedCents: 100 });
     expect(oakNow.enrichment.phone.tries).toEqual([
@@ -1509,8 +1514,9 @@ describe("a company's lists", () => {
       { source: "batchdata", outcome: "skipped", note: "Not connected" },
       { source: "tracerfy", outcome: "skipped", note: "Not connected" },
       { source: "enformion", outcome: "skipped", note: "Not connected" },
+      { source: "leadmagic-mobile", outcome: "skipped", note: "Not connected" },
       { source: "trestle", outcome: "skipped", note: "Not connected" },
-      { source: "twilio", outcome: "hit", note: "1 of 1 live · 1 in the owner's name" },
+      { source: "twilio", outcome: "hit", note: "1 of 1 live · 1 in the owner's name · 1 personal" },
       { source: "tracerfy-dnc", outcome: "skipped", note: "Not connected" },
     ]);
     expect(oakNow.enrichment.person.tries[0]).toEqual({ source: "roll", outcome: "skipped", note: "The mail goes to Dallas, off the roll" });
@@ -1527,6 +1533,66 @@ describe("a company's lists", () => {
         ["twilio", "phone", 1, 1],
       ]);
     });
+  });
+
+  test("a mobile from an email: the work email found first, LeadMagic's finder keys off it, the carrier says it's hers, and the row shows a personal mobile for $1", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "commercial" } });
+    const read = async () => await co.as.query(api.outreach.contacts, { organizationId: org });
+    const oak = (await read()).rows.find((r) => r.name === "Oak Plaza LLC")!;
+    await t.run(async (ctx) => ctx.db.patch(org, { walletBalanceCents: 500 }));
+    // The skip trace is connected but has nothing; Hunter has her work email; LeadMagic's finder has her cell; the carrier knows whose it is.
+    for (const k of ["TX_COMPTROLLER_API_KEY", "COBALT_API_KEY", "TRACERFY_API_KEY", "ENFORMION_AP_NAME", "ZEROBOUNCE_API_KEY", "TRESTLE_API_KEY"]) vi.stubEnv(k, "");
+    vi.stubEnv("OUTREACH_SIMULATE", "off");
+    vi.stubEnv("BATCHDATA_API_KEY", "bd");
+    vi.stubEnv("HUNTER_API_KEY", "hk");
+    vi.stubEnv("LEADMAGIC_API_KEY", "lm");
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "AC123");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "tok");
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const json = (data: unknown) => new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" } });
+        if (url.includes("batchdata")) return (calls.push("batchdata"), json({ results: { persons: [] } }));
+        if (url.includes("hunter.io")) return (calls.push("hunter"), json({ data: { email: "dana@oakplaza.com", verification: { status: "valid" } } }));
+        if (url.includes("mobile-finder")) return (calls.push(`mobile:${JSON.stringify(JSON.parse(init!.body as string))}`), json({ mobile_number: "+1 (432) 555-0142", credits_consumed: 5, message: "Mobile number found." }));
+        if (url.includes("email-finder")) return (calls.push("leadmagic"), json({ email: null, status: null }));
+        if (url.includes("lookups.twilio.com")) return (calls.push("twilio"), json({ valid: true, line_type_intelligence: { type: "mobile" }, caller_name: { caller_name: "REYES DANA", caller_type: "CONSUMER" } }));
+        throw new Error(`unexpected call: ${url}`);
+      }),
+    );
+    // The person is already known: the email and phone steps alone.
+    await t.run(async (ctx) => ctx.db.patch(oak.id, { person: { name: "Dana Reyes", title: "Manager", source: "tx-comptroller" }, enrichment: { ...oak.enrichment, person: { status: "found", at: new Date(NOW).toISOString(), source: "tx-comptroller" } } }));
+    await co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id], fields: ["phone", "email"] });
+    await t.finishAllScheduledFunctions(() => {});
+    const now = (await read()).rows.find((r) => r.id === oak.id)!;
+    // The email came first so the finder had it to work from; the carrier was asked about the one number.
+    expect(calls).toEqual(["batchdata", "hunter", 'mobile:{"work_email":"dana@oakplaza.com"}', "twilio"]);
+    expect(now.emails).toEqual([{ email: "dana@oakplaza.com", source: "hunter", verified: true }]);
+    expect(now.phones).toEqual([{ number: "4325550142", type: "mobile", line: "personal", verified: true, score: 100, name: "REYES DANA", source: "leadmagic-mobile" }]);
+    expect(now.enrichment.phone).toMatchObject({ status: "found", source: "leadmagic-mobile", chargedCents: 100 });
+    expect(now.enrichment.phone.tries).toEqual([
+      { source: "permits", outcome: "skipped", note: "No permits at the property" },
+      { source: "batchdata", outcome: "miss", note: "No match" },
+      { source: "tracerfy", outcome: "skipped", note: "Not connected" },
+      { source: "enformion", outcome: "skipped", note: "Not connected" },
+      { source: "leadmagic-mobile", outcome: "hit", note: "1 number" },
+      { source: "trestle", outcome: "skipped", note: "Not connected" },
+      { source: "twilio", outcome: "hit", note: "1 of 1 live · 1 in the owner's name · 1 personal" },
+      { source: "tracerfy-dnc", outcome: "skipped", note: "Not connected" },
+    ]);
+    expect(now.enrichment.email).toMatchObject({ status: "found", source: "hunter" });
+    expect((await read()).balanceCents).toBe(400);
+    // The ledger on the Sources page: the finder's one try, one hit, the dollar.
+    const ops = await signUp(t, "ops@webb.example", { role: "staff" });
+    const stack = await ops.as.query(api.outreach.sources, { organizationId: org });
+    expect(stack.find((s) => s.name === "leadmagic-mobile")).toMatchObject({ connected: true, stats: [{ field: "phone", attempts: 1, hits: 1, chargedCents: 100 }] });
   });
 
   test("research reads the web about an owner through Claude: an answer with sources for 25¢, nothing found free", async () => {
@@ -2101,8 +2167,8 @@ describe("the wider stack", () => {
     expect(source.applies?.(company)).toBe("Needs a person's name");
     expect(await source.trace(named)).toEqual({
       phones: [
-        { number: "(432) 555-0142", type: "mobile", verified: true, score: 80, source: "enformion" },
-        { number: "432-555-0199", type: "landline", score: 20, source: "enformion" },
+        { number: "(432) 555-0142", type: "mobile", line: "personal", verified: true, score: 80, source: "enformion" },
+        { number: "432-555-0199", type: "landline", line: "personal", score: 20, source: "enformion" },
       ],
       emails: [{ email: "Dana@Reyes.example", source: "enformion" }],
     });
@@ -2149,10 +2215,10 @@ describe("the wider stack", () => {
     expect(expected).toEqual(["REYES", "PLAZA"]);
     const r = await checkPhones(phones, checker, expected);
     expect(r.phones).toEqual([
-      { number: "4325550199", type: "landline", score: 100, verified: true, source: "batchdata", name: "OAK PLAZA LLC" },
+      { number: "4325550199", type: "landline", line: "work", score: 100, verified: true, source: "batchdata", name: "OAK PLAZA LLC" },
       { number: "4325550142", type: "voip", verified: true, source: "batchdata" },
     ]);
-    expect(r.try).toEqual({ source: "twilio", outcome: "hit", note: "2 of 3 live · 1 in the owner's name · 1 dropped" });
+    expect(r.try).toEqual({ source: "twilio", outcome: "hit", note: "2 of 3 live · 1 in the owner's name · 1 dropped · 1 work" });
     expect((await checkPhones(phones, twilioLookup(undefined, undefined), expected)).try).toEqual({ source: "twilio", outcome: "skipped", note: "Not connected" });
     const down = twilioLookup("AC1", "tok", async () => json({}, 503));
     expect(await checkPhones(phones, down, expected)).toEqual({ phones, try: { source: "twilio", outcome: "error", note: "Twilio: HTTP 503" } });
@@ -2181,25 +2247,26 @@ describe("the wider stack", () => {
     const r = await checkPhones(phones, trestle, ["REYES", "PLAZA"], who);
     // The dead line is dropped; the matched mobile leads at 100; the litigator's landline is kept, flagged, graded C.
     expect(r.phones).toEqual([
-      { number: "4325550142", type: "mobile", verified: true, score: 100, grade: "A", source: "batchdata" },
+      { number: "4325550142", type: "mobile", line: "personal", verified: true, score: 100, grade: "A", source: "batchdata" },
       { number: "4325550199", type: "landline", verified: true, score: 60, grade: "C", litigator: true, source: "batchdata" },
     ]);
-    expect(r.try).toEqual({ source: "trestle", outcome: "hit", note: "2 of 3 live · 1 in the owner's name · 1 dropped · 1 known litigator" });
+    expect(r.try).toEqual({ source: "trestle", outcome: "hit", note: "2 of 3 live · 1 in the owner's name · 1 dropped · 1 personal · 1 known litigator" });
     expect(urls[0]).toBe("https://api.trestleiq.com/2.0/real_contact?name=Dana+Reyes&phone=4325550142&add_ons=litigator_checks&business.name=Oak+Plaza+LLC");
     // The checkers in order: Trestle answers and the carrier isn't needed; Trestle down, the carrier takes over; neither connected, both say so.
     const twilio = twilioLookup("AC1", "tok", async () => json({ valid: true, line_type_intelligence: { type: "mobile" }, caller_name: { caller_name: "REYES DANA" } }));
     const both = await checkPhonesWith(phones, [trestle, twilio], ["REYES"], who);
     expect(both.tries.map((t) => [t.source, t.outcome, t.note])).toEqual([
-      ["trestle", "hit", "2 of 3 live · 1 in the owner's name · 1 dropped · 1 known litigator"],
+      ["trestle", "hit", "2 of 3 live · 1 in the owner's name · 1 dropped · 1 personal · 1 known litigator"],
       ["twilio", "skipped", "Not needed, already checked"],
     ]);
     const down = trestleRealContact("tr-key", async () => json({}, 503));
     const fallen = await checkPhonesWith(phones, [down, twilio], ["REYES"], who);
     expect(fallen.tries.map((t) => [t.source, t.outcome, t.note])).toEqual([
       ["trestle", "error", "Trestle: HTTP 503"],
-      ["twilio", "hit", "3 of 3 live · 3 in the owner's name"],
+      ["twilio", "hit", "3 of 3 live · 3 in the owner's name · 3 personal"],
     ]);
-    expect(fallen.phones.every((p) => p.verified && p.name === "REYES DANA")).toBe(true);
+    // The carrier's name on the line is hers, so each is her own line.
+    expect(fallen.phones.every((p) => p.verified && p.name === "REYES DANA" && p.line === "personal")).toBe(true);
     const none = await checkPhonesWith(phones, [trestleRealContact(undefined), twilioLookup(undefined, undefined)], ["REYES"], who);
     expect(none.phones).toEqual(phones);
     expect(none.tries).toEqual([
@@ -2222,7 +2289,7 @@ describe("the wider stack", () => {
     const handed = await checkPhonesWith(phones, [mute, twilio], ["REYES"], who);
     expect(handed.tries.map((t) => [t.source, t.outcome, t.note])).toEqual([
       ["trestle", "error", "Nothing on any of the numbers"],
-      ["twilio", "hit", "3 of 3 live · 3 in the owner's name"],
+      ["twilio", "hit", "3 of 3 live · 3 in the owner's name · 3 personal"],
     ]);
     // An email sent along rides on the first call only, and comes back with whose it is; it's kept either way, with the ledger saying.
     const emailed: Array<string | null> = [];
@@ -2268,6 +2335,95 @@ describe("the wider stack", () => {
       { source: "hunter", outcome: "miss", note: "No match" },
       { source: "leadmagic", outcome: "hit", note: "1 email" },
     ]);
+  });
+
+  test("personal or work: the carrier's business flag settles it, else the name on the line; a skip trace's numbers are personal and a permit's is work until the carrier says otherwise", () => {
+    const dana = { name: "Dana Reyes", business: "Oak Plaza LLC" };
+    const oak = { name: "Oak Plaza LLC", business: "Oak Plaza LLC" };
+    const vance = { name: "Robert Vance" };
+    // The carrier's word first.
+    expect(lineFrom({ business: true, name: "REYES DANA" }, dana)).toBe("work");
+    expect(lineFrom({ business: false, name: "OAK PLAZA LLC" }, dana)).toBe("personal");
+    // Then whose name is on the line: the company's words make it a work line, the person's surname their own.
+    expect(lineFrom({ name: "OAK PLAZA LLC" }, dana)).toBe("work");
+    expect(lineFrom({ name: "REYES DANA" }, dana)).toBe("personal");
+    expect(lineFrom({ name: "VANCE ROBERT" }, vance)).toBe("personal");
+    expect(lineFrom({ name: "SMITH JOHN" }, dana)).toBeUndefined();
+    // A match with no name (Trestle): the person's line, or the company's when the company is who was asked about.
+    expect(lineFrom({ nameMatch: true }, dana)).toBe("personal");
+    expect(lineFrom({ nameMatch: true }, vance)).toBe("personal");
+    expect(lineFrom({ nameMatch: true }, oak)).toBe("work");
+    expect(lineFrom({ nameMatch: false }, dana)).toBeUndefined();
+    expect(lineFrom({}, dana)).toBeUndefined();
+    // Nothing said leaves the source's word; the carrier's word replaces it.
+    const found = [
+      { number: "4325550100", type: "unknown" as const, line: "work" as const, source: "permits" },
+      { number: "4325550142", type: "mobile" as const, line: "personal" as const, source: "batchdata" },
+      { number: "4325550199", type: "mobile" as const, line: "personal" as const, source: "batchdata" },
+    ];
+    const carrier = twilioLookup("AC1", "tok", async (url) => {
+      const number = decodeURIComponent(String(url).split("/PhoneNumbers/")[1].split("?")[0]);
+      if (number === "+14325550100") return json({ valid: true, line_type_intelligence: { type: "mobile" }, caller_name: { caller_name: "REYES DANA", caller_type: "CONSUMER" } });
+      if (number === "+14325550142") return json({ valid: true, line_type_intelligence: { type: "fixedVoip" }, caller_name: { caller_name: "OAK PLAZA LLC", caller_type: "BUSINESS" } });
+      return json({ valid: true, line_type_intelligence: { type: "mobile" }, caller_name: { caller_name: null, caller_type: null } });
+    });
+    return checkPhones(found, carrier, ["REYES", "PLAZA"], dana).then((r) => {
+      expect(r.phones.map((p) => [p.number, p.type, p.line])).toEqual([
+        ["4325550100", "mobile", "personal"],
+        ["4325550142", "voip", "work"],
+        ["4325550199", "mobile", "personal"],
+      ]);
+      // The ledger counts what the carrier said; the third keeps the skip trace's word without being counted.
+      expect(r.try.note).toBe("3 of 3 live · 2 in the owner's name · 1 personal, 1 work");
+    });
+  });
+
+  test("LeadMagic's mobile finder works from an email the lookup has, a work one first, after the skip traces; it doesn't count as a phone source on its own", async () => {
+    const bodies: unknown[] = [];
+    const source = leadMagicMobile("lm-key", async (url, init) => {
+      expect(String(url)).toBe("https://api.leadmagic.io/v1/people/mobile-finder");
+      expect((init?.headers as Record<string, string>)["X-API-Key"]).toBe("lm-key");
+      bodies.push(JSON.parse(init!.body as string));
+      return json({ profile_url: null, email: "dana@oakplaza.com", mobile_number: "+1-432-555-0142", credits_consumed: 5, message: "Mobile number found." });
+    });
+    const named = { ...company, person: { name: "Dana Reyes", source: "tx-comptroller" } };
+    // Nothing to key off: not asked, and the ledger says why.
+    expect(source.applies!(named)).toBe("Needs an email to find the mobile by");
+    expect(source.applies!({ ...named, emails: ["dana@gmail.com"] })).toBeUndefined();
+    // The work address over the free-mail one; the number comes back as ten digits, a personal mobile.
+    expect(await source.trace({ ...named, emails: ["dana@gmail.com", "Dana@OakPlaza.com"] })).toEqual({ phones: [{ number: "4325550142", type: "mobile", line: "personal", source: "leadmagic-mobile" }] });
+    expect(bodies).toEqual([{ work_email: "dana@oakplaza.com" }]);
+    // Only a free-mail address: sent as the personal one.
+    await source.trace({ ...named, emails: ["dana@gmail.com"] });
+    expect(bodies[1]).toEqual({ personal_email: "dana@gmail.com" });
+    // A miss is free and empty; a refused key says so.
+    expect(await leadMagicMobile("lm-key", async () => json({ mobile_number: null, credits_consumed: 0, message: "No mobile number found for this contact." })).trace({ ...named, emails: ["dana@oakplaza.com"] })).toEqual({});
+    await expect(leadMagicMobile("bad", async () => json({ message: "Invalid API key" }, 401)).trace({ ...named, emails: ["dana@oakplaza.com"] })).rejects.toThrow("LeadMagic: HTTP 401 (Invalid API key)");
+    expect(leadMagicMobile(undefined).connected).toBe(false);
+    // In the stack after EnformionGO, and a follow-up: with only its key set, the phone has no source of its own.
+    const stack = vendors({ LEADMAGIC_API_KEY: "lm-key" });
+    expect(stack.map((v) => v.name)).toEqual(["tx-comptroller", "cobalt", "batchdata", "tracerfy", "enformion", "leadmagic-mobile", "hunter", "leadmagic"]);
+    expect(stack.filter((v) => standsAlone(v, "phone")).map((v) => v.name)).toEqual([]);
+    expect(stack.filter((v) => standsAlone(v, "email")).map((v) => v.name)).toEqual(["leadmagic"]);
+    expect(vendors({ LEADMAGIC_API_KEY: "lm-key", BATCHDATA_API_KEY: "bd" }).filter((v) => standsAlone(v, "phone")).map((v) => v.name)).toEqual(["batchdata"]);
+    // In one lookup the email step runs first, and the mobile finder keys off what it found; the outcomes still read person, phone, email.
+    const asked: string[] = [];
+    const skipTrace = { name: "batchdata", fields: ["phone" as const, "email" as const], connected: true, trace: async () => (asked.push("batchdata"), {}) };
+    const finder = hunter("h-key", async () => (asked.push("hunter"), json({ data: { email: "dana@oakplaza.com", verification: { status: "valid" } } })));
+    const mobile = leadMagicMobile("lm-key", async (_url, init) => (asked.push(`mobile:${(JSON.parse(init!.body as string) as { work_email: string }).work_email}`), json({ mobile_number: "4325550142" })));
+    const outcomes = await waterfall(named, [skipTrace, mobile, finder], ["phone", "email"]);
+    expect(outcomes.map((o) => [o.field, o.source])).toEqual([
+      ["phone", "leadmagic-mobile"],
+      ["email", "hunter"],
+    ]);
+    expect(asked).toEqual(["batchdata", "hunter", "mobile:dana@oakplaza.com"]);
+    expect(outcomes[0].tries).toEqual([
+      { source: "batchdata", outcome: "miss", note: "No match" },
+      { source: "leadmagic-mobile", outcome: "hit", note: "1 number" },
+    ]);
+    // Asked for the phone alone with no address on file, it stands aside and says so.
+    const [alone] = await waterfall(named, [skipTrace, mobile], ["phone"]);
+    expect(alone.tries[1]).toEqual({ source: "leadmagic-mobile", outcome: "skipped", note: "Needs an email to find the mobile by" });
   });
 
   test("the Do Not Call scrub flags listed numbers and known litigators, drops nothing, and says how many are clear", async () => {
