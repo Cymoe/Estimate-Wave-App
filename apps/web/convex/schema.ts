@@ -457,6 +457,7 @@ export const outreachWho = v.union(
   v.literal("stalled"),
   v.literal("contractor"),
   v.literal("designer"),
+  v.literal("occupant"),
   v.literal("custom"),
 );
 
@@ -485,6 +486,8 @@ export const outreachProperty = v.object({
   address: v.string(),
   useCode: v.string(),
   valueCents: v.optional(v.number()),
+  // The deed holder, kept only on a tenant's location (the landlord).
+  owner: v.optional(v.string()),
 });
 /** A public record on an owner's property, as the owners rebuild keeps it. */
 export const ownerSignal = v.object({
@@ -1061,6 +1064,34 @@ export default defineSchema({
     // The daily Outreach pass reads what came in since it last ran.
     .index("by_county_and_imported", ["county", "importedAt"]),
 
+  // Every business with a Texas sales-tax permit in the county (lib/outlets.ts):
+  // who runs the store at an address, whoever owns the building. Read weekly
+  // from the Comptroller; rows the last read didn't see are dropped.
+  outlets: defineTable({
+    county: v.string(),
+    // The Comptroller's taxpayer and outlet numbers, the key we upsert on.
+    taxpayerNumber: v.string(),
+    outletNumber: v.string(),
+    name: v.string(),
+    address: v.string(),
+    // lib/parcels.ts addressKey, to find the parcel (and so the landlord).
+    addressKey: v.string(),
+    city: v.string(),
+    zip: v.optional(v.string()),
+    naics: v.optional(v.string()),
+    // When it started selling there.
+    at: v.optional(v.string()),
+    // The taxpayer behind the outlet, often the owner by name, and where the tax mail goes.
+    taxpayer: v.optional(v.string()),
+    mailing: v.optional(v.object({ address: v.optional(v.string()), city: v.optional(v.string()), state: v.optional(v.string()), zip: v.optional(v.string()) })),
+    importedAt: v.string(),
+    seenAt: v.string(),
+  })
+    .index("by_outlet", ["taxpayerNumber", "outletNumber"])
+    .index("by_county_and_address_key", ["county", "addressKey"])
+    .index("by_county_and_seen", ["county", "seenAt"])
+    .index("by_county_and_at", ["county", "at"]),
+
   // Owners with 5 or more Midland homes on the roll ("tired landlords").
   landlords: defineTable({
     county: v.string(),
@@ -1111,7 +1142,8 @@ export default defineSchema({
     county: v.string(),
     key: v.string(),
     // A contractor or designer is a company on the city's permits, not an owner on the roll; its parcels are permits.
-    kind: v.union(v.literal("owner"), v.literal("office"), v.literal("contractor"), v.literal("designer")),
+    // An occupant is a business in a space it doesn't own; its parcels are its locations.
+    kind: v.union(v.literal("owner"), v.literal("office"), v.literal("contractor"), v.literal("designer"), v.literal("occupant")),
     name: v.string(),
     company: v.boolean(),
     mailing: v.object({
@@ -1145,8 +1177,12 @@ export default defineSchema({
     signals: v.optional(v.array(ownerSignal)),
     trades: v.optional(v.array(v.string())),
     latestAt: v.optional(v.string()),
-    // A contractor: the people its permits name.
+    // A contractor or occupant: the people its permits name.
     contacts: v.optional(v.array(ownerContact)),
+    // An occupant: which sources named it, what kind of business, and the taxpayer behind it.
+    sources: v.optional(v.array(v.union(v.literal("occupancy"), v.literal("permit"), v.literal("outlet")))),
+    businessKind: v.optional(v.string()),
+    taxpayer: v.optional(v.string()),
     buildId: v.string(),
   })
     .index("by_county_and_key", ["county", "key"])
