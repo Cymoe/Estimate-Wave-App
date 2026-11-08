@@ -1180,7 +1180,7 @@ export const reportAPI = {
 
 // ---- Outreach ----
 
-export type OutreachWho = 'investor' | 'builder' | 'manager' | 'commercial' | 'multifamily' | 'wealthy' | 'recent_buyer' | 'absentee' | 'custom';
+export type OutreachWho = 'investor' | 'builder' | 'manager' | 'commercial' | 'multifamily' | 'wealthy' | 'recent_buyer' | 'absentee' | 'long_owned' | 'violation' | 'stalled' | 'contractor' | 'custom';
 export type OutreachDefinition = {
   county: string;
   who: OutreachWho;
@@ -1194,6 +1194,9 @@ export type OutreachDefinition = {
   zips?: string[];
   streets?: string[];
   deedWithinDays?: number;
+  ownedForDays?: number;
+  trades?: string[];
+  withinDays?: number;
   limit?: number;
 };
 export type OutreachMailing = { address?: string; city?: string; state?: string; zip?: string };

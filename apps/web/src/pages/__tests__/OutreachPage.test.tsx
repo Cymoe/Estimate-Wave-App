@@ -490,7 +490,9 @@ describe('the Outreach page', () => {
     expect(path).toBe('/outreach');
     const dialog = document.body.querySelector('[role="dialog"][aria-label="Ask for a list"]')!;
     expect(dialog).not.toBeNull();
-    expect(Array.from(dialog.querySelectorAll('button')).map((b) => b.textContent)).toContain('Homebuilders');
+    const chips = Array.from(dialog.querySelectorAll('button')).map((b) => b.textContent);
+    expect(chips).toContain('Homebuilders');
+    expect(chips).toEqual(expect.arrayContaining(['Homes with code violations', 'Stalled permits', 'Contractors pulling permits', 'Homes owned 20+ years']));
     const ask = dialog.querySelector('textarea') as HTMLTextAreaElement;
     await act(async () => type(ask, 'shopping center owners in Midland'));
     await click('Build');

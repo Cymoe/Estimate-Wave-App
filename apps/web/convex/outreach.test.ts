@@ -6,7 +6,7 @@ import { actAs } from "./lib/actor";
 import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
-import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, ownerKey, parcelsIn, shortMoney, underFloor, type Condensed, type OwnerRow } from "./lib/outreach";
+import { AddressCounter, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, ownerKey, parcelsIn, shortMoney, tradesForSignal, underFloor, type Condensed, type OwnerRow } from "./lib/outreach";
 import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, lineOwner, samePerson, scrubPhones, tracerfyDnc, trestleRealContact, twilioLookup, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { GIVE_UP_ERROR, SAMPLE_LEFT_OUT, UNPAID_ERROR } from "./outreach";
 
@@ -222,6 +222,40 @@ describe("grouping the roll into owners", () => {
     expect(who("wealthy company owners")).toEqual({ county: "Midland", who: "wealthy" });
     expect(parcelsIn("5+")).toBe(5);
     expect(parcelsIn("over 5 million")).toBeUndefined();
+  });
+
+  test("the records lists from their words: violations by trade, stalled permits, contractors by permits, homes owned for years", () => {
+    const who = (ask: string) => guessDefinition(ask)?.definition;
+    const title = (ask: string) => guessDefinition(ask)?.title;
+    expect(who("homes with code violations")).toEqual({ county: "Midland", who: "violation" });
+    expect(who("roof violations")).toEqual({ county: "Midland", who: "violation", trades: ["roofing"] });
+    expect(title("roof violations")).toBe("Code violations for roofing, Midland");
+    expect(who("fix-it list for fences and weeds")).toEqual({ county: "Midland", who: "violation", trades: ["outdoor-construction"] });
+    expect(who("stalled permits")).toEqual({ county: "Midland", who: "stalled" });
+    expect(who("expired permits for pools")).toEqual({ county: "Midland", who: "stalled", trades: ["outdoor-construction"] });
+    expect(who("contractors pulling permits")).toEqual({ county: "Midland", who: "contractor" });
+    expect(who("roofing contractors with 3+ permits")).toEqual({ county: "Midland", who: "contractor", trades: ["roofing"], minParcels: 3 });
+    expect(title("roofing contractors with 3+ permits")).toBe("Roofing contractors with 3+ permits, Midland");
+    expect(who("GCs who are building right now")).toEqual({ county: "Midland", who: "contractor", trades: ["general-construction"] });
+    expect(who("active builders")).toEqual({ county: "Midland", who: "contractor" });
+    // Homebuilders holding lots are still their own list.
+    expect(who("homebuilders")).toEqual({ county: "Midland", who: "builder" });
+    expect(who("homes owned 20+ years")).toEqual({ county: "Midland", who: "long_owned", ownedForDays: 7305 });
+    expect(title("homes owned 20+ years")).toBe("Homes owned 20+ years, Midland");
+    expect(who("long-time homeowners")).toEqual({ county: "Midland", who: "long_owned" });
+    expect(title("long-time homeowners")).toBe("Long-time homeowners, Midland");
+    expect(who("empty nesters")).toEqual({ county: "Midland", who: "long_owned" });
+    // From the assistant: the same fields in its words, checked.
+    expect(definitionFromArgs({ who: "contractor", trades: ["Roofing", "hvac"], within_days: 90, min_parcels: 2 })).toEqual({ county: "Midland", who: "contractor", trades: ["roofing", "hvac"], withinDays: 90, minParcels: 2 });
+    expect(definitionFromArgs({ who: "long_owned", owned_for_years: 30 })).toEqual({ county: "Midland", who: "long_owned", ownedForDays: 10958 });
+    expect(() => definitionFromArgs({ who: "violation", trades: ["astrology"] })).toThrow(/trades must be among/);
+    expect(defaultTitle({ county: "Midland", who: "contractor", trades: ["roofing", "electrical"] })).toBe("Active contractors for roofing, electrical, Midland");
+    // What a violation calls for.
+    expect(tradesForSignal({ kind: "code_violation", detail: "Deteriorated Structure" })).toEqual(["general-construction", "roofing"]);
+    expect(tradesForSignal({ kind: "code_violation", detail: "High Weeds" })).toEqual(["outdoor-construction"]);
+    expect(tradesForSignal({ kind: "code_violation", detail: "Illegal Sign" })).toEqual([]);
+    expect(tradesForSignal({ kind: "stalled_permit", detail: "Pool: Expired - after 6 month" })).toEqual(["outdoor-construction", "concrete"]);
+    expect(tradesForSignal({ kind: "demolition", detail: "Residential, Full" })).toEqual(["general-construction"]);
   });
 });
 
@@ -1485,6 +1519,96 @@ describe("a company's lists", () => {
       expect(c.enrichment?.phone.status).toBe("found");
     });
     expect(await t.mutation(internal.outreach.migrateUnlocks, {})).toEqual({ moved: 0 });
+  });
+
+  test("the records lists: violations by what they call for, stalled permits, contractors with their permits' contacts free, and long-held homes", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const t = setup();
+    // One more home, held since 2001.
+    const ids = await addParcels(t, [...ROLL, parcel("20", { owner: "HALE DOROTHY", deedDate: "2001-05-10", marketValueCents: 25_000_000 })]);
+    await t.run(async (ctx) => {
+      const stamp = "2026-11-01T07:20:00.000Z";
+      // The city's records: a deteriorated structure on one of Nuka Hiva's homes (newest first on the row), weeds on another, a stalled pool permit at Oak Plaza, and an old case that no longer counts.
+      await ctx.db.insert("signals", { county: "Midland", parcelId: ids["4"], address: "4 SPRUCE AV", kind: "code_violation", detail: "Deteriorated Structure", caseNumber: "C-1", date: "2026-09-01T12:00:00.000Z", sourceId: "code:1", importedAt: stamp });
+      await ctx.db.insert("signals", { county: "Midland", parcelId: ids["6"], address: "6 ELM ST", kind: "code_violation", detail: "High Weeds", caseNumber: "C-2", date: "2026-06-01T12:00:00.000Z", sourceId: "code:2", importedAt: stamp });
+      await ctx.db.insert("signals", { county: "Midland", parcelId: ids["12"], address: "12 MIDKIFF RD", kind: "stalled_permit", detail: "Pool: Expired - after 6 month", status: "Expired - after 6 month", date: "2026-08-15T12:00:00.000Z", sourceId: "permit:P-9", importedAt: stamp });
+      await ctx.db.insert("signals", { county: "Midland", parcelId: ids["2"], address: "2 SPRUCE AV", kind: "code_violation", detail: "Deteriorated Structure", date: "2023-01-01T12:00:00.000Z", sourceId: "code:old", importedAt: stamp });
+      // The permits: a roofer on three jobs (one older than the window), with its own people on them; a builder whose job is off the roll.
+      const permit = (n: string, appliedAt: string, address: string, over: Record<string, unknown> = {}) =>
+        ctx.db.insert("permits", { source: "midland", permitNumber: n, name: "Residential - Building", workClass: "Alteration & Repair", county: "Midland", city: "Midland", appliedAt, address, addressKey: addressKey(address), trades: ["roofing"], residential: true, importedAt: stamp, ...over });
+      const roofer = [
+        { role: "Contractor", company: "West Texas Roofing, LLC", person: "Ray Soto", phone: "(432) 555-0123", email: "Ray@WTRoofing.com" },
+        { role: "Owner", company: "Oak Plaza LLC", person: "Dana Reyes", phone: "432-555-0100" },
+      ];
+      await permit("P-1", "2026-10-01T15:00:00.000Z", "12 MIDKIFF RD", { builder: "WEST TEXAS ROOFING LLC", valuationCents: 1_800_000, contacts: roofer });
+      await permit("P-2", "2026-09-10T15:00:00.000Z", "1 SPRUCE AV", { builder: "West Texas Roofing, LLC", valuationCents: 1_200_000, residential: false, trades: ["roofing", "general-construction"], contacts: [{ role: "Contractor", company: "West Texas Roofing LLC", person: "Ray Soto", phone: "4325550123" }, { role: "Applicant", company: "West Texas Roofing LLC", person: "Ana Soto", email: "ana@wtroofing.com" }] });
+      await permit("P-3", "2026-01-10T15:00:00.000Z", "2 SPRUCE AV", { builder: "WEST TEXAS ROOFING LLC", valuationCents: 9_000_000 });
+      await permit("P-4", "2026-10-20T15:00:00.000Z", "999 NOWHERE LN", { builder: "GHOST BUILDERS INC", trades: ["general-construction"] });
+    });
+    expect(await rebuild(t)).toEqual({ fetched: 20, added: 13, updated: 0, error: undefined });
+    await t.run(async (ctx) => {
+      const owners = await ctx.db.query("owners").collect();
+      const facetsOfName = async (name: string) => {
+        const o = owners.find((x) => x.name === name)!;
+        return (await ctx.db.query("ownerFacets").withIndex("by_owner", (q) => q.eq("ownerId", o._id)).collect()).map((f) => f.facet).sort();
+      };
+      // Nuka Hiva's two cases ride on its row, newest first, with what they call for; the row's property is the newest case's home.
+      const nuka = owners.find((o) => o.name === "Nuka Hiva LLC")!;
+      expect(nuka.signals!.map((s) => [s.detail, s.date.slice(0, 10)])).toEqual([["Deteriorated Structure", "2026-09-01"], ["High Weeds", "2026-06-01"]]);
+      expect(nuka.trades).toEqual(["general-construction", "roofing", "outdoor-construction"]);
+      expect(nuka.tops.signal!.address).toBe("4 SPRUCE AV");
+      expect(await facetsOfName("Nuka Hiva LLC")).toEqual(["investor", "violation"]);
+      expect(await facetsOfName("Oak Plaza LLC")).toEqual(["buyer", "commercial", "investor", "stalled"]);
+      // A case from three years back puts nobody on the list.
+      expect(await facetsOfName("Reyes Samuel")).toEqual(["buyer", "homeowner"]);
+      expect(await facetsOfName("Hale Dorothy")).toEqual(["homeowner", "long_owned"]);
+      // The roofer: two permits in the window (the January one is out), both spellings as one, its own people only, no property off the roll.
+      const roofer = owners.find((o) => o.kind === "contractor")!;
+      expect(roofer).toMatchObject({ name: "West Texas Roofing LLC", company: true, parcels: 2, residential: 1, commercial: 1, totalValueCents: 3_000_000, trades: ["general-construction", "roofing"], latestAt: "2026-10-01T15:00:00.000Z" });
+      expect(roofer.contacts).toEqual([
+        { role: "Contractor", person: "Ray Soto", phone: "4325550123", email: "ray@wtroofing.com" },
+        { role: "Applicant", person: "Ana Soto", email: "ana@wtroofing.com" },
+      ]);
+      expect(roofer.tops.all.address).toBe("12 MIDKIFF RD");
+      expect(owners.filter((o) => o.kind === "contractor")).toHaveLength(1);
+      expect(await facetsOfName("West Texas Roofing LLC")).toEqual(["contractor"]);
+    });
+
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    const pull = async (definition: Parameters<typeof definitionFromArgs>[0]) => {
+      const r = await co.as.mutation(api.outreach.create, { organizationId: org, definition: definitionFromArgs(definition) });
+      const rows = (await co.as.query(api.outreach.contacts, { organizationId: org, listId: r.listId })).rows;
+      return { ...r, rows };
+    };
+    // Every violation, newest first; then only the ones a roofer can fix.
+    const violations = await pull({ who: "violation" });
+    expect(violations.rows.map((r) => [r.name, r.property.address, r.why])).toEqual([["Nuka Hiva LLC", "4 Spruce Av", "Code violation Sep 2026: Deteriorated Structure; 2 records since Jun 2026"]]);
+    expect(await co.as.query(api.outreach.preview, { organizationId: org, definition: definitionFromArgs({ who: "violation", trades: ["roofing"] }) })).toMatchObject({ count: 1, total: 1 });
+    expect(await co.as.query(api.outreach.preview, { organizationId: org, definition: definitionFromArgs({ who: "violation", trades: ["plumbing"] }) })).toMatchObject({ count: 0, total: 0 });
+    expect(await co.as.query(api.outreach.preview, { organizationId: org, definition: definitionFromArgs({ who: "violation", within_days: 30 }) })).toMatchObject({ count: 0, total: 0 });
+    const stalled = await pull({ who: "stalled" });
+    expect(stalled.rows.map((r) => [r.name, r.why])).toEqual([["Oak Plaza LLC", "Permit stalled Aug 2026: Pool, Expired - after 6 month"]]);
+    // Long-held homes: the default twenty years; a shorter ask reads the homeowner facet instead.
+    const held = await pull({ who: "long_owned" });
+    expect(held.rows.map((r) => [r.name, r.why])).toEqual([["Hale Dorothy", "Owner-occupied since May 2001, home worth $250K"]]);
+    expect(await co.as.query(api.outreach.preview, { organizationId: org, definition: definitionFromArgs({ who: "long_owned", owned_for_years: 5 }) })).toMatchObject({ count: 2, total: 2 });
+    expect(await co.as.query(api.outreach.preview, { organizationId: org, definition: definitionFromArgs({ who: "long_owned", owned_for_years: 10 }) })).toMatchObject({ count: 1, total: 1 });
+    // Contractors: the permits' own people come along as found cells, free, so the row can be called without a lookup.
+    const contractors = await pull({ who: "contractor", trades: ["roofing"] });
+    expect(contractors.rows).toHaveLength(1);
+    const roofer = contractors.rows[0];
+    expect(roofer).toMatchObject({ name: "West Texas Roofing LLC", company: "West Texas Roofing LLC", properties: 2, why: "Pulled 2 permits in the last 180 days (1 residential, 1 commercial), $30,000 of work; General Construction, Roofing" });
+    expect(roofer.person).toEqual({ name: "Ray Soto", title: "Contractor on a permit", source: "permits" });
+    expect(roofer.phones).toEqual([{ number: "4325550123", type: "unknown", source: "permits" }]);
+    expect(roofer.emails).toEqual([{ email: "ray@wtroofing.com", source: "permits" }, { email: "ana@wtroofing.com", source: "permits" }]);
+    expect(roofer.enrichment).toMatchObject({ person: { status: "found", source: "permits" }, phone: { status: "found", source: "permits", chargedCents: 0 }, email: { status: "found", source: "permits" }, research: { status: "locked" } });
+    // Already found: a lookup has nothing to run, and nothing to charge.
+    await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [roofer.id] })).resolves.toMatchObject({ queued: 0, costCents: 0 });
+    expect(await co.as.query(api.outreach.preview, { organizationId: org, definition: definitionFromArgs({ who: "contractor", min_parcels: 3 }) })).toMatchObject({ count: 0, total: 0 });
+    // Sent to Leads, the permit's phone goes along.
+    const leadId = await co.as.mutation(api.outreach.sendToLeads, { organizationId: org, contactId: roofer.id });
+    expect(await t.run(async (ctx) => ctx.db.get(leadId))).toMatchObject({ name: "Ray Soto", company: "West Texas Roofing LLC", phone: "4325550123", email: "ray@wtroofing.com" });
   });
 
   test("a long facet is read top-down to the limit, and says so when it's cut", async () => {

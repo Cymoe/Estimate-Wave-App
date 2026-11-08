@@ -17,6 +17,10 @@ const KIND: Record<OutreachWho, string> = {
   wealthy: 'Wealthy',
   recent_buyer: 'Buyer',
   absentee: 'Absentee',
+  long_owned: 'Long-time',
+  violation: 'Violation',
+  stalled: 'Stalled',
+  contractor: 'Contractor',
   custom: 'Custom',
 };
 const SIGNAL_LABEL: Record<OutreachSignal['kind'], string> = { code_violation: 'Code violation', dilapidated: 'Dilapidated', demolition: 'Demolition order', stalled_permit: 'Stalled permit' };
