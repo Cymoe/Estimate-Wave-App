@@ -33,6 +33,7 @@ export const OpsLayout: React.FC<{ children: React.ReactNode }> = ({ children })
   const hasCompany = Boolean(user?.organizationId);
   // Two sides of Ops: contractor leads, and the real-estate (investor) lists.
   const realEstate = location.pathname.startsWith('/ops/real-estate');
+  const recruiting = location.pathname.startsWith('/ops/recruiting');
   const onOps = location.pathname.startsWith('/ops');
   const payments = usePaymentsMode<{ playMoney: boolean }>();
   const name = user?.name || user?.email || 'You';
@@ -50,8 +51,9 @@ export const OpsLayout: React.FC<{ children: React.ReactNode }> = ({ children })
             <nav className="flex rounded border border-[#333] overflow-hidden text-sm" aria-label="Ops workspace">
               {(
                 [
-                  ['/ops', 'Leads', !realEstate],
+                  ['/ops', 'Leads', !realEstate && !recruiting],
                   ['/ops/real-estate', 'Real estate', realEstate],
+                  ['/ops/recruiting', 'Recruiting', recruiting],
                 ] as const
               ).map(([to, label, active]) => (
                 <Link

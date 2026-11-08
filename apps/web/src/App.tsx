@@ -28,6 +28,7 @@ import LeadsPage from './pages/LeadsPage';
 import LeadMarketPage from './pages/LeadMarketPage';
 import CallsPage from './pages/CallsPage';
 import RealEstateOpsPage from './pages/RealEstateOpsPage';
+import RecruitingOpsPage from './pages/RecruitingOpsPage';
 import BidsPage from './pages/BidsPage';
 import MarketplacePage from './pages/MarketplacePage';
 import PlanPage from './pages/PlanPage';
@@ -311,6 +312,16 @@ function AppRoutes() {
           <StaffRoute>
             <OpsLayout>
               <RealEstateOpsPage />
+            </OpsLayout>
+          </StaffRoute>
+        }
+      />
+      <Route
+        path="/ops/recruiting"
+        element={
+          <StaffRoute>
+            <OpsLayout>
+              <RecruitingOpsPage />
             </OpsLayout>
           </StaffRoute>
         }

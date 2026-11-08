@@ -13,6 +13,23 @@ import type {
   FilterApi,
   FunctionReference,
 } from "convex/server";
+import type * as recruiting_adAgent from "../recruiting/adAgent.js";
+import type * as recruiting_ads from "../recruiting/ads.js";
+import type * as recruiting_agent from "../recruiting/agent.js";
+import type * as recruiting_applicants from "../recruiting/applicants.js";
+import type * as recruiting_clients from "../recruiting/clients.js";
+import type * as recruiting_followups from "../recruiting/followups.js";
+import type * as recruiting_ops from "../recruiting/ops.js";
+import type * as recruiting_lib_adChecks from "../recruiting/lib/adChecks.js";
+import type * as recruiting_lib_briefs from "../recruiting/lib/briefs.js";
+import type * as recruiting_lib_calcom from "../recruiting/lib/calcom.js";
+import type * as recruiting_lib_claude from "../recruiting/lib/claude.js";
+import type * as recruiting_lib_texts from "../recruiting/lib/texts.js";
+import type * as recruiting_lib_time from "../recruiting/lib/time.js";
+import type * as recruiting_reports from "../recruiting/reports.js";
+import type * as recruiting_routes from "../recruiting/routes.js";
+import type * as recruiting_tables from "../recruiting/tables.js";
+import type * as recruiting_tools from "../recruiting/tools.js";
 import type * as activityLogs from "../activityLogs.js";
 import type * as auth from "../auth.js";
 import type * as bids from "../bids.js";
@@ -61,6 +78,23 @@ import type * as users from "../users.js";
  * ```
  */
 declare const fullApi: ApiFromModules<{
+  "recruiting/adAgent": typeof recruiting_adAgent;
+  "recruiting/ads": typeof recruiting_ads;
+  "recruiting/agent": typeof recruiting_agent;
+  "recruiting/applicants": typeof recruiting_applicants;
+  "recruiting/clients": typeof recruiting_clients;
+  "recruiting/followups": typeof recruiting_followups;
+  "recruiting/ops": typeof recruiting_ops;
+  "recruiting/lib/adChecks": typeof recruiting_lib_adChecks;
+  "recruiting/lib/briefs": typeof recruiting_lib_briefs;
+  "recruiting/lib/calcom": typeof recruiting_lib_calcom;
+  "recruiting/lib/claude": typeof recruiting_lib_claude;
+  "recruiting/lib/texts": typeof recruiting_lib_texts;
+  "recruiting/lib/time": typeof recruiting_lib_time;
+  "recruiting/reports": typeof recruiting_reports;
+  "recruiting/routes": typeof recruiting_routes;
+  "recruiting/tables": typeof recruiting_tables;
+  "recruiting/tools": typeof recruiting_tools;
   activityLogs: typeof activityLogs;
   auth: typeof auth;
   bids: typeof bids;

@@ -14,9 +14,11 @@
     "convex:dev": "convex dev",
     "convex:deploy": "convex deploy",
     "convex:seed": "convex run seed:catalog",
-    "theme:light": "node scripts/build-light-theme.mjs"
+    "theme:light": "node scripts/build-light-theme.mjs",
+    "recruiting:briefs": "node scripts/recruiting-briefs.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.6.0",
     "@auth/core": "^0.41.3",
     "@convex-dev/auth": "^0.0.96",
     "@floating-ui/react-dom": "^2.1.2",

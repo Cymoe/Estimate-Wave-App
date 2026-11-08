@@ -7,11 +7,11 @@
 
 import type { SendResult } from "./email";
 
-/** Sends one text; "skipped" without Twilio set up, "failed" with Twilio's reason. */
-export async function sendSms(to: string, text: string): Promise<SendResult> {
+/** Sends one text; "skipped" without Twilio set up, "failed" with Twilio's reason. `fromNumber` sends from another of the account's numbers (recruiting has its own). */
+export async function sendSms(to: string, text: string, fromNumber?: string): Promise<SendResult> {
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_FROM;
+  const from = fromNumber ?? process.env.TWILIO_FROM;
   if (!sid || !token || !from) return { status: "skipped", error: "Twilio not set up (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM)" };
   try {
     const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {

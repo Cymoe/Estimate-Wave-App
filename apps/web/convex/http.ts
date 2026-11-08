@@ -6,6 +6,7 @@ import { verifyStripeSignature } from "./lib/stripe";
 import { twilioSignatureOk } from "./lib/sms";
 import { addOAuthRoutes } from "./lib/oauthRoutes";
 import { addMcpRoutes } from "./lib/mcpServer";
+import { addRecruitingRoutes } from "./recruiting/routes";
 
 const http = httpRouter();
 
@@ -135,5 +136,8 @@ http.route({
     return new Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response></Response>", { headers: { "content-type": "text/xml" } });
   }),
 });
+
+// National Sales Registry's recruiting (recruiting/routes.ts): its own number's webhook, applications, Cal.com, ad spend.
+addRecruitingRoutes(http);
 
 export default http;

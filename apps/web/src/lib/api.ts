@@ -1452,3 +1452,91 @@ export const officeLineAPI = {
 };
 
 export { APIError };
+
+// ---- Recruiting (National Sales Registry): Jordan the SMS screener and the recruiting ads. Staff only. ----
+
+export type RecruitClientInput = {
+  name: string;
+  role: string;
+  city: string;
+  compSheet: string;
+  calEventLink: string;
+  calEventTypeId?: number;
+  timezone: string;
+  reportEmail?: string;
+  territory?: string;
+  repStories?: string[];
+  perks?: string;
+  wants?: string;
+  adsEnabled?: boolean;
+  active?: boolean;
+};
+export type RecruitClient = RecruitClientInput & { id: string; active: boolean; applicants: number; A: number; createdAt: string };
+export type RecruitScore = 'A' | 'B' | 'C';
+export type RecruitApplicant = {
+  id: string;
+  name: string;
+  phone: string;
+  clientId: string;
+  client: string;
+  sourceAdId: string;
+  score?: RecruitScore;
+  status: string;
+  notes?: string;
+  answers: Record<string, string>;
+  interviewAt?: string;
+  createdAt: string;
+  test: boolean;
+  replying: boolean;
+  lastText: { direction: 'in' | 'out'; body: string; at: string } | null;
+};
+export type RecruitThread = { applicant: RecruitApplicant; messages: Array<{ id: string; direction: 'in' | 'out'; body: string; at: string }> };
+export type RecruitAdKind = 'hook' | 'meta_primary' | 'video_script' | 'indeed';
+export type RecruitAdPerformance = {
+  sourceAdId: string;
+  kind?: RecruitAdKind;
+  angle?: string;
+  status?: string;
+  applicants: number;
+  A: number;
+  aRate: number | null;
+  booked: number;
+  showRate: number | null;
+  spendCents?: number;
+  aPer100: number | null;
+};
+export type RecruitAds = {
+  clients: Array<{
+    client: { id: string; name: string; adsEnabled: boolean };
+    writing: boolean;
+    failed?: string;
+    latest: { createdAt: string; learningNotes?: string; problems: string[]; variations: number; fresh: number } | null;
+    drafts: Array<{ id: string; kind: RecruitAdKind; angle: string; title?: string; body: string; variationOf?: string; warnings: string[] }>;
+    retire: Array<{ sourceAdId: string; reason: string }>;
+    performance: RecruitAdPerformance[];
+  }>;
+  approved: Array<{ sourceAdId: string; client: string; kind: RecruitAdKind; angle: string; title: string; body: string; approvedAt: string }>;
+};
+export type RecruitByAd = Array<{ sourceAdId: string; applicants: number; A: number; B: number; C: number; booked: number; showed: number }>;
+export type RecruitSetup = { applyUrl: string; smsWebhook: string; calWebhook: string; spendUrl: string; ready: { claude: boolean; number: boolean; applySecret: boolean; cal: boolean; flags: boolean } };
+
+export const recruitingAPI = {
+  watchClients: (onUpdate: (c: RecruitClient[]) => void, onError?: (e: APIError) => void) => watchOn(api.recruiting.ops.clients, {}, onUpdate, onError),
+  saveClient: (client: RecruitClientInput & { clientId?: string }): Promise<string> => run('mutation', api.recruiting.ops.saveClient, defined(client)),
+  watchApplicants: (filter: { clientId?: string; status?: string; score?: string }, onUpdate: (a: RecruitApplicant[]) => void, onError?: (e: APIError) => void) =>
+    watchOn(api.recruiting.ops.applicants, defined(filter), onUpdate, onError),
+  watchThread: (applicantId: string, onUpdate: (t: RecruitThread | null) => void, onError?: (e: APIError) => void) => watchOn(api.recruiting.ops.thread, { applicantId }, onUpdate, onError),
+  markAttendance: (applicantId: string, showed: boolean) => run('mutation', api.recruiting.ops.markAttendance, { applicantId, showed }),
+  watchTryIt: (onUpdate: (t: RecruitThread | null) => void, onError?: (e: APIError) => void) => watchOn(api.recruiting.ops.tryIt, {}, onUpdate, onError),
+  tryItStart: (clientId: string, name?: string): Promise<string> => run('mutation', api.recruiting.ops.tryItStart, defined({ clientId, name })),
+  tryItSend: (body: string): Promise<{ reply?: string }> => run('mutation', api.recruiting.ops.tryItSend, { body }),
+  tryItReset: () => run('mutation', api.recruiting.ops.tryItReset, {}),
+  watchAds: (onUpdate: (a: RecruitAds) => void, onError?: (e: APIError) => void) => watchOn(api.recruiting.ops.ads, {}, onUpdate, onError),
+  decideAd: (adId: string, decision: 'approve' | 'reject'): Promise<string | null> => run('mutation', api.recruiting.ops.decideAd, { adId, decision }),
+  approveClean: (clientId: string): Promise<string[]> => run('mutation', api.recruiting.ops.approveClean, { clientId }),
+  retireAd: (sourceAdId: string) => run('mutation', api.recruiting.ops.retireAd, { sourceAdId }),
+  setSpend: (sourceAdId: string, dollars: number) => run('mutation', api.recruiting.ops.setSpend, { sourceAdId, dollars }),
+  writeBatch: (clientId: string) => run('mutation', api.recruiting.ops.writeBatch, { clientId }),
+  byAd: (days = 30): Promise<RecruitByAd> => run('query', api.recruiting.ops.byAd, { days }),
+  setup: (): Promise<RecruitSetup> => run('query', api.recruiting.ops.setup, {}),
+};

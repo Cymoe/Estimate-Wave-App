@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { authTables } from "@convex-dev/auth/server";
 import { v } from "convex/values";
+import { recruitTables } from "./recruiting/tables";
 
 /**
  * Webb Leads data model.
@@ -700,6 +701,8 @@ export const adScript = v.object({
 
 export default defineSchema({
   ...authTables,
+  // National Sales Registry's recruiting (recruiting/tables.ts): Jordan's clients, applicants and texts, and the recruiting ads.
+  ...recruitTables,
 
   // Convex Auth's users table, plus an app-wide role.
   users: defineTable({

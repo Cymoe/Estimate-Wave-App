@@ -66,4 +66,9 @@ crons.monthly("niche research", { day: 1, hourUTC: 10, minuteUTC: 0 }, internal.
 // The office line (agent.ts): each company's morning brief at its time, and asks nobody answered expire.
 crons.interval("office line briefs", { minutes: 15 }, internal.agent.morningBriefs, {});
 
+// Recruiting (recruiting/): Jordan's follow-ups after silence, then ghosted; Monday's client reports, then the recruiting ad batches.
+crons.hourly("recruiting: follow up on silence", { minuteUTC: 41 }, internal.recruiting.followups.sweep, {});
+crons.weekly("recruiting: client report", { dayOfWeek: "monday", hourUTC: 13, minuteUTC: 13 }, internal.recruiting.reports.sendWeekly, {});
+crons.weekly("recruiting: ad batch", { dayOfWeek: "monday", hourUTC: 14, minuteUTC: 7 }, internal.recruiting.adAgent.weekly, {});
+
 export default crons;
