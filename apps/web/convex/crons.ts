@@ -32,6 +32,9 @@ crons.interval("look up Midland permit builders", { hours: 1 }, internal.permits
 // Who runs the business at each Midland address, from the Comptroller's sales-tax permits (lib/outlets.ts), weekly, before the roll.
 crons.weekly("sync Midland outlets", { dayOfWeek: "sunday", hourUTC: 6, minuteUTC: 50 }, internal.outlets.syncMidland, {});
 
+// Who sells Midland's homes: TREC's active agents and brokers (lib/realtors.ts), weekly, before the roll.
+crons.weekly("sync Midland realtors", { dayOfWeek: "sunday", hourUTC: 6, minuteUTC: 55 }, internal.realtors.syncMidland, {});
+
 // Who owns each Midland home, from the appraisal roll (lib/parcels.ts), weekly.
 crons.weekly(
   "sync Midland owners",

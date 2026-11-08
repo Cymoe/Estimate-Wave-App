@@ -458,6 +458,7 @@ export const outreachWho = v.union(
   v.literal("contractor"),
   v.literal("designer"),
   v.literal("occupant"),
+  v.literal("realtor"),
   v.literal("custom"),
 );
 
@@ -494,6 +495,16 @@ export const ownerSignal = v.object({
   kind: v.union(v.literal("code_violation"), v.literal("dilapidated"), v.literal("demolition"), v.literal("stalled_permit")),
   detail: v.string(),
   date: v.string(),
+});
+/** A realtor's license, as the owners rebuild keeps it (lib/realtors.ts). */
+export const realtorLicense = v.object({
+  number: v.string(),
+  type: v.union(v.literal("agent"), v.literal("broker")),
+  since: v.optional(v.string()),
+  expires: v.optional(v.string()),
+  withBrokerageSince: v.optional(v.string()),
+  sponsors: v.optional(v.number()),
+  supervisor: v.boolean(),
 });
 /** A person a contractor's permits name. */
 export const ownerContact = v.object({
@@ -1092,6 +1103,28 @@ export default defineSchema({
     .index("by_county_and_seen", ["county", "seenAt"])
     .index("by_county_and_at", ["county", "at"]),
 
+  // Every active real estate license holder in the county (lib/realtors.ts):
+  // the agents and brokers, and the brokerages they hang their licenses
+  // with. Read weekly from TREC; rows the last read didn't see are dropped.
+  realtors: defineTable({
+    county: v.string(),
+    licenseNumber: v.string(),
+    type: v.union(v.literal("agent"), v.literal("broker"), v.literal("brokerage")),
+    name: v.string(),
+    first: v.optional(v.string()),
+    last: v.optional(v.string()),
+    licensedAt: v.optional(v.string()),
+    expiresAt: v.optional(v.string()),
+    brokerage: v.optional(v.object({ licenseNumber: v.string(), name: v.string(), type: v.union(v.literal("agent"), v.literal("broker"), v.literal("brokerage")) })),
+    brokerageSince: v.optional(v.string()),
+    supervisor: v.boolean(),
+    importedAt: v.string(),
+    seenAt: v.string(),
+  })
+    .index("by_license", ["licenseNumber"])
+    .index("by_county_and_seen", ["county", "seenAt"])
+    .index("by_county_and_type", ["county", "type"]),
+
   // Owners with 5 or more Midland homes on the roll ("tired landlords").
   landlords: defineTable({
     county: v.string(),
@@ -1143,7 +1176,8 @@ export default defineSchema({
     key: v.string(),
     // A contractor or designer is a company on the city's permits, not an owner on the roll; its parcels are permits.
     // An occupant is a business in a space it doesn't own; its parcels are its locations.
-    kind: v.union(v.literal("owner"), v.literal("office"), v.literal("contractor"), v.literal("designer"), v.literal("occupant")),
+    // A realtor is a licensed agent or broker, with no parcels at all.
+    kind: v.union(v.literal("owner"), v.literal("office"), v.literal("contractor"), v.literal("designer"), v.literal("occupant"), v.literal("realtor")),
     name: v.string(),
     company: v.boolean(),
     mailing: v.object({
@@ -1183,6 +1217,9 @@ export default defineSchema({
     sources: v.optional(v.array(v.union(v.literal("occupancy"), v.literal("permit"), v.literal("outlet")))),
     businessKind: v.optional(v.string()),
     taxpayer: v.optional(v.string()),
+    // A realtor: the license, and the brokerage they hang it with.
+    license: v.optional(realtorLicense),
+    brokerage: v.optional(v.string()),
     buildId: v.string(),
   })
     .index("by_county_and_key", ["county", "key"])
@@ -1252,7 +1289,8 @@ export default defineSchema({
       state: v.optional(v.string()),
       zip: v.optional(v.string()),
     }),
-    property: outreachProperty,
+    // Absent for a row that owns nothing here (a realtor): lookups that need an address skip.
+    property: v.optional(outreachProperty),
     properties: v.number(),
     totalValueCents: v.number(),
     why: v.string(),
