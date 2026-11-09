@@ -49,8 +49,9 @@ The Twilio account (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`) and Resend are sh
 1. Buy a second Twilio number and register it for **A2P 10DLC** under a recruiting campaign.
 2. Set that number's **A message comes in** webhook to `https://<deployment>.convex.site/recruiting/sms`. Ops → Recruiting → Setup shows the exact address.
 3. Turn on Advanced Opt-Out, then set `RECRUIT_TWILIO_FROM` and `RECRUIT_TWILIO_ADVANCED_OPT_OUT=on`.
-4. Point each ad at its apply link (Ops → Recruiting → Ads, once approved). The A2P campaign's opt-in proof is the apply page: give the registration a client's `/jobs/<slug>` address.
-5. Or, for a form that posts applicants itself: POST `/recruiting/apply` with `{"name","phone","clientId","sourceAdId"}` and `Authorization: Bearer <RECRUIT_APPLY_SECRET>`.
+4. On the registration, give the opt-in page (`/jobs/<slug>`, which shows the consent wording) and the privacy policy (`/privacy#recruiting`, the National Sales Registry section, with the no-sharing line for mobile numbers and consent).
+5. Point each ad at its apply link (Ops → Recruiting → Ads, once approved). The A2P campaign's opt-in proof is the apply page: give the registration a client's `/jobs/<slug>` address.
+6. Or, for a form that posts applicants itself: POST `/recruiting/apply` with `{"name","phone","clientId","sourceAdId"}` and `Authorization: Bearer <RECRUIT_APPLY_SECRET>`.
 
 ## Endpoints
 

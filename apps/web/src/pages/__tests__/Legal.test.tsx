@@ -65,6 +65,25 @@ describe('legal pages', () => {
       expect(host.textContent).toContain(phrase);
   });
 
+  it('covers National Sales Registry for the texting registration: the brand, STOP/HELP, and no sharing of mobile numbers or consent', async () => {
+    await open('/privacy#recruiting');
+    const section = host.querySelector('h2#recruiting')!;
+    expect(section.textContent).toBe('National Sales Registry (recruiting)');
+    for (const phrase of [
+      'recruiting texts about that job from National Sales Registry',
+      'Message frequency varies',
+      'Reply STOP to opt out, HELP for help',
+      "share mobile phone numbers or text-messaging opt-in data and consent with any third party or affiliate for their marketing or promotional purposes",
+      'Text-messaging originator opt-in data and consent are excluded from every sharing described in this policy',
+    ])
+      expect(host.textContent!.replace(/\s+/g, ' ')).toContain(phrase);
+    act(() => root.unmount());
+    host.remove();
+    await open('/privacy?lang=es');
+    expect(host.querySelector('h2#recruiting')!.textContent).toBe('National Sales Registry (reclutamiento)');
+    expect(host.textContent!.replace(/\s+/g, ' ')).toContain('No vendemos, alquilamos ni compartimos números de teléfono móvil');
+  });
+
   it('LegalLinks points at both pages', async () => {
     await open('/share');
     const hrefs = Array.from(host.querySelectorAll('a')).map((a) => a.getAttribute('href'));

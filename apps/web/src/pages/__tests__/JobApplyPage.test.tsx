@@ -71,6 +71,7 @@ describe('the apply page', () => {
     expect(page.textContent).toContain('Acme Roofing is hiring');
     expect(page.querySelector('h1')!.textContent).toBe('Door-to-door roofing sales rep');
     expect(page.textContent).toContain(job.consent);
+    expect(page.querySelector('a[href="/privacy#recruiting"]')!.textContent).toBe('Privacy');
     const submit = page.querySelector('button[type="submit"]') as HTMLButtonElement;
     await type(page.querySelector('input[autocomplete="name"]')!, 'Dana Cruz');
     await type(page.querySelector('input[type="tel"]')!, '(432) 555-0100');

@@ -1,5 +1,5 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { APP_NAME, SUPPORT_EMAIL } from '../config/brand';
 import { LangProvider, LangToggle } from '../i18n';
 import { useLang } from '../i18n/lang';
@@ -11,7 +11,7 @@ import { GOVERNS_ES, PrivacyEs, TermsEs } from './legalEs';
 // without signing in. Linked from the landing page, sign-in, the apply form,
 // and every page a homeowner or client sees (estimate, signoff, funding).
 
-const UPDATED = 'October 28, 2026';
+const UPDATED = 'November 9, 2026';
 
 /** Terms and Privacy links for the bottom of a public page, in the page's language. */
 export const LegalLinks: React.FC<{ className?: string }> = ({ className = 'text-xs text-gray-500' }) => {
@@ -29,7 +29,7 @@ export const LegalLinks: React.FC<{ className?: string }> = ({ className = 'text
   );
 };
 
-const UPDATED_ES = '28 de octubre de 2026';
+const UPDATED_ES = '9 de noviembre de 2026';
 
 const Page: React.FC<{ title: string; titleEs: string; children: React.ReactNode; childrenEs: React.ReactNode }> = ({
   title,
@@ -38,6 +38,13 @@ const Page: React.FC<{ title: string; titleEs: string; children: React.ReactNode
   childrenEs,
 }) => {
   const { lang } = useLang();
+  const { hash } = useLocation();
+  // A link to one section (/privacy#recruiting) lands on it, after the page-change scroll to the top.
+  useEffect(() => {
+    if (!hash) return;
+    const t = setTimeout(() => document.getElementById(hash.slice(1))?.scrollIntoView(), 50);
+    return () => clearTimeout(t);
+  }, [hash, lang]);
   return (
     <LightPage className="bg-gray-50 text-gray-900">
       <div className="max-w-3xl mx-auto px-4 py-10">
@@ -165,7 +172,8 @@ export const PrivacyPage: React.FC = () => (
   <LegalPage title="Privacy Policy" titleEs="Política de privacidad" childrenEs={<PrivacyEs />}>
     <p>
       This policy explains what {APP_NAME} collects, why, and the choices you have. It covers contractors who use {APP_NAME}, homeowners whose
-      requests become leads, and anyone who opens an estimate, contract or payment link sent through {APP_NAME}.
+      requests become leads, people who apply for jobs through National Sales Registry, and anyone who opens an estimate, contract or payment link
+      sent through {APP_NAME}.
     </p>
 
     <h2>What we collect</h2>
@@ -181,6 +189,10 @@ export const PrivacyPage: React.FC = () => (
       <li>
         <strong>Estimate and contract links:</strong> when the page was opened, the name typed and signature drawn when signing, and the documents
         agreed to.
+      </li>
+      <li>
+        <strong>Job applicants:</strong> name, mobile number, the job and the ad you came from, your answers by text, interview times and whether you
+        were hired (see <a href="#recruiting">National Sales Registry</a> below).
       </li>
       <li>
         <strong>Payments:</strong> card payments are handled by Stripe; we receive the amount and a confirmation, never your full card number.
@@ -208,11 +220,24 @@ export const PrivacyPage: React.FC = () => (
       contractor as described below.
     </p>
 
+    <h2 id="recruiting">National Sales Registry (recruiting)</h2>
+    <p>
+      National Sales Registry is a recruiting service {APP_NAME} runs for sales companies. When you apply for a job through a National Sales Registry
+      page, we use your name, mobile number and the answers you give by text to screen you for that job, set up an interview with the hiring company,
+      remind you of it, and tell the company how it went. Your text answers are read and scored with the help of an AI assistant (Anthropic&rsquo;s
+      Claude), and a person can step in at any time. Your application goes only to the company you applied to.
+    </p>
+
     <h2>Texts and emails</h2>
     <p>
       Contractors who apply agree to a call and texts from {APP_NAME} about their account and new leads. Homeowners who request a quote may get a text
       to confirm the request and messages from the contractor they&rsquo;re matched with. Message and data rates may apply. Reply STOP to any text to
       stop texts from that number, or HELP for help. You can turn off email alerts in Settings.
+    </p>
+    <p>
+      People who apply through a National Sales Registry job page agree to recruiting texts about that job from National Sales Registry: screening
+      questions, interview scheduling and reminders, some of them automated. Message frequency varies. Message and data rates may apply. Reply STOP
+      to opt out, HELP for help. Agreeing to texts isn&rsquo;t a condition of any purchase.
     </p>
 
     <h2>Who we share it with</h2>
@@ -221,12 +246,16 @@ export const PrivacyPage: React.FC = () => (
         <strong>Contractors:</strong> a homeowner&rsquo;s request and contact details go to the contractor who buys the lead (and to no one else).
       </li>
       <li>
+        <strong>Hiring companies:</strong> a job applicant&rsquo;s answers, score and interview details go to the company they applied to (and to no
+        one else).
+      </li>
+      <li>
         <strong>Your customers:</strong> the estimate, contract and payment pages you send show your company&rsquo;s details to the people you send
         them to.
       </li>
       <li>
         <strong>Service providers</strong> who help us run {APP_NAME}: hosting and database (Vercel, Convex), email (Resend), texting (Twilio),
-        payments (Stripe), and sign-in (Google). They may only use the data to provide their service to us.
+        payments (Stripe), sign-in (Google), interview scheduling (Cal.com), and the AI assistant that reads job applicants&rsquo; texts (Anthropic). They may only use the data to provide their service to us.
       </li>
       <li>
         <strong>Connected assistants:</strong> if you connect Claude or ChatGPT, it can read and change your company&rsquo;s data in {APP_NAME}
@@ -235,6 +264,10 @@ export const PrivacyPage: React.FC = () => (
       <li>When the law requires it, or to protect {APP_NAME}, our users or others.</li>
     </ul>
     <p>We don&rsquo;t sell personal information other than selling homeowner lead requests to contractors as described above.</p>
+    <p>
+      We don&rsquo;t sell, rent or share mobile phone numbers or text-messaging opt-in data and consent with any third party or affiliate for their
+      marketing or promotional purposes. Text-messaging originator opt-in data and consent are excluded from every sharing described in this policy.
+    </p>
 
     <h2>How long we keep it</h2>
     <p>
@@ -248,6 +281,7 @@ export const PrivacyPage: React.FC = () => (
       <li>
         Homeowners can ask us to delete their request or stop sharing it by contacting us; a contractor who already received it keeps their own copy.
       </li>
+      <li>Job applicants can ask us to delete their application by contacting us.</li>
       <li>You can opt out of texts by replying STOP and out of email alerts in Settings.</li>
     </ul>
 

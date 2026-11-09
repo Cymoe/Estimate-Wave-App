@@ -129,7 +129,7 @@ export default function JobApplyPage() {
               Terms
             </Link>
             {' · '}
-            <Link to="/privacy" className="underline underline-offset-2">
+            <Link to="/privacy#recruiting" className="underline underline-offset-2">
               Privacy
             </Link>
           </p>

@@ -112,7 +112,7 @@ export const PrivacyEs = () => (
   <>
     <p>
       Esta política explica qué recopila {APP_NAME}, por qué, y las opciones que tienes. Cubre a los contratistas que usan {APP_NAME}, a los
-      propietarios cuyas solicitudes se convierten en leads, y a cualquiera que abra un enlace de presupuesto, contrato o pago enviado a través de{' '}
+      propietarios cuyas solicitudes se convierten en leads, a las personas que solicitan empleo a través de National Sales Registry, y a cualquiera que abra un enlace de presupuesto, contrato o pago enviado a través de{' '}
       {APP_NAME}.
     </p>
 
@@ -129,6 +129,10 @@ export const PrivacyEs = () => (
       <li>
         <strong>Enlaces de presupuesto y contrato:</strong> cuándo se abrió la página, el nombre escrito y la firma dibujada al firmar, y los
         documentos aceptados.
+      </li>
+      <li>
+        <strong>Solicitantes de empleo:</strong> nombre, número de celular, el empleo y el anuncio del que llegaste, tus respuestas por mensaje de
+        texto, horarios de entrevista y si te contrataron (ver <a href="#recruiting">National Sales Registry</a> abajo).
       </li>
       <li>
         <strong>Pagos:</strong> los pagos con tarjeta los maneja Stripe; recibimos el monto y una confirmación, nunca el número completo de tu
@@ -157,12 +161,27 @@ export const PrivacyEs = () => (
       ellos es una solicitud a {APP_NAME}, está cubierta por esta política y va a un solo contratista como se describe abajo.
     </p>
 
+    <h2 id="recruiting">National Sales Registry (reclutamiento)</h2>
+    <p>
+      National Sales Registry es un servicio de reclutamiento que {APP_NAME} opera para empresas de ventas. Cuando solicitas un empleo a través de una
+      página de National Sales Registry, usamos tu nombre, tu número de celular y las respuestas que das por mensaje de texto para evaluarte para ese
+      empleo, programar una entrevista con la empresa que contrata, recordártela e informar a la empresa cómo te fue. Tus respuestas se leen y
+      califican con la ayuda de un asistente de IA (Claude, de Anthropic), y una persona puede intervenir en cualquier momento. Tu solicitud va solo a
+      la empresa a la que aplicaste.
+    </p>
+
     <h2>Mensajes de texto y correos</h2>
     <p>
       Los contratistas que solicitan una cuenta aceptan una llamada y mensajes de texto de {APP_NAME} sobre su cuenta y nuevas solicitudes. Los
       propietarios que piden un presupuesto pueden recibir un mensaje para confirmar la solicitud y mensajes del contratista asignado. Pueden aplicar
       tarifas de mensajes y datos. Responde STOP a cualquier mensaje para dejar de recibir textos de ese número, o HELP (AYUDA) para ayuda. Puedes
       desactivar las alertas por correo en Configuración.
+    </p>
+    <p>
+      Las personas que solicitan empleo en una página de National Sales Registry aceptan recibir mensajes de texto de reclutamiento de National Sales
+      Registry sobre ese empleo: preguntas de evaluación, programación de entrevistas y recordatorios, algunos automatizados. La frecuencia de los
+      mensajes varía. Pueden aplicar tarifas de mensajes y datos. Responde STOP para dejar de recibirlos, o HELP (AYUDA) para ayuda. Aceptar los
+      mensajes no es condición para ninguna compra.
     </p>
 
     <h2>Con quién la compartimos</h2>
@@ -172,12 +191,17 @@ export const PrivacyEs = () => (
         más).
       </li>
       <li>
+        <strong>Empresas que contratan:</strong> las respuestas, la calificación y los datos de entrevista de un solicitante van a la empresa a la que
+        aplicó (y a nadie más).
+      </li>
+      <li>
         <strong>Tus clientes:</strong> las páginas de presupuesto, contrato y pago que envías muestran los datos de tu empresa a las personas a
         quienes las envías.
       </li>
       <li>
         <strong>Proveedores de servicio</strong> que nos ayudan a operar {APP_NAME}: alojamiento y base de datos (Vercel, Convex), correo (Resend),
-        mensajes de texto (Twilio), pagos (Stripe) e inicio de sesión (Google). Solo pueden usar los datos para prestarnos su servicio.
+        mensajes de texto (Twilio), pagos (Stripe), inicio de sesión (Google), programación de entrevistas (Cal.com) y el asistente de IA que lee los
+        mensajes de los solicitantes de empleo (Anthropic). Solo pueden usar los datos para prestarnos su servicio.
       </li>
       <li>
         <strong>Asistentes conectados:</strong> si conectas Claude o ChatGPT, puede leer y cambiar los datos de tu empresa en {APP_NAME} dentro de los
@@ -186,6 +210,11 @@ export const PrivacyEs = () => (
       <li>Cuando la ley lo exija, o para proteger a {APP_NAME}, a nuestros usuarios o a otros.</li>
     </ul>
     <p>No vendemos información personal, salvo la venta de solicitudes de propietarios a contratistas como se describe arriba.</p>
+    <p>
+      No vendemos, alquilamos ni compartimos números de teléfono móvil ni los datos y el consentimiento de suscripción a mensajes de texto con ningún
+      tercero o afiliado para sus fines de marketing o promoción. Los datos y el consentimiento de suscripción a mensajes de texto quedan excluidos de
+      todo lo que se comparte según esta política.
+    </p>
 
     <h2>Cuánto tiempo la guardamos</h2>
     <p>
@@ -201,6 +230,7 @@ export const PrivacyEs = () => (
         Los propietarios pueden pedirnos eliminar su solicitud o dejar de compartirla contactándonos; el contratista que ya la recibió conserva su
         propia copia.
       </li>
+      <li>Los solicitantes de empleo pueden pedirnos eliminar su solicitud contactándonos.</li>
       <li>Puedes dejar de recibir mensajes de texto respondiendo STOP, y las alertas por correo en Configuración.</li>
     </ul>
 
