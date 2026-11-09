@@ -36,6 +36,7 @@ const decideAd = jest.fn(async () => 'acme-m1');
 const saveClient = jest.fn(async () => 'c2');
 const markOutcome = jest.fn(async () => null);
 const demoLive = jest.fn(async () => 'a1');
+const reply = jest.fn(async () => null);
 const demoSeed = jest.fn(async () => ({}));
 const ads = {
   clients: [
@@ -74,6 +75,8 @@ jest.mock('../../lib/api', () => ({
       })(cb),
     markOutcome: (...a: unknown[]) => markOutcome(...(a as [])),
     demoLive: () => demoLive(),
+    reply: (...a: unknown[]) => reply(...(a as [])),
+    handBack: async () => null,
     demoSeed: () => demoSeed(),
     demoClear: async () => ({ removed: 0 }),
   },
@@ -180,6 +183,15 @@ describe('Ops → Recruiting', () => {
     const box = document.querySelector('[data-testid="outcome"]')!;
     await click(Array.from(box.querySelectorAll('button')).find((b) => b.textContent === 'Hired')!);
     expect(markOutcome).toHaveBeenCalledWith('a1', 'hired');
+  });
+
+  it('staff text a rep themselves from the applicant window', async () => {
+    await render('/ops/recruiting?applicant=a1');
+    const box = document.querySelector('[data-testid="person-reply"]')!;
+    expect(box.textContent).toContain('Sending takes over from Jordan');
+    await type(box.querySelector('input[aria-label="Your text to the rep"]')!, 'Hi Dana, Myles here.');
+    await act(async () => void (box.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(reply).toHaveBeenCalledWith('a1', 'Hi Dana, Myles here.');
   });
 
   it('Setup: load the demo, and Watch opens the live conversation', async () => {

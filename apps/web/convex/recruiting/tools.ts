@@ -65,14 +65,15 @@ export const TOOLS: Anthropic.Tool[] = [
 export type TurnState = { applicant: Doc<"recruitApplicants">; client: Doc<"recruitClients">; sentThisTurn: boolean; flagged: boolean };
 
 /** Sends a text to the applicant and logs it. Nothing goes to a number that opted out. */
-export async function textApplicant(ctx: ActionCtx, applicantId: Id<"recruitApplicants">, body: string, opts: { followUp?: boolean } = {}): Promise<string> {
+/** `by`: a staff member's first name, when a person sent it from Ops. */
+export async function textApplicant(ctx: ActionCtx, applicantId: Id<"recruitApplicants">, body: string, opts: { followUp?: boolean; by?: string } = {}): Promise<string> {
   const now = await ctx.runQuery(internal.recruiting.applicants.context, { applicantId });
   if (!now || now.optedOut || now.applicant.status === "opted_out") return "Not sent: the applicant opted out.";
   const text = body.trim();
   if (!text) return "Not sent: the text was empty.";
   const r = await sendText(now.applicant.phone, text, { test: now.applicant.test || now.applicant.demo });
   if (r.status === "failed" || r.status === "skipped") throw new Error(`Text not sent: ${r.error}`);
-  await ctx.runMutation(internal.recruiting.applicants.logOutbound, { applicantId, body: text, sid: r.providerId, followUp: opts.followUp });
+  await ctx.runMutation(internal.recruiting.applicants.logOutbound, { applicantId, body: text, sid: r.providerId, followUp: opts.followUp, by: opts.by });
   return "Sent.";
 }
 

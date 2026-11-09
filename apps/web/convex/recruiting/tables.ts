@@ -106,8 +106,10 @@ export const recruitTables = {
     body: v.string(),
     at: v.string(),
     twilioSid: v.optional(v.string()),
-    // Logged, not sent through Twilio: a test applicant's, or RECRUIT_SMS_MODE=simulate.
+    // Logged, not sent through Twilio: a test or demo applicant's, or RECRUIT_SMS_MODE=simulate.
     simulated: v.optional(v.boolean()),
+    // A text a person on the team sent from Ops (their first name); Jordan's have none.
+    by: v.optional(v.string()),
   }).index("by_applicant", ["applicantId", "at"]),
 
   // One run of the ad agent for a client: the pieces it wrote are in `ads`.

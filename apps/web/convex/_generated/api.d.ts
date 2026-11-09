@@ -27,6 +27,7 @@ import type * as recruiting_lib_calcom from "../recruiting/lib/calcom.js";
 import type * as recruiting_lib_claude from "../recruiting/lib/claude.js";
 import type * as recruiting_lib_texts from "../recruiting/lib/texts.js";
 import type * as recruiting_lib_time from "../recruiting/lib/time.js";
+import type * as recruiting_people from "../recruiting/people.js";
 import type * as recruiting_public from "../recruiting/public.js";
 import type * as recruiting_reports from "../recruiting/reports.js";
 import type * as recruiting_routes from "../recruiting/routes.js";
@@ -94,6 +95,7 @@ declare const fullApi: ApiFromModules<{
   "recruiting/lib/claude": typeof recruiting_lib_claude;
   "recruiting/lib/texts": typeof recruiting_lib_texts;
   "recruiting/lib/time": typeof recruiting_lib_time;
+  "recruiting/people": typeof recruiting_people;
   "recruiting/public": typeof recruiting_public;
   "recruiting/reports": typeof recruiting_reports;
   "recruiting/routes": typeof recruiting_routes;

@@ -78,7 +78,7 @@ function ClientForm({ initial, onClose }: { initial: RecruitClient | null; onClo
           </select>
         </Field>
       </div>
-      <Field label="Weekly report email">
+      <Field label="Report email" hint="Gets a note for each interview booked (who's coming and what they told Jordan) and the weekly report.">
         <input className={input} type="email" {...text('reportEmail')} placeholder="hiring@acmeroofing.com" aria-label="Report email" />
       </Field>
 

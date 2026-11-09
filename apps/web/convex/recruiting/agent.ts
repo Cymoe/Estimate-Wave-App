@@ -32,7 +32,7 @@ export function replySpeed(messages: Array<Pick<Doc<"recruitMessages">, "directi
 
 const minutes = (m: number) => (m < 1 ? "under a minute" : m < 90 ? `about ${Math.round(m)} minute${Math.round(m) === 1 ? "" : "s"}` : `about ${Math.round(m / 60)} hours`);
 
-export function conversation(applicant: Doc<"recruitApplicants">, client: Doc<"recruitClients">, messages: Array<Pick<Doc<"recruitMessages">, "direction" | "body" | "at">>, note?: string): Anthropic.MessageParam[] {
+export function conversation(applicant: Doc<"recruitApplicants">, client: Doc<"recruitClients">, messages: Array<Pick<Doc<"recruitMessages">, "direction" | "body" | "at"> & { by?: string }>, note?: string): Anthropic.MessageParam[] {
   const speed = replySpeed(messages);
   const known = [
     `[Applicant: ${applicant.name}, ${applicant.phone}. Applied for ${client.role} with ${client.name} in ${client.city}, from ad ${applicant.sourceAdId}.`,
@@ -48,9 +48,11 @@ export function conversation(applicant: Doc<"recruitApplicants">, client: Doc<"r
   for (const m of messages) {
     const role = m.direction === "in" ? "user" : "assistant";
     const last = turns[turns.length - 1];
+    // A person on the team texted this one, not Jordan.
+    const body = m.by ? `[${m.by}, a person on the team, texted this while they had the conversation:] ${m.body}` : m.body;
     // Back-to-back texts from the same side read as one turn.
-    if (last.role === role) last.content = `${last.content as string}\n${m.body}`;
-    else turns.push({ role, content: m.body });
+    if (last.role === role) last.content = `${last.content as string}\n${body}`;
+    else turns.push({ role, content: body });
   }
   // Claude answers a user turn: when we spoke last (a first text, a follow-up), the note says what's wanted.
   const last = turns[turns.length - 1];

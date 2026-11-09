@@ -1,8 +1,63 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { recruitingAPI, type RecruitApplicant, type RecruitClient, type RecruitThread } from '../../lib/api';
 import { Dialog, input, primary, secondary } from '../ops/ui';
 import { errorText, STATUS_LABEL, when } from './labels';
 import { Answers, ScoreBadge, Thread } from './shared';
+
+/**
+ * Text the rep yourself, from Jordan's number. Sending takes the conversation
+ * from Jordan until it's handed back.
+ */
+function PersonReply({ applicantId, status, onError }: { applicantId: string; status: string; onError: (e: string | null) => void }) {
+  const [body, setBody] = useState('');
+  const [busy, setBusy] = useState(false);
+  const mine = status === 'flagged';
+  if (status === 'opted_out') return <p className="text-xs text-gray-500">They texted STOP: nothing can be sent to them.</p>;
+  const send = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!body.trim()) return;
+    setBusy(true);
+    onError(null);
+    try {
+      await recruitingAPI.reply(applicantId, body);
+      setBody('');
+    } catch (err) {
+      onError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const handBack = async () => {
+    onError(null);
+    try {
+      await recruitingAPI.handBack(applicantId);
+    } catch (err) {
+      onError(errorText(err));
+    }
+  };
+  return (
+    <div className="space-y-2" data-testid="person-reply">
+      <form onSubmit={send} className="flex gap-2">
+        <input className={`${input} flex-1`} value={body} onChange={(e) => setBody(e.target.value)} placeholder="Text them yourself…" aria-label="Your text to the rep" maxLength={1000} />
+        <button type="submit" className={primary} disabled={busy || !body.trim()}>
+          {busy ? 'Sending…' : 'Send'}
+        </button>
+      </form>
+      <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+        {mine ? (
+          <>
+            <span>You have this conversation: Jordan stays quiet, and their replies are texted to the flag phones.</span>
+            <button type="button" className={secondary} onClick={() => void handBack()}>
+              Hand back to Jordan
+            </button>
+          </>
+        ) : (
+          <span>Sent from Jordan&apos;s number. Sending takes over from Jordan until you hand it back.</span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /** One applicant: the whole conversation, what they said, the notes, and attendance. */
 function ApplicantDialog({ applicantId, onClose }: { applicantId: string; onClose: () => void }) {
@@ -64,6 +119,7 @@ function ApplicantDialog({ applicantId, onClose }: { applicantId: string; onClos
           {a.notes && <p className="text-sm text-gray-300 whitespace-pre-wrap border-l-2 border-[#336699] pl-3">{a.notes}</p>}
           <Answers answers={a.answers} />
           <Thread messages={t.messages} name={a.name} />
+          <PersonReply applicantId={a.id} status={a.status} onError={setError} />
         </div>
       )}
       {error && <p className="text-sm text-red-400 mt-3">{error}</p>}

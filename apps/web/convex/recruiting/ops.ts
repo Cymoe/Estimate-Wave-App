@@ -119,7 +119,7 @@ export const thread = query({
     if (!a) return null;
     const client = await ctx.db.get(a.clientId);
     const messages = await ctx.db.query("recruitMessages").withIndex("by_applicant", (q) => q.eq("applicantId", applicantId)).collect();
-    return { applicant: applicantView(a, client?.name ?? "?"), messages: messages.map((m) => ({ id: m._id, direction: m.direction, body: m.body, at: m.at })) };
+    return { applicant: applicantView(a, client?.name ?? "?"), messages: messages.map((m) => ({ id: m._id, direction: m.direction, body: m.body, at: m.at, by: m.by })) };
   },
 });
 

@@ -1493,7 +1493,7 @@ export type RecruitApplicant = {
   replying: boolean;
   lastText: { direction: 'in' | 'out'; body: string; at: string } | null;
 };
-export type RecruitThread = { applicant: RecruitApplicant; messages: Array<{ id: string; direction: 'in' | 'out'; body: string; at: string }> };
+export type RecruitThread = { applicant: RecruitApplicant; messages: Array<{ id: string; direction: 'in' | 'out'; body: string; at: string; by?: string }> };
 export type RecruitAdKind = 'hook' | 'meta_primary' | 'video_script' | 'indeed';
 export type RecruitAdPerformance = {
   sourceAdId: string;
@@ -1533,6 +1533,8 @@ export const recruitingAPI = {
   watchThread: (applicantId: string, onUpdate: (t: RecruitThread | null) => void, onError?: (e: APIError) => void) => watchOn(api.recruiting.ops.thread, { applicantId }, onUpdate, onError),
   markAttendance: (applicantId: string, showed: boolean) => run('mutation', api.recruiting.ops.markAttendance, { applicantId, showed }),
   markOutcome: (applicantId: string, outcome: RecruitOutcome | null) => run('mutation', api.recruiting.ops.markOutcome, { applicantId, outcome }),
+  reply: (applicantId: string, body: string) => run('action', api.recruiting.people.reply, { applicantId, body }),
+  handBack: (applicantId: string) => run('mutation', api.recruiting.people.handBack, { applicantId }),
   watchTryIt: (onUpdate: (t: RecruitThread | null) => void, onError?: (e: APIError) => void) => watchOn(api.recruiting.ops.tryIt, {}, onUpdate, onError),
   tryItStart: (clientId: string, name?: string): Promise<string> => run('mutation', api.recruiting.ops.tryItStart, defined({ clientId, name })),
   tryItSend: (body: string): Promise<{ reply?: string }> => run('mutation', api.recruiting.ops.tryItSend, { body }),

@@ -62,6 +62,8 @@ export const booked = internalMutation({
 
 async function markBooked(ctx: MutationCtx, { applicantId, interviewAt, calBookingUid, email }: Booked) {
     const a = (await ctx.db.get(applicantId))!;
+    const moved = a.status === "booked" && a.interviewAt !== undefined && a.interviewAt !== interviewAt;
+    const same = a.status === "booked" && a.interviewAt === interviewAt;
     await cancelJobs(ctx, a);
     const client = (await ctx.db.get(a.clientId))!;
     const at = Date.parse(interviewAt);
@@ -80,6 +82,8 @@ async function markBooked(ctx: MutationCtx, { applicantId, interviewAt, calBooki
       remindersSent: [],
       ...(email ? { answers: { ...a.answers, email } } : {}),
     });
+    // The client hears about each new or moved interview, with what Jordan learned. Not for tests or the demo.
+    if (!same && !a.test && !a.demo && client.reportEmail) await ctx.scheduler.runAfter(0, internal.recruiting.reports.interviewBrief, { applicantId, moved });
 }
 
 /** A reminder: a fixed text, so it's right every time. Skipped if the interview moved or they're no longer booked. */

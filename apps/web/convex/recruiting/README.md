@@ -10,7 +10,7 @@ Two public pages, no login (`public.ts`):
 - **The hires link**, `/hires/<token>`: private to each client and in their weekly report. They mark who they hired; hires lead the ad numbers.
 
 Everything is managed in **Ops → Recruiting** (`/ops/recruiting`, staff only):
-- **Applicants:** each rep's thread, answers, score, Showed / No-show, and Hired / Not hired.
+- **Applicants:** each rep's thread, answers, score, Showed / No-show, and Hired / Not hired. Staff can text a rep themselves (from Jordan's number, logged on the thread under their name): that takes the conversation from Jordan, the rep's replies are texted to the flag phones, and **Hand back to Jordan** lets the agent pick up again (`people.ts`).
 - **Try it:** text Jordan as a rep. The real brief and tools run, but nothing is sent, booked or counted.
 - **Ads:** approve or reject drafts. Approving gives the ad its source ad id. Also retire suggestions, spend, and the numbers.
 - **Clients:** add a client and their ad inputs; each shows its apply page and hires link.
@@ -38,6 +38,7 @@ Ops → Recruiting → Setup → Demo (`demo.ts`): **Load demo data** makes Demo
 | `RECRUIT_FLAG_PHONES` | Who `flag_human` texts: Myles and a VA, comma-separated |
 | `CAL_API_KEY`, `CAL_WEBHOOK_SECRET` | Booking through Cal.com, and its webhook (optional) |
 | `RECRUIT_TWILIO_ADVANCED_OPT_OUT` | `on` when Twilio's Advanced Opt-Out answers STOP/HELP for the number |
+| (per client) Report email | Set on the client: a note for each interview booked or moved (who's coming, their score and answers, the hires link), and the weekly report |
 | `RECRUIT_REVIEW_EMAIL` | Optional. Gets "new ads to review" on Mondays |
 | `RECRUIT_SERVICE_NAME`, `RECRUIT_HELP_CONTACT` | Optional. Go in the HELP reply |
 | `RECRUIT_CLAUDE_MODEL` | Optional. Defaults to `claude-opus-5-5` |

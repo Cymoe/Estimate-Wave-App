@@ -123,8 +123,14 @@ export async function inboundIn(ctx: MutationCtx, { from, body, sid, exact }: { 
     }
     if (keyword === "help") return twilioAnswersKeywords() ? {} : { reply: await logged(ctx, applicant, helpText()) };
 
-    // Not one of ours, opted out, handed to a person, or a scripted demo rep: nothing goes back.
-    if (!applicant || optedOut || applicant.status === "opted_out" || applicant.status === "flagged" || applicant.demo) return {};
+    // A person has this one: Jordan stays quiet, and the flag phones hear what they said.
+    if (applicant && !optedOut && applicant.status === "flagged") {
+      await ctx.db.patch(applicant._id, { lastInboundAt: at });
+      if (!applicant.test && !applicant.demo) await ctx.scheduler.runAfter(0, internal.recruiting.people.relay, { applicantId: applicant._id, body });
+      return {};
+    }
+    // Not one of ours, opted out, or a scripted demo rep: nothing goes back.
+    if (!applicant || optedOut || applicant.status === "opted_out" || applicant.demo) return {};
 
     const status = applicant.status === "new" || applicant.status === "texted" || applicant.status === "ghosted" ? "screening" : applicant.status;
     await ctx.db.patch(applicant._id, { status, lastInboundAt: at, followUps: 0, followUpPending: false });
@@ -163,11 +169,11 @@ export const context = internalQuery({
 
 /** One text out, logged on the thread. */
 export const logOutbound = internalMutation({
-  args: { applicantId: v.id("recruitApplicants"), body: v.string(), sid: v.optional(v.string()), followUp: v.optional(v.boolean()) },
-  handler: async (ctx, { applicantId, body, sid, followUp }) => {
+  args: { applicantId: v.id("recruitApplicants"), body: v.string(), sid: v.optional(v.string()), followUp: v.optional(v.boolean()), by: v.optional(v.string()) },
+  handler: async (ctx, { applicantId, body, sid, followUp, by }) => {
     const at = nowIso();
     const a = (await ctx.db.get(applicantId))!;
-    await ctx.db.insert("recruitMessages", { applicantId, direction: "out", body, at, twilioSid: sid, ...(simulating() || a.test ? { simulated: true } : {}) });
+    await ctx.db.insert("recruitMessages", { applicantId, direction: "out", body, at, twilioSid: sid, ...(by ? { by } : {}), ...(simulating() || a.test || a.demo ? { simulated: true } : {}) });
     await ctx.db.patch(applicantId, {
       lastOutboundAt: at,
       ...(a.status === "new" ? { status: "texted" as const } : {}),

@@ -6,6 +6,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction, internalQuery, type QueryCtx } from "../_generated/server";
 import { siteUrl } from "../delivery";
 import { sendEmail } from "../lib/email";
+import { spoken } from "./lib/time";
 
 const WEEK = 7 * 86_400_000;
 
@@ -132,5 +133,49 @@ export const sendWeekly = internalAction({
       const r = await sendEmail([c.reportEmail], reportText(w, `${siteUrl()}/hires/${token}`));
       if (r.status !== "sent") console.error(`Weekly report for ${c.name} not sent: ${r.error}`);
     }
+  },
+});
+
+// ---- The interview brief: the client gets one email per interview booked ----
+
+type Brief = { applicant: Doc<"recruitApplicants">; client: Doc<"recruitClients">; moved: boolean; hiresLink?: string };
+
+/** "Interview booked: Dana Cruz (A), Tue, Nov 10 at 10:00 AM": who's coming, what Jordan learned, and the hires link. */
+export function briefText({ applicant: a, client, moved, hiresLink }: Brief): { subject: string; text: string; html: string } {
+  const when = a.interviewAt ? spoken(new Date(a.interviewAt), client.timezone) : "a time to be confirmed";
+  const subject = `${moved ? "Interview moved" : "Interview booked"}: ${a.name}${a.score ? ` (${a.score})` : ""}, ${when}`;
+  const answers = Object.entries(a.answers).map(([k, val]) => [k.replace(/_/g, " "), val] as const);
+  const lines = [
+    `${a.name} is ${moved ? "now coming" : "coming"} to interview for ${client.role}: ${when}.`,
+    "",
+    `Phone: ${a.phone}`,
+    `Score: ${a.score ?? "not scored"}${a.score === "A" ? " (top of the list)" : ""}`,
+    `Came from ad: ${a.sourceAdId}`,
+    ...(answers.length ? ["", "What they told us:", ...answers.map(([k, val]) => `  ${k}: ${val}`)] : []),
+    ...(a.notes ? ["", "Notes:", ...a.notes.split("\n").map((l) => `  ${l}`)] : []),
+    ...(hiresLink ? ["", `After the interview, mark whether you hired them: ${hiresLink}`] : []),
+  ];
+  const esc = (x: string) => x.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const html = [
+    `<p style="font-family:sans-serif"><b>${esc(a.name)}</b> is ${moved ? "now coming" : "coming"} to interview for ${esc(client.role)}: <b>${esc(when)}</b>.</p>`,
+    `<p style="font-family:sans-serif">Phone: ${esc(a.phone)}<br>Score: <b>${esc(a.score ?? "not scored")}</b><br>Came from ad: ${esc(a.sourceAdId)}</p>`,
+    answers.length ? `<p style="font-family:sans-serif"><b>What they told us</b><br>${answers.map(([k, val]) => `${esc(k)}: ${esc(val)}`).join("<br>")}</p>` : "",
+    a.notes ? `<p style="font-family:sans-serif"><b>Notes</b><br>${esc(a.notes).replace(/\n/g, "<br>")}</p>` : "",
+    hiresLink ? `<p style="font-family:sans-serif">After the interview, <a href="${esc(hiresLink)}">mark whether you hired them</a>.</p>` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return { subject, text: lines.join("\n"), html };
+}
+
+/** Sent when an interview is booked or moved (followups.markBooked). */
+export const interviewBrief = internalAction({
+  args: { applicantId: v.id("recruitApplicants"), moved: v.boolean() },
+  handler: async (ctx, { applicantId, moved }) => {
+    const now = await ctx.runQuery(internal.recruiting.applicants.context, { applicantId });
+    if (!now || !now.client.reportEmail || now.applicant.status !== "booked") return;
+    const token = now.client.hiresToken ?? (await ctx.runMutation(internal.recruiting.clients.links, { clientId: now.client._id }));
+    const r = await sendEmail([now.client.reportEmail], briefText({ applicant: now.applicant, client: now.client, moved, hiresLink: `${siteUrl()}/hires/${token}` }));
+    if (r.status !== "sent") console.error(`Interview brief for ${now.applicant.name} not sent: ${r.error}`);
   },
 });

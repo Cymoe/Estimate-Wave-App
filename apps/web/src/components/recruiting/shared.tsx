@@ -16,7 +16,7 @@ export function ScoreBadge({ score }: { score?: RecruitScore }) {
 }
 
 /** The conversation as texts: theirs on the left, Jordan's on the right. */
-export function Thread({ messages, name }: { messages: Array<{ id: string; direction: 'in' | 'out'; body: string; at: string }>; name: string }) {
+export function Thread({ messages, name }: { messages: Array<{ id: string; direction: 'in' | 'out'; body: string; at: string; by?: string }>; name: string }) {
   if (messages.length === 0) return <p className="text-sm text-gray-500">No texts yet.</p>;
   return (
     <ol className="space-y-2" data-testid="thread">
@@ -24,7 +24,7 @@ export function Thread({ messages, name }: { messages: Array<{ id: string; direc
         <li key={m.id} className={`flex ${m.direction === 'out' ? 'justify-end' : 'justify-start'}`}>
           <div className={`max-w-[85%] rounded px-3 py-2 text-sm whitespace-pre-wrap ${m.direction === 'out' ? 'bg-[#336699] text-white' : 'bg-[#1E1E1E] border border-[#2A2A2A] text-gray-100'}`}>
             <span className="block text-[10px] uppercase tracking-wide opacity-70 mb-0.5">
-              {m.direction === 'out' ? 'Jordan' : name.split(' ')[0]} · {when(m.at)}
+              {m.direction === 'out' ? (m.by ?? 'Jordan') : name.split(' ')[0]} · {when(m.at)}
             </span>
             {m.body}
           </div>
