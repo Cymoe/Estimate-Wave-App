@@ -73,7 +73,14 @@ export async function applyIn(ctx: MutationCtx, args: ApplyArgs): Promise<Applie
       createdAt: nowIso(),
       ...(args.test ? { test: true } : {}),
       ...(args.consentText ? { consentAt: nowIso(), consentText: args.consentText } : {}),
+      ...(client.demo ? { demo: true } : {}),
     });
+    // The demo client's applicants get the scripted conversation, never Claude or a real text.
+    if (client.demo) {
+      const job = await ctx.scheduler.runAfter(2000, internal.recruiting.demo.step, { applicantId, i: 0 });
+      await ctx.db.patch(applicantId, { jobIds: [job] });
+      return { ok: true, applicantId, existing: false };
+    }
     // A human-feeling pause, under two minutes; a second in the simulator.
     const delay = simulating() || args.test ? 1000 : 30_000 + Math.floor(Math.random() * 90_000);
     await ctx.scheduler.runAfter(delay, internal.recruiting.agent.firstText, { applicantId });
@@ -116,8 +123,8 @@ export async function inboundIn(ctx: MutationCtx, { from, body, sid, exact }: { 
     }
     if (keyword === "help") return twilioAnswersKeywords() ? {} : { reply: await logged(ctx, applicant, helpText()) };
 
-    // Not one of ours, opted out, or handed to a person: nothing goes back.
-    if (!applicant || optedOut || applicant.status === "opted_out" || applicant.status === "flagged") return {};
+    // Not one of ours, opted out, handed to a person, or a scripted demo rep: nothing goes back.
+    if (!applicant || optedOut || applicant.status === "opted_out" || applicant.status === "flagged" || applicant.demo) return {};
 
     const status = applicant.status === "new" || applicant.status === "texted" || applicant.status === "ghosted" ? "screening" : applicant.status;
     await ctx.db.patch(applicant._id, { status, lastInboundAt: at, followUps: 0, followUpPending: false });

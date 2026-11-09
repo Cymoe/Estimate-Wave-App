@@ -50,6 +50,8 @@ export const recruitTables = {
     adSeq: v.optional(v.number()),
     // The private link in the weekly report where the client marks who they hired (/hires/<token>).
     hiresToken: v.optional(v.string()),
+    // The demo client (Ops → Recruiting → Setup → Demo): everything it has is scripted, and one button removes it.
+    demo: v.optional(v.boolean()),
   })
     .index("by_name", ["name"])
     .index("by_slug", ["slug"])
@@ -87,6 +89,8 @@ export const recruitTables = {
     // Applied on the apply page: when they agreed to texts, and the exact words they agreed to.
     consentAt: v.optional(v.string()),
     consentText: v.optional(v.string()),
+    // A demo rep: shown and counted like a real one, but the conversation is scripted (demo.ts) and nothing is ever sent.
+    demo: v.optional(v.boolean()),
     // A test applicant from Ops → Recruiting's "Try it": nothing is texted or booked for real, and they're left out of the numbers.
     test: v.optional(v.boolean()),
   })

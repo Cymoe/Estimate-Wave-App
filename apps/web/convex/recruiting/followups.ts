@@ -24,8 +24,8 @@ export const sweep = internalMutation({
     const now = Date.now();
     for (const status of ["texted", "screening"] as const) {
       for (const a of await ctx.db.query("recruitApplicants").withIndex("by_status", (q) => q.eq("status", status)).collect()) {
-        // Test applicants from "Try it" aren't chased.
-        if (a.test || a.replying || a.followUpPending || !a.lastOutboundAt) continue;
+        // Test applicants from "Try it" and the demo's scripted reps aren't chased.
+        if (a.test || a.demo || a.replying || a.followUpPending || !a.lastOutboundAt) continue;
         // Their turn to talk: our text is the latest.
         if (a.lastInboundAt && a.lastInboundAt >= a.lastOutboundAt) continue;
         const quiet = now - Date.parse(a.lastOutboundAt);

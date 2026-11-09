@@ -106,6 +106,8 @@ export function batchProblems(b: Batch): string[] {
 export async function writeBatchFor(ctx: ActionCtx, clientId: Id<"recruitClients">): Promise<Id<"recruitAdBatches"> | null> {
   const input = await ctx.runQuery(internal.recruiting.ads.inputs, { clientId });
   if (!input) return null;
+  // The demo client's batch is scripted: no Claude.
+  if (input.client.demo) return await ctx.runMutation(internal.recruiting.demo.batch, { clientId });
   const batchId = await ctx.runMutation(internal.recruiting.ads.startBatch, { clientId });
   try {
     const batch = await createJson<Batch>({ system: AD_BRIEF, user: batchRequest(input), schema: BATCH_SCHEMA });

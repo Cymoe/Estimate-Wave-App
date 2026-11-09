@@ -37,6 +37,7 @@ function ApplicantDialog({ applicantId, onClose }: { applicantId: string; onClos
             <span className="text-gray-200">{a.outcome === 'hired' ? 'Hired' : (STATUS_LABEL[a.status] ?? a.status)}</span>
             <span className="text-gray-500">
               · {a.client} · ad {a.sourceAdId} · {a.phone}
+              {a.demo ? ' · demo: scripted, never texted' : ''}
             </span>
           </div>
           {a.interviewAt && <p className="text-sm text-gray-300">Interview {new Date(a.interviewAt).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</p>}
@@ -119,6 +120,7 @@ export function ApplicantsTab({ clients, openId, onOpen }: { clients: RecruitCli
               <span className="min-w-0 flex-1">
                 <span className="flex flex-wrap items-baseline gap-x-2">
                   <span className="text-sm font-medium text-white">{a.name}</span>
+                  {a.demo && <span className="text-[10px] uppercase tracking-wide text-gray-500 border border-[#333] rounded px-1">demo</span>}
                   <span className={`text-xs ${a.outcome === 'hired' ? 'text-emerald-300' : 'text-gray-400'}`}>{a.outcome === 'hired' ? 'Hired' : (STATUS_LABEL[a.status] ?? a.status)}</span>
                   <span className="text-xs text-gray-500">
                     · {a.client} · ad {a.sourceAdId}

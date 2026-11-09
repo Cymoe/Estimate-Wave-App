@@ -17,6 +17,10 @@ Everything is managed in **Ops → Recruiting** (`/ops/recruiting`, staff only):
 - **By ad:** which ads bring in A's.
 - **Setup:** what's connected, and the addresses to give out.
 
+## The demo
+
+Ops → Recruiting → Setup → Demo (`demo.ts`): **Load demo data** makes Demo Roofing Co with 14 applicants in every state, threads, ads with spend, a batch of drafts to approve (two with warnings) and two hires. **Watch a live conversation** plays a rep from first text to hired in about a minute and a half. Applying at `/jobs/demo` runs the same script with your own name. All scripted: no Claude, Twilio or Cal.com, and nothing is texted. **Remove demo data** takes it all out. From a terminal: `npx convex run recruiting/demo:seed` (or `:live`, `:clear`).
+
 ## The briefs
 
 `screener-brief.md` is Jordan's system prompt; `ad-brief.md` is the ad agent's. Convex can't read files, so they're bundled into `lib/briefs.ts`.

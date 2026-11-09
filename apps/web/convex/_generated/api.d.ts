@@ -18,6 +18,7 @@ import type * as recruiting_ads from "../recruiting/ads.js";
 import type * as recruiting_agent from "../recruiting/agent.js";
 import type * as recruiting_applicants from "../recruiting/applicants.js";
 import type * as recruiting_clients from "../recruiting/clients.js";
+import type * as recruiting_demo from "../recruiting/demo.js";
 import type * as recruiting_followups from "../recruiting/followups.js";
 import type * as recruiting_ops from "../recruiting/ops.js";
 import type * as recruiting_lib_adChecks from "../recruiting/lib/adChecks.js";
@@ -84,6 +85,7 @@ declare const fullApi: ApiFromModules<{
   "recruiting/agent": typeof recruiting_agent;
   "recruiting/applicants": typeof recruiting_applicants;
   "recruiting/clients": typeof recruiting_clients;
+  "recruiting/demo": typeof recruiting_demo;
   "recruiting/followups": typeof recruiting_followups;
   "recruiting/ops": typeof recruiting_ops;
   "recruiting/lib/adChecks": typeof recruiting_lib_adChecks;

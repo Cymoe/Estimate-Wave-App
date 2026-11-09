@@ -153,7 +153,7 @@ export function ClientsTab({ clients, applyUrl }: { clients: RecruitClient[] | n
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <h3 className="text-base font-semibold text-white">
-                {c.name} {!c.active && <span className="text-xs text-gray-500 font-normal">· paused</span>}
+                {c.name} {c.demo && <span className="text-xs text-gray-500 font-normal">· demo</span>} {!c.active && <span className="text-xs text-gray-500 font-normal">· paused</span>}
               </h3>
               <p className="text-sm text-gray-400">
                 {c.role} · {c.city}

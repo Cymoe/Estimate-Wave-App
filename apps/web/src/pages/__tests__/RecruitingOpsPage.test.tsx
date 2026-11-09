@@ -35,6 +35,8 @@ const tryItSend = jest.fn(async () => ({}));
 const decideAd = jest.fn(async () => 'acme-m1');
 const saveClient = jest.fn(async () => 'c2');
 const markOutcome = jest.fn(async () => null);
+const demoLive = jest.fn(async () => 'a1');
+const demoSeed = jest.fn(async () => ({}));
 const ads = {
   clients: [
     {
@@ -71,6 +73,9 @@ jest.mock('../../lib/api', () => ({
         messages: [],
       })(cb),
     markOutcome: (...a: unknown[]) => markOutcome(...(a as [])),
+    demoLive: () => demoLive(),
+    demoSeed: () => demoSeed(),
+    demoClear: async () => ({ removed: 0 }),
   },
 }));
 let role = 'staff';
@@ -175,6 +180,19 @@ describe('Ops → Recruiting', () => {
     const box = document.querySelector('[data-testid="outcome"]')!;
     await click(Array.from(box.querySelectorAll('button')).find((b) => b.textContent === 'Hired')!);
     expect(markOutcome).toHaveBeenCalledWith('a1', 'hired');
+  });
+
+  it('Setup: load the demo, and Watch opens the live conversation', async () => {
+    const page = await render('/ops/recruiting?tab=setup');
+    const box = page.querySelector('[data-testid="demo"]')!;
+    expect(box.textContent).toContain('nothing is texted, booked or sent to Claude');
+    await click(Array.from(box.querySelectorAll('button')).find((b) => b.textContent === 'Load demo data')!);
+    expect(demoSeed).toHaveBeenCalled();
+    await click(Array.from(box.querySelectorAll('button')).find((b) => b.textContent === 'Watch a live conversation')!);
+    await flush();
+    expect(demoLive).toHaveBeenCalled();
+    expect(page.querySelector('h1')!.textContent).toBe('Applicants');
+    expect(document.querySelector('[role="dialog"]')!.textContent).toContain('Dana Cruz');
   });
 
   it('Setup says what is connected and where Twilio points', async () => {

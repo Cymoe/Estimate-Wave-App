@@ -9,6 +9,7 @@ import { ApplicantsTab } from '../components/recruiting/ApplicantsTab';
 import { ClientsTab } from '../components/recruiting/ClientsTab';
 import { TryItTab } from '../components/recruiting/TryItTab';
 import { errorText } from '../components/recruiting/labels';
+import { primary, secondary } from '../components/ops/ui';
 
 type Tab = 'applicants' | 'try' | 'ads' | 'clients' | 'byad' | 'setup';
 const TABS: Array<[Tab, string]> = [
@@ -25,7 +26,7 @@ const SUMMARY: Record<Tab, string> = {
   ads: "The ad agent's drafts to approve, and how every ad is doing",
   clients: 'The companies National Sales Registry recruits for',
   byad: "Which ads bring in A-grade reps and hires, last 30 days",
-  setup: "What's connected, and the addresses to give Twilio, Cal.com and the ad forms",
+  setup: "A demo to watch, what's connected, and the addresses to give Twilio and Cal.com",
 };
 
 function ByAdTab() {
@@ -68,7 +69,57 @@ function ByAdTab() {
   );
 }
 
-function SetupTab({ setup }: { setup: RecruitSetup | null }) {
+/** A made-up client with everything filled in, and a conversation to watch live. Scripted: no keys needed. */
+function DemoBox({ hasDemo, onWatch }: { hasDemo: boolean; onWatch: (applicantId: string) => void }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const act = async (label: string, f: () => Promise<unknown>, done?: string) => {
+    setBusy(label);
+    setNote(null);
+    try {
+      await f();
+      if (done) setNote(done);
+    } catch (err) {
+      setNote(errorText(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <section className="border border-[#2A2A2A] rounded p-4 bg-[#121212] space-y-3" data-testid="demo">
+      <div>
+        <h2 className="text-base font-semibold text-white">Demo</h2>
+        <p className="text-sm text-gray-400">
+          Demo Roofing Co, with applicants in every state, ads to approve and hires. Scripted: nothing is texted, booked or sent to Claude. You can also apply yourself at{' '}
+          <a href="/jobs/demo" target="_blank" rel="noreferrer" className="text-[#7fb0e0]">
+            /jobs/demo
+          </a>{' '}
+          and watch Jordan text you in Applicants.
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className={primary} disabled={busy !== null} onClick={() => void act('watch', async () => onWatch(await recruitingAPI.demoLive()))}>
+          {busy === 'watch' ? 'Starting…' : 'Watch a live conversation'}
+        </button>
+        <button type="button" className={secondary} disabled={busy !== null} onClick={() => void act('seed', () => recruitingAPI.demoSeed(), 'Demo loaded: see Applicants, Ads, Clients and By ad.')}>
+          {busy === 'seed' ? 'Loading…' : hasDemo ? 'Reload demo data' : 'Load demo data'}
+        </button>
+        {hasDemo && (
+          <button type="button" className={secondary} disabled={busy !== null} onClick={() => void act('clear', () => recruitingAPI.demoClear(), 'Demo data removed.')}>
+            {busy === 'clear' ? 'Removing…' : 'Remove demo data'}
+          </button>
+        )}
+      </div>
+      {note && (
+        <p className="text-sm text-gray-300" role="status">
+          {note}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function SetupTab({ setup, hasDemo, onWatch }: { setup: RecruitSetup | null; hasDemo: boolean; onWatch: (applicantId: string) => void }) {
   if (!setup) return <p className="text-sm text-gray-400">Loading…</p>;
   const checks: Array<[boolean, string, string]> = [
     [setup.ready.claude, 'Claude', 'ANTHROPIC_API_KEY: Jordan and the ad agent. Try it works with only this.'],
@@ -79,6 +130,7 @@ function SetupTab({ setup }: { setup: RecruitSetup | null }) {
   ];
   return (
     <div className="space-y-5 max-w-2xl">
+      <DemoBox hasDemo={hasDemo} onWatch={onWatch} />
       <ul className="space-y-2">
         {checks.map(([ok, label, how]) => (
           <li key={label} className="flex gap-3 border border-[#2A2A2A] rounded p-3" data-testid="setup-check">
@@ -170,7 +222,7 @@ export default function RecruitingOpsPage() {
       {tab === 'ads' && <AdsTab />}
       {tab === 'clients' && <ClientsTab clients={clients} applyUrl={setup?.applyUrl} />}
       {tab === 'byad' && <ByAdTab />}
-      {tab === 'setup' && <SetupTab setup={setup} />}
+      {tab === 'setup' && <SetupTab setup={setup} hasDemo={clients?.some((c) => c.demo) ?? false} onWatch={(id) => openId(id)} />}
     </div>
   );
 }

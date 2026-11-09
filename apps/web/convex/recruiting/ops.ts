@@ -11,6 +11,7 @@ import { approvedOf, decideIn, retireIn, reviewOf, setSpendIn } from "./ads";
 import { applyIn, cancelJobs, inboundIn, setOutcome } from "./applicants";
 import { checkTimezone, ensureLinks, slugOf } from "./clients";
 import { markNoShow } from "./followups";
+import { clearIn, liveIn, seedIn } from "./demo";
 import { byAdOf } from "./reports";
 
 const clientFields = {
@@ -45,6 +46,7 @@ const applicantView = (a: Doc<"recruitApplicants">, clientName: string, last?: D
   outcome: a.outcome,
   createdAt: a.createdAt,
   test: a.test === true,
+  demo: a.demo === true,
   replying: a.replying === true,
   lastText: last ? { direction: last.direction, body: last.body, at: last.at } : null,
 });
@@ -139,6 +141,34 @@ export const markOutcome = mutation({
     const a = await ctx.db.get(applicantId);
     if (!a) fail("NOT_FOUND", "No such applicant");
     await setOutcome(ctx, a, outcome);
+  },
+});
+
+// ---- The demo: scripted, nothing sent to Claude, Twilio or Cal.com ----
+
+/** Loads (or reloads) the demo client with applicants, threads, ads and hires in every state. */
+export const demoSeed = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireStaff(ctx);
+    return await seedIn(ctx);
+  },
+});
+
+/** A new demo rep applies and the scripted conversation plays out over about a minute and a half. */
+export const demoLive = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireStaff(ctx);
+    return await liveIn(ctx);
+  },
+});
+
+export const demoClear = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireStaff(ctx);
+    return await clearIn(ctx);
   },
 });
 

@@ -70,7 +70,7 @@ export async function textApplicant(ctx: ActionCtx, applicantId: Id<"recruitAppl
   if (!now || now.optedOut || now.applicant.status === "opted_out") return "Not sent: the applicant opted out.";
   const text = body.trim();
   if (!text) return "Not sent: the text was empty.";
-  const r = await sendText(now.applicant.phone, text, { test: now.applicant.test });
+  const r = await sendText(now.applicant.phone, text, { test: now.applicant.test || now.applicant.demo });
   if (r.status === "failed" || r.status === "skipped") throw new Error(`Text not sent: ${r.error}`);
   await ctx.runMutation(internal.recruiting.applicants.logOutbound, { applicantId, body: text, sid: r.providerId, followUp: opts.followUp });
   return "Sent.";
@@ -88,7 +88,7 @@ export async function runTool(ctx: ActionCtx, state: TurnState, name: string, in
       // The open times, when the calendar can be read; the booking link always works.
       let openTimes: unknown;
       try {
-        openTimes = (await openSlots(client.calEventTypeId, client.timezone, 7, new Date(), applicant.test)).slice(0, 6).map((s) => ({ start: s.start, says: spoken(new Date(s.start), client.timezone) }));
+        openTimes = (await openSlots(client.calEventTypeId, client.timezone, 7, new Date(), applicant.test || applicant.demo)).slice(0, 6).map((s) => ({ start: s.start, says: spoken(new Date(s.start), client.timezone) }));
       } catch (err) {
         openTimes = `Couldn't read the calendar (${err instanceof Error ? err.message : String(err)}); send the booking link.`;
       }
@@ -106,13 +106,13 @@ export async function runTool(ctx: ActionCtx, state: TurnState, name: string, in
     case "book_interview": {
       const start = typeof input.start === "string" ? input.start : undefined;
       if (!start) {
-        const slots = (await openSlots(client.calEventTypeId, client.timezone, 7, new Date(), applicant.test)).slice(0, 8);
+        const slots = (await openSlots(client.calEventTypeId, client.timezone, 7, new Date(), applicant.test || applicant.demo)).slice(0, 8);
         if (slots.length === 0) return `No open times in the next week. Send them the booking link instead: ${client.calEventLink}`;
         return JSON.stringify(slots.map((s) => ({ start: s.start, says: spoken(new Date(s.start), client.timezone) })));
       }
       if (Number.isNaN(Date.parse(start))) return "That start isn't a time. Use one of the open times exactly.";
       const email = typeof input.email === "string" && input.email.includes("@") ? input.email : undefined;
-      const booking = await book({ eventTypeId: client.calEventTypeId, start, name: applicant.name, phone: applicant.phone, email, timeZone: client.timezone, test: applicant.test });
+      const booking = await book({ eventTypeId: client.calEventTypeId, start, name: applicant.name, phone: applicant.phone, email, timeZone: client.timezone, test: applicant.test || applicant.demo });
       await ctx.runMutation(internal.recruiting.followups.booked, { applicantId: applicant._id, interviewAt: booking.start, calBookingUid: booking.uid, ...(email ? { email } : {}) });
       return `Booked for ${spoken(new Date(booking.start), client.timezone)} (${client.timezone}). Tell them the time; reminders go out on their own.`;
     }
@@ -171,7 +171,7 @@ export async function flagHuman(ctx: ActionCtx, applicantId: Id<"recruitApplican
   if (to.length === 0) console.error("RECRUIT_FLAG_PHONES isn't set; flag not texted:", summary);
   for (const phone of to) {
     // A test applicant's flag is only logged: nobody gets texted about a test.
-    const r = await sendText(phone, summary.slice(0, 1500), { test: applicant.test });
+    const r = await sendText(phone, summary.slice(0, 1500), { test: applicant.test || applicant.demo });
     if (r.status === "failed" || r.status === "skipped") console.error(`Flag text to ${phone} failed: ${r.error}`);
     else console.log(`Flag texted to ${phone} (${r.status}):\n${summary}`);
   }

@@ -1471,7 +1471,7 @@ export type RecruitClientInput = {
   adsEnabled?: boolean;
   active?: boolean;
 };
-export type RecruitClient = RecruitClientInput & { id: string; active: boolean; applicants: number; A: number; hired: number; createdAt: string; slug: string; hiresToken?: string };
+export type RecruitClient = RecruitClientInput & { id: string; active: boolean; applicants: number; A: number; hired: number; createdAt: string; slug: string; hiresToken?: string; demo?: boolean };
 export type RecruitScore = 'A' | 'B' | 'C';
 export type RecruitOutcome = 'hired' | 'not_hired';
 export type RecruitApplicant = {
@@ -1489,6 +1489,7 @@ export type RecruitApplicant = {
   outcome?: RecruitOutcome;
   createdAt: string;
   test: boolean;
+  demo: boolean;
   replying: boolean;
   lastText: { direction: 'in' | 'out'; body: string; at: string } | null;
 };
@@ -1544,6 +1545,9 @@ export const recruitingAPI = {
   writeBatch: (clientId: string) => run('mutation', api.recruiting.ops.writeBatch, { clientId }),
   byAd: (days = 30): Promise<RecruitByAd> => run('query', api.recruiting.ops.byAd, { days }),
   setup: (): Promise<RecruitSetup> => run('query', api.recruiting.ops.setup, {}),
+  demoSeed: () => run('mutation', api.recruiting.ops.demoSeed, {}),
+  demoLive: (): Promise<string> => run('mutation', api.recruiting.ops.demoLive, {}),
+  demoClear: (): Promise<{ removed: number }> => run('mutation', api.recruiting.ops.demoClear, {}),
 };
 
 /** The public recruiting pages, no login: the apply page an ad links to, and a client's hires link. */
