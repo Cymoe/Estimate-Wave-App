@@ -8,7 +8,7 @@ import type { HttpRouter } from "convex/server";
 import { internal } from "../_generated/api";
 import { httpAction } from "../_generated/server";
 import { calSignatureOk } from "./lib/calcom";
-import { e164, twilioSignatureOk } from "./lib/texts";
+import { e164, recruitAccount, twilioSignatureOk } from "./lib/texts";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const escapeXml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -44,7 +44,8 @@ export function addRecruitingRoutes(http: HttpRouter) {
     path: "/recruiting/sms",
     method: "POST",
     handler: httpAction(async (ctx, request) => {
-      const token = process.env.TWILIO_AUTH_TOKEN;
+      // Twilio signs with the auth token of the account the number is in.
+      const token = recruitAccount().token;
       if (!token) return new Response("Texting isn't set up", { status: 503 });
       const params: Record<string, string> = {};
       for (const [k, val] of new URLSearchParams(await request.text())) params[k] = val;

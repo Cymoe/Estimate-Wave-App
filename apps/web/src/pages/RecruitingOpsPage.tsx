@@ -123,7 +123,7 @@ function SetupTab({ setup, hasDemo, onWatch }: { setup: RecruitSetup | null; has
   if (!setup) return <p className="text-sm text-gray-400">Loading…</p>;
   const checks: Array<[boolean, string, string]> = [
     [setup.ready.claude, 'Claude', 'ANTHROPIC_API_KEY: Jordan and the ad agent. Try it works with only this.'],
-    [setup.ready.number, "Jordan's own Twilio number", "RECRUIT_TWILIO_FROM: a new number, registered for A2P 10DLC (recruiting). Not the office line's."],
+    [setup.ready.number, "Jordan's own Twilio number", "RECRUIT_TWILIO_FROM: the number, registered for A2P 10DLC (recruiting). In its own Twilio account? Also RECRUIT_TWILIO_ACCOUNT_SID and RECRUIT_TWILIO_AUTH_TOKEN."],
     [setup.ready.applySecret, 'Apply secret (optional)', "RECRUIT_APPLY_SECRET: only for ad forms that post applicants directly. The apply page doesn't need it."],
     [setup.ready.flags, 'Who gets flags', 'RECRUIT_FLAG_PHONES: Myles and a VA, comma-separated.'],
     [setup.ready.cal, 'Cal.com', 'CAL_API_KEY: so Jordan can book times itself. Without it Jordan sends the booking link.'],

@@ -1,8 +1,10 @@
 // Recruiting's texts: Jordan's own Twilio number, never the office line's.
-// Built on lib/sms.ts (same Twilio account).
+// Built on lib/sms.ts.
 //
-// Environment: RECRUIT_TWILIO_FROM, the screener's number (with
-// TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN, already set for the office line).
+// Environment: RECRUIT_TWILIO_FROM, the screener's number, and its Twilio
+// account: RECRUIT_TWILIO_ACCOUNT_SID and RECRUIT_TWILIO_AUTH_TOKEN. Without
+// those two, the office line's account (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+// is used, for a number bought in that same account.
 // RECRUIT_SMS_MODE=simulate logs every recruiting text instead of sending it
 // (tests, a dev deployment). A test applicant's texts are always only logged.
 
@@ -19,7 +21,14 @@ export async function sendText(to: string, text: string, opts: { test?: boolean 
   if (opts.test || simulating()) return { status: "simulated" };
   const from = process.env.RECRUIT_TWILIO_FROM;
   if (!from) return { status: "skipped", error: "Recruiting's Twilio number isn't set (RECRUIT_TWILIO_FROM)" };
-  return await sendSms(to, text, from);
+  return await sendSms(to, text, from, recruitAccount());
+}
+
+/** Jordan's Twilio account: its own when RECRUIT_TWILIO_ACCOUNT_SID and RECRUIT_TWILIO_AUTH_TOKEN are set, else the office line's. */
+export function recruitAccount(): { sid?: string; token?: string } {
+  const sid = process.env.RECRUIT_TWILIO_ACCOUNT_SID;
+  const token = process.env.RECRUIT_TWILIO_AUTH_TOKEN;
+  return sid && token ? { sid, token } : { sid: process.env.TWILIO_ACCOUNT_SID, token: process.env.TWILIO_AUTH_TOKEN };
 }
 
 /** The signature Twilio would send for these params (the tests sign with it). */

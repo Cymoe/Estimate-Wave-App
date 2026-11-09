@@ -33,6 +33,7 @@ Ops → Recruiting → Setup → Demo (`demo.ts`): **Load demo data** makes Demo
 |---|---|
 | `ANTHROPIC_API_KEY` | Jordan and the ad agent (already set). This is all **Try it** needs |
 | `RECRUIT_TWILIO_FROM` | Jordan's own number. Without it, no recruiting text goes out. The office line's `TWILIO_FROM` is never used |
+| `RECRUIT_TWILIO_ACCOUNT_SID`, `RECRUIT_TWILIO_AUTH_TOKEN` | Jordan's own Twilio account (the number is in it). Without them, the office line's account is used |
 | `RECRUIT_TWILIO_WEBHOOK_URL` | Optional. The exact URL set in Twilio, if signatures fail behind a proxy |
 | `RECRUIT_APPLY_SECRET` | Optional. Only for ad forms that post applicants straight to `/recruiting/apply` (`Authorization: Bearer …`); the apply page doesn't need it |
 | `RECRUIT_FLAG_PHONES` | Who `flag_human` texts: Myles and a VA, comma-separated |
@@ -43,7 +44,7 @@ Ops → Recruiting → Setup → Demo (`demo.ts`): **Load demo data** makes Demo
 | `RECRUIT_SERVICE_NAME`, `RECRUIT_HELP_CONTACT` | Optional. Go in the HELP reply |
 | `RECRUIT_CLAUDE_MODEL` | Optional. Defaults to `claude-opus-5-5` |
 
-The Twilio account (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`) and Resend are shared with Estimate Wave.
+Resend is shared with Estimate Wave. Twilio is too, unless `RECRUIT_TWILIO_ACCOUNT_SID` and `RECRUIT_TWILIO_AUTH_TOKEN` point at Jordan's own account; then sending and the `/recruiting/sms` signature check both use that account.
 
 ## Going live with texting
 

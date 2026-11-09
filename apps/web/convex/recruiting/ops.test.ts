@@ -6,7 +6,7 @@ import { api } from "../_generated/api";
 import schema from "../schema";
 import { modules, signUp } from "../test.setup";
 import { AD_BRIEF, BRIEF } from "./lib/briefs";
-import { sendText } from "./lib/texts";
+import { sendText, twilioSignature } from "./lib/texts";
 
 // Claude, played from a script.
 const claude = vi.hoisted(() => ({ script: [] as unknown[] }));
@@ -110,6 +110,33 @@ describe("recruiting's own number", () => {
     vi.stubEnv("RECRUIT_TWILIO_FROM", undefined as unknown as string);
     expect(await sendText("+14325550101", "hi")).toMatchObject({ status: "skipped" });
     expect(twilio).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Jordan's own Twilio account", () => {
+  test("with RECRUIT_TWILIO_ACCOUNT_SID and RECRUIT_TWILIO_AUTH_TOKEN, texts go through that account and its token checks Twilio's webhook", async () => {
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "AC_office");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "office-token");
+    vi.stubEnv("RECRUIT_TWILIO_ACCOUNT_SID", "AC_jordan");
+    vi.stubEnv("RECRUIT_TWILIO_AUTH_TOKEN", "jordan-token");
+    vi.stubEnv("RECRUIT_TWILIO_WEBHOOK_URL", "https://x.example/recruiting/sms");
+    const twilio = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({ sid: "SM1" }), { status: 201 }));
+    vi.stubGlobal("fetch", twilio);
+    expect(await sendText("+14325550101", "hi")).toMatchObject({ status: "sent" });
+    const [url, init] = twilio.mock.calls[0];
+    expect(url).toBe("https://api.twilio.com/2010-04-01/Accounts/AC_jordan/Messages.json");
+    expect((init.headers as Record<string, string>).authorization).toBe(`Basic ${btoa("AC_jordan:jordan-token")}`);
+
+    const t = convexTest(schema, modules);
+    const params = { From: "+14325550101", Body: "hello", MessageSid: "SM9" };
+    const post = async (token: string) =>
+      t.fetch("/recruiting/sms", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", "x-twilio-signature": await twilioSignature(token, "https://x.example/recruiting/sms", params) },
+        body: new URLSearchParams(params).toString(),
+      });
+    expect((await post("office-token")).status).toBe(403);
+    expect((await post("jordan-token")).status).toBe(200);
   });
 });
 

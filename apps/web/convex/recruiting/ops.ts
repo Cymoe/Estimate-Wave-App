@@ -312,7 +312,7 @@ export const setup = query({
       spendUrl: `${site}/recruiting/ads/spend`,
       ready: {
         claude: Boolean(process.env.ANTHROPIC_API_KEY),
-        number: Boolean(process.env.RECRUIT_TWILIO_FROM),
+        number: Boolean(process.env.RECRUIT_TWILIO_FROM && (process.env.RECRUIT_TWILIO_ACCOUNT_SID ?? process.env.TWILIO_ACCOUNT_SID) && (process.env.RECRUIT_TWILIO_AUTH_TOKEN ?? process.env.TWILIO_AUTH_TOKEN)),
         applySecret: Boolean(process.env.RECRUIT_APPLY_SECRET),
         cal: Boolean(process.env.CAL_API_KEY),
         flags: Boolean(process.env.RECRUIT_FLAG_PHONES ?? process.env.RECRUIT_MYLES_PHONE),
