@@ -28,13 +28,51 @@ on:
         required: false
         default: '{}'
         type: string
+      logs:
+        description: 'Only print the recent function logs of the deployment (no deploy)'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: convex-deploy
   cancel-in-progress: false
 
 jobs:
+  # Started by hand with "logs" ticked: the live deployment's most recent function logs, every run, to see what went wrong.
+  logs:
+    if: github.event_name == 'workflow_dispatch' && inputs.logs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - name: Check deploy key
+        working-directory: .
+        env:
+          RAW_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          key="${RAW_KEY//%7C/|}"
+          key="${key//%7c/|}"
+          [ -n "$key" ] || { echo "::error::Add a CONVEX_DEPLOY_KEY repository secret."; exit 1; }
+          echo "::add-mask::$key"
+          echo "::add-mask::${key#*|}"
+          echo "CONVEX_DEPLOY_KEY=$key" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        working-directory: .
+        run: npm ci --no-audit --no-fund
+      - name: Recent logs
+        # The command streams after the history; stop it once the history is out.
+        run: timeout 45 npx convex logs --history 1000 --success || true
+
   deploy:
+    if: github.event_name != 'workflow_dispatch' || !inputs.logs
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
