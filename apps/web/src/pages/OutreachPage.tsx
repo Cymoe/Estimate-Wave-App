@@ -288,6 +288,9 @@ const OutreachPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [lists, setLists] = useState<OutreachListSummary[] | null>(null);
+  /** Lists deleted here: a read that left the server before the delete landed mustn't bring one back. */
+  const gone = useRef<Set<string>>(new Set());
+  const keep = (l: OutreachListSummary[]) => l.filter((x) => !gone.current.has(x.id));
   const [data, setData] = useState<OutreachContacts | null>(null);
   const [status, setStatus] = useState<OutreachRowStatus | 'all'>('all');
   // The lookup last started on this device, for the progress bar; kept across a reload until dismissed.
@@ -428,7 +431,7 @@ const OutreachPage: React.FC = () => {
     if (!organizationId || listsSoon.current !== null) return;
     listsSoon.current = window.setTimeout(() => {
       listsSoon.current = null;
-      outreachAPI.lists(organizationId).then((l) => live.current && setLists(l), () => {});
+      outreachAPI.lists(organizationId).then((l) => live.current && setLists(keep(l)), () => {});
     }, 4000);
   }, [organizationId]);
   useEffect(
@@ -444,7 +447,7 @@ const OutreachPage: React.FC = () => {
     try {
       const [l, c] = await Promise.all([outreachAPI.lists(organizationId), outreachAPI.contacts(organizationId, listId)]);
       if (!live.current) return;
-      setLists(l);
+      setLists(keep(l));
       takeContacts(key, c);
     } catch (err) {
       if (live.current) setError(err instanceof Error ? err.message : "The contacts couldn't be loaded");
@@ -455,7 +458,8 @@ const OutreachPage: React.FC = () => {
     async (id: string, change: { title?: string; pinned?: boolean; archived?: boolean }) => {
       if (!organizationId) return;
       await outreachAPI.organizeList(organizationId, id, change);
-      if (live.current) setLists(await outreachAPI.lists(organizationId));
+      const l = await outreachAPI.lists(organizationId);
+      if (live.current) setLists(keep(l));
     },
     [organizationId],
   );
@@ -534,7 +538,7 @@ const OutreachPage: React.FC = () => {
   useEffect(() => {
     if (!filling || !organizationId) return;
     const t = setTimeout(() => {
-      outreachAPI.lists(organizationId).then((l) => live.current && setLists(l), () => {});
+      outreachAPI.lists(organizationId).then((l) => live.current && setLists(keep(l)), () => {});
     }, 800);
     return () => clearTimeout(t);
   }, [filling, arrived, organizationId]);
@@ -768,12 +772,16 @@ const OutreachPage: React.FC = () => {
       seen.current.set(allKey, { ...all, rows });
     }
     seen.current.delete(`${organizationId}:${id}`);
+    gone.current.add(id);
     setLists((l) => l && l.filter((x) => x.id !== id));
-    if (managing) setLists((l) => l && l.filter((x) => x.id !== id));
-    else navigate('/outreach');
+    if (!managing) navigate('/outreach');
     try {
       await outreachAPI.remove(organizationId, id);
+      // Done on the server: the lists as they now are (the last one gone, the page shows the ready-made lists).
+      const l = await outreachAPI.lists(organizationId);
+      if (live.current) setLists(keep(l));
     } catch (err) {
+      gone.current.delete(id);
       setError(err instanceof Error ? err.message : "Couldn't delete the list");
       void load();
     }

@@ -1187,6 +1187,28 @@ describe('the Outreach page', () => {
     expect(remove).toHaveBeenCalledWith('o1', 'l1');
     expect(path).toBe('/outreach');
   });
+  it('deleting the last list lands on the ready-made lists, even when a read from before the delete still has it', async () => {
+    lists = [list];
+    contacts = twoContacts();
+    await render('/outreach/l1');
+    // The server, slow to delete: reads still return the list for now, and its owners go once it's done.
+    let done: () => void = () => {};
+    remove.mockImplementationOnce(() => new Promise<void>((r) => (done = r)) as never);
+    await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
+    await click('Delete list');
+    await click('Delete');
+    expect(path).toBe('/outreach');
+    // The page went to All owners and read the lists while the list was still there: it stays gone.
+    expect(document.body.querySelector('[data-testid="list-picker"]')).toBeNull();
+    expect(document.body.textContent).not.toContain('Nobody matched');
+    // Done: the server's lists no longer have it, and its owners' update arrives live.
+    lists = [];
+    contacts = { ...contacts, rows: [] };
+    await act(async () => done());
+    await act(async () => pushContacts!(contacts));
+    await flush();
+    expect(document.body.querySelector('[data-testid="outreach-empty"]')).not.toBeNull();
+  });
   it('a worked list can be deleted too, after a warning that the owners you worked stay', async () => {
     lists = [{ ...list, deletable: false }];
     contacts = twoContacts();
