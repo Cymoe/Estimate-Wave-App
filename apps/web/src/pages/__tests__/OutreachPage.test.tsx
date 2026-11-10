@@ -701,17 +701,16 @@ describe('the Outreach page', () => {
     const title = built.querySelector('input#outreach-title') as HTMLInputElement;
     expect(title.value).toBe('Shopping center owners, Midland');
     await act(async () => type(title, 'Strip centers'));
-    // Save closes the sheet at once; the page shows the list being saved until it opens.
+    // Saving shows on the button for the moment it takes; then the sheet closes onto the new list.
     let saved: (v: unknown) => void = () => {};
     create.mockImplementationOnce(() => new Promise((r) => (saved = r)) as never);
     await act(async () => button('Save list').click());
     expect(create).toHaveBeenCalledWith('o1', { county: 'Midland', who: 'commercial' }, 'Strip centers');
-    expect(document.body.querySelector('[data-testid="built"]')).toBeNull();
-    expect(document.body.querySelector('[data-testid="saving-list"]')!.textContent).toContain('Strip centers');
+    expect(button('Saving…')).toBeTruthy();
     await act(async () => saved({ listId: 'l9', rowCount: 2, added: 2, truncated: false }));
     await flush();
     expect(path).toBe('/outreach/l9');
-    expect(document.body.querySelector('[data-testid="saving-list"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="built"]')).toBeNull();
   });
 
   it('sends everyone showing to Leads at once, after asking; skipped owners and ones already in Leads stay out', async () => {
@@ -1087,6 +1086,16 @@ describe('the Outreach page', () => {
     expect(document.body.querySelector('[data-testid="list-total"]')).toBeNull();
   });
 
+  it('a new list still adding owners in the background says so in a bar across the top', async () => {
+    lists = [{ ...list, filling: true }];
+    contacts = twoContacts();
+    await render('/outreach/l1');
+    expect(document.body.querySelector('[data-testid="list-filling"]')!.textContent).toBe('Adding owners to this list: 2 so far…');
+    lists = [{ ...list, filling: false }];
+    document.body.innerHTML = '';
+    await render('/outreach/l1');
+    expect(document.body.querySelector('[data-testid="list-filling"]')).toBeNull();
+  });
   it('deletes the open list after asking, and goes back to all contacts', async () => {
     lists = [list];
     contacts = twoContacts();

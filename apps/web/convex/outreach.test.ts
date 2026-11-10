@@ -2144,6 +2144,23 @@ describe("a company's lists", () => {
     expect(await t.action(internal.outreachRefresh.refresh, {})).toEqual({ skipped: true, fetched: 0, added: 0, updated: 0 });
   });
 
+  test("a big list opens with its first 50 owners at once and adds the rest in the background, saying so until it has", async () => {
+    const t = setup();
+    await addParcels(t, Array.from({ length: 120 }, (_, i) => parcel(`b${i}`, { owner: `OWNER ${i}`, marketValueCents: (i + 1) * 10_000_000 })));
+    await rebuild(t);
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    const saved = await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "wealthy", minValueCents: 0 } });
+    expect(saved).toMatchObject({ rowCount: 120, total: 120, added: 50 });
+    const view = async () => (await co.as.query(api.outreach.lists, { organizationId: org })).find((l) => l.id === saved.listId)!;
+    const count = async () => (await co.as.query(api.outreach.contacts, { organizationId: org, listId: saved.listId })).rows.length;
+    expect(await view()).toMatchObject({ filling: true, rowCount: 50 });
+    expect(await count()).toBe(50);
+    await t.finishAllScheduledFunctions(() => {});
+    expect(await view()).toMatchObject({ filling: false, rowCount: 120, total: 120 });
+    expect(await count()).toBe(120);
+  });
+
   test("a long facet is read top-down to the limit, and says so when it's cut", async () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     const t = setup();
@@ -2183,6 +2200,10 @@ describe("a company's lists", () => {
     for (let i = 0; i < 4; i++) await co.as.mutation(api.outreach.extend, { organizationId: org, listId: saved.listId });
     expect((await read()).rows).toHaveLength(30);
     expect(await co.as.mutation(api.outreach.extend, { organizationId: org, listId: saved.listId })).toEqual({ loaded: 0, added: 0, rowCount: 30, total: 30, truncated: false });
+    // A bigger list opens with its first 50 at once; the rest land in the background, a page at a time, and it says so until they have.
+    const all = await co.as.mutation(api.outreach.create, { organizationId: org, definition: { county: "Midland", who: "wealthy", minValueCents: 0 }, title: "Every home" });
+    expect(all).toMatchObject({ rowCount: 30, total: 30 });
+    expect((await co.as.query(api.outreach.lists, { organizationId: org })).find((l) => l.id === all.listId)).toMatchObject({ filling: false, rowCount: 30 });
     // An owner already on another list is tagged, not duplicated.
     await co.as.mutation(api.outreach.create, { organizationId: org, definition: { ...def, limit: 3 } });
     expect((await co.as.query(api.outreach.contacts, { organizationId: org })).rows).toHaveLength(30);

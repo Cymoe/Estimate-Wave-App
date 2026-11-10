@@ -1261,6 +1261,8 @@ export default defineSchema({
     pinned: v.optional(v.boolean()),
     /** Done with: out of the picker's way (its contacts stay), until it's brought back. */
     archivedAt: v.optional(v.string()),
+    /** A new list still adding owners after the first, in the background (outreach.fillList). */
+    filling: v.optional(v.boolean()),
   }).index("by_organization", ["organizationId"]),
 
   // The lists' rows before contacts (outreach:migrateRows moves them over on deploy; drop the table once it has run clean).

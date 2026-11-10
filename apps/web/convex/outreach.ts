@@ -604,6 +604,8 @@ const listView = (l: Doc<"outreachLists">, done: number, results: ListResults = 
   createdAt: l.createdAt,
   pinned: l.pinned === true,
   archived: Boolean(l.archivedAt),
+  /** Still adding owners after the first, in the background. */
+  filling: l.filling === true,
   /** Only a list nobody has worked can be deleted: deleting it would leave none of its worked owners on no list. Otherwise it's archived. */
   deletable: stranded === 0,
 });
@@ -655,8 +657,10 @@ export const createDef = mutationDef({
   args: { organizationId: v.id("organizations"), title: v.optional(v.string()), definition: outreachDefinition },
   handler: async (ctx, { organizationId, title: wanted, definition }) => {
     const { user } = await requirePro(ctx, organizationId);
-    const built = await buildRows(ctx, definition);
+    // The first owners go in now, so the list opens with them at once; the rest follow in the background, live on the page.
+    const built = await buildRows(ctx, definition, 0, FIRST_ROWS);
     const now = nowIso();
+    const more = built.count > built.rows.length;
     const listId = await ctx.db.insert("outreachLists", {
       organizationId,
       title: wanted?.trim() || defaultTitle(definition),
@@ -667,12 +671,34 @@ export const createDef = mutationDef({
       truncated: built.truncated,
       createdBy: user._id,
       createdAt: now,
+      ...(more ? { filling: true } : {}),
     });
     const added = await addRows(ctx, organizationId, listId, definition.who, built.rows, now);
-    return { listId, rowCount: built.rows.length, total: built.total, added, truncated: built.truncated, limited: built.limited, sample: built.rows.slice(0, 3) };
+    if (more) await ctx.scheduler.runAfter(0, internal.outreach.fillList, { listId, offset: built.rows.length, target: built.count });
+    return { listId, rowCount: built.count, total: built.total, added, truncated: built.truncated, limited: built.limited, sample: built.rows.slice(0, 3) };
   },
 });
 export const create = mutation(createDef);
+
+/** How many owners a new list holds the moment it's saved, and how many each background step adds after. */
+const FIRST_ROWS = 50;
+const FILL_ROWS = 100;
+
+/** A new list's owners past the first, a page at a time, each page showing on the list as it lands; the last clears `filling`. */
+export const fillList = internalMutation({
+  args: { listId: v.id("outreachLists"), offset: v.number(), target: v.number() },
+  handler: async (ctx, { listId, offset, target }) => {
+    const list = await ctx.db.get(listId);
+    if (!list) return null;
+    const built = await buildRows(ctx, list.definition, offset, Math.min(FILL_ROWS, target - offset));
+    await addRows(ctx, list.organizationId, listId, list.definition.who, built.rows, nowIso());
+    const next = offset + built.rows.length;
+    const more = built.rows.length > 0 && next < target;
+    await ctx.db.patch(listId, { rowCount: next, total: built.total, truncated: built.truncated, filling: more ? true : undefined });
+    if (more) await ctx.scheduler.runAfter(0, internal.outreach.fillList, { listId, offset: next, target });
+    return null;
+  },
+});
 
 /** Puts a list's rows in the company's contacts: a new row for an owner it hasn't pulled before, a tag on the row for one it has. Returns how many were new. */
 async function addRows(ctx: MutationCtx, organizationId: Id<"organizations">, listId: Id<"outreachLists">, who: Definition["who"], rows: ListRow[], now: string) {

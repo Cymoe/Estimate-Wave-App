@@ -1276,6 +1276,8 @@ export type OutreachListSummary = {
   archived?: boolean;
   /** Nobody has worked it yet, so it can be deleted; a worked list is archived instead. */
   deletable?: boolean;
+  /** Still adding owners in the background, right after it was saved. */
+  filling?: boolean;
 };
 /** "12 / 200 · 2 sources" on a column header. */
 export type OutreachCoverage = { found: number; total: number; sources: number };

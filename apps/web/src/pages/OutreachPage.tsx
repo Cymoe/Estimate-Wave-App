@@ -312,23 +312,14 @@ const OutreachPage: React.FC = () => {
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
-  /** The title of a list being saved: the sheet closes at once and the page shows it until it opens. */
-  const [savingList, setSavingList] = useState<string | null>(null);
+  /** Save a built list: it opens with its first owners in (the rest arrive live), and the sheet closes onto it. A failure stays in the sheet. */
   const saveList = async (definition: OutreachDefinition, title: string) => {
     if (!organizationId) return;
+    const made = await outreachAPI.create(organizationId, definition, title);
+    rememberList(made.listId);
     setAsking(false);
     setStart(null);
-    setError(null);
-    setSavingList(title);
-    try {
-      const made = await outreachAPI.create(organizationId, definition, title);
-      rememberList(made.listId);
-      navigate(`/outreach/${made.listId}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "The list couldn't be saved");
-    } finally {
-      setSavingList(null);
-    }
+    navigate(`/outreach/${made.listId}`);
   };
   /** The ready-made list the empty page's card opened the sheet with. */
   const [start, setStart] = useState<{ preset: Preset } | null>(null);
@@ -443,6 +434,16 @@ const OutreachPage: React.FC = () => {
   }, [searchParams, setSearchParams]);
 
   const list = lists?.find((l) => l.id === listId);
+  // A list still filling in the background: read the lists again as its owners arrive, so the bar goes once the last page lands.
+  const filling = Boolean(list?.filling);
+  const arrived = data?.rows.length ?? 0;
+  useEffect(() => {
+    if (!filling || !organizationId) return;
+    const t = setTimeout(() => {
+      outreachAPI.lists(organizationId).then((l) => live.current && setLists(l), () => {});
+    }, 800);
+    return () => clearTimeout(t);
+  }, [filling, arrived, organizationId]);
   const rows = useMemo(() => {
     const has = SHOWS.find((s) => s.value === show)?.has ?? (() => true);
     const q = query.trim().toLowerCase();
@@ -690,11 +691,11 @@ const OutreachPage: React.FC = () => {
     <div className="p-4 md:p-6 space-y-4" data-testid="outreach-page">
       {/* A lookup running, or just finished: a banner across the top of the page, edge to edge. */}
       {data && <LookupProgress rows={data.rows} since={batch?.at} onDismiss={() => keepBatch(null)} className="-mx-4 md:-mx-6 -mt-4 md:-mt-6" />}
-      {/* Saving a list: a slim bar across the top while the page stays as it was; the list opens the moment it exists. */}
-      {savingList && (
-        <div role="status" className="-mx-4 md:-mx-6 -mt-4 md:-mt-6 flex items-center gap-3 border-b border-[#336699]/40 bg-[#336699]/15 px-4 md:px-6 py-3 text-sm text-white" data-testid="saving-list">
+      {/* A new list still adding owners in the background: a slim bar across the top while they arrive. */}
+      {list?.filling && (
+        <div role="status" className="-mx-4 md:-mx-6 -mt-4 md:-mt-6 flex items-center gap-3 border-b border-[#336699]/40 bg-[#336699]/15 px-4 md:px-6 py-3 text-sm text-white" data-testid="list-filling">
           <span className="h-4 w-4 shrink-0 rounded-full border-2 border-white/25 border-t-white animate-spin" aria-hidden />
-          <span className="truncate">Saving “{savingList}”…</span>
+          <span className="truncate">Adding owners to this list: {(data?.rows.length ?? 0).toLocaleString('en-US')} so far…</span>
         </div>
       )}
       {/* On a phone the top bar already says Outreach, and the staff lines fold behind one word; the actions become one row that slides sideways. */}
@@ -1027,7 +1028,7 @@ const OutreachPage: React.FC = () => {
           setAsking(false);
           setStart(null);
         }}
-        onSave={(definition, title) => void saveList(definition, title)}
+        onSave={saveList}
       />
       {confirmDialog}
     </div>
