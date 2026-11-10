@@ -156,7 +156,8 @@ export function ListPicker({
               <button type="button" onClick={() => pick(null)} className="w-full text-left px-4 py-2.5 hover:bg-[#2A2A2A]">
                 <span className="block text-sm text-white">All owners</span>
                 <span className="block text-xs text-gray-500">
-                  Everyone on {liveCount} {liveCount === 1 ? 'list' : 'lists'}
+                  Everyone on your {liveCount} {liveCount === 1 ? 'list' : 'lists'}
+                  {unlisted > 0 ? ' and the owners kept from deleted ones' : ''}
                 </span>
               </button>
             </li>

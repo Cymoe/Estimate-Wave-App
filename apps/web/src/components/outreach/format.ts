@@ -57,7 +57,9 @@ export const deedSearchUrl = (owner: string) =>
   `https://midland.tx.publicsearch.us/results?department=RP&limit=50&offset=0&searchOcrText=false&searchType=quickSearch&searchValue=${encodeURIComponent(owner)}`;
 
 /** What a running lookup is doing, for its cell: "Asking the Texas Comptroller". */
-export const askingText = (s?: string) =>
+/** How long a lookup can sit before its first source without looking stuck: after that it says it's waiting its turn. */
+const QUEUED_AFTER_MS = 20_000;
+export const askingText = (s?: string, since?: string) =>
   s
     ? ({
         roll: 'Reading the appraisal roll',
@@ -76,7 +78,9 @@ export const askingText = (s?: string) =>
         zerobounce: 'Checking the email',
         claude: 'Reading the web',
       }[s] ?? `Asking ${s}`)
-    : 'Starting';
+    : since && Date.now() - Date.parse(since) > QUEUED_AFTER_MS
+      ? 'Waiting its turn'
+      : 'Starting';
 
 /** Each status in words. Only New, In Leads and Skipped are set now; the rest are earlier statuses some rows still have. */
 export const STATUS_LABEL: Record<string, string> = {

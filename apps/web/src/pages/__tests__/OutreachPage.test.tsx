@@ -673,7 +673,11 @@ describe('the Outreach page', () => {
     await act(async () => type(document.body.querySelector('input[aria-label="Search"]') as HTMLInputElement, 'reyes'));
     expect(names()).toEqual(['City Of Midland']);
     await act(async () => type(document.body.querySelector('input[aria-label="Search"]') as HTMLInputElement, 'zzz'));
-    expect(document.body.textContent).toContain('Nobody matches those filters.');
+    // Nobody: it says so with what was searched, and one tap clears it; the buttons up top stay put.
+    expect(document.body.querySelector('[data-testid="nobody"]')!.textContent).toBe('Nobody matches “zzz”. Show everyone');
+    expect(document.body.querySelector('[data-testid="actions"]')).not.toBeNull();
+    await click('Show everyone');
+    expect(names()).toHaveLength(3);
   });
 
   it("a number says whose line it is: the badge reads personal or work, the filters for each show up only when a row has one, and the CSV carries it", async () => {
@@ -1056,7 +1060,8 @@ describe('the Outreach page', () => {
     expect(cells(0)[1]).toBe('Dana ReyesManager · 2 sources agree');
     expect(cells(0).slice(2, 4)).toEqual(['(432) 555-0100mobile · verified · +2', 'dana@oakplaza.comverified']);
     // A running cell says what it's doing, and the last thing it found.
-    expect(cells(1).slice(1, 4)).toEqual(['Asking the Texas Comptroller…1 source checked', 'Checking the lines…2 numbers', 'Starting…']);
+    // One not picked up yet, asked a while ago, says it's waiting its turn rather than "Starting" forever.
+    expect(cells(1).slice(1, 4)).toEqual(['Asking the Texas Comptroller…1 source checked', 'Checking the lines…2 numbers', 'Waiting its turn…']);
     expect(cells(0)[4]).toBe('—');
     expect(document.body.querySelector('thead')!.textContent).toContain('1 / 2 · 1 source');
     // Nothing left to look up on the list: the top-right button is gone.
@@ -1265,6 +1270,24 @@ describe('the Outreach page', () => {
     await click('Delete list');
     expect(document.body.querySelector('[role="alertdialog"]')!.textContent).toContain('Its lookups were simulated (no phone source is connected yet), so nothing real or paid is lost');
   });
+  it('a list with nobody on it says so, and can still be deleted from its page', async () => {
+    lists = [list];
+    await render('/outreach/l1');
+    expect(document.body.querySelector('[data-testid="nobody"]')!.textContent).toBe('Nobody on this list. Make another list');
+    await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
+    expect(button('Delete list')).toBeTruthy();
+  });
+
+  it('going ahead with a paid step asks with the blue button; only taking something away is red', async () => {
+    lists = [list];
+    contacts = { ...twoContacts(), balanceCents: 1000 };
+    await render('/outreach/l1');
+    await click('Research with AI');
+    const yes = Array.from(document.body.querySelectorAll('[role="alertdialog"] button')).find((b) => b.textContent === 'Research them')!;
+    expect(yes.className).toContain('bg-[#336699]');
+    expect(yes.className).not.toContain('bg-red');
+  });
+
   it('a worked list can be deleted too: its worked owners stay under Not on a list, or go with it', async () => {
     lists = [{ ...list, deletable: false, worked: 2 }];
     contacts = twoContacts();

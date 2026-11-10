@@ -710,6 +710,8 @@ const OutreachPage: React.FC = () => {
         listKnown ? ` ${listKnown} you already have as ${listKnown === 1 ? 'a client or lead is' : 'clients or leads are'} left out.` : ''
       }`,
       confirmLabel: 'Find them',
+      // Going ahead, not removing anything: the blue button, not the red one.
+      tone: 'default',
     });
     if (!ok) return;
     await enrich(listOpen.map((r) => r.id)).catch(() => {});
@@ -722,6 +724,8 @@ const OutreachPage: React.FC = () => {
       title: `Research ${listResearch.length} ${listResearch.length === 1 ? 'owner' : 'owners'} with AI?`,
       message: `AI reads the web for what each owner does and any sign of plans to build, renovate, expand or sell. ${dollars(researchCents)} an answer, ${dollars(researchCost)} at most, charged only when it finds something to say.`,
       confirmLabel: 'Research them',
+      // Going ahead, not removing anything: the blue button, not the red one.
+      tone: 'default',
     });
     if (!ok) return;
     await enrich(listResearch.map((r) => r.id), ['research']).catch(() => {});
@@ -788,6 +792,8 @@ const OutreachPage: React.FC = () => {
         unreachable ? ` ${unreachable} with no number or email yet stay here; look them up first, or send one from its card.` : ''
       }`,
       confirmLabel: 'Send to Leads',
+      // Going ahead, not removing anything: the blue button, not the red one.
+      tone: 'default',
     });
     if (!ok) return;
     setBusy(true);
@@ -904,7 +910,7 @@ const OutreachPage: React.FC = () => {
       {/* What's running in the background (a lookup, a new list still filling) floats at the bottom of the screen,
           drawn outside the page's layout, so nothing on the page moves when it comes or goes. */}
       {createPortal(
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex w-max max-w-[calc(100vw-2rem)] flex-col items-center gap-2 pointer-events-none [&>*]:pointer-events-auto [&>*]:max-w-full">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-20 flex w-max max-w-[calc(100vw-2rem)] flex-col items-center gap-2 pointer-events-none [&>*]:pointer-events-auto [&>*]:max-w-full">
           {data && <LookupProgress rows={data.rows} since={batch?.at} onDismiss={() => keepBatch(null)} />}
           {list?.filling && (
             <div
@@ -937,7 +943,8 @@ const OutreachPage: React.FC = () => {
           )}
         </div>
         {/* Two buttons, told apart at a glance: find phones and emails (solid blue), research with AI (violet). The rest under More. */}
-        {data && rows.length > 0 && (
+        {/* There while the list or view has owners (a search or a filter that hides them all leaves them put), or is a list at all, so an empty one can still be deleted. */}
+        {data && (data.rows.length > 0 || list) && (
           <div className={narrow ? 'flex items-stretch gap-2' : 'flex items-center gap-2 shrink-0'} data-testid="actions">
             {listOpen.length > 0 ? (
               // Short of money, the same button adds it: never a greyed-out button with the reason somewhere else.
@@ -1162,7 +1169,33 @@ const OutreachPage: React.FC = () => {
           }}
         />
       ) : rows.length === 0 ? (
-        <p className="text-sm text-gray-500">{data.rows.length === 0 ? 'Nobody matched. Ask for a wider list.' : 'Nobody matches those filters.'}</p>
+        <p className="text-sm text-gray-500" data-testid="nobody">
+          {data.rows.length > 0 ? (
+            <>
+              Nobody matches {query.trim() ? `“${query.trim()}”` : 'those filters'}.{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery('');
+                  setShow('all');
+                  setStatus('all');
+                }}
+                className="text-[#7fb0e0] hover:text-white"
+              >
+                Show everyone
+              </button>
+            </>
+          ) : list ? (
+            <>
+              Nobody on this list.{' '}
+              <button type="button" onClick={() => setAsking(true)} className="text-[#7fb0e0] hover:text-white">
+                Make another list
+              </button>
+            </>
+          ) : (
+            'Nobody here yet.'
+          )}
+        </p>
       ) : view === 'cards' ? (
         <ContactCards
           rows={rows}

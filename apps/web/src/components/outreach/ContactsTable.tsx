@@ -67,7 +67,7 @@ export const Live: React.FC<{ cell: OutreachCell }> = ({ cell }) => {
   return (
     <span className="inline-flex flex-col" data-testid="live">
       <span className="inline-flex items-center gap-1.5 text-[#7fb0e0]">
-        <span className="live-dot" aria-hidden /> {askingText(cell.asking)}…
+        <span className="live-dot" aria-hidden /> {askingText(cell.asking, cell.at)}…
       </span>
       {last?.note ? (
         <span className="block max-w-[11rem] truncate text-[11px] text-gray-400">{last.note}</span>
