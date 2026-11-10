@@ -32,10 +32,11 @@ export const AskListSheet: React.FC<{
   open: boolean;
   organizationId: string;
   onClose: () => void;
-  onSaved: (listId: string) => void;
+  /** Save the built list: the page closes the sheet at once and shows the list as it fills. */
+  onSave: (definition: OutreachDefinition, title: string) => void;
   /** Opened from a card on the empty page: go straight to that list's count and preview. */
   start?: { preset: Preset } | null;
-}> = ({ open, organizationId, onClose, onSaved, start }) => {
+}> = ({ open, organizationId, onClose, onSave, start }) => {
   const [ask, setAsk] = useState('');
   const [preset, setPreset] = useState<string | null>(null);
   /** The one row of ready-made lists that's open; the sheet opens to just the three headings. */
@@ -139,17 +140,9 @@ export const AskListSheet: React.FC<{
     }
   };
 
-  const save = async () => {
+  const save = () => {
     if (!built) return;
-    setBusy('save');
-    setError(null);
-    try {
-      const made = await outreachAPI.create(organizationId, built.definition, built.title);
-      onSaved(made.listId);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "The list couldn't be saved");
-      setBusy(null);
-    }
+    onSave(built.definition, built.title.trim() || defaultTitle(built.definition));
   };
 
   return (

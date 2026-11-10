@@ -701,9 +701,17 @@ describe('the Outreach page', () => {
     const title = built.querySelector('input#outreach-title') as HTMLInputElement;
     expect(title.value).toBe('Shopping center owners, Midland');
     await act(async () => type(title, 'Strip centers'));
-    await click('Save list');
+    // Save closes the sheet at once; the page shows the list being saved until it opens.
+    let saved: (v: unknown) => void = () => {};
+    create.mockImplementationOnce(() => new Promise((r) => (saved = r)) as never);
+    await act(async () => button('Save list').click());
     expect(create).toHaveBeenCalledWith('o1', { county: 'Midland', who: 'commercial' }, 'Strip centers');
+    expect(document.body.querySelector('[data-testid="built"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="saving-list"]')!.textContent).toContain('Strip centers');
+    await act(async () => saved({ listId: 'l9', rowCount: 2, added: 2, truncated: false }));
+    await flush();
     expect(path).toBe('/outreach/l9');
+    expect(document.body.querySelector('[data-testid="saving-list"]')).toBeNull();
   });
 
   it('sends everyone showing to Leads at once, after asking; skipped owners and ones already in Leads stay out', async () => {

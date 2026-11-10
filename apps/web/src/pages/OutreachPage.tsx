@@ -2,7 +2,7 @@ import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } 
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Archive, ArchiveRestore, Check, ChevronDown, Download, LayoutList, Lock, MoreHorizontal, Search, SlidersHorizontal, Table2, Trash2, Undo2, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
-import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachField, type OutreachListSummary, type OutreachRowStatus, type OutreachSource } from '../lib/api';
+import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachDefinition, type OutreachField, type OutreachListSummary, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { AskListSheet } from '../components/outreach/AskListSheet';
 import { ListStarter } from '../components/outreach/ListStarter';
 import type { Preset } from '../components/outreach/presets';
@@ -312,6 +312,24 @@ const OutreachPage: React.FC = () => {
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
+  /** The title of a list being saved: the sheet closes at once and the page shows it until it opens. */
+  const [savingList, setSavingList] = useState<string | null>(null);
+  const saveList = async (definition: OutreachDefinition, title: string) => {
+    if (!organizationId) return;
+    setAsking(false);
+    setStart(null);
+    setError(null);
+    setSavingList(title);
+    try {
+      const made = await outreachAPI.create(organizationId, definition, title);
+      rememberList(made.listId);
+      navigate(`/outreach/${made.listId}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "The list couldn't be saved");
+    } finally {
+      setSavingList(null);
+    }
+  };
   /** The ready-made list the empty page's card opened the sheet with. */
   const [start, setStart] = useState<{ preset: Preset } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -951,7 +969,23 @@ const OutreachPage: React.FC = () => {
           </button>
         </p>
       )}
-      {data === null || lists === null ? (
+      {savingList ? (
+        // Saving: the sheet is closed and the list takes the page at once; its owners stream in once it opens.
+        <section className="space-y-4" aria-busy="true" data-testid="saving-list">
+          <div>
+            <h2 className="text-xl md:text-2xl font-semibold text-white">{savingList}</h2>
+            <p className="mt-1 text-sm text-gray-400">Saving the list…</p>
+          </div>
+          <ul className="border border-[#333333] divide-y divide-[#333333] max-w-3xl">
+            {Array.from({ length: 8 }, (_, i) => (
+              <li key={i} className="px-4 py-3.5 space-y-2 animate-pulse">
+                <div className="h-3.5 w-1/3 bg-[#2A2A2A]" />
+                <div className="h-2.5 w-1/2 bg-[#222222]" />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : data === null || lists === null ? (
         <p className="text-sm text-gray-500">Loading…</p>
       ) : lists.length === 0 && data.rows.length === 0 ? (
         <ListStarter
@@ -1002,10 +1036,7 @@ const OutreachPage: React.FC = () => {
           setAsking(false);
           setStart(null);
         }}
-        onSaved={(id) => {
-          setStart(null);
-          navigate(`/outreach/${id}`);
-        }}
+        onSave={(definition, title) => void saveList(definition, title)}
       />
       {confirmDialog}
     </div>
