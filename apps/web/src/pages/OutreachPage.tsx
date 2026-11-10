@@ -4,6 +4,8 @@ import { Archive, ArchiveRestore, Check, ChevronDown, Download, LayoutList, Lock
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachField, type OutreachListSummary, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { AskListSheet } from '../components/outreach/AskListSheet';
+import { ListStarter } from '../components/outreach/ListStarter';
+import type { Preset } from '../components/outreach/presets';
 import { ListPicker } from '../components/outreach/ListPicker';
 import { rememberList } from '../components/outreach/listsStore';
 import { ListsOverview } from '../components/outreach/ListsOverview';
@@ -373,6 +375,8 @@ const OutreachPage: React.FC = () => {
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
+  /** What the empty page's card or ask box opened the sheet with. */
+  const [start, setStart] = useState<{ preset?: Preset; ask?: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirm, confirmDialog] = useConfirm();
   /** Manage lists: every list as a card, to pin, rename or archive. */
@@ -1014,21 +1018,16 @@ const OutreachPage: React.FC = () => {
       {data === null || lists === null ? (
         <p className="text-sm text-gray-500">Loading…</p>
       ) : lists.length === 0 && data.rows.length === 0 ? (
-        <section className="max-w-xl border border-[#333333] bg-[#121212] p-5 md:p-6 space-y-3" data-testid="outreach-empty">
-          <h2 className="text-lg font-semibold text-white">Start with a list</h2>
-          <p className="text-sm text-gray-400">
-            A list pulls the property owners who fit what you&apos;re after from the county records. Pick a ready-made one or say it in your own words, for example:
-          </p>
-          <ul className="text-sm text-gray-300 space-y-1 list-disc pl-5">
-            <li>Commercial property owners in Midland</li>
-            <li>Investors who own 5 or more properties</li>
-            <li>Owners with a code violation or a stalled permit</li>
-          </ul>
-          <button type="button" onClick={() => setAsking(true)} className="inline-flex items-center gap-2 px-4 h-11 text-sm font-medium text-white bg-[#336699] hover:bg-[#2a5580]">
-            Make a list
-          </button>
-          <p className="text-xs text-gray-500">You can always make another with the + button.</p>
-        </section>
+        <ListStarter
+          onPick={(preset) => {
+            setStart({ preset });
+            setAsking(true);
+          }}
+          onAsk={(ask) => {
+            setStart({ ask });
+            setAsking(true);
+          }}
+        />
       ) : rows.length === 0 ? (
         <p className="text-sm text-gray-500">{data.rows.length === 0 ? 'Nobody matched. Ask for a wider list.' : 'Nobody matches those filters.'}</p>
       ) : view === 'cards' ? (
@@ -1063,7 +1062,19 @@ const OutreachPage: React.FC = () => {
         onAddFunds={addFunds}
         onLead={(row) => void toLeads(row)}
       />
-      <AskListSheet open={asking} organizationId={organizationId} onClose={() => setAsking(false)} onSaved={(id) => navigate(`/outreach/${id}`)} />
+      <AskListSheet
+        open={asking}
+        start={start}
+        organizationId={organizationId}
+        onClose={() => {
+          setAsking(false);
+          setStart(null);
+        }}
+        onSaved={(id) => {
+          setStart(null);
+          navigate(`/outreach/${id}`);
+        }}
+      />
       {confirmDialog}
     </div>
   );

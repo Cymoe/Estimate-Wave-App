@@ -465,13 +465,34 @@ describe('the Outreach page', () => {
     expect(document.body.querySelector('[data-testid="no-lists-hint"]')).not.toBeNull();
   });
 
+  it('with no lists, the page is the ready-made lists as cards: one opens straight to its count and preview; your own words go to the assistant', async () => {
+    await render();
+    const empty = document.body.querySelector('[data-testid="outreach-empty"]')!;
+    const cards = Array.from(empty.querySelectorAll('[data-testid="starter-list"]'));
+    expect(cards).toHaveLength(16);
+    expect(cards[1].textContent).toBe('Shopping center ownersOwners of commercial buildings, biggest holdings first');
+    // A card opens the sheet straight to that list's count and first look.
+    await act(async () => (cards[1] as HTMLButtonElement).click());
+    await flush();
+    expect(preview).toHaveBeenLastCalledWith('o1', { county: 'Midland', who: 'commercial' });
+    expect(document.body.querySelector('button[aria-pressed="true"]')!.textContent).toBe('Shopping center owners');
+    // Your own words go to the assistant.
+        const box = empty.querySelector('input')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(box, 'roofers with 3 permits');
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => (empty.querySelector('button[type="submit"]') as HTMLButtonElement).click());
+    await flush();
+    expect(interpret).toHaveBeenLastCalledWith('o1', 'roofers with 3 permits');
+  });
+
   it('shows the contacts table with a list picker, or says to tap + when there are none', async () => {
     await render();
-    // Nothing yet: what a list is, examples, and a button to make one.
+    // Nothing yet: the ready-made lists as cards, and a box for your own words.
     const empty = document.body.querySelector('[data-testid="outreach-empty"]')!;
-    expect(empty.querySelector('h2')!.textContent).toBe('Start with a list');
-    expect(empty.textContent).toContain('Commercial property owners in Midland');
-    expect(Array.from(empty.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Make a list']);
+    expect(empty.querySelector('h2')!.textContent).toBe('Who do you want to reach?');
+    expect(empty.querySelectorAll('[data-testid="starter-list"]')).toHaveLength(16);
     // Just the title: no paragraph of explanation under it.
     expect(document.body.querySelector('header')!.textContent).toBe('Outreach');
     document.body.innerHTML = '';
