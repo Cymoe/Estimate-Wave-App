@@ -811,6 +811,15 @@ describe('the Outreach page', () => {
       suggestion: { definition: { county: 'Midland', who: 'wealthy', minValueCents: 150_000_000 }, title: 'Homes over $1.5M, Midland' },
     };
     await render('/outreach?new=1');
+    // The county the lists are of, at the top: one for now, with room for more.
+    const county = document.body.querySelector('[data-testid="county-switch"]') as HTMLButtonElement;
+    expect(county.textContent).toBe('Midland County, TX');
+    await act(async () => county.click());
+    const menu = document.body.querySelector('[role="listbox"][aria-label="County"]')!;
+    expect(Array.from(menu.querySelectorAll('[role="option"]')).map((o) => [o.textContent, o.getAttribute('aria-selected')])).toEqual([['Midland County, TX', 'true']]);
+    expect(menu.textContent).toContain('More counties coming soon');
+    await act(async () => (menu.querySelector('[role="option"]') as HTMLButtonElement).click());
+    expect(document.body.querySelector('[role="listbox"][aria-label="County"]')).toBeNull();
     // Open the row, tap the list: companies holding five or more, straight to the count, the assistant never asked.
     await click('Commercial and investors');
     await click('Company investors with 5+ properties');

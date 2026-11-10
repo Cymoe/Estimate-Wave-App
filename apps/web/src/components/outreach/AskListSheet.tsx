@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { outreachAPI, type OutreachDefinition, type OutreachPreviewRow } from '../../lib/api';
 import { defaultTitle, shortMoney } from '../../../convex/lib/outreach';
 import { mailingLine } from './format';
-import { GROUPS, type Preset } from './presets';
+import { COUNTIES, GROUPS, forCounty, type Preset } from './presets';
 
 const field = 'w-full bg-[#1A1A1A] border border-[#333333] px-3 text-white text-base md:text-sm focus:outline-none focus:border-[#336699]';
 const primary = 'px-4 py-2 text-sm font-medium bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50';
@@ -38,6 +38,12 @@ export const AskListSheet: React.FC<{
   start?: { preset: Preset } | null;
 }> = ({ open, organizationId, onClose, onSave, start }) => {
   const [ask, setAsk] = useState('');
+  /** Which county the lists are of; one for now, more as they're connected. */
+  const [county, setCounty] = useState(COUNTIES[0].name);
+  const [countyOpen, setCountyOpen] = useState(false);
+  const here = COUNTIES.find((c) => c.name === county) ?? COUNTIES[0];
+  /** A list built from a city's own records, in a county where they aren't connected yet. */
+  const unavailable = (p: Preset) => Boolean(p.needsRecords) && !here.records;
   const [preset, setPreset] = useState<string | null>(null);
   /** The one row of ready-made lists that's open; the sheet opens to just the three headings. */
   const [openGroup, setOpenGroup] = useState<string | null>(null);
@@ -59,6 +65,7 @@ export const AskListSheet: React.FC<{
   useEffect(() => {
     if (open) return;
     setAsk('');
+    setCountyOpen(false);
     setPreset(null);
     setOpenGroup(null);
     setBuilt(null);
@@ -72,6 +79,7 @@ export const AskListSheet: React.FC<{
   /** A ready-made list: the filter runs as written, straight to the count and preview. */
   const pick = async (p: Preset) => {
     const mine = ++asking.current;
+    const definition = forCounty(p, county);
     setPreset(p.label);
     setPending(p.label);
     setView('result');
@@ -81,9 +89,9 @@ export const AskListSheet: React.FC<{
     setCannot(null);
     setBuilt(null);
     try {
-      const got = await outreachAPI.preview(organizationId, p.definition);
+      const got = await outreachAPI.preview(organizationId, definition);
       if (mine !== asking.current) return;
-      setBuilt({ definition: p.definition, title: defaultTitle(p.definition), explanation: p.explanation, count: got.count, total: got.total, truncated: got.truncated, limited: got.limited, rows: got.rows });
+      setBuilt({ definition, title: defaultTitle(definition), explanation: p.explanation, count: got.count, total: got.total, truncated: got.truncated, limited: got.limited, rows: got.rows });
     } catch (err) {
       if (mine !== asking.current) return;
       setError(err instanceof Error ? err.message : "The list couldn't be built");
@@ -169,6 +177,41 @@ export const AskListSheet: React.FC<{
         {/* Once a list is built it has the sheet to itself: the count, a first look and Save, no scrolling past the choices. */}
         {!showResult && (
           <>
+        {/* Which county the lists are of. One for now; the switch is here for when there are more. */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setCountyOpen((o) => !o)}
+            aria-expanded={countyOpen}
+            aria-haspopup="listbox"
+            data-testid="county-switch"
+            className="inline-flex items-center gap-1.5 min-h-[36px] -ml-2 px-2 text-sm font-medium text-white hover:bg-[#2A2A2A]"
+          >
+            {here.label}
+            <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${countyOpen ? 'rotate-180' : ''}`} aria-hidden />
+          </button>
+          {countyOpen && (
+            <div role="listbox" aria-label="County" className="absolute left-0 top-full mt-1 z-20 min-w-[16rem] py-1 bg-[#1A1A1A] border border-[#333333] shadow-xl">
+              {COUNTIES.map((c) => (
+                <button
+                  key={c.name}
+                  type="button"
+                  role="option"
+                  aria-selected={c.name === county}
+                  onClick={() => {
+                    setCounty(c.name);
+                    setCountyOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 min-h-[40px] text-left text-sm text-gray-200 hover:bg-[#2A2A2A]"
+                >
+                  <Check className={`w-4 h-4 ${c.name === county ? 'text-[#7fb0e0]' : 'invisible'}`} aria-hidden />
+                  {c.label}
+                </button>
+              ))}
+              <p className="px-3 py-2 text-xs text-gray-500 border-t border-[#333333]">More counties coming soon</p>
+            </div>
+          )}
+        </div>
         <div className="space-y-2">
           <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Who do you want to reach?</p>
           <div className="border border-[#333333] divide-y divide-[#333333]" role="group" aria-label="Ready-made lists">
@@ -199,11 +242,13 @@ export const AskListSheet: React.FC<{
                           key={p.label}
                           type="button"
                           onClick={() => void pick(p)}
-                          disabled={busy !== null}
+                          disabled={busy !== null || unavailable(p)}
                           aria-pressed={preset === p.label}
+                          title={unavailable(p) ? `Not in ${here.label} yet: it needs the city's own records` : undefined}
                           className={`px-3 py-2 text-sm border disabled:opacity-50 ${preset === p.label ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333333] text-gray-300 hover:bg-[#2A2A2A]'}`}
                         >
                           {p.label}
+                          {unavailable(p) && <span className="ml-1.5 text-xs text-gray-500">· not here yet</span>}
                         </button>
                       ))}
                     </div>
