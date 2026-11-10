@@ -738,6 +738,34 @@ describe("a company's lists", () => {
     expect(await names()).toEqual(["Called LLC", "Noted LLC", "Paid LLC", "Researched LLC", "Two Lists LLC"]);
   });
 
+  test("while no phone source is connected, simulated lookups count as work: their owners stay when the list goes, until a real source is connected", async () => {
+    vi.stubEnv("OUTREACH_SIMULATE", "");
+    for (const k of ["TX_COMPTROLLER_API_KEY", "COBALT_API_KEY", "BATCHDATA_API_KEY", "TRACERFY_API_KEY", "ENFORMION_AP_NAME", "HUNTER_API_KEY", "LEADMAGIC_API_KEY", "TRESTLE_API_KEY", "TWILIO_ACCOUNT_SID", "ZEROBOUNCE_API_KEY"]) vi.stubEnv(k, "");
+    const t = setup();
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    const at = "2026-11-01T00:00:00.000Z";
+    const listId = await t.run(async (ctx) => {
+      const [user] = await ctx.db.query("users").collect();
+      const listId = await ctx.db.insert("outreachLists", { organizationId: org, title: "Tried", definition: { county: "Midland", who: "investor" as const }, rowCount: 2, done: 0, truncated: false, createdBy: user._id, createdAt: at });
+      const locked = { status: "locked" as const };
+      const base = { organizationId: org, mailing: {}, properties: 1, totalValueCents: 0, why: "", kinds: ["investor" as const], listIds: [listId], status: "new" as const, createdAt: at };
+      await ctx.db.insert("outreachContacts", { ...base, key: "sim", name: "Looked Up LLC", phones: [{ number: "+14325550100", type: "mobile", source: "batchdata" }], enrichment: { phone: { status: "found", source: "batchdata", requestedBy: user._id, simulated: true }, email: locked, person: locked } });
+      await ctx.db.insert("outreachContacts", { ...base, key: "none", name: "Untouched LLC", enrichment: { phone: locked, email: locked, person: locked } });
+      return listId;
+    });
+    expect((await co.as.query(api.outreach.contacts, { organizationId: org, listId })).simulating).toBe(true);
+    expect((await co.as.query(api.outreach.lists, { organizationId: org }))[0]).toMatchObject({ deletable: false, worked: 1 });
+    await co.as.mutation(api.outreach.remove, { organizationId: org, listId });
+    const names = async () => (await t.run(async (ctx) => ctx.db.query("outreachContacts").collect())).map((c) => c.name);
+    expect(await names()).toEqual(["Looked Up LLC"]);
+    expect(await t.mutation(internal.outreach.clearLeftovers, {})).toEqual({ removed: 0, done: true });
+    // A real phone source connected: what was simulated keeps nothing now, and the sweep clears it.
+    vi.stubEnv("BATCHDATA_API_KEY", "bd-key");
+    expect(await t.mutation(internal.outreach.clearLeftovers, {})).toEqual({ removed: 1, done: true });
+    vi.unstubAllEnvs();
+  });
+
   test("owners on no list: shown on their own with a count, removable all at once or some; leads and clients stay; a list can take its worked owners with it", async () => {
     const t = setup();
     const co = await proCompany(t);

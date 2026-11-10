@@ -1299,6 +1299,8 @@ export type OutreachContacts = {
   lastSend?: { at: string; leads: number } | null;
   /** How many owners are on no list: kept from deleted lists because they were worked. */
   unlisted?: number;
+  /** Lookups are simulated (no phone source connected yet), and a simulated result counts as work. */
+  simulating?: boolean;
 };
 const contactsArgs = (organizationId: string, listId?: string) => (listId === UNLISTED ? { organizationId, unlisted: true } : defined({ organizationId, listId }));
 /** A source in the stack, as staff see it: connected or not, and how it has done for this company. */

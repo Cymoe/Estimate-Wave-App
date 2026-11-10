@@ -61,7 +61,7 @@ import {
 import { MIDLAND_PARCELS, addressKey } from "./lib/parcels";
 import { SAMPLE_MAX, SAMPLE_NOTE, isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { planIsActive } from "./lib/plan";
-import { needsAttention, phoneCheckers, phoneScrub, samePerson, splitName, vendors, verifier, type Found, type Person } from "./lib/skipTrace";
+import { needsAttention, phoneCheckers, phoneScrub, samePerson, splitName, standsAlone, vendors, verifier, type Found, type Person } from "./lib/skipTrace";
 import { dollars, postTransaction } from "./lib/wallet";
 
 const COUNTY = MIDLAND_PARCELS.county;
@@ -1006,6 +1006,8 @@ export const contacts = query({
       lastSend: await lastSendOf(ctx, organizationId),
       /** Owners on no list, for the picker's "Not on a list". */
       unlisted: all.filter((c) => c.listIds.length === 0).length,
+      /** Lookups are simulated (no phone source yet), and a simulated result counts as work. */
+      simulating: simulating(),
     };
   },
 });
@@ -1420,19 +1422,27 @@ export const removeUnlisted = mutation({
  * list: a lead or client it became, a status or note someone set, a research
  * answer, or a real lookup someone asked for. Sample and simulated results are
  * made up, and what a permit or license gave free when the list was built
- * comes back with the next list, so neither keeps anything.
+ * comes back with the next list, so neither keeps anything; except that
+ * simulated lookups count while they're all there is (see simulating).
  */
-function worthKeeping(c: Doc<"outreachContacts">, leadGone = false) {
+/**
+ * Lookups are simulated (made up, never charged) while no phone source is connected, as skipTrace decides. Then
+ * they're the only lookups there are, so they count as work, and the keep and remove flows can be tried before going
+ * live; once a real source is connected, simulated results left over keep nothing. OUTREACH_SIMULATE=off turns it off.
+ */
+export const simulating = () => process.env.OUTREACH_SIMULATE !== "off" && !vendors(process.env).some((s) => standsAlone(s, "phone"));
+
+function worthKeeping(c: Doc<"outreachContacts">, leadGone = false, sim = simulating()) {
   // A lead deleted in Leads leaves its owner New, as the page shows it: being sent once keeps nothing.
   if (leadGone) c = { ...c, leadId: undefined, status: c.status === "lead" ? "new" : c.status };
   if (c.leadId || c.clientId) return true;
   // The sample filler's owners (marked by their note); a simulated cell is made up whatever it found.
   if (isSampleRun(c)) return false;
   // A research answer counts only when it's real: the simulated chain writes a made-up one too.
-  const research = Boolean(c.research) && !cellsOf(c).research?.simulated;
+  const research = Boolean(c.research) && (sim || !cellsOf(c).research?.simulated);
   if (c.status !== "new" || c.note?.trim() || research || c.followUpOn || (c.touches?.length ?? 0) > 0) return true;
   // A lookup someone asked for or paid for; a name or number the permits or a license gave for free at build doesn't count (the next list has it again).
-  return Object.values(cellsOf(c)).some((cell) => cell?.status === "found" && !cell.simulated && (cell.requestedBy !== undefined || (cell.chargedCents ?? 0) > 0));
+  return Object.values(cellsOf(c)).some((cell) => cell?.status === "found" && (sim || !cell.simulated) && (cell.requestedBy !== undefined || (cell.chargedCents ?? 0) > 0));
 }
 
 /** Sent to a lead that has since been deleted in Leads. */

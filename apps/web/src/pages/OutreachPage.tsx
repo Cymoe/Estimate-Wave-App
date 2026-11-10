@@ -75,8 +75,13 @@ function withProgress(c: OutreachContacts, narration: Narration): OutreachContac
   };
 }
 
-const workedOn = (r: OutreachContact) =>
-  Boolean(r.leadId) || r.status !== 'new' || Boolean(r.note?.trim()) || (Boolean(r.research) && !r.enrichment.research?.simulated) || Object.values(r.enrichment).some((c) => c.status === 'found' && !c.simulated && (c.requestedBy !== undefined || (c.chargedCents ?? 0) > 0));
+/** Whether an owner holds work of the company's own, as the server decides it; sim: simulated lookups count (no phone source yet). */
+const workedOn = (r: OutreachContact, sim = false) =>
+  Boolean(r.leadId) ||
+  r.status !== 'new' ||
+  Boolean(r.note?.trim()) ||
+  (Boolean(r.research) && (sim || !r.enrichment.research?.simulated)) ||
+  Object.values(r.enrichment).some((c) => c.status === 'found' && (sim || !c.simulated) && (c.requestedBy !== undefined || (c.chargedCents ?? 0) > 0));
 
 /** Lists deleted on this page, each with whether its worked owners went too. */
 type Gone = Map<string, boolean>;
@@ -95,7 +100,7 @@ function pruneGone(c: OutreachContacts, gone: Gone): OutreachContacts {
       continue;
     }
     const listIds = r.listIds.filter((id) => !gone.has(id));
-    const stays = listIds.length > 0 || (hit.some((id) => gone.get(id)) ? Boolean(r.leadId) || r.status === 'client' : workedOn(r));
+    const stays = listIds.length > 0 || (hit.some((id) => gone.get(id)) ? Boolean(r.leadId) || r.status === 'client' : workedOn(r, c.simulating));
     if (stays) rows.push({ ...r, listIds });
   }
   return { ...c, rows };
