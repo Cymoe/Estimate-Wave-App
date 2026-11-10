@@ -426,7 +426,8 @@ describe('the Outreach page', () => {
     expect(Array.from(header.querySelectorAll('button')).map((b) => b.textContent?.trim() || b.getAttribute('aria-label'))).toEqual(['Find phones & emails (1)', 'Research with AI (2)', 'Add funds', 'More']);
     await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
     const more = Array.from(document.body.querySelectorAll('[role="menu"] button')).map((b) => b.textContent?.trim());
-    expect(more).toEqual(expect.arrayContaining(['Send 2 to Leads', 'Show as a table', 'Export CSV', 'Delete list']));
+    // The owner already a lead isn't sent again: only the one with a number goes.
+    expect(more).toEqual(expect.arrayContaining(['Send 1 to Leads', 'Show as a table', 'Export CSV', 'Delete list']));
     // A tap elsewhere closes it.
     await act(async () => document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
     expect(document.body.querySelector('[role="menu"]')).toBeNull();
@@ -766,6 +767,8 @@ describe('the Outreach page', () => {
         contact('r6', { name: 'DNC Co', phones: [{ number: '4325550199', type: 'landline', dnc: true, source: 'batchdata' }] }),
         // Already a client: reachable through them.
         contact('r7', { name: 'Client Co', known: { kind: 'client', id: 'c1', name: 'Client Co' } }),
+        // Matches a lead you already have (a list made after starting over): already in Leads, so not sent, nor counted as waiting.
+        contact('r8', { name: 'City Of Midland', known: { kind: 'lead', id: 'lead1', name: 'City Of Midland' } }),
       ],
     };
     await render('/outreach/l1');

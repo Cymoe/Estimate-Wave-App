@@ -634,9 +634,10 @@ const OutreachPage: React.FC = () => {
   };
 
   /** The owners showing (this list, filter and search) not yet in Leads or skipped; 500 at a time. */
-  // Only owners you can reach go in bulk: a number that's OK to call, an email, or a client or lead you already have. The rest wait for a lookup.
-  const reachable = (r: OutreachContact) => r.phones.some(callOk) || r.emails.length > 0 || Boolean(r.known);
-  const waiting = rows.filter((r) => !r.leadId && r.status !== 'skip');
+  // Only owners you can reach go in bulk: a number that's OK to call, an email, or a client you already have. The rest wait for a lookup.
+  const reachable = (r: OutreachContact) => r.phones.some(callOk) || r.emails.length > 0 || r.known?.kind === 'client';
+  // One that matches a lead you already have is in Leads already: nothing to send (its card says so, and can still link it).
+  const waiting = rows.filter((r) => !r.leadId && r.status !== 'skip' && r.known?.kind !== 'lead');
   const toSend = waiting.filter(reachable).slice(0, 500);
   const unreachable = waiting.length - waiting.filter(reachable).length;
   const [sentNote, setSentNote] = useState<string | null>(null);
