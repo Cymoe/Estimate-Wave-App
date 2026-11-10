@@ -3,9 +3,9 @@ import { AlertTriangle, CheckCircle2, Circle, FileText, Lock, Mail, MapPin, Mess
 import { AddressLink } from '../common/AddressLink';
 import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { fullAddress } from '../../lib/mapsLinks';
-import type { OutreachCell, OutreachContact, OutreachContacts, OutreachCoverage, OutreachField, OutreachPhone, OutreachRowStatus, OutreachSignal, OutreachTry, OutreachWho } from '../../lib/api';
+import { emailAPI, type OutreachCell, type OutreachContact, type OutreachContacts, type OutreachCoverage, type OutreachField, type OutreachPhone, type OutreachRowStatus, type OutreachSignal, type OutreachTry, type OutreachWho, type OwnerEmails } from '../../lib/api';
 import { shortMoney, WHO_LABEL, cityOf, knownCounty } from '../../../convex/lib/outreach';
-import { askingText, callOk, deedSearch, dueAgain, isSimulated, LEAD_STAGE, phoneKind, phoneText, sourceList, sourceName, STATUS_LABEL, tryAgainFrom, QUEUED_AFTER_MS } from './format';
+import { askingText, callOk, deedSearch, emailStateText, dueAgain, isSimulated, LEAD_STAGE, phoneKind, phoneText, sourceList, sourceName, STATUS_LABEL, tryAgainFrom, QUEUED_AFTER_MS } from './format';
 
 /** The column's short name for the kind of owner. */
 const KIND: Record<OutreachWho, string> = {
@@ -362,6 +362,11 @@ export const ContactsTable: React.FC<{
                       </span>
                     ) : null}
                     <Known row={r} />
+                    {emailStateText(r.email) && (
+                      <span className={`block text-[11px] ${r.email?.state === 'replied' ? 'text-emerald-300' : 'text-gray-500'}`} data-testid="email-state">
+                        {emailStateText(r.email)}
+                      </span>
+                    )}
                     {isSimulated(r) && (
                       <span className="block text-[11px] text-gray-500" title="No phone source is connected yet, so this lookup was simulated: made-up results, nothing charged." data-testid="simulated">
                         Simulated
@@ -523,6 +528,7 @@ export const ContactCards: React.FC<{
                   {placeOf?.(r) ? ` · ${placeOf(r)}` : ''}
                   {r.related?.length ? ` · +${r.related.length} related` : ''}
                 </span>
+                {emailStateText(r.email) && <span className={`block text-xs ${r.email?.state === 'replied' ? 'text-emerald-300' : 'text-gray-500'}`} data-testid="email-state">{emailStateText(r.email)}</span>}
                 <Known row={r} className="mt-0.5 text-xs" />
                 {signal && (
                   <span className="mt-1 inline-flex items-center gap-1 text-xs text-amber-300">
@@ -709,7 +715,10 @@ export const ContactSheet: React.FC<{
   onLead: (row: OutreachContact) => void;
   /** The county the owner's property is in (its list's), for the address's city and the county's deed records. */
   county?: string;
-}> = ({ row, unlockCents, researchCents, researchQuestion, balanceCents, onClose, onStatus, onEnrich, onAddFunds, onLead, county }) => {
+  /** For the owner's emails from Outreach, and "Email" drafting one. */
+  organizationId?: string;
+  onEmail?: (row: OutreachContact) => void;
+}> = ({ row, unlockCents, researchCents, researchQuestion, balanceCents, onClose, onStatus, onEnrich, onAddFunds, onLead, county, organizationId, onEmail }) => {
   const [note, setNote] = useState('');
   const [question, setQuestion] = useState(researchQuestion);
   const [busy, setBusy] = useState(false);
@@ -867,11 +876,17 @@ export const ContactSheet: React.FC<{
                         <MessageSquare className="w-4 h-4" /> Text
                       </a>
                     )}
-                    {email0 && (
-                      <a href={`mailto:${email0.email}`} className={`${quiet} flex-1 justify-center min-h-[44px]`}>
-                        <Mail className="w-4 h-4" /> Email
-                      </a>
-                    )}
+                    {email0 &&
+                      (onEmail && !row.email ? (
+                        // An email from Outreach: the AI drafts it, you approve, it goes from your Gmail.
+                        <button type="button" onClick={() => onEmail(row)} className={`${quiet} flex-1 justify-center min-h-[44px]`} data-testid="email-owner">
+                          <Mail className="w-4 h-4" /> Email
+                        </button>
+                      ) : (
+                        <a href={`mailto:${email0.email}`} className={`${quiet} flex-1 justify-center min-h-[44px]`}>
+                          <Mail className="w-4 h-4" /> Email
+                        </a>
+                      ))}
                   </li>
                 )}
               </ul>
@@ -898,6 +913,7 @@ export const ContactSheet: React.FC<{
               </div>
             )}
           </div>
+          {organizationId && row.email && <OwnerEmailsSection organizationId={organizationId} contactId={row.id} label={label} />}
           <div className="py-3" data-testid="research">
             <div className={label}>Research</div>
             {row.research ? (
@@ -1037,5 +1053,45 @@ export const ContactSheet: React.FC<{
         )}
       </div>
     </SlideOutDrawer>
+  );
+};
+
+/** An owner's emails from Outreach, in their sheet: each one sent or waiting, and their reply. */
+const OwnerEmailsSection: React.FC<{ organizationId: string; contactId: string; label: string }> = ({ organizationId, contactId, label }) => {
+  const [mine, setMine] = useState<OwnerEmails | null>(null);
+  useEffect(() => emailAPI.watchOwner(organizationId, contactId, setMine, () => {}), [organizationId, contactId]);
+  if (!mine || (mine.emails.length === 0 && !mine.replyText)) return null;
+  const day = (iso?: string, ms?: number) => new Date(iso ?? ms ?? 0).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const what = (e: OwnerEmails['emails'][number]) =>
+    e.status === 'sent'
+      ? `${e.sample ? 'Sample, not really sent' : 'Sent'} ${day(e.sentAt)}`
+      : e.status === 'scheduled'
+        ? `Goes ${day(undefined, e.sendAt)}`
+        : e.status === 'waiting'
+          ? 'Waits for the first email'
+          : e.status === 'paused'
+            ? 'Held: Gmail isn\u2019t connected'
+            : e.status === 'failed'
+              ? `Didn\u2019t send: ${e.error ?? 'Gmail refused it'}`
+              : e.status;
+  return (
+    <div className="py-3" data-testid="owner-emails">
+      <div className={label}>Emails</div>
+      {mine.replyText && (
+        <div className="mt-1 mb-2 border-l-2 border-emerald-400/60 pl-3">
+          <p className="text-xs text-emerald-300">Replied {day(mine.repliedAt)}</p>
+          <p className="text-[15px] text-gray-200 whitespace-pre-line">{mine.replyText}</p>
+        </div>
+      )}
+      <ul className="space-y-1.5 pt-1">
+        {mine.emails.map((e) => (
+          <li key={e.id} className="text-sm">
+            <span className="text-gray-200">{e.step === 0 ? e.subject : `Follow-up ${e.step}`}</span>
+            <span className="block text-xs text-gray-500">{what(e)}</span>
+          </li>
+        ))}
+      </ul>
+      {mine.state === 'opted_out' && <p className="text-xs text-gray-500 pt-1">Unsubscribed: they won\u2019t be emailed again.</p>}
+    </div>
   );
 };

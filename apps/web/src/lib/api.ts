@@ -1255,6 +1255,8 @@ export type OutreachContact = {
   related?: Array<{ id: string; name: string }>;
   /** A client or lead the company already has for this owner, until it's sent: sending joins it rather than making another. */
   known?: { kind: 'client' | 'lead'; id: string; name: string };
+  /** Where email outreach stands with them. */
+  email?: { state: OwnerEmailState; at: string };
   createdAt: string;
 };
 /** An Outreach owner behind a lead, for the lead's drawer. */
@@ -1322,6 +1324,58 @@ export type OutreachInterpreted =
   | { ok: false; explanation: string; suggestion?: { definition: OutreachDefinition; title: string } };
 
 /** Outreach: a CRM of property owners from the county roll, pulled by lists asked for in plain words (Pro). */
+export type OwnerEmailState = 'drafted' | 'scheduled' | 'emailed' | 'replied' | 'opted_out';
+export type MailboxInfo = {
+  connected: { email: string; name?: string; dailyCap: number; connectedAt: string } | null;
+  lost: { email: string; why: string } | null;
+  /** What the server still needs before anyone can connect, in words. */
+  setupMissing: string[];
+  /** The company's postal address for the footer; null until it's filled in. */
+  postal: string | null;
+  /** Replies are caught and sent to Leads. */
+  replies: boolean;
+  today: number;
+};
+export type EmailStatus = 'draft' | 'waiting' | 'scheduled' | 'sending' | 'sent' | 'failed' | 'cancelled' | 'paused';
+export type CampaignEmail = { id: string; step: number; subject: string; body: string; status: EmailStatus; writing: boolean; sendAt?: number; sentAt?: string; error?: string };
+export type EmailCampaign = {
+  id: string;
+  status: 'drafting' | 'review' | 'sending' | 'done' | 'cancelled';
+  followUps: number[];
+  owners: Array<{ contactId: string; name: string; company?: string; property?: string; to: string; sample: boolean; replied: boolean; emails: CampaignEmail[] }>;
+  writing: number;
+  mailbox: { email: string; dailyCap: number } | null;
+  postal: string | null;
+  footer: string;
+  schedule: { first: number; last: number; days: number } | null;
+};
+export type OwnerEmails = {
+  state?: OwnerEmailState;
+  replyText?: string;
+  repliedAt?: string;
+  emails: Array<{ id: string; step: number; to: string; subject: string; body: string; status: EmailStatus; sendAt?: number; sentAt?: string; sample: boolean; error?: string }>;
+};
+
+/** Email outreach from the company's own Gmail (convex/emailOutreach.ts). */
+export const emailAPI = {
+  mailbox: (organizationId: string): Promise<MailboxInfo> => run('query', api.emailOutreach.mailbox, { organizationId }),
+  watchMailbox: (organizationId: string, onUpdate: (m: MailboxInfo) => void, onError?: (e: APIError) => void) => watchOn(api.emailOutreach.mailbox, { organizationId }, onUpdate, onError),
+  connect: (organizationId: string, returnTo: string): Promise<string> => run('mutation', api.emailOutreach.connectGmail, { organizationId, returnTo }),
+  disconnect: (organizationId: string): Promise<null> => run('mutation', api.emailOutreach.disconnect, { organizationId }),
+  setDailyCap: (organizationId: string, dailyCap: number): Promise<null> => run('mutation', api.emailOutreach.setDailyCap, { organizationId, dailyCap }),
+  check: (organizationId: string, contactIds: string[]): Promise<{ count: number; sample: number; skipped: string[] }> => run('query', api.emailOutreach.check, { organizationId, contactIds }),
+  start: (organizationId: string, contactIds: string[], followUps: boolean): Promise<{ campaignId: string | null; count: number; skipped: string[]; more: number }> =>
+    run('mutation', api.emailOutreach.start, { organizationId, contactIds, followUps }),
+  watchCampaign: (organizationId: string, campaignId: string, onUpdate: (c: EmailCampaign) => void, onError?: (e: APIError) => void) =>
+    watchOn(api.emailOutreach.campaign, { organizationId, campaignId }, onUpdate, onError),
+  edit: (organizationId: string, emailId: string, change: { subject?: string; body?: string }): Promise<null> => run('mutation', api.emailOutreach.editDraft, defined({ organizationId, emailId, ...change })),
+  removeOwner: (organizationId: string, campaignId: string, contactId: string): Promise<null> => run('mutation', api.emailOutreach.removeOwner, { organizationId, campaignId, contactId }),
+  discard: (organizationId: string, campaignId: string): Promise<null> => run('mutation', api.emailOutreach.discard, { organizationId, campaignId }),
+  approve: (organizationId: string, campaignId: string): Promise<{ count: number; first: number; last: number }> => run('mutation', api.emailOutreach.approve, { organizationId, campaignId }),
+  watchOwner: (organizationId: string, contactId: string, onUpdate: (e: OwnerEmails | null) => void, onError?: (e: APIError) => void) =>
+    watchOn(api.emailOutreach.ofOwner, { organizationId, contactId }, onUpdate, onError),
+};
+
 export const outreachAPI = {
   lists: (organizationId: string): Promise<OutreachListSummary[]> => run('query', api.outreach.lists, { organizationId }),
   /** Every contact, or those on one list, with the balance for unlocks. */

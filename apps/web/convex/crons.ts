@@ -60,6 +60,9 @@ crons.daily(
 // The morning's permits and code cases onto the Outreach owners (outreachRefresh.ts), between the weekly rebuilds.
 crons.daily("refresh Outreach records", { hourUTC: 7, minuteUTC: 0 }, internal.outreachRefresh.refresh, {});
 
+// Outreach emails whose time has come, from each company's own Gmail (emailOutreach.ts).
+crons.interval("send outreach emails", { minutes: 5 }, internal.emailOutreach.sendDue, {});
+
 // Reminder emails to clients who haven't signed their estimate (followUps.ts).
 crons.hourly("remind clients about estimates", { minuteUTC: 23 }, internal.followUps.send, {});
 

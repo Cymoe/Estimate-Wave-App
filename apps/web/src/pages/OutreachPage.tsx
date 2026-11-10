@@ -1,7 +1,7 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Check, ChevronDown, Download, LayoutList, MoreHorizontal, Search, Send, SlidersHorizontal, Table2, Trash2, Undo2, X } from 'lucide-react';
+import { Check, ChevronDown, Download, LayoutList, Mail, MoreHorizontal, Search, Send, SlidersHorizontal, Table2, Trash2, Undo2, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachDefinition, type OutreachField, type OutreachListSummary, type OutreachProgress, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { countyOf, setReadyCounties } from '../components/outreach/county';
@@ -11,6 +11,8 @@ import type { Preset } from '../components/outreach/presets';
 import { ListPicker } from '../components/outreach/ListPicker';
 import { rememberList, UNLISTED } from '../components/outreach/listsStore';
 import { ListsOverview } from '../components/outreach/ListsOverview';
+import { EmailSheet } from '../components/outreach/EmailSheet';
+import { GMAIL_RESULT } from '../lib/gmailConnect';
 import { ContactCards, ContactsTable, ContactSheet, type OwnerSort } from '../components/outreach/ContactsTable';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { LookupProgress } from '../components/outreach/LookupProgress';
@@ -37,7 +39,7 @@ const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { m
 const STATUS_FILTERS: OutreachRowStatus[] = ['new', 'lead', 'skip'];
 const OLD_STATUSES: OutreachRowStatus[] = ['no_answer', 'callback', 'interested', 'not_interested', 'client', 'sent', 'done'];
 /** The quick filters over the table: what a row has, or what it needs from you. */
-type Show = 'all' | 'new' | 'signal' | 'ready' | 'personal' | 'work' | 'email' | 'mail' | 'needs';
+type Show = 'all' | 'new' | 'signal' | 'ready' | 'personal' | 'work' | 'email' | 'replied' | 'mail' | 'needs';
 const SHOWS: Array<{ value: Show; label: string; has: (r: OutreachContact) => boolean }> = [
   { value: 'all', label: 'All', has: () => true },
   /** A signal first seen this week: the lists are watched, and this is what changed. Shown only when there is one. */
@@ -49,6 +51,8 @@ const SHOWS: Array<{ value: Show; label: string; has: (r: OutreachContact) => bo
   { value: 'personal', label: 'Personal number', has: (r) => r.phones.some((p) => callOk(p) && p.line === 'personal') },
   { value: 'work', label: 'Work number', has: (r) => r.phones.some((p) => callOk(p) && p.line === 'work') },
   { value: 'email', label: 'Has email', has: (r) => r.emails.length > 0 },
+  /** Answered an outreach email (they're in Leads too). Shown only when there are some. */
+  { value: 'replied', label: 'Replied', has: (r) => r.email?.state === 'replied' },
   /** Looked up and nobody to call: these go out by mail (Export gives the addresses). Shown only when there are some. */
   { value: 'mail', label: 'Mail only', has: mailOnly },
   { value: 'needs', label: 'Needs you', has: (r) => Object.values(r.enrichment).some((c) => c.status === 'failed') },
@@ -600,6 +604,19 @@ const OutreachPage: React.FC = () => {
     setSearchParams({}, { replace: true });
   }, [searchParams, setSearchParams]);
 
+  // Email these: the owners on the page now go to the drawer, which leaves out the ones that can't be emailed.
+  const [emailIds, setEmailIds] = useState<string[] | null>(null);
+  const [emailNote, setEmailNote] = useState<{ text: string; good: boolean } | null>(null);
+  // Back from Google's Connect Gmail (?gmail=…&email=1): the result, and the drawer again.
+  const backFromGmail = searchParams.get('gmail');
+  const reopenEmail = searchParams.get('email') === '1';
+  useEffect(() => {
+    if (!backFromGmail && !reopenEmail) return;
+    if (backFromGmail) setEmailNote(GMAIL_RESULT[backFromGmail] ?? null);
+    setSearchParams({}, { replace: true });
+    if (reopenEmail) setEmailIds([]);
+  }, [backFromGmail, reopenEmail, setSearchParams]);
+
   const list = lists?.find((l) => l.id === listId);
   /** The owners on no list, kept from deleted lists because they were worked: a view of their own, like a list's. */
   const onUnlisted = listId === UNLISTED;
@@ -782,6 +799,8 @@ const OutreachPage: React.FC = () => {
   // One that matches a lead you already have is in Leads already: nothing to send (its card says so, and can still link it).
   const waiting = rows.filter((r) => !r.leadId && r.status !== 'skip' && r.known?.kind !== 'lead');
   const toSend = waiting.filter(reachable).slice(0, 500);
+  // Who an email could go to now: an address of the person's, and not emailed or unsubscribed already.
+  const emailable = rows.filter((r) => r.emails.some((e) => e.nameMatch !== false && e.verified !== false) && !['scheduled', 'emailed', 'replied', 'opted_out'].includes(r.email?.state ?? '')).length;
   const unreachable = waiting.length - waiting.filter(reachable).length;
   const [sentNote, setSentNote] = useState<string | null>(null);
   const [undoNote, setUndoNote] = useState<string | null>(null);
@@ -1029,6 +1048,11 @@ const OutreachPage: React.FC = () => {
                       <Send className="w-4 h-4" /> Send {toSend.length} to Leads
                     </button>
                   )}
+                  {rows.length > 0 && (
+                    <button type="button" role="menuitem" className={menuItem} onClick={() => (close(), setEmailNote(null), setEmailIds(rows.map((r) => r.id)))} data-testid="email-these">
+                      <Mail className="w-4 h-4" /> {emailable > 0 ? `Email ${emailable === rows.length ? 'these' : emailable} ${emailable === 1 ? 'owner' : 'owners'}` : 'Email these owners'}
+                    </button>
+                  )}
                   <button type="button" role="menuitem" className={menuItem} onClick={() => (close(), pickView(view === 'cards' ? 'table' : 'cards'))}>
                     {view === 'cards' ? <Table2 className="w-4 h-4" /> : <LayoutList className="w-4 h-4" />} {view === 'cards' ? 'Show as a table' : 'Show as cards'}
                   </button>
@@ -1061,6 +1085,14 @@ const OutreachPage: React.FC = () => {
         <p className="text-sm text-red-400" role="alert">
           {error}
         </p>
+      )}
+      {emailNote && (
+        <div className={`flex items-center gap-3 border px-3 py-2 text-sm ${emailNote.good ? 'border-[#333333] bg-[#121212] text-gray-300' : 'border-red-500/30 bg-red-500/10 text-red-200'}`} data-testid="email-note" role="status">
+          <span className="flex-1">{emailNote.text}</span>
+          <button type="button" onClick={() => setEmailNote(null)} aria-label="Dismiss" className="w-8 h-8 inline-flex items-center justify-center text-gray-500 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       )}
       {(undoNote || sentNote || (lastSend && lastSend.at !== seenSend)) && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 bg-[#121212] border border-[#333333] px-3 py-2 text-sm text-gray-300" data-testid="sent-note">
@@ -1128,7 +1160,7 @@ const OutreachPage: React.FC = () => {
           {/* The quick filters as tabs, underlined in blue like the project and estimate drawers; when they don't fit, they slide sideways instead of wrapping. */}
           <ChipRow>
             {SHOWS.map((s) =>
-              (s.value === 'needs' || s.value === 'new' || s.value === 'mail' || s.value === 'personal' || s.value === 'work') && counts[s.value] === 0 ? null : (
+              (s.value === 'needs' || s.value === 'new' || s.value === 'mail' || s.value === 'personal' || s.value === 'work' || s.value === 'replied') && counts[s.value] === 0 ? null : (
                 <button
                   key={s.value}
                   type="button"
@@ -1287,7 +1319,20 @@ const OutreachPage: React.FC = () => {
         onEnrich={(row, fields, question) => enrich([row.id], fields, question)}
         onAddFunds={addFunds}
         onLead={(row) => void toLeads(row)}
+        organizationId={organizationId}
+        onEmail={(row) => (setOpen(null), setEmailNote(null), setEmailIds([row.id]))}
       />
+      {organizationId && (
+        <EmailSheet
+          open={emailIds !== null}
+          organizationId={organizationId}
+          // Back from connecting Gmail, the drawer opens on the owners the page shows.
+          contactIds={emailIds && emailIds.length > 0 ? emailIds : rows.map((r) => r.id)}
+          returnTo={`${listId ? `/outreach/${listId}` : '/outreach'}?email=1`}
+          onClose={() => setEmailIds(null)}
+          onScheduled={(text) => setEmailNote({ text, good: true })}
+        />
+      )}
       <AskListSheet
         open={asking}
         start={start}

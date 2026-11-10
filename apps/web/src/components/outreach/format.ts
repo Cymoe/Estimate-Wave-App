@@ -121,3 +121,21 @@ export const LEAD_STAGE: Record<string, string> = {
 
 /** True when any of an owner's answers came from the stand-in, not a real source. */
 export const isSimulated = (r: { enrichment: Record<string, { simulated?: boolean } | undefined> }) => Object.values(r.enrichment).some((c) => c?.simulated);
+
+/** Where email outreach stands with an owner, in a few words for under their name: "Emailed Nov 12", "Replied Nov 13". */
+export function emailStateText(e?: { state: string; at: string }): string | undefined {
+  if (!e) return undefined;
+  const day = new Date(e.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  switch (e.state) {
+    case 'scheduled':
+      return 'Email scheduled';
+    case 'emailed':
+      return `Emailed ${day}`;
+    case 'replied':
+      return `Replied ${day}`;
+    case 'opted_out':
+      return 'Unsubscribed';
+    default:
+      return undefined;
+  }
+}

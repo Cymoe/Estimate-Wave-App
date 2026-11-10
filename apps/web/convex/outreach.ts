@@ -589,7 +589,7 @@ export async function buildRows(ctx: QueryCtx | MutationCtx, def: Definition, of
 // ---- A company's lists ----
 
 /** A member of a company on an active Pro plan. */
-async function requirePro(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">) {
+export async function requirePro(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">) {
   const member = await requireMember(ctx, organizationId);
   if (!member.organization.plan || !planIsActive(member.organization.plan, Date.now())) fail("FORBIDDEN", "Outreach is part of the Pro plan");
   return member;
@@ -822,7 +822,7 @@ export function cellsOf(c: Doc<"outreachContacts">): NonNullable<Doc<"outreachCo
   };
 }
 /** The cell for a field, with research's absence on older rows read as locked. */
-const cellFor = (cells: NonNullable<Doc<"outreachContacts">["enrichment"]>, field: Doc<"dataSourceStats">["field"]): Cell => cells[field] ?? LOCKED;
+export const cellFor = (cells: NonNullable<Doc<"outreachContacts">["enrichment"]>, field: Doc<"dataSourceStats">["field"]): Cell => cells[field] ?? LOCKED;
 
 /**
  * Whether the contact is itself a company (an LLC on the roll, a contractor),
@@ -858,6 +858,8 @@ const contactView = (c: Doc<"outreachContacts">, signals: SignalBadge[], related
   related,
   /** A client or lead the company already has for this owner, until it's sent. */
   ...(known && !c.leadId ? { known } : {}),
+  /** Where email outreach stands with them (emailOutreach.ts). */
+  ...(c.email ? { email: { state: c.email.state, at: c.email.at } } : {}),
   createdAt: c.createdAt,
 });
 export type ContactView = ReturnType<typeof contactView>;
@@ -1281,6 +1283,22 @@ export const sendToLeads = mutation({
     return (await sendOne(ctx, organizationId, user._id, contact, await contactsOf(ctx, organizationId), nowIso())).leadId;
   },
 });
+
+/**
+ * An owner who answered an outreach email, to Leads (emailOutreach.ts): the
+ * same send as the button, with the reply in the lead's notes.
+ */
+export async function leadFromReply(ctx: MutationCtx, contact: Doc<"outreachContacts">, userId: Id<"users">, reply: string): Promise<Id<"leads">> {
+  const now = nowIso();
+  const { leadId } = await sendOne(ctx, contact.organizationId, userId, contact, await contactsOf(ctx, contact.organizationId), now);
+  const lead = await ctx.db.get(leadId);
+  if (lead) {
+    const day = new Date(now).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/Chicago" });
+    const line = `${day}: replied to your email: "${reply.replace(/\s+/g, " ").slice(0, 600)}"`;
+    await ctx.db.patch(leadId, { notes: [lead.notes, line].filter(Boolean).join("\n"), updatedAt: now });
+  }
+  return leadId;
+}
 
 /** The Outreach owners behind a lead, for the lead's drawer: who they are, what they own and why they were picked. */
 export const ownersOfLead = query({
@@ -2104,7 +2122,7 @@ export const seedSample = internalMutation({
 });
 
 /** An owner the sample filler marked: reruns walk the sample chain and cost nothing. Only the mark counts here. */
-const isSampleRun = (c: Doc<"outreachContacts">) => Boolean(c.note?.startsWith("Sample"));
+export const isSampleRun = (c: Doc<"outreachContacts">) => Boolean(c.note?.startsWith("Sample"));
 /** An owner filled by the sample filler: its note, or its 555-01xx numbers or example.com addresses, say so. */
 const isSample = (c: Doc<"outreachContacts">) =>
   Boolean(c.note?.startsWith("Sample")) ||

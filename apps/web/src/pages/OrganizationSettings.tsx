@@ -1,6 +1,6 @@
 import React, { useContext } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Building2, Hammer, Users, Bell, Shield, Bot, FileText, LayoutTemplate } from 'lucide-react';
+import { ArrowLeft, Building2, Hammer, Users, Bell, Shield, Bot, FileText, LayoutTemplate, Mail } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { BusinessDetailsForm } from '../components/settings/BusinessDetailsForm';
 import { TradesEditor } from '../components/settings/TradesEditor';
@@ -12,6 +12,7 @@ import { ClientRemindersSettings } from '../components/settings/ClientRemindersS
 import { SalesModeSetting } from '../components/settings/SalesModeSetting';
 import { ClientPerksSetting } from '../components/settings/ClientPerksSetting';
 import { OfficeLineSetting } from '../components/settings/OfficeLineSetting';
+import { EmailSetting } from '../components/settings/EmailSetting';
 
 export default function OrganizationSettings() {
   const navigate = useNavigate();
@@ -30,6 +31,7 @@ export default function OrganizationSettings() {
     { id: 'contracts', label: 'Contracts', icon: FileText },
     { id: 'team', label: 'Team & Permissions', icon: Users },
     { id: 'notifications', label: 'Notifications', icon: Bell },
+    { id: 'email', label: 'Email', icon: Mail },
     { id: 'assistants', label: 'Assistants', icon: Bot },
     { id: 'security', label: 'Security', icon: Shield },
   ];
@@ -126,6 +128,8 @@ export default function OrganizationSettings() {
             {activeTab === 'general' && <OfficeLineSetting organizationId={selectedOrg.id} />}
 
             {activeTab === 'general' && <ClientPerksSetting organizationId={selectedOrg.id} />}
+
+            {activeTab === 'email' && <EmailSetting organizationId={selectedOrg.id} result={params.get('gmail')} />}
 
             {activeTab === 'trades' && (
               <div className="bg-[#1A1A1A] rounded-lg p-6">

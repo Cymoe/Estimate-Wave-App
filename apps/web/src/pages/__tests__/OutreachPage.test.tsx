@@ -934,6 +934,25 @@ describe('the Outreach page', () => {
     localStorage.removeItem('outreach.countyFilter');
   });
 
+  it('owners emailed from Outreach: the state under the name, a Replied tab, and Email these in the menu', async () => {
+    lists = [list];
+    contacts = {
+      rows: [
+        contact('r1', { emails: [{ email: 'a@oakplaza.com', source: 'batchdata', verified: true }], email: { state: 'replied', at: '2026-11-10T18:00:00Z' } }),
+        contact('r2', { name: 'City Of Midland', emails: [{ email: 'b@x.com', source: 'batchdata', verified: true }], email: { state: 'emailed', at: '2026-11-10T18:00:00Z' } }),
+        contact('r3', { name: 'Garcia Maria', emails: [{ email: 'c@x.com', source: 'batchdata', verified: true }] }),
+      ],
+      coverage: coverage(0, 3, 0, 3),
+      ...money,
+    };
+    await render('/outreach/l1');
+    expect(Array.from(document.body.querySelectorAll('[data-testid="email-state"]')).map((e) => e.textContent)).toEqual(['Replied Nov 10', 'Emailed Nov 10']);
+    expect(button('Replied')!.textContent).toBe('Replied 1');
+    await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
+    // One of the three can still be emailed.
+    expect(document.body.querySelector('[data-testid="email-these"]')!.textContent?.trim()).toBe('Email 1 owner');
+  });
+
   it("an owner on an Odessa list: the property is in Odessa, and the deed link opens Ector's clerk to search the name", async () => {
     lists = [{ ...list, definition: { ...list.definition, county: 'Ector' } }];
     contacts = twoContacts();
@@ -1124,7 +1143,9 @@ describe('the Outreach page', () => {
     expect(sheet.querySelector('[data-testid="decision-maker"]')!.textContent).toContain('From Texas Comptroller · also named by city permits');
     const links = Array.from(sheet.querySelectorAll('[data-testid="contact-details"] a')).map((a) => a.getAttribute('href'));
     // The DNC landline and the litigator's mobile are shown but never dialled from here; Call, Text and Email go to the best clear mobile and the email.
-    expect(links).toEqual(['tel:4325550100', 'mailto:dana@oakplaza.com', 'tel:4325550100', 'sms:4325550100', 'mailto:dana@oakplaza.com']);
+    // Email drafts one from Outreach (the AI writes, you approve, it goes from your Gmail) rather than opening the mail app.
+    expect(links).toEqual(['tel:4325550100', 'mailto:dana@oakplaza.com', 'tel:4325550100', 'sms:4325550100']);
+    expect(sheet.querySelector('[data-testid="email-owner"]')).not.toBeNull();
     expect(sheet.querySelector('[data-testid="reach"]')!.textContent?.replace(/\s+/g, '')).toBe('CallTextEmail');
     expect(sheet.querySelector('[data-testid="contact-details"]')!.textContent).toContain('(432) 555-0100mobile · verifiedline in the name of REYES DANA');
     expect(sheet.querySelector('[data-testid="contact-details"]')!.textContent).toContain('(432) 555-0199landline · DNCon the Do Not Call list');

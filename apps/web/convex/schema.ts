@@ -1331,6 +1331,15 @@ export default defineSchema({
     unlock: v.optional(outreachUnlock),
     /** The newest public record of each kind on the property, kept here so the page needn't look each owner's up (lib/contactSignals.ts). */
     signals: v.optional(v.array(v.object({ kind: ownerSignal.fields.kind, detail: v.string(), date: v.string(), importedAt: v.string() }))),
+    /** Where email outreach stands with them (emailOutreach.ts): kept apart from status, which a reply still moves to "lead". */
+    email: v.optional(
+      v.object({
+        state: v.union(v.literal("drafted"), v.literal("scheduled"), v.literal("emailed"), v.literal("replied"), v.literal("opted_out")),
+        at: v.string(),
+        /** The reply's own words, once they've answered. */
+        replyText: v.optional(v.string()),
+      }),
+    ),
     createdAt: v.string(),
     updatedAt: v.optional(v.string()),
   })
@@ -1339,6 +1348,87 @@ export default defineSchema({
     .index("by_lead", ["leadId"])
     .index("by_key", ["key"])
     .index("by_parcel", ["property.parcelId"]),
+
+  // Email outreach (emailOutreach.ts). A company's own Gmail, connected
+  // once with Google's send-only permission; the refresh token is sealed
+  // (lib/secretBox.ts), never stored in the clear. One live mailbox a company.
+  mailboxes: defineTable({
+    organizationId: v.id("organizations"),
+    /** Who connected it. */
+    userId: v.id("users"),
+    email: v.string(),
+    name: v.optional(v.string()),
+    refreshTokenEnc: v.string(),
+    accessToken: v.optional(v.string()),
+    accessExpiresAt: v.optional(v.number()),
+    /** How many it sends a working day. */
+    dailyCap: v.number(),
+    connectedAt: v.string(),
+    /** Disconnected, or Google took the permission back (lastError says which). */
+    revokedAt: v.optional(v.string()),
+    lastError: v.optional(v.string()),
+  }).index("by_organization", ["organizationId"]),
+
+  // The OAuth state of a Connect Gmail on its way to Google and back: only its hash, for ten minutes.
+  mailboxStates: defineTable({
+    stateHash: v.string(),
+    userId: v.id("users"),
+    organizationId: v.id("organizations"),
+    /** The app page to come back to. */
+    returnTo: v.string(),
+    expiresAt: v.number(),
+  }).index("by_state", ["stateHash"]),
+
+  // One batch of emails written together: the owners picked, the follow-up days, and how far it's got.
+  emailCampaigns: defineTable({
+    organizationId: v.id("organizations"),
+    createdBy: v.id("users"),
+    createdAt: v.string(),
+    /** Days after the first email for each follow-up; empty when they're off. */
+    followUps: v.array(v.number()),
+    status: v.union(v.literal("drafting"), v.literal("review"), v.literal("sending"), v.literal("done"), v.literal("cancelled")),
+    approvedAt: v.optional(v.string()),
+  }).index("by_organization", ["organizationId"]),
+
+  // One email to one owner: the first (step 0) or a follow-up. A draft until
+  // approved; a follow-up waits for the first to go, then is scheduled.
+  outreachEmails: defineTable({
+    organizationId: v.id("organizations"),
+    campaignId: v.id("emailCampaigns"),
+    contactId: v.id("outreachContacts"),
+    step: v.number(),
+    to: v.string(),
+    subject: v.string(),
+    body: v.string(),
+    /** A made-up address from a sample run: it goes through the steps without being sent for real. */
+    sample: v.optional(v.boolean()),
+    /** Being written: the card shows a placeholder until the draft lands. */
+    writing: v.optional(v.boolean()),
+    by: v.optional(v.union(v.literal("claude"), v.literal("template"))),
+    status: v.union(v.literal("draft"), v.literal("waiting"), v.literal("scheduled"), v.literal("sending"), v.literal("sent"), v.literal("failed"), v.literal("cancelled"), v.literal("paused")),
+    sendAt: v.optional(v.number()),
+    sentAt: v.optional(v.string()),
+    tries: v.optional(v.number()),
+    error: v.optional(v.string()),
+    gmailId: v.optional(v.string()),
+    threadId: v.optional(v.string()),
+    messageId: v.optional(v.string()),
+    /** In the reply address and the unsubscribe link; shared by an owner's emails in one campaign. */
+    replyToken: v.string(),
+  })
+    .index("by_campaign", ["campaignId"])
+    .index("by_contact", ["contactId"])
+    .index("by_status_and_send_at", ["status", "sendAt"])
+    .index("by_organization_and_status", ["organizationId", "status"])
+    .index("by_reply_token", ["replyToken"]),
+
+  // Addresses that asked a company not to email them again: never emailed by it again.
+  emailOptOuts: defineTable({
+    organizationId: v.id("organizations"),
+    email: v.string(),
+    at: v.string(),
+    how: v.union(v.literal("unsubscribe"), v.literal("reply")),
+  }).index("by_organization_and_email", ["organizationId", "email"]),
 
   // A running lookup's narration (the source it's asking now, the turns so
   // far), kept apart from the owner so the many small updates of a lookup
