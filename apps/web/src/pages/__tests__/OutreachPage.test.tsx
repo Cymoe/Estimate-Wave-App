@@ -901,6 +901,20 @@ describe('the Outreach page', () => {
     interpreted = { ok: true, definition: { county: 'Midland', who: 'commercial' }, title: 'x', explanation: 'y', count: 2, truncated: false, limited: false, preview: [] };
   });
 
+  it("an owner on an Odessa list: the property is in Odessa, and the deed link opens Ector's clerk to search the name", async () => {
+    lists = [{ ...list, definition: { ...list.definition, county: 'Ector' } }];
+    contacts = twoContacts();
+    await render('/outreach/l1');
+    await act(async () => (document.body.querySelectorAll('[data-testid="contact-row"]')[0] as HTMLTableRowElement).click());
+    const sheet = document.body.querySelector('[role="dialog"][aria-label="Oak Plaza LLC"]')!;
+    expect(Array.from(sheet.querySelectorAll('a')).map((a) => a.getAttribute('href'))).toEqual([
+      'https://maps.apple.com/?q=1%20MAIN%20ST%2C%20DALLAS%2C%20TX%2075201',
+      'https://maps.apple.com/?q=12%20Midkiff%20Rd%2C%20Odessa%2C%20TX',
+      'https://ectorcountytx-web.tylerhost.net/web/',
+    ]);
+    expect(sheet.querySelector('[data-testid="deeds"]')!.textContent?.trim()).toBe('Deeds at the county clerk · search Oak Plaza LLC');
+  });
+
   it('a contact opens to the decision-maker lookup, both addresses in Apple Maps, the unlock and a status; CSV exports the table', async () => {
     lists = [list];
     contacts = twoContacts();

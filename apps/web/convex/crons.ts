@@ -43,6 +43,12 @@ crons.weekly(
   {},
 );
 
+// Odessa's and Lubbock's agents and brokers, then their owners (each roll read rebuilds its county's Outreach owners), weekly.
+crons.weekly("sync Ector realtors", { dayOfWeek: "sunday", hourUTC: 7, minuteUTC: 35 }, internal.realtors.syncCounty, { county: "Ector" });
+crons.weekly("sync Lubbock realtors", { dayOfWeek: "sunday", hourUTC: 7, minuteUTC: 37 }, internal.realtors.syncCounty, { county: "Lubbock" });
+crons.weekly("sync Ector owners", { dayOfWeek: "sunday", hourUTC: 7, minuteUTC: 40 }, internal.parcels.syncCounty, { county: "Ector" });
+crons.weekly("sync Lubbock owners", { dayOfWeek: "sunday", hourUTC: 8, minuteUTC: 10 }, internal.parcels.syncCounty, { county: "Lubbock" });
+
 // Code violations, dilapidated buildings, demolition orders and stalled permits, restacked per home (lib/signals.ts).
 crons.daily(
   "sync Midland distress signals",

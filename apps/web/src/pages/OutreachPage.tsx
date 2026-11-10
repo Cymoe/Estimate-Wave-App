@@ -4,6 +4,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Check, ChevronDown, Download, LayoutList, MoreHorizontal, Search, Send, SlidersHorizontal, Table2, Trash2, Undo2, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachDefinition, type OutreachField, type OutreachListSummary, type OutreachProgress, type OutreachRowStatus, type OutreachSource } from '../lib/api';
+import { setReadyCounties } from '../components/outreach/county';
 import { AskListSheet } from '../components/outreach/AskListSheet';
 import { ListStarter } from '../components/outreach/ListStarter';
 import type { Preset } from '../components/outreach/presets';
@@ -325,6 +326,9 @@ const OutreachPage: React.FC = () => {
   const gone = useRef<Gone>(new Map());
   const keep = (l: OutreachListSummary[]) => l.filter((x) => !gone.current.has(x.id));
   const [data, setData] = useState<OutreachContacts | null>(null);
+  // Which counties' owners are in, for every county switch on the page.
+  const readyCounties = data?.readyCounties?.join(',');
+  useEffect(() => setReadyCounties(readyCounties ? readyCounties.split(',') : data?.readyCounties), [readyCounties, data?.readyCounties]);
   const [status, setStatus] = useState<OutreachRowStatus | 'all'>('all');
   // The lookup last started on this device, for the progress bar; kept across a reload until dismissed.
   const [batch, setBatch] = useState<{ at: string } | null>(() => {

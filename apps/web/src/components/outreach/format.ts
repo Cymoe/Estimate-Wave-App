@@ -52,11 +52,21 @@ export const sourceList = (sources: string[]) => {
   return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 };
 
-/** The county clerk's deed records for an owner, where the deed of trust names who signed for the company: Midland's for now, none elsewhere yet. */
-export const deedSearchUrl = (owner: string, county = 'Midland') =>
+/**
+ * The county clerk's deed records for an owner, where the deed of trust names who signed for the company.
+ * Midland's opens on the owner's name; Ector's and Lubbock's clerks open on their own search page (it asks
+ * you to accept its terms first), so the name is typed there: `named` says which.
+ */
+export const deedSearch = (owner: string, county = 'Midland'): { url: string; named: boolean } | undefined =>
   county === 'Midland'
-    ? `https://midland.tx.publicsearch.us/results?department=RP&limit=50&offset=0&searchOcrText=false&searchType=quickSearch&searchValue=${encodeURIComponent(owner)}`
-    : undefined;
+    ? { url: `https://midland.tx.publicsearch.us/results?department=RP&limit=50&offset=0&searchOcrText=false&searchType=quickSearch&searchValue=${encodeURIComponent(owner)}`, named: true }
+    : county === 'Ector'
+      ? { url: 'https://ectorcountytx-web.tylerhost.net/web/', named: false }
+      : county === 'Lubbock'
+        ? { url: 'https://erecord.lubbockcounty.gov/recorder/web/', named: false }
+        : undefined;
+/** The deed search's address, for Midland's links that open on the name. */
+export const deedSearchUrl = (owner: string, county = 'Midland') => deedSearch(owner, county)?.url;
 
 /** What a running lookup is doing, for its cell: "Asking the Texas Comptroller". */
 /** How long a lookup can sit before its first source without looking stuck: after that it says it's waiting its turn. */

@@ -1303,6 +1303,8 @@ export type OutreachContacts = {
   simulating?: boolean;
   /** The company's working county (outreach.setCounty); every county switch on the page starts from it. */
   county?: string;
+  /** The counties besides Midland whose owners are in, so lists can be built there. */
+  readyCounties?: string[];
 };
 const contactsArgs = (organizationId: string, listId?: string) => (listId === UNLISTED ? { organizationId, unlisted: true } : defined({ organizationId, listId }));
 /** A source in the stack, as staff see it: connected or not, and how it has done for this company. */

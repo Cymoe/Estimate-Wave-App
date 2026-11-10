@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import { COUNTIES } from './presets';
-import { countyOf } from './county';
+import { countyOf, isReady, useReadyCounties } from './county';
 
 /**
  * The county a list is of, as words with a small arrow: tap for the counties, the ones not in yet marked
@@ -23,6 +23,7 @@ export function CountySwitch({
 }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLSpanElement>(null);
+  useReadyCounties();
   useEffect(() => {
     if (!open) return;
     const away = (e: Event) => box.current && !box.current.contains(e.target as Node) && setOpen(false);
@@ -62,8 +63,8 @@ export function CountySwitch({
               type="button"
               role="option"
               aria-selected={c.name === county}
-              aria-disabled={!c.ready}
-              disabled={!c.ready}
+              aria-disabled={!isReady(c.name)}
+              disabled={!isReady(c.name)}
               onClick={() => {
                 setOpen(false);
                 if (c.name !== county) onChange(c.name);
@@ -72,7 +73,7 @@ export function CountySwitch({
             >
               <Check className={`w-4 h-4 shrink-0 ${c.name === county ? 'text-[#7fb0e0]' : 'invisible'}`} aria-hidden />
               {c.label}
-              {!c.ready && <span className="ml-auto pl-3 text-xs text-gray-500">Coming soon</span>}
+              {!isReady(c.name) && <span className="ml-auto pl-3 text-xs text-gray-500">Coming soon</span>}
             </button>
           ))}
         </span>

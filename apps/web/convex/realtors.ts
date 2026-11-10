@@ -7,6 +7,10 @@ import { action, internalAction, internalMutation, type ActionCtx } from "./_gen
 import { nowIso } from "./lib/access";
 import { TREC_REALTORS, realtorsQuery, rowsToRealtors } from "./lib/realtors";
 
+/** Where a county's read records how it went: Midland's keeps its first name. */
+const sourceOf = (county: string) => (county === TREC_REALTORS.county ? TREC_REALTORS.source : `${TREC_REALTORS.source}-${county.toLowerCase()}`);
+const countyArg = v.optional(v.union(v.literal("Midland"), v.literal("Ector"), v.literal("Lubbock")));
+
 const realtorType = v.union(v.literal("agent"), v.literal("broker"), v.literal("brokerage"));
 const realtorRow = v.object({
   licenseNumber: v.string(),
@@ -26,18 +30,19 @@ const same = (a: Record<string, unknown>, b: Record<string, unknown>) => KEYS.ev
 
 /** Adds new license holders and updates changed ones, by license number; every row read is marked seen at `seenAt`. */
 export const upsert = internalMutation({
-  args: { rows: v.array(realtorRow), seenAt: v.string() },
-  handler: async (ctx, { rows, seenAt }) => {
+  args: { rows: v.array(realtorRow), seenAt: v.string(), county: v.optional(v.string()) },
+  handler: async (ctx, { rows, seenAt, county = TREC_REALTORS.county }) => {
     let added = 0;
     let updated = 0;
     const now = nowIso();
     for (const row of rows) {
       const existing = await ctx.db.query("realtors").withIndex("by_license", (q) => q.eq("licenseNumber", row.licenseNumber)).unique();
       if (!existing) {
-        await ctx.db.insert("realtors", { county: TREC_REALTORS.county, ...row, importedAt: now, seenAt });
+        await ctx.db.insert("realtors", { county, ...row, importedAt: now, seenAt });
         added++;
-      } else if (!same(existing, row)) {
-        await ctx.db.patch(existing._id, { ...row, importedAt: now, seenAt });
+      } else if (!same(existing, row) || existing.county !== county) {
+        // A license holder who moved counties moves with it.
+        await ctx.db.patch(existing._id, { ...row, county, importedAt: now, seenAt });
         updated++;
       } else await ctx.db.patch(existing._id, { seenAt });
     }
@@ -47,19 +52,19 @@ export const upsert = internalMutation({
 
 /** Drops license holders the read stamped `seenAt` didn't see: no longer active in the county. Pages itself. */
 export const dropUnseen = internalMutation({
-  args: { seenAt: v.string() },
-  handler: async (ctx, { seenAt }) => {
+  args: { seenAt: v.string(), county: v.optional(v.string()) },
+  handler: async (ctx, { seenAt, county = TREC_REALTORS.county }) => {
     const gone = await ctx.db
       .query("realtors")
-      .withIndex("by_county_and_seen", (q) => q.eq("county", TREC_REALTORS.county).lt("seenAt", seenAt))
+      .withIndex("by_county_and_seen", (q) => q.eq("county", county).lt("seenAt", seenAt))
       .take(500);
     for (const r of gone) await ctx.db.delete(r._id);
-    if (gone.length === 500) await ctx.scheduler.runAfter(0, internal.realtors.dropUnseen, { seenAt });
+    if (gone.length === 500) await ctx.scheduler.runAfter(0, internal.realtors.dropUnseen, { seenAt, county });
     return gone.length;
   },
 });
 
-async function pull(ctx: ActionCtx) {
+async function pull(ctx: ActionCtx, county: string = TREC_REALTORS.county) {
   const seenAt = nowIso();
   let fetched = 0;
   let added = 0;
@@ -67,25 +72,25 @@ async function pull(ctx: ActionCtx) {
   let error: string | undefined;
   try {
     for (let offset = 0; ; offset += TREC_REALTORS.page) {
-      const response = await fetch(realtorsQuery(TREC_REALTORS.county, offset, TREC_REALTORS.page), { headers: { accept: "application/json" } });
+      const response = await fetch(realtorsQuery(county, offset, TREC_REALTORS.page), { headers: { accept: "application/json" } });
       if (!response.ok) throw new Error(`TREC license holders: HTTP ${response.status}`);
       const body = (await response.json()) as Array<Record<string, unknown>> | { error?: boolean; message?: string };
       if (!Array.isArray(body)) throw new Error(`TREC license holders: ${(body as { message?: string }).message ?? "the service returned an error"}`);
       fetched += body.length;
       const rows = rowsToRealtors(body);
       for (let i = 0; i < rows.length; i += 200) {
-        const result: { added: number; updated: number } = await ctx.runMutation(internal.realtors.upsert, { rows: rows.slice(i, i + 200), seenAt });
+        const result: { added: number; updated: number } = await ctx.runMutation(internal.realtors.upsert, { rows: rows.slice(i, i + 200), seenAt, county });
         added += result.added;
         updated += result.updated;
       }
       if (body.length < TREC_REALTORS.page) break;
     }
     // Only a complete read may drop what it didn't see.
-    await ctx.runMutation(internal.realtors.dropUnseen, { seenAt });
+    await ctx.runMutation(internal.realtors.dropUnseen, { seenAt, county });
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
-  await ctx.runMutation(internal.permits.recordSync, { source: TREC_REALTORS.source, fetched, added, updated, error });
+  await ctx.runMutation(internal.permits.recordSync, { source: sourceOf(county), fetched, added, updated, error });
   return { fetched, added, updated, error };
 }
 
@@ -93,6 +98,12 @@ async function pull(ctx: ActionCtx) {
 export const syncMidland = internalAction({
   args: {},
   handler: async (ctx) => await pull(ctx),
+});
+
+/** Another county's license holders (Ector, Lubbock), weekly and on deploy before its owners are built: `npx convex run realtors:syncCounty '{"county":"Ector"}'`. */
+export const syncCounty = internalAction({
+  args: { county: countyArg },
+  handler: async (ctx, { county }) => await pull(ctx, county),
 });
 
 /** For staff: `npx convex run realtors:syncNow`. */

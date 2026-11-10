@@ -6,8 +6,8 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
-import { AddressCounter, ContractorGrouper, OWNERS_SOURCE, OWNERS_VERSION, OccupantGrouper, OwnerGrouper, RealtorGrouper, newBuildId, occupantsSince, permitsSince, type Condensed, type CondensedOccupant, type CondensedPermit, type CondensedRealtor, type GroupedRow, type Property } from "./lib/outreach";
-import { MIDLAND_PARCELS } from "./lib/parcels";
+import { AddressCounter, ContractorGrouper, OWNERS_VERSION, OccupantGrouper, OwnerGrouper, RealtorGrouper, newBuildId, occupantsSince, permitsSince, type Condensed, type CondensedOccupant, type CondensedPermit, type CondensedRealtor, type GroupedRow, type Property, ownersSource } from "./lib/outreach";
+import { COUNTY_ROLLS, MIDLAND_PARCELS } from "./lib/parcels";
 
 const UPSERT_BATCH = 200;
 /** How many upsert batches are in flight at once: they touch different owners, so they don't conflict. */
@@ -29,13 +29,13 @@ async function readAll<T>(read: (cursor?: string) => Promise<Page<T>>, into: { a
   return fetched;
 }
 
-/** Every parcel on the roll, a page at a time, into `into`. Returns how many. */
-const readRoll = (ctx: ActionCtx, into: { addAll: (rows: Condensed[]) => unknown }) => readAll<Condensed>((cursor) => ctx.runQuery(internal.outreach.parcelPage, { cursor }), into);
+/** Every parcel on the county's roll, a page at a time, into `into`. Returns how many. */
+const readRoll = (ctx: ActionCtx, county: string, into: { addAll: (rows: Condensed[]) => unknown }) => readAll<Condensed>((cursor) => ctx.runQuery(internal.outreach.parcelPage, { cursor, county }), into);
 
 type SignalRow = { parcelId: string; signal: { kind: "code_violation" | "dilapidated" | "demolition" | "stalled_permit"; detail: string; date: string }; property: Property };
 
 /** The roll's parcel at each address key, for a permit company's property. */
-const parcelsAt = (ctx: ActionCtx) => (addressKeys: string[]): Promise<Record<string, Property>> => ctx.runQuery(internal.outreach.parcelsAt, { addressKeys });
+const parcelsAt = (ctx: ActionCtx, county: string) => (addressKeys: string[]): Promise<Record<string, Property>> => ctx.runQuery(internal.outreach.parcelsAt, { addressKeys, county });
 
 /**
  * Reads the roll twice (once to find the offices, once to group the
@@ -44,7 +44,7 @@ const parcelsAt = (ctx: ActionCtx) => (addressKeys: string[]): Promise<Record<st
  * table in batches, and drops the ones gone. Records how it went under
  * OWNERS_SOURCE.
  */
-async function rebuildOwners(ctx: ActionCtx) {
+async function rebuildOwners(ctx: ActionCtx, county: string = MIDLAND_PARCELS.county) {
   let fetched = 0;
   let added = 0;
   let updated = 0;
@@ -53,31 +53,31 @@ async function rebuildOwners(ctx: ActionCtx) {
   const facetCounts: Record<string, number> = {};
   try {
     const counter = new AddressCounter();
-    await readRoll(ctx, counter);
+    await readRoll(ctx, county, counter);
     const grouper = new OwnerGrouper(counter.candidates());
-    fetched = await readRoll(ctx, grouper);
+    fetched = await readRoll(ctx, county, grouper);
     // The city's records, onto the owners of the parcels they're about.
-    await readAll<SignalRow>((cursor) => ctx.runQuery(internal.outreach.signalPage, { cursor }), { addAll: (rows) => grouper.addSignals(rows) });
+    await readAll<SignalRow>((cursor) => ctx.runQuery(internal.outreach.signalPage, { cursor, county }), { addAll: (rows) => grouper.addSignals(rows) });
     // The companies on recent permits, as rows of their own: the builders, and the architects and engineers who applied.
     const permits = new ContractorGrouper();
     const designers = new ContractorGrouper("designer");
     const since = permitsSince();
-    await readAll<CondensedPermit>((cursor) => ctx.runQuery(internal.outreach.permitPage, { since, cursor }), { addAll: (rows) => { permits.addAll(rows); designers.addAll(rows); } });
-    const contractors = [...(await permits.grouped(parcelsAt(ctx))), ...(await designers.grouped(parcelsAt(ctx)))];
+    await readAll<CondensedPermit>((cursor) => ctx.runQuery(internal.outreach.permitPage, { since, cursor, county }), { addAll: (rows) => { permits.addAll(rows); designers.addAll(rows); } });
+    const contractors = [...(await permits.grouped(parcelsAt(ctx, county))), ...(await designers.grouped(parcelsAt(ctx, county)))];
     // The businesses in spaces they don't own, from whichever source names them: certificates of occupancy, permit "owners", sales-tax permits.
     const occupants = new OccupantGrouper();
     const arrivals = occupantsSince();
-    await readAll<CondensedOccupant>((cursor) => ctx.runQuery(internal.outreach.occupantPage, { since: arrivals, cursor }), occupants);
-    await readAll<CondensedOccupant>((cursor) => ctx.runQuery(internal.outreach.outletPage, { since: arrivals, cursor }), occupants);
-    const tenants = await occupants.grouped(parcelsAt(ctx));
+    await readAll<CondensedOccupant>((cursor) => ctx.runQuery(internal.outreach.occupantPage, { since: arrivals, cursor, county }), occupants);
+    await readAll<CondensedOccupant>((cursor) => ctx.runQuery(internal.outreach.outletPage, { since: arrivals, cursor, county }), occupants);
+    const tenants = await occupants.grouped(parcelsAt(ctx, county));
     // The agents and brokers licensed here, with their brokerages: rows with no property at all.
     const realtors = new RealtorGrouper();
-    await readAll<CondensedRealtor>((cursor) => ctx.runQuery(internal.outreach.realtorPage, { cursor }), realtors);
+    await readAll<CondensedRealtor>((cursor) => ctx.runQuery(internal.outreach.realtorPage, { cursor, county }), realtors);
     const buildId = newBuildId();
     let batch: GroupedRow[] = [];
     let inFlight: Array<Promise<void>> = [];
     const write = async (rows: GroupedRow[]) => {
-      const result: { added: number; updated: number } = await ctx.runMutation(internal.outreach.upsertOwners, { rows, buildId });
+      const result: { added: number; updated: number } = await ctx.runMutation(internal.outreach.upsertOwners, { rows, buildId, county });
       added += result.added;
       updated += result.updated;
     };
@@ -103,11 +103,11 @@ async function rebuildOwners(ctx: ActionCtx) {
     }
     await flush();
     await Promise.all(inFlight);
-    await ctx.runMutation(internal.outreach.dropStale, { buildId });
+    await ctx.runMutation(internal.outreach.dropStale, { buildId, county });
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
-  await ctx.runMutation(internal.permits.recordSync, { source: OWNERS_SOURCE, fetched, added, updated, error, fieldsVersion: error ? undefined : OWNERS_VERSION, facetCounts: error ? undefined : facetCounts });
+  await ctx.runMutation(internal.permits.recordSync, { source: ownersSource(county), fetched, added, updated, error, fieldsVersion: error ? undefined : OWNERS_VERSION, facetCounts: error ? undefined : facetCounts });
   return { fetched, added, updated, error };
 }
 
@@ -119,20 +119,22 @@ async function rebuildOwners(ctx: ActionCtx) {
  * `npx convex run outreachRebuild:rebuild '{"ifStale":true,"background":true}'`.
  */
 export const rebuild = internalAction({
-  args: { ifStale: v.optional(v.boolean()), background: v.optional(v.boolean()) },
-  handler: async (ctx, { ifStale, background }): Promise<{ skipped?: true; scheduled?: true; fetched?: number; added?: number; updated?: number; error?: string }> => {
+  args: { ifStale: v.optional(v.boolean()), background: v.optional(v.boolean()), county: v.optional(v.union(v.literal("Midland"), v.literal("Ector"), v.literal("Lubbock"))) },
+  handler: async (ctx, { ifStale, background, county = "Midland" }): Promise<{ skipped?: true; scheduled?: true; fetched?: number; added?: number; updated?: number; error?: string }> => {
     if (ifStale) {
       const [owners, roll] = await Promise.all([
-        ctx.runQuery(internal.permits.sourceState, { source: OWNERS_SOURCE }),
-        ctx.runQuery(internal.permits.sourceState, { source: MIDLAND_PARCELS.source }),
+        ctx.runQuery(internal.permits.sourceState, { source: ownersSource(county) }),
+        ctx.runQuery(internal.permits.sourceState, { source: county === "Midland" ? MIDLAND_PARCELS.source : COUNTY_ROLLS[county].source }),
       ]);
+      // A county whose roll was never read has no owners to build yet.
+      if (county !== "Midland" && !roll) return { skipped: true };
       if (owners && !owners.error && owners.fieldsVersion === OWNERS_VERSION && (!roll || owners.syncedAt >= roll.syncedAt)) return { skipped: true };
     }
     if (background) {
-      await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, {});
+      await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, { county });
       return { scheduled: true };
     }
-    return await rebuildOwners(ctx);
+    return await rebuildOwners(ctx, county);
   },
 });
 

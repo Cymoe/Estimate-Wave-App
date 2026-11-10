@@ -14,7 +14,8 @@ jest.mock('../presets', () => ({
   ],
 }));
 
-import { useCounty } from '../county';
+import { setReadyCounties, useCounty } from '../county';
+import { CountySwitch } from '../CountySwitch';
 
 let picked: (name: string) => void = () => {};
 const Show = ({ saved, label }: { saved?: string; label: string }) => {
@@ -47,6 +48,29 @@ describe('the working county', () => {
     await act(async () => picked('Lubbock'));
     expect(setCounty).toHaveBeenCalledTimes(1);
     expect(text('a')).toBe('Midland');
+    act(() => root.unmount());
+  });
+
+  it('a county the server says is in can be picked, everywhere on the page, without a reload', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const Both = () => {
+      const [county, set] = useCounty('o1', 'Lubbock');
+      return <><span data-testid="now">{county}</span><CountySwitch county={county} onChange={set} /></>;
+    };
+    // Lubbock is the company's county, but its owners aren't in: the page stays on Midland and marks it Coming soon.
+    await act(async () => root.render(<Both />));
+    expect(host.querySelector('[data-testid="now"]')!.textContent).toBe('Midland');
+    await act(async () => (host.querySelector('[data-testid="county-switch"]') as HTMLButtonElement).click());
+    const lubbock = () => Array.from(host.querySelectorAll('[role="option"]')).find((o) => o.textContent?.includes('Lubbock')) as HTMLButtonElement;
+    expect(lubbock().disabled).toBe(true);
+    expect(lubbock().textContent).toContain('Coming soon');
+    // The server says its owners are in: the switch offers it, and the company's county is taken.
+    await act(async () => setReadyCounties(['Lubbock']));
+    expect(lubbock().disabled).toBe(false);
+    expect(lubbock().textContent).not.toContain('Coming soon');
+    expect(host.querySelector('[data-testid="now"]')!.textContent).toBe('Lubbock');
     act(() => root.unmount());
   });
 });

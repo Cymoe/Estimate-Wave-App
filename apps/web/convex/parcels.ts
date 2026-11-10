@@ -8,7 +8,7 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { action, internalAction, internalMutation, type ActionCtx } from "./_generated/server";
 import { nowIso } from "./lib/access";
-import { MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, ownerOf, parcelWhere, rowsToParcels } from "./lib/parcels";
+import { COUNTY_ROLLS, MIDLAND_PARCELS, PARCEL_FIELDS, PARCEL_VERSION, RESIDENTIAL_USE, addressByPin, countyParcels, ownerOf, parcelWhere, rowsToParcels, type CountyRoll } from "./lib/parcels";
 import { LANDLORD_HOMES } from "./lib/signals";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -44,10 +44,10 @@ const sameParcel = (a: Doc<"parcels">, b: Record<string, unknown> & { mailing: D
   KEYS.every((k) => (a[k] ?? undefined) === (b[k] ?? undefined)) &&
   (["address", "city", "state", "zip"] as const).every((k) => (a.mailing[k] ?? undefined) === (b.mailing[k] ?? undefined));
 
-/** Adds new parcels and updates changed ones, by appraisal id. Safe to run again. */
+/** Adds new parcels and updates changed ones, by appraisal id. Safe to run again. `county`: Midland when not given. */
 export const upsert = internalMutation({
-  args: { rows: v.array(parcelRow) },
-  handler: async (ctx, { rows }) => {
+  args: { rows: v.array(parcelRow), county: v.optional(v.string()) },
+  handler: async (ctx, { rows, county }) => {
     let added = 0;
     let updated = 0;
     const now = nowIso();
@@ -57,7 +57,7 @@ export const upsert = internalMutation({
         .withIndex("by_cad_id", (q) => q.eq("cadId", row.cadId))
         .first();
       if (!existing) {
-        await ctx.db.insert("parcels", { county: MIDLAND_PARCELS.county, ...row, importedAt: now });
+        await ctx.db.insert("parcels", { county: county ?? MIDLAND_PARCELS.county, ...row, importedAt: now });
         added++;
       } else if (!sameParcel(existing, row)) {
         await ctx.db.patch(existing._id, { ...row, importedAt: now });
@@ -89,11 +89,11 @@ async function pullLandlords(ctx: ActionCtx) {
   await ctx.runMutation(internal.parcels.setLandlords, { owners });
 }
 
-/** Replaces the list of landlords. */
+/** Replaces Midland's list of landlords. */
 export const setLandlords = internalMutation({
   args: { owners: v.array(v.object({ owner: v.string(), homes: v.number() })) },
   handler: async (ctx, { owners }) => {
-    for (const row of await ctx.db.query("landlords").collect()) await ctx.db.delete(row._id);
+    for (const row of await ctx.db.query("landlords").collect()) if (row.county === MIDLAND_PARCELS.county) await ctx.db.delete(row._id);
     for (const o of owners) await ctx.db.insert("landlords", { county: MIDLAND_PARCELS.county, ...o });
   },
 });
@@ -187,5 +187,137 @@ export const syncNow = action({
   handler: async (ctx) => {
     await ctx.runQuery(internal.permits.assertStaff, {});
     return await pullMidlandParcels(ctx);
+  },
+});
+
+// ---- Odessa and Lubbock (lib/parcels.ts COUNTY_ROLLS) ----
+
+type Feature = { attributes?: Record<string, unknown> };
+type Answer = { error?: { message?: string }; features?: Feature[]; exceededTransferLimit?: boolean };
+
+/** One query of an ArcGIS layer, posted when the where clause is long. */
+async function query(layer: string, params: Record<string, string>, what: string): Promise<Answer> {
+  const body = new URLSearchParams({ ...params, returnGeometry: "false", f: "json" });
+  const response =
+    body.toString().length > 1500
+      ? await fetch(`${layer}/query`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: body.toString() })
+      : await fetch(`${layer}/query?${body}`);
+  if (!response.ok) throw new Error(`${what}: HTTP ${response.status}`);
+  const answer = (await response.json()) as Answer;
+  if (answer.error) throw new Error(`${what}: ${answer.error.message ?? "the service returned an error"}`);
+  return answer;
+}
+
+const PINS_PER_QUERY = 200;
+
+/** The street address of each PIN, from the roll's address layers in order. */
+async function addressesFor(roll: CountyRoll, pins: string[]): Promise<Map<string, string>> {
+  const found = new Map<string, string>();
+  for (const source of roll.addresses) {
+    const wanted = [...new Set(pins.filter((p) => !found.has(p)))];
+    const chunks: string[][] = [];
+    for (let i = 0; i < wanted.length; i += PINS_PER_QUERY) chunks.push(wanted.slice(i, i + PINS_PER_QUERY));
+    await Promise.all(
+      chunks.map(async (chunk) => {
+        const where = [`${source.pin} IN (${chunk.map((p) => `'${p.replace(/'/g, "''")}'`).join(",")})`, source.where].filter(Boolean).join(" AND ");
+        for (let offset = 0; ; ) {
+          const answer = await query(source.layer, { where, outFields: `${source.pin},${source.address}`, resultOffset: String(offset), resultRecordCount: "1000" }, `${roll.county} addresses`);
+          const features = answer.features ?? [];
+          const here = addressByPin(features, source.pin, source.address);
+          for (const [pin, address] of here) {
+            const had = found.get(pin);
+            if (!had || address.length < had.length) found.set(pin, address);
+          }
+          if (!answer.exceededTransferLimit || features.length === 0) break;
+          offset += features.length;
+        }
+      }),
+    );
+  }
+  return found;
+}
+
+const totals = v.object({ fetched: v.number(), added: v.number(), updated: v.number(), newestDeed: v.optional(v.string()) });
+/** How long one step reads before handing on to the next, well inside an action's 10 minutes. */
+const STEP_MS = 4 * 60 * 1000;
+const UPSERT_ROWS = 300;
+
+/**
+ * Reads a county's roll (Ector or Lubbock) a page at a time from `offset`,
+ * each page's parcels at their address points, into the parcels table; hands
+ * on to a fresh step after STEP_MS, so a big roll never meets the action
+ * limit. When the roll is read it records how it went under the roll's
+ * source and rebuilds that county's Outreach owners. The deploy runs it with
+ * ifStale, which skips it when a clean read of this PARCEL_VERSION ran in
+ * the last week: `npx convex run parcels:syncCounty '{"county":"Ector","ifStale":true}'`.
+ */
+export const syncCounty = internalAction({
+  args: {
+    county: v.union(v.literal("Ector"), v.literal("Lubbock")),
+    ifStale: v.optional(v.boolean()),
+    /** Schedules the read and returns at once: the deploy shouldn't wait minutes for it. */
+    background: v.optional(v.boolean()),
+    offset: v.optional(v.number()),
+    totals: v.optional(totals),
+  },
+  handler: async (ctx, args): Promise<{ skipped?: true; scheduled?: true; next?: number; fetched?: number; added?: number; updated?: number; error?: string }> => {
+    const roll = COUNTY_ROLLS[args.county];
+    if (args.ifStale && args.offset === undefined) {
+      const last = await ctx.runQuery(internal.permits.sourceState, { source: roll.source });
+      const fresh = last && !last.error && last.fieldsVersion === PARCEL_VERSION && Date.now() - Date.parse(last.syncedAt) < WEEK_MS;
+      if (fresh) return { skipped: true };
+    }
+    if (args.background) {
+      await ctx.scheduler.runAfter(0, internal.parcels.syncCounty, { county: args.county });
+      return { scheduled: true };
+    }
+    const sum = { fetched: 0, added: 0, updated: 0, ...(args.totals ?? {}) };
+    let offset = args.offset ?? 0;
+    const started = Date.now();
+    let error: string | undefined;
+    let done = false;
+    try {
+      while (Date.now() - started < STEP_MS) {
+        const answer = await query(
+          roll.layer,
+          { where: roll.where, outFields: roll.fields.join(","), orderByFields: `${roll.orderBy} ASC`, resultOffset: String(offset), resultRecordCount: String(roll.pageSize) },
+          `${roll.county} owners`,
+        );
+        const features = answer.features ?? [];
+        const pins = features.flatMap((f) => (typeof f.attributes?.[roll.pinField] === "string" ? [f.attributes[roll.pinField] as string] : []));
+        const rows = countyParcels(roll, features, await addressesFor(roll, pins));
+        sum.fetched += rows.length;
+        const batches: Array<typeof rows> = [];
+        for (let i = 0; i < rows.length; i += UPSERT_ROWS) batches.push(rows.slice(i, i + UPSERT_ROWS));
+        const results: Array<{ added: number; updated: number }> = await Promise.all(batches.map((batch) => ctx.runMutation(internal.parcels.upsert, { rows: batch, county: roll.county })));
+        for (const r of results) {
+          sum.added += r.added;
+          sum.updated += r.updated;
+        }
+        for (const row of rows) if (row.deedDate && (!sum.newestDeed || row.deedDate > sum.newestDeed)) sum.newestDeed = row.deedDate;
+        offset += features.length;
+        if (features.length === 0 || (!answer.exceededTransferLimit && features.length < roll.pageSize)) {
+          done = true;
+          break;
+        }
+      }
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+    if (!done && !error) {
+      await ctx.scheduler.runAfter(0, internal.parcels.syncCounty, { county: args.county, offset, totals: sum });
+      return { next: offset, ...sum };
+    }
+    if (!error) await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, { county: roll.county });
+    await ctx.runMutation(internal.permits.recordSync, {
+      source: roll.source,
+      fetched: sum.fetched,
+      added: sum.added,
+      updated: sum.updated,
+      lastAppliedAt: sum.newestDeed,
+      error,
+      fieldsVersion: error ? undefined : PARCEL_VERSION,
+    });
+    return { fetched: sum.fetched, added: sum.added, updated: sum.updated, error };
   },
 });

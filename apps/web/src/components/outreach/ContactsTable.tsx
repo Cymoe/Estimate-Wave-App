@@ -5,7 +5,7 @@ import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { fullAddress } from '../../lib/mapsLinks';
 import type { OutreachCell, OutreachContact, OutreachContacts, OutreachCoverage, OutreachField, OutreachPhone, OutreachRowStatus, OutreachSignal, OutreachTry, OutreachWho } from '../../lib/api';
 import { shortMoney, WHO_LABEL, cityOf, knownCounty } from '../../../convex/lib/outreach';
-import { askingText, callOk, deedSearchUrl, dueAgain, isSimulated, LEAD_STAGE, phoneKind, phoneText, sourceList, sourceName, STATUS_LABEL, tryAgainFrom, QUEUED_AFTER_MS } from './format';
+import { askingText, callOk, deedSearch, dueAgain, isSimulated, LEAD_STAGE, phoneKind, phoneText, sourceList, sourceName, STATUS_LABEL, tryAgainFrom, QUEUED_AFTER_MS } from './format';
 
 /** The column's short name for the kind of owner. */
 const KIND: Record<OutreachWho, string> = {
@@ -746,7 +746,7 @@ export const ContactSheet: React.FC<{
   };
   const enrich = (fields: OutreachField[], asked?: string) => run(() => onEnrich(row, fields, asked), "Couldn't start that");
   const property = row.property ? fullAddress(row.property.address, cityOf(county), 'TX') : undefined;
-  const deeds = deedSearchUrl(row.name, knownCounty(county));
+  const deeds = deedSearch(row.name, knownCounty(county));
   const mailing = row.mailing.address ? fullAddress(row.mailing.address, row.mailing.city, row.mailing.state, row.mailing.zip?.slice(0, 5)) : undefined;
   const realtor = row.kinds.includes('realtor');
   const link = 'inline-flex items-center gap-2 text-[15px] text-[#7fb0e0] min-h-[44px]';
@@ -969,8 +969,9 @@ export const ContactSheet: React.FC<{
                 {row.properties > 1 ? `${row.property.valueCents ? ' · ' : ''}${row.properties} properties, ${shortMoney(row.totalValueCents)} in all` : ''}
               </div>
               {deeds && (
-                <a href={deeds} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm text-[#7fb0e0] hover:text-white min-h-[44px]" data-testid="deeds">
+                <a href={deeds.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm text-[#7fb0e0] hover:text-white min-h-[44px]" data-testid="deeds">
                   <FileText className="w-4 h-4 shrink-0" /> Deeds at the county clerk
+                  {!deeds.named && <span className="text-gray-500">{' '}· search {row.name}</span>}
                 </a>
               )}
             </div>

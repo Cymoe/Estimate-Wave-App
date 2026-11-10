@@ -240,6 +240,8 @@ const property = (p: Condensed): Property => ({ parcelId: p.id, address: p.siteA
 const OFFICE_NAMES = 50;
 /** Where the owners rebuild records how it went (permitSources). */
 export const OWNERS_SOURCE = "midland-owners";
+/** Where a county's owners build records how it went (and its facet counts): Midland's keeps its first name. */
+export const ownersSource = (county: string) => (county === "Midland" ? OWNERS_SOURCE : `${county.toLowerCase()}-owners`);
 /** Where the daily records pass (outreachRefresh.ts) records how it went. */
 export const REFRESH_SOURCE = "midland-owners-records";
 /** Bumped when the facets or rows change shape: the deploy rebuilds owners made by an older version. */
@@ -1247,16 +1249,16 @@ export function listOrder(def: Definition): { label: string; key: (row: { proper
 }
 
 /** Why someone is on the list, in a line. */
-export function why(row: OwnerRow, facet: Facet): string {
+export function why(row: OwnerRow, facet: Facet, county = "Midland"): string {
   const kinds = [
     row.commercial ? plural(row.commercial, "commercial building") : "",
     row.multifamily ? plural(row.multifamily, "apartment building") : "",
   ].filter(Boolean);
   switch (facet) {
     case "investor":
-      return `Owns ${plural(row.parcels, "Midland property", "Midland properties")}${kinds.length ? ` (${kinds.join(", ")})` : ""}, ${shortMoney(row.totalValueCents)} on the roll`;
+      return `Owns ${plural(row.parcels, `${county} property`, `${county} properties`)}${kinds.length ? ` (${kinds.join(", ")})` : ""}, ${shortMoney(row.totalValueCents)} on the roll`;
     case "builder":
-      return `Homebuilder with ${plural(row.parcels, "Midland property", "Midland properties")} on the roll, ${shortMoney(row.totalValueCents)} in all`;
+      return `Homebuilder with ${plural(row.parcels, `${county} property`, `${county} properties`)} on the roll, ${shortMoney(row.totalValueCents)} in all`;
     case "office":
       return `Gets the tax bills for ${plural(row.parcels, "property", "properties")} from ${plural(row.owners ?? 0, "owner")}`;
     case "commercial":

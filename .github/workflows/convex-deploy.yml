@@ -170,6 +170,19 @@ jobs:
         # The appraisal roll callers work from. Skipped when a clean pass ran
         # in the last week; the weekly job keeps it current.
         run: npx convex run parcels:syncMidland '{"ifStale":true}'
+      - name: Pull Odessa's and Lubbock's agents and brokers
+        # TREC's active license holders, for those counties' realtor lists. A
+        # page or two each; the weekly job keeps them current.
+        run: |
+          npx convex run realtors:syncCounty '{"county":"Ector"}'
+          npx convex run realtors:syncCounty '{"county":"Lubbock"}'
+      - name: Pull Odessa's and Lubbock's property owners
+        # Each county's appraisal roll, read in the background a page at a
+        # time; when a read finishes it builds that county's Outreach owners.
+        # Skipped when a clean read ran in the last week.
+        run: |
+          npx convex run parcels:syncCounty '{"county":"Ector","ifStale":true,"background":true}'
+          npx convex run parcels:syncCounty '{"county":"Lubbock","ifStale":true,"background":true}'
       - name: Move Outreach's old list rows into contacts
         run: npx convex run outreach:migrateRows
       - name: Give contacts unlocked before per-field cells their cells

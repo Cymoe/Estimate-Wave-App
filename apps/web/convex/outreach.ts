@@ -26,6 +26,7 @@ import {
   MAX_ROWS,
   OUTREACH_INPUT_SCHEMA,
   OWNERS_SOURCE,
+  ownersSource,
   OwnerGrouper,
   REFRESH_SOURCE,
   RESEARCH_CENTS,
@@ -63,7 +64,7 @@ import { planIsActive } from "./lib/plan";
 import { needsAttention, phoneCheckers, phoneScrub, samePerson, splitName, standsAlone, vendors, verifier, type Found, type Person } from "./lib/skipTrace";
 import { dollars, postTransaction } from "./lib/wallet";
 
-const COUNTY = MIDLAND_PARCELS.county;
+const COUNTY: string = MIDLAND_PARCELS.county;
 /** How many facet rows one list build reads: past this the list is cut and says so. */
 export const SCAN = 3000;
 const PAGE = 2000;
@@ -75,11 +76,13 @@ const title = (s: string) => s.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUp
 
 /** One page of the roll, cut down to what grouping needs. */
 export const parcelPage = internalQuery({
-  args: { cursor: v.optional(v.string()) },
-  handler: async (ctx, { cursor }) => {
-    const page = await ctx.db.query("parcels").paginate({ cursor: cursor ?? null, numItems: PAGE });
+  args: { cursor: v.optional(v.string()), county: v.optional(v.string()) },
+  handler: async (ctx, { cursor, county = COUNTY }) => {
+    const page = await ctx.db
+      .query("parcels")
+      .withIndex("by_county_and_address_key", (q) => q.eq("county", county))
+      .paginate({ cursor: cursor ?? null, numItems: PAGE });
     const rows: Condensed[] = page.page
-      .filter((p) => p.county === COUNTY)
       .map((p) => ({
         id: p._id,
         siteAddress: p.siteAddress,
@@ -102,12 +105,12 @@ export const parcelPage = internalQuery({
  * built from. Records not matched to a parcel are skipped.
  */
 export const signalPage = internalQuery({
-  args: { cursor: v.optional(v.string()) },
-  handler: async (ctx, { cursor }) => {
+  args: { cursor: v.optional(v.string()), county: v.optional(v.string()) },
+  handler: async (ctx, { cursor, county = COUNTY }) => {
     const since = new Date(Date.now() - SIGNAL_YEARS * 365 * 24 * 3600_000).toISOString();
     const page = await ctx.db.query("signals").paginate({ cursor: cursor ?? null, numItems: 500 });
     const rows: Array<{ parcelId: Id<"parcels">; signal: { kind: Doc<"signals">["kind"]; detail: string; date: string }; property: { parcelId: Id<"parcels">; address: string; useCode: string; valueCents?: number } }> = [];
-    const kept = page.page.filter((s) => s.parcelId && s.county === COUNTY && s.date >= since);
+    const kept = page.page.filter((s) => s.parcelId && s.county === county && s.date >= since);
     const parcels = await Promise.all(kept.map((s) => ctx.db.get(s.parcelId!)));
     kept.forEach((s, i) => {
       const p = parcels[i];
@@ -126,11 +129,11 @@ export const signalPage = internalQuery({
  * InvalidCursor on page two.
  */
 export const permitPage = internalQuery({
-  args: { since: v.string(), cursor: v.optional(v.string()) },
-  handler: async (ctx, { since, cursor }) => {
+  args: { since: v.string(), cursor: v.optional(v.string()), county: v.optional(v.string()) },
+  handler: async (ctx, { since, cursor, county = COUNTY }) => {
     const page = await ctx.db
       .query("permits")
-      .withIndex("by_county_and_applied", (q) => q.eq("county", COUNTY).gte("appliedAt", since))
+      .withIndex("by_county_and_applied", (q) => q.eq("county", county).gte("appliedAt", since))
       .paginate({ cursor: cursor ?? null, numItems: 500 });
     const rows: CondensedPermit[] = [];
     for (const p of page.page) {
@@ -152,12 +155,12 @@ export const permitPage = internalQuery({
 
 /** The roll's parcel at each address, for a company's property, with who owns it; addresses off the roll give nothing. */
 export const parcelsAt = internalQuery({
-  args: { addressKeys: v.array(v.string()) },
-  handler: async (ctx, { addressKeys }) => {
+  args: { addressKeys: v.array(v.string()), county: v.optional(v.string()) },
+  handler: async (ctx, { addressKeys, county = COUNTY }) => {
     const out: Record<string, { parcelId: Id<"parcels">; address: string; useCode: string; valueCents?: number; owner: string }> = {};
     await Promise.all(
       [...new Set(addressKeys)].map(async (key) => {
-        const p = await ctx.db.query("parcels").withIndex("by_county_and_address_key", (q) => q.eq("county", COUNTY).eq("addressKey", key)).first();
+        const p = await ctx.db.query("parcels").withIndex("by_county_and_address_key", (q) => q.eq("county", county).eq("addressKey", key)).first();
         if (p) out[key] = { parcelId: p._id, address: p.siteAddress, useCode: p.useCode, valueCents: p.marketValueCents, owner: p.owner };
       }),
     );
@@ -173,11 +176,11 @@ export const parcelsAt = internalQuery({
  * once by the caller, as for permitPage.
  */
 export const occupantPage = internalQuery({
-  args: { since: v.string(), cursor: v.optional(v.string()) },
-  handler: async (ctx, { since, cursor }) => {
+  args: { since: v.string(), cursor: v.optional(v.string()), county: v.optional(v.string()) },
+  handler: async (ctx, { since, cursor, county = COUNTY }) => {
     const page = await ctx.db
       .query("permits")
-      .withIndex("by_county_and_applied", (q) => q.eq("county", COUNTY).gte("appliedAt", since))
+      .withIndex("by_county_and_applied", (q) => q.eq("county", county).gte("appliedAt", since))
       .paginate({ cursor: cursor ?? null, numItems: 500 });
     const rows: CondensedOccupant[] = [];
     for (const p of page.page) rows.push(...occupantsOn({ name: p.name, detail: p.detail, residential: p.residential, appliedAt: p.appliedAt, address: p.address, addressKey: p.addressKey, builder: p.builder, contacts: p.contacts }));
@@ -187,11 +190,11 @@ export const occupantPage = internalQuery({
 
 /** One page of the county's active license holders (lib/realtors.ts), for the realtor rows. */
 export const realtorPage = internalQuery({
-  args: { cursor: v.optional(v.string()) },
-  handler: async (ctx, { cursor }) => {
+  args: { cursor: v.optional(v.string()), county: v.optional(v.string()) },
+  handler: async (ctx, { cursor, county = COUNTY }) => {
     const page = await ctx.db
       .query("realtors")
-      .withIndex("by_county_and_seen", (q) => q.eq("county", COUNTY))
+      .withIndex("by_county_and_seen", (q) => q.eq("county", county))
       .paginate({ cursor: cursor ?? null, numItems: 500 });
     const rows: CondensedRealtor[] = page.page.map((r) => ({
       licenseNumber: r.licenseNumber,
@@ -211,11 +214,11 @@ export const realtorPage = internalQuery({
 
 /** One page of the Comptroller's sales-tax outlets that started selling since `since` (lib/outlets.ts), as occupant sightings. */
 export const outletPage = internalQuery({
-  args: { since: v.string(), cursor: v.optional(v.string()) },
-  handler: async (ctx, { since, cursor }) => {
+  args: { since: v.string(), cursor: v.optional(v.string()), county: v.optional(v.string()) },
+  handler: async (ctx, { since, cursor, county = COUNTY }) => {
     const page = await ctx.db
       .query("outlets")
-      .withIndex("by_county_and_at", (q) => q.eq("county", COUNTY).gte("at", since.slice(0, 10)))
+      .withIndex("by_county_and_at", (q) => q.eq("county", county).gte("at", since.slice(0, 10)))
       .paginate({ cursor: cursor ?? null, numItems: 500 });
     const rows: CondensedOccupant[] = page.page.map((o) => ({
       business: o.name,
@@ -279,7 +282,7 @@ const sameOwner = (a: Doc<"owners">, b: OwnerRow) =>
  * An owner's facet rows made to match `facets`, stamped with this build.
  * Returns how each facet's count moved (a facet gained is +1, one lost -1).
  */
-async function writeFacets(ctx: MutationCtx, ownerId: Id<"owners">, facets: Array<{ facet: string; sort: number }>, buildId: string): Promise<Record<string, number>> {
+async function writeFacets(ctx: MutationCtx, ownerId: Id<"owners">, facets: Array<{ facet: string; sort: number }>, buildId: string, county = COUNTY): Promise<Record<string, number>> {
   const delta: Record<string, number> = {};
   const old = await ctx.db.query("ownerFacets").withIndex("by_owner", (q) => q.eq("ownerId", ownerId)).collect();
   const same = old.length === facets.length && facets.every((f) => old.some((o) => o.facet === f.facet && o.sort === f.sort));
@@ -293,20 +296,20 @@ async function writeFacets(ctx: MutationCtx, ownerId: Id<"owners">, facets: Arra
   }
   for (const f of facets) {
     delta[f.facet] = (delta[f.facet] ?? 0) + 1;
-    await ctx.db.insert("ownerFacets", { county: COUNTY, facet: f.facet, ownerId, sort: f.sort, buildId });
+    await ctx.db.insert("ownerFacets", { county, facet: f.facet, ownerId, sort: f.sort, buildId });
   }
   return delta;
 }
 
 /** Writes a batch of owner rows and their facets, stamping them with this build. */
 export const upsertOwners = internalMutation({
-  args: { rows: v.array(v.object({ owner: ownerRow, facets: v.array(facetRow) })), buildId: v.string() },
-  handler: async (ctx, { rows, buildId }) => {
+  args: { rows: v.array(v.object({ owner: ownerRow, facets: v.array(facetRow) })), buildId: v.string(), county: v.optional(v.string()) },
+  handler: async (ctx, { rows, buildId, county = COUNTY }) => {
     let added = 0;
     let updated = 0;
     for (const { owner, facets } of rows) {
-      const row = { county: COUNTY, ...owner, tops: owner.tops as Doc<"owners">["tops"], buildId };
-      const existing = await ctx.db.query("owners").withIndex("by_county_and_key", (q) => q.eq("county", COUNTY).eq("key", owner.key)).first();
+      const row = { county, ...owner, tops: owner.tops as Doc<"owners">["tops"], buildId };
+      const existing = await ctx.db.query("owners").withIndex("by_county_and_key", (q) => q.eq("county", county).eq("key", owner.key)).first();
       let ownerId: Id<"owners">;
       if (!existing) {
         ownerId = await ctx.db.insert("owners", row);
@@ -319,7 +322,7 @@ export const upsertOwners = internalMutation({
           updated++;
         }
       }
-      await writeFacets(ctx, ownerId, facets, buildId);
+      await writeFacets(ctx, ownerId, facets, buildId, county);
     }
     return { added, updated };
   },
@@ -331,14 +334,14 @@ export const upsertOwners = internalMutation({
  * daily pass (outreachRefresh.ts) that ran while this build was writing, and
  * its rows stay. `kind` narrows to the permit companies of one kind.
  */
-async function staleOwners(ctx: MutationCtx, buildId: string, kind?: "contractor" | "designer" | "occupant"): Promise<Doc<"owners">[]> {
+async function staleOwners(ctx: MutationCtx, buildId: string, kind?: "contractor" | "designer" | "occupant", county = COUNTY): Promise<Doc<"owners">[]> {
   const sameInstant = `${buildId.split("|")[0]}|\uffff`;
   type Bounds<R> = { lt(field: "buildId", value: string): R; gt(field: "buildId", value: string): { lt(field: "buildId", value: string): R } };
   const take = (side: "before" | "beside", n: number) => {
     const bounds = <R,>(q: Bounds<R>) => (side === "before" ? q.lt("buildId", buildId) : q.gt("buildId", buildId).lt("buildId", sameInstant));
     return kind
-      ? ctx.db.query("owners").withIndex("by_county_kind_and_build", (q) => bounds(q.eq("county", COUNTY).eq("kind", kind))).take(n)
-      : ctx.db.query("owners").withIndex("by_county_and_build", (q) => bounds(q.eq("county", COUNTY))).take(n);
+      ? ctx.db.query("owners").withIndex("by_county_kind_and_build", (q) => bounds(q.eq("county", county).eq("kind", kind))).take(n)
+      : ctx.db.query("owners").withIndex("by_county_and_build", (q) => bounds(q.eq("county", county))).take(n);
   };
   const before = await take("before", DROP_BATCH);
   const beside = before.length < DROP_BATCH ? await take("beside", DROP_BATCH - before.length) : [];
@@ -356,9 +359,9 @@ async function dropOwners(ctx: MutationCtx, stale: Doc<"owners">[]): Promise<boo
 
 /** Drops owners (and their facets) this build didn't write: no longer on the roll. Pages itself. */
 export const dropStale = internalMutation({
-  args: { buildId: v.string() },
-  handler: async (ctx, { buildId }) => {
-    if (await dropOwners(ctx, await staleOwners(ctx, buildId))) await ctx.scheduler.runAfter(0, internal.outreach.dropStale, { buildId });
+  args: { buildId: v.string(), county: v.optional(v.string()) },
+  handler: async (ctx, { buildId, county }) => {
+    if (await dropOwners(ctx, await staleOwners(ctx, buildId, undefined, county))) await ctx.scheduler.runAfter(0, internal.outreach.dropStale, { buildId, county });
   },
 });
 
@@ -496,7 +499,7 @@ const rowOf = (o: Doc<"owners">, facet: Facet): ListRow | null => {
     ...(p ? { property: { parcelId: p.parcelId as Id<"parcels">, address: title(p.address), useCode: p.useCode, valueCents: p.valueCents } } : {}),
     properties: o.parcels,
     totalValueCents: o.totalValueCents,
-    why: why(row, facet),
+    why: why(row, facet, o.county),
     ...(o.kind === "contractor" || o.kind === "designer" || o.kind === "occupant" ? { found: foundOnPermits(o.contacts) } : {}),
     ...(o.kind === "realtor" ? { found: foundOnLicense(row) } : {}),
   };
@@ -546,7 +549,7 @@ export async function buildRows(ctx: QueryCtx | MutationCtx, def: Definition, of
       .order("desc");
   if (!narrows(def)) {
     // Every row of the facet is on the list: the count comes from the rebuild, or from the facet up to the scan cap.
-    const sync = await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", OWNERS_SOURCE)).unique();
+    const sync = await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", ownersSource(def.county))).unique();
     const counted = sync?.facetCounts?.[facet];
     const facetRows = await query().take(Math.max(SCAN, offset + page));
     const total = counted ?? facetRows.length;
@@ -1009,9 +1012,21 @@ export const contacts = query({
       county: knownCounty(organization.outreachCounty),
       /** Lookups are simulated (no phone source yet), and a simulated result counts as work. */
       simulating: simulating(),
+      /** The counties besides Midland whose owners are built: the switches offer them once they are. */
+      readyCounties: await readyCounties(ctx),
     };
   },
 });
+
+/** The counties besides Midland whose owners have been built cleanly: lists can be made there. */
+async function readyCounties(ctx: QueryCtx): Promise<string[]> {
+  const others = Object.keys(COUNTY_PLACES).filter((c) => c !== COUNTY);
+  const syncs = await Promise.all(others.map((c) => ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", ownersSource(c))).unique()));
+  return others.filter((_, i) => {
+    const s = syncs[i];
+    return Boolean(s && !s.error && s.fetched > 0);
+  });
+}
 
 /** Staff: the stack in order, whether each source is connected, and how it has done for this company. */
 export const sources = query({
@@ -1700,7 +1715,7 @@ export const contactForTrace = internalQuery({
       name: c.name,
       company: c.company,
       person: c.person,
-      ...(c.property ? { property: { address: c.property.address, city: title(COUNTY), state: "TX", zip: undefined as string | undefined } } : {}),
+      ...(c.property ? { property: { address: c.property.address, city: cityOf(await countyOfOwner(ctx, c)), state: "TX", zip: undefined as string | undefined } } : {}),
       mailing: c.mailing,
       // Addresses already on the contact: the mobile finder keys off one.
       emails: (c.emails ?? []).map((e) => e.email),
@@ -1799,9 +1814,12 @@ export const homeAt = internalQuery({
   args: { address: v.optional(v.string()), city: v.optional(v.string()), zip: v.optional(v.string()) },
   handler: async (ctx, { address, city }): Promise<{ person: Person; home: string } | { why: string }> => {
     if (!address || !/^\d/.test(address.trim()) || PO_BOX.test(address)) return { why: "The mail doesn't go to a street address" };
-    if (city && city.trim().toUpperCase() !== COUNTY.toUpperCase()) return { why: `The mail goes to ${titleWords(city.trim())}, off the roll` };
+    // The roll of the county whose city the mail goes to (Midland, Odessa, Lubbock); no city, Midland's.
+    const town = city?.trim().toUpperCase();
+    const county = town ? Object.keys(COUNTY_PLACES).find((k) => COUNTY_PLACES[k].city.toUpperCase() === town) : COUNTY;
+    if (!county) return { why: `The mail goes to ${titleWords(city!.trim())}, off the roll` };
     const key = addressKey(address);
-    const homes = (await ctx.db.query("parcels").withIndex("by_county_and_address_key", (q) => q.eq("county", COUNTY).eq("addressKey", key)).take(10)).filter(
+    const homes = (await ctx.db.query("parcels").withIndex("by_county_and_address_key", (q) => q.eq("county", county).eq("addressKey", key)).take(10)).filter(
       (p) => !p.companyOwned && !ENTITY_WORDS.test(p.owner),
     );
     if (homes.length === 0) return { why: "No home owned by a person at the mailing address" };
@@ -1809,7 +1827,7 @@ export const homeAt = internalQuery({
     const who = splitName(home.owner);
     if (!who.first || !who.last) return { why: "No home owned by a person at the mailing address" };
     return {
-      person: { name: titleWords(`${who.first} ${who.last}`), title: "Owns the home the mail goes to", address: `${titleWords(home.siteAddress)}, ${titleWords(COUNTY)}, TX`, source: "roll" },
+      person: { name: titleWords(`${who.first} ${who.last}`), title: "Owns the home the mail goes to", address: `${titleWords(home.siteAddress)}, ${COUNTY_PLACES[county].city}, TX`, source: "roll" },
       home: home.siteAddress,
     };
   },
