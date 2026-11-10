@@ -451,9 +451,26 @@ describe('the Outreach page', () => {
     expect(card.querySelector('[data-testid="to-leads"]')!.textContent?.trim()).toBe('Estimate sent');
   });
 
+  it('owners kept from deleted lists still show, with a word on why and a way to make a list', async () => {
+    lists = [];
+    contacts = twoContacts();
+    await render();
+    expect(document.body.querySelector('[data-testid="outreach-empty"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="no-lists-hint"]')!.textContent).toBe(
+      'No lists right now. These 2 owners stayed from lists you deleted, because you looked them up or sent them to Leads.Make a list',
+    );
+    expect(document.body.querySelectorAll('[data-testid="contact-row"]')).toHaveLength(2);
+    await click('Make a list');
+    expect(document.body.querySelector('[data-testid="no-lists-hint"]')).not.toBeNull();
+  });
+
   it('shows the contacts table with a list picker, or says to tap + when there are none', async () => {
     await render();
-    expect(document.body.querySelector('[data-testid="outreach-empty"]')!.textContent).toBe('No contacts yet. Tap + and pick who you want to reach.');
+    // Nothing yet: what a list is, examples, and a button to make one.
+    const empty = document.body.querySelector('[data-testid="outreach-empty"]')!;
+    expect(empty.querySelector('h2')!.textContent).toBe('Start with a list');
+    expect(empty.textContent).toContain('Commercial property owners in Midland');
+    expect(Array.from(empty.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Make a list']);
     // Just the title: no paragraph of explanation under it.
     expect(document.body.querySelector('header')!.textContent).toBe('Outreach');
     document.body.innerHTML = '';

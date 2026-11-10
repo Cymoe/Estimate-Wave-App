@@ -975,12 +975,34 @@ const OutreachPage: React.FC = () => {
           Sample results: no phone source is connected yet.
         </p>
       )}
+      {lists && lists.length === 0 && data && data.rows.length > 0 && (
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 border border-[#333333] bg-[#121212] px-4 py-3 text-sm text-gray-300" data-testid="no-lists-hint">
+          <span>
+            No lists right now. These {data.rows.length.toLocaleString('en-US')} owners stayed from lists you deleted, because you looked them up or sent them to Leads.
+          </span>
+          <button type="button" onClick={() => setAsking(true)} className="text-[#7fb0e0] hover:text-white">
+            Make a list
+          </button>
+        </p>
+      )}
       {data === null || lists === null ? (
         <p className="text-sm text-gray-500">Loading…</p>
-      ) : lists.length === 0 ? (
-        <p className="text-sm text-gray-500" data-testid="outreach-empty">
-          No contacts yet. Tap + and pick who you want to reach.
-        </p>
+      ) : lists.length === 0 && data.rows.length === 0 ? (
+        <section className="max-w-xl border border-[#333333] bg-[#121212] p-5 md:p-6 space-y-3" data-testid="outreach-empty">
+          <h2 className="text-lg font-semibold text-white">Start with a list</h2>
+          <p className="text-sm text-gray-400">
+            A list pulls the property owners who fit what you&apos;re after from the county records. Pick a ready-made one or say it in your own words, for example:
+          </p>
+          <ul className="text-sm text-gray-300 space-y-1 list-disc pl-5">
+            <li>Commercial property owners in Midland</li>
+            <li>Investors who own 5 or more properties</li>
+            <li>Owners with a code violation or a stalled permit</li>
+          </ul>
+          <button type="button" onClick={() => setAsking(true)} className="inline-flex items-center gap-2 px-4 h-11 text-sm font-medium text-white bg-[#336699] hover:bg-[#2a5580]">
+            Make a list
+          </button>
+          <p className="text-xs text-gray-500">You can always make another with the + button.</p>
+        </section>
       ) : rows.length === 0 ? (
         <p className="text-sm text-gray-500">{data.rows.length === 0 ? 'Nobody matched. Ask for a wider list.' : 'Nobody matches those filters.'}</p>
       ) : view === 'cards' ? (
