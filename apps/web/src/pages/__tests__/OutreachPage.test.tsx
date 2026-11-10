@@ -846,6 +846,8 @@ describe('the Outreach page', () => {
     // Back to the choices with nothing picked: the list just looked at is let go, and its row says how many lists it holds.
     await click('Pick a different list');
     expect(document.body.querySelector('[aria-label="Ready-made lists"] button[aria-pressed="true"]')).toBeNull();
+    // Back to the choices as they first were: every row closed, not the one the last list came from.
+    expect(document.body.querySelector('[aria-label="Ready-made lists"] button[aria-expanded="true"]')).toBeNull();
     await click('Commercial and investors');
     expect(button('Commercial and investors').textContent).toBe('Commercial and investors6 lists');
     await click('People who bring work');

@@ -310,10 +310,12 @@ export const AskListSheet: React.FC<{
             <button
               type="button"
               onClick={() => {
-                // Back to the choices with none picked: the list just looked at is let go, and its count, if still on the way, is dropped.
+                // Back to the choices as they first were, every row closed and none picked: the list just looked at is let go,
+                // and its count, if still on the way, is dropped.
                 asking.current++;
                 setBuilt(null);
                 setPreset(null);
+                setOpenGroup(null);
                 setBusy(null);
                 setView('choose');
               }}
