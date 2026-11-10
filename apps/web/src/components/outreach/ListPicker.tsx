@@ -201,11 +201,16 @@ export function ListPicker({
         aria-haspopup="dialog"
         aria-label="List"
         data-testid="list-picker"
-        className={`flex items-center gap-2 max-w-full border border-[#333333] bg-[#1A1A1A] text-white hover:bg-[#2A2A2A] ${compact ? 'w-full h-9 px-3 text-base' : 'h-11 px-4 text-base md:text-lg'}`}
+        className={
+          compact
+            ? 'flex items-center gap-2 max-w-full w-full h-9 px-3 text-base border border-[#333333] bg-[#1A1A1A] text-white hover:bg-[#2A2A2A]'
+            : // Not a box: the list's name, as the page's title, with a small arrow to switch.
+              'flex items-center gap-1.5 max-w-full h-10 -ml-2 px-2 text-lg font-semibold text-white hover:bg-[#1A1A1A]'
+        }
       >
         <span className="truncate">{current ? current.title : 'All owners'}</span>
         {current?.pinned && <Pin className="w-3.5 h-3.5 shrink-0 text-[#7fb0e0]" aria-label="Pinned" />}
-        <ChevronDown className={`w-4 h-4 shrink-0 text-gray-500 ml-auto transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
+        <ChevronDown className={`w-4 h-4 shrink-0 text-gray-500 transition-transform ${compact ? 'ml-auto' : ''} ${open ? 'rotate-180' : ''}`} aria-hidden />
       </button>
       {open &&
         (narrow ? (

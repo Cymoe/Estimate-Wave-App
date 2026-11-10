@@ -216,8 +216,8 @@ describe('the Outreach page', () => {
     enrich.mockImplementationOnce(() => new Promise((resolve) => (accept = resolve)) as never);
     contacts = { ...twoContacts(), balanceCents: 500 };
     await act(async () => pushContacts!(contacts));
-    await click('Look up 2');
-    await click('Look them up');
+    await click('Find phones & emails (2)');
+    await click('Find them');
     const first = document.body.querySelectorAll('[data-testid="contact-row"]')[0];
     expect(first.querySelectorAll('[data-testid="live"]').length).toBeGreaterThan(0);
     expect(document.body.querySelector('[data-testid="lookup-progress"]')!.textContent).toContain('Looking up 2 owners · 0 done');
@@ -423,7 +423,7 @@ describe('the Outreach page', () => {
     await render('/outreach/l1');
     const header = document.body.querySelector('[data-testid="actions"]')!;
     // One thing to do next (with Add funds while the balance is short); the rest waits under More.
-    expect(Array.from(header.querySelectorAll('button')).map((b) => b.textContent?.trim() || b.getAttribute('aria-label'))).toEqual(['Look up 1', 'Add funds', 'More']);
+    expect(Array.from(header.querySelectorAll('button')).map((b) => b.textContent?.trim() || b.getAttribute('aria-label'))).toEqual(['Find phones & emails (1)', 'Add funds', 'More']);
     await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
     const more = Array.from(document.body.querySelectorAll('[role="menu"] button')).map((b) => b.textContent?.trim());
     expect(more).toEqual(expect.arrayContaining(['Send 2 to Leads', 'Show as a table', 'Export CSV', 'Delete list']));
@@ -890,7 +890,8 @@ describe('the Outreach page', () => {
     jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
       clicks.push(this.download);
     });
-    await act(async () => (document.body.querySelector('button[aria-label="Export CSV"]') as HTMLButtonElement).click());
+    await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
+    await click('Export CSV');
     expect(made).toEqual(['text/csv']);
     expect(clicks).toEqual(['shopping-center-owners.csv']);
   });
@@ -931,7 +932,8 @@ describe('the Outreach page', () => {
     };
     (URL as unknown as { revokeObjectURL: () => void }).revokeObjectURL = () => {};
     jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    await act(async () => (document.body.querySelector('button[aria-label="Export CSV"]') as HTMLButtonElement).click());
+    await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
+    await click('Export CSV');
     expect(made).toEqual(['text/csv']);
     // Search by the brokerage.
     await act(async () => type(document.body.querySelector('input[type="search"]') as HTMLInputElement, 'fathom'));
@@ -946,8 +948,14 @@ describe('the Outreach page', () => {
     await render();
     // No checkboxes: the buttons up top act on everyone the list still needs.
     expect(document.body.querySelector('[data-testid="contact-row"] input[type="checkbox"]')).toBeNull();
-    expect(button('Look up 2').title).toBe('up to $2');
-    expect(button('Research 2').title).toBe('$0.25 an answer, charged only when the web has something to say');
+    expect(button('Find phones & emails (2)').title).toBe('up to $2');
+    // Up top, one main button and More; the list's name is the title beside them.
+    const actions = document.body.querySelector('[data-testid="actions"]')!;
+    expect(Array.from(actions.querySelectorAll(':scope > button, :scope > div > button')).map((b) => b.textContent?.trim() || b.getAttribute('aria-label'))).toEqual(['Find phones & emails (2)', 'More']);
+    // Research waits under More, saying what it does and what it costs.
+    await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
+    expect(button('Research with AI (2)').textContent).toContain('What each owner does and any plans to build or sell · $0.25 an answer');
+    await act(async () => document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
     const found = { status: 'found', at: '2026-11-05T15:01:00Z', source: 'batchdata' };
     contacts = {
       rows: [
@@ -981,9 +989,9 @@ describe('the Outreach page', () => {
       phoneHitRate: 0.5,
     };
     // After a word on the cost, everyone still locked on the list.
-    await click('Look up 2');
+    await click('Find phones & emails (2)');
     expect(document.body.textContent).toContain('2 phones to find: up to $2.');
-    await click('Look them up');
+    await click('Find them');
     expect(enrich).toHaveBeenCalledWith('o1', ['r1', 'r2'], undefined, undefined);
     // The bar along the bottom: the lookup started here, owners done, what's been found, what it has cost.
     expect(document.body.querySelector('[data-testid="lookup-progress"]')!.textContent).toBe('Looking up 2 owners · 1 done1 phone · 1 email · 1 person · $1 so far');
@@ -997,7 +1005,7 @@ describe('the Outreach page', () => {
     expect(cells(0)[4]).toBe('—');
     expect(document.body.querySelector('thead')!.textContent).toContain('1 / 2 · 1 source');
     // Nothing left to look up on the list: the top-right button is gone.
-    expect(button('Look up')).toBeUndefined();
+    expect(button('Find phones & emails')).toBeUndefined();
     await act(async () => (rows[0] as HTMLTableRowElement).click());
     const sheet = document.body.querySelector('[role="dialog"][aria-label="Oak Plaza LLC"]')!;
     expect(sheet.querySelector('[data-testid="decision-maker"]')!.textContent).toContain('Dana Reyes · Manager');
@@ -1085,7 +1093,7 @@ describe('the Outreach page', () => {
     expect(phoneCell(0).textContent).toBe('None foundTry again');
     expect(phoneCell(1).textContent).toBe('None found');
     // Only the month-old one is still open to the list's Look up; the fresh "none" isn't asked again.
-    expect(button('Look up').textContent).toContain('Look up 1');
+    expect(button('Find phones & emails').textContent).toContain('Find phones & emails (1)');
     await act(async () => (phoneCell(0).querySelector('button') as HTMLButtonElement).click());
     await flush();
     expect(enrich).toHaveBeenLastCalledWith('o1', ['r1'], ['phone'], undefined);

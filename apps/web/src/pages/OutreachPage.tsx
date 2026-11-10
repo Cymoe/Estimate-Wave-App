@@ -1,6 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Check, ChevronDown, Download, LayoutList, Lock, MoreHorizontal, Search, SlidersHorizontal, Table2, Trash2, Undo2, X } from 'lucide-react';
+import { Check, ChevronDown, Download, LayoutList, MoreHorizontal, Search, SlidersHorizontal, Table2, Trash2, Undo2, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachDefinition, type OutreachField, type OutreachListSummary, type OutreachProgress, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { AskListSheet } from '../components/outreach/AskListSheet';
@@ -205,6 +205,8 @@ const PopMenu: React.FC<{ label: string; icon: React.ReactNode; dot?: boolean; s
   );
 };
 const menuItem = 'flex w-full items-center gap-3 px-4 min-h-[44px] text-left text-sm text-gray-200 hover:bg-[#2A2A2A] disabled:opacity-50';
+/** What the main button does, in words: the person behind each owner, their phone and their email. */
+const findLabel = (n: number) => `Find phones & emails (${n.toLocaleString('en-US')})`;
 
 const ChipRow: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const row = useRef<HTMLDivElement>(null);
@@ -607,11 +609,11 @@ const OutreachPage: React.FC = () => {
     if (listOpen.length === 0) return;
     const who = list ? `the ${listOpen.length} ${listOpen.length === 1 ? 'owner' : 'owners'} on “${list.title}”` : `all ${listOpen.length} ${listOpen.length === 1 ? 'contact' : 'contacts'}`;
     const ok = await confirm({
-      title: `Look up ${who}?`,
+      title: `Find phones & emails for ${who}?`,
       message: `${listPhones} ${listPhones === 1 ? 'phone' : 'phones'} to find: ${estimate(listPhones)}. Charged only for phones found; the person behind each company and emails are free.${
         listKnown ? ` ${listKnown} you already have as ${listKnown === 1 ? 'a client or lead is' : 'clients or leads are'} left out.` : ''
       }`,
-      confirmLabel: 'Look them up',
+      confirmLabel: 'Find them',
     });
     if (!ok) return;
     await enrich(listOpen.map((r) => r.id)).catch(() => {});
@@ -621,8 +623,8 @@ const OutreachPage: React.FC = () => {
   const researchAll = async () => {
     if (listResearch.length === 0) return;
     const ok = await confirm({
-      title: `Research ${listResearch.length} ${listResearch.length === 1 ? 'owner' : 'owners'}?`,
-      message: `${dollars(researchCents)} an answer, ${dollars(researchCost)} at most. Charged only when the web has something to say.`,
+      title: `Research ${listResearch.length} ${listResearch.length === 1 ? 'owner' : 'owners'} with AI?`,
+      message: `AI reads the web for what each owner does and any sign of plans to build, renovate, expand or sell. ${dollars(researchCents)} an answer, ${dollars(researchCost)} at most, charged only when it finds something to say.`,
       confirmLabel: 'Research them',
     });
     if (!ok) return;
@@ -765,9 +767,11 @@ const OutreachPage: React.FC = () => {
         </div>
       )}
       {/* On a phone the top bar already says Outreach, and the staff lines fold behind one word; the actions become one row that slides sideways. */}
-      <header className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+      <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div className="min-w-0">
           <h1 className="sr-only">Outreach</h1>
+          {/* On a wide screen the open list's name is the page's title, a tap away from the others. */}
+          {lists && lists.length > 0 && !narrow && <ListPicker lists={lists} currentId={listId} narrow={false} onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} />}
           {isStaff(user) && (
             <div className="md:mt-1 text-xs text-gray-500">
               <button type="button" onClick={() => setStaffOpen((v) => !v)} aria-expanded={staffOpen} className="md:hidden inline-flex items-center gap-1 min-h-[32px] text-gray-500 hover:text-white">
@@ -784,7 +788,7 @@ const OutreachPage: React.FC = () => {
           <div className="flex items-center gap-2" data-testid="actions">
             {listOpen.length > 0 ? (
               <button type="button" onClick={() => void enrichAll()} disabled={busy || short} className={`${action} flex-1 justify-center bg-[#336699] hover:bg-[#2a5580]`} title={estimate(listPhones)}>
-                <Lock className="w-4 h-4" /> Look up {listOpen.length}
+                {findLabel(listOpen.length)}
               </button>
             ) : toSend.length > 0 ? (
               <button type="button" onClick={() => void sendAll()} disabled={busy} className={`${action} flex-1 justify-center border border-[#336699] hover:bg-[#336699]/20`} data-testid="send-all">
@@ -802,9 +806,11 @@ const OutreachPage: React.FC = () => {
               {(close) => (
                 <>
                   {listResearch.length > 0 && (
-                    <button type="button" role="menuitem" className={menuItem} disabled={busy || researchCost > balanceCents} onClick={() => (close(), void researchAll())}>
-                      Research {listResearch.length}
-                      <span className="ml-auto text-xs text-gray-500">{dollars(researchCents)} an answer</span>
+                    <button type="button" role="menuitem" className={`${menuItem} items-start py-2`} disabled={busy || researchCost > balanceCents} onClick={() => (close(), void researchAll())}>
+                      <span>
+                        Research with AI ({listResearch.length.toLocaleString('en-US')})
+                        <span className="block text-xs text-gray-500">What each owner does and any plans to build or sell · {dollars(researchCents)} an answer</span>
+                      </span>
                     </button>
                   )}
                   {listOpen.length > 0 && toSend.length > 0 && (
@@ -829,32 +835,15 @@ const OutreachPage: React.FC = () => {
           </div>
         )}
         {data && rows.length > 0 && !narrow && (
-          <div className="flex gap-2 shrink-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap md:overflow-visible" data-testid="actions">
+          <div className="flex items-center gap-2 shrink-0" data-testid="actions">
             {listOpen.length > 0 && (
-              <button
-                type="button"
-                onClick={() => void enrichAll()}
-                disabled={busy || short}
-                className={`${action} bg-[#336699] hover:bg-[#2a5580]`}
-                title={estimate(listPhones)}
-              >
-                <Lock className="w-4 h-4" /> Look up {listOpen.length}
+              <button type="button" onClick={() => void enrichAll()} disabled={busy || short} className={`${action} bg-[#336699] hover:bg-[#2a5580]`} title={estimate(listPhones)}>
+                {findLabel(listOpen.length)}
               </button>
             )}
             {listOpen.length > 0 && short && (
-              <button type="button" onClick={addFunds} className="self-center shrink-0 text-sm text-[#7fb0e0] hover:text-white">
+              <button type="button" onClick={addFunds} className="shrink-0 text-sm text-[#7fb0e0] hover:text-white">
                 Add funds
-              </button>
-            )}
-            {listResearch.length > 0 && (
-              <button
-                type="button"
-                onClick={() => void researchAll()}
-                disabled={busy || researchCost > balanceCents}
-                className={`${action} border border-[#336699] hover:bg-[#336699]/20`}
-                title={`${dollars(researchCents)} an answer, charged only when the web has something to say`}
-              >
-                Research {listResearch.length}
               </button>
             )}
             {toSend.length > 0 && (
@@ -862,14 +851,28 @@ const OutreachPage: React.FC = () => {
                 Send {toSend.length} to Leads
               </button>
             )}
-            <button type="button" onClick={() => download(csvName(list?.title ?? 'contacts'), outreachCsv(rows))} aria-label="Export CSV" title="Export CSV" className={iconButton}>
-              <Download className="w-4 h-4" />
-            </button>
             {list && (
               <button type="button" onClick={() => void removeList()} aria-label="Delete list" title="Delete list" className={iconButton}>
                 <Trash2 className="w-4 h-4" />
               </button>
             )}
+            <PopMenu label="More" icon={<MoreHorizontal className="w-5 h-5" />}>
+              {(close) => (
+                <>
+                  {listResearch.length > 0 && (
+                    <button type="button" role="menuitem" className={`${menuItem} items-start py-2`} disabled={busy || researchCost > balanceCents} onClick={() => (close(), void researchAll())}>
+                      <span>
+                        Research with AI ({listResearch.length.toLocaleString('en-US')})
+                        <span className="block text-xs text-gray-500">What each owner does and any plans to build or sell · {dollars(researchCents)} an answer</span>
+                      </span>
+                    </button>
+                  )}
+                  <button type="button" role="menuitem" className={menuItem} onClick={() => (close(), download(csvName(list?.title ?? 'contacts'), outreachCsv(rows)))}>
+                    <Download className="w-4 h-4 text-gray-500" /> Export CSV
+                  </button>
+                </>
+              )}
+            </PopMenu>
           </div>
         )}
       </header>
@@ -906,8 +909,8 @@ const OutreachPage: React.FC = () => {
         </div>
       )}
       {/* The lists: one picker (search, pinned, recent, grouped by kind) instead of a chip per list. On a phone with owners showing, it lives in the sticky bar below. */}
-      {lists && lists.length > 0 && !(narrow && data && data.rows.length > 0) && (
-        <ListPicker lists={lists} currentId={listId} narrow={narrow} onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} />
+      {lists && lists.length > 0 && narrow && !(data && data.rows.length > 0) && (
+        <ListPicker lists={lists} currentId={listId} narrow onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} />
       )}
       {data && data.rows.length > 0 && list && (
         <p className="text-xs text-gray-500" data-testid="list-line">
