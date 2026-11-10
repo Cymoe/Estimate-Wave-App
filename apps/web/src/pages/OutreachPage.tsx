@@ -58,7 +58,7 @@ const matches = (r: OutreachContact, q: string) => {
 
 /** What keeps an owner when its only list is deleted: something of yours on it (as the server's worthKeeping). */
 const workedOn = (r: OutreachContact) =>
-  Boolean(r.leadId) || r.status !== 'new' || Boolean(r.note?.trim()) || Boolean(r.research) || Object.values(r.enrichment).some((c) => c.status === 'found' && !c.simulated);
+  Boolean(r.leadId) || r.status !== 'new' || Boolean(r.note?.trim()) || Boolean(r.research) || Object.values(r.enrichment).some((c) => c.status === 'found' && !c.simulated && (c.requestedBy !== undefined || (c.chargedCents ?? 0) > 0));
 
 /** Staff only: the stack in order, whether each source is connected, and how it has done for this company. */
 const SourcesPanel: React.FC<{ organizationId: string }> = ({ organizationId }) => {

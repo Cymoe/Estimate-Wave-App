@@ -701,11 +701,14 @@ describe("a company's lists", () => {
       // Fresh: nothing of the company's own. Simulated results are made up; a worked owner also on Worked loses nothing.
       await contact("Simulated LLC", { phones: [{ number: "+14325550100", type: "mobile", source: "sim" }], enrichment: { phone: { status: "found", source: "sim", simulated: true }, email: locked, person: locked } });
       await contact("Untouched LLC");
+      // A contractor whose permits named who to call: free from the record at build, nobody asked for it.
+      await contact("Permit Roofing LLC", { kinds: ["contractor"], person: { name: "Dale Ortiz", source: "permits" }, phones: [{ number: "+14325550111", type: "unknown", source: "permits" }], enrichment: { phone: { status: "found", source: "permits", chargedCents: 0 }, email: locked, person: { status: "found", source: "permits" } } });
       await contact("Two Lists LLC", { listIds: [fresh, worked], status: "callback" });
       // Worked: a real paid lookup only this list holds.
       await contact("Paid LLC", { listIds: [worked], phones: [{ number: "+14326831234", type: "mobile", source: "batchdata" }], enrichment: { phone: { status: "found", source: "batchdata", chargedCents: 100 }, email: locked, person: locked } });
       // On no list already: each kind of work keeps its owner through the cleanup; sample-only results don't.
       await contact("Leftover LLC", { listIds: [], emails: [{ email: "x@example.com", source: "sim" }], enrichment: { phone: locked, email: { status: "found", simulated: true }, person: locked } });
+      await contact("License Realty", { listIds: [], kinds: ["realtor"], person: { name: "Ann Lee", source: "trec" }, enrichment: { phone: locked, email: locked, person: { status: "found", source: "trec" } } });
       await contact("Noted LLC", { listIds: [], note: "Wants a quote in spring" });
       await contact("Called LLC", { listIds: [], status: "no_answer" });
       await contact("Researched LLC", { listIds: [], research: { question: "Who manages it?", answer: "Pat at Oak Mgmt", sources: [], at } });
@@ -718,8 +721,8 @@ describe("a company's lists", () => {
     ]);
     await co.as.mutation(api.outreach.remove, { organizationId: org, listId: fresh });
     const names = async () => (await t.run(async (ctx) => ctx.db.query("outreachContacts").collect())).map((c) => c.name).sort();
-    expect(await names()).toEqual(["Called LLC", "Leftover LLC", "Noted LLC", "Paid LLC", "Researched LLC", "Two Lists LLC"]);
-    expect(await t.mutation(internal.outreach.clearLeftovers, {})).toEqual({ removed: 1, done: true });
+    expect(await names()).toEqual(["Called LLC", "Leftover LLC", "License Realty", "Noted LLC", "Paid LLC", "Researched LLC", "Two Lists LLC"]);
+    expect(await t.mutation(internal.outreach.clearLeftovers, {})).toEqual({ removed: 2, done: true });
     expect(await names()).toEqual(["Called LLC", "Noted LLC", "Paid LLC", "Researched LLC", "Two Lists LLC"]);
     // Again: nothing more to do.
     expect(await t.mutation(internal.outreach.clearLeftovers, {})).toEqual({ removed: 0, done: true });

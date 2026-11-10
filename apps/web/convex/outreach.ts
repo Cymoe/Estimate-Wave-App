@@ -1350,15 +1350,17 @@ export const remove = mutation({
 /**
  * Whether an owner holds work of the company's own, so it's kept even on no
  * list: a lead or client it became, a status or note someone set, a research
- * answer, or a real lookup paid for. Sample and simulated results are made up
- * and keep nothing.
+ * answer, or a real lookup someone asked for. Sample and simulated results are
+ * made up, and what a permit or license gave free when the list was built
+ * comes back with the next list, so neither keeps anything.
  */
 function worthKeeping(c: Doc<"outreachContacts">) {
   if (c.leadId || c.clientId) return true;
   // The sample filler's owners (marked by their note); a simulated cell is made up whatever it found.
   if (isSampleRun(c)) return false;
   if (c.status !== "new" || c.note?.trim() || c.research || c.followUpOn || (c.touches?.length ?? 0) > 0) return true;
-  return Object.values(cellsOf(c)).some((cell) => cell?.status === "found" && !cell.simulated);
+  // A lookup someone asked for or paid for; a name or number the permits or a license gave for free at build doesn't count (the next list has it again).
+  return Object.values(cellsOf(c)).some((cell) => cell?.status === "found" && !cell.simulated && (cell.requestedBy !== undefined || (cell.chargedCents ?? 0) > 0));
 }
 
 /**
