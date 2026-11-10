@@ -251,9 +251,7 @@ export const ContactsTable: React.FC<{
   sortLabel?: string;
   /** Height of the filter bar stuck above, so the column header sticks just under it. */
   below?: number;
-  /** Research everyone showing without an answer: offered on the Research column it fills in. */
-  researchAll?: { count: number; price: string; disabled?: boolean; onClick: () => void };
-}> = ({ rows, coverage, onOpen, onRetry, sort = 'list', onSort, sortLabel, below = 0, researchAll }) => {
+}> = ({ rows, coverage, onOpen, onRetry, sort = 'list', onSort, sortLabel, below = 0 }) => {
   const lit = useJustFilled(rows);
   const { drawn, tail } = useDrawn(rows);
   const glow = (id: string, f: OutreachField) => (lit.has(`${id}:${f}`) ? ' cell-filled' : '');
@@ -316,18 +314,6 @@ export const ContactsTable: React.FC<{
               <th className={th}>
                 Research
                 <Coverage c={coverage.research} />
-                {researchAll && researchAll.count > 0 && (
-                  <button
-                    type="button"
-                    onClick={researchAll.onClick}
-                    disabled={researchAll.disabled}
-                    title={`AI reads the web for what each owner does and any plans to build or sell · ${researchAll.price} an answer, charged only when it finds something`}
-                    className="block mt-0.5 normal-case tracking-normal text-[11px] font-medium text-[#7fb0e0] hover:text-white disabled:text-gray-600"
-                    data-testid="research-all"
-                  >
-                    Research all ({researchAll.count.toLocaleString('en-US')})
-                  </button>
-                )}
               </th>
               <th className={th}>Status</th>
               <th className={th}>Mailing address</th>

@@ -1,6 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Check, ChevronDown, Download, LayoutList, MoreHorizontal, Search, SlidersHorizontal, Table2, Trash2, Undo2, X } from 'lucide-react';
+import { Check, ChevronDown, Download, LayoutList, MoreHorizontal, Search, Send, SlidersHorizontal, Table2, Trash2, Undo2, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachDefinition, type OutreachField, type OutreachListSummary, type OutreachProgress, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { AskListSheet } from '../components/outreach/AskListSheet';
@@ -270,6 +270,8 @@ const OutreachPage: React.FC = () => {
   };
   // Cards on a phone, the table on anything wider, unless they picked one; the pick is remembered on this device.
   const narrow = useMediaQuery('(max-width: 767px)');
+  // On a phone the two buttons share the row, so their words may wrap to a second line.
+  const wrapOnPhone = narrow ? 'flex-1 justify-center whitespace-normal text-center leading-tight py-2 h-auto min-h-[44px]' : '';
   const [picked, setPicked] = useState<'cards' | 'table' | null>(() => {
     try {
       const v = localStorage.getItem(VIEW_KEY);
@@ -783,44 +785,49 @@ const OutreachPage: React.FC = () => {
             </div>
           )}
         </div>
-        {/* On a phone: the one thing to do next, and the rest under More. */}
-        {data && rows.length > 0 && narrow && (
-          <div className="flex items-center gap-2" data-testid="actions">
+        {/* Two buttons, told apart at a glance: find phones and emails (solid blue), research with AI (violet). The rest under More. */}
+        {data && rows.length > 0 && (
+          <div className={narrow ? 'flex items-stretch gap-2' : 'flex items-center gap-2 shrink-0'} data-testid="actions">
             {listOpen.length > 0 ? (
-              <button type="button" onClick={() => void enrichAll()} disabled={busy || short} className={`${action} flex-1 justify-center bg-[#336699] hover:bg-[#2a5580]`} title={estimate(listPhones)}>
+              <button type="button" onClick={() => void enrichAll()} disabled={busy || short} className={`${action} ${wrapOnPhone} bg-[#336699] hover:bg-[#2a5580]`} title={estimate(listPhones)}>
                 {findLabel(listOpen.length)}
               </button>
-            ) : toSend.length > 0 ? (
-              <button type="button" onClick={() => void sendAll()} disabled={busy} className={`${action} flex-1 justify-center border border-[#336699] hover:bg-[#336699]/20`} data-testid="send-all">
-                Send {toSend.length} to Leads
-              </button>
             ) : (
-              <span className="flex-1" />
+              toSend.length > 0 && (
+                <button type="button" onClick={() => void sendAll()} disabled={busy} className={`${action} ${wrapOnPhone} bg-[#336699] hover:bg-[#2a5580]`} data-testid="send-all">
+                  Send {toSend.length} to Leads
+                </button>
+              )
+            )}
+            {listResearch.length > 0 && (
+              <button
+                type="button"
+                onClick={() => void researchAll()}
+                disabled={busy || researchCost > balanceCents}
+                className={`${action} ${wrapOnPhone} border border-violet-400/60 bg-violet-500/10 text-violet-100 hover:bg-violet-500/20`}
+                title={`AI reads the web for what each owner does and any plans to build or sell · ${dollars(researchCents)} an answer, charged only when it finds something`}
+              >
+                Research with AI ({listResearch.length.toLocaleString('en-US')})
+              </button>
             )}
             {listOpen.length > 0 && short && (
-              <button type="button" onClick={addFunds} className="shrink-0 min-h-[40px] text-sm text-[#7fb0e0] hover:text-white">
+              <button type="button" onClick={addFunds} className="shrink-0 text-sm text-[#7fb0e0] hover:text-white">
                 Add funds
               </button>
             )}
             <PopMenu label="More" icon={<MoreHorizontal className="w-5 h-5" />}>
               {(close) => (
                 <>
-                  {listResearch.length > 0 && (
-                    <button type="button" role="menuitem" className={`${menuItem} items-start py-2`} disabled={busy || researchCost > balanceCents} onClick={() => (close(), void researchAll())}>
-                      <span>
-                        Research with AI ({listResearch.length.toLocaleString('en-US')})
-                        <span className="block text-xs text-gray-500">What each owner does and any plans to build or sell · {dollars(researchCents)} an answer</span>
-                      </span>
-                    </button>
-                  )}
                   {listOpen.length > 0 && toSend.length > 0 && (
                     <button type="button" role="menuitem" className={menuItem} disabled={busy} onClick={() => (close(), void sendAll())} data-testid="send-all">
-                      Send {toSend.length} to Leads
+                      <Send className="w-4 h-4 text-gray-500" /> Send {toSend.length} to Leads
                     </button>
                   )}
-                  <button type="button" role="menuitem" className={menuItem} onClick={() => (close(), pickView(view === 'cards' ? 'table' : 'cards'))}>
-                    {view === 'cards' ? <Table2 className="w-4 h-4 text-gray-500" /> : <LayoutList className="w-4 h-4 text-gray-500" />} {view === 'cards' ? 'Show as a table' : 'Show as cards'}
-                  </button>
+                  {narrow && (
+                    <button type="button" role="menuitem" className={menuItem} onClick={() => (close(), pickView(view === 'cards' ? 'table' : 'cards'))}>
+                      {view === 'cards' ? <Table2 className="w-4 h-4 text-gray-500" /> : <LayoutList className="w-4 h-4 text-gray-500" />} {view === 'cards' ? 'Show as a table' : 'Show as cards'}
+                    </button>
+                  )}
                   <button type="button" role="menuitem" className={menuItem} onClick={() => (close(), download(csvName(list?.title ?? 'contacts'), outreachCsv(rows)))}>
                     <Download className="w-4 h-4 text-gray-500" /> Export CSV
                   </button>
@@ -832,33 +839,6 @@ const OutreachPage: React.FC = () => {
                 </>
               )}
             </PopMenu>
-          </div>
-        )}
-        {data && rows.length > 0 && !narrow && (
-          <div className="flex items-center gap-2 shrink-0" data-testid="actions">
-            {listOpen.length > 0 && (
-              <button type="button" onClick={() => void enrichAll()} disabled={busy || short} className={`${action} bg-[#336699] hover:bg-[#2a5580]`} title={estimate(listPhones)}>
-                {findLabel(listOpen.length)}
-              </button>
-            )}
-            {listOpen.length > 0 && short && (
-              <button type="button" onClick={addFunds} className="shrink-0 text-sm text-[#7fb0e0] hover:text-white">
-                Add funds
-              </button>
-            )}
-            {toSend.length > 0 && (
-              <button type="button" onClick={() => void sendAll()} disabled={busy} className={`${action} border border-[#333333] hover:bg-[#2A2A2A]`} data-testid="send-all">
-                Send {toSend.length} to Leads
-              </button>
-            )}
-            {list && (
-              <button type="button" onClick={() => void removeList()} aria-label="Delete list" title="Delete list" className={iconButton}>
-                <Trash2 className="w-4 h-4" />
-              </button>
-            )}
-            <button type="button" onClick={() => download(csvName(list?.title ?? 'contacts'), outreachCsv(rows))} aria-label="Export CSV" title="Export CSV" className={iconButton}>
-              <Download className="w-4 h-4" />
-            </button>
           </div>
         )}
       </header>
@@ -1045,7 +1025,6 @@ const OutreachPage: React.FC = () => {
           onSort={nextSort}
           onOpen={setOpen}
           onRetry={(row, field) => void enrich([row.id], [field]).catch(() => {})}
-          researchAll={{ count: listResearch.length, price: dollars(researchCents), disabled: busy || researchCost > balanceCents, onClick: () => void researchAll() }}
         />
       )}
       <ContactSheet
