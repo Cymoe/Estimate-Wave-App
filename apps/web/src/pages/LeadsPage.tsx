@@ -425,7 +425,7 @@ const LeadsPage: React.FC = () => {
       <div className="p-4 md:p-6">
         {/* Title row: the page name and the quiet staff pill; on the right, the sample leads and their Remove. On a phone the header names the page and the samples are removed from the menu, so this row isn't needed. */}
         <div className="hidden md:flex flex-wrap items-center gap-x-4 gap-y-2 mb-4">
-          <h1 className="hidden md:block text-xl font-semibold">Leads</h1>
+          <h1 className="sr-only">Leads</h1>
           <WalletPill organizationId={organizationId} />
           {hasSamples && (
             <div className="ml-auto flex items-center gap-3 text-sm">

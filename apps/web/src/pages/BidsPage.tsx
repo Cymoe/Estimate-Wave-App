@@ -165,7 +165,7 @@ const BidsPage: React.FC = () => {
     <div className="p-4 md:p-6 text-white">
       <div className="flex items-start justify-between gap-3 mb-2">
         <div>
-          <h1 className="text-xl font-semibold">Bids</h1>
+          <h1 className="sr-only">Bids</h1>
           <p className="text-sm text-gray-400">
             {standing ? `${standing.length} bid${standing.length === 1 ? '' : 's'}` : 'Loading…'} · {won} lead{won === 1 ? '' : 's'} won
           </p>

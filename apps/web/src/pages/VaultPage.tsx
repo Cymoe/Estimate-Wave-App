@@ -104,7 +104,7 @@ const VaultPage: React.FC = () => {
   return (
     <div className="p-4 md:p-6 text-white">
       <div className="mb-2">
-        <h1 className="text-xl font-semibold">🔐 The Vault</h1>
+        <h1 className="sr-only">The Vault</h1>
         <p className="text-sm text-gray-400">
           {pool === null ? 'Loading…' : `${pool.count} lead${pool.count === 1 ? '' : 's'} in your trades`}
           {/* Claims only mean something once the Vault is open. */}

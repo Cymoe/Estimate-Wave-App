@@ -90,7 +90,6 @@ const ReportPage: React.FC = () => {
     <div className="p-4 md:p-6 max-w-5xl space-y-4" data-testid="report-page">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="font-mono text-xs text-emerald-400">The Webb Report</p>
           <h1 className="text-2xl font-semibold text-white">
             {r ? `${r.county} County${r.trade ? ` · ${r.trade.name}` : ''}` : 'Loading…'}
           </h1>

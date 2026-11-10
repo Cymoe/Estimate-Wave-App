@@ -228,7 +228,7 @@ const MarketplacePage: React.FC = () => {
   return (
     <div className="p-4 md:p-6 text-white">
       <div className="mb-2">
-        <h1 className="text-xl font-semibold">Marketplace</h1>
+        <h1 className="sr-only">Marketplace</h1>
         <p className="text-sm text-gray-400">
           {leads ? `${leads.length} lead${leads.length === 1 ? '' : 's'}` : 'Loading…'} · {openOrders.length} buy order{openOrders.length === 1 ? '' : 's'} open
         </p>

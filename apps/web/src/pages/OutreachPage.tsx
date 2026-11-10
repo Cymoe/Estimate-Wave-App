@@ -675,7 +675,7 @@ const OutreachPage: React.FC = () => {
       {/* On a phone the top bar already says Outreach, and the staff lines fold behind one word; the actions become one row that slides sideways. */}
       <header className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="hidden md:block text-2xl font-semibold text-white">Outreach</h1>
+          <h1 className="sr-only">Outreach</h1>
           {isStaff(user) && (
             <div className="md:mt-1 text-xs text-gray-500">
               <button type="button" onClick={() => setStaffOpen((v) => !v)} aria-expanded={staffOpen} className="md:hidden inline-flex items-center gap-1 min-h-[32px] text-gray-500 hover:text-white">
