@@ -89,7 +89,7 @@ export function ListsOverview({
                     {l.pinned && <Pin className="w-4 h-4 shrink-0 mt-1 text-[#7fb0e0]" aria-label="Pinned" />}
                   </span>
                   <span className="block text-xs text-gray-500 mt-0.5">
-                    {WHO_LABEL[l.who]} · {l.definition.county} · asked {day(l.createdAt)}
+                    {WHO_LABEL[l.who]} · {l.definition.county} · made {day(l.createdAt)}
                   </span>
                 </button>
               )}

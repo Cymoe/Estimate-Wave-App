@@ -614,7 +614,7 @@ describe('the Outreach page', () => {
     expect(getContacts).toHaveBeenLastCalledWith('o1', 'l1');
     // One quiet line about the list over it; no step cards.
     expect(document.body.querySelector('[data-testid="steps"]')).toBeNull();
-    expect(document.body.querySelector('[data-testid="list-line"]')!.textContent).toBe('Commercial owners · highest value first · 0 done · asked Nov 5');
+    expect(document.body.querySelector('[data-testid="list-line"]')!.textContent).toBe('0 done · made Nov 5');
     // Two owners and no total: nothing about a cap.
     expect(document.body.querySelector('[data-testid="list-total"]')).toBeNull();
   });

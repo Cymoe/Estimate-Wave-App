@@ -19,7 +19,7 @@ import { useConfirm } from '../components/common/ConfirmDialog';
 import { fundErrorText, openFundingPage } from '../components/market/WalletBar';
 import { useAuth } from '../contexts/AuthContext';
 import { isStaff } from '../lib/roles';
-import { DEFAULT_ROWS, WHO_LABEL, listOrder } from '../../convex/lib/outreach';
+import { DEFAULT_ROWS, listOrder } from '../../convex/lib/outreach';
 import { callOk, isSimulated, mailOnly, openToLook, sourceName, STATUS_LABEL } from '../components/outreach/format';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -1054,10 +1054,7 @@ const OutreachPage: React.FC = () => {
       )}
       {data && data.rows.length > 0 && list && (
         <p className="text-xs text-gray-500" data-testid="list-line">
-          {/* On a phone just what's done and what's left to load; who and the order are in the list's title and the ask. */}
-          <span className="hidden md:inline">
-            {WHO_LABEL[list.who]} · {listOrder(list.definition).label} ·{' '}
-          </span>
+          {/* What's done, what it's turned into and when it was made: who it is is in the title, the order under Name. */}
           {list.done} done
           {list.results && list.results.sent > 0 && (
             <span data-testid="list-results">
@@ -1065,7 +1062,7 @@ const OutreachPage: React.FC = () => {
               · {list.results.sent} sent · {list.results.estimates} {list.results.estimates === 1 ? 'estimate' : 'estimates'} · {list.results.sold} sold
             </span>
           )}
-          <span className="hidden md:inline"> · asked {day(list.createdAt)}</span>
+          <span className="hidden md:inline"> · made {day(list.createdAt)}</span>
           {list.total !== undefined && list.total > list.rowCount && !list.filling && (
             <span data-testid="list-total">
               {' '}
