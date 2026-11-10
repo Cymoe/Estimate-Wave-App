@@ -5,7 +5,7 @@ import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { fullAddress } from '../../lib/mapsLinks';
 import type { OutreachCell, OutreachContact, OutreachContacts, OutreachCoverage, OutreachField, OutreachPhone, OutreachRowStatus, OutreachSignal, OutreachTry, OutreachWho } from '../../lib/api';
 import { shortMoney, WHO_LABEL } from '../../../convex/lib/outreach';
-import { askingText, callOk, deedSearchUrl, dueAgain, isSimulated, LEAD_STAGE, phoneKind, phoneText, sourceList, sourceName, STATUS_LABEL, tryAgainFrom } from './format';
+import { askingText, callOk, deedSearchUrl, dueAgain, isSimulated, LEAD_STAGE, phoneKind, phoneText, sourceList, sourceName, STATUS_LABEL, tryAgainFrom, QUEUED_AFTER_MS } from './format';
 
 /** The column's short name for the kind of owner. */
 const KIND: Record<OutreachWho, string> = {
@@ -62,6 +62,15 @@ export const PhoneBadges: React.FC<{ p: OutreachPhone }> = ({ p }) => {
 
 /** A lookup at work: the source it's asking now, under it the last thing found. */
 export const Live: React.FC<{ cell: OutreachCell }> = ({ cell }) => {
+  // Not picked up yet: once it has waited long enough to look stuck, it says it's waiting its turn, without waiting for other news.
+  const [, wake] = useState(0);
+  useEffect(() => {
+    if (cell.asking || !cell.at) return;
+    const left = QUEUED_AFTER_MS - (Date.now() - Date.parse(cell.at));
+    if (left <= 0) return;
+    const t = setTimeout(() => wake((n) => n + 1), left + 50);
+    return () => clearTimeout(t);
+  }, [cell.asking, cell.at]);
   const last = [...(cell.tries ?? [])].reverse().find((t) => t.outcome === 'hit');
   const asked = (cell.tries ?? []).filter((t) => t.outcome !== 'skipped').length;
   return (
@@ -697,7 +706,13 @@ export const ContactSheet: React.FC<{
   const [question, setQuestion] = useState(researchQuestion);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** The note was just saved: a quiet word under it says so. */
+  const [saved, setSaved] = useState(false);
+  // The note and owner as they are now, for closing: the drawer's Escape handler holds on to the first close it was given.
+  const now = useRef({ note, row });
+  now.current = { note, row };
   useEffect(() => {
+    setSaved(false);
     setNote(row?.note ?? '');
     setQuestion(row?.research?.question ?? researchQuestion);
     setError(null);
@@ -715,6 +730,18 @@ export const ContactSheet: React.FC<{
     }
   };
   const set = (status: OutreachRowStatus) => run(() => onStatus(row, status, note), "Couldn't save that");
+  const noteChanged = note !== (row.note ?? '');
+  const saveNote = () =>
+    run(async () => {
+      await onStatus(row, row.status, note);
+      setSaved(true);
+    }, "Couldn't save the note");
+  // However the sheet is closed (X, Escape, a tap outside, which on an iPad doesn't take the focus off the note), a changed note is kept.
+  const close = () => {
+    const { note: typed, row: owner } = now.current;
+    if (owner && typed !== (owner.note ?? '')) void onStatus(owner, owner.status, typed).catch(() => {});
+    onClose();
+  };
   const enrich = (fields: OutreachField[], asked?: string) => run(() => onEnrich(row, fields, asked), "Couldn't start that");
   const property = row.property ? fullAddress(row.property.address, 'Midland', 'TX') : undefined;
   const mailing = row.mailing.address ? fullAddress(row.mailing.address, row.mailing.city, row.mailing.state, row.mailing.zip?.slice(0, 5)) : undefined;
@@ -735,7 +762,7 @@ export const ContactSheet: React.FC<{
   // The Email button goes to an address the contact check didn't say belongs to someone else.
   const email0 = row.emails.find((e) => e.nameMatch !== false) ?? row.emails[0];
   return (
-    <SlideOutDrawer isOpen onClose={onClose} title={row.name} width="md">
+    <SlideOutDrawer isOpen onClose={close} title={row.name} width="md">
       <div className="p-6 space-y-5">
         <p className="text-sm text-gray-300">
           {row.why}
@@ -849,17 +876,16 @@ export const ContactSheet: React.FC<{
             ) : (
               <div className="space-y-2 pt-1">
                 {phone.status === 'failed' && <p className="text-sm text-amber-300">{phone.error ?? "The lookup didn't go through."} Nothing was charged.</p>}
-                <button type="button" onClick={() => enrich(row.company ? ['person', 'phone', 'email'] : ['phone', 'email'])} disabled={busy || !canPay || !contactOpen} className={primary}>
-                  <Lock className="w-4 h-4" /> Unlock phone & email · {dollars(unlockCents)}
+                {/* Short of money, the same button adds it, as the page's own does. */}
+                <button
+                  type="button"
+                  onClick={() => (canPay ? enrich(row.company ? ['person', 'phone', 'email'] : ['phone', 'email']) : onAddFunds())}
+                  disabled={busy || !contactOpen}
+                  className={primary}
+                >
+                  <Lock className="w-4 h-4" /> {canPay ? 'Unlock phone & email' : 'Add funds to unlock'} · {dollars(unlockCents)}
                 </button>
-                <p className="text-xs text-gray-500">
-                  Charged only when a phone is found. Balance {dollars(balanceCents)}.{' '}
-                  {!canPay && (
-                    <button type="button" onClick={onAddFunds} className="text-[#7fb0e0] underline underline-offset-2">
-                      Add funds
-                    </button>
-                  )}
-                </p>
+                <p className="text-xs text-gray-500">Charged only when a phone is found. Balance {dollars(balanceCents)}.</p>
               </div>
             )}
           </div>
@@ -898,17 +924,10 @@ export const ContactSheet: React.FC<{
                   aria-label="Research question"
                   className="w-full bg-[#1A1A1A] border border-[#333333] px-3 py-2 text-white text-base md:text-sm resize-none focus:outline-none focus:border-[#336699]"
                 />
-                <button type="button" onClick={() => enrich(['research'], question)} disabled={busy || !canResearch} className={primary}>
-                  Research · {dollars(researchCents)}
+                <button type="button" onClick={() => (canResearch ? enrich(['research'], question) : onAddFunds())} disabled={busy} className={primary}>
+                  {canResearch ? 'Research' : 'Add funds to research'} · {dollars(researchCents)}
                 </button>
-                <p className="text-xs text-gray-500">
-                  Charged only when the web has something to say. Balance {dollars(balanceCents)}.{' '}
-                  {!canResearch && (
-                    <button type="button" onClick={onAddFunds} className="text-[#7fb0e0] underline underline-offset-2">
-                      Add funds
-                    </button>
-                  )}
-                </p>
+                <p className="text-xs text-gray-500">Charged only when the web has something to say. Balance {dollars(balanceCents)}.</p>
               </div>
             )}
           </div>
@@ -964,14 +983,23 @@ export const ContactSheet: React.FC<{
           <textarea
             id="outreach-note"
             value={note}
-            onChange={(e) => setNote(e.target.value)}
-            onBlur={() => note !== (row.note ?? '') && void set(row.status)}
+            onChange={(e) => {
+              setNote(e.target.value);
+              setSaved(false);
+            }}
+            onBlur={() => noteChanged && void saveNote()}
             rows={2}
             placeholder="Spoke to the office manager…"
             className="w-full bg-[#1A1A1A] border border-[#333333] px-3 py-2 text-white text-base md:text-sm resize-none focus:outline-none focus:border-[#336699]"
           />
+          {saved && !noteChanged && (
+            <p className="text-xs text-gray-500" data-testid="note-saved">
+              Saved
+            </p>
+          )}
         </div>
-        <div className="space-y-2">
+        {/* What to do with the owner stays in reach at the bottom of the sheet, however far down it's scrolled. */}
+        <div className="sticky bottom-0 -mx-6 -mb-6 px-6 py-3 space-y-2 bg-[#121212] border-t border-[#333333]" data-testid="sheet-actions">
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => onLead(row)} disabled={busy} className={primary} data-testid="to-leads">
               {row.leadId ? 'Open in Leads' : 'Send to Leads'} <ArrowRight className="w-4 h-4" />

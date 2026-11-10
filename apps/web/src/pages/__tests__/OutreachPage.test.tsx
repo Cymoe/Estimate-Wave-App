@@ -124,7 +124,7 @@ jest.mock('../../components/layouts/DashboardLayout', () => ({
 
 import OutreachPage from '../OutreachPage';
 import { openFundingPage } from '../../components/market/WalletBar';
-import { ContactsTable } from '../../components/outreach/ContactsTable';
+import { ContactsTable, Live } from '../../components/outreach/ContactsTable';
 
 // The screen width the page asks about: a laptop unless a test says it's a phone.
 let narrowScreen = false;
@@ -914,10 +914,14 @@ describe('the Outreach page', () => {
       'https://midland.tx.publicsearch.us/results?department=RP&limit=50&offset=0&searchOcrText=false&searchType=quickSearch&searchValue=Oak%20Plaza%20LLC',
     ]);
     expect(sheet.querySelector('[data-testid="deeds"]')!.textContent?.trim()).toBe('Deeds at the county clerk');
-    // No balance: the unlock waits on funds; the free lookup of the person behind the company doesn't.
-    const unlockButton = button('Unlock phone & email · $1');
-    expect(unlockButton.disabled).toBe(true);
-    expect(sheet.textContent).toContain('Balance $0. Add funds');
+    // No balance: the unlock button adds funds (its tap opens the funding page); the free lookup of the person behind the company doesn't wait.
+    expect(sheet.textContent).toContain('Balance $0.');
+    await click('Add funds to unlock · $1');
+    expect(openFundingPage).toHaveBeenCalledWith('o1');
+    expect(enrich).not.toHaveBeenCalled();
+    // The thing to do with the owner is in reach at the bottom of the sheet, however far it scrolls.
+    expect(sheet.querySelector('[data-testid="sheet-actions"]')!.className).toContain('sticky bottom-0');
+    expect(sheet.querySelector('[data-testid="sheet-actions"] [data-testid="to-leads"]')).not.toBeNull();
     await click('Find the person behind the company · free');
     expect(enrich).toHaveBeenCalledWith('o1', ['r1'], ['person'], undefined);
     await act(async () => type(sheet.querySelector('textarea#outreach-note') as HTMLTextAreaElement, 'Mailed Nov 5'));
@@ -1270,6 +1274,48 @@ describe('the Outreach page', () => {
     await click('Delete list');
     expect(document.body.querySelector('[role="alertdialog"]')!.textContent).toContain('Its lookups were simulated (no phone source is connected yet), so nothing real or paid is lost');
   });
+  it("a note typed in an owner's sheet is kept however the sheet is closed, Escape included", async () => {
+    lists = [list];
+    contacts = twoContacts();
+    await render('/outreach/l1');
+    await act(async () => (document.body.querySelectorAll('[data-testid="contact-row"]')[0] as HTMLTableRowElement).click());
+    const sheet = document.body.querySelector('[role="dialog"][aria-label="Oak Plaza LLC"]')!;
+    await act(async () => type(sheet.querySelector('textarea#outreach-note') as HTMLTextAreaElement, 'Call after 3'));
+    // No blur: Escape closes it straight away, as a tap outside does on an iPad.
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      await new Promise((r) => setTimeout(r, 200));
+    });
+    await flush();
+    expect(setStatus).toHaveBeenCalledWith('o1', 'r1', 'new', 'Call after 3');
+    expect(document.body.querySelector('[role="dialog"][aria-label="Oak Plaza LLC"]')).toBeNull();
+  });
+
+  it('on a phone the list, search and tabs come first, then the buttons', async () => {
+    narrowScreen = true;
+    lists = [list];
+    contacts = twoContacts();
+    await render('/outreach/l1');
+    expect(document.body.querySelector('[data-testid="outreach-page"]')!.className).toContain('flex flex-col');
+    expect(document.body.querySelector('[data-testid="filter-bar"]')!.className).toContain('max-md:order-first');
+  });
+
+  it('a lookup not picked up yet says it is waiting its turn once it has waited 20 seconds, on its own', async () => {
+    jest.useFakeTimers({ now: new Date('2026-11-10T08:00:00Z') });
+    try {
+      const host = document.createElement('div');
+      document.body.appendChild(host);
+      const root = createRoot(host);
+      roots.push(root);
+      await act(async () => root.render(<Live cell={{ status: 'running', at: '2026-11-10T07:59:45Z' }} />));
+      expect(host.textContent?.trim()).toBe('Starting…');
+      await act(async () => jest.advanceTimersByTime(6000));
+      expect(host.textContent?.trim()).toBe('Waiting its turn…');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('a list with nobody on it says so, and can still be deleted from its page', async () => {
     lists = [list];
     await render('/outreach/l1');

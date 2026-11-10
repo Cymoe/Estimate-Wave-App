@@ -58,7 +58,7 @@ export const deedSearchUrl = (owner: string) =>
 
 /** What a running lookup is doing, for its cell: "Asking the Texas Comptroller". */
 /** How long a lookup can sit before its first source without looking stuck: after that it says it's waiting its turn. */
-const QUEUED_AFTER_MS = 20_000;
+export const QUEUED_AFTER_MS = 20_000;
 export const askingText = (s?: string, since?: string) =>
   s
     ? ({

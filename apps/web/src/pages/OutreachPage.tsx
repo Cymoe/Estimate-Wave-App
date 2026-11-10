@@ -906,7 +906,8 @@ const OutreachPage: React.FC = () => {
     );
 
   return (
-    <div className="p-4 md:p-6 space-y-4" data-testid="outreach-page">
+    // On a phone the page is a column whose filter bar (the list, search and tabs) comes first, before the buttons and the list's numbers.
+    <div className="p-4 md:p-6 flex flex-col gap-4 md:block md:space-y-4" data-testid="outreach-page">
       {/* What's running in the background (a lookup, a new list still filling) floats at the bottom of the screen,
           drawn outside the page's layout, so nothing on the page moves when it comes or goes. */}
       {createPortal(
@@ -1077,7 +1078,7 @@ const OutreachPage: React.FC = () => {
       {data && data.rows.length > 0 && (
         <div
           ref={filterBar}
-          className="flex flex-col-reverse md:flex-row md:items-center md:gap-2 border-b border-[#333333] sticky top-[69px] md:top-0 z-30 -mx-4 md:-mx-6 px-4 md:px-6 bg-black"
+          className="max-md:order-first flex flex-col-reverse md:flex-row md:items-center md:gap-2 border-b border-[#333333] sticky top-[69px] md:top-0 z-30 -mx-4 md:-mx-6 px-4 md:px-6 bg-black"
           role="group"
           aria-label="Filters"
           data-testid="filter-bar"
