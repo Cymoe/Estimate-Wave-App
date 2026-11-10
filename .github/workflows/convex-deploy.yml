@@ -136,6 +136,10 @@ jobs:
         run: npx convex run outreach:migrateRows
       - name: Give contacts unlocked before per-field cells their cells
         run: npx convex run outreach:migrateUnlocks
+      - name: Remove sample-only owners left from deleted lists
+        # Owners on no list with only sample or simulated results (no paid lookup, never sent to Leads).
+        # Safe to re-run: once they're gone it does nothing.
+        run: npx convex run outreach:clearLeftovers
       - name: Key permits by address for Outreach
         # Permits imported before the key existed get theirs; finishes in the background. Safe to re-run.
         run: npx convex run permits:backfillAddressKeys

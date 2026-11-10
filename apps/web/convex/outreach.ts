@@ -1302,8 +1302,7 @@ export const remove = mutation({
     for (const c of await contactsOf(ctx, organizationId)) {
       if (!c.listIds.includes(listId)) continue;
       const listIds = c.listIds.filter((id) => id !== listId);
-      const paid = Object.values(cellsOf(c)).some((cell) => cell.status === "found");
-      if (listIds.length === 0 && !paid) {
+      if (listIds.length === 0 && !worthKeeping(c)) {
         await ctx.db.delete(c._id);
         continue;
       }
@@ -1312,6 +1311,39 @@ export const remove = mutation({
     }
     await ctx.db.delete(listId);
     return null;
+  },
+});
+
+/**
+ * Whether an owner on no list is still worth keeping: a real lookup the
+ * company paid for, or a lead it was sent to (the lead's drawer names it).
+ * Sample and simulated results are made up and keep nothing.
+ */
+function worthKeeping(c: Doc<"outreachContacts">) {
+  if (c.leadId) return true;
+  // The sample filler's owners (marked by their note); a simulated cell is made up whatever it found.
+  if (isSampleRun(c)) return false;
+  return Object.values(cellsOf(c)).some((cell) => cell?.status === "found" && !cell.simulated);
+}
+
+/**
+ * One-off, run on deploy: owners left on no list that aren't worth keeping
+ * (only sample or simulated results) are removed, as deleting their list now
+ * does. Real lookups and owners sent to Leads stay. Safe to re-run; goes on in
+ * the background until it has looked at every contact.
+ */
+export const clearLeftovers = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, { cursor }): Promise<{ removed: number; done: boolean }> => {
+    const page = await ctx.db.query("outreachContacts").paginate({ cursor: cursor ?? null, numItems: 500 });
+    let removed = 0;
+    for (const c of page.page) {
+      if (c.listIds.length > 0 || worthKeeping(c)) continue;
+      await ctx.db.delete(c._id);
+      removed++;
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.outreach.clearLeftovers, { cursor: page.continueCursor });
+    return { removed, done: page.isDone };
   },
 });
 

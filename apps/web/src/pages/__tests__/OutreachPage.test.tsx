@@ -457,7 +457,7 @@ describe('the Outreach page', () => {
     await render();
     expect(document.body.querySelector('[data-testid="outreach-empty"]')).toBeNull();
     expect(document.body.querySelector('[data-testid="no-lists-hint"]')!.textContent).toBe(
-      'No lists right now. These 2 owners stayed from lists you deleted, because you looked them up or sent them to Leads.Make a list',
+      'No lists right now. These 2 owners stayed from lists you deleted, because you paid to look them up or sent them to Leads.Make a list',
     );
     expect(document.body.querySelectorAll('[data-testid="contact-row"]')).toHaveLength(2);
     await click('Make a list');

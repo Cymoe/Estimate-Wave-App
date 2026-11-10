@@ -656,19 +656,55 @@ describe("a company's lists", () => {
     await expect(free.as.query(api.outreach.lists, { organizationId: free.organizationId })).rejects.toThrow(/Pro plan/);
     await expect(free.as.query(api.outreach.preview, { organizationId: free.organizationId, definition: { county: "Midland", who: "wealthy" } })).rejects.toThrow(/Pro plan/);
 
-    // Dropping a list untags its contacts; one on no other list goes with it.
+    // Dropping a list untags its contacts; one on no other list goes with it, unless it was sent to Leads.
     await co.as.mutation(api.outreach.remove, { organizationId: org, listId: saved.listId });
     expect((await co.as.query(api.outreach.lists, { organizationId: org })).map((l) => l.who)).toEqual(["investor"]);
     const left = await co.as.query(api.outreach.contacts, { organizationId: org });
     expect(left.rows.map((r) => [r.name, r.kinds, r.status])).toEqual([
+      ["City Of Midland", [], "lead"],
       ["Nuka Hiva LLC", ["investor"], "new"],
       ["Oak Plaza LLC", ["investor"], "done"],
       ["Park Holdings LP", ["investor"], "lead"],
     ]);
     await co.as.mutation(api.outreach.remove, { organizationId: org, listId: second.listId });
+    // The owner sent to Leads stays (its lead names it); the rest go.
     await t.run(async (ctx) => {
-      expect(await ctx.db.query("outreachContacts").collect()).toEqual([]);
+      expect((await ctx.db.query("outreachContacts").collect()).map((c) => [c.name, c.listIds]).sort()).toEqual([
+        ["City Of Midland", []],
+        ["Park Holdings LP", []],
+      ]);
     });
+  });
+
+  test("deleting a list keeps only owners worth keeping: a real paid lookup or a lead, never sample or simulated results; leftovers are cleared on deploy", async () => {
+    const t = setup();
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    const at = "2026-11-01T00:00:00.000Z";
+    const { listId, otherList } = await t.run(async (ctx) => {
+      const [user] = await ctx.db.query("users").collect();
+      const list = { organizationId: org, title: "Investors", definition: { county: "Midland", who: "investor" as const }, rowCount: 4, done: 0, truncated: false, createdBy: user._id, createdAt: at };
+      const listId = await ctx.db.insert("outreachLists", list);
+      const otherList = await ctx.db.insert("outreachLists", { ...list, title: "Other" });
+      const locked = { status: "locked" as const };
+      const contact = (name: string, extra: Record<string, unknown> = {}) =>
+        ctx.db.insert("outreachContacts", { organizationId: org, key: name, name, mailing: {}, properties: 1, totalValueCents: 0, why: "", kinds: ["investor"], listIds: [listId], status: "new", createdAt: at, enrichment: { phone: locked, email: locked, person: locked }, ...extra });
+      await contact("Simulated LLC", { phones: [{ number: "+14325550100", type: "mobile", source: "sim" }], enrichment: { phone: { status: "found", source: "sim", simulated: true }, email: locked, person: locked } });
+      await contact("Paid LLC", { phones: [{ number: "+14326831234", type: "mobile", source: "batchdata" }], enrichment: { phone: { status: "found", source: "batchdata", chargedCents: 100 }, email: locked, person: locked } });
+      await contact("Untouched LLC");
+      await contact("Two Lists LLC", { listIds: [listId, otherList] });
+      // Already on no list from an earlier delete: only sample results, so it goes on the cleanup.
+      await contact("Leftover LLC", { listIds: [], emails: [{ email: "x@example.com", source: "sim" }], enrichment: { phone: locked, email: { status: "found", simulated: true }, person: locked } });
+      return { listId, otherList };
+    });
+    void otherList;
+    await co.as.mutation(api.outreach.remove, { organizationId: org, listId });
+    const names = async () => (await t.run(async (ctx) => ctx.db.query("outreachContacts").collect())).map((c) => c.name).sort();
+    expect(await names()).toEqual(["Leftover LLC", "Paid LLC", "Two Lists LLC"]);
+    expect(await t.mutation(internal.outreach.clearLeftovers, {})).toEqual({ removed: 1, done: true });
+    expect(await names()).toEqual(["Paid LLC", "Two Lists LLC"]);
+    // Again: nothing more to do.
+    expect(await t.mutation(internal.outreach.clearLeftovers, {})).toEqual({ removed: 0, done: true });
   });
 
   test("lists are kept tidy: renamed, pinned, archived (unpinned, contacts kept) and restored; only by the company", async () => {

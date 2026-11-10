@@ -978,7 +978,7 @@ const OutreachPage: React.FC = () => {
       {lists && lists.length === 0 && data && data.rows.length > 0 && (
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 border border-[#333333] bg-[#121212] px-4 py-3 text-sm text-gray-300" data-testid="no-lists-hint">
           <span>
-            No lists right now. These {data.rows.length.toLocaleString('en-US')} owners stayed from lists you deleted, because you looked them up or sent them to Leads.
+            No lists right now. These {data.rows.length.toLocaleString('en-US')} {data.rows.length === 1 ? 'owner' : 'owners'} stayed from lists you deleted, because you paid to look them up or sent them to Leads.
           </span>
           <button type="button" onClick={() => setAsking(true)} className="text-[#7fb0e0] hover:text-white">
             Make a list
