@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { outreachAPI, type OutreachDefinition, type OutreachPreviewRow } from '../../lib/api';
 import { defaultTitle, shortMoney } from '../../../convex/lib/outreach';
 import { mailingLine } from './format';
-import { COUNTIES, GROUPS, forCounty, type Preset } from './presets';
+import { GROUPS, forCounty, type Preset } from './presets';
+import { countyOf, useCounty } from './county';
+import { CountySwitch } from './CountySwitch';
 
 const field = 'w-full bg-[#1A1A1A] border border-[#333333] px-3 text-white text-base md:text-sm focus:outline-none focus:border-[#336699]';
 const primary = 'px-4 py-2 text-sm font-medium bg-[#336699] hover:bg-[#2a5580] text-white disabled:opacity-50';
@@ -38,10 +40,9 @@ export const AskListSheet: React.FC<{
   start?: { preset: Preset } | null;
 }> = ({ open, organizationId, onClose, onSave, start }) => {
   const [ask, setAsk] = useState('');
-  /** Which county the lists are of; one for now, more as they're connected. */
-  const [county, setCounty] = useState(COUNTIES[0].name);
-  const [countyOpen, setCountyOpen] = useState(false);
-  const here = COUNTIES.find((c) => c.name === county) ?? COUNTIES[0];
+  /** Which county the lists are of: the company's working county, the same one the empty page's cards use. */
+  const [county, setCounty] = useCounty(organizationId);
+  const here = countyOf(county);
   /** A list built from a city's own records, in a county where they aren't connected yet. */
   const unavailable = (p: Preset) => Boolean(p.needsRecords) && !here.records;
   const [preset, setPreset] = useState<string | null>(null);
@@ -65,7 +66,6 @@ export const AskListSheet: React.FC<{
   useEffect(() => {
     if (open) return;
     setAsk('');
-    setCountyOpen(false);
     setPreset(null);
     setOpenGroup(null);
     setBuilt(null);
@@ -136,6 +136,31 @@ export const AskListSheet: React.FC<{
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, start]);
 
+  /** The list just counted, in another county: counted again there, its name following if it was the one made for it. */
+  const moveTo = async (name: string) => {
+    setCounty(name);
+    if (!built) return;
+    const was = built;
+    const mine = ++asking.current;
+    const definition = { ...was.definition, county: name };
+    const title = was.title === defaultTitle(was.definition) ? defaultTitle(definition) : was.title;
+    setPending(title);
+    setBuilt(null);
+    setBusy('build');
+    setError(null);
+    try {
+      const got = await outreachAPI.preview(organizationId, definition);
+      if (mine !== asking.current) return;
+      setBuilt({ ...was, definition, title, count: got.count, total: got.total, truncated: got.truncated, limited: got.limited, rows: got.rows });
+    } catch (err) {
+      if (mine !== asking.current) return;
+      setError(err instanceof Error ? err.message : "The list couldn't be built");
+      setBuilt(was);
+    } finally {
+      if (mine === asking.current) setBusy(null);
+    }
+  };
+
   /** The nearest list the assistant could make instead of what was asked. */
   const buildClosest = async () => {
     if (!cannot?.suggestion) return;
@@ -171,48 +196,22 @@ export const AskListSheet: React.FC<{
     }
   };
 
+  // Which county, in so many words, before Save: tap it to count the same list in another.
+  const inCounty = built && (
+    <span className="text-base font-normal text-gray-400" data-testid="built-county">
+      in <CountySwitch county={built.definition.county} onChange={(name) => void moveTo(name)} size="inline" short disabled={busy !== null} />
+    </span>
+  );
+
   return (
     <SlideOutDrawer isOpen={open} onClose={onClose} title="Ask for a list" width="lg">
       <div className="p-6 space-y-5 min-h-full flex flex-col">
         {/* Once a list is built it has the sheet to itself: the count, a first look and Save, no scrolling past the choices. */}
         {!showResult && (
           <>
-        {/* Which county the lists are of. One for now; the switch is here for when there are more. */}
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setCountyOpen((o) => !o)}
-            aria-expanded={countyOpen}
-            aria-haspopup="listbox"
-            data-testid="county-switch"
-            className="inline-flex items-center gap-1.5 min-h-[36px] -ml-2 px-2 text-sm font-medium text-white hover:bg-[#2A2A2A]"
-          >
-            {here.label}
-            <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${countyOpen ? 'rotate-180' : ''}`} aria-hidden />
-          </button>
-          {countyOpen && (
-            <div role="listbox" aria-label="County" className="absolute left-0 top-full mt-2 z-20 min-w-[17rem] p-1.5 rounded-lg border border-white/10 bg-[#161616]/95 backdrop-blur-md shadow-[0_16px_40px_rgba(0,0,0,0.6)] origin-top-left animate-pop">
-              {COUNTIES.map((c) => (
-                <button
-                  key={c.name}
-                  type="button"
-                  role="option"
-                  aria-selected={c.name === county}
-                  aria-disabled={!c.ready}
-                  disabled={!c.ready}
-                  onClick={() => {
-                    setCounty(c.name);
-                    setCountyOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2 px-3 min-h-[40px] md:min-h-[36px] rounded-md text-left text-sm text-gray-200 transition-colors hover:bg-white/[0.07] hover:text-white disabled:text-gray-500 disabled:hover:bg-transparent"
-                >
-                  <Check className={`w-4 h-4 ${c.name === county ? 'text-[#7fb0e0]' : 'invisible'}`} aria-hidden />
-                  {c.label}
-                  {!c.ready && <span className="ml-auto pl-3 text-xs text-gray-500">Coming soon</span>}
-                </button>
-              ))}
-            </div>
-          )}
+        {/* Which county the lists are of: the company's working county, shared with the empty page. */}
+        <div>
+          <CountySwitch county={county} onChange={setCounty} />
         </div>
         <div className="space-y-2">
           <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Who do you want to reach?</p>
@@ -279,7 +278,9 @@ export const AskListSheet: React.FC<{
             className={`${field} py-2 resize-none`}
           />
           <div className="flex items-center justify-between gap-3">
-            <p className="text-xs text-gray-500">From the Midland County roll and the city's permits and code cases.</p>
+            <p className="text-xs text-gray-500">
+              From the {here.label.replace(/, TX.*$/, '')} roll{here.records ? " and the city's permits and code cases" : ''}.
+            </p>
             <button type="button" onClick={() => void build()} disabled={!ask.trim() || busy !== null} className={primary}>
               {busy === 'build' ? 'Building…' : 'Build'}
             </button>
@@ -347,12 +348,12 @@ export const AskListSheet: React.FC<{
                 {built.total !== undefined && built.total > built.count ? (
                   <>
                     {built.total.toLocaleString('en-US')}
-                    {built.truncated ? '+' : ''} owners
-                    <span className="text-sm font-normal text-gray-400"> · the first {built.count.toLocaleString('en-US')} load now, the rest from the saved list</span>
+                    {built.truncated ? '+' : ''} owners {inCounty}
+                    <span className="block text-sm font-normal text-gray-400">The first {built.count.toLocaleString('en-US')} load now, the rest from the saved list.</span>
                   </>
                 ) : (
                   <>
-                    {built.count} {built.count === 1 ? 'owner' : 'owners'}
+                    {built.count} {built.count === 1 ? 'owner' : 'owners'} {inCounty}
                   </>
                 )}
               </p>

@@ -554,7 +554,15 @@ describe('the Outreach page', () => {
     await render();
     // Nothing yet: the ready-made lists as cards, and a box for your own words.
     const empty = document.body.querySelector('[data-testid="outreach-empty"]')!;
-    expect(empty.querySelector('h2')!.textContent).toBe('Who do you want to reach?');
+    // For the company's working county, named in the title and a tap to change: the counties not in yet say so.
+    expect(empty.querySelector('h2')!.textContent).toBe('Who do you want to reach in Midland County, TX?');
+    await act(async () => (empty.querySelector('[data-testid="county-switch"]') as HTMLButtonElement).click());
+    expect(Array.from(empty.querySelectorAll('[role="option"]')).map((o) => [o.textContent, o.getAttribute('aria-disabled')])).toEqual([
+      ['Midland County, TX', 'false'],
+      ['Ector County, TX (Odessa)Coming soon', 'true'],
+      ['Lubbock County, TXComing soon', 'true'],
+    ]);
+    await act(async () => (empty.querySelector('[data-testid="county-switch"]') as HTMLButtonElement).click());
     expect(empty.querySelectorAll('[data-testid="starter-list"]')).toHaveLength(17);
     // Just the title: no paragraph of explanation under it.
     expect(document.body.querySelector('header')!.textContent).toBe('Outreach');
@@ -743,6 +751,8 @@ describe('the Outreach page', () => {
     expect(interpret).toHaveBeenCalledWith('o1', 'shopping center owners in Midland');
     const built = document.body.querySelector('[data-testid="built"]')!;
     expect(built.textContent).toContain('2 owners');
+    // Which county, in so many words, before Save.
+    expect(built.querySelector('[data-testid="built-county"]')!.textContent).toBe('in Midland County');
     expect(built.textContent).toContain('Owners of commercial buildings on the roll; no phone numbers.');
     expect(built.querySelectorAll('[aria-label="Preview"] li')).toHaveLength(2);
     expect(built.textContent).toContain('1 MAIN ST, DALLAS, TX, 75201');

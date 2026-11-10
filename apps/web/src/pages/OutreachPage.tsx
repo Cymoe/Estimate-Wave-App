@@ -1155,6 +1155,7 @@ const OutreachPage: React.FC = () => {
         <p className="text-sm text-gray-500">Loading…</p>
       ) : lists.length === 0 && data.rows.length === 0 ? (
         <ListStarter
+          organizationId={organizationId}
           onPick={(preset) => {
             setStart({ preset });
             setAsking(true);
