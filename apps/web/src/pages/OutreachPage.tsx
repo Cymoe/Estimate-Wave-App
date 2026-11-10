@@ -1,8 +1,9 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Check, ChevronDown, Download, LayoutList, MoreHorizontal, Search, Send, SlidersHorizontal, Table2, Trash2, Undo2, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
-import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachDefinition, type OutreachField, type OutreachListSummary, type OutreachProgress, type OutreachRowStatus, type OutreachSource } from '../lib/api';
+import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachDefinition, type OutreachField, type OutreachListSummary, type OutreachPreviewRow, type OutreachProgress, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { AskListSheet } from '../components/outreach/AskListSheet';
 import { ListStarter } from '../components/outreach/ListStarter';
 import type { Preset } from '../components/outreach/presets';
@@ -71,6 +72,37 @@ function withProgress(c: OutreachContacts, narration: Narration): OutreachContac
       }
       return cells === r.enrichment ? r : { ...r, enrichment: cells };
     }),
+  };
+}
+
+/** A list just saved, shown at once from its preview while the server makes it: never acted on (no real ids yet). */
+const PENDING = 'pending';
+const LOCKED_CELLS: OutreachContact['enrichment'] = { phone: { status: 'locked' }, email: { status: 'locked' }, person: { status: 'locked' }, research: { status: 'locked' } };
+function pendingView(definition: OutreachDefinition, title: string, preview: OutreachPreviewRow[], like: OutreachContacts | null): { list: OutreachListSummary; data: OutreachContacts } {
+  const now = new Date().toISOString();
+  const rows: OutreachContact[] = preview.map((r) => ({
+    ...r,
+    id: `${PENDING}:${r.key}`,
+    kinds: [definition.who],
+    listIds: [PENDING],
+    status: 'new',
+    phones: [],
+    emails: [],
+    enrichment: LOCKED_CELLS,
+    signals: [],
+    createdAt: now,
+  }));
+  const none = { found: 0, total: rows.length, sources: 0 };
+  return {
+    list: { id: PENDING, title, who: definition.who, definition, rowCount: rows.length, done: 0, truncated: false, createdAt: now },
+    data: {
+      rows,
+      coverage: { phone: none, email: none, person: { ...none, total: rows.filter((r) => r.company).length }, research: none },
+      balanceCents: like?.balanceCents ?? 0,
+      unlockCents: like?.unlockCents ?? 0,
+      researchCents: like?.researchCents ?? 0,
+      researchQuestion: like?.researchQuestion ?? '',
+    },
   };
 }
 
@@ -381,19 +413,33 @@ const OutreachPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
   /** Save a built list: it opens with its first owners in (the rest arrive live), and the sheet closes onto it. A failure stays in the sheet. */
-  const saveList = async (definition: OutreachDefinition, title: string) => {
+  const saveList = async (definition: OutreachDefinition, title: string, preview: OutreachPreviewRow[] = []) => {
     if (!organizationId) return;
-    const made = await outreachAPI.create(organizationId, definition, title);
-    rememberList(made.listId);
-    // While the button still says Saving…, the new list's name and first owners are read, so it opens whole:
-    // no title filling in or table popping in after the sheet closes. Should either read fail, the page reads them itself.
-    const [l, c] = await Promise.all([outreachAPI.lists(organizationId).catch(() => null), outreachAPI.contacts(organizationId, made.listId).catch(() => null)]);
-    if (!live.current) return;
-    if (l) setLists(keep(l));
-    if (c) seen.current.set(`${organizationId}:${made.listId}`, c);
+    // The sheet closes and the list is on the page in the same moment: its name and the owners the preview showed,
+    // while the server makes it. Then the saved list takes over, the same rows in the same order.
+    const shown = pendingView(definition, title, preview, data);
+    const before = viewKey;
+    setPending(shown);
+    setData(shown.data);
+    setOpen(null);
     setAsking(false);
     setStart(null);
-    navigate(`/outreach/${made.listId}`);
+    try {
+      const made = await outreachAPI.create(organizationId, definition, title);
+      rememberList(made.listId);
+      const [l, c] = await Promise.all([outreachAPI.lists(organizationId).catch(() => null), outreachAPI.contacts(organizationId, made.listId).catch(() => null)]);
+      if (!live.current) return;
+      if (l) setLists(keep(l));
+      if (c) seen.current.set(`${organizationId}:${made.listId}`, c);
+      setPending(null);
+      navigate(`/outreach/${made.listId}`);
+    } catch (err) {
+      if (!live.current) return;
+      setPending(null);
+      setData(seen.current.get(before) ?? null);
+      setError(err instanceof Error ? err.message : "The list couldn't be saved");
+      void load();
+    }
   };
   /** The ready-made list the empty page's card opened the sheet with. */
   const [start, setStart] = useState<{ preset: Preset } | null>(null);
@@ -417,7 +463,11 @@ const OutreachPage: React.FC = () => {
 
   // The last rows seen for each list (and for All), so switching lists shows something at once while fresh rows arrive.
   const seen = useRef(new Map<string, OutreachContacts>());
-  const viewKey = `${organizationId ?? ''}:${listId ?? 'all'}`;
+  /** A list just saved, on screen at once from its preview until the server has made it. */
+  const [pending, setPending] = useState<ReturnType<typeof pendingView> | null>(null);
+  // Nothing up top acts while a step is running, or on a list still being saved.
+  const locked = busy || pending !== null;
+  const viewKey = `${organizationId ?? ''}:${pending ? PENDING : (listId ?? 'all')}`;
   const currentKey = useRef(viewKey);
   currentKey.current = viewKey;
   const narration = useRef<Narration>(new Map());
@@ -537,7 +587,10 @@ const OutreachPage: React.FC = () => {
     setSearchParams({}, { replace: true });
   }, [searchParams, setSearchParams]);
 
-  const list = lists?.find((l) => l.id === listId);
+  const list = pending?.list ?? lists?.find((l) => l.id === listId);
+  // The picker shows a list being saved as the open one.
+  const shownLists = pending && lists ? [pending.list, ...lists] : pending ? [pending.list] : lists;
+  const shownId = pending ? PENDING : listId;
   // A list still filling in the background: read the lists again as its owners arrive, so the bar goes once the last page lands.
   const filling = Boolean(list?.filling);
   const arrived = data?.rows.length ?? 0;
@@ -762,7 +815,7 @@ const OutreachPage: React.FC = () => {
 
   // Any list can be deleted: owners you've worked (a status, a note, a lookup, a lead) stay under All owners; the rest go with it.
   const removeList = async (target: OutreachListSummary | undefined = list) => {
-    if (!organizationId || !target) return;
+    if (!organizationId || !target || target.id === PENDING) return;
     const list = target;
     const message = list.deletable
       ? 'Nobody has worked this list yet, so nothing of yours is lost. You can make it again any time.'
@@ -812,8 +865,9 @@ const OutreachPage: React.FC = () => {
     <div className="p-4 md:p-6 space-y-4" data-testid="outreach-page">
       {/* A lookup running, or just finished: a banner across the top of the page, edge to edge. */}
       {data && <LookupProgress rows={data.rows} since={batch?.at} onDismiss={() => keepBatch(null)} className="-mx-4 md:-mx-6 -mt-4 md:-mt-6" />}
-      {/* A new list still adding owners in the background: a small pill floating at the bottom, over the page, so nothing shifts when it comes or goes. */}
-      {list?.filling && (
+      {/* A new list still adding owners in the background: a small pill floating at the bottom, drawn outside the page's layout so nothing shifts when it comes or goes. */}
+      {list?.filling &&
+        createPortal(
         <div
           role="status"
           className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded-full border border-[#336699]/50 bg-[#10243a]/95 px-4 py-2.5 text-sm text-white shadow-2xl backdrop-blur animate-appear"
@@ -821,14 +875,15 @@ const OutreachPage: React.FC = () => {
         >
           <span className="h-4 w-4 shrink-0 rounded-full border-2 border-white/25 border-t-white animate-spin" aria-hidden />
           <span className="truncate">Adding owners to this list: {(data?.rows.length ?? 0).toLocaleString('en-US')} so far…</span>
-        </div>
-      )}
+        </div>,
+          document.body,
+        )}
       {/* On a phone the top bar already says Outreach, and the staff lines fold behind one word; the actions become one row that slides sideways. */}
       <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h1 className="sr-only">Outreach</h1>
           {/* On a wide screen the open list's name is the page's title, a tap away from the others. */}
-          {lists && lists.length > 0 && !narrow && <ListPicker lists={lists} currentId={listId} narrow={false} onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} />}
+          {shownLists && shownLists.length > 0 && !narrow && <ListPicker lists={shownLists!} currentId={shownId} narrow={false} onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} />}
           {isStaff(user) && (
             <div className="md:mt-1 text-xs text-gray-500">
               <button type="button" onClick={() => setStaffOpen((v) => !v)} aria-expanded={staffOpen} className="md:hidden inline-flex items-center gap-1 min-h-[32px] text-gray-500 hover:text-white">
@@ -844,12 +899,12 @@ const OutreachPage: React.FC = () => {
         {data && rows.length > 0 && (
           <div className={narrow ? 'flex items-stretch gap-2' : 'flex items-center gap-2 shrink-0'} data-testid="actions">
             {listOpen.length > 0 ? (
-              <button type="button" onClick={() => void enrichAll()} disabled={busy || short} className={`${action} ${wrapOnPhone} bg-[#336699] hover:bg-[#2a5580]`} title={estimate(listPhones)}>
+              <button type="button" onClick={() => void enrichAll()} disabled={locked || short} className={`${action} ${wrapOnPhone} bg-[#336699] hover:bg-[#2a5580]`} title={estimate(listPhones)}>
                 {findLabel(listOpen.length)}
               </button>
             ) : (
               toSend.length > 0 && (
-                <button type="button" onClick={() => void sendAll()} disabled={busy} className={`${action} ${wrapOnPhone} bg-[#336699] hover:bg-[#2a5580]`} data-testid="send-all">
+                <button type="button" onClick={() => void sendAll()} disabled={locked} className={`${action} ${wrapOnPhone} bg-[#336699] hover:bg-[#2a5580]`} data-testid="send-all">
                   Send {toSend.length} to Leads
                 </button>
               )
@@ -858,7 +913,7 @@ const OutreachPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => void researchAll()}
-                disabled={busy || researchCost > balanceCents}
+                disabled={locked || researchCost > balanceCents}
                 className={`${action} ${wrapOnPhone} border border-violet-400/60 bg-violet-500/10 text-violet-100 hover:bg-violet-500/20`}
                 title={`AI reads the web for what each owner does and any plans to build or sell · ${dollars(researchCents)} an answer, charged only when it finds something`}
               >
@@ -874,7 +929,7 @@ const OutreachPage: React.FC = () => {
               {(close) => (
                 <>
                   {listOpen.length > 0 && toSend.length > 0 && (
-                    <button type="button" role="menuitem" className={menuItem} disabled={busy} onClick={() => (close(), void sendAll())} data-testid="send-all">
+                    <button type="button" role="menuitem" className={menuItem} disabled={locked} onClick={() => (close(), void sendAll())} data-testid="send-all">
                       <Send className="w-4 h-4" /> Send {toSend.length} to Leads
                     </button>
                   )}
@@ -914,7 +969,7 @@ const OutreachPage: React.FC = () => {
             <button
               type="button"
               onClick={() => void undoLastSend()}
-              disabled={busy}
+              disabled={locked}
               className="inline-flex items-center gap-2 px-3 min-h-[40px] text-sm font-medium text-white border border-[#336699] hover:bg-[#336699]/20 disabled:opacity-50"
             >
               <Undo2 className="w-4 h-4" /> Undo send
@@ -932,7 +987,7 @@ const OutreachPage: React.FC = () => {
       )}
       {/* The lists: one picker (search, pinned, recent, grouped by kind) instead of a chip per list. On a phone with owners showing, it lives in the sticky bar below. */}
       {lists && lists.length > 0 && narrow && !(data && data.rows.length > 0) && (
-        <ListPicker lists={lists} currentId={listId} narrow onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} />
+        <ListPicker lists={shownLists!} currentId={shownId} narrow onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} />
       )}
       {data && data.rows.length > 0 && list && (
         <p className="text-xs text-gray-500" data-testid="list-line">
@@ -991,7 +1046,7 @@ const OutreachPage: React.FC = () => {
           {narrow ? (
             <div className="flex w-full items-center gap-2 py-1.5">
               {lists && lists.length > 0 && !searching && (
-                <ListPicker lists={lists} currentId={listId} narrow onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} compact />
+                <ListPicker lists={shownLists!} currentId={shownId} narrow onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} compact />
               )}
               <SearchBox value={query} onChange={setQuery} onOpenChange={setSearching} />
               <PopMenu label="Filter by status" icon={<SlidersHorizontal className="w-4 h-4" />} dot={status !== 'all'} size="w-9 h-9">
@@ -1051,7 +1106,7 @@ const OutreachPage: React.FC = () => {
       ) : view === 'cards' ? (
         <ContactCards
           rows={rows}
-          onOpen={setOpen}
+          onOpen={(r) => !pending && setOpen(r)}
           onStatus={(row, next) => setContactStatus(row, next, row.note ?? '')}
           onRetry={(row, field) => void enrich([row.id], [field]).catch(() => {})}
           onLead={(row) => void toLeads(row)}
@@ -1064,7 +1119,7 @@ const OutreachPage: React.FC = () => {
           sortLabel={listLabel}
           below={barHeight}
           onSort={nextSort}
-          onOpen={setOpen}
+          onOpen={(r) => !pending && setOpen(r)}
           onRetry={(row, field) => void enrich([row.id], [field]).catch(() => {})}
         />
       )}

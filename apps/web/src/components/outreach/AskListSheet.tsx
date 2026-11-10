@@ -33,7 +33,7 @@ export const AskListSheet: React.FC<{
   organizationId: string;
   onClose: () => void;
   /** Save the built list; the page closes the sheet and opens the list once it exists (its first owners in, the rest arriving live). */
-  onSave: (definition: OutreachDefinition, title: string) => Promise<void>;
+  onSave: (definition: OutreachDefinition, title: string, preview: OutreachPreviewRow[]) => Promise<void>;
   /** Opened from a card on the empty page: go straight to that list's count and preview. */
   start?: { preset: Preset } | null;
 }> = ({ open, organizationId, onClose, onSave, start }) => {
@@ -164,7 +164,7 @@ export const AskListSheet: React.FC<{
     setBusy('save');
     setError(null);
     try {
-      await onSave(built.definition, built.title.trim() || defaultTitle(built.definition));
+      await onSave(built.definition, built.title.trim() || defaultTitle(built.definition), built.rows);
     } catch (err) {
       setError(err instanceof Error ? err.message : "The list couldn't be saved");
       setBusy(null);

@@ -734,19 +734,22 @@ describe('the Outreach page', () => {
     const title = built.querySelector('input#outreach-title') as HTMLInputElement;
     expect(title.value).toBe('Shopping center owners, Midland');
     await act(async () => type(title, 'Strip centers'));
-    // Saving shows on the button for the moment it takes; then the sheet closes onto the new list.
+    // Save: the sheet closes and the list is on the page in the same moment, its name and the preview's owners,
+    // while the server makes it; nothing acts on it until it's saved.
     let saved: (v: unknown) => void = () => {};
     create.mockImplementationOnce(() => new Promise((r) => (saved = r)) as never);
     await act(async () => button('Save list').click());
     expect(create).toHaveBeenCalledWith('o1', { county: 'Midland', who: 'commercial' }, 'Strip centers');
-    expect(button('Saving…')).toBeTruthy();
-    // The new list's name and owners are read before the sheet closes, so it opens whole: its title up top at once.
+    expect(document.body.querySelector('[data-testid="built"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="list-picker"]')!.textContent).toBe('Strip centers');
+    expect(Array.from(document.body.querySelectorAll('[data-testid="contact-row"]')).map((r) => r.querySelector('td')!.textContent)).toEqual(['Oak Plaza LLC', 'City Of Midland']);
+    expect(button('Find phones & emails (2)').disabled).toBe(true);
+    // Saved: the new list's name and owners are read, then its page takes over with the same rows.
     lists = [{ ...list, id: 'l9', title: 'Strip centers' }];
     await act(async () => saved({ listId: 'l9', rowCount: 2, added: 2, truncated: false }));
     expect(getContacts).toHaveBeenCalledWith('o1', 'l9');
     await flush();
     expect(path).toBe('/outreach/l9');
-    expect(document.body.querySelector('[data-testid="built"]')).toBeNull();
     expect(document.body.querySelector('[data-testid="list-picker"]')!.textContent).toBe('Strip centers');
   });
 
@@ -1173,8 +1176,12 @@ describe('the Outreach page', () => {
     contacts = twoContacts();
     await render('/outreach/l1');
     expect(document.body.querySelector('[data-testid="list-filling"]')!.textContent).toBe('Adding owners to this list: 2 so far…');
+    // Drawn outside the page's layout, so nothing on the page moves when it comes or goes.
+    expect(document.body.querySelector('[data-testid="outreach-page"] [data-testid="list-filling"]')).toBeNull();
     expect(document.body.querySelector('[data-testid="list-total"]')).toBeNull();
     lists = [{ ...list, filling: false }];
+    // The pill is drawn outside the page (so it moves nothing); unmount before clearing the page.
+    act(() => roots.splice(0).forEach((r) => r.unmount()));
     document.body.innerHTML = '';
     await render('/outreach/l1');
     expect(document.body.querySelector('[data-testid="list-filling"]')).toBeNull();
