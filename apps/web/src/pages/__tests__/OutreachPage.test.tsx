@@ -503,7 +503,7 @@ describe('the Outreach page', () => {
     await act(async () => pushContacts!(contacts));
     await click('Remove them');
     expect(document.body.querySelector('[role="alertdialog"]')!.textContent).toContain('Remove the 2 owners not on a list?');
-    expect(document.body.querySelector('[role="alertdialog"]')!.textContent).toContain('Owners you sent to Leads or made clients stay.');
+    expect(document.body.querySelector('[role="alertdialog"]')!.textContent).toContain('Owners you sent to Leads or made clients, and any still being looked up, stay.');
     await act(async () => (Array.from(document.body.querySelectorAll('[role="alertdialog"] button')).find((b) => b.textContent === 'Remove') as HTMLButtonElement).click());
     await flush();
     expect(removeUnlisted).toHaveBeenCalledWith('o1');

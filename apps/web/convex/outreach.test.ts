@@ -784,21 +784,25 @@ describe("a company's lists", () => {
       await contact("On List LLC", { listIds: [listId] });
       await contact("Worked On List LLC", { listIds: [listId], status: "callback" });
       await contact("Sent On List LLC", { listIds: [listId], status: "lead", leadId: lead });
+      // Being looked up: the answer asked for is on the way, so it stays whatever is deleted.
+      const running = { phone: { status: "running" as const, at, requestedBy: user._id }, email: locked, person: locked };
+      await contact("Looking Up LLC", { enrichment: running });
+      await contact("Looking Up On List LLC", { listIds: [listId], enrichment: running });
       return { listId, a };
     });
     const view = await co.as.query(api.outreach.contacts, { organizationId: org, unlisted: true });
-    expect(view.rows.map((r) => r.name).sort()).toEqual(["Kept A LLC", "Kept B LLC", "Sent LLC"]);
-    expect(view.unlisted).toBe(3);
-    expect((await co.as.query(api.outreach.contacts, { organizationId: org, listId })).unlisted).toBe(3);
+    expect(view.rows.map((r) => r.name).sort()).toEqual(["Kept A LLC", "Kept B LLC", "Looking Up LLC", "Sent LLC"]);
+    expect(view.unlisted).toBe(4);
+    expect((await co.as.query(api.outreach.contacts, { organizationId: org, listId })).unlisted).toBe(4);
     // Some of them: just the one asked for.
     expect(await co.as.mutation(api.outreach.removeUnlisted, { organizationId: org, contactIds: [a] })).toEqual({ removed: 1, kept: 0 });
-    // All of them: the lead's owner stays.
-    expect(await co.as.mutation(api.outreach.removeUnlisted, { organizationId: org })).toEqual({ removed: 1, kept: 1 });
+    // All of them: the lead's owner stays, and so does the one still being looked up.
+    expect(await co.as.mutation(api.outreach.removeUnlisted, { organizationId: org })).toEqual({ removed: 1, kept: 2 });
     const names = async () => (await t.run(async (ctx) => ctx.db.query("outreachContacts").collect())).map((c) => c.name).sort();
-    expect(await names()).toEqual(["On List LLC", "Sent LLC", "Sent On List LLC", "Worked On List LLC"]);
-    // Deleting a list with its worked owners too: only the lead's owner stays.
+    expect(await names()).toEqual(["Looking Up LLC", "Looking Up On List LLC", "On List LLC", "Sent LLC", "Sent On List LLC", "Worked On List LLC"]);
+    // Deleting a list with its worked owners too: only the lead's owner and the one being looked up stay.
     await co.as.mutation(api.outreach.remove, { organizationId: org, listId, alsoWorked: true });
-    expect(await names()).toEqual(["Sent LLC", "Sent On List LLC"]);
+    expect(await names()).toEqual(["Looking Up LLC", "Looking Up On List LLC", "Sent LLC", "Sent On List LLC"]);
   });
 
   test("starting over removes a company's lists and owners, after a dry run; leads and other companies stay", async () => {

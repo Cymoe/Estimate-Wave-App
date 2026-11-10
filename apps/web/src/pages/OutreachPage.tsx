@@ -75,9 +75,13 @@ function withProgress(c: OutreachContacts, narration: Narration): OutreachContac
   };
 }
 
+/** A lookup someone asked for that hasn't landed yet: the owner stays whatever is deleted, so its answer isn't thrown away. */
+const lookingUp = (r: OutreachContact) => Object.values(r.enrichment).some((c) => c?.status === 'running' && c.requestedBy !== undefined);
+/** Stays whatever is deleted: a lead, a client, or one still being looked up. */
+const alwaysStays = (r: OutreachContact) => Boolean(r.leadId) || r.status === 'client' || lookingUp(r);
 /** Whether an owner holds work of the company's own, as the server decides it; sim: simulated lookups count (no phone source yet). */
 const workedOn = (r: OutreachContact, sim = false) =>
-  Boolean(r.leadId) ||
+  alwaysStays(r) ||
   r.status !== 'new' ||
   Boolean(r.note?.trim()) ||
   (Boolean(r.research) && (sim || !r.enrichment.research?.simulated)) ||
@@ -100,7 +104,7 @@ function pruneGone(c: OutreachContacts, gone: Gone): OutreachContacts {
       continue;
     }
     const listIds = r.listIds.filter((id) => !gone.has(id));
-    const stays = listIds.length > 0 || (hit.some((id) => gone.get(id)) ? Boolean(r.leadId) || r.status === 'client' : workedOn(r, c.simulating));
+    const stays = listIds.length > 0 || (hit.some((id) => gone.get(id)) ? alwaysStays(r) : workedOn(r, c.simulating));
     if (stays) rows.push({ ...r, listIds });
   }
   return { ...c, rows };
@@ -818,7 +822,7 @@ const OutreachPage: React.FC = () => {
       const owners = n > 0 ? `${n.toLocaleString('en-US')} ${n === 1 ? 'owner' : 'owners'}` : 'Some owners';
       const answer = await choose({
         title: `Delete “${list.title}”?`,
-        message: `${owners} on it ${n === 1 ? 'was' : 'were'} worked (a status, a note, a paid lookup or a lead) and ${n === 1 ? 'is' : 'are'} on no other list. Keep them under Not on a list, or let them go with it. Owners sent to Leads or made clients always stay.`,
+        message: `${owners} on it ${n === 1 ? 'was' : 'were'} worked (a status, a note, a paid lookup or a lead) and ${n === 1 ? 'is' : 'are'} on no other list. Keep them under Not on a list, or let them go with it. Owners sent to Leads or made clients, and any still being looked up, always stay.`,
         confirmLabel: 'Delete, keep the worked owners',
         altLabel: 'Delete them too',
       });
@@ -861,7 +865,7 @@ const OutreachPage: React.FC = () => {
     const owners = `${n.toLocaleString('en-US')} ${n === 1 ? 'owner' : 'owners'}`;
     const ok = await confirm({
       title: `Remove the ${owners} not on a list?`,
-      message: "Their notes, call outcomes and lookups go with them, paid ones too. Owners you sent to Leads or made clients stay. A new list that includes one brings it back fresh.",
+      message: "Their notes, call outcomes and lookups go with them, paid ones too. Owners you sent to Leads or made clients, and any still being looked up, stay. A new list that includes one brings it back fresh.",
       confirmLabel: 'Remove',
     });
     if (!ok) return;

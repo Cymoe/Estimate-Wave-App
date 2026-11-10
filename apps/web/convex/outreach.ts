@@ -1355,7 +1355,7 @@ export const sendManyToLeads = mutation({
 
 /** Drops a list. Its contacts lose the tag; one on no other list goes too, unless the company paid to unlock it. */
 export const remove = mutation({
-  /** alsoWorked: the worked owners only this list holds go too, all but those now a lead or a client. */
+  /** alsoWorked: the worked owners only this list holds go too, all but those now a lead or a client or still being looked up. */
   args: { organizationId: v.id("organizations"), listId: v.id("outreachLists"), alsoWorked: v.optional(v.boolean()) },
   handler: async (ctx, { organizationId, listId, alsoWorked }) => {
     await requirePro(ctx, organizationId);
@@ -1370,7 +1370,7 @@ export const remove = mutation({
       const listIds = c.listIds.filter((id) => id !== listId);
       if (listIds.length === 0) {
         const gone = await leadGone(ctx, c);
-        if (alsoWorked ? !isLeadOrClient(c, gone) : !worthKeeping(c, gone)) {
+        if (alsoWorked ? !alwaysStays(c, gone) : !worthKeeping(c, gone)) {
           await dropOwner(ctx, c._id);
           continue;
         }
@@ -1383,8 +1383,15 @@ export const remove = mutation({
   },
 });
 
-/** Now a lead (one still in Leads) or a client: tracked there, so the owner always stays, list or no list. */
-const isLeadOrClient = (c: Doc<"outreachContacts">, leadGone: boolean) => Boolean(c.clientId) || (Boolean(c.leadId) && !leadGone);
+/** A lookup someone asked for that hasn't landed yet: its answer (and its charge) is on the way. */
+const lookingUp = (c: Doc<"outreachContacts">) => Object.values(cellsOf(c)).some((cell) => cell?.status === "running" && cell.requestedBy !== undefined);
+
+/**
+ * An owner that stays whatever is deleted: now a lead (one still in Leads) or a client, tracked there; or one being
+ * looked up, so the answer it was asked for (and charged for when it lands) isn't thrown away, and a source
+ * already asked isn't paid for nothing. It can go once its lookup is done.
+ */
+const alwaysStays = (c: Doc<"outreachContacts">, leadGone: boolean) => Boolean(c.clientId) || (Boolean(c.leadId) && !leadGone) || lookingUp(c);
 
 /** An owner removed for good, with any lookup narration it left. */
 async function dropOwner(ctx: MutationCtx, contactId: Id<"outreachContacts">) {
@@ -1395,7 +1402,8 @@ async function dropOwner(ctx: MutationCtx, contactId: Id<"outreachContacts">) {
 /**
  * The owners on no list, removed: kept from deleted lists because they were
  * worked, and now let go. Those that became a lead or a client stay, as
- * Leads and Clients track them. contactIds narrows it to some of them.
+ * Leads and Clients track them, and so do those still being looked up.
+ * contactIds narrows it to some of them.
  */
 export const removeUnlisted = mutation({
   args: { organizationId: v.id("organizations"), contactIds: v.optional(v.array(v.id("outreachContacts"))) },
@@ -1406,7 +1414,7 @@ export const removeUnlisted = mutation({
     let kept = 0;
     for (const c of await contactsOf(ctx, organizationId)) {
       if (c.listIds.length > 0 || (only && !only.has(c._id))) continue;
-      if (isLeadOrClient(c, await leadGone(ctx, c))) {
+      if (alwaysStays(c, await leadGone(ctx, c))) {
         kept++;
         continue;
       }
@@ -1435,7 +1443,7 @@ export const simulating = () => process.env.OUTREACH_SIMULATE !== "off" && !vend
 function worthKeeping(c: Doc<"outreachContacts">, leadGone = false, sim = simulating()) {
   // A lead deleted in Leads leaves its owner New, as the page shows it: being sent once keeps nothing.
   if (leadGone) c = { ...c, leadId: undefined, status: c.status === "lead" ? "new" : c.status };
-  if (c.leadId || c.clientId) return true;
+  if (alwaysStays(c, false)) return true;
   // The sample filler's owners (marked by their note); a simulated cell is made up whatever it found.
   if (isSampleRun(c)) return false;
   // A research answer counts only when it's real: the simulated chain writes a made-up one too.
