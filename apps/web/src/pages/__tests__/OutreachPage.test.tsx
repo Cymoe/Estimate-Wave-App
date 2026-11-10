@@ -734,23 +734,22 @@ describe('the Outreach page', () => {
     const title = built.querySelector('input#outreach-title') as HTMLInputElement;
     expect(title.value).toBe('Shopping center owners, Midland');
     await act(async () => type(title, 'Strip centers'));
-    // Save: the sheet closes and the list is on the page in the same moment, its name and the preview's owners,
-    // while the server makes it; nothing acts on it until it's saved.
+    // Save: the sheet stays open, its button saying Saving…, until the new list is ready.
     let saved: (v: unknown) => void = () => {};
     create.mockImplementationOnce(() => new Promise((r) => (saved = r)) as never);
     await act(async () => button('Save list').click());
     expect(create).toHaveBeenCalledWith('o1', { county: 'Midland', who: 'commercial' }, 'Strip centers');
-    expect(document.body.querySelector('[data-testid="built"]')).toBeNull();
-    expect(document.body.querySelector('[data-testid="list-picker"]')!.textContent).toBe('Strip centers');
-    expect(Array.from(document.body.querySelectorAll('[data-testid="contact-row"]')).map((r) => r.querySelector('td')!.textContent)).toEqual(['Oak Plaza LLC', 'City Of Midland']);
-    expect(button('Find phones & emails (2)').disabled).toBe(true);
-    // Saved: the new list's name and owners are read, then its page takes over with the same rows.
+    expect(button('Saving…')).toBeTruthy();
+    expect(document.body.querySelector('[data-testid="built"]')).not.toBeNull();
+    // Saved: its name and owners are read, then in one moment the sheet closes and the list is there whole.
     lists = [{ ...list, id: 'l9', title: 'Strip centers' }];
+    contacts = twoContacts();
     await act(async () => saved({ listId: 'l9', rowCount: 2, added: 2, truncated: false }));
     expect(getContacts).toHaveBeenCalledWith('o1', 'l9');
-    await flush();
     expect(path).toBe('/outreach/l9');
+    expect(document.body.querySelector('[data-testid="built"]')).toBeNull();
     expect(document.body.querySelector('[data-testid="list-picker"]')!.textContent).toBe('Strip centers');
+    expect(document.body.querySelectorAll('[data-testid="contact-row"]').length).toBe(2);
   });
 
   it('sends everyone showing to Leads at once, after asking; skipped owners and ones already in Leads stay out', async () => {
