@@ -15,11 +15,16 @@ export type Preset = {
 const COUNTY = 'Midland';
 
 /**
- * The counties a list can be of, for the + sheet's county switch. `records`:
- * the city's own permits and code cases are connected there too, not only the
- * owners. More are added here as they come in.
+ * The counties a list can be of, for the + sheet's county switch. `ready`: its
+ * owners are in, so lists can be built there (the others show as coming soon).
+ * `records`: the city's own permits and code cases are connected too. More
+ * are added here as they come in.
  */
-export const COUNTIES: Array<{ name: string; label: string; records: boolean }> = [{ name: 'Midland', label: 'Midland County, TX', records: true }];
+export const COUNTIES: Array<{ name: string; label: string; ready: boolean; records: boolean }> = [
+  { name: 'Midland', label: 'Midland County, TX', ready: true, records: true },
+  { name: 'Ector', label: 'Ector County, TX (Odessa)', ready: false, records: false },
+  { name: 'Lubbock', label: 'Lubbock County, TX', ready: false, records: false },
+];
 
 /** A ready-made list's filter, for the county picked. */
 export const forCounty = (p: Preset, county: string): Preset['definition'] => ({ ...p.definition, county });

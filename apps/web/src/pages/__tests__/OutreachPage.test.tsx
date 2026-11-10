@@ -816,8 +816,12 @@ describe('the Outreach page', () => {
     expect(county.textContent).toBe('Midland County, TX');
     await act(async () => county.click());
     const menu = document.body.querySelector('[role="listbox"][aria-label="County"]')!;
-    expect(Array.from(menu.querySelectorAll('[role="option"]')).map((o) => [o.textContent, o.getAttribute('aria-selected')])).toEqual([['Midland County, TX', 'true']]);
-    expect(menu.textContent).toContain('More counties coming soon');
+    // Odessa's and Lubbock's counties are listed, coming soon: they can't be picked until their owners are in.
+    expect(Array.from(menu.querySelectorAll('[role="option"]')).map((o) => [o.textContent, o.getAttribute('aria-selected'), (o as HTMLButtonElement).disabled])).toEqual([
+      ['Midland County, TX', 'true', false],
+      ['Ector County, TX (Odessa)Coming soon', 'false', true],
+      ['Lubbock County, TXComing soon', 'false', true],
+    ]);
     await act(async () => (menu.querySelector('[role="option"]') as HTMLButtonElement).click());
     expect(document.body.querySelector('[role="listbox"][aria-label="County"]')).toBeNull();
     // Open the row, tap the list: companies holding five or more, straight to the count, the assistant never asked.

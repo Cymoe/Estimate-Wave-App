@@ -198,17 +198,19 @@ export const AskListSheet: React.FC<{
                   type="button"
                   role="option"
                   aria-selected={c.name === county}
+                  aria-disabled={!c.ready}
+                  disabled={!c.ready}
                   onClick={() => {
                     setCounty(c.name);
                     setCountyOpen(false);
                   }}
-                  className="flex w-full items-center gap-2 px-3 min-h-[40px] text-left text-sm text-gray-200 hover:bg-[#2A2A2A]"
+                  className="flex w-full items-center gap-2 px-3 min-h-[40px] text-left text-sm text-gray-200 hover:bg-[#2A2A2A] disabled:text-gray-500 disabled:hover:bg-transparent"
                 >
                   <Check className={`w-4 h-4 ${c.name === county ? 'text-[#7fb0e0]' : 'invisible'}`} aria-hidden />
                   {c.label}
+                  {!c.ready && <span className="ml-auto pl-3 text-xs text-gray-500">Coming soon</span>}
                 </button>
               ))}
-              <p className="px-3 py-2 text-xs text-gray-500 border-t border-[#333333]">More counties coming soon</p>
             </div>
           )}
         </div>
