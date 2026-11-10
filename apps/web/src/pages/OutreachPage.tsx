@@ -691,9 +691,13 @@ const OutreachPage: React.FC = () => {
     <div className="p-4 md:p-6 space-y-4" data-testid="outreach-page">
       {/* A lookup running, or just finished: a banner across the top of the page, edge to edge. */}
       {data && <LookupProgress rows={data.rows} since={batch?.at} onDismiss={() => keepBatch(null)} className="-mx-4 md:-mx-6 -mt-4 md:-mt-6" />}
-      {/* A new list still adding owners in the background: a slim bar across the top while they arrive. */}
+      {/* A new list still adding owners in the background: a small pill floating at the bottom, over the page, so nothing shifts when it comes or goes. */}
       {list?.filling && (
-        <div role="status" className="-mx-4 md:-mx-6 -mt-4 md:-mt-6 flex items-center gap-3 border-b border-[#336699]/40 bg-[#336699]/15 px-4 md:px-6 py-3 text-sm text-white" data-testid="list-filling">
+        <div
+          role="status"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded-full border border-[#336699]/50 bg-[#10243a]/95 px-4 py-2.5 text-sm text-white shadow-2xl backdrop-blur animate-appear"
+          data-testid="list-filling"
+        >
           <span className="h-4 w-4 shrink-0 rounded-full border-2 border-white/25 border-t-white animate-spin" aria-hidden />
           <span className="truncate">Adding owners to this list: {(data?.rows.length ?? 0).toLocaleString('en-US')} so far…</span>
         </div>
