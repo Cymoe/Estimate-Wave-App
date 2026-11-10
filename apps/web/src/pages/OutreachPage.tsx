@@ -385,6 +385,12 @@ const OutreachPage: React.FC = () => {
     if (!organizationId) return;
     const made = await outreachAPI.create(organizationId, definition, title);
     rememberList(made.listId);
+    // While the button still says Saving…, the new list's name and first owners are read, so it opens whole:
+    // no title filling in or table popping in after the sheet closes. Should either read fail, the page reads them itself.
+    const [l, c] = await Promise.all([outreachAPI.lists(organizationId).catch(() => null), outreachAPI.contacts(organizationId, made.listId).catch(() => null)]);
+    if (!live.current) return;
+    if (l) setLists(keep(l));
+    if (c) seen.current.set(`${organizationId}:${made.listId}`, c);
     setAsking(false);
     setStart(null);
     navigate(`/outreach/${made.listId}`);

@@ -740,10 +740,14 @@ describe('the Outreach page', () => {
     await act(async () => button('Save list').click());
     expect(create).toHaveBeenCalledWith('o1', { county: 'Midland', who: 'commercial' }, 'Strip centers');
     expect(button('Saving…')).toBeTruthy();
+    // The new list's name and owners are read before the sheet closes, so it opens whole: its title up top at once.
+    lists = [{ ...list, id: 'l9', title: 'Strip centers' }];
     await act(async () => saved({ listId: 'l9', rowCount: 2, added: 2, truncated: false }));
+    expect(getContacts).toHaveBeenCalledWith('o1', 'l9');
     await flush();
     expect(path).toBe('/outreach/l9');
     expect(document.body.querySelector('[data-testid="built"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="list-picker"]')!.textContent).toBe('Strip centers');
   });
 
   it('sends everyone showing to Leads at once, after asking; skipped owners and ones already in Leads stay out', async () => {
