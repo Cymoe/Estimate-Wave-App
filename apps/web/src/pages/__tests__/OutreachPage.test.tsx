@@ -617,7 +617,7 @@ describe('the Outreach page', () => {
     const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(1)')).map((c) => c.textContent);
     expect(names()).toEqual(['Oak Plaza LLC', 'City Of Midland', 'Vance Robert & Linda']);
     const filters = document.body.querySelector('[aria-label="Filters"]')!;
-    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Mail only 1', 'Needs you 1', '', '']);
+    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Mail only 1', 'Needs you 1', 'Status: All']);
     // The failed cell says why, and Retry runs that field again without opening the sheet.
     const failedCell = document.body.querySelectorAll('[data-testid="contact-row"]')[0].querySelectorAll('td')[1];
     expect(failedCell.textContent?.trim()).toBe('Lookup failedThe state registry timed outRetry');
@@ -637,16 +637,10 @@ describe('the Outreach page', () => {
     await click('Has a signal');
     expect(names()).toEqual(['City Of Midland']);
     await act(async () => (filters.querySelector('button') as HTMLButtonElement).click());
-    // Search is just its icon until tapped; an empty box folds back when left.
+    // On a wide screen search is a box you can see, saying what it finds; no icon to tap first.
     const search = document.body.querySelector('input[aria-label="Search"]') as HTMLInputElement;
-    expect(search.placeholder).toBe('');
-    // Closed, it's a button; a tap opens the box with the cursor in it.
-    await act(async () => (document.body.querySelector('button[aria-label="Open search"]') as HTMLButtonElement).click());
-    expect(document.activeElement).toBe(search);
     expect(search.placeholder).toBe('Search owner, person or street');
     expect(document.body.querySelector('button[aria-label="Open search"]')).toBeNull();
-    await act(async () => search.blur());
-    expect(search.placeholder).toBe('');
     await act(async () => type(document.body.querySelector('input[aria-label="Search"]') as HTMLInputElement, 'elm'));
     expect(names()).toEqual(['Vance Robert & Linda']);
     await act(async () => type(document.body.querySelector('input[aria-label="Search"]') as HTMLInputElement, 'reyes'));
@@ -680,7 +674,7 @@ describe('the Outreach page', () => {
     const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(1)')).map((c) => c.textContent);
     const filters = document.body.querySelector('[aria-label="Filters"]')!;
     // Only the City's number is work and Do Not Call, so it isn't counted as a work number worth calling; the Vances' line says nothing about whose it is.
-    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 0', 'Ready to call 2', 'Personal number 1', 'Work number 1', 'Has email 0', 'Mail only 1', '', '']);
+    expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 0', 'Ready to call 2', 'Personal number 1', 'Work number 1', 'Has email 0', 'Mail only 1', 'Status: All']);
     const first = document.body.querySelector('[data-testid="contact-row"]')!;
     expect(first.textContent).toContain('(432) 555-0100');
     expect(first.textContent).toContain('mobile · personal · verified');
@@ -891,7 +885,14 @@ describe('the Outreach page', () => {
     expect(document.body.textContent).toContain('1 done');
     expect(document.body.querySelector('[data-testid="contact-row"]')!.textContent).toContain('Skipped');
     // The status picker: New, In Leads, Skipped; nothing to track calls with here.
-    expect(Array.from(document.body.querySelectorAll('select[aria-label="Status"] option')).map((o) => o.textContent)).toEqual(['All statuses', 'New', 'In Leads', 'Skipped']);
+    await act(async () => (document.body.querySelector('button[aria-label="Status"]') as HTMLButtonElement).click());
+    expect(Array.from(document.body.querySelectorAll('[role="menu"][aria-label="Status"] [role="menuitemradio"]')).map((o) => o.textContent)).toEqual(['All statuses', 'New', 'In Leads', 'Skipped']);
+    // Picking one filters and says so on the button.
+    await act(async () => (Array.from(document.body.querySelectorAll('[role="menuitemradio"]')).find((o) => o.textContent === 'Skipped') as HTMLButtonElement).click());
+    expect((document.body.querySelector('button[aria-label="Status"]') as HTMLButtonElement).textContent).toBe('Status: Skipped');
+    expect(document.body.querySelectorAll('[data-testid="contact-row"]')).toHaveLength(1);
+    await act(async () => (document.body.querySelector('button[aria-label="Status"]') as HTMLButtonElement).click());
+    await act(async () => (Array.from(document.body.querySelectorAll('[role="menuitemradio"]')).find((o) => o.textContent === 'All statuses') as HTMLButtonElement).click());
     // The lists are one picker: All owners, then each list with how far it's got.
     await act(async () => (document.body.querySelector('[data-testid="list-picker"]') as HTMLButtonElement).click());
     expect(Array.from(document.body.querySelectorAll('[data-testid="list-option"]')).map((o) => o.textContent)).toEqual(['Shopping center owners2 owners · 1 done']);

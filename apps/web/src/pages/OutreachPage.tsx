@@ -132,10 +132,11 @@ const SourcesPanel: React.FC<{ organizationId: string }> = ({ organizationId }) 
  * and an empty box folds back to the icon when you leave it. Escape
  * clears it. A box with words in it stays open.
  */
-const SearchBox: React.FC<{ value: string; onChange: (value: string) => void; onOpenChange?: (open: boolean) => void }> = ({ value, onChange, onOpenChange }) => {
+const SearchBox: React.FC<{ value: string; onChange: (value: string) => void; onOpenChange?: (open: boolean) => void; alwaysOpen?: boolean }> = ({ value, onChange, onOpenChange, alwaysOpen }) => {
   const [focused, setFocused] = useState(false);
   const box = useRef<HTMLInputElement>(null);
-  const open = focused || value.length > 0;
+  // On a wide screen it's a box you can see; on a phone it folds to its icon until tapped.
+  const open = alwaysOpen || focused || value.length > 0;
   useEffect(() => onOpenChange?.(open), [open, onOpenChange]);
   return (
     <div className={`relative ${open ? 'flex-1 md:flex-none' : ''}`}>
@@ -156,7 +157,7 @@ const SearchBox: React.FC<{ value: string; onChange: (value: string) => void; on
         placeholder={open ? 'Search owner, person or street' : ''}
         aria-label="Search"
         tabIndex={open ? 0 : -1}
-        className={`h-9 appearance-none rounded-none border border-[#333333] bg-[#1A1A1A] text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699] transition-[width] duration-200 ${
+        className={`${alwaysOpen ? 'h-10' : 'h-9'} appearance-none rounded-none border border-[#333333] bg-[#1A1A1A] text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699] transition-[width] duration-200 ${
           open ? 'w-full md:w-64 pl-8 pr-3' : 'w-9 p-0 opacity-0'
         }`}
       />
@@ -205,6 +206,41 @@ const PopMenu: React.FC<{ label: string; icon: React.ReactNode; dot?: boolean; s
   );
 };
 const menuItem = 'flex w-full items-center gap-3 px-4 min-h-[44px] text-left text-sm text-gray-200 hover:bg-[#2A2A2A] disabled:opacity-50';
+
+/** A filter that reads as words ("Status: All ▾"), sitting with the tabs rather than as a box beside them. */
+const TextMenu: React.FC<{ label: string; text: React.ReactNode; active?: boolean; children: (close: () => void) => React.ReactNode }> = ({ label, text, active, children }) => {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: Event) => box.current && !box.current.contains(e.target as Node) && setOpen(false);
+    document.addEventListener('mousedown', away);
+    document.addEventListener('touchstart', away);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('touchstart', away);
+    };
+  }, [open]);
+  return (
+    <div ref={box} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-label={label}
+        aria-expanded={open}
+        className={`inline-flex items-center gap-1.5 h-10 px-3 text-sm font-medium hover:text-white hover:bg-[#2A2A2A] ${active ? 'text-white' : 'text-gray-400'}`}
+      >
+        {text}
+        <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
+      </button>
+      {open && (
+        <div role="menu" aria-label={label} className="absolute right-0 top-full mt-1 z-40 min-w-[12rem] py-1 bg-[#1A1A1A] border border-[#333333] shadow-xl">
+          {children(() => setOpen(false))}
+        </div>
+      )}
+    </div>
+  );
+};
 /** What the main button does, in words: the person behind each owner, their phone and their email. */
 const findLabel = (n: number) => `Find phones & emails (${n.toLocaleString('en-US')})`;
 
@@ -824,11 +860,9 @@ const OutreachPage: React.FC = () => {
                       <Send className="w-4 h-4 text-gray-500" /> Send {toSend.length} to Leads
                     </button>
                   )}
-                  {narrow && (
-                    <button type="button" role="menuitem" className={menuItem} onClick={() => (close(), pickView(view === 'cards' ? 'table' : 'cards'))}>
-                      {view === 'cards' ? <Table2 className="w-4 h-4 text-gray-500" /> : <LayoutList className="w-4 h-4 text-gray-500" />} {view === 'cards' ? 'Show as a table' : 'Show as cards'}
-                    </button>
-                  )}
+                  <button type="button" role="menuitem" className={menuItem} onClick={() => (close(), pickView(view === 'cards' ? 'table' : 'cards'))}>
+                    {view === 'cards' ? <Table2 className="w-4 h-4 text-gray-500" /> : <LayoutList className="w-4 h-4 text-gray-500" />} {view === 'cards' ? 'Show as a table' : 'Show as cards'}
+                  </button>
                   <button type="button" role="menuitem" className={menuItem} onClick={() => (close(), download(csvName(list?.title ?? 'contacts'), outreachCsv(rows)))}>
                     <Download className="w-4 h-4 text-gray-500" /> Export CSV
                   </button>
@@ -951,33 +985,18 @@ const OutreachPage: React.FC = () => {
               </PopMenu>
             </div>
           ) : (
-          <div className="flex w-full md:w-auto shrink-0 items-center gap-2 py-1.5">
-            <SearchBox value={query} onChange={setQuery} />
-            <label className="relative block">
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as OutreachRowStatus | 'all')}
-                aria-label="Status"
-                className="appearance-none h-9 rounded-none bg-[#1A1A1A] border border-[#333333] pl-3 pr-8 text-sm text-gray-300 focus:outline-none focus:border-[#336699]"
-              >
-                <option value="all">All statuses</option>
-                {[...STATUS_FILTERS, ...OLD_STATUSES.filter((x) => status === x || data.rows.some((r) => r.status === x))].map((x) => (
-                  <option key={x} value={x}>
-                    {STATUS_LABEL[x]}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" aria-hidden />
-            </label>
-            <button
-              type="button"
-              onClick={() => pickView(view === 'cards' ? 'table' : 'cards')}
-              aria-label={view === 'cards' ? 'Show as a table' : 'Show as cards'}
-              title={view === 'cards' ? 'Show as a table' : 'Show as cards'}
-              className={`${chip(false)} gap-2`}
-            >
-              {view === 'cards' ? <Table2 className="w-4 h-4" /> : <LayoutList className="w-4 h-4" />}
-            </button>
+          <div className="flex w-full md:w-auto shrink-0 items-center gap-1 py-1.5">
+            <TextMenu label="Status" text={<>Status: {status === 'all' ? 'All' : STATUS_LABEL[status]}</>} active={status !== 'all'}>
+              {(close) =>
+                (['all', ...STATUS_FILTERS, ...OLD_STATUSES.filter((x) => status === x || data.rows.some((r) => r.status === x))] as Array<OutreachRowStatus | 'all'>).map((x) => (
+                  <button key={x} type="button" role="menuitemradio" aria-checked={status === x} className={menuItem} onClick={() => (close(), setStatus(x))}>
+                    {x === 'all' ? 'All statuses' : STATUS_LABEL[x]}
+                    {status === x && <Check className="ml-auto w-4 h-4 text-[#7fb0e0]" />}
+                  </button>
+                ))
+              }
+            </TextMenu>
+            <SearchBox value={query} onChange={setQuery} alwaysOpen />
           </div>
           )}
         </div>
