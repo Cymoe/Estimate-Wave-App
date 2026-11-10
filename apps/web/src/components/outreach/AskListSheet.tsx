@@ -250,8 +250,9 @@ export const AskListSheet: React.FC<{
               {built.truncated && <p className="text-sm text-amber-300">That's at least how many: the roll was read as far as one ask reaches. Narrow it down (a value, a street or a zip) to count them all.</p>}
             </div>
             {built.rows.length > 0 && (
-              <ul className="border border-[#333333] divide-y divide-[#333333]" aria-label="Preview">
-                {built.rows.slice(0, 5).map((r) => (
+              // The first look scrolls on its own, so the count above and Save below stay put.
+              <ul className="border border-[#333333] divide-y divide-[#333333] max-h-[45vh] overflow-y-auto overscroll-contain" aria-label="Preview">
+                {built.rows.map((r) => (
                   <li key={r.key} className="px-3 py-2.5 text-sm">
                     <div className="flex items-baseline justify-between gap-3">
                       <span className="text-white truncate">{r.name}</span>
@@ -270,7 +271,11 @@ export const AskListSheet: React.FC<{
                     <div className="text-xs text-gray-500 truncate">{r.property || r.properties > 0 ? mailingLine(r.mailing) : r.why}</div>
                   </li>
                 ))}
-                {built.count > 5 && <li className="px-3 py-2 text-xs text-gray-500">and {built.count - 5} more</li>}
+                {built.count > built.rows.length && (
+                  <li className="px-3 py-2 text-xs text-gray-500">
+                    The first {built.rows.length} of {built.count.toLocaleString('en-US')}: save the list to see them all
+                  </li>
+                )}
               </ul>
             )}
             {/* The name and Save stay in view at the bottom of the sheet, however long the first look is. */}

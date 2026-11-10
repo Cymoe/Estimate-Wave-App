@@ -618,8 +618,8 @@ export const preview = query({
   },
 });
 
-/** A preview reads this many owners; the count and total come without the rest. */
-const PREVIEW_ROWS = 25;
+/** A preview reads this many owners (enough to scroll through before saving); the count and total come without the rest. */
+const PREVIEW_ROWS = 100;
 
 export const previewInternal = internalQuery({
   args: { organizationId: v.id("organizations"), definition: outreachDefinition },
