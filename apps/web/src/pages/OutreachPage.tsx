@@ -8,7 +8,7 @@ import { AskListSheet } from '../components/outreach/AskListSheet';
 import { ListStarter } from '../components/outreach/ListStarter';
 import type { Preset } from '../components/outreach/presets';
 import { ListPicker } from '../components/outreach/ListPicker';
-import { rememberList } from '../components/outreach/listsStore';
+import { rememberList, UNLISTED } from '../components/outreach/listsStore';
 import { ListsOverview } from '../components/outreach/ListsOverview';
 import { ContactCards, ContactsTable, ContactSheet, type OwnerSort } from '../components/outreach/ContactsTable';
 import { useMediaQuery } from '../hooks/useMediaQuery';
@@ -406,14 +406,14 @@ const OutreachPage: React.FC = () => {
   /** The ready-made list the empty page's card opened the sheet with. */
   const [start, setStart] = useState<{ preset: Preset } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [confirm, confirmDialog] = useConfirm();
+  const [confirm, confirmDialog, choose] = useConfirm();
   /** Manage lists: every list as a card, to pin or rename. */
   const managing = searchParams.get('lists') === '1';
   const openManage = () => setSearchParams({ lists: '1' });
   const pickList = (id: string | null) => navigate(id ? `/outreach/${id}` : '/outreach');
   // Whichever way a list was opened (the picker, a link, Back), it's the most recent one.
   useEffect(() => {
-    if (listId) rememberList(listId);
+    if (listId && listId !== UNLISTED) rememberList(listId);
   }, [listId]);
   const live = useRef(true);
   useEffect(() => {
@@ -546,6 +546,9 @@ const OutreachPage: React.FC = () => {
   }, [searchParams, setSearchParams]);
 
   const list = lists?.find((l) => l.id === listId);
+  /** The owners on no list, kept from deleted lists because they were worked: a view of their own, like a list's. */
+  const onUnlisted = listId === UNLISTED;
+  const unlistedCount = data?.unlisted ?? 0;
   // A list still filling in the background: read the lists again as its owners arrive, so the bar goes once the last page lands.
   const filling = Boolean(list?.filling);
   const arrived = data?.rows.length ?? 0;
@@ -772,17 +775,30 @@ const OutreachPage: React.FC = () => {
   const removeList = async (target: OutreachListSummary | undefined = list) => {
     if (!organizationId || !target) return;
     const list = target;
-    const message = list.deletable
-      ? 'Nobody has worked this list yet, so nothing of yours is lost. You can make it again any time.'
-      : "Owners you've worked (a status, a note, a lookup or a lead) stay in All owners. The rest go with the list.";
-    if (!(await confirm({ title: `Delete “${list.title}”?`, message, confirmLabel: 'Delete' }))) return;
+    // Nobody worked it: a plain yes or no. Worked owners only it holds: keep them (under Not on a list) or let them go too.
+    let alsoWorked = false;
+    if (list.deletable) {
+      const message = 'Nobody has worked this list yet, so nothing of yours is lost. You can make it again any time.';
+      if (!(await confirm({ title: `Delete “${list.title}”?`, message, confirmLabel: 'Delete' }))) return;
+    } else {
+      const n = list.worked ?? 0;
+      const owners = n > 0 ? `${n.toLocaleString('en-US')} ${n === 1 ? 'owner' : 'owners'}` : 'Some owners';
+      const answer = await choose({
+        title: `Delete “${list.title}”?`,
+        message: `${owners} on it ${n === 1 ? 'was' : 'were'} worked (a status, a note, a paid lookup or a lead) and ${n === 1 ? 'is' : 'are'} on no other list. Keep them under Not on a list, or let them go with it. Owners sent to Leads or made clients always stay.`,
+        confirmLabel: 'Delete, keep the worked owners',
+        altLabel: 'Delete them too',
+      });
+      if (!answer) return;
+      alsoWorked = answer === 'alt';
+    }
     // Gone at once: All shows without it (its owners on no other list dropped, the rest untagged) before the server is asked,
     // so the page doesn't show this list emptying, then the old All, then the new one.
     const id = list.id;
     const allKey = `${organizationId}:all`;
     const all = seen.current.get(allKey);
     if (all) {
-      const rows = all.rows.filter((r) => !(r.listIds.length === 1 && r.listIds[0] === id && !workedOn(r))).map((r) => (r.listIds.includes(id) ? { ...r, listIds: r.listIds.filter((x) => x !== id) } : r));
+      const rows = all.rows.filter((r) => !(r.listIds.length === 1 && r.listIds[0] === id && !(alsoWorked ? r.leadId || r.status === 'client' : workedOn(r)))).map((r) => (r.listIds.includes(id) ? { ...r, listIds: r.listIds.filter((x) => x !== id) } : r));
       seen.current.set(allKey, { ...all, rows });
     }
     seen.current.delete(`${organizationId}:${id}`);
@@ -790,7 +806,7 @@ const OutreachPage: React.FC = () => {
     setLists((l) => l && l.filter((x) => x.id !== id));
     if (!managing) navigate('/outreach');
     try {
-      await outreachAPI.remove(organizationId, id);
+      await (alsoWorked ? outreachAPI.remove(organizationId, id, true) : outreachAPI.remove(organizationId, id));
       // Done on the server: the lists as they now are (the last one gone, the page shows the ready-made lists).
       const l = await outreachAPI.lists(organizationId);
       if (live.current) setLists(keep(l));
@@ -798,6 +814,32 @@ const OutreachPage: React.FC = () => {
       gone.current.delete(id);
       setError(err instanceof Error ? err.message : "Couldn't delete the list");
       void load();
+    }
+  };
+
+  /** Let the owners on no list go, after asking: what they hold goes with them; leads' and clients' owners stay. */
+  const clearUnlisted = async () => {
+    if (!organizationId) return;
+    const n = unlistedCount;
+    const owners = `${n.toLocaleString('en-US')} ${n === 1 ? 'owner' : 'owners'}`;
+    const ok = await confirm({
+      title: `Remove the ${owners} not on a list?`,
+      message: "Their notes, call outcomes and lookups go with them, paid ones too. Owners you sent to Leads or made clients stay. A new list that includes one brings it back fresh.",
+      confirmLabel: 'Remove',
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const { kept } = await outreachAPI.removeUnlisted(organizationId);
+      if (!live.current) return;
+      seen.current.delete(`${organizationId}:${UNLISTED}`);
+      seen.current.delete(`${organizationId}:all`);
+      if (onUnlisted && kept === 0) navigate('/outreach');
+      else void load();
+    } catch (err) {
+      if (live.current) setError(err instanceof Error ? err.message : "Couldn't remove them");
+    } finally {
+      if (live.current) setBusy(false);
     }
   };
 
@@ -841,7 +883,7 @@ const OutreachPage: React.FC = () => {
         <div className="min-w-0 flex-1">
           <h1 className="sr-only">Outreach</h1>
           {/* On a wide screen the open list's name is the page's title, a tap away from the others. */}
-          {lists && lists.length > 0 && !narrow && <ListPicker lists={lists} currentId={listId} narrow={false} onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} />}
+          {lists && lists.length > 0 && !narrow && <ListPicker lists={lists} currentId={listId} narrow={false} onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} unlisted={unlistedCount} />}
           {isStaff(user) && (
             <div className="md:mt-1 text-xs text-gray-500">
               <button type="button" onClick={() => setStaffOpen((v) => !v)} aria-expanded={staffOpen} className="md:hidden inline-flex items-center gap-1 min-h-[32px] text-gray-500 hover:text-white">
@@ -907,6 +949,14 @@ const OutreachPage: React.FC = () => {
                       </button>
                     </>
                   )}
+                  {onUnlisted && rows.length > 0 && (
+                    <>
+                      <div className={menuDivider} role="separator" />
+                      <button type="button" role="menuitem" className={`${menuItem} !text-red-300 hover:!bg-red-500/10 [&>svg]:!text-red-300`} onClick={() => (close(), void clearUnlisted())}>
+                        <Trash2 className="w-4 h-4" /> Remove these owners
+                      </button>
+                    </>
+                  )}
                 </>
               )}
             </PopMenu>
@@ -947,7 +997,7 @@ const OutreachPage: React.FC = () => {
       )}
       {/* The lists: one picker (search, pinned, recent, grouped by kind) instead of a chip per list. On a phone with owners showing, it lives in the sticky bar below. */}
       {lists && lists.length > 0 && narrow && !(data && data.rows.length > 0) && (
-        <ListPicker lists={lists} currentId={listId} narrow onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} />
+        <ListPicker lists={lists} currentId={listId} narrow onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} unlisted={unlistedCount} />
       )}
       {data && data.rows.length > 0 && list && (
         <p className="text-xs text-gray-500" data-testid="list-line">
@@ -1006,7 +1056,7 @@ const OutreachPage: React.FC = () => {
           {narrow ? (
             <div className="flex w-full items-center gap-2 py-1.5">
               {lists && lists.length > 0 && !searching && (
-                <ListPicker lists={lists} currentId={listId} narrow onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} compact />
+                <ListPicker lists={lists} currentId={listId} narrow onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} unlisted={unlistedCount} compact />
               )}
               <SearchBox value={query} onChange={setQuery} onOpenChange={setSearching} />
               <PopMenu label="Filter by status" icon={<SlidersHorizontal className="w-4 h-4" />} dot={status !== 'all'} size="w-9 h-9">
@@ -1050,6 +1100,14 @@ const OutreachPage: React.FC = () => {
           <button type="button" onClick={() => setAsking(true)} className="text-[#7fb0e0] hover:text-white">
             Make a list
           </button>
+          <button type="button" onClick={() => void clearUnlisted()} disabled={busy} className="text-gray-400 hover:text-white disabled:opacity-50">
+            Remove them
+          </button>
+        </p>
+      )}
+      {onUnlisted && data && data.rows.length > 0 && (
+        <p className="text-xs text-gray-500" data-testid="unlisted-line">
+          Kept from lists you deleted, because you worked them. A new list that includes one takes it back, with all it holds.
         </p>
       )}
       {data === null || lists === null ? (

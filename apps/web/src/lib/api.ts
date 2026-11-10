@@ -7,6 +7,7 @@
  */
 
 import { ConvexError } from 'convex/values';
+import { UNLISTED } from '../components/outreach/listsStore';
 import type { FunctionReference } from 'convex/server';
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
@@ -1278,6 +1279,8 @@ export type OutreachListSummary = {
   archived?: boolean;
   /** Nobody has worked it yet, so it can be deleted; a worked list is archived instead. */
   deletable?: boolean;
+  /** The worked owners only this list holds: they stay when it goes, unless asked to go too. */
+  worked?: number;
   /** Still adding owners in the background, right after it was saved. */
   filling?: boolean;
 };
@@ -1294,7 +1297,10 @@ export type OutreachContacts = {
   phoneHitRate?: number;
   /** The latest send of two or more leads in the last day, for Undo: when, and how many leads are still there. */
   lastSend?: { at: string; leads: number } | null;
+  /** How many owners are on no list: kept from deleted lists because they were worked. */
+  unlisted?: number;
 };
+const contactsArgs = (organizationId: string, listId?: string) => (listId === UNLISTED ? { organizationId, unlisted: true } : defined({ organizationId, listId }));
 /** A source in the stack, as staff see it: connected or not, and how it has done for this company. */
 export type OutreachSource = {
   name: string;
@@ -1313,10 +1319,10 @@ export type OutreachInterpreted =
 export const outreachAPI = {
   lists: (organizationId: string): Promise<OutreachListSummary[]> => run('query', api.outreach.lists, { organizationId }),
   /** Every contact, or those on one list, with the balance for unlocks. */
-  contacts: (organizationId: string, listId?: string): Promise<OutreachContacts> => run('query', api.outreach.contacts, defined({ organizationId, listId })),
+  contacts: (organizationId: string, listId?: string): Promise<OutreachContacts> => run('query', api.outreach.contacts, contactsArgs(organizationId, listId)),
   /** The contacts, now and on every change: a lookup's progress, a status set elsewhere. Returns a stop function. */
   watchContacts: (organizationId: string, listId: string | undefined, onUpdate: (c: OutreachContacts) => void, onError?: (e: APIError) => void): (() => void) =>
-    watchOn(api.outreach.contacts, defined({ organizationId, listId }), onUpdate, onError),
+    watchOn(api.outreach.contacts, contactsArgs(organizationId, listId), onUpdate, onError),
   /** The company's running lookups as they go (the source asked now, the turns so far), now and on every change. Returns a stop function. */
   watchProgress: (organizationId: string, onUpdate: (p: OutreachProgress[]) => void, onError?: (e: APIError) => void): (() => void) =>
     watchOn(api.outreach.progress, { organizationId }, onUpdate, onError),
@@ -1341,7 +1347,11 @@ export const outreachAPI = {
   sendToLeads: (organizationId: string, contactId: string): Promise<string> => run('mutation', api.outreach.sendToLeads, { organizationId, contactId }),
   /** The Outreach owners a lead came from: who, what they own and why they were picked. */
   ownersOfLead: (organizationId: string, leadId: string): Promise<OutreachOwnerOfLead[]> => run('query', api.outreach.ownersOfLead, { organizationId, leadId }),
-  remove: (organizationId: string, listId: string) => run('mutation', api.outreach.remove, { organizationId, listId }),
+  /** alsoWorked: the worked owners only this list holds go too (all but leads and clients). */
+  remove: (organizationId: string, listId: string, alsoWorked?: boolean) => run('mutation', api.outreach.remove, defined({ organizationId, listId, alsoWorked })),
+  /** The owners on no list (or just contactIds of them) removed; those now a lead or a client stay. */
+  removeUnlisted: (organizationId: string, contactIds?: string[]): Promise<{ removed: number; kept: number }> =>
+    run('mutation', api.outreach.removeUnlisted, defined({ organizationId, contactIds })),
   organizeList: (organizationId: string, listId: string, change: { title?: string; pinned?: boolean; archived?: boolean }) =>
     run('mutation', api.outreach.organizeList, defined({ organizationId, listId, ...change })),
   /** Loads the next page of a list that reached its cap. */

@@ -738,6 +738,41 @@ describe("a company's lists", () => {
     expect(await names()).toEqual(["Called LLC", "Noted LLC", "Paid LLC", "Researched LLC", "Two Lists LLC"]);
   });
 
+  test("owners on no list: shown on their own with a count, removable all at once or some; leads and clients stay; a list can take its worked owners with it", async () => {
+    const t = setup();
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    const at = "2026-11-01T00:00:00.000Z";
+    const lead = (await co.as.mutation(api.leads.create, { organizationId: org, data: { name: "Sent LLC" } }))!._id;
+    const { listId, a } = await t.run(async (ctx) => {
+      const [user] = await ctx.db.query("users").collect();
+      const listId = await ctx.db.insert("outreachLists", { organizationId: org, title: "Going", definition: { county: "Midland", who: "investor" as const }, rowCount: 3, done: 0, truncated: false, createdBy: user._id, createdAt: at });
+      const locked = { status: "locked" as const };
+      const contact = (name: string, extra: Record<string, unknown> = {}) =>
+        ctx.db.insert("outreachContacts", { organizationId: org, key: name, name, mailing: {}, properties: 1, totalValueCents: 0, why: "", kinds: ["investor"], listIds: [], status: "new", createdAt: at, enrichment: { phone: locked, email: locked, person: locked }, ...extra });
+      const a = await contact("Kept A LLC", { note: "Call in spring" });
+      await contact("Kept B LLC", { status: "no_answer" });
+      await contact("Sent LLC", { status: "lead", leadId: lead });
+      await contact("On List LLC", { listIds: [listId] });
+      await contact("Worked On List LLC", { listIds: [listId], status: "callback" });
+      await contact("Sent On List LLC", { listIds: [listId], status: "lead", leadId: lead });
+      return { listId, a };
+    });
+    const view = await co.as.query(api.outreach.contacts, { organizationId: org, unlisted: true });
+    expect(view.rows.map((r) => r.name).sort()).toEqual(["Kept A LLC", "Kept B LLC", "Sent LLC"]);
+    expect(view.unlisted).toBe(3);
+    expect((await co.as.query(api.outreach.contacts, { organizationId: org, listId })).unlisted).toBe(3);
+    // Some of them: just the one asked for.
+    expect(await co.as.mutation(api.outreach.removeUnlisted, { organizationId: org, contactIds: [a] })).toEqual({ removed: 1, kept: 0 });
+    // All of them: the lead's owner stays.
+    expect(await co.as.mutation(api.outreach.removeUnlisted, { organizationId: org })).toEqual({ removed: 1, kept: 1 });
+    const names = async () => (await t.run(async (ctx) => ctx.db.query("outreachContacts").collect())).map((c) => c.name).sort();
+    expect(await names()).toEqual(["On List LLC", "Sent LLC", "Sent On List LLC", "Worked On List LLC"]);
+    // Deleting a list with its worked owners too: only the lead's owner stays.
+    await co.as.mutation(api.outreach.remove, { organizationId: org, listId, alsoWorked: true });
+    expect(await names()).toEqual(["Sent LLC", "Sent On List LLC"]);
+  });
+
   test("starting over removes a company's lists and owners, after a dry run; leads and other companies stay", async () => {
     const t = setup();
     const co = await proCompany(t);

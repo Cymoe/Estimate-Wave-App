@@ -613,6 +613,8 @@ const listView = (l: Doc<"outreachLists">, done: number, results: ListResults = 
   filling: l.filling === true,
   /** Nobody has worked it: deleting it loses nothing. Otherwise its worked owners stay under All owners when it goes. */
   deletable: stranded === 0,
+  /** The worked owners only this list holds: they stay when it goes, unless asked to go too. */
+  worked: stranded,
 });
 
 /** The count and a first look, before saving. `count` is what one list holds; `total` is how many owners the ask reaches. */
@@ -951,14 +953,15 @@ async function phoneHitRate(ctx: QueryCtx | MutationCtx, organizationId: Id<"org
  * the price, for the headers and the unlock bar.
  */
 export const contacts = query({
-  args: { organizationId: v.id("organizations"), listId: v.optional(v.id("outreachLists")) },
-  handler: async (ctx, { organizationId, listId }) => {
+  /** unlisted: the owners on no list (kept from deleted lists because they were worked), in place of a list. */
+  args: { organizationId: v.id("organizations"), listId: v.optional(v.id("outreachLists")), unlisted: v.optional(v.boolean()) },
+  handler: async (ctx, { organizationId, listId, unlisted }) => {
     const { organization } = await requirePro(ctx, organizationId);
     const all = await contactsOf(ctx, organizationId);
     const list = listId ? await ctx.db.get(listId) : null;
     const order = list && list.organizationId === organizationId ? listOrder(list.definition) : undefined;
     const picked = all
-      .filter((c) => !listId || c.listIds.includes(listId))
+      .filter((c) => (unlisted ? c.listIds.length === 0 : !listId || c.listIds.includes(listId)))
       .sort((a, b) => (order ? order.key(b) - order.key(a) || a.name.localeCompare(b.name) : b.createdAt.localeCompare(a.createdAt) || a.name.localeCompare(b.name)));
     // Sister entities across all the company's contacts, not only this list.
     const families = new Map<string, Array<{ id: Id<"outreachContacts">; name: string }>>();
@@ -1001,6 +1004,8 @@ export const contacts = query({
       researchQuestion: DEFAULT_RESEARCH_QUESTION,
       phoneHitRate: await phoneHitRate(ctx, organizationId),
       lastSend: await lastSendOf(ctx, organizationId),
+      /** Owners on no list, for the picker's "Not on a list". */
+      unlisted: all.filter((c) => c.listIds.length === 0).length,
     };
   },
 });
@@ -1348,8 +1353,9 @@ export const sendManyToLeads = mutation({
 
 /** Drops a list. Its contacts lose the tag; one on no other list goes too, unless the company paid to unlock it. */
 export const remove = mutation({
-  args: { organizationId: v.id("organizations"), listId: v.id("outreachLists") },
-  handler: async (ctx, { organizationId, listId }) => {
+  /** alsoWorked: the worked owners only this list holds go too, all but those now a lead or a client. */
+  args: { organizationId: v.id("organizations"), listId: v.id("outreachLists"), alsoWorked: v.optional(v.boolean()) },
+  handler: async (ctx, { organizationId, listId, alsoWorked }) => {
     await requirePro(ctx, organizationId);
     const list = await ctx.db.get(listId);
     if (!list || list.organizationId !== organizationId) fail("NOT_FOUND", "No such list");
@@ -1360,15 +1366,52 @@ export const remove = mutation({
     for (const c of contacts) {
       if (!c.listIds.includes(listId)) continue;
       const listIds = c.listIds.filter((id) => id !== listId);
-      if (listIds.length === 0 && !worthKeeping(c, await leadGone(ctx, c))) {
-        await ctx.db.delete(c._id);
-        continue;
+      if (listIds.length === 0) {
+        const gone = await leadGone(ctx, c);
+        if (alsoWorked ? !isLeadOrClient(c, gone) : !worthKeeping(c, gone)) {
+          await dropOwner(ctx, c._id);
+          continue;
+        }
       }
       const kinds = [...new Set(listIds.map((id) => whoOf.get(id)).filter((w): w is Doc<"outreachLists">["definition"]["who"] => w !== undefined))];
       await ctx.db.patch(c._id, { listIds, kinds, updatedAt: nowIso() });
     }
     await ctx.db.delete(listId);
     return null;
+  },
+});
+
+/** Now a lead (one still in Leads) or a client: tracked there, so the owner always stays, list or no list. */
+const isLeadOrClient = (c: Doc<"outreachContacts">, leadGone: boolean) => Boolean(c.clientId) || (Boolean(c.leadId) && !leadGone);
+
+/** An owner removed for good, with any lookup narration it left. */
+async function dropOwner(ctx: MutationCtx, contactId: Id<"outreachContacts">) {
+  await clearProgress(ctx, contactId, ["phone", "email", "person", "research"]);
+  await ctx.db.delete(contactId);
+}
+
+/**
+ * The owners on no list, removed: kept from deleted lists because they were
+ * worked, and now let go. Those that became a lead or a client stay, as
+ * Leads and Clients track them. contactIds narrows it to some of them.
+ */
+export const removeUnlisted = mutation({
+  args: { organizationId: v.id("organizations"), contactIds: v.optional(v.array(v.id("outreachContacts"))) },
+  handler: async (ctx, { organizationId, contactIds }) => {
+    await requirePro(ctx, organizationId);
+    const only = contactIds ? new Set<Id<"outreachContacts">>(contactIds) : null;
+    let removed = 0;
+    let kept = 0;
+    for (const c of await contactsOf(ctx, organizationId)) {
+      if (c.listIds.length > 0 || (only && !only.has(c._id))) continue;
+      if (isLeadOrClient(c, await leadGone(ctx, c))) {
+        kept++;
+        continue;
+      }
+      await dropOwner(ctx, c._id);
+      removed++;
+    }
+    return { removed, kept };
   },
 });
 

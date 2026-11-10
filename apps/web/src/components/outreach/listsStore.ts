@@ -24,3 +24,6 @@ export function rememberList(id: string) {
 /** "125 owners · 2 done · 1 sent · 0 sold": how far a list has got. */
 export const listProgress = (l: OutreachListSummary) =>
   [`${l.rowCount.toLocaleString('en-US')} owners`, `${l.done} done`, ...(l.results && l.results.sent > 0 ? [`${l.results.sent} sent`, `${l.results.sold} sold`] : [])].join(' · ');
+
+/** The page's name for the owners on no list (kept from deleted lists because they were worked), in place of a list's id. */
+export const UNLISTED = 'unlisted';

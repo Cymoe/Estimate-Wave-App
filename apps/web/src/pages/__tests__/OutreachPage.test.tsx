@@ -66,6 +66,7 @@ const sendToLeads = jest.fn(async () => 'lead1');
 const sendManyToLeads = jest.fn(async () => ({ sent: 2, leads: 1, joined: 1 }));
 const undoSend = jest.fn(async () => ({ removed: 120, kept: 5 }));
 const remove = jest.fn(async () => null);
+const removeUnlisted = jest.fn(async () => ({ removed: 2, kept: 0 }));
 const extend = jest.fn(async () => ({ loaded: 500, added: 500, rowCount: 1000, total: 2340, truncated: false }));
 const enrich = jest.fn(async () => ({ queued: 1, costCents: 100, at: '2026-11-05T15:00:00Z' }));
 const sources = jest.fn(async () => []);
@@ -104,6 +105,7 @@ jest.mock('../../lib/api', () => ({
     sendManyToLeads: (...args: unknown[]) => sendManyToLeads(...(args as [])),
     undoSend: (...args: unknown[]) => undoSend(...(args as [])),
     remove: (...args: unknown[]) => remove(...(args as [])),
+    removeUnlisted: (...args: unknown[]) => removeUnlisted(...(args as [])),
     organizeList: (...args: unknown[]) => organizeList(...(args as [])),
     extend: (...args: unknown[]) => extend(...(args as [])),
     enrich: (...args: unknown[]) => enrich(...(args as [])),
@@ -493,9 +495,18 @@ describe('the Outreach page', () => {
     await render();
     expect(document.body.querySelector('[data-testid="outreach-empty"]')).toBeNull();
     expect(document.body.querySelector('[data-testid="no-lists-hint"]')!.textContent).toBe(
-      'No lists right now. These 2 owners stayed from lists you deleted, because you worked them: a status, a note, a paid lookup, or a lead.Make a list',
+      'No lists right now. These 2 owners stayed from lists you deleted, because you worked them: a status, a note, a paid lookup, or a lead.Make a listRemove them',
     );
     expect(document.body.querySelectorAll('[data-testid="contact-row"]')).toHaveLength(2);
+    // Done with them: Remove them, after a warning that what they hold goes too.
+    contacts = { ...contacts, unlisted: 2 };
+    await act(async () => pushContacts!(contacts));
+    await click('Remove them');
+    expect(document.body.querySelector('[role="alertdialog"]')!.textContent).toContain('Remove the 2 owners not on a list?');
+    expect(document.body.querySelector('[role="alertdialog"]')!.textContent).toContain('Owners you sent to Leads or made clients stay.');
+    await act(async () => (Array.from(document.body.querySelectorAll('[role="alertdialog"] button')).find((b) => b.textContent === 'Remove') as HTMLButtonElement).click());
+    await flush();
+    expect(removeUnlisted).toHaveBeenCalledWith('o1');
     await click('Make a list');
     expect(document.body.querySelector('[data-testid="no-lists-hint"]')).not.toBeNull();
   });
@@ -1227,17 +1238,49 @@ describe('the Outreach page', () => {
     await flush();
     expect(document.body.querySelector('[data-testid="outreach-empty"]')).not.toBeNull();
   });
-  it('a worked list can be deleted too, after a warning that the owners you worked stay', async () => {
-    lists = [{ ...list, deletable: false }];
+  it('a worked list can be deleted too: its worked owners stay under Not on a list, or go with it', async () => {
+    lists = [{ ...list, deletable: false, worked: 2 }];
     contacts = twoContacts();
     await render('/outreach/l1');
     expect(document.body.querySelector('button[aria-label="Archive list"]')).toBeNull();
     await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
     await click('Delete list');
     await flush();
-    expect(document.body.textContent).toContain("Owners you've worked (a status, a note, a lookup or a lead) stay in All owners.");
-    await click('Delete');
+    const dialog = () => document.body.querySelector('[role="alertdialog"]')!;
+    expect(dialog().textContent).toContain('2 owners on it were worked (a status, a note, a paid lookup or a lead) and are on no other list.');
+    expect(Array.from(dialog().querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Delete, keep the worked owners', 'Delete them too', 'Cancel']);
+    await click('Delete, keep the worked owners');
     expect(remove).toHaveBeenCalledWith('o1', 'l1');
+    expect(path).toBe('/outreach');
+    // Another worked list, and this time its worked owners go too.
+    clearPage();
+    lists = [{ ...list, deletable: false, worked: 1 }];
+    await render('/outreach/l1');
+    await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
+    await click('Delete list');
+    expect(dialog().textContent).toContain('1 owner on it was worked');
+    await click('Delete them too');
+    expect(remove).toHaveBeenLastCalledWith('o1', 'l1', true);
+  });
+
+  it('owners on no list have a place in the picker: Not on a list shows them, says why, and can let them all go', async () => {
+    lists = [list];
+    contacts = { ...twoContacts(), unlisted: 2 };
+    await render('/outreach/l1');
+    await act(async () => (document.body.querySelector('[data-testid="list-picker"]') as HTMLButtonElement).click());
+    expect(document.body.querySelector('[data-testid="unlisted-option"]')!.textContent).toBe('Not on a list2 owners kept from deleted lists');
+    await act(async () => (document.body.querySelector('[data-testid="unlisted-option"]') as HTMLButtonElement).click());
+    await flush();
+    expect(path).toBe('/outreach/unlisted');
+    expect(getContacts).toHaveBeenLastCalledWith('o1', 'unlisted');
+    expect(document.body.querySelector('[data-testid="list-picker"]')!.textContent).toBe('Not on a list');
+    expect(document.body.querySelector('[data-testid="unlisted-line"]')!.textContent).toContain('Kept from lists you deleted, because you worked them.');
+    await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
+    expect(button('Delete list')).toBeUndefined();
+    await click('Remove these owners');
+    await act(async () => (Array.from(document.body.querySelectorAll('[role="alertdialog"] button')).find((b) => b.textContent === 'Remove') as HTMLButtonElement).click());
+    await flush();
+    expect(removeUnlisted).toHaveBeenCalledWith('o1');
     expect(path).toBe('/outreach');
   });
   it('the list picker: search, pin to the top, grouped by kind; Manage lists renames and deletes', async () => {

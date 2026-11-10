@@ -21,15 +21,19 @@ export interface ConfirmOptions {
   cancelLabel?: string;
   /** "danger" (the default) makes the confirm button red, for removing and deleting. */
   tone?: 'danger' | 'default';
+  /** A second way to go ahead (asked with choose()): the buttons stack, the confirm on top, this under it, Cancel last. */
+  altLabel?: string;
 }
 
-export const ConfirmDialog: React.FC<ConfirmOptions & { onAnswer: (yes: boolean) => void }> = ({
+export const ConfirmDialog: React.FC<ConfirmOptions & { onAnswer: (yes: boolean) => void; onAlt?: () => void }> = ({
   title,
   message,
   confirmLabel = 'OK',
   cancelLabel = 'Cancel',
   tone = 'danger',
+  altLabel,
   onAnswer,
+  onAlt,
 }) => {
   const titleId = useId();
   const cancelRef = useRef<HTMLButtonElement>(null);
@@ -53,39 +57,66 @@ export const ConfirmDialog: React.FC<ConfirmOptions & { onAnswer: (yes: boolean)
           {title}
         </h3>
         {message && <p className="mt-2 text-sm text-gray-400">{message}</p>}
-        <div className="mt-6 flex justify-end gap-3">
-          <button ref={cancelRef} type="button" onClick={() => onAnswer(false)} className="px-4 py-2 text-sm text-gray-300 hover:text-white rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[#336699]">
-            {cancelLabel}
-          </button>
-          <button
-            type="button"
-            onClick={() => onAnswer(true)}
-            className={`px-4 py-2 text-sm font-medium text-white rounded-lg ${tone === 'danger' ? 'bg-red-600 hover:bg-red-700' : 'bg-[#336699] hover:bg-[#2A5580]'}`}
-          >
-            {confirmLabel}
-          </button>
-        </div>
+        {altLabel ? (
+          <div className="mt-6 flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => onAnswer(true)}
+              className={`w-full px-4 py-2.5 text-sm font-medium text-white rounded-lg ${tone === 'danger' ? 'bg-red-600 hover:bg-red-700' : 'bg-[#336699] hover:bg-[#2A5580]'}`}
+            >
+              {confirmLabel}
+            </button>
+            <button type="button" onClick={onAlt} className="w-full px-4 py-2.5 text-sm font-medium text-red-300 border border-red-500/40 hover:bg-red-500/10 rounded-lg">
+              {altLabel}
+            </button>
+            <button ref={cancelRef} type="button" onClick={() => onAnswer(false)} className="w-full px-4 py-2.5 text-sm text-gray-300 hover:text-white rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[#336699]">
+              {cancelLabel}
+            </button>
+          </div>
+        ) : (
+          <div className="mt-6 flex justify-end gap-3">
+            <button ref={cancelRef} type="button" onClick={() => onAnswer(false)} className="px-4 py-2 text-sm text-gray-300 hover:text-white rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[#336699]">
+              {cancelLabel}
+            </button>
+            <button
+              type="button"
+              onClick={() => onAnswer(true)}
+              className={`px-4 py-2 text-sm font-medium text-white rounded-lg ${tone === 'danger' ? 'bg-red-600 hover:bg-red-700' : 'bg-[#336699] hover:bg-[#2A5580]'}`}
+            >
+              {confirmLabel}
+            </button>
+          </div>
+        )}
       </div>
     </div>,
     document.body,
   );
 };
 
-/** Ask a yes/no question with the app's dialog. Returns the asker and the dialog to render. */
-export function useConfirm(): [(options: ConfirmOptions) => Promise<boolean>, React.ReactNode] {
-  const [pending, setPending] = useState<{ options: ConfirmOptions; resolve: (yes: boolean) => void } | null>(null);
+/** What choose() answers: the confirm button, the second one, or neither. */
+export type Choice = 'confirm' | 'alt' | null;
+
+/**
+ * Ask a yes/no question with the app's dialog. Returns the asker and the dialog to render; the third,
+ * choose(), asks with two ways to go ahead (altLabel is the second) and says which was picked.
+ */
+export function useConfirm(): [(options: ConfirmOptions) => Promise<boolean>, React.ReactNode, (options: ConfirmOptions & { altLabel: string }) => Promise<Choice>] {
+  const [pending, setPending] = useState<{ options: ConfirmOptions; resolve: (answer: Choice) => void } | null>(null);
+  const choose = useCallback((options: ConfirmOptions & { altLabel: string }) => new Promise<Choice>((resolve) => setPending({ options, resolve })), []);
   const confirm = useCallback(
-    (options: ConfirmOptions) => new Promise<boolean>((resolve) => setPending({ options, resolve })),
+    (options: ConfirmOptions) => new Promise<boolean>((resolve) => setPending({ options, resolve: (answer) => resolve(answer === 'confirm') })),
     [],
   );
-  const answer = useCallback(
-    (yes: boolean) =>
+  const settle = useCallback(
+    (answer: Choice) =>
       setPending((p) => {
-        p?.resolve(yes);
+        p?.resolve(answer);
         return null;
       }),
     [],
   );
-  const dialog = pending ? <ConfirmDialog {...pending.options} onAnswer={answer} /> : null;
-  return [confirm, dialog];
+  const answer = useCallback((yes: boolean) => settle(yes ? 'confirm' : null), [settle]);
+  const alt = useCallback(() => settle('alt'), [settle]);
+  const dialog = pending ? <ConfirmDialog {...pending.options} onAnswer={answer} onAlt={alt} /> : null;
+  return [confirm, dialog, choose];
 }

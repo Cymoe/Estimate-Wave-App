@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, LayoutGrid, Pin, PinOff, Search, X } from 'lucide-react';
 import type { OutreachListSummary } from '../../lib/api';
 import { WHO_LABEL } from '../../../convex/lib/outreach';
-import { listProgress, recentLists, rememberList } from './listsStore';
+import { listProgress, recentLists, rememberList, UNLISTED } from './listsStore';
 
 /**
  * The lists, one tap away: the open list's name as a button; it opens a panel
@@ -18,6 +18,7 @@ export function ListPicker({
   onPin,
   onManage,
   compact = false,
+  unlisted = 0,
 }: {
   lists: OutreachListSummary[];
   currentId?: string;
@@ -26,6 +27,8 @@ export function ListPicker({
   onPin: (id: string, pinned: boolean) => void;
   onManage: () => void;
   compact?: boolean;
+  /** Owners on no list (kept from deleted lists): a row of their own under All owners while there are any. */
+  unlisted?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
@@ -78,7 +81,7 @@ export function ListPicker({
   }, [lists, q, currentId]);
 
   const pick = (id: string | null) => {
-    if (id) rememberList(id);
+    if (id && id !== UNLISTED) rememberList(id);
     setOpen(false);
     onPick(id);
   };
@@ -157,6 +160,16 @@ export function ListPicker({
                 </span>
               </button>
             </li>
+            {(unlisted > 0 || currentId === UNLISTED) && (
+              <li className={currentId === UNLISTED ? 'bg-[#336699]/15' : ''}>
+                <button type="button" onClick={() => pick(UNLISTED)} className="w-full text-left px-4 py-2.5 hover:bg-[#2A2A2A]" data-testid="unlisted-option">
+                  <span className="block text-sm text-white">Not on a list</span>
+                  <span className="block text-xs text-gray-500">
+                    {unlisted.toLocaleString('en-US')} {unlisted === 1 ? 'owner' : 'owners'} kept from deleted lists
+                  </span>
+                </button>
+              </li>
+            )}
           </ul>
         )}
         {sections.search ? (
@@ -208,7 +221,7 @@ export function ListPicker({
               'flex items-center gap-1.5 max-w-full h-10 -ml-2 px-2 text-lg font-semibold text-white hover:bg-[#1A1A1A]'
         }
       >
-        <span className="truncate">{current ? current.title : 'All owners'}</span>
+        <span className="truncate">{current ? current.title : currentId === UNLISTED ? 'Not on a list' : 'All owners'}</span>
         <ChevronDown className={`w-4 h-4 shrink-0 text-gray-500 transition-transform ${compact ? 'ml-auto' : ''} ${open ? 'rotate-180' : ''}`} aria-hidden />
       </button>
       {open &&
