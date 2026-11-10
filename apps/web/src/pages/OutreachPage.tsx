@@ -690,6 +690,13 @@ const OutreachPage: React.FC = () => {
     <div className="p-4 md:p-6 space-y-4" data-testid="outreach-page">
       {/* A lookup running, or just finished: a banner across the top of the page, edge to edge. */}
       {data && <LookupProgress rows={data.rows} since={batch?.at} onDismiss={() => keepBatch(null)} className="-mx-4 md:-mx-6 -mt-4 md:-mt-6" />}
+      {/* Saving a list: a slim bar across the top while the page stays as it was; the list opens the moment it exists. */}
+      {savingList && (
+        <div role="status" className="-mx-4 md:-mx-6 -mt-4 md:-mt-6 flex items-center gap-3 border-b border-[#336699]/40 bg-[#336699]/15 px-4 md:px-6 py-3 text-sm text-white" data-testid="saving-list">
+          <span className="h-4 w-4 shrink-0 rounded-full border-2 border-white/25 border-t-white animate-spin" aria-hidden />
+          <span className="truncate">Saving “{savingList}”…</span>
+        </div>
+      )}
       {/* On a phone the top bar already says Outreach, and the staff lines fold behind one word; the actions become one row that slides sideways. */}
       <header className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
         <div className="min-w-0">
@@ -969,23 +976,7 @@ const OutreachPage: React.FC = () => {
           </button>
         </p>
       )}
-      {savingList ? (
-        // Saving: the sheet is closed and the list takes the page at once; its owners stream in once it opens.
-        <section className="space-y-4" aria-busy="true" data-testid="saving-list">
-          <div>
-            <h2 className="text-xl md:text-2xl font-semibold text-white">{savingList}</h2>
-            <p className="mt-1 text-sm text-gray-400">Saving the list…</p>
-          </div>
-          <ul className="border border-[#333333] divide-y divide-[#333333] max-w-3xl">
-            {Array.from({ length: 8 }, (_, i) => (
-              <li key={i} className="px-4 py-3.5 space-y-2 animate-pulse">
-                <div className="h-3.5 w-1/3 bg-[#2A2A2A]" />
-                <div className="h-2.5 w-1/2 bg-[#222222]" />
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : data === null || lists === null ? (
+      {data === null || lists === null ? (
         <p className="text-sm text-gray-500">Loading…</p>
       ) : lists.length === 0 && data.rows.length === 0 ? (
         <ListStarter
