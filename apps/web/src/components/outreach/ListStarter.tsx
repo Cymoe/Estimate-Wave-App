@@ -1,7 +1,5 @@
-import { Building2, ChevronRight, Home, Users } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { GROUPS, type Preset } from './presets';
-
-const ICONS: Record<string, typeof Home> = { 'Commercial and investors': Building2, Homeowners: Home, 'People who bring work': Users };
 
 /**
  * Outreach with no lists yet: the ready-made lists as cards to tap. A card
@@ -16,12 +14,9 @@ export function ListStarter({ onPick }: { onPick: (preset: Preset) => void }) {
         <p className="mt-1 text-sm md:text-base text-gray-400">Pick a list to see how many owners it finds and a first look, or tap + to describe your own. Nothing is saved until you say so.</p>
       </div>
       {GROUPS.map((g) => {
-        const Icon = ICONS[g.heading] ?? Users;
         return (
           <div key={g.heading} className="space-y-3">
-            <h3 className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-gray-400">
-              <Icon className="w-4 h-4" aria-hidden /> {g.heading}
-            </h3>
+            <h3 className="text-xs font-medium uppercase tracking-wider text-gray-400">{g.heading}</h3>
             <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {g.presets.map((p) => (
                 <li key={p.label}>
