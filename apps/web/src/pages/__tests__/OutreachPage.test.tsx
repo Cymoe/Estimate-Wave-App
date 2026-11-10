@@ -1230,6 +1230,14 @@ describe('the Outreach page', () => {
     // The page went to All owners and read the lists while the list was still there: it stays gone.
     expect(document.body.querySelector('[data-testid="list-picker"]')).toBeNull();
     expect(document.body.textContent).not.toContain('Nobody matched');
+    // Its owners, still in that early read, don't flash back as owners kept with no list (and a Make a list): the ready-made lists are there at once.
+    await flush();
+    expect(document.body.querySelector('[data-testid="no-lists-hint"]')).toBeNull();
+    expect(document.body.querySelectorAll('[data-testid="contact-row"]')).toHaveLength(0);
+    expect(document.body.querySelector('[data-testid="outreach-empty"]')).not.toBeNull();
+    // A live update from before the delete landed changes nothing either.
+    await act(async () => pushContacts!(contacts));
+    expect(document.body.querySelector('[data-testid="no-lists-hint"]')).toBeNull();
     // Done: the server's lists no longer have it, and its owners' update arrives live.
     lists = [];
     contacts = { ...contacts, rows: [] };

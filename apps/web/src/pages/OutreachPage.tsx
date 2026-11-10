@@ -78,6 +78,29 @@ function withProgress(c: OutreachContacts, narration: Narration): OutreachContac
 const workedOn = (r: OutreachContact) =>
   Boolean(r.leadId) || r.status !== 'new' || Boolean(r.note?.trim()) || (Boolean(r.research) && !r.enrichment.research?.simulated) || Object.values(r.enrichment).some((c) => c.status === 'found' && !c.simulated && (c.requestedBy !== undefined || (c.chargedCents ?? 0) > 0));
 
+/** Lists deleted on this page, each with whether its worked owners went too. */
+type Gone = Map<string, boolean>;
+/**
+ * Owners as they are once the deleted lists are gone, the way the server will have them: untagged from those lists,
+ * and those left on none dropped unless worked (or, when the worked went too, a lead or a client). A read that left
+ * the server before a delete landed is shown this way, so the deleted list's owners never flash back in.
+ */
+function pruneGone(c: OutreachContacts, gone: Gone): OutreachContacts {
+  if (gone.size === 0 || !c.rows.some((r) => r.listIds.some((id) => gone.has(id)))) return c;
+  const rows: OutreachContact[] = [];
+  for (const r of c.rows) {
+    const hit = r.listIds.filter((id) => gone.has(id));
+    if (hit.length === 0) {
+      rows.push(r);
+      continue;
+    }
+    const listIds = r.listIds.filter((id) => !gone.has(id));
+    const stays = listIds.length > 0 || (hit.some((id) => gone.get(id)) ? Boolean(r.leadId) || r.status === 'client' : workedOn(r));
+    if (stays) rows.push({ ...r, listIds });
+  }
+  return { ...c, rows };
+}
+
 /** Staff only: the stack in order, whether each source is connected, and how it has done for this company. */
 const SourcesPanel: React.FC<{ organizationId: string }> = ({ organizationId }) => {
   const [sources, setSources] = useState<OutreachSource[] | null>(null);
@@ -290,7 +313,7 @@ const OutreachPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [lists, setLists] = useState<OutreachListSummary[] | null>(null);
   /** Lists deleted here: a read that left the server before the delete landed mustn't bring one back. */
-  const gone = useRef<Set<string>>(new Set());
+  const gone = useRef<Gone>(new Map());
   const keep = (l: OutreachListSummary[]) => l.filter((x) => !gone.current.has(x.id));
   const [data, setData] = useState<OutreachContacts | null>(null);
   const [status, setStatus] = useState<OutreachRowStatus | 'all'>('all');
@@ -429,7 +452,8 @@ const OutreachPage: React.FC = () => {
   const currentKey = useRef(viewKey);
   currentKey.current = viewKey;
   const narration = useRef<Narration>(new Map());
-  const takeContacts = useCallback((key: string, c: OutreachContacts) => {
+  const takeContacts = useCallback((key: string, read: OutreachContacts) => {
+    const c = pruneGone(read, gone.current);
     seen.current.set(key, c);
     if (live.current && currentKey.current === key) {
       setData(withProgress(c, narration.current));
@@ -795,16 +819,20 @@ const OutreachPage: React.FC = () => {
     // Gone at once: All shows without it (its owners on no other list dropped, the rest untagged) before the server is asked,
     // so the page doesn't show this list emptying, then the old All, then the new one.
     const id = list.id;
+    gone.current.set(id, alsoWorked);
     const allKey = `${organizationId}:all`;
     const all = seen.current.get(allKey);
-    if (all) {
-      const rows = all.rows.filter((r) => !(r.listIds.length === 1 && r.listIds[0] === id && !(alsoWorked ? r.leadId || r.status === 'client' : workedOn(r)))).map((r) => (r.listIds.includes(id) ? { ...r, listIds: r.listIds.filter((x) => x !== id) } : r));
-      seen.current.set(allKey, { ...all, rows });
-    }
+    const remaining = (lists ?? []).filter((x) => x.id !== id);
+    if (all) seen.current.set(allKey, pruneGone(all, gone.current));
+    // Never read All: with no other list and nobody on none, All is just this list's owners that stay, so it's known now.
+    else if (remaining.length === 0 && unlistedCount === 0 && data && listId === id) seen.current.set(allKey, pruneGone(data, gone.current));
     seen.current.delete(`${organizationId}:${id}`);
-    gone.current.add(id);
-    setLists((l) => l && l.filter((x) => x.id !== id));
-    if (!managing) navigate('/outreach');
+    setLists(remaining);
+    if (!managing) {
+      // Not known yet: the page waits for it rather than showing this list's owners as All in the meantime.
+      if (!seen.current.has(allKey)) setData(null);
+      navigate('/outreach');
+    }
     try {
       await (alsoWorked ? outreachAPI.remove(organizationId, id, true) : outreachAPI.remove(organizationId, id));
       // Done on the server: the lists as they now are (the last one gone, the page shows the ready-made lists).
