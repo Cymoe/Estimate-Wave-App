@@ -856,23 +856,9 @@ const OutreachPage: React.FC = () => {
                 <Trash2 className="w-4 h-4" />
               </button>
             )}
-            <PopMenu label="More" icon={<MoreHorizontal className="w-5 h-5" />}>
-              {(close) => (
-                <>
-                  {listResearch.length > 0 && (
-                    <button type="button" role="menuitem" className={`${menuItem} items-start py-2`} disabled={busy || researchCost > balanceCents} onClick={() => (close(), void researchAll())}>
-                      <span>
-                        Research with AI ({listResearch.length.toLocaleString('en-US')})
-                        <span className="block text-xs text-gray-500">What each owner does and any plans to build or sell · {dollars(researchCents)} an answer</span>
-                      </span>
-                    </button>
-                  )}
-                  <button type="button" role="menuitem" className={menuItem} onClick={() => (close(), download(csvName(list?.title ?? 'contacts'), outreachCsv(rows)))}>
-                    <Download className="w-4 h-4 text-gray-500" /> Export CSV
-                  </button>
-                </>
-              )}
-            </PopMenu>
+            <button type="button" onClick={() => download(csvName(list?.title ?? 'contacts'), outreachCsv(rows))} aria-label="Export CSV" title="Export CSV" className={iconButton}>
+              <Download className="w-4 h-4" />
+            </button>
           </div>
         )}
       </header>
@@ -1059,6 +1045,7 @@ const OutreachPage: React.FC = () => {
           onSort={nextSort}
           onOpen={setOpen}
           onRetry={(row, field) => void enrich([row.id], [field]).catch(() => {})}
+          researchAll={{ count: listResearch.length, price: dollars(researchCents), disabled: busy || researchCost > balanceCents, onClick: () => void researchAll() }}
         />
       )}
       <ContactSheet

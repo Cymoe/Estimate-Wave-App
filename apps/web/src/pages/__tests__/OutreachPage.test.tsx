@@ -578,7 +578,7 @@ describe('the Outreach page', () => {
     expect(names()).toEqual(['Oak Plaza LLC', 'City Of Midland']);
     expect(localStorage.getItem('outreach.sort')).toBeNull();
     const heads = Array.from(document.body.querySelectorAll('thead th')).map((h) => h.textContent?.replace(/\s+/g, ' ').trim());
-    expect(heads).toEqual(['NameNewest first', 'Decision maker0 / 2 companies', 'Phone0 / 2', 'Email0 / 2', 'Research0 / 2', 'Status', 'Mailing address', 'Property', 'Value', 'Type', 'Signals']);
+    expect(heads).toEqual(['NameNewest first', 'Decision maker0 / 2 companies', 'Phone0 / 2', 'Email0 / 2', 'Research0 / 2Research all (2)', 'Status', 'Mailing address', 'Property', 'Value', 'Type', 'Signals']);
     // Open the picker and pick the list.
     await act(async () => (document.body.querySelector('[data-testid="list-picker"]') as HTMLButtonElement).click());
     await click('Shopping center owners');
@@ -890,8 +890,7 @@ describe('the Outreach page', () => {
     jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
       clicks.push(this.download);
     });
-    await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
-    await click('Export CSV');
+    await act(async () => (document.body.querySelector('button[aria-label="Export CSV"]') as HTMLButtonElement).click());
     expect(made).toEqual(['text/csv']);
     expect(clicks).toEqual(['shopping-center-owners.csv']);
   });
@@ -932,8 +931,7 @@ describe('the Outreach page', () => {
     };
     (URL as unknown as { revokeObjectURL: () => void }).revokeObjectURL = () => {};
     jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
-    await click('Export CSV');
+    await act(async () => (document.body.querySelector('button[aria-label="Export CSV"]') as HTMLButtonElement).click());
     expect(made).toEqual(['text/csv']);
     // Search by the brokerage.
     await act(async () => type(document.body.querySelector('input[type="search"]') as HTMLInputElement, 'fathom'));
@@ -949,13 +947,13 @@ describe('the Outreach page', () => {
     // No checkboxes: the buttons up top act on everyone the list still needs.
     expect(document.body.querySelector('[data-testid="contact-row"] input[type="checkbox"]')).toBeNull();
     expect(button('Find phones & emails (2)').title).toBe('up to $2');
-    // Up top, one main button and More; the list's name is the title beside them.
+    // Up top, one main button (and Export); the list's name is the title beside them.
     const actions = document.body.querySelector('[data-testid="actions"]')!;
-    expect(Array.from(actions.querySelectorAll(':scope > button, :scope > div > button')).map((b) => b.textContent?.trim() || b.getAttribute('aria-label'))).toEqual(['Find phones & emails (2)', 'More']);
-    // Research waits under More, saying what it does and what it costs.
-    await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
-    expect(button('Research with AI (2)').textContent).toContain('What each owner does and any plans to build or sell · $0.25 an answer');
-    await act(async () => document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
+    expect(Array.from(actions.querySelectorAll(':scope > button, :scope > div > button')).map((b) => b.textContent?.trim() || b.getAttribute('aria-label'))).toEqual(['Find phones & emails (2)', 'Export CSV']);
+    // Research is offered on the Research column it fills in, saying what it does and what it costs.
+    const researchAll = document.body.querySelector('[data-testid="contacts-table"] [data-testid="research-all"]') as HTMLButtonElement;
+    expect(researchAll.textContent).toBe('Research all (2)');
+    expect(researchAll.title).toBe('AI reads the web for what each owner does and any plans to build or sell · $0.25 an answer, charged only when it finds something');
     const found = { status: 'found', at: '2026-11-05T15:01:00Z', source: 'batchdata' };
     contacts = {
       rows: [
