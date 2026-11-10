@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Archive, ArchiveRestore, ArrowLeft, Pencil, Pin, PinOff, Search } from 'lucide-react';
+import { ArrowLeft, Pencil, Pin, PinOff, Search, Trash2 } from 'lucide-react';
 import type { OutreachListSummary } from '../../lib/api';
 import { WHO_LABEL } from '../../../convex/lib/outreach';
 
@@ -8,33 +8,32 @@ const small = 'inline-flex items-center gap-1.5 px-3 h-9 text-sm border border-[
 
 /**
  * Every list as a card: how far it's worked, what it has turned into, and
- * the tidying (pin, rename, archive). Pinned first, then the newest.
+ * the tidying (pin, rename, delete). Pinned first, then the newest.
  */
 export function ListsOverview({
   lists,
   onOpen,
   onOrganize,
+  onDelete,
   onBack,
 }: {
   lists: OutreachListSummary[];
   onOpen: (id: string) => void;
-  onOrganize: (id: string, change: { title?: string; pinned?: boolean; archived?: boolean }) => Promise<void>;
+  onOrganize: (id: string, change: { title?: string; pinned?: boolean }) => Promise<void>;
+  onDelete: (list: OutreachListSummary) => void;
   onBack: () => void;
 }) {
   const [q, setQ] = useState('');
-  const [archived, setArchived] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return lists
-      .filter((l) => Boolean(l.archived) === archived)
       .filter((l) => !needle || `${l.title} ${WHO_LABEL[l.who]} ${l.definition.county}`.toLowerCase().includes(needle))
       .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.createdAt.localeCompare(a.createdAt));
-  }, [lists, q, archived]);
-  const archivedCount = lists.filter((l) => l.archived).length;
-  const act = async (id: string, change: { title?: string; pinned?: boolean; archived?: boolean }) => {
+  }, [lists, q]);
+  const act = async (id: string, change: { title?: string; pinned?: boolean }) => {
     setError(null);
     try {
       await onOrganize(id, change);
@@ -62,14 +61,9 @@ export function ListsOverview({
             className="w-full h-9 rounded-none border border-[#333333] bg-[#1A1A1A] pl-8 pr-3 text-base md:text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#336699]"
           />
         </div>
-        {(archivedCount > 0 || archived) && (
-          <button type="button" onClick={() => setArchived((a) => !a)} aria-pressed={archived} className={small}>
-            <Archive className="w-4 h-4" /> {archived ? 'Show current lists' : `Archived (${archivedCount})`}
-          </button>
-        )}
       </div>
       {error && <p className="text-sm text-red-400">{error}</p>}
-      {shown.length === 0 && <p className="text-sm text-gray-400">{q ? `No list matches “${q}”.` : archived ? 'Nothing archived.' : 'No lists yet: ask for one with the + button.'}</p>}
+      {shown.length === 0 && <p className="text-sm text-gray-400">{q ? `No list matches “${q}”.` : 'No lists yet: ask for one with the + button.'}</p>}
       <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {shown.map((l) => {
           const pct = l.rowCount ? Math.round((l.done / l.rowCount) * 100) : 0;
@@ -123,7 +117,7 @@ export function ListsOverview({
                 <button type="button" onClick={() => onOpen(l.id)} className={`${small} border-[#336699] text-white`}>
                   Open
                 </button>
-                {!l.archived && (
+                {(
                   <button type="button" onClick={() => void act(l.id, { pinned: !l.pinned })} className={small} aria-label={l.pinned ? `Unpin ${l.title}` : `Pin ${l.title}`}>
                     {l.pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />} {l.pinned ? 'Unpin' : 'Pin'}
                   </button>
@@ -139,8 +133,8 @@ export function ListsOverview({
                 >
                   <Pencil className="w-4 h-4" /> Rename
                 </button>
-                <button type="button" onClick={() => void act(l.id, { archived: !l.archived })} className={small} aria-label={l.archived ? `Restore ${l.title}` : `Archive ${l.title}`}>
-                  {l.archived ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />} {l.archived ? 'Restore' : 'Archive'}
+                <button type="button" onClick={() => onDelete(l)} className={`${small} text-red-300`} aria-label={`Delete ${l.title}`}>
+                  <Trash2 className="w-4 h-4" /> Delete
                 </button>
               </div>
             </li>

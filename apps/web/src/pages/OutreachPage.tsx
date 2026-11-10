@@ -1,6 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Archive, ArchiveRestore, Check, ChevronDown, Download, LayoutList, Lock, MoreHorizontal, Search, SlidersHorizontal, Table2, Trash2, Undo2, X } from 'lucide-react';
+import { Check, ChevronDown, Download, LayoutList, Lock, MoreHorizontal, Search, SlidersHorizontal, Table2, Trash2, Undo2, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachDefinition, type OutreachField, type OutreachListSummary, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { AskListSheet } from '../components/outreach/AskListSheet';
@@ -55,6 +55,10 @@ const matches = (r: OutreachContact, q: string) => {
   const hay = [r.name, r.company, r.person?.name, r.mailing.address, r.property?.address].filter(Boolean).join('\n').toLowerCase();
   return hay.includes(q);
 };
+
+/** What keeps an owner when its only list is deleted: something of yours on it (as the server's worthKeeping). */
+const workedOn = (r: OutreachContact) =>
+  Boolean(r.leadId) || r.status !== 'new' || Boolean(r.note?.trim()) || Boolean(r.research) || Object.values(r.enrichment).some((c) => c.status === 'found' && !c.simulated);
 
 /** Staff only: the stack in order, whether each source is connected, and how it has done for this company. */
 const SourcesPanel: React.FC<{ organizationId: string }> = ({ organizationId }) => {
@@ -325,7 +329,7 @@ const OutreachPage: React.FC = () => {
   const [start, setStart] = useState<{ preset: Preset } | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirm, confirmDialog] = useConfirm();
-  /** Manage lists: every list as a card, to pin, rename or archive. */
+  /** Manage lists: every list as a card, to pin or rename. */
   const managing = searchParams.get('lists') === '1';
   const openManage = () => setSearchParams({ lists: '1' });
   const pickList = (id: string | null) => navigate(id ? `/outreach/${id}` : '/outreach');
@@ -365,7 +369,7 @@ const OutreachPage: React.FC = () => {
       if (live.current) setError(err instanceof Error ? err.message : "The contacts couldn't be loaded");
     }
   }, [organizationId, listId, takeContacts]);
-  /** Pin, rename or archive a list, then show it. */
+  /** Pin or rename a list, then show it. */
   const organize = useCallback(
     async (id: string, change: { title?: string; pinned?: boolean; archived?: boolean }) => {
       if (!organizationId) return;
@@ -655,33 +659,33 @@ const OutreachPage: React.FC = () => {
     }
   };
 
-  // Delete is only for a list nobody has worked (a mistake); a worked one is archived, which keeps everything.
-  const removeList = async () => {
-    if (!organizationId || !list) return;
-    if (!(await confirm({ title: `Delete “${list.title}”?`, message: "Nobody has worked this list yet, so nothing of yours is lost. You can make it again any time.", confirmLabel: 'Delete' }))) return;
+  // Any list can be deleted: owners you've worked (a status, a note, a lookup, a lead) stay under All owners; the rest go with it.
+  const removeList = async (target: OutreachListSummary | undefined = list) => {
+    if (!organizationId || !target) return;
+    const list = target;
+    const message = list.deletable
+      ? 'Nobody has worked this list yet, so nothing of yours is lost. You can make it again any time.'
+      : "Owners you've worked (a status, a note, a lookup or a lead) stay in All owners. The rest go with the list.";
+    if (!(await confirm({ title: `Delete “${list.title}”?`, message, confirmLabel: 'Delete' }))) return;
     // Gone at once: All shows without it (its owners on no other list dropped, the rest untagged) before the server is asked,
     // so the page doesn't show this list emptying, then the old All, then the new one.
     const id = list.id;
     const allKey = `${organizationId}:all`;
     const all = seen.current.get(allKey);
     if (all) {
-      const rows = all.rows.filter((r) => !(r.listIds.length === 1 && r.listIds[0] === id)).map((r) => (r.listIds.includes(id) ? { ...r, listIds: r.listIds.filter((x) => x !== id) } : r));
+      const rows = all.rows.filter((r) => !(r.listIds.length === 1 && r.listIds[0] === id && !workedOn(r))).map((r) => (r.listIds.includes(id) ? { ...r, listIds: r.listIds.filter((x) => x !== id) } : r));
       seen.current.set(allKey, { ...all, rows });
     }
     seen.current.delete(`${organizationId}:${id}`);
     setLists((l) => l && l.filter((x) => x.id !== id));
-    navigate('/outreach');
+    if (managing) setLists((l) => l && l.filter((x) => x.id !== id));
+    else navigate('/outreach');
     try {
       await outreachAPI.remove(organizationId, id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't delete the list");
       void load();
     }
-  };
-  const archiveList = async () => {
-    if (!list) return;
-    await organize(list.id, { archived: !list.archived });
-    if (!list.archived) navigate('/outreach');
   };
 
   if (!organizationId) return <p className="p-6 text-gray-400">Pick a company first.</p>;
@@ -691,7 +695,7 @@ const OutreachPage: React.FC = () => {
       <div className="p-4 md:p-6 space-y-4" data-testid="outreach-page">
         <h1 className="text-2xl font-semibold text-white">Lists</h1>
         {lists ? (
-          <ListsOverview lists={lists} onOpen={(id) => pickList(id)} onOrganize={organize} onBack={() => setSearchParams({})} />
+          <ListsOverview lists={lists} onOpen={(id) => pickList(id)} onOrganize={organize} onDelete={(l) => void removeList(l)} onBack={() => setSearchParams({})} />
         ) : (
           <p className="text-sm text-gray-400">Loading…</p>
         )}
@@ -769,11 +773,6 @@ const OutreachPage: React.FC = () => {
                     <Download className="w-4 h-4 text-gray-500" /> Export CSV
                   </button>
                   {list && (
-                    <button type="button" role="menuitem" className={menuItem} onClick={() => (close(), void archiveList())}>
-                      {list.archived ? <ArchiveRestore className="w-4 h-4 text-gray-500" /> : <Archive className="w-4 h-4 text-gray-500" />} {list.archived ? 'Restore list' : 'Archive list'}
-                    </button>
-                  )}
-                  {list?.deletable && (
                     <button type="button" role="menuitem" className={`${menuItem} text-red-300`} onClick={() => (close(), void removeList())}>
                       <Trash2 className="w-4 h-4" /> Delete list
                     </button>
@@ -821,18 +820,7 @@ const OutreachPage: React.FC = () => {
               <Download className="w-4 h-4" />
             </button>
             {list && (
-              <button
-                type="button"
-                onClick={() => void archiveList()}
-                aria-label={list.archived ? 'Restore list' : 'Archive list'}
-                title={list.archived ? 'Restore list' : 'Archive list: tucks it away, keeps everything'}
-                className={iconButton}
-              >
-                {list.archived ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
-              </button>
-            )}
-            {list?.deletable && (
-              <button type="button" onClick={removeList} aria-label="Delete list" title="Delete list (nobody has worked it yet)" className={iconButton}>
+              <button type="button" onClick={() => void removeList()} aria-label="Delete list" title="Delete list" className={iconButton}>
                 <Trash2 className="w-4 h-4" />
               </button>
             )}
@@ -871,7 +859,7 @@ const OutreachPage: React.FC = () => {
           </button>
         </div>
       )}
-      {/* The lists: one picker (search, pinned, recent, grouped by kind, archived) instead of a chip per list. On a phone with owners showing, it lives in the sticky bar below. */}
+      {/* The lists: one picker (search, pinned, recent, grouped by kind) instead of a chip per list. On a phone with owners showing, it lives in the sticky bar below. */}
       {lists && lists.length > 0 && !(narrow && data && data.rows.length > 0) && (
         <ListPicker lists={lists} currentId={listId} narrow={narrow} onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} />
       )}

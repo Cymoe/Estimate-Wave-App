@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ChevronDown, LayoutGrid, Pin, PinOff, Search, X } from 'lucide-react';
+import { ChevronDown, LayoutGrid, Pin, PinOff, Search, X } from 'lucide-react';
 import type { OutreachListSummary } from '../../lib/api';
 import { WHO_LABEL } from '../../../convex/lib/outreach';
 import { listProgress, recentLists, rememberList } from './listsStore';
@@ -7,7 +7,7 @@ import { listProgress, recentLists, rememberList } from './listsStore';
 /**
  * The lists, one tap away: the open list's name as a button; it opens a panel
  * with a search, the pinned lists, the ones opened lately, the rest grouped by
- * who they're of, and the archived ones folded at the bottom. On a phone it's
+ * who they're of. On a phone it's
  * a sheet from the bottom.
  */
 export function ListPicker({
@@ -29,7 +29,6 @@ export function ListPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
-  const [showArchived, setShowArchived] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const current = lists.find((l) => l.id === currentId);
 
@@ -49,17 +48,15 @@ export function ListPicker({
   useEffect(() => {
     if (!open) {
       setQ('');
-      setShowArchived(false);
     }
   }, [open]);
 
   const sections = useMemo(() => {
-    const live = lists.filter((l) => !l.archived);
-    const archived = lists.filter((l) => l.archived);
+    const live = lists;
     const needle = q.trim().toLowerCase();
     if (needle) {
       const hit = (l: OutreachListSummary) => `${l.title} ${WHO_LABEL[l.who]} ${l.definition.county}`.toLowerCase().includes(needle);
-      return { search: [...live.filter(hit), ...archived.filter(hit)], pinned: [], recent: [], groups: [] as Array<[string, OutreachListSummary[]]>, archived: [] };
+      return { search: live.filter(hit), pinned: [], recent: [], groups: [] as Array<[string, OutreachListSummary[]]> };
     }
     const pinned = live.filter((l) => l.pinned);
     const byId = new Map(live.map((l) => [l.id, l] as const));
@@ -77,7 +74,7 @@ export function ListPicker({
       const g = WHO_LABEL[l.who] ?? 'Other';
       groups.set(g, [...(groups.get(g) ?? []), l]);
     }
-    return { search: null, pinned, recent, groups: [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0])), archived };
+    return { search: null, pinned, recent, groups: [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0])) };
   }, [lists, q, currentId]);
 
   const pick = (id: string | null) => {
@@ -91,11 +88,10 @@ export function ListPicker({
       <button type="button" onClick={() => pick(l.id)} className="flex-1 min-w-0 text-left px-4 py-2.5 hover:bg-[#2A2A2A]" data-testid="list-option">
         <span className="block text-sm text-white truncate">
           {l.title}
-          {l.archived && <span className="text-gray-500"> · archived</span>}
         </span>
         <span className="block text-xs text-gray-500 truncate">{listProgress(l)}</span>
       </button>
-      {!l.archived && (
+      {(
         <button
           type="button"
           onClick={() => onPin(l.id, !l.pinned)}
@@ -120,7 +116,7 @@ export function ListPicker({
       </section>
     );
 
-  const liveCount = lists.filter((l) => !l.archived).length;
+  const liveCount = lists.length;
   const panel = (
     <div
       role="dialog"
@@ -180,21 +176,6 @@ export function ListPicker({
             {sections.groups.map(([title, rows]) => (
               <Section key={title} title={title} rows={rows} />
             ))}
-            {sections.archived.length > 0 && (
-              <section>
-                <button type="button" onClick={() => setShowArchived((s) => !s)} className="w-full flex items-center gap-2 px-4 pt-3 pb-1 text-[11px] uppercase tracking-wide text-gray-500 hover:text-gray-300" aria-expanded={showArchived}>
-                  <Archive className="w-3.5 h-3.5" /> Archived ({sections.archived.length})
-                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showArchived ? 'rotate-180' : ''}`} />
-                </button>
-                {showArchived && (
-                  <ul>
-                    {sections.archived.map((l) => (
-                      <Row key={l.id} l={l} />
-                    ))}
-                  </ul>
-                )}
-              </section>
-            )}
           </>
         )}
       </div>

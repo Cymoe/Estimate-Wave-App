@@ -606,7 +606,7 @@ const listView = (l: Doc<"outreachLists">, done: number, results: ListResults = 
   archived: Boolean(l.archivedAt),
   /** Still adding owners after the first, in the background. */
   filling: l.filling === true,
-  /** Only a list nobody has worked can be deleted: deleting it would leave none of its worked owners on no list. Otherwise it's archived. */
+  /** Nobody has worked it: deleting it loses nothing. Otherwise its worked owners stay under All owners when it goes. */
   deletable: stranded === 0,
 });
 
@@ -1331,9 +1331,7 @@ export const remove = mutation({
     const lists = await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect();
     const whoOf = new Map(lists.map((l) => [l._id, l.definition.who] as const));
     const contacts = await contactsOf(ctx, organizationId);
-    // A list you've worked is archived, not deleted, so no worked owner ends up on no list.
-    if (contacts.some((c) => c.listIds.length === 1 && c.listIds[0] === listId && worthKeeping(c)))
-      fail("LIST_WORKED", "You've worked owners on this list. Archive it instead: that keeps everything and tucks it away.");
+    // Owners you've worked stay (under All owners) even when this was their only list; the rest go with it.
     for (const c of contacts) {
       if (!c.listIds.includes(listId)) continue;
       const listIds = c.listIds.filter((id) => id !== listId);

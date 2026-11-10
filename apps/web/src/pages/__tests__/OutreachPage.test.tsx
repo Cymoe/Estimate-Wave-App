@@ -399,7 +399,7 @@ describe('the Outreach page', () => {
     expect(Array.from(header.querySelectorAll('button')).map((b) => b.textContent?.trim() || b.getAttribute('aria-label'))).toEqual(['Look up 1', 'Add funds', 'More']);
     await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
     const more = Array.from(document.body.querySelectorAll('[role="menu"] button')).map((b) => b.textContent?.trim());
-    expect(more).toEqual(expect.arrayContaining(['Send 2 to Leads', 'Show as a table', 'Export CSV', 'Archive list', 'Delete list']));
+    expect(more).toEqual(expect.arrayContaining(['Send 2 to Leads', 'Show as a table', 'Export CSV', 'Delete list']));
     // A tap elsewhere closes it.
     await act(async () => document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
     expect(document.body.querySelector('[role="menu"]')).toBeNull();
@@ -1107,23 +1107,23 @@ describe('the Outreach page', () => {
     expect(remove).toHaveBeenCalledWith('o1', 'l1');
     expect(path).toBe('/outreach');
   });
-  it('a worked list has no Delete: it is archived, which keeps everything', async () => {
+  it('a worked list can be deleted too, after a warning that the owners you worked stay', async () => {
     lists = [{ ...list, deletable: false }];
     contacts = twoContacts();
     await render('/outreach/l1');
-    expect(document.body.querySelector('button[aria-label="Delete list"]')).toBeNull();
-    await act(async () => (document.body.querySelector('button[aria-label="Archive list"]') as HTMLButtonElement).click());
+    expect(document.body.querySelector('button[aria-label="Archive list"]')).toBeNull();
+    await act(async () => (document.body.querySelector('button[aria-label="Delete list"]') as HTMLButtonElement).click());
     await flush();
-    expect(organizeList).toHaveBeenLastCalledWith('o1', 'l1', { archived: true });
-    expect(remove).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("Owners you've worked (a status, a note, a lookup or a lead) stay in All owners.");
+    await click('Delete');
+    expect(remove).toHaveBeenCalledWith('o1', 'l1');
     expect(path).toBe('/outreach');
   });
-  it('the list picker: search, pin to the top, grouped by kind, archived folded; Manage lists renames and archives', async () => {
+  it('the list picker: search, pin to the top, grouped by kind; Manage lists renames and deletes', async () => {
     localStorage.clear();
     lists = [
       { ...list, id: 'l1', title: 'Shopping center owners', createdAt: '2026-11-05T15:00:00Z' },
       { ...list, id: 'l2', title: 'Real estate investors, Midland', who: 'investor', definition: { county: 'Midland', who: 'investor' }, rowCount: 1000, done: 40, results: { sent: 3, estimates: 1, sold: 1 }, createdAt: '2026-11-06T15:00:00Z' },
-      { ...list, id: 'l3', title: 'Old roofers list', archived: true, createdAt: '2026-10-01T15:00:00Z' },
     ];
     contacts = twoContacts();
     await render('/outreach/l2');
@@ -1132,14 +1132,12 @@ describe('the Outreach page', () => {
     await act(async () => picker().click());
     const panel = () => document.body.querySelector('[role="dialog"][aria-label="Lists"]')!;
     const headings = () => Array.from(panel().querySelectorAll('h3')).map((h) => h.textContent);
-    // A handful of lists: grouped by who they're of (Recent only shows once there are many), the archived one folded away.
+    // A handful of lists: grouped by who they're of (Recent only shows once there are many).
     expect(headings()).toEqual(['Commercial owners', 'Investors']);
     expect(panel().textContent).toContain('1,000 owners · 40 done · 3 sent · 1 sold');
-    expect(panel().textContent).toContain('Archived (1)');
-    expect(panel().textContent).not.toContain('Old roofers list');
-    // Search finds archived lists too.
-    await act(async () => type(panel().querySelector('input[aria-label="Find a list"]') as HTMLInputElement, 'roofers'));
-    expect(Array.from(panel().querySelectorAll('[data-testid="list-option"]')).map((o) => o.textContent)).toEqual(['Old roofers list · archived2 owners · 0 done']);
+    // Search narrows the lists.
+    await act(async () => type(panel().querySelector('input[aria-label="Find a list"]') as HTMLInputElement, 'shopping'));
+    expect(Array.from(panel().querySelectorAll('[data-testid="list-option"]')).map((o) => o.textContent)).toEqual(['Shopping center owners2 owners · 0 done']);
     await act(async () => type(panel().querySelector('input[aria-label="Find a list"]') as HTMLInputElement, ''));
     // Pin the shopping center list: it moves to Pinned.
     await act(async () => (panel().querySelector('button[aria-label="Pin Shopping center owners"]') as HTMLButtonElement).click());
@@ -1153,17 +1151,19 @@ describe('the Outreach page', () => {
     expect(cards().map((c) => c.querySelector('span')!.textContent)).toEqual(['Shopping center owners', 'Real estate investors, Midland']);
     expect(cards()[1].textContent).toContain('40 of 1,000 worked');
     expect(cards()[1].textContent).toContain('3 sent to Leads · 1 estimate · 1 sold');
-    // Rename, then archive.
+    // Rename, then delete.
     await act(async () => (cards()[1].querySelector('button[aria-label="Rename Real estate investors, Midland"]') as HTMLButtonElement).click());
     await act(async () => type(document.body.querySelector('input[aria-label="List name"]') as HTMLInputElement, 'Midland investors'));
     await act(async () => (document.body.querySelector('[data-testid="lists-overview"] form') as HTMLFormElement).requestSubmit());
     await flush();
     expect(organizeList).toHaveBeenCalledWith('o1', 'l2', { title: 'Midland investors' });
-    await act(async () => (cards()[1].querySelector('button[aria-label="Archive Midland investors"]') as HTMLButtonElement).click());
+    await act(async () => (cards()[1].querySelector('button[aria-label="Delete Midland investors"]') as HTMLButtonElement).click());
     await flush();
-    expect(organizeList).toHaveBeenLastCalledWith('o1', 'l2', { archived: true });
+    const confirmDelete = Array.from(document.body.querySelectorAll('[role="alertdialog"] button')).find((b) => b.textContent?.trim() === 'Delete') as HTMLButtonElement;
+    await act(async () => confirmDelete.click());
+    await flush();
+    expect(remove).toHaveBeenLastCalledWith('o1', 'l2');
     expect(cards()).toHaveLength(1);
-    await click('Archived (2)');
-    expect(cards().map((c) => c.querySelector('span')!.textContent)).toEqual(['Midland investors', 'Old roofers list']);
+    expect(path).toBe('/outreach/l2?lists=1');
   });
 });
