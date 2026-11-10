@@ -557,7 +557,7 @@ describe('the Outreach page', () => {
     // For the company's working county, named in the title and a tap to change: the counties not in yet say so.
     expect(empty.querySelector('h2')!.textContent).toBe('Who do you want to reach in Midland County, TX?');
     await act(async () => (empty.querySelector('[data-testid="county-switch"]') as HTMLButtonElement).click());
-    expect(Array.from(empty.querySelectorAll('[role="option"]')).map((o) => [o.textContent, o.getAttribute('aria-disabled')])).toEqual([
+    expect(Array.from(document.body.querySelectorAll('[role="option"]')).map((o) => [o.textContent, o.getAttribute('aria-disabled')])).toEqual([
       ['Midland County, TX', 'false'],
       ['Ector County, TX (Odessa)Coming soon', 'true'],
       ['Lubbock County, TXComing soon', 'true'],

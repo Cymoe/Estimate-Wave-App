@@ -63,7 +63,7 @@ describe('the working county', () => {
     await act(async () => root.render(<Both />));
     expect(host.querySelector('[data-testid="now"]')!.textContent).toBe('Midland');
     await act(async () => (host.querySelector('[data-testid="county-switch"]') as HTMLButtonElement).click());
-    const lubbock = () => Array.from(host.querySelectorAll('[role="option"]')).find((o) => o.textContent?.includes('Lubbock')) as HTMLButtonElement;
+    const lubbock = () => Array.from(document.body.querySelectorAll('[role="option"]')).find((o) => o.textContent?.includes('Lubbock')) as HTMLButtonElement;
     expect(lubbock().disabled).toBe(true);
     expect(lubbock().textContent).toContain('Coming soon');
     // The server says its owners are in: the switch offers it, and the company's county is taken.
@@ -71,6 +71,37 @@ describe('the working county', () => {
     expect(lubbock().disabled).toBe(false);
     expect(lubbock().textContent).not.toContain('Coming soon');
     expect(host.querySelector('[data-testid="now"]')!.textContent).toBe('Lubbock');
+    act(() => root.unmount());
+  });
+
+  it('opens over everything on the page: drawn on the page itself, solid, and closed by a tap away, a pick or a scroll', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const picked = jest.fn();
+    // Inside a card that moves (an animation's transform): the menu used to be trapped under the rows after it.
+    await act(async () => root.render(<div style={{ transform: 'translateY(0)' }}><CountySwitch county="Midland" onChange={picked} /></div>));
+    const open = async () => act(async () => (host.querySelector('[data-testid="county-switch"]') as HTMLButtonElement).click());
+    const menu = () => document.body.querySelector('[role="listbox"][aria-label="County"]') as HTMLElement | null;
+    await open();
+    expect(menu()!.parentElement).toBe(document.body);
+    expect(host.contains(menu())).toBe(false);
+    expect(menu()!.className).toContain('bg-[#161616] ');
+    expect(menu()!.className).not.toContain('backdrop-blur');
+    // A tap in the menu keeps it open; a tap away closes it.
+    await act(async () => menu()!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
+    expect(menu()).not.toBeNull();
+    await act(async () => document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
+    expect(menu()).toBeNull();
+    // A scroll closes it.
+    await open();
+    await act(async () => window.dispatchEvent(new Event('scroll')));
+    expect(menu()).toBeNull();
+    // A pick closes it.
+    await open();
+    await act(async () => (Array.from(menu()!.querySelectorAll('[role="option"]')).find((o) => o.textContent?.includes('Ector')) as HTMLButtonElement).click());
+    expect(picked).toHaveBeenCalledWith('Ector');
+    expect(menu()).toBeNull();
     act(() => root.unmount());
   });
 });
