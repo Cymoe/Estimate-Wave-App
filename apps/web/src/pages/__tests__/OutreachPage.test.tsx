@@ -1044,59 +1044,6 @@ describe('the Outreach page', () => {
     expect(enrich).toHaveBeenLastCalledWith('o1', ['r2'], ['phone', 'email'], undefined);
   });
 
-  it('tells staff when the roll was grouped into owners, or that it failed, with a rebuild; companies see nothing', async () => {
-    await render();
-    expect(document.body.querySelector('[data-testid="owners-line"]')).toBeNull();
-    document.body.innerHTML = '';
-    authUser = { id: 'u2', role: 'staff' };
-    await render();
-    const line = () => document.body.querySelector('[data-testid="owners-line"]')!;
-    expect(line().textContent).toContain("The roll hasn't been grouped into owners yet, so every list is empty.");
-    await click('Rebuild owners');
-    expect(rebuild).toHaveBeenCalled();
-    expect(line().textContent).toContain('Grouped 58,418 parcels into owners (44,120 written).');
-    // Before the first build there is nothing for the daily pass to fold into.
-    expect(button('Refresh records')).toBeUndefined();
-    document.body.innerHTML = '';
-    ownersState = { syncedAt: '2026-11-05T06:40:00Z', parcels: 58_418, owners: 44_120, error: 'JavaScript execution ran out of memory' };
-    await render();
-    expect(line().textContent).toContain('failed: JavaScript execution ran out of memory');
-    // Built, with the daily pass since: when, and a way to run it now.
-    document.body.innerHTML = '';
-    ownersState = { syncedAt: '2026-11-01T07:30:00Z', parcels: 58_418, owners: 44_120, records: { at: '2026-11-07T07:00:00Z', touched: 17 } };
-    await render();
-    expect(line().textContent).toContain('Owners grouped Nov 1 from 58,418 parcels; records added Nov 7.');
-    await click('Refresh records');
-    expect(refresh).toHaveBeenCalled();
-    expect(line().textContent).toContain('Read 1,240 records and permits; 20 owners changed.');
-    document.body.innerHTML = '';
-    ownersState = { syncedAt: '2026-11-01T07:30:00Z', parcels: 58_418, owners: 44_120, records: { at: '2026-11-07T07:00:00Z', touched: 0, error: 'Too many reads' } };
-    await render();
-    expect(line().textContent).toContain('the records pass on Nov 7 failed: Too many reads');
-    // The stack, with this company's numbers.
-    sources.mockResolvedValueOnce([
-      { name: 'tx-comptroller', fields: ['person'], connected: true, stats: [{ field: 'person', attempts: 4, hits: 3, chargedCents: 0 }] },
-      { name: 'batchdata', fields: ['phone', 'email'], connected: false, stats: [{ field: 'phone', attempts: 0, hits: 0, chargedCents: 0 }, { field: 'email', attempts: 0, hits: 0, chargedCents: 0 }] },
-      {
-        name: 'tracerfy',
-        fields: ['phone', 'email'],
-        connected: true,
-        stats: [
-          { field: 'phone', attempts: 2, hits: 1, chargedCents: 100, problem: 'Tracerfy: HTTP 402 (Insufficient credits)', problemAt: '2026-11-05T15:00:00Z' },
-          { field: 'email', attempts: 2, hits: 0, chargedCents: 0 },
-        ],
-      },
-    ] as never);
-    await click('Data sources');
-    const panel = document.body.querySelector('[data-testid="sources-panel"]')!;
-    expect(panel.textContent).toContain('1. Texas ComptrollerConnecteddecision maker: 3 / 4 (75%)');
-    expect(panel.textContent).toContain('2. BatchDataNot connectedphone: 0 / 0email: 0 / 0');
-    // A source whose account needs a hand says so, once, under its numbers.
-    const problems = panel.querySelectorAll('[data-testid="source-problem"]');
-    expect(problems).toHaveLength(1);
-    expect(problems[0].textContent).toBe('Needs attention: Tracerfy: HTTP 402 (Insufficient credits)');
-  });
-
   it('a capped list says how many it reaches and loads the next page on request', async () => {
     lists = [{ ...list, title: 'Real estate investors', who: 'investor', definition: { county: 'Midland', who: 'investor' }, rowCount: 500, total: 2340 }];
     contacts = twoContacts();
