@@ -690,6 +690,7 @@ describe("a company's lists", () => {
     const co = await proCompany(t);
     const org = co.organizationId;
     const at = "2026-11-01T00:00:00.000Z";
+    const gone = (await co.as.mutation(api.leads.create, { organizationId: org, data: { name: "Sent Gone LLC" } }))!._id;
     const { fresh, worked } = await t.run(async (ctx) => {
       const [user] = await ctx.db.query("users").collect();
       const list = { organizationId: org, title: "Fresh", definition: { county: "Midland", who: "investor" as const }, rowCount: 4, done: 0, truncated: false, createdBy: user._id, createdAt: at };
@@ -701,6 +702,9 @@ describe("a company's lists", () => {
       // Fresh: nothing of the company's own. Simulated results are made up; a worked owner also on Worked loses nothing.
       await contact("Simulated LLC", { phones: [{ number: "+14325550100", type: "mobile", source: "sim" }], enrichment: { phone: { status: "found", source: "sim", simulated: true }, email: locked, person: locked } });
       await contact("Untouched LLC");
+      // Sent to Leads, then the lead was deleted there: New again on the page, nothing to keep.
+      await ctx.db.delete(gone);
+      await contact("Sent Gone LLC", { status: "lead", leadId: gone });
       // A contractor whose permits named who to call: free from the record at build, nobody asked for it.
       await contact("Permit Roofing LLC", { kinds: ["contractor"], person: { name: "Dale Ortiz", source: "permits" }, phones: [{ number: "+14325550111", type: "unknown", source: "permits" }], enrichment: { phone: { status: "found", source: "permits", chargedCents: 0 }, email: locked, person: { status: "found", source: "permits" } } });
       await contact("Two Lists LLC", { listIds: [fresh, worked], status: "callback" });
@@ -2174,6 +2178,8 @@ describe("a company's lists", () => {
     const count = async () => (await co.as.query(api.outreach.contacts, { organizationId: org, listId: saved.listId })).rows.length;
     expect(await view()).toMatchObject({ filling: true, rowCount: 50 });
     expect(await count()).toBe(50);
+    // Loading more waits for the fill: the two would read the same owners.
+    await expect(co.as.mutation(api.outreach.extend, { organizationId: org, listId: saved.listId })).rejects.toThrow(/Still adding owners/);
     await t.finishAllScheduledFunctions(() => {});
     expect(await view()).toMatchObject({ filling: false, rowCount: 120, total: 120 });
     expect(await count()).toBe(120);

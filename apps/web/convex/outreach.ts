@@ -551,15 +551,18 @@ export async function buildRows(ctx: QueryCtx | MutationCtx, def: Definition, of
     const facetRows = await query().take(Math.max(SCAN, offset + page));
     const total = counted ?? facetRows.length;
     const truncated = counted === undefined && facetRows.length >= SCAN;
-    const owners = await ownersOf(ctx, facetRows, offset, Math.min(facetRows.length, offset + page));
+    const end = Math.min(facetRows.length, offset + page);
+    const owners = await ownersOf(ctx, facetRows, offset, end);
     const rows = owners.flatMap((o) => (o ? (rowOf(o, facet) ?? []) : []));
     const count = Math.min(limit, Math.max(0, total - offset));
-    return { rows, count, total, truncated, limited: total - offset >= limit };
+    return { rows, count, total, truncated, limited: total - offset >= limit, next: Math.max(offset, end) };
   }
   const facetRows = await query().take(SCAN);
   const rows: ListRow[] = [];
   let total = 0;
   let floored = false;
+  // Owners taken past the offset, ones without a row to show included: where the next page starts.
+  let taken = 0;
   outer: for (let i = 0; i < facetRows.length; i += 100) {
     for (const owner of await ownersOf(ctx, facetRows, i, Math.min(facetRows.length, i + 100))) {
       if (!owner) continue;
@@ -570,13 +573,14 @@ export async function buildRows(ctx: QueryCtx | MutationCtx, def: Definition, of
       }
       if (!matches(owner as unknown as OwnerRow, def, facet, now)) continue;
       total++;
-      if (total <= offset || rows.length >= page) continue;
+      if (total <= offset || taken >= page) continue;
+      taken++;
       const row = rowOf(owner, facet);
       if (row) rows.push(row);
     }
   }
   const count = Math.min(limit, Math.max(0, total - offset));
-  return { rows, count, total, truncated: !floored && facetRows.length === SCAN, limited: total - offset >= limit };
+  return { rows, count, total, truncated: !floored && facetRows.length === SCAN, limited: total - offset >= limit, next: offset + taken };
 }
 
 // ---- A company's lists ----
@@ -660,12 +664,12 @@ export const createDef = mutationDef({
     // The first owners go in now, so the list opens with them at once; the rest follow in the background, live on the page.
     const built = await buildRows(ctx, definition, 0, FIRST_ROWS);
     const now = nowIso();
-    const more = built.count > built.rows.length;
+    const more = built.count > built.next;
     const listId = await ctx.db.insert("outreachLists", {
       organizationId,
       title: wanted?.trim() || defaultTitle(definition),
       definition,
-      rowCount: built.rows.length,
+      rowCount: built.next,
       total: built.total,
       done: 0,
       truncated: built.truncated,
@@ -674,7 +678,7 @@ export const createDef = mutationDef({
       ...(more ? { filling: true } : {}),
     });
     const added = await addRows(ctx, organizationId, listId, definition.who, built.rows, now);
-    if (more) await ctx.scheduler.runAfter(0, internal.outreach.fillList, { listId, offset: built.rows.length, target: built.count });
+    if (more) await ctx.scheduler.runAfter(0, internal.outreach.fillList, { listId, offset: built.next, target: built.count });
     return { listId, rowCount: built.count, total: built.total, added, truncated: built.truncated, limited: built.limited, sample: built.rows.slice(0, 3) };
   },
 });
@@ -692,8 +696,8 @@ export const fillList = internalMutation({
     if (!list) return null;
     const built = await buildRows(ctx, list.definition, offset, Math.min(FILL_ROWS, target - offset));
     await addRows(ctx, list.organizationId, listId, list.definition.who, built.rows, nowIso());
-    const next = offset + built.rows.length;
-    const more = built.rows.length > 0 && next < target;
+    const next = built.next;
+    const more = next > offset && next < target;
     await ctx.db.patch(listId, { rowCount: next, total: built.total, truncated: built.truncated, filling: more ? true : undefined });
     if (more) await ctx.scheduler.runAfter(0, internal.outreach.fillList, { listId, offset: next, target });
     return null;
@@ -749,10 +753,12 @@ export const extend = mutation({
     await requirePro(ctx, organizationId);
     const list = await ctx.db.get(listId);
     if (!list || list.organizationId !== organizationId) fail("NOT_FOUND", "No such list");
+    // The background fill is still adding this list's first owners: the next page would run into it.
+    if (list.filling) fail("INVALID", "Still adding owners to this list; load more once it's done");
     const built = await buildRows(ctx, list.definition, list.rowCount);
     const now = nowIso();
     const added = await addRows(ctx, organizationId, listId, list.definition.who, built.rows, now);
-    const rowCount = list.rowCount + built.rows.length;
+    const rowCount = built.next;
     await ctx.db.patch(listId, { rowCount, total: built.total, truncated: built.truncated });
     return { loaded: built.rows.length, added, rowCount, total: built.total, truncated: built.truncated };
   },
@@ -768,9 +774,9 @@ export const listsDef = queryDef({
     for (const c of contacts) if (isWorked(c.status)) for (const id of c.listIds) done.set(id, (done.get(id) ?? 0) + 1);
     // Worked owners only this list holds: deleting it would leave them on no list.
     const stranded = new Map<Id<"outreachLists">, number>();
-    for (const c of contacts) if (c.listIds.length === 1 && worthKeeping(c)) stranded.set(c.listIds[0], (stranded.get(c.listIds[0]) ?? 0) + 1);
-    // Each lead counted once per list, however many of the list's owners joined it.
     const leads = new Map((await ctx.db.query("leads").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect()).map((l) => [l._id, l] as const));
+    for (const c of contacts) if (c.listIds.length === 1 && worthKeeping(c, c.leadId !== undefined && !leads.has(c.leadId))) stranded.set(c.listIds[0], (stranded.get(c.listIds[0]) ?? 0) + 1);
+    // Each lead counted once per list, however many of the list's owners joined it.
     const seen = new Map<Id<"outreachLists">, Set<string>>();
     const results = new Map<Id<"outreachLists">, ListResults>();
     for (const c of contacts) {
@@ -1335,7 +1341,7 @@ export const remove = mutation({
     for (const c of contacts) {
       if (!c.listIds.includes(listId)) continue;
       const listIds = c.listIds.filter((id) => id !== listId);
-      if (listIds.length === 0 && !worthKeeping(c)) {
+      if (listIds.length === 0 && !worthKeeping(c, await leadGone(ctx, c))) {
         await ctx.db.delete(c._id);
         continue;
       }
@@ -1354,13 +1360,20 @@ export const remove = mutation({
  * made up, and what a permit or license gave free when the list was built
  * comes back with the next list, so neither keeps anything.
  */
-function worthKeeping(c: Doc<"outreachContacts">) {
+function worthKeeping(c: Doc<"outreachContacts">, leadGone = false) {
+  // A lead deleted in Leads leaves its owner New, as the page shows it: being sent once keeps nothing.
+  if (leadGone) c = { ...c, leadId: undefined, status: c.status === "lead" ? "new" : c.status };
   if (c.leadId || c.clientId) return true;
   // The sample filler's owners (marked by their note); a simulated cell is made up whatever it found.
   if (isSampleRun(c)) return false;
   if (c.status !== "new" || c.note?.trim() || c.research || c.followUpOn || (c.touches?.length ?? 0) > 0) return true;
   // A lookup someone asked for or paid for; a name or number the permits or a license gave for free at build doesn't count (the next list has it again).
   return Object.values(cellsOf(c)).some((cell) => cell?.status === "found" && !cell.simulated && (cell.requestedBy !== undefined || (cell.chargedCents ?? 0) > 0));
+}
+
+/** Sent to a lead that has since been deleted in Leads. */
+async function leadGone(ctx: QueryCtx | MutationCtx, c: Doc<"outreachContacts">) {
+  return c.leadId !== undefined && (await ctx.db.get(c.leadId)) === null;
 }
 
 /**
@@ -1375,7 +1388,7 @@ export const clearLeftovers = internalMutation({
     const page = await ctx.db.query("outreachContacts").paginate({ cursor: cursor ?? null, numItems: 500 });
     let removed = 0;
     for (const c of page.page) {
-      if (c.listIds.length > 0 || worthKeeping(c)) continue;
+      if (c.listIds.length > 0 || worthKeeping(c, await leadGone(ctx, c))) continue;
       await ctx.db.delete(c._id);
       removed++;
     }

@@ -877,7 +877,7 @@ const OutreachPage: React.FC = () => {
             </span>
           )}
           <span className="hidden md:inline"> · asked {day(list.createdAt)}</span>
-          {list.total !== undefined && list.total > list.rowCount && (
+          {list.total !== undefined && list.total > list.rowCount && !list.filling && (
             <span data-testid="list-total">
               {' '}
               · {list.rowCount.toLocaleString('en-US')} of {list.total.toLocaleString('en-US')}

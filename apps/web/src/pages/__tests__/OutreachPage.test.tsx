@@ -1086,11 +1086,12 @@ describe('the Outreach page', () => {
     expect(document.body.querySelector('[data-testid="list-total"]')).toBeNull();
   });
 
-  it('a new list still adding owners in the background says so in a bar across the top', async () => {
-    lists = [{ ...list, filling: true }];
+  it('a new list still adding owners in the background says so, with no Load the next until it is done', async () => {
+    lists = [{ ...list, rowCount: 50, total: 2340, filling: true }];
     contacts = twoContacts();
     await render('/outreach/l1');
     expect(document.body.querySelector('[data-testid="list-filling"]')!.textContent).toBe('Adding owners to this list: 2 so far…');
+    expect(document.body.querySelector('[data-testid="list-total"]')).toBeNull();
     lists = [{ ...list, filling: false }];
     document.body.innerHTML = '';
     await render('/outreach/l1');
