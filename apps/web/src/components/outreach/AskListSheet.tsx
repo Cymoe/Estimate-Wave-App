@@ -278,7 +278,7 @@ export const AskListSheet: React.FC<{
               </div>
             ) : (
               <>
-            <div className="border border-[#333333] bg-[#1A1A1A] p-4 space-y-1 animate-fade-in">
+            <div className="border border-[#333333] bg-[#1A1A1A] p-4 space-y-1 animate-appear">
               <p className="text-lg font-semibold text-white">
                 {built.total !== undefined && built.total > built.count ? (
                   <>
@@ -301,7 +301,7 @@ export const AskListSheet: React.FC<{
               <ul className="border border-[#333333] divide-y divide-[#333333] max-h-[45vh] overflow-y-auto overscroll-contain" aria-label="Preview">
                 {built.rows.map((r, i) => (
                   // The owners come in one after another, as the list fills.
-                  <li key={r.key} className="px-3 py-2.5 text-sm animate-fade-in" style={{ animationDelay: `${Math.min(i, 12) * 40}ms`, animationFillMode: 'both' }}>
+                  <li key={r.key} className="px-3 py-2.5 text-sm animate-appear" style={{ animationDelay: `${Math.min(i, 12) * 40}ms` }}>
                     <div className="flex items-baseline justify-between gap-3">
                       <span className="text-white truncate">{r.name}</span>
                       {/* The owner's holdings, not one building: what the list is sorted on. */}
