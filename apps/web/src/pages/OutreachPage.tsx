@@ -659,11 +659,23 @@ const OutreachPage: React.FC = () => {
   const removeList = async () => {
     if (!organizationId || !list) return;
     if (!(await confirm({ title: `Delete “${list.title}”?`, message: "Nobody has worked this list yet, so nothing of yours is lost. You can make it again any time.", confirmLabel: 'Delete' }))) return;
+    // Gone at once: All shows without it (its owners on no other list dropped, the rest untagged) before the server is asked,
+    // so the page doesn't show this list emptying, then the old All, then the new one.
+    const id = list.id;
+    const allKey = `${organizationId}:all`;
+    const all = seen.current.get(allKey);
+    if (all) {
+      const rows = all.rows.filter((r) => !(r.listIds.length === 1 && r.listIds[0] === id)).map((r) => (r.listIds.includes(id) ? { ...r, listIds: r.listIds.filter((x) => x !== id) } : r));
+      seen.current.set(allKey, { ...all, rows });
+    }
+    seen.current.delete(`${organizationId}:${id}`);
+    setLists((l) => l && l.filter((x) => x.id !== id));
+    navigate('/outreach');
     try {
-      await outreachAPI.remove(organizationId, list.id);
-      navigate('/outreach');
+      await outreachAPI.remove(organizationId, id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't delete the list");
+      void load();
     }
   };
   const archiveList = async () => {
