@@ -4,6 +4,9 @@ import { Check, ChevronDown, Download, LayoutList, Lock, MoreHorizontal, Search,
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachField, type OutreachListSummary, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { AskListSheet } from '../components/outreach/AskListSheet';
+import { ListPicker } from '../components/outreach/ListPicker';
+import { rememberList } from '../components/outreach/listsStore';
+import { ListsOverview } from '../components/outreach/ListsOverview';
 import { ContactCards, ContactsTable, ContactSheet, type OwnerSort } from '../components/outreach/ContactsTable';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { LookupProgress } from '../components/outreach/LookupProgress';
@@ -372,6 +375,14 @@ const OutreachPage: React.FC = () => {
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirm, confirmDialog] = useConfirm();
+  /** Manage lists: every list as a card, to pin, rename or archive. */
+  const managing = searchParams.get('lists') === '1';
+  const openManage = () => setSearchParams({ lists: '1' });
+  const pickList = (id: string | null) => navigate(id ? `/outreach/${id}` : '/outreach');
+  // Whichever way a list was opened (the picker, a link, Back), it's the most recent one.
+  useEffect(() => {
+    if (listId) rememberList(listId);
+  }, [listId]);
   const live = useRef(true);
   useEffect(() => {
     live.current = true;
@@ -404,6 +415,15 @@ const OutreachPage: React.FC = () => {
       if (live.current) setError(err instanceof Error ? err.message : "The contacts couldn't be loaded");
     }
   }, [organizationId, listId, takeContacts]);
+  /** Pin, rename or archive a list, then show it. */
+  const organize = useCallback(
+    async (id: string, change: { title?: string; pinned?: boolean; archived?: boolean }) => {
+      if (!organizationId) return;
+      await outreachAPI.organizeList(organizationId, id, change);
+      if (live.current) setLists(await outreachAPI.lists(organizationId));
+    },
+    [organizationId],
+  );
   const [extending, setExtending] = useState(false);
   /** The next page of the open list, for one that reached its cap. */
   const extend = async () => {
@@ -684,6 +704,19 @@ const OutreachPage: React.FC = () => {
 
   if (!organizationId) return <p className="p-6 text-gray-400">Pick a company first.</p>;
 
+  if (managing)
+    return (
+      <div className="p-4 md:p-6 space-y-4" data-testid="outreach-page">
+        <h1 className="text-2xl font-semibold text-white">Lists</h1>
+        {lists ? (
+          <ListsOverview lists={lists} onOpen={(id) => pickList(id)} onOrganize={organize} onBack={() => setSearchParams({})} />
+        ) : (
+          <p className="text-sm text-gray-400">Loading…</p>
+        )}
+        {confirmDialog}
+      </div>
+    );
+
   return (
     <div className="p-4 md:p-6 space-y-4" data-testid="outreach-page">
       {/* A lookup running, or just finished: a banner across the top of the page, edge to edge. */}
@@ -830,39 +863,9 @@ const OutreachPage: React.FC = () => {
           </button>
         </div>
       )}
-      {/* The lists: chips on a desktop; on a phone one picker, since several titles of this length are a wall. */}
-      {lists && lists.length > 0 && (
-        <>
-          {/* On a phone with owners showing, the picker lives in the sticky bar below instead. */}
-          {!(narrow && data && data.rows.length > 0) && (
-          <label className="relative block md:hidden">
-            <select
-              value={listId ?? ''}
-              onChange={(e) => navigate(e.target.value ? `/outreach/${e.target.value}` : '/outreach')}
-              aria-label="List"
-              className="appearance-none w-full h-11 rounded-none bg-[#1A1A1A] border border-[#333333] pl-3 pr-9 text-base text-white truncate focus:outline-none focus:border-[#336699]"
-            >
-              <option value="">All lists</option>
-              {lists.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.title}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" aria-hidden />
-          </label>
-          )}
-          <div className="hidden md:flex flex-wrap items-center gap-2" role="group" aria-label="Lists">
-            <button type="button" onClick={() => navigate('/outreach')} aria-pressed={!listId} className={chip(!listId)}>
-              All
-            </button>
-            {lists.map((l) => (
-              <button key={l.id} type="button" onClick={() => navigate(`/outreach/${l.id}`)} aria-pressed={l.id === listId} className={chip(l.id === listId)} title={`${l.title} · ${WHO_LABEL[l.who]} · ${day(l.createdAt)}`}>
-                <span className="truncate">{l.title}</span> <span className="text-gray-500">{l.rowCount}</span>
-              </button>
-            ))}
-          </div>
-        </>
+      {/* The lists: one picker (search, pinned, recent, grouped by kind, archived) instead of a chip per list. On a phone with owners showing, it lives in the sticky bar below. */}
+      {lists && lists.length > 0 && !(narrow && data && data.rows.length > 0) && (
+        <ListPicker lists={lists} currentId={listId} narrow={narrow} onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} />
       )}
       {data && data.rows.length > 0 && list && (
         <p className="text-xs text-gray-500" data-testid="list-line">
@@ -921,22 +924,7 @@ const OutreachPage: React.FC = () => {
           {narrow ? (
             <div className="flex w-full items-center gap-2 py-1.5">
               {lists && lists.length > 0 && !searching && (
-                <label className="relative flex-1 min-w-0">
-                  <select
-                    value={listId ?? ''}
-                    onChange={(e) => navigate(e.target.value ? `/outreach/${e.target.value}` : '/outreach')}
-                    aria-label="List"
-                    className="appearance-none w-full h-9 rounded-none bg-[#1A1A1A] border border-[#333333] pl-3 pr-9 text-base text-white truncate focus:outline-none focus:border-[#336699]"
-                  >
-                    <option value="">All lists</option>
-                    {lists.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.title}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" aria-hidden />
-                </label>
+                <ListPicker lists={lists} currentId={listId} narrow onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} compact />
               )}
               <SearchBox value={query} onChange={setQuery} onOpenChange={setSearching} />
               <PopMenu label="Filter by status" icon={<SlidersHorizontal className="w-4 h-4" />} dot={status !== 'all'} size="w-9 h-9">

@@ -1268,6 +1268,10 @@ export type OutreachListSummary = {
   /** What the list has turned into in Leads: owners sent, leads with an estimate, jobs sold. */
   results?: { sent: number; estimates: number; sold: number };
   createdAt: string;
+  /** Kept at the top of the picker. */
+  pinned?: boolean;
+  /** Done with: tucked under Archived. */
+  archived?: boolean;
 };
 /** "12 / 200 · 2 sources" on a column header. */
 export type OutreachCoverage = { found: number; total: number; sources: number };
@@ -1327,6 +1331,8 @@ export const outreachAPI = {
   /** The Outreach owners a lead came from: who, what they own and why they were picked. */
   ownersOfLead: (organizationId: string, leadId: string): Promise<OutreachOwnerOfLead[]> => run('query', api.outreach.ownersOfLead, { organizationId, leadId }),
   remove: (organizationId: string, listId: string) => run('mutation', api.outreach.remove, { organizationId, listId }),
+  organizeList: (organizationId: string, listId: string, change: { title?: string; pinned?: boolean; archived?: boolean }) =>
+    run('mutation', api.outreach.organizeList, defined({ organizationId, listId, ...change })),
   /** Loads the next page of a list that reached its cap. */
   extend: (organizationId: string, listId: string): Promise<{ loaded: number; added: number; rowCount: number; total: number; truncated: boolean }> =>
     run('mutation', api.outreach.extend, { organizationId, listId }),

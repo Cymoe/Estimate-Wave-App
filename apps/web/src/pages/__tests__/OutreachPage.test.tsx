@@ -42,6 +42,10 @@ const list = {
   createdAt: '2026-11-05T15:00:00Z',
 };
 let lists: Array<Record<string, unknown>> = [];
+const organizeList = jest.fn(async (_org: string, id: string, change: Record<string, unknown>) => {
+  lists = lists.map((l) => (l.id === id ? { ...l, ...change, ...(change.archived ? { pinned: false } : {}) } : l));
+  return null;
+});
 let contacts: Record<string, unknown> = { rows: [], coverage: coverage(0, 0, 0, 0), ...money };
 let interpreted: Record<string, unknown> = {
   ok: true,
@@ -91,6 +95,7 @@ jest.mock('../../lib/api', () => ({
     sendManyToLeads: (...args: unknown[]) => sendManyToLeads(...(args as [])),
     undoSend: (...args: unknown[]) => undoSend(...(args as [])),
     remove: (...args: unknown[]) => remove(...(args as [])),
+    organizeList: (...args: unknown[]) => organizeList(...(args as [])),
     extend: (...args: unknown[]) => extend(...(args as [])),
     enrich: (...args: unknown[]) => enrich(...(args as [])),
     watchContacts: (...args: unknown[]) => watchContacts(...(args as [string, string | undefined, (c: unknown) => void])),
@@ -399,9 +404,9 @@ describe('the Outreach page', () => {
     expect(document.body.querySelector('[role="menu"]')).toBeNull();
     // The list picker and the search sit in the sticky bar; the status is a filter menu with a dot when it narrows.
     const bar = document.body.querySelector('[data-testid="filter-bar"]')!;
-    expect(bar.querySelector('select[aria-label="List"]')).not.toBeNull();
+    expect(bar.querySelector('[data-testid="list-picker"]')).not.toBeNull();
     expect(bar.querySelector('select[aria-label="Status"]')).toBeNull();
-    expect(document.body.querySelectorAll('select[aria-label="List"]')).toHaveLength(1);
+    expect(document.body.querySelectorAll('[data-testid="list-picker"]')).toHaveLength(1);
     const filter = () => bar.querySelector('button[aria-label="Filter by status"]') as HTMLButtonElement;
     expect(filter().querySelector('span')).toBeNull();
     await act(async () => filter().click());
@@ -446,7 +451,7 @@ describe('the Outreach page', () => {
     expect(card.querySelector('[data-testid="to-leads"]')!.textContent?.trim()).toBe('Estimate sent');
   });
 
-  it('shows the contacts table with a chip per list, or says to tap + when there are none', async () => {
+  it('shows the contacts table with a list picker, or says to tap + when there are none', async () => {
     await render();
     expect(document.body.querySelector('[data-testid="outreach-empty"]')!.textContent).toBe('No contacts yet. Tap + and pick who you want to reach.');
     // Just the title: no paragraph of explanation under it.
@@ -458,8 +463,9 @@ describe('the Outreach page', () => {
     Object.defineProperty(HTMLDivElement.prototype, 'scrollWidth', { configurable: true, get: () => 1400 });
     Object.defineProperty(HTMLDivElement.prototype, 'clientWidth', { configurable: true, get: () => 900 });
     await render();
-    const chips = Array.from(document.body.querySelectorAll('[aria-label="Lists"] button')).map((b) => b.textContent?.trim());
-    expect(chips).toEqual(['All', 'Shopping center owners 2']);
+    // One picker instead of a chip per list.
+    expect(document.body.querySelector('[data-testid="list-picker"]')!.textContent).toBe('All owners');
+    expect(document.body.querySelector('[aria-label="Lists"]')).toBeNull();
     const rows = document.body.querySelectorAll('[data-testid="contact-row"]');
     expect(rows).toHaveLength(2);
     const cells = (i: number) => Array.from(rows[i].querySelectorAll('td')).map((c) => c.textContent?.trim());
@@ -490,6 +496,8 @@ describe('the Outreach page', () => {
     expect(localStorage.getItem('outreach.sort')).toBeNull();
     const heads = Array.from(document.body.querySelectorAll('thead th')).map((h) => h.textContent?.replace(/\s+/g, ' ').trim());
     expect(heads).toEqual(['NameNewest first', 'Decision maker0 / 2 companies', 'Phone0 / 2', 'Email0 / 2', 'Research0 / 2', 'Status', 'Mailing address', 'Property', 'Value', 'Type', 'Signals']);
+    // Open the picker and pick the list.
+    await act(async () => (document.body.querySelector('[data-testid="list-picker"]') as HTMLButtonElement).click());
     await click('Shopping center owners');
     expect(path).toBe('/outreach/l1');
     expect(getContacts).toHaveBeenLastCalledWith('o1', 'l1');
@@ -771,8 +779,10 @@ describe('the Outreach page', () => {
     expect(document.body.querySelector('[data-testid="contact-row"]')!.textContent).toContain('Skipped');
     // The status picker: New, In Leads, Skipped; nothing to track calls with here.
     expect(Array.from(document.body.querySelectorAll('select[aria-label="Status"] option')).map((o) => o.textContent)).toEqual(['All statuses', 'New', 'In Leads', 'Skipped']);
-    // On a phone the lists are one picker instead of chips.
-    expect(Array.from(document.body.querySelectorAll('select[aria-label="List"] option')).map((o) => o.textContent)).toEqual(['All lists', 'Shopping center owners']);
+    // The lists are one picker: All owners, then each list with how far it's got.
+    await act(async () => (document.body.querySelector('[data-testid="list-picker"]') as HTMLButtonElement).click());
+    expect(Array.from(document.body.querySelectorAll('[data-testid="list-option"]')).map((o) => o.textContent)).toEqual(['Shopping center owners2 owners · 1 done']);
+    await act(async () => (document.body.querySelector('[data-testid="list-picker"]') as HTMLButtonElement).click());
 
     // The CSV, for a mail merge.
     const made: string[] = [];
@@ -1082,5 +1092,53 @@ describe('the Outreach page', () => {
     await click('Delete');
     expect(remove).toHaveBeenCalledWith('o1', 'l1');
     expect(path).toBe('/outreach');
+  });
+  it('the list picker: search, pin to the top, grouped by kind, archived folded; Manage lists renames and archives', async () => {
+    localStorage.clear();
+    lists = [
+      { ...list, id: 'l1', title: 'Shopping center owners', createdAt: '2026-11-05T15:00:00Z' },
+      { ...list, id: 'l2', title: 'Real estate investors, Midland', who: 'investor', definition: { county: 'Midland', who: 'investor' }, rowCount: 1000, done: 40, results: { sent: 3, estimates: 1, sold: 1 }, createdAt: '2026-11-06T15:00:00Z' },
+      { ...list, id: 'l3', title: 'Old roofers list', archived: true, createdAt: '2026-10-01T15:00:00Z' },
+    ];
+    contacts = twoContacts();
+    await render('/outreach/l2');
+    const picker = () => document.body.querySelector('[data-testid="list-picker"]') as HTMLButtonElement;
+    expect(picker().textContent).toBe('Real estate investors, Midland');
+    await act(async () => picker().click());
+    const panel = () => document.body.querySelector('[role="dialog"][aria-label="Lists"]')!;
+    const headings = () => Array.from(panel().querySelectorAll('h3')).map((h) => h.textContent);
+    // A handful of lists: grouped by who they're of (Recent only shows once there are many), the archived one folded away.
+    expect(headings()).toEqual(['Commercial owners', 'Investors']);
+    expect(panel().textContent).toContain('1,000 owners · 40 done · 3 sent · 1 sold');
+    expect(panel().textContent).toContain('Archived (1)');
+    expect(panel().textContent).not.toContain('Old roofers list');
+    // Search finds archived lists too.
+    await act(async () => type(panel().querySelector('input[aria-label="Find a list"]') as HTMLInputElement, 'roofers'));
+    expect(Array.from(panel().querySelectorAll('[data-testid="list-option"]')).map((o) => o.textContent)).toEqual(['Old roofers list · archived2 owners · 0 done']);
+    await act(async () => type(panel().querySelector('input[aria-label="Find a list"]') as HTMLInputElement, ''));
+    // Pin the shopping center list: it moves to Pinned.
+    await act(async () => (panel().querySelector('button[aria-label="Pin Shopping center owners"]') as HTMLButtonElement).click());
+    await flush();
+    expect(organizeList).toHaveBeenCalledWith('o1', 'l1', { pinned: true });
+    expect(headings()[0]).toBe('Pinned');
+    // Manage lists: a card per list, with progress and results.
+    await click('Manage lists');
+    expect(path).toBe('/outreach/l2?lists=1');
+    const cards = () => Array.from(document.body.querySelectorAll('[data-testid="list-card"]'));
+    expect(cards().map((c) => c.querySelector('span')!.textContent)).toEqual(['Shopping center owners', 'Real estate investors, Midland']);
+    expect(cards()[1].textContent).toContain('40 of 1,000 worked');
+    expect(cards()[1].textContent).toContain('3 sent to Leads · 1 estimate · 1 sold');
+    // Rename, then archive.
+    await act(async () => (cards()[1].querySelector('button[aria-label="Rename Real estate investors, Midland"]') as HTMLButtonElement).click());
+    await act(async () => type(document.body.querySelector('input[aria-label="List name"]') as HTMLInputElement, 'Midland investors'));
+    await act(async () => (document.body.querySelector('[data-testid="lists-overview"] form') as HTMLFormElement).requestSubmit());
+    await flush();
+    expect(organizeList).toHaveBeenCalledWith('o1', 'l2', { title: 'Midland investors' });
+    await act(async () => (cards()[1].querySelector('button[aria-label="Archive Midland investors"]') as HTMLButtonElement).click());
+    await flush();
+    expect(organizeList).toHaveBeenLastCalledWith('o1', 'l2', { archived: true });
+    expect(cards()).toHaveLength(1);
+    await click('Archived (2)');
+    expect(cards().map((c) => c.querySelector('span')!.textContent)).toEqual(['Midland investors', 'Old roofers list']);
   });
 });

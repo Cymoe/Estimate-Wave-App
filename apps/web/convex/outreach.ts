@@ -602,6 +602,8 @@ const listView = (l: Doc<"outreachLists">, done: number, results: ListResults = 
   total: l.total,
   results,
   createdAt: l.createdAt,
+  pinned: l.pinned === true,
+  archived: Boolean(l.archivedAt),
 });
 
 /** The count and a first look, before saving. `count` is what one list holds; `total` is how many owners the ask reaches. */
@@ -1309,6 +1311,31 @@ export const remove = mutation({
       await ctx.db.patch(c._id, { listIds, kinds, updatedAt: nowIso() });
     }
     await ctx.db.delete(listId);
+    return null;
+  },
+});
+
+/** Keeps the lists tidy: a new name, pinned to the top of the picker, or archived out of the way (its contacts stay). */
+export const organizeList = mutation({
+  args: { organizationId: v.id("organizations"), listId: v.id("outreachLists"), title: v.optional(v.string()), pinned: v.optional(v.boolean()), archived: v.optional(v.boolean()) },
+  handler: async (ctx, { organizationId, listId, title, pinned, archived }) => {
+    await requirePro(ctx, organizationId);
+    const list = await ctx.db.get(listId);
+    if (!list || list.organizationId !== organizationId) fail("NOT_FOUND", "No such list");
+    const patch: Partial<Doc<"outreachLists">> = {};
+    if (title !== undefined) {
+      const t = title.trim().replace(/\s+/g, " ");
+      if (!t) fail("INVALID", "Give the list a name");
+      if (t.length > 120) fail("INVALID", "That name is too long (120 characters at most)");
+      patch.title = t;
+    }
+    if (pinned !== undefined) patch.pinned = pinned || undefined;
+    if (archived !== undefined) {
+      patch.archivedAt = archived ? nowIso() : undefined;
+      // An archived list isn't pinned.
+      if (archived) patch.pinned = undefined;
+    }
+    await ctx.db.patch(listId, patch);
     return null;
   },
 });

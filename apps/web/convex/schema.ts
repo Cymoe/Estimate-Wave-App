@@ -1256,6 +1256,10 @@ export default defineSchema({
     truncated: v.boolean(),
     createdBy: v.id("users"),
     createdAt: v.string(),
+    /** Kept at the top of the list picker. */
+    pinned: v.optional(v.boolean()),
+    /** Done with: out of the picker's way (its contacts stay), until it's brought back. */
+    archivedAt: v.optional(v.string()),
   }).index("by_organization", ["organizationId"]),
 
   // The lists' rows before contacts (outreach:migrateRows moves them over on deploy; drop the table once it has run clean).

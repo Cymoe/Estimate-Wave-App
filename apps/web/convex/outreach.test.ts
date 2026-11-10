@@ -671,6 +671,28 @@ describe("a company's lists", () => {
     });
   });
 
+  test("lists are kept tidy: renamed, pinned, archived (unpinned, contacts kept) and restored; only by the company", async () => {
+    const t = setup();
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    const listId = await t.run(async (ctx) => {
+      const [user] = await ctx.db.query("users").collect();
+      return ctx.db.insert("outreachLists", { organizationId: org, title: "Shopping center owners", definition: { county: "Midland", who: "commercial" as const }, rowCount: 1, done: 0, truncated: false, createdBy: user._id, createdAt: "2026-11-01T00:00:00.000Z" });
+    });
+    const view = async () => (await co.as.query(api.outreach.lists, { organizationId: org }))[0];
+    expect(await view()).toMatchObject({ pinned: false, archived: false });
+    await co.as.mutation(api.outreach.organizeList, { organizationId: org, listId, title: "  Midland   shopping centers ", pinned: true });
+    expect(await view()).toMatchObject({ title: "Midland shopping centers", pinned: true, archived: false });
+    await co.as.mutation(api.outreach.organizeList, { organizationId: org, listId, archived: true });
+    expect(await view()).toMatchObject({ pinned: false, archived: true });
+    await co.as.mutation(api.outreach.organizeList, { organizationId: org, listId, archived: false });
+    expect(await view()).toMatchObject({ archived: false });
+    await expect(co.as.mutation(api.outreach.organizeList, { organizationId: org, listId, title: "   " })).rejects.toThrow(/Give the list a name/);
+    const other = await proCompany(t, "other@roof.example");
+    await expect(other.as.mutation(api.outreach.organizeList, { organizationId: other.organizationId, listId, pinned: true })).rejects.toThrow(/No such list/);
+    await expect(other.as.mutation(api.outreach.organizeList, { organizationId: org, listId, pinned: true })).rejects.toThrow();
+  });
+
   test("rows kept before contacts existed move over on deploy, tagged with their list", async () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     const t = setup();
