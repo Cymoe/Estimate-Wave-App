@@ -1,0 +1,63 @@
+name: Read Convex logs
+
+# Started by hand from the Actions tab: prints the deployment's most recent
+# function logs (errors, and every run when "all" is ticked), to see why
+# something on the live deployment went wrong.
+
+on:
+  workflow_dispatch:
+    inputs:
+      all:
+        description: 'Every function run, not only errors and console output'
+        required: false
+        default: true
+        type: boolean
+      lines:
+        description: 'How many recent entries'
+        required: false
+        default: '400'
+        type: string
+
+jobs:
+  logs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - name: Check deploy key
+        working-directory: .
+        env:
+          RAW_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          key="${RAW_KEY//%7C/|}"
+          key="${key//%7c/|}"
+          if [ -z "$key" ]; then
+            echo "::error::Add a CONVEX_DEPLOY_KEY repository secret."
+            exit 1
+          fi
+          echo "::add-mask::$key"
+          echo "::add-mask::${key#*|}"
+          echo "CONVEX_DEPLOY_KEY=$key" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        working-directory: .
+        run: npm ci --no-audit --no-fund
+
+      - name: Recent logs
+        env:
+          ALL: ${{ inputs.all }}
+          LINES: ${{ inputs.lines }}
+        run: |
+          flags="--history ${LINES:-400}"
+          if [ "$ALL" = "true" ]; then flags="$flags --success"; fi
+          # The command streams after the history; stop it once the history is out.
+          timeout 45 npx convex logs $flags || true
