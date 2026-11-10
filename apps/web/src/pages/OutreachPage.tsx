@@ -76,7 +76,7 @@ function withProgress(c: OutreachContacts, narration: Narration): OutreachContac
 }
 
 const workedOn = (r: OutreachContact) =>
-  Boolean(r.leadId) || r.status !== 'new' || Boolean(r.note?.trim()) || Boolean(r.research) || Object.values(r.enrichment).some((c) => c.status === 'found' && !c.simulated && (c.requestedBy !== undefined || (c.chargedCents ?? 0) > 0));
+  Boolean(r.leadId) || r.status !== 'new' || Boolean(r.note?.trim()) || (Boolean(r.research) && !r.enrichment.research?.simulated) || Object.values(r.enrichment).some((c) => c.status === 'found' && !c.simulated && (c.requestedBy !== undefined || (c.chargedCents ?? 0) > 0));
 
 /** Staff only: the stack in order, whether each source is connected, and how it has done for this company. */
 const SourcesPanel: React.FC<{ organizationId: string }> = ({ organizationId }) => {

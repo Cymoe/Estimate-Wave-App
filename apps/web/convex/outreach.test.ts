@@ -717,6 +717,8 @@ describe("a company's lists", () => {
       await contact("Noted LLC", { listIds: [], note: "Wants a quote in spring" });
       await contact("Called LLC", { listIds: [], status: "no_answer" });
       await contact("Researched LLC", { listIds: [], research: { question: "Who manages it?", answer: "Pat at Oak Mgmt", sources: [], at } });
+      // The simulated chain's research answer is made up too: nothing of the company's own.
+      await contact("Sample Research LLC", { listIds: [], research: { question: "Who manages it?", answer: "Sample: holds 3 Midland properties", sources: [], at }, enrichment: { phone: locked, email: locked, person: locked, research: { status: "found", source: "claude", simulated: true } } });
       return { fresh, worked };
     });
     const flags = async () => (await co.as.query(api.outreach.lists, { organizationId: org })).map((l) => [l.title, l.deletable]);
@@ -726,8 +728,8 @@ describe("a company's lists", () => {
     ]);
     await co.as.mutation(api.outreach.remove, { organizationId: org, listId: fresh });
     const names = async () => (await t.run(async (ctx) => ctx.db.query("outreachContacts").collect())).map((c) => c.name).sort();
-    expect(await names()).toEqual(["Called LLC", "Leftover LLC", "License Realty", "Noted LLC", "Paid LLC", "Researched LLC", "Two Lists LLC"]);
-    expect(await t.mutation(internal.outreach.clearLeftovers, {})).toEqual({ removed: 2, done: true });
+    expect(await names()).toEqual(["Called LLC", "Leftover LLC", "License Realty", "Noted LLC", "Paid LLC", "Researched LLC", "Sample Research LLC", "Two Lists LLC"]);
+    expect(await t.mutation(internal.outreach.clearLeftovers, {})).toEqual({ removed: 3, done: true });
     expect(await names()).toEqual(["Called LLC", "Noted LLC", "Paid LLC", "Researched LLC", "Two Lists LLC"]);
     // Again: nothing more to do.
     expect(await t.mutation(internal.outreach.clearLeftovers, {})).toEqual({ removed: 0, done: true });

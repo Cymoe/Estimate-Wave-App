@@ -1385,7 +1385,9 @@ function worthKeeping(c: Doc<"outreachContacts">, leadGone = false) {
   if (c.leadId || c.clientId) return true;
   // The sample filler's owners (marked by their note); a simulated cell is made up whatever it found.
   if (isSampleRun(c)) return false;
-  if (c.status !== "new" || c.note?.trim() || c.research || c.followUpOn || (c.touches?.length ?? 0) > 0) return true;
+  // A research answer counts only when it's real: the simulated chain writes a made-up one too.
+  const research = Boolean(c.research) && !cellsOf(c).research?.simulated;
+  if (c.status !== "new" || c.note?.trim() || research || c.followUpOn || (c.touches?.length ?? 0) > 0) return true;
   // A lookup someone asked for or paid for; a name or number the permits or a license gave for free at build doesn't count (the next list has it again).
   return Object.values(cellsOf(c)).some((cell) => cell?.status === "found" && !cell.simulated && (cell.requestedBy !== undefined || (cell.chargedCents ?? 0) > 0));
 }
