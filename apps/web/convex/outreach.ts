@@ -2154,3 +2154,45 @@ export const status = query({
     };
   },
 });
+
+/**
+ * One-off, to start Outreach over for a company: every list and every owner
+ * pulled into it are removed. Leads already sent stay on the Leads page; the
+ * county roll is untouched, so new lists pull owners again. Without
+ * `confirm` it only reports what it would remove. `organization` is a word
+ * of the company's name and must match one company.
+ * `outreach:startOver {"organization":"…","confirm":true}`
+ */
+export const startOver = internalMutation({
+  args: { organization: v.string(), confirm: v.optional(v.boolean()) },
+  handler: async (ctx, { organization, confirm }) => {
+    const word = organization.trim().toLowerCase();
+    if (!word) return { done: false, reason: "name a company" };
+    const all = await ctx.db.query("organizations").take(2000);
+    const exact = all.filter((o) => o.name.trim().toLowerCase() === word);
+    const hits = exact.length ? exact : all.filter((o) => o.name.toLowerCase().includes(word));
+    const matches = [];
+    for (const o of hits) {
+      const lists = await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", o._id)).collect();
+      const owners = await contactsOf(ctx, o._id);
+      matches.push({ organization: o.name, lists: lists.length, owners: owners.length, sentToLeads: owners.filter((c) => c.leadId).length });
+    }
+    if (!confirm) return { done: false, dryRun: true, matches };
+    if (hits.length !== 1) return { done: false, reason: `${hits.length} companies match; give more of the name`, matches };
+    const organizationId = hits[0]._id;
+    for (const l of await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect()) await ctx.db.delete(l._id);
+    await ctx.scheduler.runAfter(0, internal.outreach.clearOwnersOf, { organizationId });
+    return { done: true, removed: matches[0] };
+  },
+});
+
+/** startOver's owners, a page at a time until none are left. */
+export const clearOwnersOf = internalMutation({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    const page = await ctx.db.query("outreachContacts").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).take(1000);
+    for (const c of page) await ctx.db.delete(c._id);
+    if (page.length === 1000) await ctx.scheduler.runAfter(0, internal.outreach.clearOwnersOf, { organizationId });
+    return { removed: page.length };
+  },
+});

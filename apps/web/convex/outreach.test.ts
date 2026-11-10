@@ -705,6 +705,38 @@ describe("a company's lists", () => {
     expect(await names()).toContain("Paid LLC");
   });
 
+  test("starting over removes a company's lists and owners, after a dry run; leads and other companies stay", async () => {
+    const t = setup();
+    const co = await proCompany(t);
+    const other = await proCompany(t, "other@paint.example");
+    const at = "2026-11-01T00:00:00.000Z";
+    const lead = await co.as.mutation(api.leads.create, { organizationId: co.organizationId, data: { name: "City Of Midland" } });
+    const leadId = lead!._id;
+    const names = await t.run(async (ctx) => {
+      const [a, b] = await Promise.all([ctx.db.get(co.organizationId), ctx.db.get(other.organizationId)]);
+      const [user] = await ctx.db.query("users").collect();
+      for (const organizationId of [co.organizationId, other.organizationId]) {
+        const listId = await ctx.db.insert("outreachLists", { organizationId, title: "Investors", definition: { county: "Midland", who: "investor" as const }, rowCount: 2, done: 0, truncated: false, createdBy: user._id, createdAt: at });
+        for (const name of ["Oak Plaza LLC", "City Of Midland"])
+          await ctx.db.insert("outreachContacts", { organizationId, key: name, name, mailing: {}, properties: 1, totalValueCents: 0, why: "", kinds: ["investor"], listIds: [listId], status: "new", createdAt: at, ...(name === "City Of Midland" && organizationId === co.organizationId ? { leadId } : {}) });
+      }
+      return { mine: a!.name, theirs: b!.name };
+    });
+    const count = async (organizationId: typeof co.organizationId) =>
+      t.run(async (ctx) => [
+        (await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect()).length,
+        (await ctx.db.query("outreachContacts").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect()).length,
+      ]);
+    // A dry run only reports.
+    expect(await t.mutation(internal.outreach.startOver, { organization: names.mine })).toMatchObject({ dryRun: true, matches: [{ organization: names.mine, lists: 1, owners: 2, sentToLeads: 1 }] });
+    expect(await count(co.organizationId)).toEqual([1, 2]);
+    await t.mutation(internal.outreach.startOver, { organization: names.mine, confirm: true });
+    await t.finishAllScheduledFunctions(() => {});
+    expect(await count(co.organizationId)).toEqual([0, 0]);
+    expect(await count(other.organizationId)).toEqual([1, 2]);
+    expect(await t.run(async (ctx) => (await ctx.db.query("leads").collect()).map((l) => l.name))).toEqual(["City Of Midland"]);
+  });
+
   test("lists are kept tidy: renamed, pinned, archived (unpinned, contacts kept) and restored; only by the company", async () => {
     const t = setup();
     const co = await proCompany(t);
