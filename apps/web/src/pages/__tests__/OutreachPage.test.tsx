@@ -491,6 +491,17 @@ describe('the Outreach page', () => {
     expect(document.body.querySelector('input#outreach-title')).not.toBeNull();
     // No second place to describe a list: that's the + sheet's.
     expect(empty.querySelector('input')).toBeNull();
+    // Gone back before the count lands: the late count doesn't pull the sheet back to that list.
+    preview.mockImplementationOnce(() => new Promise((r) => (finish = r)) as never);
+    await click('Pick a different list');
+    await click('Commercial and investors');
+    await click('Shopping center owners');
+    await click('Pick a different list');
+    await act(async () => finish({ count: 1, truncated: false, limited: false, rows: [contact('r1')] }));
+    await flush();
+    expect(document.body.querySelector('[aria-label="Ready-made lists"]')).not.toBeNull();
+    expect(document.body.querySelector('[data-testid="built"]')).toBeNull();
+    expect(document.body.querySelector('[aria-label="Ready-made lists"] button[aria-pressed="true"]')).toBeNull();
   });
 
   it('shows the contacts table with a list picker, or says to tap + when there are none', async () => {
@@ -779,11 +790,11 @@ describe('the Outreach page', () => {
     expect(built.textContent).toContain('1 owner');
     expect(built.textContent).toContain('Companies holding five or more Midland properties, most first.');
     expect((document.body.querySelector('input#outreach-title') as HTMLInputElement).value).toBe('Company investors with 5+ properties, Midland');
-    // Back to the choices, the pick still marked; closed, the row says which list is picked inside it.
+    // Back to the choices with nothing picked: the list just looked at is let go, and its row says how many lists it holds.
     await click('Pick a different list');
-    expect(document.body.querySelector('[aria-label="Ready-made lists"] button[aria-pressed="true"]')!.textContent).toBe('Company investors with 5+ properties');
+    expect(document.body.querySelector('[aria-label="Ready-made lists"] button[aria-pressed="true"]')).toBeNull();
     await click('Commercial and investors');
-    expect(button('Commercial and investors').textContent).toBe('Commercial and investorsCompany investors with 5+ properties');
+    expect(button('Commercial and investors').textContent).toBe('Commercial and investors6 lists');
     await click('People who bring work');
     await click('Contractors pulling permits');
     expect(preview).toHaveBeenLastCalledWith('o1', { county: 'Midland', who: 'contractor' });

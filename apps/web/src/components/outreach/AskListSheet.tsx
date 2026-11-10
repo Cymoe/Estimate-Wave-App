@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { outreachAPI, type OutreachDefinition, type OutreachPreviewRow } from '../../lib/api';
@@ -53,6 +53,8 @@ export const AskListSheet: React.FC<{
   const showResult = (view ?? (start ? 'result' : 'choose')) === 'result';
   /** What's being built, named while it counts. */
   const [pending, setPending] = useState('');
+  /** Bumped by each new ask and by going back, so a count that arrives late for a list let go is dropped. */
+  const asking = useRef(0);
 
   useEffect(() => {
     if (open) return;
@@ -69,6 +71,7 @@ export const AskListSheet: React.FC<{
 
   /** A ready-made list: the filter runs as written, straight to the count and preview. */
   const pick = async (p: Preset) => {
+    const mine = ++asking.current;
     setPreset(p.label);
     setPending(p.label);
     setView('result');
@@ -79,17 +82,20 @@ export const AskListSheet: React.FC<{
     setBuilt(null);
     try {
       const got = await outreachAPI.preview(organizationId, p.definition);
+      if (mine !== asking.current) return;
       setBuilt({ definition: p.definition, title: defaultTitle(p.definition), explanation: p.explanation, count: got.count, total: got.total, truncated: got.truncated, limited: got.limited, rows: got.rows });
     } catch (err) {
+      if (mine !== asking.current) return;
       setError(err instanceof Error ? err.message : "The list couldn't be built");
       setView('choose');
     } finally {
-      setBusy(null);
+      if (mine === asking.current) setBusy(null);
     }
   };
 
   const build = async () => {
     if (!ask.trim()) return;
+    const mine = ++asking.current;
     setPreset(null);
     setPending(ask.trim());
     setView('result');
@@ -99,16 +105,18 @@ export const AskListSheet: React.FC<{
     setBuilt(null);
     try {
       const got = await outreachAPI.interpret(organizationId, ask.trim());
+      if (mine !== asking.current) return;
       if (got.ok) setBuilt({ definition: got.definition, title: got.title, explanation: got.explanation, note: got.note, count: got.count, total: got.total, truncated: got.truncated, limited: got.limited, rows: got.preview });
       else {
         setCannot({ explanation: got.explanation, suggestion: got.suggestion });
         setView('choose');
       }
     } catch (err) {
+      if (mine !== asking.current) return;
       setError(err instanceof Error ? err.message : "The list couldn't be built");
       setView('choose');
     } finally {
-      setBusy(null);
+      if (mine === asking.current) setBusy(null);
     }
   };
 
@@ -124,19 +132,22 @@ export const AskListSheet: React.FC<{
   const buildClosest = async () => {
     if (!cannot?.suggestion) return;
     const { definition, title } = cannot.suggestion;
+    const mine = ++asking.current;
     setPending(title);
     setView('result');
     setBusy('build');
     setError(null);
     try {
       const got = await outreachAPI.preview(organizationId, definition);
+      if (mine !== asking.current) return;
       setBuilt({ definition, title, explanation: cannot.explanation, count: got.count, total: got.total, truncated: got.truncated, limited: got.limited, rows: got.rows });
       setCannot(null);
     } catch (err) {
+      if (mine !== asking.current) return;
       setError(err instanceof Error ? err.message : "The list couldn't be built");
       setView('choose');
     } finally {
-      setBusy(null);
+      if (mine === asking.current) setBusy(null);
     }
   };
 
@@ -252,7 +263,11 @@ export const AskListSheet: React.FC<{
             <button
               type="button"
               onClick={() => {
+                // Back to the choices with none picked: the list just looked at is let go, and its count, if still on the way, is dropped.
+                asking.current++;
                 setBuilt(null);
+                setPreset(null);
+                setBusy(null);
                 setView('choose');
               }}
               disabled={busy === 'save'}
