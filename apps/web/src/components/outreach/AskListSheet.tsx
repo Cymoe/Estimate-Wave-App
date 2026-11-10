@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { outreachAPI, type OutreachDefinition, type OutreachPreviewRow } from '../../lib/api';
 import { defaultTitle, shortMoney } from '../../../convex/lib/outreach';
@@ -139,6 +139,9 @@ export const AskListSheet: React.FC<{
   return (
     <SlideOutDrawer isOpen={open} onClose={onClose} title="Ask for a list" width="lg">
       <div className="p-6 space-y-5">
+        {/* Once a list is built it has the sheet to itself: the count, a first look and Save, no scrolling past the choices. */}
+        {!built && (
+          <>
         <div className="space-y-2">
           <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Who do you want to reach?</p>
           <div className="border border-[#333333] divide-y divide-[#333333]" role="group" aria-label="Ready-made lists">
@@ -208,6 +211,9 @@ export const AskListSheet: React.FC<{
             </button>
           </div>
         </div>
+          </>
+        )}
+        {busy === 'build' && !ask.trim() && <p className="text-sm text-gray-400">Counting owners…</p>}
 
         {error && (
           <p className="text-sm text-red-400" role="alert">
@@ -228,6 +234,9 @@ export const AskListSheet: React.FC<{
 
         {built && (
           <div className="space-y-4" data-testid="built">
+            <button type="button" onClick={() => setBuilt(null)} className="inline-flex items-center gap-1 text-sm text-[#7fb0e0] hover:text-white">
+              <ChevronLeft className="w-4 h-4" /> Pick a different list
+            </button>
             <div className="border border-[#333333] bg-[#1A1A1A] p-4 space-y-1">
               <p className="text-lg font-semibold text-white">
                 {built.total !== undefined && built.total > built.count ? (
@@ -270,14 +279,15 @@ export const AskListSheet: React.FC<{
                 {built.count > 5 && <li className="px-3 py-2 text-xs text-gray-500">and {built.count - 5} more</li>}
               </ul>
             )}
-            <div className="space-y-2">
-              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider" htmlFor="outreach-title">
-                List title
-              </label>
-              <input id="outreach-title" value={built.title} onChange={(e) => setBuilt({ ...built, title: e.target.value })} className={`${field} min-h-[44px]`} maxLength={50} />
-            </div>
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={save} disabled={busy !== null || built.count === 0} className={primary}>
+            {/* The name and Save stay in view at the bottom of the sheet, however long the first look is. */}
+            <div className="sticky bottom-0 -mx-6 -mb-6 px-6 py-4 bg-[#121212] border-t border-[#333333] flex items-end gap-3">
+              <div className="flex-1 min-w-0 space-y-1">
+                <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider" htmlFor="outreach-title">
+                  List title
+                </label>
+                <input id="outreach-title" value={built.title} onChange={(e) => setBuilt({ ...built, title: e.target.value })} className={`${field} min-h-[44px]`} maxLength={50} />
+              </div>
+              <button type="button" onClick={save} disabled={busy !== null || built.count === 0} className={`${primary} min-h-[44px] shrink-0`}>
                 {busy === 'save' ? 'Saving…' : 'Save list'}
               </button>
             </div>

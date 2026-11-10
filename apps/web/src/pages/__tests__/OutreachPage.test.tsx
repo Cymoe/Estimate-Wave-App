@@ -475,7 +475,8 @@ describe('the Outreach page', () => {
     await act(async () => (cards[1] as HTMLButtonElement).click());
     await flush();
     expect(preview).toHaveBeenLastCalledWith('o1', { county: 'Midland', who: 'commercial' });
-    expect(document.body.querySelector('button[aria-pressed="true"]')!.textContent).toBe('Shopping center owners');
+    expect(document.body.querySelector('[data-testid="built"]')!.textContent).toContain('Pick a different list');
+    expect(document.body.querySelector('input#outreach-title')).not.toBeNull();
     // Your own words go to the assistant.
         const box = empty.querySelector('input')!;
     await act(async () => {
@@ -760,25 +761,30 @@ describe('the Outreach page', () => {
     await click('Company investors with 5+ properties');
     expect(preview).toHaveBeenCalledWith('o1', { county: 'Midland', who: 'investor', companyOwned: true, minParcels: 5 });
     expect(interpret).not.toHaveBeenCalled();
-    expect(document.body.querySelector('[aria-label="Ready-made lists"] button[aria-pressed="true"]')!.textContent).toBe('Company investors with 5+ properties');
-    // Closed again, the row says which list is picked inside it.
-    await click('Commercial and investors');
-    expect(button('Commercial and investors').textContent).toBe('Commercial and investorsCompany investors with 5+ properties');
+    // Built, the list has the sheet to itself: the count, a first look, the name and Save; the choices step aside.
+    expect(document.body.querySelector('[aria-label="Ready-made lists"]')).toBeNull();
     let built = document.body.querySelector('[data-testid="built"]')!;
     expect(built.textContent).toContain('1 owner');
     expect(built.textContent).toContain('Companies holding five or more Midland properties, most first.');
     expect((document.body.querySelector('input#outreach-title') as HTMLInputElement).value).toBe('Company investors with 5+ properties, Midland');
+    // Back to the choices, the pick still marked; closed, the row says which list is picked inside it.
+    await click('Pick a different list');
+    expect(document.body.querySelector('[aria-label="Ready-made lists"] button[aria-pressed="true"]')!.textContent).toBe('Company investors with 5+ properties');
+    await click('Commercial and investors');
+    expect(button('Commercial and investors').textContent).toBe('Commercial and investorsCompany investors with 5+ properties');
     await click('People who bring work');
     await click('Contractors pulling permits');
     expect(preview).toHaveBeenLastCalledWith('o1', { county: 'Midland', who: 'contractor' });
     built = document.body.querySelector('[data-testid="built"]')!;
     expect(built.textContent).toContain('the phone and email on their permits come along free');
     expect((document.body.querySelector('input#outreach-title') as HTMLInputElement).value).toBe('Active contractors, Midland');
+    await click('Pick a different list');
     await click('Homeowners');
     await click('Owned 20+ years');
     expect(preview).toHaveBeenLastCalledWith('o1', { county: 'Midland', who: 'long_owned', ownedForDays: 7305 });
     expect((document.body.querySelector('input#outreach-title') as HTMLInputElement).value).toBe('Homes owned 20+ years, Midland');
     // Something not on the chips goes to the assistant.
+    await click('Pick a different list');
     await act(async () => type(document.body.querySelector('textarea') as HTMLTextAreaElement, 'dentists'));
     await click('Build');
     expect(document.body.querySelector('[aria-label="Ready-made lists"] button[aria-pressed="true"]')).toBeNull();
