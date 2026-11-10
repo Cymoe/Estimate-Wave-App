@@ -33,8 +33,8 @@ export const AskListSheet: React.FC<{
   organizationId: string;
   onClose: () => void;
   onSaved: (listId: string) => void;
-  /** Opened from a card or the ask box on the empty page: go straight to that list's count and preview. */
-  start?: { preset?: Preset; ask?: string } | null;
+  /** Opened from a card on the empty page: go straight to that list's count and preview. */
+  start?: { preset: Preset } | null;
 }> = ({ open, organizationId, onClose, onSaved, start }) => {
   const [ask, setAsk] = useState('');
   const [preset, setPreset] = useState<string | null>(null);
@@ -74,15 +74,15 @@ export const AskListSheet: React.FC<{
     }
   };
 
-  const build = async (words = ask) => {
-    if (!words.trim()) return;
+  const build = async () => {
+    if (!ask.trim()) return;
     setPreset(null);
     setBusy('build');
     setError(null);
     setCannot(null);
     setBuilt(null);
     try {
-      const got = await outreachAPI.interpret(organizationId, words.trim());
+      const got = await outreachAPI.interpret(organizationId, ask.trim());
       if (got.ok) setBuilt({ definition: got.definition, title: got.title, explanation: got.explanation, note: got.note, count: got.count, total: got.total, truncated: got.truncated, limited: got.limited, rows: got.preview });
       else setCannot({ explanation: got.explanation, suggestion: got.suggestion });
     } catch (err) {
@@ -94,14 +94,8 @@ export const AskListSheet: React.FC<{
 
   useEffect(() => {
     if (!open || !start) return;
-    if (start.preset) {
-      const group = GROUPS.find((g) => g.presets.includes(start.preset!));
-      setOpenGroup(group?.heading ?? null);
-      void pick(start.preset);
-    } else if (start.ask?.trim()) {
-      setAsk(start.ask);
-      void build(start.ask);
-    }
+    setOpenGroup(GROUPS.find((g) => g.presets.includes(start.preset))?.heading ?? null);
+    void pick(start.preset);
     // Runs once per opening: pick and build only read state they set themselves.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, start]);

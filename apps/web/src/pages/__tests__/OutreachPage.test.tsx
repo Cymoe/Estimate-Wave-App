@@ -465,7 +465,7 @@ describe('the Outreach page', () => {
     expect(document.body.querySelector('[data-testid="no-lists-hint"]')).not.toBeNull();
   });
 
-  it('with no lists, the page is the ready-made lists as cards: one opens straight to its count and preview; your own words go to the assistant', async () => {
+  it('with no lists, the page is the ready-made lists as cards: one opens straight to its count and preview; describing your own is left to the + sheet', async () => {
     await render();
     const empty = document.body.querySelector('[data-testid="outreach-empty"]')!;
     const cards = Array.from(empty.querySelectorAll('[data-testid="starter-list"]'));
@@ -477,15 +477,8 @@ describe('the Outreach page', () => {
     expect(preview).toHaveBeenLastCalledWith('o1', { county: 'Midland', who: 'commercial' });
     expect(document.body.querySelector('[data-testid="built"]')!.textContent).toContain('Pick a different list');
     expect(document.body.querySelector('input#outreach-title')).not.toBeNull();
-    // Your own words go to the assistant.
-        const box = empty.querySelector('input')!;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(box, 'roofers with 3 permits');
-      box.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    await act(async () => (empty.querySelector('button[type="submit"]') as HTMLButtonElement).click());
-    await flush();
-    expect(interpret).toHaveBeenLastCalledWith('o1', 'roofers with 3 permits');
+    // No second place to describe a list: that's the + sheet's.
+    expect(empty.querySelector('input')).toBeNull();
   });
 
   it('shows the contacts table with a list picker, or says to tap + when there are none', async () => {

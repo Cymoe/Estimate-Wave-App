@@ -312,8 +312,8 @@ const OutreachPage: React.FC = () => {
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
-  /** What the empty page's card or ask box opened the sheet with. */
-  const [start, setStart] = useState<{ preset?: Preset; ask?: string } | null>(null);
+  /** The ready-made list the empty page's card opened the sheet with. */
+  const [start, setStart] = useState<{ preset: Preset } | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirm, confirmDialog] = useConfirm();
   /** Manage lists: every list as a card, to pin, rename or archive. */
@@ -957,10 +957,6 @@ const OutreachPage: React.FC = () => {
         <ListStarter
           onPick={(preset) => {
             setStart({ preset });
-            setAsking(true);
-          }}
-          onAsk={(ask) => {
-            setStart({ ask });
             setAsking(true);
           }}
         />
