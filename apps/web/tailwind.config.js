@@ -43,6 +43,10 @@ export default {
           '100%': { transform: 'translateX(100%)' }
         },
         // A row or card arriving in place: a short fade up, no sideways shift.
+        'pop': {
+          '0%': { opacity: '0', transform: 'translateY(-4px) scale(0.98)' },
+          '100%': { opacity: '1', transform: 'translateY(0) scale(1)' }
+        },
         'appear': {
           '0%': { opacity: '0', transform: 'translateY(4px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' }
@@ -85,6 +89,7 @@ export default {
         'shimmer': 'shimmer 2s ease-out infinite',
         'fade-in': 'fade-in 0.3s ease-out forwards',
         'appear': 'appear 0.25s ease-out both',
+        'pop': 'pop 0.12s ease-out both',
         'rise': 'rise 0.9s ease-out forwards',
         'row-in': 'row-in 0.2s ease-out both, wash 1.2s ease-out forwards',
         'row-out': 'row-out 0.18s ease-in forwards',

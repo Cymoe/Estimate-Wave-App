@@ -198,14 +198,18 @@ const PopMenu: React.FC<{ label: string; icon: React.ReactNode; dot?: boolean; s
         {dot && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#7fb0e0]" aria-hidden />}
       </button>
       {open && (
-        <div role="menu" aria-label={label} className="absolute right-0 top-full mt-1 z-40 min-w-[14rem] py-1 bg-[#1A1A1A] border border-[#333333] shadow-xl">
+        <div role="menu" aria-label={label} className={`${menuPanel} right-0 min-w-[14rem]`}>
           {children(() => setOpen(false))}
         </div>
       )}
     </div>
   );
 };
-const menuItem = 'flex w-full items-center gap-3 px-4 min-h-[44px] text-left text-sm text-gray-200 hover:bg-[#2A2A2A] disabled:opacity-50';
+/** A menu that floats: rounded, a fine edge, a deep shadow, a little see-through, opening with a quick fade. */
+const menuPanel = 'absolute top-full mt-2 z-40 p-1.5 rounded-lg border border-white/10 bg-[#161616]/95 backdrop-blur-md shadow-[0_16px_40px_rgba(0,0,0,0.6)] origin-top-right animate-pop';
+const menuItem =
+  'flex w-full items-center gap-3 px-3 min-h-[40px] md:min-h-[36px] rounded-md text-left text-sm text-gray-200 transition-colors hover:bg-white/[0.07] hover:text-white disabled:opacity-40 disabled:hover:bg-transparent [&>svg]:text-gray-500 [&:hover>svg]:text-gray-300';
+const menuDivider = 'my-1.5 h-px bg-white/10';
 
 /** A filter that reads as words ("Status: All ▾"), sitting with the tabs rather than as a box beside them. */
 const TextMenu: React.FC<{ label: string; text: React.ReactNode; active?: boolean; children: (close: () => void) => React.ReactNode }> = ({ label, text, active, children }) => {
@@ -234,7 +238,7 @@ const TextMenu: React.FC<{ label: string; text: React.ReactNode; active?: boolea
         <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
       </button>
       {open && (
-        <div role="menu" aria-label={label} className="absolute right-0 top-full mt-1 z-40 min-w-[12rem] py-1 bg-[#1A1A1A] border border-[#333333] shadow-xl">
+        <div role="menu" aria-label={label} className={`${menuPanel} right-0 min-w-[12rem]`}>
           {children(() => setOpen(false))}
         </div>
       )}
@@ -807,7 +811,7 @@ const OutreachPage: React.FC = () => {
       )}
       {/* On a phone the top bar already says Outreach, and the staff lines fold behind one word; the actions become one row that slides sideways. */}
       <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h1 className="sr-only">Outreach</h1>
           {/* On a wide screen the open list's name is the page's title, a tap away from the others. */}
           {lists && lists.length > 0 && !narrow && <ListPicker lists={lists} currentId={listId} narrow={false} onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} />}
@@ -857,19 +861,22 @@ const OutreachPage: React.FC = () => {
                 <>
                   {listOpen.length > 0 && toSend.length > 0 && (
                     <button type="button" role="menuitem" className={menuItem} disabled={busy} onClick={() => (close(), void sendAll())} data-testid="send-all">
-                      <Send className="w-4 h-4 text-gray-500" /> Send {toSend.length} to Leads
+                      <Send className="w-4 h-4" /> Send {toSend.length} to Leads
                     </button>
                   )}
                   <button type="button" role="menuitem" className={menuItem} onClick={() => (close(), pickView(view === 'cards' ? 'table' : 'cards'))}>
-                    {view === 'cards' ? <Table2 className="w-4 h-4 text-gray-500" /> : <LayoutList className="w-4 h-4 text-gray-500" />} {view === 'cards' ? 'Show as a table' : 'Show as cards'}
+                    {view === 'cards' ? <Table2 className="w-4 h-4" /> : <LayoutList className="w-4 h-4" />} {view === 'cards' ? 'Show as a table' : 'Show as cards'}
                   </button>
                   <button type="button" role="menuitem" className={menuItem} onClick={() => (close(), download(csvName(list?.title ?? 'contacts'), outreachCsv(rows)))}>
-                    <Download className="w-4 h-4 text-gray-500" /> Export CSV
+                    <Download className="w-4 h-4" /> Export CSV
                   </button>
                   {list && (
-                    <button type="button" role="menuitem" className={`${menuItem} text-red-300`} onClick={() => (close(), void removeList())}>
-                      <Trash2 className="w-4 h-4" /> Delete list
-                    </button>
+                    <>
+                      <div className={menuDivider} role="separator" />
+                      <button type="button" role="menuitem" className={`${menuItem} !text-red-300 hover:!bg-red-500/10 [&>svg]:!text-red-300`} onClick={() => (close(), void removeList())}>
+                        <Trash2 className="w-4 h-4" /> Delete list
+                      </button>
+                    </>
                   )}
                 </>
               )}

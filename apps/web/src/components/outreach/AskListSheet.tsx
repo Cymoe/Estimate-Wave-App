@@ -191,7 +191,7 @@ export const AskListSheet: React.FC<{
             <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${countyOpen ? 'rotate-180' : ''}`} aria-hidden />
           </button>
           {countyOpen && (
-            <div role="listbox" aria-label="County" className="absolute left-0 top-full mt-1 z-20 min-w-[16rem] py-1 bg-[#1A1A1A] border border-[#333333] shadow-xl">
+            <div role="listbox" aria-label="County" className="absolute left-0 top-full mt-2 z-20 min-w-[17rem] p-1.5 rounded-lg border border-white/10 bg-[#161616]/95 backdrop-blur-md shadow-[0_16px_40px_rgba(0,0,0,0.6)] origin-top-left animate-pop">
               {COUNTIES.map((c) => (
                 <button
                   key={c.name}
@@ -204,7 +204,7 @@ export const AskListSheet: React.FC<{
                     setCounty(c.name);
                     setCountyOpen(false);
                   }}
-                  className="flex w-full items-center gap-2 px-3 min-h-[40px] text-left text-sm text-gray-200 hover:bg-[#2A2A2A] disabled:text-gray-500 disabled:hover:bg-transparent"
+                  className="flex w-full items-center gap-2 px-3 min-h-[40px] md:min-h-[36px] rounded-md text-left text-sm text-gray-200 transition-colors hover:bg-white/[0.07] hover:text-white disabled:text-gray-500 disabled:hover:bg-transparent"
                 >
                   <Check className={`w-4 h-4 ${c.name === county ? 'text-[#7fb0e0]' : 'invisible'}`} aria-hidden />
                   {c.label}
