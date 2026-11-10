@@ -802,7 +802,11 @@ const OutreachPage: React.FC = () => {
     // Nobody worked it: a plain yes or no. Worked owners only it holds: keep them (under Not on a list) or let them go too.
     let alsoWorked = false;
     if (list.deletable) {
-      const message = 'Nobody has worked this list yet, so nothing of yours is lost. You can make it again any time.';
+      // Lookups run while no phone source is connected are simulated: say so, so "nobody worked it" doesn't read as wrong.
+      const simulated = listId === list.id && Boolean(data?.rows.some(isSimulated));
+      const message = simulated
+        ? "Its lookups were simulated (no phone source is connected yet), so nothing real or paid is lost; they go with it. You can make it again any time."
+        : 'Nobody has worked this list yet, so nothing of yours is lost. You can make it again any time.';
       if (!(await confirm({ title: `Delete “${list.title}”?`, message, confirmLabel: 'Delete' }))) return;
     } else {
       const n = list.worked ?? 0;

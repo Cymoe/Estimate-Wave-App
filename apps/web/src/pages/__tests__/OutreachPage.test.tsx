@@ -1246,6 +1246,15 @@ describe('the Outreach page', () => {
     await flush();
     expect(document.body.querySelector('[data-testid="outreach-empty"]')).not.toBeNull();
   });
+  it('deleting a list whose lookups were only simulated says they were simulated and go with it', async () => {
+    lists = [list];
+    const two = twoContacts();
+    contacts = { ...two, rows: [{ ...two.rows[0], enrichment: { ...two.rows[0].enrichment, phone: { status: 'found', simulated: true } } }, two.rows[1]] };
+    await render('/outreach/l1');
+    await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
+    await click('Delete list');
+    expect(document.body.querySelector('[role="alertdialog"]')!.textContent).toContain('Its lookups were simulated (no phone source is connected yet), so nothing real or paid is lost');
+  });
   it('a worked list can be deleted too: its worked owners stay under Not on a list, or go with it', async () => {
     lists = [{ ...list, deletable: false, worked: 2 }];
     contacts = twoContacts();
