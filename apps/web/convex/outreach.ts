@@ -590,7 +590,7 @@ async function requirePro(ctx: QueryCtx | MutationCtx, organizationId: Id<"organ
 
 /** What a list has turned into in Leads: owners sent, leads with an estimate, jobs sold. */
 type ListResults = { sent: number; estimates: number; sold: number };
-const listView = (l: Doc<"outreachLists">, done: number, results: ListResults = { sent: 0, estimates: 0, sold: 0 }) => ({
+const listView = (l: Doc<"outreachLists">, done: number, results: ListResults = { sent: 0, estimates: 0, sold: 0 }, stranded = 0) => ({
   id: l._id,
   title: l.title,
   who: l.definition.who,
@@ -604,6 +604,8 @@ const listView = (l: Doc<"outreachLists">, done: number, results: ListResults = 
   createdAt: l.createdAt,
   pinned: l.pinned === true,
   archived: Boolean(l.archivedAt),
+  /** Only a list nobody has worked can be deleted: deleting it would leave none of its worked owners on no list. Otherwise it's archived. */
+  deletable: stranded === 0,
 });
 
 /** The count and a first look, before saving. `count` is what one list holds; `total` is how many owners the ask reaches. */
@@ -738,6 +740,9 @@ export const listsDef = queryDef({
     const contacts = await contactsOf(ctx, organizationId);
     const done = new Map<Id<"outreachLists">, number>();
     for (const c of contacts) if (isWorked(c.status)) for (const id of c.listIds) done.set(id, (done.get(id) ?? 0) + 1);
+    // Worked owners only this list holds: deleting it would leave them on no list.
+    const stranded = new Map<Id<"outreachLists">, number>();
+    for (const c of contacts) if (c.listIds.length === 1 && worthKeeping(c)) stranded.set(c.listIds[0], (stranded.get(c.listIds[0]) ?? 0) + 1);
     // Each lead counted once per list, however many of the list's owners joined it.
     const leads = new Map((await ctx.db.query("leads").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect()).map((l) => [l._id, l] as const));
     const seen = new Map<Id<"outreachLists">, Set<string>>();
@@ -757,7 +762,7 @@ export const listsDef = queryDef({
         results.set(id, r);
       }
     }
-    return lists.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((l) => listView(l, done.get(l._id) ?? 0, results.get(l._id)));
+    return lists.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((l) => listView(l, done.get(l._id) ?? 0, results.get(l._id), stranded.get(l._id) ?? 0));
   },
 });
 export const lists = query(listsDef);
@@ -1299,7 +1304,11 @@ export const remove = mutation({
     if (!list || list.organizationId !== organizationId) fail("NOT_FOUND", "No such list");
     const lists = await ctx.db.query("outreachLists").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect();
     const whoOf = new Map(lists.map((l) => [l._id, l.definition.who] as const));
-    for (const c of await contactsOf(ctx, organizationId)) {
+    const contacts = await contactsOf(ctx, organizationId);
+    // A list you've worked is archived, not deleted, so no worked owner ends up on no list.
+    if (contacts.some((c) => c.listIds.length === 1 && c.listIds[0] === listId && worthKeeping(c)))
+      fail("LIST_WORKED", "You've worked owners on this list. Archive it instead: that keeps everything and tucks it away.");
+    for (const c of contacts) {
       if (!c.listIds.includes(listId)) continue;
       const listIds = c.listIds.filter((id) => id !== listId);
       if (listIds.length === 0 && !worthKeeping(c)) {
@@ -1315,14 +1324,16 @@ export const remove = mutation({
 });
 
 /**
- * Whether an owner on no list is still worth keeping: a real lookup the
- * company paid for, or a lead it was sent to (the lead's drawer names it).
- * Sample and simulated results are made up and keep nothing.
+ * Whether an owner holds work of the company's own, so it's kept even on no
+ * list: a lead or client it became, a status or note someone set, a research
+ * answer, or a real lookup paid for. Sample and simulated results are made up
+ * and keep nothing.
  */
 function worthKeeping(c: Doc<"outreachContacts">) {
-  if (c.leadId) return true;
+  if (c.leadId || c.clientId) return true;
   // The sample filler's owners (marked by their note); a simulated cell is made up whatever it found.
   if (isSampleRun(c)) return false;
+  if (c.status !== "new" || c.note?.trim() || c.research || c.followUpOn || (c.touches?.length ?? 0) > 0) return true;
   return Object.values(cellsOf(c)).some((cell) => cell?.status === "found" && !cell.simulated);
 }
 

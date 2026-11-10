@@ -1,6 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Check, ChevronDown, Download, LayoutList, Lock, MoreHorizontal, Search, SlidersHorizontal, Table2, Trash2, Undo2, X } from 'lucide-react';
+import { Archive, ArchiveRestore, Check, ChevronDown, Download, LayoutList, Lock, MoreHorizontal, Search, SlidersHorizontal, Table2, Trash2, Undo2, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachField, type OutreachListSummary, type OutreachRowStatus, type OutreachSource } from '../lib/api';
 import { AskListSheet } from '../components/outreach/AskListSheet';
@@ -695,11 +695,21 @@ const OutreachPage: React.FC = () => {
     }
   };
 
+  // Delete is only for a list nobody has worked (a mistake); a worked one is archived, which keeps everything.
   const removeList = async () => {
     if (!organizationId || !list) return;
-    if (!(await confirm({ title: `Delete “${list.title}”?`, message: 'Contacts on no other list go with it, except any you unlocked.', confirmLabel: 'Delete' }))) return;
-    await outreachAPI.remove(organizationId, list.id);
-    navigate('/outreach');
+    if (!(await confirm({ title: `Delete “${list.title}”?`, message: "Nobody has worked this list yet, so nothing of yours is lost. You can make it again any time.", confirmLabel: 'Delete' }))) return;
+    try {
+      await outreachAPI.remove(organizationId, list.id);
+      navigate('/outreach');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't delete the list");
+    }
+  };
+  const archiveList = async () => {
+    if (!list) return;
+    await organize(list.id, { archived: !list.archived });
+    if (!list.archived) navigate('/outreach');
   };
 
   if (!organizationId) return <p className="p-6 text-gray-400">Pick a company first.</p>;
@@ -777,6 +787,11 @@ const OutreachPage: React.FC = () => {
                     <Download className="w-4 h-4 text-gray-500" /> Export CSV
                   </button>
                   {list && (
+                    <button type="button" role="menuitem" className={menuItem} onClick={() => (close(), void archiveList())}>
+                      {list.archived ? <ArchiveRestore className="w-4 h-4 text-gray-500" /> : <Archive className="w-4 h-4 text-gray-500" />} {list.archived ? 'Restore list' : 'Archive list'}
+                    </button>
+                  )}
+                  {list?.deletable && (
                     <button type="button" role="menuitem" className={`${menuItem} text-red-300`} onClick={() => (close(), void removeList())}>
                       <Trash2 className="w-4 h-4" /> Delete list
                     </button>
@@ -824,7 +839,18 @@ const OutreachPage: React.FC = () => {
               <Download className="w-4 h-4" />
             </button>
             {list && (
-              <button type="button" onClick={removeList} aria-label="Delete list" title="Delete list" className={iconButton}>
+              <button
+                type="button"
+                onClick={() => void archiveList()}
+                aria-label={list.archived ? 'Restore list' : 'Archive list'}
+                title={list.archived ? 'Restore list' : 'Archive list: tucks it away, keeps everything'}
+                className={iconButton}
+              >
+                {list.archived ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
+              </button>
+            )}
+            {list?.deletable && (
+              <button type="button" onClick={removeList} aria-label="Delete list" title="Delete list (nobody has worked it yet)" className={iconButton}>
                 <Trash2 className="w-4 h-4" />
               </button>
             )}
@@ -978,7 +1004,7 @@ const OutreachPage: React.FC = () => {
       {lists && lists.length === 0 && data && data.rows.length > 0 && (
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 border border-[#333333] bg-[#121212] px-4 py-3 text-sm text-gray-300" data-testid="no-lists-hint">
           <span>
-            No lists right now. These {data.rows.length.toLocaleString('en-US')} {data.rows.length === 1 ? 'owner' : 'owners'} stayed from lists you deleted, because you paid to look them up or sent them to Leads.
+            No lists right now. These {data.rows.length.toLocaleString('en-US')} {data.rows.length === 1 ? 'owner' : 'owners'} stayed from lists you deleted, because you worked them: a status, a note, a paid lookup, or a lead.
           </span>
           <button type="button" onClick={() => setAsking(true)} className="text-[#7fb0e0] hover:text-white">
             Make a list

@@ -1272,6 +1272,8 @@ export type OutreachListSummary = {
   pinned?: boolean;
   /** Done with: tucked under Archived. */
   archived?: boolean;
+  /** Nobody has worked it yet, so it can be deleted; a worked list is archived instead. */
+  deletable?: boolean;
 };
 /** "12 / 200 · 2 sources" on a column header. */
 export type OutreachCoverage = { found: number; total: number; sources: number };

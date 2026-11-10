@@ -656,55 +656,53 @@ describe("a company's lists", () => {
     await expect(free.as.query(api.outreach.lists, { organizationId: free.organizationId })).rejects.toThrow(/Pro plan/);
     await expect(free.as.query(api.outreach.preview, { organizationId: free.organizationId, definition: { county: "Midland", who: "wealthy" } })).rejects.toThrow(/Pro plan/);
 
-    // Dropping a list untags its contacts; one on no other list goes with it, unless it was sent to Leads.
-    await co.as.mutation(api.outreach.remove, { organizationId: org, listId: saved.listId });
-    expect((await co.as.query(api.outreach.lists, { organizationId: org })).map((l) => l.who)).toEqual(["investor"]);
-    const left = await co.as.query(api.outreach.contacts, { organizationId: org });
-    expect(left.rows.map((r) => [r.name, r.kinds, r.status])).toEqual([
-      ["City Of Midland", [], "lead"],
-      ["Nuka Hiva LLC", ["investor"], "new"],
-      ["Oak Plaza LLC", ["investor"], "done"],
-      ["Park Holdings LP", ["investor"], "lead"],
-    ]);
-    await co.as.mutation(api.outreach.remove, { organizationId: org, listId: second.listId });
-    // The owner sent to Leads stays (its lead names it); the rest go.
-    await t.run(async (ctx) => {
-      expect((await ctx.db.query("outreachContacts").collect()).map((c) => [c.name, c.listIds]).sort()).toEqual([
-        ["City Of Midland", []],
-        ["Park Holdings LP", []],
-      ]);
-    });
+    // A worked list isn't deleted (an owner sent to Leads only it holds would end up on no list): it's archived.
+    await expect(co.as.mutation(api.outreach.remove, { organizationId: org, listId: saved.listId })).rejects.toThrow(/Archive it instead/);
+    void second;
   });
 
-  test("deleting a list keeps only owners worth keeping: a real paid lookup or a lead, never sample or simulated results; leftovers are cleared on deploy", async () => {
+  test("only a list nobody worked can be deleted (a worked one is archived); owners holding work are never dropped; leftovers are cleared on deploy", async () => {
     const t = setup();
     const co = await proCompany(t);
     const org = co.organizationId;
     const at = "2026-11-01T00:00:00.000Z";
-    const { listId, otherList } = await t.run(async (ctx) => {
+    const { fresh, worked } = await t.run(async (ctx) => {
       const [user] = await ctx.db.query("users").collect();
-      const list = { organizationId: org, title: "Investors", definition: { county: "Midland", who: "investor" as const }, rowCount: 4, done: 0, truncated: false, createdBy: user._id, createdAt: at };
-      const listId = await ctx.db.insert("outreachLists", list);
-      const otherList = await ctx.db.insert("outreachLists", { ...list, title: "Other" });
+      const list = { organizationId: org, title: "Fresh", definition: { county: "Midland", who: "investor" as const }, rowCount: 4, done: 0, truncated: false, createdBy: user._id, createdAt: at };
+      const fresh = await ctx.db.insert("outreachLists", list);
+      const worked = await ctx.db.insert("outreachLists", { ...list, title: "Worked", createdAt: "2026-11-02T00:00:00.000Z" });
       const locked = { status: "locked" as const };
       const contact = (name: string, extra: Record<string, unknown> = {}) =>
-        ctx.db.insert("outreachContacts", { organizationId: org, key: name, name, mailing: {}, properties: 1, totalValueCents: 0, why: "", kinds: ["investor"], listIds: [listId], status: "new", createdAt: at, enrichment: { phone: locked, email: locked, person: locked }, ...extra });
+        ctx.db.insert("outreachContacts", { organizationId: org, key: name, name, mailing: {}, properties: 1, totalValueCents: 0, why: "", kinds: ["investor"], listIds: [fresh], status: "new", createdAt: at, enrichment: { phone: locked, email: locked, person: locked }, ...extra });
+      // Fresh: nothing of the company's own. Simulated results are made up; a worked owner also on Worked loses nothing.
       await contact("Simulated LLC", { phones: [{ number: "+14325550100", type: "mobile", source: "sim" }], enrichment: { phone: { status: "found", source: "sim", simulated: true }, email: locked, person: locked } });
-      await contact("Paid LLC", { phones: [{ number: "+14326831234", type: "mobile", source: "batchdata" }], enrichment: { phone: { status: "found", source: "batchdata", chargedCents: 100 }, email: locked, person: locked } });
       await contact("Untouched LLC");
-      await contact("Two Lists LLC", { listIds: [listId, otherList] });
-      // Already on no list from an earlier delete: only sample results, so it goes on the cleanup.
+      await contact("Two Lists LLC", { listIds: [fresh, worked], status: "callback" });
+      // Worked: a real paid lookup only this list holds.
+      await contact("Paid LLC", { listIds: [worked], phones: [{ number: "+14326831234", type: "mobile", source: "batchdata" }], enrichment: { phone: { status: "found", source: "batchdata", chargedCents: 100 }, email: locked, person: locked } });
+      // On no list already: each kind of work keeps its owner through the cleanup; sample-only results don't.
       await contact("Leftover LLC", { listIds: [], emails: [{ email: "x@example.com", source: "sim" }], enrichment: { phone: locked, email: { status: "found", simulated: true }, person: locked } });
-      return { listId, otherList };
+      await contact("Noted LLC", { listIds: [], note: "Wants a quote in spring" });
+      await contact("Called LLC", { listIds: [], status: "no_answer" });
+      await contact("Researched LLC", { listIds: [], research: { question: "Who manages it?", answer: "Pat at Oak Mgmt", sources: [], at } });
+      return { fresh, worked };
     });
-    void otherList;
-    await co.as.mutation(api.outreach.remove, { organizationId: org, listId });
+    const flags = async () => (await co.as.query(api.outreach.lists, { organizationId: org })).map((l) => [l.title, l.deletable]);
+    expect(await flags()).toEqual([
+      ["Worked", false],
+      ["Fresh", true],
+    ]);
+    await expect(co.as.mutation(api.outreach.remove, { organizationId: org, listId: worked })).rejects.toThrow(/Archive it instead/);
+    await co.as.mutation(api.outreach.remove, { organizationId: org, listId: fresh });
     const names = async () => (await t.run(async (ctx) => ctx.db.query("outreachContacts").collect())).map((c) => c.name).sort();
-    expect(await names()).toEqual(["Leftover LLC", "Paid LLC", "Two Lists LLC"]);
+    expect(await names()).toEqual(["Called LLC", "Leftover LLC", "Noted LLC", "Paid LLC", "Researched LLC", "Two Lists LLC"]);
     expect(await t.mutation(internal.outreach.clearLeftovers, {})).toEqual({ removed: 1, done: true });
-    expect(await names()).toEqual(["Paid LLC", "Two Lists LLC"]);
+    expect(await names()).toEqual(["Called LLC", "Noted LLC", "Paid LLC", "Researched LLC", "Two Lists LLC"]);
     // Again: nothing more to do.
     expect(await t.mutation(internal.outreach.clearLeftovers, {})).toEqual({ removed: 0, done: true });
+    // The worked list is archived instead: everything stays.
+    await co.as.mutation(api.outreach.organizeList, { organizationId: org, listId: worked, archived: true });
+    expect(await names()).toContain("Paid LLC");
   });
 
   test("lists are kept tidy: renamed, pinned, archived (unpinned, contacts kept) and restored; only by the company", async () => {
@@ -942,13 +940,14 @@ describe("a company's lists", () => {
       ["zerobounce", false, [["email", 0, 0, 0]]],
     ]);
     await expect(co.as.query(api.outreach.sources, { organizationId: org })).rejects.toThrow(/staff/);
-    // A found field isn't traced again; a failed one can be. A dropped list keeps a paid contact.
+    // A found field isn't traced again; a failed one can be. A list holding a paid contact is archived, not deleted.
     await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [oak.id] })).resolves.toMatchObject({ queued: 0, costCents: 0 });
     await expect(co.as.mutation(api.outreach.enrich, { organizationId: org, contactIds: [cityHall.id], fields: ["phone"] })).resolves.toMatchObject({ queued: 1, costCents: 100 });
     await t.finishAllScheduledFunctions(() => {});
     const lists = await co.as.query(api.outreach.lists, { organizationId: org });
-    await co.as.mutation(api.outreach.remove, { organizationId: org, listId: lists[0].id });
-    expect((await read()).rows.map((r) => [r.name, r.kinds, r.phones.length])).toEqual([["Oak Plaza LLC", [], 3]]);
+    expect(lists[0].deletable).toBe(false);
+    await expect(co.as.mutation(api.outreach.remove, { organizationId: org, listId: lists[0].id })).rejects.toThrow(/Archive it instead/);
+    expect((await read()).rows.find((r) => r.name === "Oak Plaza LLC")!.phones).toHaveLength(3);
   });
 
   test("what BatchData misses falls through to Tracerfy; a vendor error is skipped free", async () => {

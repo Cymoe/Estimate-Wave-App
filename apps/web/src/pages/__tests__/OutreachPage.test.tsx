@@ -40,6 +40,7 @@ const list = {
   done: 0,
   truncated: false,
   createdAt: '2026-11-05T15:00:00Z',
+  deletable: true,
 };
 let lists: Array<Record<string, unknown>> = [];
 const organizeList = jest.fn(async (_org: string, id: string, change: Record<string, unknown>) => {
@@ -398,7 +399,7 @@ describe('the Outreach page', () => {
     expect(Array.from(header.querySelectorAll('button')).map((b) => b.textContent?.trim() || b.getAttribute('aria-label'))).toEqual(['Look up 1', 'Add funds', 'More']);
     await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
     const more = Array.from(document.body.querySelectorAll('[role="menu"] button')).map((b) => b.textContent?.trim());
-    expect(more).toEqual(expect.arrayContaining(['Send 2 to Leads', 'Show as a table', 'Export CSV', 'Delete list']));
+    expect(more).toEqual(expect.arrayContaining(['Send 2 to Leads', 'Show as a table', 'Export CSV', 'Archive list', 'Delete list']));
     // A tap elsewhere closes it.
     await act(async () => document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
     expect(document.body.querySelector('[role="menu"]')).toBeNull();
@@ -457,7 +458,7 @@ describe('the Outreach page', () => {
     await render();
     expect(document.body.querySelector('[data-testid="outreach-empty"]')).toBeNull();
     expect(document.body.querySelector('[data-testid="no-lists-hint"]')!.textContent).toBe(
-      'No lists right now. These 2 owners stayed from lists you deleted, because you paid to look them up or sent them to Leads.Make a list',
+      'No lists right now. These 2 owners stayed from lists you deleted, because you worked them: a status, a note, a paid lookup, or a lead.Make a list',
     );
     expect(document.body.querySelectorAll('[data-testid="contact-row"]')).toHaveLength(2);
     await click('Make a list');
@@ -1108,6 +1109,17 @@ describe('the Outreach page', () => {
     expect(document.body.textContent).toContain('Delete “Shopping center owners”?');
     await click('Delete');
     expect(remove).toHaveBeenCalledWith('o1', 'l1');
+    expect(path).toBe('/outreach');
+  });
+  it('a worked list has no Delete: it is archived, which keeps everything', async () => {
+    lists = [{ ...list, deletable: false }];
+    contacts = twoContacts();
+    await render('/outreach/l1');
+    expect(document.body.querySelector('button[aria-label="Delete list"]')).toBeNull();
+    await act(async () => (document.body.querySelector('button[aria-label="Archive list"]') as HTMLButtonElement).click());
+    await flush();
+    expect(organizeList).toHaveBeenLastCalledWith('o1', 'l1', { archived: true });
+    expect(remove).not.toHaveBeenCalled();
     expect(path).toBe('/outreach');
   });
   it('the list picker: search, pin to the top, grouped by kind, archived folded; Manage lists renames and archives', async () => {
