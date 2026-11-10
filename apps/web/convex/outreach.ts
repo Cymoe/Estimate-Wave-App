@@ -56,8 +56,7 @@ import {
   type Definition,
   type Facet,
   type OwnerContact,
-  type OwnerRow,
-} from "./lib/outreach";
+  type OwnerRow, COUNTY_PLACES, cityOf, knownCounty } from "./lib/outreach";
 import { MIDLAND_PARCELS, addressKey } from "./lib/parcels";
 import { SAMPLE_MAX, SAMPLE_NOTE, isSampleNumber, sampleFor } from "./lib/outreachSample";
 import { planIsActive } from "./lib/plan";
@@ -1006,6 +1005,8 @@ export const contacts = query({
       lastSend: await lastSendOf(ctx, organizationId),
       /** Owners on no list, for the picker's "Not on a list". */
       unlisted: all.filter((c) => c.listIds.length === 0).length,
+      /** The company's working county, for the county switches (outreach.setCounty). */
+      county: knownCounty(organization.outreachCounty),
       /** Lookups are simulated (no phone source yet), and a simulated result counts as work. */
       simulating: simulating(),
     };
@@ -1136,6 +1137,15 @@ function knownFor(c: Doc<"outreachContacts">, index: KnownIndex): Known | undefi
   return hits.find((k) => k.kind === "client") ?? hits[0];
 }
 
+/** The county an owner is in: that of the first of its lists still there, or the company's working county. */
+async function countyOfOwner(ctx: QueryCtx | MutationCtx, c: Doc<"outreachContacts">) {
+  for (const id of c.listIds) {
+    const list = await ctx.db.get(id);
+    if (list) return list.definition.county;
+  }
+  return (await ctx.db.get(c.organizationId))?.outreachCounty;
+}
+
 async function sendOne(
   ctx: MutationCtx,
   organizationId: Id<"organizations">,
@@ -1191,7 +1201,7 @@ async function sendOne(
         // Under a client, the client's number and email when the lookup has none: nothing to pay for.
         ...(phone ? { phone: phone.number } : client?.phone ? { phone: client.phone } : {}),
         ...(email ? { email: email.email } : client?.email ? { email: client.email } : {}),
-        ...(contact.property?.address ? { address: contact.property.address, city: "Midland" } : {}),
+        ...(contact.property?.address ? { address: contact.property.address, city: cityOf(await countyOfOwner(ctx, contact)) } : {}),
         source: "Outreach",
         status: "new",
         notes,
@@ -1379,6 +1389,17 @@ export const remove = mutation({
       await ctx.db.patch(c._id, { listIds, kinds, updatedAt: nowIso() });
     }
     await ctx.db.delete(listId);
+    return null;
+  },
+});
+
+/** The county the company's lists are of, chosen on the Outreach page; every device reads it. */
+export const setCounty = mutation({
+  args: { organizationId: v.id("organizations"), county: v.string() },
+  handler: async (ctx, { organizationId, county }) => {
+    await requirePro(ctx, organizationId);
+    if (!COUNTY_PLACES[county]) fail("INVALID", "No such county");
+    await ctx.db.patch(organizationId, { outreachCounty: county });
     return null;
   },
 });
@@ -2178,14 +2199,15 @@ export const seedSampleList = internalMutation({
 
 // ---- Asking in plain words ----
 
-const INTERPRET_SYSTEM = `You turn a contractor's plain-English ask into a list definition over the Midland County, Texas appraisal roll, so they can mail or visit the people on it.
+/** The assistant's instructions for one county's roll. */
+const interpretSystem = (county: string) => `You turn a contractor's plain-English ask into a list definition over the ${COUNTY_PLACES[county].label}, Texas appraisal roll, so they can mail or visit the people on it.
 
 What the roll holds, per parcel: the owner's name, their mailing address, the property's address, its appraised value, its use code (A: homes; B: apartments and duplexes; F1: commercial buildings such as shops, offices and shopping centers; F2: industrial such as warehouses), the deed date, whether the owner lives there, and whether the owner is a company.
-What it does NOT hold: phone numbers, emails, occupations, income, age, religion, ethnicity, credit, or anything else about the person. Only Midland County exists.
+What it does NOT hold: phone numbers, emails, occupations, income, age, religion, ethnicity, credit, or anything else about the person. Only ${COUNTY_PLACES[county].label} exists.
 
-${WHO_GUIDE}
+${WHO_GUIDE.replaceAll("Midland", county)}
 
-Answer with kind "list" and a definition when the ask maps to one who, even loosely ("rich people" → wealthy; "apartment complexes" → multifamily; "strip malls" → commercial; "landlords" → investor). Use min_value only when a dollar amount is asked for or implied ("over $2M", "luxury" → 1500000); use streets or zips only when a street or zip is named; set use_codes ["F2"] for warehouses or industrial. Give a title of 50 characters or fewer, like "Shopping center owners, Midland" or "Homes over $2M, Midland". The explanation is one sentence on what the list is and what it leaves out (no phones; LLC names rather than people where a company owns it).
+Answer with kind "list" and a definition when the ask maps to one who, even loosely ("rich people" → wealthy; "apartment complexes" → multifamily; "strip malls" → commercial; "landlords" → investor). Use min_value only when a dollar amount is asked for or implied ("over $2M", "luxury" → 1500000); use streets or zips only when a street or zip is named; set use_codes ["F2"] for warehouses or industrial. Give a title of 50 characters or fewer, like "Shopping center owners, ${county}" or "Homes over $2M, ${county}". The explanation is one sentence on what the list is and what it leaves out (no phones; LLC names rather than people where a company owns it).
 
 Answer with kind "cannot" when the ask needs what the roll doesn't hold (a job, an income, an age, a business's customers, another county, a person by name) or isn't about property owners at all. Say in one sentence why, and give closest: the nearest list that can be made (usually wealthy homeowners by value, or commercial owners) with its own title.`;
 
@@ -2195,14 +2217,16 @@ type Interpreted =
 
 /** "shopping center owners in Midland" → a definition, with the count and a first look. */
 export const interpret = action({
-  args: { organizationId: v.id("organizations"), request: v.string() },
-  handler: async (ctx, { organizationId, request }): Promise<Interpreted> => {
+  /** county: the county the page is on (the company's working county); Midland when not given. */
+  args: { organizationId: v.id("organizations"), request: v.string(), county: v.optional(v.string()) },
+  handler: async (ctx, { organizationId, request, county: asked }): Promise<Interpreted> => {
+    const county = knownCounty(asked);
     const { staff } = await ctx.runQuery(internal.outreach.assertPro, { organizationId });
     const ask = request.trim().slice(0, 500);
     if (!ask) return { ok: false, explanation: "Say who you want to reach, like shopping center owners or homes over $1M." };
     // Without the assistant (no key, or it couldn't answer), the words alone decide, for the common asks. Staff see why.
     const fromWords = async (why: string): Promise<Interpreted> => {
-      const guess = guessDefinition(ask);
+      const guess = guessDefinition(ask, county);
       if (!guess) {
         return {
           ok: false,
@@ -2217,7 +2241,7 @@ export const interpret = action({
         ok: true,
         definition: guess.definition,
         title: guess.title,
-        explanation: `${guess.title.replace(/, Midland$/, "")}. Names and mailing addresses; no phone numbers.`,
+        explanation: `${guess.title.replace(new RegExp(`, ${county}$`), "")}. Names and mailing addresses; no phone numbers.`,
         ...(staff ? { note: `${why} so the words alone picked this list.` } : {}),
         count: built.count,
         total: built.total,
@@ -2232,7 +2256,7 @@ export const interpret = action({
       const response = await callClaude({
         max_tokens: 1024,
         output_config: { effort: "low", format: { type: "json_schema", schema: OUTREACH_INPUT_SCHEMA } },
-        system: [{ type: "text", text: INTERPRET_SYSTEM, cache_control: { type: "ephemeral" } }],
+        system: [{ type: "text", text: interpretSystem(county), cache_control: { type: "ephemeral" } }],
         messages: [{ role: "user", content: ask }],
       });
       if (response.stop_reason === "refusal") return { ok: false, explanation: "That isn't a list I can make. Try who you want to reach, like commercial owners." };
@@ -2244,7 +2268,8 @@ export const interpret = action({
     } catch {
       return await fromWords("The assistant couldn't answer just now,");
     }
-    const toDefinition = (raw: unknown) => definitionFromArgs((raw ?? {}) as Record<string, unknown>);
+    // Always the page's county, whatever the assistant wrote.
+    const toDefinition = (raw: unknown) => ({ ...definitionFromArgs((raw ?? {}) as Record<string, unknown>, county), county });
     const titleOf = (raw: unknown, def: Definition) => (typeof raw === "string" && raw.trim() ? raw.trim().slice(0, 50) : defaultTitle(def));
     const explanation = typeof parsed.explanation === "string" ? parsed.explanation.trim() : "";
     if (parsed.kind !== "list") {

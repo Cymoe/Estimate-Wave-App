@@ -52,9 +52,11 @@ export const sourceList = (sources: string[]) => {
   return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 };
 
-/** The Midland County Clerk's deed records for an owner, where the deed of trust names who signed for the company. */
-export const deedSearchUrl = (owner: string) =>
-  `https://midland.tx.publicsearch.us/results?department=RP&limit=50&offset=0&searchOcrText=false&searchType=quickSearch&searchValue=${encodeURIComponent(owner)}`;
+/** The county clerk's deed records for an owner, where the deed of trust names who signed for the company: Midland's for now, none elsewhere yet. */
+export const deedSearchUrl = (owner: string, county = 'Midland') =>
+  county === 'Midland'
+    ? `https://midland.tx.publicsearch.us/results?department=RP&limit=50&offset=0&searchOcrText=false&searchType=quickSearch&searchValue=${encodeURIComponent(owner)}`
+    : undefined;
 
 /** What a running lookup is doing, for its cell: "Asking the Texas Comptroller". */
 /** How long a lookup can sit before its first source without looking stuck: after that it says it's waiting its turn. */

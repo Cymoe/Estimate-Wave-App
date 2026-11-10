@@ -8,8 +8,8 @@ import { CountySwitch } from './CountySwitch';
  * the title, a tap to change, the same county the + sheet uses). A card opens the + sheet (the one place lists
  * are made) straight to that list's count and a first look; nothing is saved until Save.
  */
-export function ListStarter({ organizationId, onPick }: { organizationId: string; onPick: (preset: Preset) => void }) {
-  const [county, setCounty] = useCounty(organizationId);
+export function ListStarter({ organizationId, savedCounty, onPick }: { organizationId: string; savedCounty?: string; onPick: (preset: Preset) => void }) {
+  const [county, setCounty] = useCounty(organizationId, savedCounty);
   const here = countyOf(county);
   return (
     <section className="space-y-8 max-w-5xl" data-testid="outreach-empty">

@@ -38,10 +38,12 @@ export const AskListSheet: React.FC<{
   onSave: (definition: OutreachDefinition, title: string) => Promise<void>;
   /** Opened from a card on the empty page: go straight to that list's count and preview. */
   start?: { preset: Preset } | null;
-}> = ({ open, organizationId, onClose, onSave, start }) => {
+  /** The company's working county, from the server. */
+  savedCounty?: string;
+}> = ({ open, organizationId, onClose, onSave, start, savedCounty }) => {
   const [ask, setAsk] = useState('');
   /** Which county the lists are of: the company's working county, the same one the empty page's cards use. */
-  const [county, setCounty] = useCounty(organizationId);
+  const [county, setCounty] = useCounty(organizationId, savedCounty);
   const here = countyOf(county);
   /** A list built from a city's own records, in a county where they aren't connected yet. */
   const unavailable = (p: Preset) => Boolean(p.needsRecords) && !here.records;
@@ -112,7 +114,7 @@ export const AskListSheet: React.FC<{
     setCannot(null);
     setBuilt(null);
     try {
-      const got = await outreachAPI.interpret(organizationId, ask.trim());
+      const got = await outreachAPI.interpret(organizationId, ask.trim(), county);
       if (mine !== asking.current) return;
       if (got.ok) setBuilt({ definition: got.definition, title: got.title, explanation: got.explanation, note: got.note, count: got.count, total: got.total, truncated: got.truncated, limited: got.limited, rows: got.preview });
       else {

@@ -1164,6 +1164,7 @@ const OutreachPage: React.FC = () => {
       ) : lists.length === 0 && data.rows.length === 0 ? (
         <ListStarter
           organizationId={organizationId}
+          savedCounty={data.county}
           onPick={(preset) => {
             setStart({ preset });
             setAsking(true);
@@ -1219,6 +1220,7 @@ const OutreachPage: React.FC = () => {
       )}
       <ContactSheet
         row={open}
+        county={open ? (lists?.find((l) => open.listIds.includes(l.id))?.definition.county ?? data?.county) : undefined}
         unlockCents={unlockCents}
         researchCents={researchCents}
         researchQuestion={data?.researchQuestion ?? ''}
@@ -1233,6 +1235,7 @@ const OutreachPage: React.FC = () => {
         open={asking}
         start={start}
         organizationId={organizationId}
+        savedCounty={data?.county}
         onClose={() => {
           setAsking(false);
           setStart(null);

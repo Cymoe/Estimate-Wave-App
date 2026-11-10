@@ -1301,6 +1301,8 @@ export type OutreachContacts = {
   unlisted?: number;
   /** Lookups are simulated (no phone source connected yet), and a simulated result counts as work. */
   simulating?: boolean;
+  /** The company's working county (outreach.setCounty); every county switch on the page starts from it. */
+  county?: string;
 };
 const contactsArgs = (organizationId: string, listId?: string) => (listId === UNLISTED ? { organizationId, unlisted: true } : defined({ organizationId, listId }));
 /** A source in the stack, as staff see it: connected or not, and how it has done for this company. */
@@ -1331,8 +1333,11 @@ export const outreachAPI = {
   /** The lists, now and on every change. Returns a stop function. */
   watchLists: (organizationId: string, onUpdate: (l: OutreachListSummary[]) => void, onError?: (e: APIError) => void): (() => void) =>
     watchOn(api.outreach.lists, { organizationId }, onUpdate, onError),
-  interpret: (organizationId: string, request: string): Promise<OutreachInterpreted> =>
-    run('action', api.outreach.interpret, { organizationId, request }),
+  /** county: the page's working county; the list is of it. */
+  interpret: (organizationId: string, request: string, county?: string): Promise<OutreachInterpreted> =>
+    run('action', api.outreach.interpret, defined({ organizationId, request, county })),
+  /** The company's working county, for every device. */
+  setCounty: (organizationId: string, county: string) => run('mutation', api.outreach.setCounty, { organizationId, county }),
   preview: (organizationId: string, definition: OutreachDefinition): Promise<OutreachPreview> =>
     run('query', api.outreach.preview, { organizationId, definition }),
   create: (organizationId: string, definition: OutreachDefinition, title?: string): Promise<{ listId: string; rowCount: number; added: number; truncated: boolean }> =>

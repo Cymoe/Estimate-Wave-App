@@ -752,7 +752,8 @@ describe('the Outreach page', () => {
     const ask = dialog.querySelector('textarea') as HTMLTextAreaElement;
     await act(async () => type(ask, 'shopping center owners in Midland'));
     await click('Build');
-    expect(interpret).toHaveBeenCalledWith('o1', 'shopping center owners in Midland');
+    // Asked for the county the sheet is on.
+    expect(interpret).toHaveBeenCalledWith('o1', 'shopping center owners in Midland', 'Midland');
     const built = document.body.querySelector('[data-testid="built"]')!;
     expect(built.textContent).toContain('2 owners');
     // Which county, in so many words, before Save.

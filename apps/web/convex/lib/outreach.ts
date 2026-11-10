@@ -1470,6 +1470,22 @@ export function dollarsIn(ask: string): number | undefined {
  * builds while the assistant isn't connected. Conservative: a wrong guess
  * is worse than none.
  */
+/**
+ * The counties a company's lists can be of, with the city an owner's property
+ * address is given in (the county seat: the roll gives the street, not the
+ * town). Lists are built where the owners are in; the page marks the others
+ * Coming soon.
+ */
+export const COUNTY_PLACES: Record<string, { label: string; city: string }> = {
+  Midland: { label: "Midland County", city: "Midland" },
+  Ector: { label: "Ector County", city: "Odessa" },
+  Lubbock: { label: "Lubbock County", city: "Lubbock" },
+};
+/** A county the page knows, or Midland. */
+export const knownCounty = (county: string | undefined) => (county && COUNTY_PLACES[county] ? county : "Midland");
+/** The city a property in the county is addressed in. */
+export const cityOf = (county: string | undefined) => COUNTY_PLACES[knownCounty(county)].city;
+
 export function guessDefinition(ask: string, county = "Midland"): { definition: Definition; title: string } | undefined {
   const words = ask.toLowerCase();
   const has = (re: RegExp) => re.test(words);

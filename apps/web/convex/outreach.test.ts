@@ -2988,6 +2988,49 @@ describe("asking in plain words", () => {
     expect(body.messages).toEqual([{ role: "user", content: "shopping center owners in Midland" }]);
   });
 
+  test("the ask is for the page's county: the assistant is told that county's roll, and the list is of it whatever it wrote", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    const t = setup();
+    await addParcels(t, ROLL);
+    await rebuild(t);
+    const co = await proCompany(t);
+    const bodies = stubClaude({ kind: "list", title: "Shopping center owners, Ector", explanation: "Owners of commercial buildings.", definition: { county: "Midland", who: "commercial" } });
+    const got = await co.as.action(api.outreach.interpret, { organizationId: co.organizationId, request: "shopping center owners", county: "Ector" });
+    expect(got).toMatchObject({ ok: true, definition: { county: "Ector", who: "commercial" } });
+    const system = (bodies[0] as { system: Array<{ text: string }> }).system[0].text;
+    expect(system).toContain("over the Ector County, Texas appraisal roll");
+    expect(system).toContain("Only Ector County exists.");
+    expect(system).not.toContain("Midland");
+    // An unknown county is Midland's.
+    stubClaude({ kind: "list", title: "Shopping center owners, Midland", explanation: "Owners of commercial buildings.", definition: { who: "commercial" } });
+    expect(await co.as.action(api.outreach.interpret, { organizationId: co.organizationId, request: "shopping center owners", county: "Nowhere" })).toMatchObject({ definition: { county: "Midland" } });
+    // Without the assistant, the words alone pick the list, in the county asked.
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    expect(await co.as.action(api.outreach.interpret, { organizationId: co.organizationId, request: "apartment owners", county: "Lubbock" })).toMatchObject({ ok: true, definition: { county: "Lubbock", who: "multifamily" } });
+  });
+
+  test("the working county is the company's: set on one device, every device reads it; only a known county", async () => {
+    const t = setup();
+    const co = await proCompany(t);
+    const org = co.organizationId;
+    expect((await co.as.query(api.outreach.contacts, { organizationId: org })).county).toBe("Midland");
+    await co.as.mutation(api.outreach.setCounty, { organizationId: org, county: "Ector" });
+    expect((await co.as.query(api.outreach.contacts, { organizationId: org })).county).toBe("Ector");
+    await expect(co.as.mutation(api.outreach.setCounty, { organizationId: org, county: "Nowhere" })).rejects.toThrow(/No such county/);
+    // An owner sent to Leads from an Ector list has its property in Odessa, the county's city.
+    await addParcels(t, [parcel("e1")]);
+    const contactId = await t.run(async (ctx) => {
+      const [user] = await ctx.db.query("users").collect();
+      const listId = await ctx.db.insert("outreachLists", { organizationId: org, title: "Odessa owners", definition: { county: "Ector", who: "commercial" }, rowCount: 1, done: 0, truncated: false, createdBy: user._id, createdAt: "2026-11-01T00:00:00.000Z" });
+      const locked = { status: "locked" as const };
+      const parcelId = (await ctx.db.query("parcels").first())!._id;
+      return ctx.db.insert("outreachContacts", { organizationId: org, key: "k", name: "Grant Ave LLC", mailing: {}, property: { parcelId, address: "400 N Grant Ave", useCode: "F1" }, properties: 1, totalValueCents: 0, why: "", kinds: ["commercial"], listIds: [listId], status: "new", createdAt: "2026-11-01T00:00:00.000Z", enrichment: { phone: locked, email: locked, person: locked } });
+    });
+    const leadId = await co.as.mutation(api.outreach.sendToLeads, { organizationId: org, contactId });
+    expect(await t.run(async (ctx) => ctx.db.get(leadId))).toMatchObject({ address: "400 N Grant Ave", city: "Odessa" });
+  });
+
   test("says what it can't do and offers the closest list; a bad answer or no key is a plain message", async () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     vi.stubEnv("ANTHROPIC_API_KEY", "test-key");

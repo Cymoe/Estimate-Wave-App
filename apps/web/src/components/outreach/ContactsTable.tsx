@@ -4,7 +4,7 @@ import { AddressLink } from '../common/AddressLink';
 import { SlideOutDrawer } from '../common/SlideOutDrawer';
 import { fullAddress } from '../../lib/mapsLinks';
 import type { OutreachCell, OutreachContact, OutreachContacts, OutreachCoverage, OutreachField, OutreachPhone, OutreachRowStatus, OutreachSignal, OutreachTry, OutreachWho } from '../../lib/api';
-import { shortMoney, WHO_LABEL } from '../../../convex/lib/outreach';
+import { shortMoney, WHO_LABEL, cityOf, knownCounty } from '../../../convex/lib/outreach';
 import { askingText, callOk, deedSearchUrl, dueAgain, isSimulated, LEAD_STAGE, phoneKind, phoneText, sourceList, sourceName, STATUS_LABEL, tryAgainFrom, QUEUED_AFTER_MS } from './format';
 
 /** The column's short name for the kind of owner. */
@@ -701,7 +701,9 @@ export const ContactSheet: React.FC<{
   onEnrich: (row: OutreachContact, fields: OutreachField[], question?: string) => Promise<void>;
   onAddFunds: () => void;
   onLead: (row: OutreachContact) => void;
-}> = ({ row, unlockCents, researchCents, researchQuestion, balanceCents, onClose, onStatus, onEnrich, onAddFunds, onLead }) => {
+  /** The county the owner's property is in (its list's), for the address's city and the county's deed records. */
+  county?: string;
+}> = ({ row, unlockCents, researchCents, researchQuestion, balanceCents, onClose, onStatus, onEnrich, onAddFunds, onLead, county }) => {
   const [note, setNote] = useState('');
   const [question, setQuestion] = useState(researchQuestion);
   const [busy, setBusy] = useState(false);
@@ -743,7 +745,8 @@ export const ContactSheet: React.FC<{
     onClose();
   };
   const enrich = (fields: OutreachField[], asked?: string) => run(() => onEnrich(row, fields, asked), "Couldn't start that");
-  const property = row.property ? fullAddress(row.property.address, 'Midland', 'TX') : undefined;
+  const property = row.property ? fullAddress(row.property.address, cityOf(county), 'TX') : undefined;
+  const deeds = deedSearchUrl(row.name, knownCounty(county));
   const mailing = row.mailing.address ? fullAddress(row.mailing.address, row.mailing.city, row.mailing.state, row.mailing.zip?.slice(0, 5)) : undefined;
   const realtor = row.kinds.includes('realtor');
   const link = 'inline-flex items-center gap-2 text-[15px] text-[#7fb0e0] min-h-[44px]';
@@ -965,9 +968,11 @@ export const ContactSheet: React.FC<{
                 {row.property.valueCents ? `Worth ${shortMoney(row.property.valueCents)}` : ''}
                 {row.properties > 1 ? `${row.property.valueCents ? ' · ' : ''}${row.properties} properties, ${shortMoney(row.totalValueCents)} in all` : ''}
               </div>
-              <a href={deedSearchUrl(row.name)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm text-[#7fb0e0] hover:text-white min-h-[44px]" data-testid="deeds">
-                <FileText className="w-4 h-4 shrink-0" /> Deeds at the county clerk
-              </a>
+              {deeds && (
+                <a href={deeds} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm text-[#7fb0e0] hover:text-white min-h-[44px]" data-testid="deeds">
+                  <FileText className="w-4 h-4 shrink-0" /> Deeds at the county clerk
+                </a>
+              )}
             </div>
           ) : (
             <div className="py-3">
