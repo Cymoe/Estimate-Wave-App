@@ -315,7 +315,7 @@ const OutreachPage: React.FC = () => {
   // Cards on a phone, the table on anything wider, unless they picked one; the pick is remembered on this device.
   const narrow = useMediaQuery('(max-width: 767px)');
   // On a phone the two buttons share the row, so their words may wrap to a second line.
-  const wrapOnPhone = narrow ? 'flex-1 justify-center whitespace-normal text-center leading-tight py-2 h-auto min-h-[44px]' : '';
+  const wrapOnPhone = narrow ? 'flex-1 min-w-0 !shrink justify-center !whitespace-normal text-center leading-tight py-2 !h-auto min-h-[44px]' : '';
   const [picked, setPicked] = useState<'cards' | 'table' | null>(() => {
     try {
       const v = localStorage.getItem(VIEW_KEY);
@@ -818,21 +818,24 @@ const OutreachPage: React.FC = () => {
 
   return (
     <div className="p-4 md:p-6 space-y-4" data-testid="outreach-page">
-      {/* A lookup running, or just finished: a banner across the top of the page, edge to edge. */}
-      {data && <LookupProgress rows={data.rows} since={batch?.at} onDismiss={() => keepBatch(null)} className="-mx-4 md:-mx-6 -mt-4 md:-mt-6" />}
-      {/* A new list still adding owners in the background: a small pill floating at the bottom, drawn outside the page's layout so nothing shifts when it comes or goes. */}
-      {list?.filling &&
-        createPortal(
-        <div
-          role="status"
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded-full border border-[#336699]/50 bg-[#10243a]/95 px-4 py-2.5 text-sm text-white shadow-2xl backdrop-blur animate-appear"
-          data-testid="list-filling"
-        >
-          <span className="h-4 w-4 shrink-0 rounded-full border-2 border-white/25 border-t-white animate-spin" aria-hidden />
-          <span className="truncate">Adding owners to this list: {(data?.rows.length ?? 0).toLocaleString('en-US')} so far…</span>
+      {/* What's running in the background (a lookup, a new list still filling) floats at the bottom of the screen,
+          drawn outside the page's layout, so nothing on the page moves when it comes or goes. */}
+      {createPortal(
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex w-max max-w-[calc(100vw-2rem)] flex-col items-center gap-2 pointer-events-none [&>*]:pointer-events-auto [&>*]:max-w-full">
+          {data && <LookupProgress rows={data.rows} since={batch?.at} onDismiss={() => keepBatch(null)} />}
+          {list?.filling && (
+            <div
+              role="status"
+              className="flex items-center gap-3 rounded-full border border-[#336699]/50 bg-[#10243a]/95 px-4 py-2.5 text-sm text-white shadow-2xl backdrop-blur animate-appear"
+              data-testid="list-filling"
+            >
+              <span className="h-4 w-4 shrink-0 rounded-full border-2 border-white/25 border-t-white animate-spin" aria-hidden />
+              <span className="truncate">Adding owners to this list: {(data?.rows.length ?? 0).toLocaleString('en-US')} so far…</span>
+            </div>
+          )}
         </div>,
-          document.body,
-        )}
+        document.body,
+      )}
       {/* On a phone the top bar already says Outreach, and the staff lines fold behind one word; the actions become one row that slides sideways. */}
       <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div className="min-w-0 flex-1">
@@ -854,8 +857,15 @@ const OutreachPage: React.FC = () => {
         {data && rows.length > 0 && (
           <div className={narrow ? 'flex items-stretch gap-2' : 'flex items-center gap-2 shrink-0'} data-testid="actions">
             {listOpen.length > 0 ? (
-              <button type="button" onClick={() => void enrichAll()} disabled={busy || short} className={`${action} ${wrapOnPhone} bg-[#336699] hover:bg-[#2a5580]`} title={estimate(listPhones)}>
-                {findLabel(listOpen.length)}
+              // Short of money, the same button adds it: never a greyed-out button with the reason somewhere else.
+              <button
+                type="button"
+                onClick={() => (short ? addFunds() : void enrichAll())}
+                disabled={busy}
+                className={`${action} ${wrapOnPhone} bg-[#336699] hover:bg-[#2a5580]`}
+                title={short ? `Your balance is ${dollars(balanceCents)}; finding these costs ${estimate(listPhones)}` : estimate(listPhones)}
+              >
+                {short ? `Add funds to ${findLabel(listOpen.length).replace('Find', 'find')}` : findLabel(listOpen.length)}
               </button>
             ) : (
               toSend.length > 0 && (
@@ -873,11 +883,6 @@ const OutreachPage: React.FC = () => {
                 title={`AI reads the web for what each owner does and any plans to build or sell · ${dollars(researchCents)} an answer, charged only when it finds something`}
               >
                 Research with AI ({listResearch.length.toLocaleString('en-US')})
-              </button>
-            )}
-            {listOpen.length > 0 && short && (
-              <button type="button" onClick={addFunds} className="shrink-0 text-sm text-[#7fb0e0] hover:text-white">
-                Add funds
               </button>
             )}
             <PopMenu label="More" icon={<MoreHorizontal className="w-5 h-5" />}>

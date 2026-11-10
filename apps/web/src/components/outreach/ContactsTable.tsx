@@ -225,6 +225,9 @@ function useDrawn<T>(rows: T[]) {
   return { drawn: more ? rows.slice(0, count) : rows, tail };
 }
 
+/** "8 properties · $4.2M", or one property's value: what an owner holds, in a few words. */
+const holding = (r: OutreachContact) => (r.properties > 1 ? `${r.properties} properties · ${shortMoney(r.totalValueCents)}` : r.property?.valueCents ? shortMoney(r.property.valueCents) : '');
+
 /** The checkbox and the name stay put while the roll columns scroll under them. */
 const pinned = 'sticky bg-[#121212] group-hover:bg-[#1A1A1A]';
 
@@ -336,6 +339,12 @@ export const ContactsTable: React.FC<{
                 <tr key={r.id} onClick={() => onOpen(r)} className="group cursor-pointer hover:bg-[#1A1A1A]" data-testid="contact-row">
                   <td className={`${pinned} left-0 z-10 ${td} border-r border-[#333333] max-w-[16rem] truncate ${r.status === 'skip' ? 'text-gray-500 line-through' : 'text-white'}`}>
                     {r.name}
+                    {/* What the owner holds, as on the cards: the list is ordered by it, so it shows by the name. */}
+                    {holding(r) && (
+                      <span className="block text-[11px] text-gray-500 tabular-nums" data-testid="holding">
+                        {holding(r)}
+                      </span>
+                    )}
                     {r.related?.length ? (
                       <span className="block text-[11px] text-gray-500 no-underline" title={`Related: ${r.related.map((x) => x.name).join(', ')}`} data-testid="related">
                         +{r.related.length} related
@@ -496,7 +505,7 @@ export const ContactCards: React.FC<{
               <button type="button" onClick={() => onOpen(r)} className="block w-full text-left pl-4 pr-20 pt-3 pb-2">
                 <span className={`block text-[15px] font-medium ${r.status === 'skip' ? 'text-gray-500 line-through' : 'text-white'}`}>{r.name}</span>
                 <span className="block text-xs text-gray-500">
-                  {r.properties > 1 ? `${r.properties} properties · ${shortMoney(r.totalValueCents)}` : r.property?.valueCents ? shortMoney(r.property.valueCents) : (r.property?.address ?? r.company ?? '')}
+                  {holding(r) || (r.property?.address ?? r.company ?? '')}
                   {r.related?.length ? ` · +${r.related.length} related` : ''}
                 </span>
                 <Known row={r} className="mt-0.5 text-xs" />
@@ -595,7 +604,7 @@ const stepBadge = (c: OutreachCell) =>
 /**
  * How we found it: each step that has run, with every source's turn in
  * order, what it said, and what the owner cost in all. The numbers follow
- * the strip's: owners are step 1.
+ * from one.
  */
 const HowFound: React.FC<{ row: OutreachContact }> = ({ row }) => {
   const steps: Array<{ field: OutreachField; cell: OutreachCell }> = [
@@ -622,7 +631,7 @@ const HowFound: React.FC<{ row: OutreachContact }> = ({ row }) => {
         {steps.map((s, i) => (
           <li key={s.field}>
             <div className="flex items-center gap-2 text-sm">
-              <span className="inline-flex w-5 h-5 shrink-0 items-center justify-center border border-[#333333] text-[11px] text-gray-400 tabular-nums">{i + 2}</span>
+              <span className="inline-flex w-5 h-5 shrink-0 items-center justify-center border border-[#333333] text-[11px] text-gray-400 tabular-nums">{i + 1}</span>
               <span className="text-white">{STEP_TITLE[s.field]}</span>
               <span className={`ml-auto text-xs ${s.cell.status === 'found' ? 'text-[#7fb0e0]' : s.cell.status === 'failed' ? 'text-amber-300' : 'text-gray-500'}`}>{stepBadge(s.cell)}</span>
             </div>

@@ -209,7 +209,6 @@ export function ListPicker({
         }
       >
         <span className="truncate">{current ? current.title : 'All owners'}</span>
-        {current?.pinned && <Pin className="w-3.5 h-3.5 shrink-0 text-[#7fb0e0]" aria-label="Pinned" />}
         <ChevronDown className={`w-4 h-4 shrink-0 text-gray-500 transition-transform ${compact ? 'ml-auto' : ''} ${open ? 'rotate-180' : ''}`} aria-hidden />
       </button>
       {open &&

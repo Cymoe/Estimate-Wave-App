@@ -121,6 +121,7 @@ jest.mock('../../components/layouts/DashboardLayout', () => ({
 }));
 
 import OutreachPage from '../OutreachPage';
+import { openFundingPage } from '../../components/market/WalletBar';
 import { ContactsTable } from '../../components/outreach/ContactsTable';
 
 // The screen width the page asks about: a laptop unless a test says it's a phone.
@@ -139,6 +140,11 @@ const Where = () => {
 
 // Every page a test renders, unmounted after it so its timers and drawers can't reach into the next test.
 const roots: Root[] = [];
+/** Unmount every page first: what floats at the bottom is drawn outside the page, straight into the body. */
+const clearPage = () => {
+  act(() => roots.splice(0).forEach((r) => r.unmount()));
+  document.body.innerHTML = '';
+};
 async function render(at = '/outreach') {
   const container = document.createElement('div');
   document.body.appendChild(container);
@@ -188,8 +194,7 @@ const twoContacts = () => ({
 });
 
 afterEach(() => {
-  act(() => roots.splice(0).forEach((r) => r.unmount()));
-  document.body.innerHTML = '';
+  clearPage();
   jest.clearAllMocks();
   lists = [];
   contacts = { rows: [], coverage: coverage(0, 0, 0, 0), ...money };
@@ -307,7 +312,7 @@ describe('the Outreach page', () => {
     expect(rows[0].textContent).toContain('NewStalled permit Oct 2026');
 
     // The glow: a cell that was running and now has its answer lights up for a moment.
-    document.body.innerHTML = '';
+    clearPage();
     const box = document.createElement('div');
     document.body.appendChild(box);
     const root = createRoot(box);
@@ -422,8 +427,10 @@ describe('the Outreach page', () => {
     };
     await render('/outreach/l1');
     const header = document.body.querySelector('[data-testid="actions"]')!;
-    // The two buttons (with Add funds while the balance is short); the rest waits under More.
-    expect(Array.from(header.querySelectorAll('button')).map((b) => b.textContent?.trim() || b.getAttribute('aria-label'))).toEqual(['Find phones & emails (1)', 'Research with AI (2)', 'Add funds', 'More']);
+    // The two buttons (Find says to add funds while the balance is short, and adding them is its tap); the rest waits under More.
+    expect(Array.from(header.querySelectorAll('button')).map((b) => b.textContent?.trim() || b.getAttribute('aria-label'))).toEqual(['Add funds to find phones & emails (1)', 'Research with AI (2)', 'More']);
+    await act(async () => button('Add funds to find').click());
+    expect(openFundingPage).toHaveBeenCalledWith('o1');
     await act(async () => (document.body.querySelector('button[aria-label="More"]') as HTMLButtonElement).click());
     const more = Array.from(document.body.querySelectorAll('[role="menu"] button')).map((b) => b.textContent?.trim());
     // The owner already a lead isn't sent again: only the one with a number goes.
@@ -540,7 +547,7 @@ describe('the Outreach page', () => {
     expect(empty.querySelectorAll('[data-testid="starter-list"]')).toHaveLength(17);
     // Just the title: no paragraph of explanation under it.
     expect(document.body.querySelector('header')!.textContent).toBe('Outreach');
-    document.body.innerHTML = '';
+    clearPage();
     lists = [list];
     contacts = twoContacts();
     // A table wider than its box, as on a laptop.
@@ -555,7 +562,8 @@ describe('the Outreach page', () => {
     const cells = (i: number) => Array.from(rows[i].querySelectorAll('td')).map((c) => c.textContent?.trim());
     // What the row has comes first; the roll's columns follow, with the name pinned as they scroll.
     // The mailing address is one column: street, then city, state and zip under it.
-    expect(cells(0)).toEqual(['Oak Plaza LLC', '—', '—', '—', '—', 'New', '1 MAIN STDALLAS, TX 75201', '12 Midkiff Rd', '$3M', 'Commercial', '—']);
+    // The name carries what the owner holds, as the cards do.
+    expect(cells(0)).toEqual(['Oak Plaza LLC$3M', '—', '—', '—', '—', 'New', '1 MAIN STDALLAS, TX 75201', '12 Midkiff Rd', '$3M', 'Commercial', '—']);
     expect(cells(1)[7]).toBe('12 Midkiff Rd +3');
     // An owner with several properties shows what they hold in all, the number the list is sorted on.
     expect(cells(1)[8]).toBe('$1.2M');
@@ -563,7 +571,7 @@ describe('the Outreach page', () => {
     expect(rows[0].querySelectorAll('td')[0].className).toContain('sticky');
     expect(document.body.querySelector('[data-testid="more-columns"]')).not.toBeNull();
     // A tap on Name sorts: most parcels first, then A to Z, then back to the list's own order, remembered on this device.
-    const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(1)')).map((c) => c.textContent);
+    const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(1)')).map((c) => c.firstChild!.textContent);
     const sortBy = async () => {
       await act(async () => (document.body.querySelector('[data-testid="name-sort"]') as HTMLButtonElement).click());
     };
@@ -614,7 +622,7 @@ describe('the Outreach page', () => {
       ],
     };
     await render('/outreach/l1');
-    const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(1)')).map((c) => c.textContent);
+    const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(1)')).map((c) => c.firstChild!.textContent);
     expect(names()).toEqual(['Oak Plaza LLC', 'City Of Midland', 'Vance Robert & Linda']);
     const filters = document.body.querySelector('[aria-label="Filters"]')!;
     expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 1', 'Ready to call 1', 'Has email 1', 'Mail only 1', 'Needs you 1', 'Status: All']);
@@ -671,7 +679,7 @@ describe('the Outreach page', () => {
       ],
     };
     await render('/outreach/l1');
-    const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(1)')).map((c) => c.textContent);
+    const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"] td:nth-child(1)')).map((c) => c.firstChild!.textContent);
     const filters = document.body.querySelector('[aria-label="Filters"]')!;
     // Only the City's number is work and Do Not Call, so it isn't counted as a work number worth calling; the Vances' line says nothing about whose it is.
     expect(Array.from(filters.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['All', 'Has a signal 0', 'Ready to call 2', 'Personal number 1', 'Work number 1', 'Has email 0', 'Mail only 1', 'Status: All']);
@@ -1046,9 +1054,9 @@ describe('the Outreach page', () => {
     // The ledger: every source's turn per step, and the owner's cost.
     const how = sheet.querySelector('[data-testid="how-found"]')!.textContent!;
     expect(how).toContain('This owner cost $1.');
-    expect(how).toContain('2Person behind the companyFound · freeTexas ComptrollerDana Reyes, Manager');
-    expect(how).toContain('3PhoneFound · $1BatchData2 numbersTracerfyNot needed, already found');
-    expect(how).toContain('4EmailFound · freeBatchData1 emailTracerfyNot needed, already found');
+    expect(how).toContain('1Person behind the companyFound · freeTexas ComptrollerDana Reyes, Manager');
+    expect(how).toContain('2PhoneFound · $1BatchData2 numbersTracerfyNot needed, already found');
+    expect(how).toContain('3EmailFound · freeBatchData1 emailTracerfyNot needed, already found');
   });
 
   it('research: the sheet asks a question for 25¢, and a found answer shows with its sources', async () => {
@@ -1150,7 +1158,7 @@ describe('the Outreach page', () => {
     // The lists and contacts are read again once the page has loaded.
     expect(getContacts).toHaveBeenLastCalledWith('o1', 'l1');
     // A list that already holds everyone it reaches says nothing about a cap.
-    document.body.innerHTML = '';
+    clearPage();
     lists = [{ ...list, rowCount: 2, total: 2 }];
     await render('/outreach/l1');
     expect(document.body.querySelector('[data-testid="list-total"]')).toBeNull();
@@ -1179,9 +1187,7 @@ describe('the Outreach page', () => {
     expect(document.body.querySelector('[data-testid="outreach-page"] [data-testid="list-filling"]')).toBeNull();
     expect(document.body.querySelector('[data-testid="list-total"]')).toBeNull();
     lists = [{ ...list, filling: false }];
-    // The pill is drawn outside the page (so it moves nothing); unmount before clearing the page.
-    act(() => roots.splice(0).forEach((r) => r.unmount()));
-    document.body.innerHTML = '';
+    clearPage();
     await render('/outreach/l1');
     expect(document.body.querySelector('[data-testid="list-filling"]')).toBeNull();
   });
