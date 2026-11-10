@@ -3,9 +3,11 @@ import { api, internal } from "./_generated/api";
 import { setup, signUp } from "./test.setup";
 import { ECTOR_ROLL, LUBBOCK_ROLL, ectorParcels, lubbockParcels, splitMailing } from "./lib/parcels";
 
+const ECTOR_PAGE = ECTOR_ROLL.pageSize;
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  ECTOR_ROLL.pageSize = ECTOR_PAGE;
 });
 
 const NOW = Date.parse("2026-11-05T15:00:00.000Z");
@@ -115,13 +117,15 @@ describe("Odessa and Lubbock, synced and listed", () => {
   test("Ector's roll is read in pages with its addresses, its owners built, and lists made there; Midland's untouched", async () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     const t = setup();
+    // Pages of four here, of a thousand live: the read still has to page.
+    ECTOR_ROLL.pageSize = 4;
     const ector = (pin: string, over: Record<string, unknown> = {}) => ({ PIN: pin, use_cd: "A1", owner_name: `OWNER ${pin}`, owner_addr: `${pin} ELM ST  ODESSA TX 79761`, bxcm_val: 200000, land_val: 20000, dos: "2015-01-02", homestead: 1, deleted_flg: 0, ...over });
     const roll = [
       // An investor with three Odessa properties.
       ...["1", "2", "3"].map((pin) => ector(pin, { owner_name: "PERMIAN RENTALS LLC", owner_addr: "PO BOX 50  ODESSA TX 79760", homestead: 0 })),
       // A shopping center.
       ector("4", { use_cd: "F1", owner_name: "GRANT PLAZA LTD", owner_addr: "1 MAIN ST  DALLAS TX 75201", bxcm_val: 3000000, homestead: 0 }),
-      ...Array.from({ length: 1100 }, (_, i) => ector(String(100 + i))),
+      ...Array.from({ length: 3 }, (_, i) => ector(String(100 + i))),
       // West of town: only the utility district has its address.
       ector("T2S00-1", { owner_name: "LEWIS PATRICK", bxcm_val: 150000 }),
     ];
@@ -132,7 +136,7 @@ describe("Odessa and Lubbock, synced and listed", () => {
     expect(await t.action(internal.parcels.syncCounty, { county: "Ector", ifStale: true, background: true })).toEqual({ scheduled: true });
     await t.finishAllScheduledFunctions(() => vi.runAllTimers());
     const parcelAsks = asked.filter((a) => a.layer === ECTOR_ROLL.layer);
-    expect(parcelAsks.map((a) => a.params.get("resultOffset"))).toEqual(["0", "1000"]);
+    expect(parcelAsks.map((a) => a.params.get("resultOffset"))).toEqual(["0", "4", "8"]);
     expect(parcelAsks[0].params.get("where")).toBe("use_cd IN ('A1','A2','A3','A5','A6','A7','B1','B2','F1','F2','F3','F5')");
     // The utility district is only asked for the PIN the city didn't have.
     const district = asked.filter((a) => a.layer === ECTOR_ROLL.addresses[1].layer);
