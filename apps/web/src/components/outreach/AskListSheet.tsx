@@ -154,7 +154,7 @@ export const AskListSheet: React.FC<{
 
   return (
     <SlideOutDrawer isOpen={open} onClose={onClose} title="Ask for a list" width="lg">
-      <div className="p-6 space-y-5">
+      <div className="p-6 space-y-5 min-h-full flex flex-col">
         {/* Once a list is built it has the sheet to itself: the count, a first look and Save, no scrolling past the choices. */}
         {!showResult && (
           <>
@@ -248,7 +248,7 @@ export const AskListSheet: React.FC<{
         )}
 
         {showResult && (
-          <div className="space-y-4" data-testid="built">
+          <div className="space-y-4 flex-1 flex flex-col" data-testid="built">
             <button
               type="button"
               onClick={() => {
@@ -326,8 +326,8 @@ export const AskListSheet: React.FC<{
                 )}
               </ul>
             )}
-            {/* The name and Save stay in view at the bottom of the sheet, however long the first look is. */}
-            <div className="sticky bottom-0 -mx-6 -mb-6 px-6 py-4 bg-[#121212] border-t border-[#333333] flex items-end gap-3">
+            {/* The name and Save sit at the very bottom of the sheet, and stay in view however long the first look is. */}
+            <div className="sticky bottom-0 !mt-auto -mx-6 -mb-6 px-6 py-4 bg-[#121212] border-t border-[#333333] flex items-end gap-3">
               <div className="flex-1 min-w-0 space-y-1">
                 <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider" htmlFor="outreach-title">
                   List title
