@@ -1032,7 +1032,8 @@ describe("the weekly run", () => {
     const draft = async () => {
       vi.useFakeTimers();
       await owner.as.mutation(api.ads.draftNow, {});
-      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      // One at a time, as above: two renders saving their files at once trip convex-test's storage.
+      await oneAtATime(t);
       vi.useRealTimers();
       return (await owner.as.query(api.ads.batches, {}))[0];
     };
