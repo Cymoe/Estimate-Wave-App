@@ -4,7 +4,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Check, ChevronDown, Download, LayoutList, MoreHorizontal, Search, Send, SlidersHorizontal, Table2, Trash2, Undo2, X } from 'lucide-react';
 import { OrganizationContext } from '../components/layouts/DashboardLayout';
 import { outreachAPI, type OutreachContact, type OutreachContacts, type OutreachDefinition, type OutreachField, type OutreachListSummary, type OutreachProgress, type OutreachRowStatus, type OutreachSource } from '../lib/api';
-import { setReadyCounties } from '../components/outreach/county';
+import { countyOf, setReadyCounties } from '../components/outreach/county';
 import { AskListSheet } from '../components/outreach/AskListSheet';
 import { ListStarter } from '../components/outreach/ListStarter';
 import type { Preset } from '../components/outreach/presets';
@@ -19,7 +19,7 @@ import { useConfirm } from '../components/common/ConfirmDialog';
 import { fundErrorText, openFundingPage } from '../components/market/WalletBar';
 import { useAuth } from '../contexts/AuthContext';
 import { isStaff } from '../lib/roles';
-import { DEFAULT_ROWS, listOrder } from '../../convex/lib/outreach';
+import { DEFAULT_ROWS, cityOf, listOrder } from '../../convex/lib/outreach';
 import { callOk, isSimulated, mailOnly, openToLook, sourceName, STATUS_LABEL } from '../components/outreach/format';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -28,6 +28,7 @@ const iconButton = 'w-10 h-10 md:w-11 md:h-11 shrink-0 inline-flex items-center 
 const action = 'inline-flex items-center gap-2 px-3 h-10 md:h-11 shrink-0 whitespace-nowrap text-sm font-medium text-white disabled:opacity-50';
 const VIEW_KEY = 'outreach.view';
 const SORT_KEY = 'outreach.sort';
+const COUNTY_FILTER_KEY = 'outreach.countyFilter';
 const BATCH_KEY = 'outreach.batch';
 const SEND_SEEN_KEY = 'outreach.sendSeen';
 const chip = (on: boolean) => `inline-flex items-center gap-1 px-3 h-9 shrink-0 max-w-full text-sm border whitespace-nowrap ${on ? 'border-[#336699] bg-[#336699]/20 text-white' : 'border-[#333333] text-gray-300 hover:bg-[#2A2A2A]'}`;
@@ -330,6 +331,23 @@ const OutreachPage: React.FC = () => {
   const readyCounties = data?.readyCounties?.join(',');
   useEffect(() => setReadyCounties(readyCounties ? readyCounties.split(',') : data?.readyCounties), [readyCounties, data?.readyCounties]);
   const [status, setStatus] = useState<OutreachRowStatus | 'all'>('all');
+  // All owners, narrowed to one county (only offered once owners are in two or more); remembered on this device.
+  const [countyPick, setCountyPick] = useState<string>(() => {
+    try {
+      return localStorage.getItem(COUNTY_FILTER_KEY) ?? 'all';
+    } catch {
+      return 'all';
+    }
+  });
+  const pickCounty = (name: string) => {
+    setCountyPick(name);
+    try {
+      if (name === 'all') localStorage.removeItem(COUNTY_FILTER_KEY);
+      else localStorage.setItem(COUNTY_FILTER_KEY, name);
+    } catch {
+      // Private browsing: the pick lasts for this visit.
+    }
+  };
   // The lookup last started on this device, for the progress bar; kept across a reload until dismissed.
   const [batch, setBatch] = useState<{ at: string } | null>(() => {
     try {
@@ -596,14 +614,37 @@ const OutreachPage: React.FC = () => {
     }, 800);
     return () => clearTimeout(t);
   }, [filling, arrived, organizationId]);
+  // The county each owner is in: that of the lists it's on (an owner can be on lists in two). Owners on no list have none.
+  const countyByList = useMemo(() => new Map((lists ?? []).map((l) => [l.id, l.definition.county] as const)), [lists]);
+  const countiesOf = useCallback((r: OutreachContact) => [...new Set(r.listIds.map((id) => countyByList.get(id)).filter((c): c is string => Boolean(c)))], [countyByList]);
+  // How many owners in each county, on All owners: the filter shows once there are two or more.
+  const countyCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    if (listId) return counts;
+    for (const r of data?.rows ?? []) for (const c of countiesOf(r)) counts.set(c, (counts.get(c) ?? 0) + 1);
+    return counts;
+  }, [data, countiesOf, listId]);
+  const mixed = countyCounts.size >= 2;
+  const countyNow = mixed && countyCounts.has(countyPick) ? countyPick : 'all';
+  // Where each owner is, under its property, when the owners on the page are from more than one county.
+  const placeOf = useMemo(() => (mixed ? (r: OutreachContact) => countiesOf(r).map((c) => cityOf(c)).join(', ') || undefined : undefined), [mixed, countiesOf]);
   const rows = useMemo(() => {
     const has = SHOWS.find((s) => s.value === show)?.has ?? (() => true);
     const q = query.trim().toLowerCase();
-    const kept = (data?.rows ?? []).filter((r) => (status === 'all' || r.status === status) && has(r) && (!q || matches(r, q)));
+    const kept = (data?.rows ?? []).filter((r) => (status === 'all' || r.status === status) && (countyNow === 'all' || countiesOf(r).includes(countyNow)) && has(r) && (!q || matches(r, q)));
     if (sortNow === 'parcels') return [...kept].sort((a, b) => b.properties - a.properties || b.totalValueCents - a.totalValueCents || a.name.localeCompare(b.name));
     if (sortNow === 'name') return [...kept].sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base', numeric: true }));
     return kept;
-  }, [data, status, show, query, sortNow]);
+  }, [data, status, show, query, sortNow, countyNow, countiesOf]);
+  /** The county filter's choices: every county, then each with its owners, most first. */
+  const countyItems = (close: () => void) =>
+    [['all', 'All counties', data?.rows.length ?? 0] as const, ...[...countyCounts.entries()].sort((a, b) => b[1] - a[1]).map(([c, n]) => [c, countyOf(c).label.replace(/, TX/, ''), n] as const)].map(([value, label, n]) => (
+      <button key={value} type="button" role="menuitemradio" aria-checked={countyNow === value} className={menuItem} onClick={() => (close(), pickCounty(value))} data-testid="county-filter-option">
+        {label}
+        <span className="text-gray-500">{n.toLocaleString('en-US')}</span>
+        {countyNow === value && <Check className="ml-auto w-4 h-4 text-[#7fb0e0]" />}
+      </button>
+    ));
   const counts = useMemo(() => Object.fromEntries(SHOWS.map((s) => [s.value, (data?.rows ?? []).filter(s.has).length])) as Record<Show, number>, [data]);
   // What a lookup would run: never asked, failed, or a "none found" a month old (the sources refresh monthly).
   const needsPhone = (r: OutreachContact) => openToLook(r.enrichment.phone);
@@ -1109,15 +1150,23 @@ const OutreachPage: React.FC = () => {
                 <ListPicker lists={lists} currentId={listId} narrow onPick={pickList} onPin={(id, pinned) => void organize(id, { pinned })} onManage={openManage} unlisted={unlistedCount} compact />
               )}
               <SearchBox value={query} onChange={setQuery} onOpenChange={setSearching} />
-              <PopMenu label="Filter by status" icon={<SlidersHorizontal className="w-4 h-4" />} dot={status !== 'all'} size="w-9 h-9">
-                {(close) =>
-                  (['all', ...STATUS_FILTERS, ...OLD_STATUSES.filter((x) => status === x || data.rows.some((r) => r.status === x))] as Array<OutreachRowStatus | 'all'>).map((x) => (
-                    <button key={x} type="button" role="menuitemradio" aria-checked={status === x} className={menuItem} onClick={() => (close(), setStatus(x))}>
-                      {x === 'all' ? 'All statuses' : STATUS_LABEL[x]}
-                      {status === x && <Check className="ml-auto w-4 h-4 text-[#7fb0e0]" />}
-                    </button>
-                  ))
-                }
+              <PopMenu label={mixed ? 'Filter' : 'Filter by status'} icon={<SlidersHorizontal className="w-4 h-4" />} dot={status !== 'all' || countyNow !== 'all'} size="w-9 h-9">
+                {(close) => (
+                  <>
+                    {(['all', ...STATUS_FILTERS, ...OLD_STATUSES.filter((x) => status === x || data.rows.some((r) => r.status === x))] as Array<OutreachRowStatus | 'all'>).map((x) => (
+                      <button key={x} type="button" role="menuitemradio" aria-checked={status === x} className={menuItem} onClick={() => (close(), setStatus(x))}>
+                        {x === 'all' ? 'All statuses' : STATUS_LABEL[x]}
+                        {status === x && <Check className="ml-auto w-4 h-4 text-[#7fb0e0]" />}
+                      </button>
+                    ))}
+                    {mixed && (
+                      <>
+                        <div className="mx-2 my-1.5 border-t border-white/10" role="separator" />
+                        {countyItems(close)}
+                      </>
+                    )}
+                  </>
+                )}
               </PopMenu>
             </div>
           ) : (
@@ -1132,6 +1181,11 @@ const OutreachPage: React.FC = () => {
                 ))
               }
             </TextMenu>
+            {mixed && (
+              <TextMenu label="County" text={<>County: {countyNow === 'all' ? 'All' : countyNow}</>} active={countyNow !== 'all'}>
+                {(close) => countyItems(close)}
+              </TextMenu>
+            )}
             <SearchBox value={query} onChange={setQuery} alwaysOpen />
           </div>
           )}
@@ -1202,6 +1256,7 @@ const OutreachPage: React.FC = () => {
       ) : view === 'cards' ? (
         <ContactCards
           rows={rows}
+          placeOf={placeOf}
           onOpen={setOpen}
           onStatus={(row, next) => setContactStatus(row, next, row.note ?? '')}
           onRetry={(row, field) => void enrich([row.id], [field]).catch(() => {})}
@@ -1210,6 +1265,7 @@ const OutreachPage: React.FC = () => {
       ) : (
         <ContactsTable
           rows={rows}
+          placeOf={placeOf}
           coverage={data.coverage}
           sort={sortNow}
           sortLabel={listLabel}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, LayoutGrid, Pin, PinOff, Search, X } from 'lucide-react';
 import type { OutreachListSummary } from '../../lib/api';
 import { WHO_LABEL } from '../../../convex/lib/outreach';
+import { countyOf } from './county';
 import { listProgress, recentLists, rememberList, UNLISTED } from './listsStore';
 
 /**
@@ -71,10 +72,12 @@ export function ListPicker({
             .filter((l): l is OutreachListSummary => Boolean(l) && !l!.pinned && l!.id !== currentId)
             .slice(0, 3)
         : [];
+    // Lists in more than one county are grouped by county ("Ector County (Odessa)"); in one, by who they reach.
+    const byCounty = new Set(live.map((l) => l.definition.county)).size > 1;
     const groups = new Map<string, OutreachListSummary[]>();
     for (const l of live) {
       if (l.pinned) continue;
-      const g = WHO_LABEL[l.who] ?? 'Other';
+      const g = byCounty ? countyOf(l.definition.county).label.replace(/, TX/, '') : (WHO_LABEL[l.who] ?? 'Other');
       groups.set(g, [...(groups.get(g) ?? []), l]);
     }
     return { search: null, pinned, recent, groups: [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0])) };

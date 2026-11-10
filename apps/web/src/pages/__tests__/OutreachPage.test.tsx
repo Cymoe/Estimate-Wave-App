@@ -901,6 +901,39 @@ describe('the Outreach page', () => {
     interpreted = { ok: true, definition: { county: 'Midland', who: 'commercial' }, title: 'x', explanation: 'y', count: 2, truncated: false, limited: false, preview: [] };
   });
 
+  it('owners in two counties: All owners can be narrowed by county, each says where it is, and the lists are grouped by county', async () => {
+    localStorage.removeItem('outreach.countyFilter');
+    lists = [list, { ...list, id: 'l2', title: 'Odessa investors', definition: { county: 'Ector', who: 'investor' } }];
+    contacts = {
+      rows: [contact('r1'), contact('r2', { name: 'Permian Rentals LLC', company: 'Permian Rentals LLC', listIds: ['l2'] }), contact('r3', { name: 'Both Counties LP', company: 'Both Counties LP', listIds: ['l1', 'l2'] })],
+      coverage: coverage(0, 0, 0, 3),
+      ...money,
+    };
+    await render('/outreach');
+    const names = () => Array.from(document.body.querySelectorAll('[data-testid="contact-row"]')).map((r) => r.querySelector('td')!.textContent);
+    expect(names()).toHaveLength(3);
+    // Each owner says where its property is: an owner on lists in both, both.
+    expect(Array.from(document.body.querySelectorAll('[data-testid="place"]')).map((p) => p.textContent)).toEqual(['Midland', 'Odessa', 'Midland, Odessa']);
+    // The county filter, with how many owners in each.
+    const menu = document.body.querySelector('button[aria-label="County"]') as HTMLButtonElement;
+    expect(menu.textContent).toBe('County: All');
+    await act(async () => menu.click());
+    expect(Array.from(document.body.querySelectorAll('[data-testid="county-filter-option"]')).map((o) => o.textContent)).toEqual(['All counties3', 'Midland County2', 'Ector County (Odessa)2']);
+    await click('Ector County (Odessa)');
+    expect(menu.textContent).toBe('County: Ector');
+    expect(names().map((n) => n?.includes('Oak Plaza'))).toEqual([false, false]);
+    expect(localStorage.getItem('outreach.countyFilter')).toBe('Ector');
+    // A list is one county's: the filter isn't offered there, and the place isn't repeated.
+    clearPage();
+    await render('/outreach/l1');
+    expect(document.body.querySelector('button[aria-label="County"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="place"]')).toBeNull();
+    // The picker groups the lists by county.
+    await act(async () => (document.body.querySelector('[data-testid="list-picker"]') as HTMLButtonElement).click());
+    expect(Array.from(document.body.querySelectorAll('[role="dialog"][aria-label="Lists"] h3')).map((h) => h.textContent)).toEqual(['Ector County (Odessa)', 'Midland County']);
+    localStorage.removeItem('outreach.countyFilter');
+  });
+
   it("an owner on an Odessa list: the property is in Odessa, and the deed link opens Ector's clerk to search the name", async () => {
     lists = [{ ...list, definition: { ...list.definition, county: 'Ector' } }];
     contacts = twoContacts();

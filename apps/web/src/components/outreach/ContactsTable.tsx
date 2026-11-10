@@ -263,7 +263,9 @@ export const ContactsTable: React.FC<{
   sortLabel?: string;
   /** Height of the filter bar stuck above, so the column header sticks just under it. */
   below?: number;
-}> = ({ rows, coverage, onOpen, onRetry, sort = 'list', onSort, sortLabel, below = 0 }) => {
+  /** The city an owner's property is in, when the page mixes counties. */
+  placeOf?: (row: OutreachContact) => string | undefined;
+}> = ({ rows, coverage, onOpen, onRetry, sort = 'list', onSort, sortLabel, below = 0, placeOf }) => {
   const lit = useJustFilled(rows);
   const { drawn, tail } = useDrawn(rows);
   const glow = (id: string, f: OutreachField) => (lit.has(`${id}:${f}`) ? ' cell-filled' : '');
@@ -420,6 +422,7 @@ export const ContactsTable: React.FC<{
                   <td className={`${td} max-w-[14rem] truncate text-gray-300`}>
                     {r.property ? r.property.address : <span className="text-gray-600">{r.company ?? '—'}</span>}
                     {r.properties > 1 ? <span className="text-gray-500"> +{r.properties - 1}</span> : null}
+                    {placeOf?.(r) ? <span className="block text-[11px] text-gray-500" data-testid="place">{placeOf(r)}</span> : null}
                   </td>
                   <td className={`${td} text-right tabular-nums text-gray-300`} title={r.properties > 1 ? `${r.properties} properties in all` : undefined}>
                     {r.properties > 1 ? shortMoney(r.totalValueCents) : r.property?.valueCents ? shortMoney(r.property.valueCents) : ''}
@@ -473,7 +476,9 @@ export const ContactCards: React.FC<{
   onRetry: (row: OutreachContact, field: OutreachField) => void;
   /** Send them to Leads, or open the lead they became. */
   onLead: (row: OutreachContact) => void;
-}> = ({ rows, onOpen, onStatus, onRetry, onLead }) => {
+  /** The city an owner's property is in, when the page mixes counties. */
+  placeOf?: (row: OutreachContact) => string | undefined;
+}> = ({ rows, onOpen, onStatus, onRetry, onLead, placeOf }) => {
   const [saving, setSaving] = useState<string | null>(null);
   const lit = useJustFilled(rows);
   const { drawn, tail } = useDrawn(rows);
@@ -515,6 +520,7 @@ export const ContactCards: React.FC<{
                 <span className={`block text-[15px] font-medium ${r.status === 'skip' ? 'text-gray-500 line-through' : 'text-white'}`}>{r.name}</span>
                 <span className="block text-xs text-gray-500">
                   {holding(r) || (r.property?.address ?? r.company ?? '')}
+                  {placeOf?.(r) ? ` · ${placeOf(r)}` : ''}
                   {r.related?.length ? ` · +${r.related.length} related` : ''}
                 </span>
                 <Known row={r} className="mt-0.5 text-xs" />
