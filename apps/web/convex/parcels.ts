@@ -195,17 +195,29 @@ export const syncNow = action({
 type Feature = { attributes?: Record<string, unknown> };
 type Answer = { error?: { message?: string }; features?: Feature[]; exceededTransferLimit?: boolean };
 
-/** One query of an ArcGIS layer, posted when the where clause is long. */
+/** How long a failed query waits before each try (the first at once). Tests shorten them. */
+export const QUERY_WAITS = [0, 2_000, 6_000];
+
+/** One query of an ArcGIS layer, posted when the where clause is long; a failed try is tried again twice, a little later each time. */
 async function query(layer: string, params: Record<string, string>, what: string): Promise<Answer> {
   const body = new URLSearchParams({ ...params, returnGeometry: "false", f: "json" });
-  const response =
-    body.toString().length > 1500
-      ? await fetch(`${layer}/query`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: body.toString() })
-      : await fetch(`${layer}/query?${body}`);
-  if (!response.ok) throw new Error(`${what}: HTTP ${response.status}`);
-  const answer = (await response.json()) as Answer;
-  if (answer.error) throw new Error(`${what}: ${answer.error.message ?? "the service returned an error"}`);
-  return answer;
+  let last: unknown;
+  for (const wait of QUERY_WAITS) {
+    if (wait) await new Promise((r) => setTimeout(r, wait));
+    try {
+      const response =
+        body.toString().length > 1500
+          ? await fetch(`${layer}/query`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: body.toString() })
+          : await fetch(`${layer}/query?${body}`);
+      if (!response.ok) throw new Error(`${what}: HTTP ${response.status}`);
+      const answer = (await response.json()) as Answer;
+      if (answer.error) throw new Error(`${what}: ${answer.error.message ?? "the service returned an error"}`);
+      return answer;
+    } catch (e) {
+      last = e;
+    }
+  }
+  throw last instanceof Error ? last : new Error(`${what}: ${String(last)}`);
 }
 
 const PINS_PER_QUERY = 200;
@@ -217,8 +229,10 @@ async function addressesFor(roll: CountyRoll, pins: string[]): Promise<Map<strin
     const wanted = [...new Set(pins.filter((p) => !found.has(p)))];
     const chunks: string[][] = [];
     for (let i = 0; i < wanted.length; i += PINS_PER_QUERY) chunks.push(wanted.slice(i, i + PINS_PER_QUERY));
-    await Promise.all(
-      chunks.map(async (chunk) => {
+    // A few at a time: the city's and district's servers turn away a burst.
+    await inBatches(
+      chunks,
+      async (chunk) => {
         const where = [`${source.pin} IN (${chunk.map((p) => `'${p.replace(/'/g, "''")}'`).join(",")})`, source.where].filter(Boolean).join(" AND ");
         for (let offset = 0; ; ) {
           const answer = await query(source.layer, { where, outFields: `${source.pin},${source.address}`, resultOffset: String(offset), resultRecordCount: "1000" }, `${roll.county} addresses`);
@@ -231,16 +245,23 @@ async function addressesFor(roll: CountyRoll, pins: string[]): Promise<Map<strin
           if (!answer.exceededTransferLimit || features.length === 0) break;
           offset += features.length;
         }
-      }),
+      },
     );
   }
   return found;
+}
+
+/** Runs `work` on every item, `width` at a time. */
+async function inBatches<T>(items: T[], work: (item: T) => Promise<void>, width = 2) {
+  for (let i = 0; i < items.length; i += width) await Promise.all(items.slice(i, i + width).map(work));
 }
 
 const totals = v.object({ fetched: v.number(), added: v.number(), updated: v.number(), newestDeed: v.optional(v.string()) });
 /** How long one step reads before handing on to the next, well inside an action's 10 minutes. */
 const STEP_MS = 4 * 60 * 1000;
 const UPSERT_ROWS = 300;
+/** How many times a step may fail in a row before the read stops and records why. */
+const STEP_TRIES = 5;
 
 /**
  * Reads a county's roll (Ector or Lubbock) a page at a time from `offset`,
@@ -259,6 +280,8 @@ export const syncCounty = internalAction({
     background: v.optional(v.boolean()),
     offset: v.optional(v.number()),
     totals: v.optional(totals),
+    /** How many times in a row this step has failed: it's tried again a minute later, up to STEP_TRIES. */
+    failures: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<{ skipped?: true; scheduled?: true; next?: number; fetched?: number; added?: number; updated?: number; error?: string }> => {
     const roll = COUNTY_ROLLS[args.county];
@@ -307,6 +330,12 @@ export const syncCounty = internalAction({
     if (!done && !error) {
       await ctx.scheduler.runAfter(0, internal.parcels.syncCounty, { county: args.county, offset, totals: sum });
       return { next: offset, ...sum };
+    }
+    // A failure partway (a county server down for a moment): the same page again a minute later, from where it stopped.
+    const failures = (args.failures ?? 0) + 1;
+    if (error && failures < STEP_TRIES) {
+      await ctx.scheduler.runAfter(60_000, internal.parcels.syncCounty, { county: args.county, offset, totals: sum, failures });
+      return { next: offset, ...sum, error };
     }
     if (!error) await ctx.scheduler.runAfter(0, internal.outreachRebuild.rebuild, { county: roll.county });
     await ctx.runMutation(internal.permits.recordSync, {

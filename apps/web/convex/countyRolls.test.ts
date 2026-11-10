@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import { setup, signUp } from "./test.setup";
 import { ECTOR_ROLL, LUBBOCK_ROLL, ectorParcels, lubbockParcels, splitMailing } from "./lib/parcels";
+import { QUERY_WAITS } from "./parcels";
 
 const ECTOR_PAGE = ECTOR_ROLL.pageSize;
 afterEach(() => {
@@ -192,10 +193,24 @@ describe("Odessa and Lubbock, synced and listed", () => {
       expect((await ctx.db.query("parcels").collect()).map((p) => [p.county, p.cadId, p.siteAddress])).toEqual([["Lubbock", "Lubbock:R87275", "1636 13TH ST"]]);
     });
 
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("down", { status: 503 })));
-    expect(await t.action(internal.parcels.syncCounty, { county: "Lubbock" })).toMatchObject({ error: "Lubbock owners: HTTP 503" });
+    // A county server down: each query is tried three times, then the step is tried again a minute later, from where it stopped.
+    QUERY_WAITS.splice(0, QUERY_WAITS.length, 0, 0, 0);
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => (calls++, new Response("down", { status: 503 }))));
+    expect(await t.action(internal.parcels.syncCounty, { county: "Lubbock" })).toMatchObject({ next: 0, error: "Lubbock owners: HTTP 503" });
+    expect(calls).toBe(3);
+    await t.run(async (ctx) => {
+      // Not given up on yet: nothing recorded, the retry waiting.
+      expect(await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "lubbock-parcels")).unique()).toMatchObject({ fetched: 1 });
+      expect((await ctx.db.system.query("_scheduled_functions").collect()).filter((f) => f.state.kind === "pending").map((f) => f.args[0])).toEqual([
+        { county: "Lubbock", offset: 0, totals: { fetched: 0, added: 0, updated: 0 }, failures: 1 },
+      ]);
+    });
+    // The fifth failure in a row stops the read and says why.
+    expect(await t.action(internal.parcels.syncCounty, { county: "Lubbock", offset: 0, failures: 4 })).toMatchObject({ error: "Lubbock owners: HTTP 503" });
     await t.run(async (ctx) => {
       expect(await ctx.db.query("permitSources").withIndex("by_source", (q) => q.eq("source", "lubbock-parcels")).unique()).toMatchObject({ error: "Lubbock owners: HTTP 503" });
     });
+    QUERY_WAITS.splice(0, QUERY_WAITS.length, 0, 2_000, 6_000);
   });
 });
