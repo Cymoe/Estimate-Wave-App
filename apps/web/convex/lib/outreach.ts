@@ -110,6 +110,8 @@ export type Definition = {
   maxValueCents?: number;
   /** How many they hold at least: properties, or for portfolio owners commercial buildings, or for contractors and designers permits. */
   minParcels?: number;
+  /** At least this many homes they rent out (their residential properties, less the one they live in): landlords, not commercial holders. */
+  minRentals?: number;
   ownerOccupied?: boolean;
   companyOwned?: boolean;
   outOfState?: boolean;
@@ -1183,6 +1185,9 @@ export function underFloor(row: OwnerRow, def: Definition, facet: Facet): boolea
   return minValue !== undefined && facetValue(row, facet) < minValue;
 }
 
+/** The homes an owner rents out: their residential properties, less the one they live in. */
+export const rentalHomes = (row: Pick<OwnerRow, "residential" | "ownerOccupied">) => Math.max(0, row.residential - (row.ownerOccupied ? 1 : 0));
+
 /** What minParcels counts on a facet: commercial buildings for portfolio owners, else the row's parcels (permits for a contractor or designer). */
 export const holdings = (row: OwnerRow, facet: Facet) => (facet === "portfolio" ? row.commercial : row.parcels);
 
@@ -1193,6 +1198,7 @@ export function matches(row: OwnerRow, def: Definition, facet: Facet, now: numbe
   if (minValue !== undefined && v < minValue) return false;
   if (def.maxValueCents !== undefined && v > def.maxValueCents) return false;
   if (def.minParcels !== undefined && holdings(row, facet) < def.minParcels) return false;
+  if (def.minRentals !== undefined && rentalHomes(row) < def.minRentals) return false;
   if (def.ownerOccupied !== undefined && row.ownerOccupied !== def.ownerOccupied) return false;
   if (def.companyOwned !== undefined && row.company !== def.companyOwned) return false;
   if (def.outOfState !== undefined && row.outOfState !== def.outOfState) return false;
@@ -1335,7 +1341,7 @@ export const WHO_GUIDE = `Pick exactly one who:
 - occupant: NOT owners: the businesses that moved into a space they don't own in the last ${OCCUPANT_DAYS} days (tenants on a lease who pay for their own build-outs), newest first, from the city's certificates of occupancy, the "owner" a commercial permit names when it isn't the landlord, and the state's sales-tax permits; within_days narrows the window. "New businesses", "tenants", "stores opening", "who just moved in", "restaurants opening", "retail tenants".
 - realtor: NOT owners: the real estate agents and brokers holding an active Texas license in the county (TREC), each with the brokerage they hang it with; brokers who sponsor agents first, then the longest licensed. They refer make-ready work, inspections' repairs and remodels to contractors they trust. The state withholds their phones and emails, so the lookups find those. "Realtors", "real estate agents", "brokers", "agents who refer work", "listing agents".
 - custom: only with explicit use_codes (A homes, B apartments, F1 commercial, F2 industrial).
-Filters: min_value and max_value are dollars of the property the list is about; min_parcels is how many properties they own ("5 or more properties" is 5; for portfolio, how many commercial buildings; for contractor and designer, how many permits); company_owned true keeps companies only ("company investors", "LLCs"), false keeps people; out_of_state true keeps owners whose mail goes outside Texas; zips filter the owner's MAILING zip (where letters go); streets filter the PROPERTY's street; owned_for_years is for long_owned; trades (${TRADES.join(", ")}) is for violation, stalled, contractor and designer; within_days keeps only records newer than that for violation, stalled, contractor, designer and occupant; limit caps the rows a list holds at once (up to 500, the default; the rest load page by page).`;
+Filters: min_value and max_value are dollars of the property the list is about; min_parcels is how many properties they own ("5 or more properties" is 5; for portfolio, how many commercial buildings; for contractor and designer, how many permits); min_rentals is how many homes they rent out, for investor ("landlords with 3 or more rental homes" is 3); company_owned true keeps companies only ("company investors", "LLCs"), false keeps people; out_of_state true keeps owners whose mail goes outside Texas; zips filter the owner's MAILING zip (where letters go); streets filter the PROPERTY's street; owned_for_years is for long_owned; trades (${TRADES.join(", ")}) is for violation, stalled, contractor and designer; within_days keeps only records newer than that for violation, stalled, contractor, designer and occupant; limit caps the rows a list holds at once (up to 500, the default; the rest load page by page).`;
 
 /** The definition as JSON schema, in the words the assistant and the tool use (dollars, snake_case). */
 export const DEFINITION_SCHEMA = {
@@ -1348,6 +1354,7 @@ export const DEFINITION_SCHEMA = {
     min_value: { type: "number", description: "Lowest value, in dollars, of the property the list is about." },
     max_value: { type: "number", description: "Highest value, in dollars." },
     min_parcels: { type: "integer", description: "At least this many properties owned (portfolio: commercial buildings; contractor and designer: permits)." },
+    min_rentals: { type: "integer", description: "At least this many homes they rent out (houses, not commercial buildings): landlords." },
     owner_occupied: { type: "boolean", description: "True: the owner lives in one of their homes. False: none." },
     company_owned: { type: "boolean", description: "True: only companies. False: only people." },
     out_of_state: { type: "boolean", description: "True: mailing address outside Texas. False: inside." },
@@ -1429,6 +1436,7 @@ export function definitionFromArgs(args: Record<string, unknown>, county = "Midl
     minValueCents: dollars("min_value"),
     maxValueCents: dollars("max_value"),
     minParcels: num("min_parcels"),
+    minRentals: num("min_rentals"),
     ownerOccupied: bool("owner_occupied"),
     companyOwned: bool("company_owned"),
     outOfState: bool("out_of_state"),
@@ -1592,6 +1600,8 @@ export function defaultTitle(def: Definition): string {
     name = def.who === "contractor" && def.trades.length === 1 ? `${labels} contractors` : `${name} for ${labels.toLowerCase()}`;
   }
   if (def.who === "long_owned" && def.ownedForDays !== undefined) name = `Homes owned ${Math.round(def.ownedForDays / 365.25)}+ years`;
+  // "Landlords with 3+ rental homes": the rentals say it; the properties floor under them doesn't need saying too.
+  if (def.minRentals) return `${def.who === "investor" && def.companyOwned === undefined ? "Landlords" : name} with ${def.minRentals}+ rental homes${def.minValueCents ? ` over ${shortMoney(def.minValueCents)}` : ""}, ${def.county}`;
   if (def.who === "occupant" && def.withinDays !== undefined) name = `Businesses moved in within ${def.withinDays} days`;
   const unit = def.who === "contractor" || def.who === "designer" ? "permits" : def.who === "portfolio" ? "buildings" : "properties";
   const parcels = def.minParcels ? ` with ${def.minParcels}+ ${unit}` : "";

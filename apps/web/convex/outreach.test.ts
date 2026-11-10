@@ -148,6 +148,14 @@ describe("grouping the roll into owners", () => {
     expect(underFloor(four, { county: "Midland", who: "investor", minParcels: 5 }, "investor")).toBe(true);
     expect(underFloor(four, { county: "Midland", who: "investor", minParcels: 4 }, "investor")).toBe(false);
     expect(underFloor(four, { county: "Midland", who: "investor", companyOwned: true }, "investor")).toBe(false);
+    // Landlords: homes they rent out, not buildings; the one they live in doesn't count.
+    const landlord = { ...holder("Rentals Of Midland LLC"), parcels: 4, residential: 4, commercial: 0, ownerOccupied: false };
+    const rentals = { county: "Midland", who: "investor" as const, minParcels: 3, minRentals: 3 };
+    expect(matches(landlord, rentals, "investor", NOW)).toBe(true);
+    expect(matches({ ...landlord, ownerOccupied: true, residential: 3 }, rentals, "investor", NOW)).toBe(false);
+    expect(matches(holder("District Holdings LLC"), rentals, "investor", NOW)).toBe(false);
+    expect(defaultTitle(rentals)).toBe("Landlords with 3+ rental homes, Midland");
+    expect(definitionFromArgs({ who: "investor", min_rentals: 3 })).toMatchObject({ who: "investor", minRentals: 3 });
     expect(underFloor(four, { county: "Midland", who: "builder", minParcels: 5 }, "builder")).toBe(true);
     expect(underFloor(four, { county: "Midland", who: "commercial", minValueCents: 3_000_000_000 }, "commercial")).toBe(true);
     expect(underFloor(four, { county: "Midland", who: "commercial", minValueCents: 2_000_000_000 }, "commercial")).toBe(false);

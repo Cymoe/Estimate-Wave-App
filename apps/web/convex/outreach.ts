@@ -506,7 +506,7 @@ const rowOf = (o: Doc<"owners">, facet: Facet): ListRow | null => {
 const narrows = (def: Definition) =>
   def.who === "wealthy" ||
   def.who === "recent_buyer" ||
-  [def.minValueCents, def.maxValueCents, def.minParcels, def.ownerOccupied, def.companyOwned, def.outOfState, def.deedWithinDays, def.ownedForDays, def.withinDays].some((x) => x !== undefined) ||
+  [def.minValueCents, def.maxValueCents, def.minParcels, def.minRentals, def.ownerOccupied, def.companyOwned, def.outOfState, def.deedWithinDays, def.ownedForDays, def.withinDays].some((x) => x !== undefined) ||
   Boolean(def.useCodes?.length || def.zips?.length || def.streets?.length || def.trades?.length);
 
 /** Owners read in parallel, a hundred at a time, in the facet's order. */

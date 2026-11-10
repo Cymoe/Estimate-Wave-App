@@ -1188,6 +1188,8 @@ export type OutreachDefinition = {
   minValueCents?: number;
   maxValueCents?: number;
   minParcels?: number;
+  /** At least this many homes they rent out. */
+  minRentals?: number;
   ownerOccupied?: boolean;
   companyOwned?: boolean;
   outOfState?: boolean;

@@ -471,6 +471,7 @@ export const outreachDefinition = v.object({
   minValueCents: v.optional(v.number()),
   maxValueCents: v.optional(v.number()),
   minParcels: v.optional(v.number()),
+  minRentals: v.optional(v.number()),
   ownerOccupied: v.optional(v.boolean()),
   companyOwned: v.optional(v.boolean()),
   outOfState: v.optional(v.boolean()),
