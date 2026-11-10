@@ -20,6 +20,7 @@ import { outreachDefinition, outreachEmail, outreachField, outreachPerson, outre
 import { fail, isStaff, logActivity, nowIso, organizationIdsFor, requireMember, requireStaff } from "./lib/access";
 import { mutationDef, queryDef } from "./lib/actor";
 import { callClaude } from "./lib/claude";
+import { signalsAt, type StoredSignal } from "./lib/contactSignals";
 import {
   DEFAULT_ROWS,
   MAX_ROWS,
@@ -736,7 +737,8 @@ async function addRows(ctx: MutationCtx, organizationId: Id<"organizations">, li
             },
           }
         : {};
-      await ctx.db.insert("outreachContacts", { organizationId, ...rest, ...given, kinds: [who], listIds: [listId], status: "new", createdAt: now });
+      const signals = rest.property ? await signalsAt(ctx, rest.property.parcelId) : undefined;
+      await ctx.db.insert("outreachContacts", { organizationId, ...rest, ...given, ...(signals ? { signals } : {}), kinds: [who], listIds: [listId], status: "new", createdAt: now });
       added++;
     }
   }
@@ -872,15 +874,33 @@ async function freshSince(ctx: QueryCtx | MutationCtx, now = Date.now()): Promis
 }
 
 async function signalsFor(ctx: QueryCtx | MutationCtx, parcelId: Id<"parcels">, since?: string): Promise<SignalBadge[]> {
-  const rows = await ctx.db
-    .query("signals")
-    .withIndex("by_parcel", (q) => q.eq("parcelId", parcelId))
-    .order("desc")
-    .take(10);
-  const out: SignalBadge[] = [];
-  for (const r of rows) if (!out.some((o) => o.kind === r.kind)) out.push({ kind: r.kind, date: r.date, detail: r.detail, ...(since && r.importedAt > since ? { fresh: true } : {}) });
-  return out;
+  return badgesOf(await signalsAt(ctx, parcelId), since);
 }
+
+/** The Signals column's badges from the records kept on an owner: new when first seen since `since`. */
+function badgesOf(stored: StoredSignal[], since?: string): SignalBadge[] {
+  return stored.map((r) => ({ kind: r.kind, date: r.date, detail: r.detail, ...(since && r.importedAt > since ? { fresh: true } : {}) }));
+}
+
+/**
+ * One-off, run on deploy: owners saved before their records were kept on
+ * them get them now, a page at a time. Safe to re-run: owners that have
+ * them are skipped.
+ */
+export const backfillContactSignals = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, { cursor }): Promise<{ filled: number; done: boolean }> => {
+    const page = await ctx.db.query("outreachContacts").paginate({ cursor: cursor ?? null, numItems: 200 });
+    let filled = 0;
+    for (const c of page.page) {
+      if (c.signals || !c.property) continue;
+      await ctx.db.patch(c._id, { signals: await signalsAt(ctx, c.property.parcelId) });
+      filled++;
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.outreach.backfillContactSignals, { cursor: page.continueCursor });
+    return { filled, done: page.isDone };
+  },
+});
 
 /** "Phone 12 / 200 · 2 sources": how many contacts have each field, and from how many sources. */
 function coverageOf(rows: Doc<"outreachContacts">[]) {
@@ -951,23 +971,22 @@ export const contacts = query({
       return f ? (families.get(f) ?? []).filter((r) => r.id !== c._id) : [];
     };
     const since = await freshSince(ctx);
-    // Every owner's signals read at once, not one after another.
-    const signals = await Promise.all(picked.map((c) => (c.property ? signalsFor(ctx, c.property.parcelId, since) : Promise.resolve([] as SignalBadge[]))));
-    // A lead deleted in Leads leaves its owner New here, ready to send again; one still there shows its stage.
-    const stages = new Map<Id<"outreachContacts">, Doc<"leads">["status"]>();
-    const gone = new Set(
-      (
-        await Promise.all(
-          picked
-            .filter((c) => c.leadId)
-            .map(async (c) => {
-              const lead = await ctx.db.get(c.leadId!);
-              if (lead) stages.set(c._id, lead.status);
-              return lead ? null : c._id;
-            }),
-        )
-      ).filter((id) => id !== null),
+    // Kept on each owner; only one saved before that (until the backfill reaches it) is looked up here.
+    const signals = await Promise.all(
+      picked.map((c) => (c.signals ? Promise.resolve(badgesOf(c.signals, since)) : c.property ? signalsFor(ctx, c.property.parcelId, since) : Promise.resolve([] as SignalBadge[]))),
     );
+    // A lead deleted in Leads leaves its owner New here, ready to send again; one still there shows its stage. One read for all of them.
+    const leadsById = picked.some((c) => c.leadId)
+      ? new Map((await ctx.db.query("leads").withIndex("by_organization", (q) => q.eq("organizationId", organizationId)).collect()).map((l) => [l._id, l] as const))
+      : new Map<Id<"leads">, Doc<"leads">>();
+    const stages = new Map<Id<"outreachContacts">, Doc<"leads">["status"]>();
+    const gone = new Set<Id<"outreachContacts">>();
+    for (const c of picked) {
+      if (!c.leadId) continue;
+      const lead = leadsById.get(c.leadId);
+      if (lead) stages.set(c._id, lead.status);
+      else gone.add(c._id);
+    }
     const index = await knownOf(ctx, organizationId);
     const rows = picked.map((c, i) => {
       const shown = gone.has(c._id) ? { ...c, status: c.status === "lead" ? ("new" as const) : c.status, leadId: undefined } : c;

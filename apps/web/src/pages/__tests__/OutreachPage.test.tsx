@@ -1086,6 +1086,20 @@ describe('the Outreach page', () => {
     expect(document.body.querySelector('[data-testid="list-total"]')).toBeNull();
   });
 
+  it('draws a long list 200 owners at a time, with Show more for the rest', async () => {
+    contacts = { ...twoContacts(), rows: Array.from({ length: 450 }, (_, i) => contact(`r${i}`, { key: `k-${i}`, name: `Owner ${String(i).padStart(3, '0')} LLC` })) };
+    await render('/outreach');
+    const table = () => document.body.querySelectorAll('[data-testid="contacts-table"] table[aria-label="Contacts"] tbody tr').length;
+    const more = () => document.body.querySelector('[data-testid="contacts-table"] [data-testid="draw-more"]') as HTMLButtonElement | null;
+    expect(table()).toBe(200);
+    expect(more()!.textContent).toBe('Show 200 more of 250');
+    await act(async () => more()!.click());
+    expect(table()).toBe(400);
+    expect(more()!.textContent).toBe('Show 50 more of 50');
+    await act(async () => more()!.click());
+    expect(table()).toBe(450);
+    expect(more()).toBeNull();
+  });
   it('a new list still adding owners in the background says so, with no Load the next until it is done', async () => {
     lists = [{ ...list, rowCount: 50, total: 2340, filling: true }];
     contacts = twoContacts();

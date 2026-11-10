@@ -19,6 +19,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { nowIso, requireStaff } from "./lib/access";
+import { syncContactSignals } from "./lib/contactSignals";
 import { MIDLAND_PARCELS, addressKey, isResidentialUse, looseKey, ownerName } from "./lib/parcels";
 import { MIDLAND, isOccupancy } from "./lib/permits";
 import {
@@ -91,6 +92,8 @@ export const upsert = internalMutation({
       } else continue;
       if (parcelId) touched.add(parcelId);
     }
+    // The owners on Outreach lists at these homes show the new record at once.
+    await syncContactSignals(ctx, touched);
     return { added, updated, touched: [...touched] };
   },
 });

@@ -1327,13 +1327,16 @@ export default defineSchema({
     researchQuestion: v.optional(v.string()),
     enrichment: v.optional(outreachEnrichment),
     unlock: v.optional(outreachUnlock),
+    /** The newest public record of each kind on the property, kept here so the page needn't look each owner's up (lib/contactSignals.ts). */
+    signals: v.optional(v.array(v.object({ kind: ownerSignal.fields.kind, detail: v.string(), date: v.string(), importedAt: v.string() }))),
     createdAt: v.string(),
     updatedAt: v.optional(v.string()),
   })
     .index("by_organization", ["organizationId"])
     .index("by_organization_and_key", ["organizationId", "key"])
     .index("by_lead", ["leadId"])
-    .index("by_key", ["key"]),
+    .index("by_key", ["key"])
+    .index("by_parcel", ["property.parcelId"]),
 
   // How each data source has done for a company, per field: the hit rate
   // on the Data sources panel and behind the "about $136" estimate is the

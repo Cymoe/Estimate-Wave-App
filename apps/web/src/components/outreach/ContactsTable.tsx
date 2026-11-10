@@ -193,6 +193,38 @@ const WIDTH: Record<'name' | ColumnKey, number> = {
   type: 9,
   signals: 14,
 };
+/** How many owners are drawn at first, and how many more each time the end comes into view. */
+export const DRAW_STEP = 200;
+
+/**
+ * A long list drawn a page at a time, so thousands of owners don't all go on
+ * screen at once (slow on a tablet): more as the bottom nears, or from the
+ * Show more button where the browser can't tell.
+ */
+function useDrawn<T>(rows: T[]) {
+  const [count, setCount] = useState(DRAW_STEP);
+  const end = useRef<HTMLDivElement>(null);
+  const more = rows.length > count;
+  useEffect(() => {
+    const el = end.current;
+    if (!more || !el || typeof IntersectionObserver === 'undefined') return;
+    const seen = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) setCount((n) => n + DRAW_STEP);
+    }, { rootMargin: '600px 0px' });
+    seen.observe(el);
+    return () => seen.disconnect();
+  }, [more, count]);
+  const left = rows.length - count;
+  const tail = more ? (
+    <div ref={end} className="py-3 text-center">
+      <button type="button" onClick={() => setCount((n) => n + DRAW_STEP)} className="text-sm text-[#7fb0e0] hover:text-white" data-testid="draw-more">
+        Show {Math.min(left, DRAW_STEP).toLocaleString('en-US')} more of {left.toLocaleString('en-US')}
+      </button>
+    </div>
+  ) : null;
+  return { drawn: more ? rows.slice(0, count) : rows, tail };
+}
+
 /** The checkbox and the name stay put while the roll columns scroll under them. */
 const pinned = 'sticky bg-[#121212] group-hover:bg-[#1A1A1A]';
 
@@ -221,6 +253,7 @@ export const ContactsTable: React.FC<{
   below?: number;
 }> = ({ rows, coverage, onOpen, onRetry, sort = 'list', onSort, sortLabel, below = 0 }) => {
   const lit = useJustFilled(rows);
+  const { drawn, tail } = useDrawn(rows);
   const glow = (id: string, f: OutreachField) => (lit.has(`${id}:${f}`) ? ' cell-filled' : '');
   const tableWidth = WIDTH.name + COLUMN_KEYS.reduce((sum, k) => sum + WIDTH[k], 0);
   const [atEnd, setAtEnd] = useState(false);
@@ -296,7 +329,7 @@ export const ContactsTable: React.FC<{
         <table className="text-sm table-fixed" style={tableStyle} aria-label="Contacts">
           {cols}
           <tbody className="divide-y divide-[#333333]">
-            {rows.map((r) => {
+            {drawn.map((r) => {
               const phone = r.phones[0];
               const email = r.emails[0];
               return (
@@ -393,6 +426,7 @@ export const ContactsTable: React.FC<{
           </tbody>
         </table>
       </div>
+      {tail}
       {/* More columns wait to the right: a fade says so until the end is reached. */}
       {!atEnd && <div aria-hidden className="table-fade pointer-events-none absolute inset-y-px right-px w-8" data-testid="more-columns" />}
     </div>
@@ -424,6 +458,7 @@ export const ContactCards: React.FC<{
 }> = ({ rows, onOpen, onStatus, onRetry, onLead }) => {
   const [saving, setSaving] = useState<string | null>(null);
   const lit = useJustFilled(rows);
+  const { drawn, tail } = useDrawn(rows);
   const skip = async (row: OutreachContact) => {
     setSaving(row.id);
     try {
@@ -438,102 +473,105 @@ export const ContactCards: React.FC<{
   const big = 'flex-1 inline-flex items-center justify-center gap-2 min-h-[44px] text-sm font-medium';
   const square = 'w-11 h-11 shrink-0 inline-flex items-center justify-center border border-[#333333] text-gray-200 hover:bg-[#2A2A2A]';
   return (
-    <ul className="space-y-2" data-testid="contact-cards">
-      {rows.map((r) => {
-        const call = r.phones.find(callOk);
-        const text = r.phones.find((p) => callOk(p) && p.type === 'mobile');
-        const email = r.emails.find((e) => e.nameMatch !== false) ?? r.emails[0];
-        const signal = r.signals[0];
-        return (
-          <li key={r.id} className={`relative bg-[#121212] border border-[#333333]${['person', 'phone', 'email'].some((f) => lit.has(`${r.id}:${f}`)) ? ' cell-filled' : ''}`} data-testid="contact-card">
-            {!r.leadId && (
-              <button
-                type="button"
-                onClick={() => void skip(r)}
-                disabled={saving === r.id}
-                aria-pressed={r.status === 'skip'}
-                className={`absolute top-1 right-1 z-10 px-3 min-h-[40px] text-xs disabled:opacity-50 ${r.status === 'skip' ? 'text-gray-300' : 'text-gray-500 hover:text-white'}`}
-              >
-                {r.status === 'skip' ? 'Skipped' : 'Skip'}
-              </button>
-            )}
-            <button type="button" onClick={() => onOpen(r)} className="block w-full text-left pl-4 pr-20 pt-3 pb-2">
-              <span className={`block text-[15px] font-medium ${r.status === 'skip' ? 'text-gray-500 line-through' : 'text-white'}`}>{r.name}</span>
-              <span className="block text-xs text-gray-500">
-                {r.properties > 1 ? `${r.properties} properties · ${shortMoney(r.totalValueCents)}` : r.property?.valueCents ? shortMoney(r.property.valueCents) : (r.property?.address ?? r.company ?? '')}
-                {r.related?.length ? ` · +${r.related.length} related` : ''}
-              </span>
-              <Known row={r} className="mt-0.5 text-xs" />
-              {signal && (
-                <span className="mt-1 inline-flex items-center gap-1 text-xs text-amber-300">
-                  <AlertTriangle className="w-3.5 h-3.5" /> {signal.fresh ? <span className="px-1 text-[10px] font-medium uppercase tracking-wide text-[#121212] bg-amber-300">New</span> : null} {SIGNAL_LABEL[signal.kind]} {monthYear(signal.date)}
-                </span>
+    <>
+      <ul className="space-y-2" data-testid="contact-cards">
+        {drawn.map((r) => {
+          const call = r.phones.find(callOk);
+          const text = r.phones.find((p) => callOk(p) && p.type === 'mobile');
+          const email = r.emails.find((e) => e.nameMatch !== false) ?? r.emails[0];
+          const signal = r.signals[0];
+          return (
+            <li key={r.id} className={`relative bg-[#121212] border border-[#333333]${['person', 'phone', 'email'].some((f) => lit.has(`${r.id}:${f}`)) ? ' cell-filled' : ''}`} data-testid="contact-card">
+              {!r.leadId && (
+                <button
+                  type="button"
+                  onClick={() => void skip(r)}
+                  disabled={saving === r.id}
+                  aria-pressed={r.status === 'skip'}
+                  className={`absolute top-1 right-1 z-10 px-3 min-h-[40px] text-xs disabled:opacity-50 ${r.status === 'skip' ? 'text-gray-300' : 'text-gray-500 hover:text-white'}`}
+                >
+                  {r.status === 'skip' ? 'Skipped' : 'Skip'}
+                </button>
               )}
-              {r.company && (
-                <span className="block mt-2 text-sm">
-                  {r.person ? (
-                    <>
-                      <span className="text-gray-200">{r.person.name}</span>
-                      {r.person.title ? <span className="text-gray-500"> · {r.person.title}</span> : null}
-                    </>
-                  ) : (
-                    r.enrichment.person.status === 'running' ? (
-                      <Live cell={r.enrichment.person} />
+              <button type="button" onClick={() => onOpen(r)} className="block w-full text-left pl-4 pr-20 pt-3 pb-2">
+                <span className={`block text-[15px] font-medium ${r.status === 'skip' ? 'text-gray-500 line-through' : 'text-white'}`}>{r.name}</span>
+                <span className="block text-xs text-gray-500">
+                  {r.properties > 1 ? `${r.properties} properties · ${shortMoney(r.totalValueCents)}` : r.property?.valueCents ? shortMoney(r.property.valueCents) : (r.property?.address ?? r.company ?? '')}
+                  {r.related?.length ? ` · +${r.related.length} related` : ''}
+                </span>
+                <Known row={r} className="mt-0.5 text-xs" />
+                {signal && (
+                  <span className="mt-1 inline-flex items-center gap-1 text-xs text-amber-300">
+                    <AlertTriangle className="w-3.5 h-3.5" /> {signal.fresh ? <span className="px-1 text-[10px] font-medium uppercase tracking-wide text-[#121212] bg-amber-300">New</span> : null} {SIGNAL_LABEL[signal.kind]} {monthYear(signal.date)}
+                  </span>
+                )}
+                {r.company && (
+                  <span className="block mt-2 text-sm">
+                    {r.person ? (
+                      <>
+                        <span className="text-gray-200">{r.person.name}</span>
+                        {r.person.title ? <span className="text-gray-500"> · {r.person.title}</span> : null}
+                      </>
                     ) : (
-                      <span className="text-gray-500">Decision maker: {r.enrichment.person.status === 'none' ? 'none found' : 'not looked up'}</span>
-                    )
+                      r.enrichment.person.status === 'running' ? (
+                        <Live cell={r.enrichment.person} />
+                      ) : (
+                        <span className="text-gray-500">Decision maker: {r.enrichment.person.status === 'none' ? 'none found' : 'not looked up'}</span>
+                      )
+                    )}
+                  </span>
+                )}
+                <span className="block mt-1 text-sm">
+                  {r.phones[0] ? (
+                    <>
+                      <span className={callOk(r.phones[0]) ? 'text-white' : 'text-gray-400'}>{phoneText((call ?? r.phones[0]).number)}</span> <PhoneBadges p={call ?? r.phones[0]} />
+                    </>
+                  ) : r.enrichment.phone.status === 'failed' ? null : r.enrichment.phone.status === 'running' ? (
+                    <Live cell={r.enrichment.phone} />
+                  ) : (
+                    <span className="text-gray-500">Phone: {r.enrichment.phone.status === 'none' ? 'none found' : 'not looked up'}</span>
                   )}
                 </span>
-              )}
-              <span className="block mt-1 text-sm">
-                {r.phones[0] ? (
-                  <>
-                    <span className={callOk(r.phones[0]) ? 'text-white' : 'text-gray-400'}>{phoneText((call ?? r.phones[0]).number)}</span> <PhoneBadges p={call ?? r.phones[0]} />
-                  </>
-                ) : r.enrichment.phone.status === 'failed' ? null : r.enrichment.phone.status === 'running' ? (
-                  <Live cell={r.enrichment.phone} />
-                ) : (
-                  <span className="text-gray-500">Phone: {r.enrichment.phone.status === 'none' ? 'none found' : 'not looked up'}</span>
-                )}
-              </span>
-            </button>
-            {!r.phones[0] && r.enrichment.phone.status === 'failed' && (
-              <div className="px-4 pb-2 text-sm">
-                <Empty cell={r.enrichment.phone} onRetry={() => onRetry(r, 'phone')} />
-              </div>
-            )}
-            <div className="flex gap-2 px-4 pb-3" data-testid="card-actions">
-              {call && (
-                <a href={`tel:${call.number}`} className={`${big} bg-[#336699] hover:bg-[#2a5580] text-white`} data-testid="card-call">
-                  <Phone className="w-4 h-4" /> Call
-                </a>
-              )}
-              {text && (
-                <a href={`sms:${text.number}`} aria-label="Text" title="Text" className={square}>
-                  <MessageSquare className="w-4 h-4" />
-                </a>
-              )}
-              {email && (
-                <a href={`mailto:${email.email}`} aria-label="Email" title="Email" className={square}>
-                  <Mail className="w-4 h-4" />
-                </a>
-              )}
-              <button
-                type="button"
-                onClick={() => onLead(r)}
-                disabled={saving === r.id}
-                className={`${call ? 'shrink-0 px-3' : 'flex-1'} inline-flex items-center justify-center gap-1.5 min-h-[44px] text-sm border disabled:opacity-50 ${
-                  r.leadId ? 'text-[#7fb0e0] border-[#336699]/50 bg-[#336699]/15' : 'text-gray-200 border-[#333333] hover:bg-[#2A2A2A]'
-                }`}
-                data-testid="to-leads"
-              >
-                {r.leadId ? (r.leadStage ? (LEAD_STAGE[r.leadStage] ?? 'In Leads') : 'In Leads') : 'To Leads'} <ArrowRight className="w-4 h-4" />
               </button>
-            </div>
-          </li>
-        );
-      })}
-    </ul>
+              {!r.phones[0] && r.enrichment.phone.status === 'failed' && (
+                <div className="px-4 pb-2 text-sm">
+                  <Empty cell={r.enrichment.phone} onRetry={() => onRetry(r, 'phone')} />
+                </div>
+              )}
+              <div className="flex gap-2 px-4 pb-3" data-testid="card-actions">
+                {call && (
+                  <a href={`tel:${call.number}`} className={`${big} bg-[#336699] hover:bg-[#2a5580] text-white`} data-testid="card-call">
+                    <Phone className="w-4 h-4" /> Call
+                  </a>
+                )}
+                {text && (
+                  <a href={`sms:${text.number}`} aria-label="Text" title="Text" className={square}>
+                    <MessageSquare className="w-4 h-4" />
+                  </a>
+                )}
+                {email && (
+                  <a href={`mailto:${email.email}`} aria-label="Email" title="Email" className={square}>
+                    <Mail className="w-4 h-4" />
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onLead(r)}
+                  disabled={saving === r.id}
+                  className={`${call ? 'shrink-0 px-3' : 'flex-1'} inline-flex items-center justify-center gap-1.5 min-h-[44px] text-sm border disabled:opacity-50 ${
+                    r.leadId ? 'text-[#7fb0e0] border-[#336699]/50 bg-[#336699]/15' : 'text-gray-200 border-[#333333] hover:bg-[#2A2A2A]'
+                  }`}
+                  data-testid="to-leads"
+                >
+                  {r.leadId ? (r.leadStage ? (LEAD_STAGE[r.leadStage] ?? 'In Leads') : 'In Leads') : 'To Leads'} <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      {tail}
+    </>
   );
 };
 

@@ -6,6 +6,7 @@ import { actAs } from "./lib/actor";
 import { findTool } from "./lib/mcpTools";
 import { addressKey, looseKey } from "./lib/parcels";
 import { isSampleNumber, sampleFor } from "./lib/outreachSample";
+import { syncContactSignals } from "./lib/contactSignals";
 import { AddressCounter, OccupantGrouper, OwnerGrouper, careOf, definitionFromArgs, defaultTitle, designersOn, displayName, dollarsIn, facetsOf, familyKey, groupOwners, guessDefinition, listOrder, mailKey, matches, occupantsOn, ownerKey, parcelsIn, sameParty, shortMoney, tradesForSignal, underFloor, why, withSignal, type Condensed, type OwnerRow } from "./lib/outreach";
 import { applyEmailCheck, checkEmails, checkPhones, checkPhonesWith, cobaltSos, enformion, expectedNames, guarded, hunter, leadMagic, leadMagicMobile, lineFrom, lineOwner, samePerson, scrubPhones, standsAlone, tracerfyDnc, trestleRealContact, twilioLookup, vendors, waterfall, zeroBounce, type TraceInput } from "./lib/skipTrace";
 import { GIVE_UP_ERROR, SAMPLE_LEFT_OUT, UNPAID_ERROR } from "./outreach";
@@ -1343,9 +1344,21 @@ describe("a company's lists", () => {
       await ctx.db.insert("signals", { ...base, kind: "code_violation", date: "2026-08-01", sourceId: "code:1", importedAt: new Date(Date.now() - 6 * day).toISOString() });
       await ctx.db.insert("signals", { ...base, kind: "stalled_permit", date: "2026-10-30", sourceId: "permit:2", importedAt: new Date(Date.now() - 2 * day).toISOString() });
     });
+    // Kept on the owner: none yet (they came in after it was added), until its home's records are synced.
+    expect((await read()).find((r) => r.id === oak.id)!.signals).toEqual([]);
+    await t.run(async (ctx) => syncContactSignals(ctx, [parcelId]));
     const signals = (await read()).find((r) => r.id === oak.id)!.signals;
     expect(signals.find((x) => x.kind === "code_violation")!.fresh).toBeUndefined();
     expect(signals.find((x) => x.kind === "stalled_permit")!.fresh).toBe(true);
+    // An owner saved before records were kept on owners is looked up until the backfill gives it them.
+    await t.run(async (ctx) => ctx.db.patch(oak.id as Id<"outreachContacts">, { signals: undefined }));
+    expect((await read()).find((r) => r.id === oak.id)!.signals.map((x) => x.kind).sort()).toEqual(["code_violation", "stalled_permit"]);
+    expect(await t.mutation(internal.outreach.backfillContactSignals, {})).toMatchObject({ done: true });
+    expect((await t.run(async (ctx) => ctx.db.get(oak.id as Id<"outreachContacts">)))!.signals!.map((x) => x.kind).sort()).toEqual(["code_violation", "stalled_permit"]);
+    // A record coming in through the sync reaches the owner by itself.
+    await t.mutation(internal.signals.upsert, { rows: [{ kind: "demolition", detail: "Demolition order", date: "2026-11-02", sourceId: "demo:9", address: "12 MIDKIFF RD" }] });
+    const after = (await t.run(async (ctx) => ctx.db.get(oak.id as Id<"outreachContacts">)))!.signals!;
+    expect(after.map((x) => x.kind)).toContain("demolition");
   });
 
   test("the watchdog fails a lookup that never wrote back, free and with Retry; a newer request on the field is left to its own", async () => {
